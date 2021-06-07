@@ -1,0 +1,4 @@
+/home/rodrigo/allrod5/monodreams/MonoDreams/obj/Debug/netcoreapp3.1/MonoDreams.csprojAssemblyReference.cache
+/home/rodrigo/allrod5/monodreams/MonoDreams/obj/Debug/netcoreapp3.1/MonoDreams.AssemblyInfoInputs.cache
+/home/rodrigo/allrod5/monodreams/MonoDreams/obj/Debug/netcoreapp3.1/MonoDreams.AssemblyInfo.cs
+/home/rodrigo/allrod5/monodreams/MonoDreams/obj/Debug/netcoreapp3.1/MonoDreams.csproj.CoreCompileInputs.cache
