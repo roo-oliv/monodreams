@@ -13,17 +13,19 @@ namespace MonoDreams.System
         public VelocitySystem(World world, IParallelRunner runner)
             : base(world.GetEntities().With<Velocity>().With<Position>().AsSet(), runner)
         { }
-
+        
         protected override void Update(GameState state, in Entity entity)
         {
-            ref Velocity velocity = ref entity.Get<Velocity>();
-            ref Position position = ref entity.Get<Position>();
-
-            Vector2 offset = velocity.Value * state.Time;
-            Console.WriteLine(offset);
-
-            position.Value.X += (int)offset.X;
-            position.Value.Y += (int)offset.Y;
+            ref var velocity = ref entity.Get<Velocity>();
+            ref var position = ref entity.Get<Position>();
+        
+            var (realXOffset, realYOffset) = velocity.Value * state.Time + position.Reminder;
+            var (discreteXOffset, discreteYOffset) = ((int)realXOffset, (int)realYOffset);
+        
+            position.Value.X += discreteXOffset;
+            position.Value.Y += discreteYOffset;
+            position.Reminder.X = realXOffset - discreteXOffset;
+            position.Reminder.Y = realYOffset - discreteYOffset;
         }
     }
 }

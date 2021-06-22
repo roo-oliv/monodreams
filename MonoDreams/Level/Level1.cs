@@ -19,16 +19,16 @@ namespace MonoDreams.Level
 
         public static void CreatePlayer(World world)
         {
-            Entity player = world.CreateEntity();
+            var player = world.CreateEntity();
             player.Set(new PlayerInput());
             player.Set(new DynamicBody());
-            player.Set(new Velocity{ Value = new Vector2(0, 0)});
-            player.Set(new Position{ Value = new Point(1000, 1000)});
-            player.Set<Solid>(default);
+            player.Set(new Velocity{ Value = default });
+            player.Set(new Position{ Value = new Point(1000, 1400), Reminder = default });
+            //player.Set<Solid>(default);
             player.Set(new DrawInfo
             {
                 Color = Color.White,
-                Destination = new Rectangle(0, 550, 90, 120)
+                Destination = new Rectangle(0, 0, 90, 120)
             });
         }
 
