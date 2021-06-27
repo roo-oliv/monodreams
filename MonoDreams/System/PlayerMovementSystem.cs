@@ -1,19 +1,16 @@
-using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.State;
-using Nez;
-using Entity = DefaultEcs.Entity;
 
 namespace MonoDreams.System
 {
     public class PlayerMovementSystem : AEntitySetSystem<GameState>
     {
-        private int WalkSpeed = 900;
-        
+        private const int WalkSpeed = 900;
+        private const int JumpSpeed = 900;
+
         public PlayerMovementSystem(World world, IParallelRunner runner)
             : base(world.GetEntities().With<Velocity>().With<PlayerInput>().AsSet(), runner)
         {
@@ -22,8 +19,9 @@ namespace MonoDreams.System
 
         protected override void Update(GameState state, in Entity entity)
         {
-            ref Velocity velocity = ref entity.Get<Velocity>();
-            ref PlayerInput playerInput = ref entity.Get<PlayerInput>();
+            ref var velocity = ref entity.Get<Velocity>();
+            ref var dynamicBody = ref entity.Get<DynamicBody>();
+            ref var playerInput = ref entity.Get<PlayerInput>();
             if (playerInput.Left.JustActivated)
             {
                 velocity.Value.X -= WalkSpeed;
@@ -39,6 +37,11 @@ namespace MonoDreams.System
             if (playerInput.Right.JustReleased)
             {
                 velocity.Value.X -= WalkSpeed;
+            }
+            if (dynamicBody.IsRiding && playerInput.Jump.JustReleased)
+            {
+                velocity.Value.Y -= JumpSpeed;
+                dynamicBody.IsRiding = false;
             }
         }
     }

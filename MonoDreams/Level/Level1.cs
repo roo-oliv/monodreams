@@ -22,8 +22,8 @@ namespace MonoDreams.Level
             var player = world.CreateEntity();
             player.Set(new PlayerInput());
             player.Set(new DynamicBody());
-            player.Set(new Velocity{ Value = default });
-            player.Set(new Position{ Value = new Point(1000, 1400), Reminder = default });
+            player.Set(new Velocity{ Value = new Vector2(0, 300) });
+            player.Set(new Position{ Value = new Point(1000, 1000), Reminder = default });
             //player.Set<Solid>(default);
             player.Set(new DrawInfo
             {
@@ -34,9 +34,14 @@ namespace MonoDreams.Level
 
         public static void Load(World world)
         {
-            for (int i = 0; i < 21; ++i)
+            for (var i = 0; i < 10; ++i)
             {
                 CreateBrick(world, 1 + (i * 181), 1600);
+            }
+
+            for (var i = 0; i < 2; ++i)
+            {
+                CreateBrick(world, 1700, 1510 - (i * 90));
             }
         }
     }

@@ -9,7 +9,7 @@ namespace MonoDreams.System
 {
     public class DynamicBodySystem : AEntitySetSystem<GameState>
     {
-        private const int Gravity = 10;
+        private const int Gravity = 400;
 
         public DynamicBodySystem(World world, IParallelRunner runner)
             : base(world.GetEntities().With<DynamicBody>().AsSet(), runner)

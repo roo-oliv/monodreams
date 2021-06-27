@@ -17,6 +17,7 @@ namespace MonoDreams.System
         {
             playerInput.Left.Update(state.KeyboardState.IsKeyDown(Keys.Left));
             playerInput.Right.Update(state.KeyboardState.IsKeyDown(Keys.Right));
+            playerInput.Jump.Update(state.KeyboardState.IsKeyDown(Keys.Space));
         }
     }
 }

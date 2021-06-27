@@ -1,4 +1,3 @@
-using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
@@ -19,13 +18,11 @@ namespace MonoDreams.System
             ref var velocity = ref entity.Get<Velocity>();
             ref var position = ref entity.Get<Position>();
         
-            var (realXOffset, realYOffset) = velocity.Value * state.Time + position.Reminder;
-            var (discreteXOffset, discreteYOffset) = ((int)realXOffset, (int)realYOffset);
+            var realOffset = velocity.Value * state.Time + position.Reminder;
+            var discreteOffset = new Vector2((int)realOffset.X, (int)realOffset.Y);
         
-            position.Value.X += discreteXOffset;
-            position.Value.Y += discreteYOffset;
-            position.Reminder.X = realXOffset - discreteXOffset;
-            position.Reminder.Y = realYOffset - discreteYOffset;
+            position.Value += discreteOffset.ToPoint();
+            position.Reminder = realOffset - discreteOffset;
         }
     }
 }

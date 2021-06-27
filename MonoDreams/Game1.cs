@@ -57,9 +57,9 @@ namespace MonoDreams
                 new PlayerInputSystem(_world),
                 new PlayerMovementSystem(_world, _runner),
                 new DynamicBodySystem(_world, _runner),
+                new CollisionDetectionSystem(_world),
+                new DynamicBodyCollisionResolutionSystem(_world),
                 new VelocitySystem(_world, _runner),
-                new CollisionSystem(_world),
-                new BallBoundSystem(_world),
                 new PositionSystem(_world, _runner),
                 new DrawSystem(_batch, _square, _world));
 
