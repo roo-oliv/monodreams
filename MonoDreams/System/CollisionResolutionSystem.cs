@@ -1,37 +1,48 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.System
 {
-    public class DynamicBodyCollisionResolutionSystem : AEntitySetSystem<GameState>
+    public class CollisionResolutionSystem : ISystem<GameState>
     {
-        private static int CompareCollidingEntities(Entity x, Entity y)
-        {
-            return x.Get<Collision>().ContactTime.CompareTo(y.Get<Collision>().ContactTime);
-        }
+        private readonly List<CollisionMessage> _collisions;
         
-        public DynamicBodyCollisionResolutionSystem(World world)
-            : base(world.GetEntities().With<Collision>().With<DynamicBody>().AsSet(), true)
+        public CollisionResolutionSystem(World world)
         {
+            world.Subscribe(this);
+            _collisions = new List<CollisionMessage>();
         }
 
-        protected override void Update(GameState state, ReadOnlySpan<Entity> entities)
+        [Subscribe]
+        private void On(in CollisionMessage message) => _collisions.Add(message);
+        
+        public bool IsEnabled { get; set; } = true;
+        
+        public void Dispose()
         {
-            var sortedEntities = entities.ToArray();
-            Array.Sort(sortedEntities, CompareCollidingEntities);
+            _collisions.Clear();
+        }
 
-            foreach (var entity in sortedEntities)
+        public void Update(GameState state)
+        {
+            if (_collisions.Count == 0)
             {
+                return;
+            }
+            
+            _collisions.Sort((l, r) => l.ContactTime.CompareTo(r.ContactTime));
+            foreach (var collision in _collisions)
+            {
+                var entity = collision.BaseEntity;
                 ref var velocity = ref entity.Get<Velocity>();
                 ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
                 var displacement = entity.Get<Velocity>().Value * state.Time;
-                ref var collision = ref entity.Get<Collision>();
                 ref var targetRect = ref collision.CollidingEntity.Get<DrawInfo>().Destination;
                 if (CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, displacement, targetRect,
                     out var contactPoint, out var contactNormal, out var contactTime))
@@ -44,8 +55,9 @@ namespace MonoDreams.System
                         dynamicBody.IsRiding = true;
                     }
                 }
-                entity.Remove<Collision>();
+                //entity.Remove<Collision>();
             }
+            _collisions.Clear();
         }
     }
 }

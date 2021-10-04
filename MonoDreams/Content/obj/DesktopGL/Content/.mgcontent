@@ -4,9 +4,11 @@
   <Platform>DesktopGL</Platform>
   <Config />
   <SourceFiles>
+    <File>/home/rodrigo/allrod5/monodreams/MonoDreams/Content/defaultFont.spritefont</File>
     <File>/home/rodrigo/allrod5/monodreams/MonoDreams/Content/square.png</File>
   </SourceFiles>
   <DestFiles>
+    <File xsi:nil="true" />
     <File xsi:nil="true" />
   </DestFiles>
 </SourceFileCollection>

@@ -22,25 +22,21 @@ namespace MonoDreams.System
             ref var velocity = ref entity.Get<Velocity>();
             ref var dynamicBody = ref entity.Get<DynamicBody>();
             ref var playerInput = ref entity.Get<PlayerInput>();
-            if (playerInput.Left.JustActivated)
+            if (playerInput.Left.Active)
             {
-                velocity.Value.X -= WalkSpeed;
+                velocity.Value.X = -WalkSpeed;
             }
-            if (playerInput.Left.JustReleased)
+            else if (playerInput.Right.Active)
             {
-                velocity.Value.X += WalkSpeed;
+                velocity.Value.X = WalkSpeed;
             }
-            if (playerInput.Right.JustActivated)
+            else
             {
-                velocity.Value.X += WalkSpeed;
+                velocity.Value.X = 0;
             }
-            if (playerInput.Right.JustReleased)
+            if (dynamicBody.IsRiding && playerInput.Jump.Active)
             {
-                velocity.Value.X -= WalkSpeed;
-            }
-            if (dynamicBody.IsRiding && playerInput.Jump.JustReleased)
-            {
-                velocity.Value.Y -= JumpSpeed;
+                velocity.Value.Y = -JumpSpeed;
                 dynamicBody.IsRiding = false;
             }
         }

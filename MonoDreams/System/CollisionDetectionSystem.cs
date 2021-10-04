@@ -4,18 +4,21 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.System
 {
     public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
     {
-        private readonly IEnumerable<Entity> targets;
+        private readonly IEnumerable<Entity> _targets;
+        private readonly World _world;
         
         public CollisionDetectionSystem(World world)
             : base(world.GetEntities().With<DynamicBody>().With<DrawInfo>().AsSet(), true)
         {
-            targets = world.GetEntities().With<Solid>().With<DrawInfo>().AsEnumerable();
+            _targets = world.GetEntities().With<Solid>().With<DrawInfo>().AsEnumerable();
+            _world = world;
         }
 
         protected override void Update(GameState state, ReadOnlySpan<Entity> entities)
@@ -24,7 +27,7 @@ namespace MonoDreams.System
             {
                 ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
                 var displacement = entity.Get<Velocity>().Value * state.Time;
-                foreach (var target in targets)
+                foreach (var target in _targets)
                 {
                     ref var targetRect = ref target.Get<DrawInfo>().Destination;
 
@@ -39,7 +42,8 @@ namespace MonoDreams.System
                         continue;
                     }
                     
-                    entity.Set(new Collision(target, contactPoint, contactNormal, contactTime));
+                    //entity.Set(new Collision(target, contactPoint, contactNormal, contactTime));
+                    _world.Publish(new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime));
                 } 
             }
         }

@@ -20,7 +20,8 @@ namespace MonoDreams.System
 
         protected override void PreUpdate(GameState state) => _batch.Begin();
 
-        protected override void Update(GameState state, ref DrawInfo component) => _batch.Draw(_square, component.Destination, component.Color);
+        protected override void Update(GameState state, ref DrawInfo component) =>
+            _batch.Draw(_square, component.Destination, component.Color);
 
         protected override void PostUpdate(GameState state) => _batch.End();
     }

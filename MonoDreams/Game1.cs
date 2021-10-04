@@ -21,6 +21,7 @@ namespace MonoDreams
         private readonly GraphicsDeviceManager _deviceManager;
         private readonly SpriteBatch _batch;
         private readonly Texture2D _square;
+        private readonly SpriteFont _font;
         private readonly World _world;
         private readonly DefaultParallelRunner _runner;
         private readonly ISystem<GameState> _system;
@@ -35,8 +36,8 @@ namespace MonoDreams
             IsFixedTimeStep = true;
             _deviceManager.GraphicsProfile = GraphicsProfile.HiDef;
             _deviceManager.IsFullScreen = false;
-            _deviceManager.PreferredBackBufferWidth = 800;
-            _deviceManager.PreferredBackBufferHeight = 600;
+            _deviceManager.PreferredBackBufferWidth = 1600;
+            _deviceManager.PreferredBackBufferHeight = 1200;
             _deviceManager.ApplyChanges();
             GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
             GraphicsDevice.BlendState = BlendState.AlphaBlend;
@@ -44,6 +45,7 @@ namespace MonoDreams
 
             _batch = new SpriteBatch(GraphicsDevice);
             _square = Content.Load<Texture2D>("square");
+            _font = Content.Load<SpriteFont>("defaultFont");
             // using (Stream stream = File.OpenRead(@"Content/square.png"))
             // {
             //     _square = Texture2D.FromStream(GraphicsDevice, stream);
@@ -58,10 +60,13 @@ namespace MonoDreams
                 new PlayerMovementSystem(_world, _runner),
                 new DynamicBodySystem(_world, _runner),
                 new CollisionDetectionSystem(_world),
-                new DynamicBodyCollisionResolutionSystem(_world),
+                new CollisionDrawSystem(_batch, _square, _font, _world),
+                //new DynamicBodyCollisionResolutionSystem(_world),  // TODO: Make this an event system to resolve collisions in order!
+                new CollisionResolutionSystem(_world),
                 new VelocitySystem(_world, _runner),
                 new PositionSystem(_world, _runner),
-                new DrawSystem(_batch, _square, _world));
+                new DrawSystem(_batch, _square, _world),
+                new HudSystem(_batch, _font, _world));
 
             Level1.CreatePlayer(_world);
         }
@@ -72,7 +77,7 @@ namespace MonoDreams
 
         protected override void Update(GameTime gameTime)
         {
-            GraphicsDevice.Clear(Color.Black);
+            GraphicsDevice.Clear(Color.DarkSlateGray);
             var state = new GameState((float) gameTime.ElapsedGameTime.TotalSeconds, Keyboard.GetState());
             _system.Update(state);
         }

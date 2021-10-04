@@ -13,6 +13,13 @@
 
 #---------------------------------- Content ---------------------------------#
 
+#begin defaultFont.spritefont
+/importer:FontDescriptionImporter
+/processor:LocalizedFontProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Compressed
+/build:defaultFont.spritefont
+
 #begin square.png
 /importer:TextureImporter
 /processor:TextureProcessor
