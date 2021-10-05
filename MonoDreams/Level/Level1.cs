@@ -23,7 +23,7 @@ namespace MonoDreams.Level
             player.Set(new PlayerInput());
             player.Set(new DynamicBody());
             player.Set(new Velocity{ Value = new Vector2(0, 300) });
-            player.Set(new Position{ Value = new Point(1000, 200), Reminder = default });
+            player.Set(new Position(1000, 200));
             //player.Set<Solid>(default);
             player.Set(new DrawInfo
             {

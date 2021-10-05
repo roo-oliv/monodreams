@@ -17,8 +17,8 @@ namespace MonoDreams.System
             ref readonly var position = ref entity.Get<Position>();
             ref var drawInfo = ref entity.Get<DrawInfo>();
 
-            drawInfo.Destination.X = position.Value.X;
-            drawInfo.Destination.Y = position.Value.Y;
+            drawInfo.Destination.X = position.DiscreteValue.X;
+            drawInfo.Destination.Y = position.DiscreteValue.Y;
         }
     }
 }

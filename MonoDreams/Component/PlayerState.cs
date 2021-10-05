@@ -2,6 +2,6 @@ namespace MonoDreams.Component
 {
     public struct PlayerState
     {
-        public bool IsSlaping;
+        public bool IsJumping;
     }
 }

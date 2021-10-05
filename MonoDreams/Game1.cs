@@ -58,12 +58,12 @@ namespace MonoDreams
                 new SceneSystem(_world),
                 new PlayerInputSystem(_world),
                 new PlayerMovementSystem(_world, _runner),
+                new GravitySystem(_world, _runner),
                 new DynamicBodySystem(_world, _runner),
                 new CollisionDetectionSystem(_world),
                 new CollisionDrawSystem(_batch, _square, _font, _world),
                 //new DynamicBodyCollisionResolutionSystem(_world),  // TODO: Make this an event system to resolve collisions in order!
                 new CollisionResolutionSystem(_world),
-                new VelocitySystem(_world, _runner),
                 new PositionSystem(_world, _runner),
                 new DrawSystem(_batch, _square, _world),
                 new HudSystem(_batch, _font, _world));

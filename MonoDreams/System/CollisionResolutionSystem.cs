@@ -40,20 +40,27 @@ namespace MonoDreams.System
             foreach (var collision in _collisions)
             {
                 var entity = collision.BaseEntity;
-                ref var velocity = ref entity.Get<Velocity>();
                 ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
-                var displacement = entity.Get<Velocity>().Value * state.Time;
+                ref var position = ref entity.Get<Position>();
+                var displacement = position.TrueValue - position.LastValue;
                 ref var targetRect = ref collision.CollidingEntity.Get<DrawInfo>().Destination;
-                if (CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, displacement, targetRect,
-                    out var contactPoint, out var contactNormal, out var contactTime))
+                if (!CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, displacement, targetRect,
+                    out var contactPoint, out var contactNormal, out var contactTime)) continue;
+                // TODO: Why we aren't colliding horizontally?
+                if (contactNormal.X != 0)
                 {
-                    var absVelocity = new Vector2(Math.Abs(velocity.Value.X), Math.Abs(velocity.Value.Y));
-                    velocity.Value += contactNormal * absVelocity * (1 - contactTime);
-                    ref var dynamicBody = ref entity.Get<DynamicBody>();
-                    if (contactNormal.Y > 0)
-                    {
-                        dynamicBody.IsRiding = true;
-                    }
+                    position.TrueValue.X = contactPoint.X - dynamicRect.Width / 2f;
+                }
+                if (contactNormal.Y != 0)
+                {
+                    position.TrueValue.Y = contactPoint.Y - dynamicRect.Height / 2f;
+                }
+
+                position.DiscreteValue = position.TrueValue.ToPoint();
+                ref var dynamicBody = ref entity.Get<DynamicBody>();
+                if (contactNormal.Y < 0)
+                {
+                    dynamicBody.IsRiding = true;
                 }
                 //entity.Remove<Collision>();
             }
