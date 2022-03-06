@@ -19,11 +19,13 @@ namespace MonoDreams.System
         {
             ref var dynamicBody = ref entity.Get<DynamicBody>();
             ref var position = ref entity.Get<Position>();
-            var currentPosition = position.TrueValue;
+            var currentPosition = position.CurrentValue;
             var newPosition = 2 * currentPosition - position.LastValue + dynamicBody.Acceleration * state.Time * state.Time;
-            position.DiscreteValue = newPosition.ToPoint();
-            position.TrueValue = newPosition;
-            position.LastValue = currentPosition;
+            position.NextValue = newPosition;
+            if (dynamicBody.IsJumping && position.NextValue.Y > position.CurrentValue.Y)
+            {
+                dynamicBody.IsJumping = false;
+            }
         }
     }
 }

@@ -18,11 +18,10 @@ namespace MonoDreams.System
             ref var velocity = ref entity.Get<Velocity>();
             ref var position = ref entity.Get<Position>();
         
-            var realOffset = velocity.Value * state.Time + position.TrueValue;
+            var realOffset = velocity.Value * state.Time + position.CurrentValue;
             var discreteOffset = new Vector2((int)realOffset.X, (int)realOffset.Y);
         
-            position.DiscreteValue += discreteOffset.ToPoint();
-            position.TrueValue = realOffset - discreteOffset;
+            position.CurrentValue = realOffset - discreteOffset;
         }
     }
 }

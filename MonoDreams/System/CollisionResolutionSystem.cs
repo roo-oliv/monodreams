@@ -42,21 +42,25 @@ namespace MonoDreams.System
                 var entity = collision.BaseEntity;
                 ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
                 ref var position = ref entity.Get<Position>();
-                var displacement = position.TrueValue - position.LastValue;
+                var displacement = position.NextValue - position.CurrentValue;
                 ref var targetRect = ref collision.CollidingEntity.Get<DrawInfo>().Destination;
                 if (!CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, displacement, targetRect,
                     out var contactPoint, out var contactNormal, out var contactTime)) continue;
-                // TODO: Why we aren't colliding horizontally?
                 if (contactNormal.X != 0)
                 {
-                    position.TrueValue.X = contactPoint.X - dynamicRect.Width / 2f;
+                    // position.ArtificialIncrement(contactPoint.X - dynamicRect.Width / 2f - position.CurrentValue.X, 0);
+                    // position.UpdateValue(new (contactPoint.X - dynamicRect.Width / 2f, position.CurrentValue.Y));
+                    position.NextValue.X = contactPoint.X - dynamicRect.Width / 2f;
+                    position.CurrentValue.X = position.NextValue.X;
                 }
                 if (contactNormal.Y != 0)
                 {
-                    position.TrueValue.Y = contactPoint.Y - dynamicRect.Height / 2f;
+                    // position.ArtificialIncrement(0, contactPoint.Y - dynamicRect.Height / 2f - position.CurrentValue.Y);
+                    // position.UpdateValue(new (position.CurrentValue.X, contactPoint.Y - dynamicRect.Height / 2f));
+                    position.NextValue.Y = contactPoint.Y - dynamicRect.Height / 2f;
+                    position.CurrentValue.Y = position.NextValue.Y;
                 }
 
-                position.DiscreteValue = position.TrueValue.ToPoint();
                 ref var dynamicBody = ref entity.Get<DynamicBody>();
                 if (contactNormal.Y < 0)
                 {

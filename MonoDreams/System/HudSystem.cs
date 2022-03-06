@@ -23,8 +23,11 @@ namespace MonoDreams.System
 
         protected override void Update(GameState state, in Entity entity)
         {
-            ref var velocity = ref entity.Get<Velocity>();
-            _batch.DrawString(_font, "velocity: " + velocity.Value, new Vector2(1500, 200), Color.White);
+            ref var position = ref entity.Get<Position>();
+            _batch.DrawString(_font, "Position.CurrentValue: " + position.CurrentValue, new Vector2(1500, 200), Color.White);
+            _batch.DrawString(_font, "Position.LastValue: " + position.LastValue, new Vector2(1500, 300), Color.White);
+            var velocity = (position.CurrentValue - position.LastValue) / state.Time;
+            _batch.DrawString(_font, "Velocity: " + velocity, new Vector2(1500, 400), Color.White);
         }
 
         protected override void PostUpdate(GameState state) => _batch.End();

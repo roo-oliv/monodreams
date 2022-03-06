@@ -56,10 +56,10 @@ namespace MonoDreams
             _runner = new DefaultParallelRunner(Environment.ProcessorCount);
             _system = new SequentialSystem<GameState>(
                 new SceneSystem(_world),
-                new PlayerInputSystem(_world),
-                new PlayerMovementSystem(_world, _runner),
                 new GravitySystem(_world, _runner),
                 new DynamicBodySystem(_world, _runner),
+                new PlayerInputSystem(_world),
+                new PlayerMovementSystem(_world, _runner),
                 new CollisionDetectionSystem(_world),
                 new CollisionDrawSystem(_batch, _square, _font, _world),
                 //new DynamicBodyCollisionResolutionSystem(_world),  // TODO: Make this an event system to resolve collisions in order!

@@ -14,11 +14,14 @@ namespace MonoDreams.System
 
         protected override void Update(GameState state, in Entity entity)
         {
-            ref readonly var position = ref entity.Get<Position>();
+            ref var position = ref entity.Get<Position>();
             ref var drawInfo = ref entity.Get<DrawInfo>();
 
-            drawInfo.Destination.X = position.DiscreteValue.X;
-            drawInfo.Destination.Y = position.DiscreteValue.Y;
+            drawInfo.Destination.X = (int)position.NextValue.X;
+            drawInfo.Destination.Y = (int)position.NextValue.Y;
+
+            position.LastValue = position.CurrentValue;
+            position.CurrentValue = position.NextValue;
         }
     }
 }
