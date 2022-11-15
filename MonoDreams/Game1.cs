@@ -68,7 +68,7 @@ namespace MonoDreams
                 new DrawSystem(_batch, _square, _world),
                 new HudSystem(_batch, _font, _world));
 
-            Level1.CreatePlayer(_world);
+            Level2.CreatePlayer(_world);
         }
 
         #endregion

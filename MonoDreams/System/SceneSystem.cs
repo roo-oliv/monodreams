@@ -20,7 +20,7 @@ namespace MonoDreams.System
         {
             _random = new Random();
             _world = world;
-            Level1.Load(_world);
+            Level2.Load(_world);
         }
 
         public bool IsEnabled { get; set; } = true;

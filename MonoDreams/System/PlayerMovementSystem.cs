@@ -1,11 +1,8 @@
-using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.State;
-using MonoGame.Extended;
 
 namespace MonoDreams.System
 {
@@ -14,8 +11,6 @@ namespace MonoDreams.System
         private const int JumpGravity = 4400;
         private const int JumpVelocity = -2100;
         private const int MaxWalkVelocity = 900;
-        private const int WalkAcceleration = 1;
-        private const int JumpAcceleration = 15000;
 
         public PlayerMovementSystem(World world, IParallelRunner runner)
             : base(world.GetEntities().With<DynamicBody>().With<PlayerInput>().AsSet(), runner)
