@@ -25,6 +25,7 @@ namespace MonoDreams
         private readonly World _world;
         private readonly DefaultParallelRunner _runner;
         private readonly ISystem<GameState> _system;
+        private GameState LastState;
 
         #endregion
 
@@ -56,10 +57,9 @@ namespace MonoDreams
             _runner = new DefaultParallelRunner(Environment.ProcessorCount);
             _system = new SequentialSystem<GameState>(
                 new SceneSystem(_world),
-                new GravitySystem(_world, _runner),
-                new DynamicBodySystem(_world, _runner),
                 new PlayerInputSystem(_world),
                 new PlayerMovementSystem(_world, _runner),
+                new DynamicBodySystem(_world, _runner),
                 new CollisionDetectionSystem(_world),
                 new CollisionDrawSystem(_batch, _square, _font, _world),
                 //new DynamicBodyCollisionResolutionSystem(_world),  // TODO: Make this an event system to resolve collisions in order!
@@ -78,8 +78,10 @@ namespace MonoDreams
         protected override void Update(GameTime gameTime)
         {
             GraphicsDevice.Clear(Color.DarkSlateGray);
-            var state = new GameState((float) gameTime.ElapsedGameTime.TotalSeconds, Keyboard.GetState());
+            var time = (float) gameTime.ElapsedGameTime.TotalSeconds;
+            var state = new GameState(time, LastState?.Time ?? time, Keyboard.GetState());
             _system.Update(state);
+            LastState = state;
         }
 
         protected override void Draw(GameTime gameTime)

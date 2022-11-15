@@ -6,11 +6,13 @@ namespace MonoDreams.State
     public class GameState
     {
         public float Time;
+        public float LastTime;
         public KeyboardState KeyboardState;
 
-        public GameState(float time, KeyboardState keyboardState)
+        public GameState(float time, float lastTime, KeyboardState keyboardState)
         {
             Time = time;
+            LastTime = lastTime;
             KeyboardState = keyboardState;
         }
     }

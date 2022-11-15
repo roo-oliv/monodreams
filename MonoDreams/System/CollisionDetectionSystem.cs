@@ -26,8 +26,8 @@ namespace MonoDreams.System
             foreach (var entity in entities)
             {
                 ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
-                ref var position = ref entity.Get<Position>();
-                var displacement = position.NextValue - position.CurrentValue;
+                ref var body = ref entity.Get<DynamicBody>();
+                var displacement = body.NextPosition - body.CurrentPosition;
                 foreach (var target in _targets)
                 {
                     ref var targetRect = ref target.Get<DrawInfo>().Destination;

@@ -20,7 +20,7 @@ namespace MonoDreams.System
         protected override void Update(GameState state, in Entity entity)
         {
             var dynamicBody = entity.Get<DynamicBody>();
-            entity.Get<DynamicBody>().Acceleration.Y = dynamicBody.IsJumping ? JumpGravityAcceleration : GravityAcceleration;
+            // entity.Get<DynamicBody>().Acceleration.Y = dynamicBody.IsJumping ? JumpGravityAcceleration : GravityAcceleration;
         }
     }
 }
