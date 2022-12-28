@@ -140,6 +140,28 @@ monodroid*.msi
 *.cachefile
 *.dll
 
+MonoDreams/[Tt]humbs.db
+MonoDreams/[Tt]humbs.db*.DS_Store
+
+MonoDreams/ipch/
+MonoDreams/obj/
+MonoDreams/[Bb]in
+MonoDreams/[Dd]ebug*/
+MonoDreams/[Rr]elease*/
+MonoDreams/Ankh.NoLoad
+
+MonoDreams/_ReSharper*/
+MonoDreams/[Tt]est[Rr]esult*
+
+MonoDreams/[Bb]uild/
+
+#monodroid private beta
+MonoDreams/monodroid*.msi
+MonoDreams//CompiledContent/Android/IgnoreMe.dll
+MonoDreams//CompiledContent/OSX/IgnoreMe.dll
+MonoDreams//CompiledContent/Windows8/IgnoreMe.dll
+MonoDreams//CompiledContent/Windows/IgnoreMe.dll
+
 # Manual additions
 /Content/bin/
 /Content/obj/
