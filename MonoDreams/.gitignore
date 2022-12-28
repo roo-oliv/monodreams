@@ -145,6 +145,7 @@ MonoDreams/[Tt]humbs.db*.DS_Store
 
 MonoDreams/ipch/
 MonoDreams/obj/
+MonoDreams/bin/
 MonoDreams/[Bb]in
 MonoDreams/[Dd]ebug*/
 MonoDreams/[Rr]elease*/
