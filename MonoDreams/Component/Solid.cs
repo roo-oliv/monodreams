@@ -1,7 +1,6 @@
-namespace MonoDreams.Component
+namespace MonoDreams.Component;
+
+public struct Solid
 {
-    public struct Solid
-    {
         
-    }
 }

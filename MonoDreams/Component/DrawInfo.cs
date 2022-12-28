@@ -1,10 +1,9 @@
 using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Component
+namespace MonoDreams.Component;
+
+public struct DrawInfo
 {
-    public struct DrawInfo
-    {
-        public Rectangle Destination;
-        public Color Color;
-    }
+    public Rectangle Destination;
+    public Color Color;
 }

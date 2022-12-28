@@ -4,20 +4,19 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.State;
 
-namespace MonoDreams.System
+namespace MonoDreams.System;
+
+public class PlayerInputSystem : AComponentSystem<GameState, PlayerInput>
 {
-    public class PlayerInputSystem : AComponentSystem<GameState, PlayerInput>
+
+    public PlayerInputSystem(World world) : base(world)
     {
+    }
 
-        public PlayerInputSystem(World world) : base(world)
-        {
-        }
-
-        protected override void Update(GameState state, ref PlayerInput playerInput)
-        {
-            playerInput.Left.Update(state.KeyboardState.IsKeyDown(Keys.Left));
-            playerInput.Right.Update(state.KeyboardState.IsKeyDown(Keys.Right));
-            playerInput.Jump.Update(state.KeyboardState.IsKeyDown(Keys.Space));
-        }
+    protected override void Update(GameState state, ref PlayerInput playerInput)
+    {
+        playerInput.Left.Update(state.KeyboardState.IsKeyDown(Keys.Left));
+        playerInput.Right.Update(state.KeyboardState.IsKeyDown(Keys.Right));
+        playerInput.Jump.Update(state.KeyboardState.IsKeyDown(Keys.Space));
     }
 }

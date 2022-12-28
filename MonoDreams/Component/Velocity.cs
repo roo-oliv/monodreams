@@ -1,9 +1,8 @@
 using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Component
+namespace MonoDreams.Component;
+
+public struct Velocity
 {
-    public struct Velocity
-    {
-        public Vector2 Value;
-    }
+    public Vector2 Value;
 }

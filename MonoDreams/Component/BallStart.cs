@@ -1,7 +1,6 @@
-namespace MonoDreams.Component
+namespace MonoDreams.Component;
+
+public struct BallStart
 {
-    public struct BallStart
-    {
-        public int OffSet;
-    }
+    public int OffSet;
 }

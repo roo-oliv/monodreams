@@ -1,7 +1,6 @@
-namespace MonoDreams.Component
+namespace MonoDreams.Component;
+
+public struct Ball
 {
-    public struct Ball
-    {
         
-    }
 }
