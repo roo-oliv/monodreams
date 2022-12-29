@@ -2,30 +2,16 @@ using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Component;
 
-public struct Position
+public class Position
 {
-    public Vector2 CurrentValue;
-    public Vector2 NextValue;
-    public Vector2 LastValue;
+    public Vector2 Current;
+    public Vector2 Next;
+    public Vector2 Last;
 
-    public Position(float x, float y)
+    public Position(Vector2 startingPosition)
     {
-        CurrentValue = new Vector2(x, y);
-        NextValue = new Vector2(x, y);
-        LastValue = new Vector2(x, y);
-    }
-
-    public void UpdateValue(Vector2 newPosition)
-    {
-        LastValue = CurrentValue;
-        CurrentValue = newPosition;
-    }
-
-    public void ArtificialIncrement(float x, float y)
-    {
-        LastValue.X += x;
-        LastValue.Y += y;
-        CurrentValue.X += x;
-        CurrentValue.Y += y;
+        Current = startingPosition;
+        Next = startingPosition;
+        Last = startingPosition;
     }
 }
