@@ -36,8 +36,8 @@ public class Game1 : Game
 
     private void InitializeResolutionIndependence(int realScreenWidth, int realScreenHeight)
     {
-        _resolutionIndependence.VirtualWidth = 1366;
-        _resolutionIndependence.VirtualHeight = 768;
+        _resolutionIndependence.VirtualWidth = 720;
+        _resolutionIndependence.VirtualHeight = 480;
         _resolutionIndependence.ScreenWidth = realScreenWidth;
         _resolutionIndependence.ScreenHeight = realScreenHeight;
         _resolutionIndependence.Initialize();
@@ -80,9 +80,9 @@ public class Game1 : Game
             new CollisionResolutionSystem(_world),
             new PositionSystem(_world, _runner),
             new DrawInfoPositionSystem(_world, _runner),
-            new CameraBoundaryPositionSystem(_world, _runner),
+            new CameraSystem(_camera, _world, _runner),
             new DrawSystem(_resolutionIndependence, _camera, _batch, _square, _world),
-            new HudSystem(_batch, _font, _world));
+            new HudSystem(_resolutionIndependence, _camera, _batch, _font, _world));
 
         Level2.CreatePlayer(_world);
     }

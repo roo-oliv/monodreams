@@ -15,9 +15,9 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
     private readonly World _world;
         
     public CollisionDetectionSystem(World world)
-        : base(world.GetEntities().With<DynamicBody>().With<Position>().AsSet(), true)
+        : base(world.GetEntities().With<DynamicBody>().AsSet(), true)
     {
-        _targets = world.GetEntities().With<Solid>().With<DrawInfo>().AsEnumerable();
+        _targets = world.GetEntities().With<Solid>().AsEnumerable();
         _world = world;
     }
 
@@ -27,7 +27,7 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
         {
             ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
             ref var position = ref entity.Get<Position>();
-            var displacement = position.Next - position.Current;
+            var displacement = position.NextLocation - position.CurrentLocation;
             foreach (var target in _targets)
             {
                 ref var targetRect = ref target.Get<DrawInfo>().Destination;
