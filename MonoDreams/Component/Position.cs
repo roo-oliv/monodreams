@@ -2,16 +2,30 @@ using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Component;
 
-public class Position
+public struct Position
 {
-    public Vector2 Current;
-    public Vector2 Next;
-    public Vector2 Last;
+    public Vector2 CurrentLocation;
+    public Vector2 NextLocation;
+    public Vector2 LastLocation;
+    public Orientation CurrentOrientation;
+    public Orientation NextOrientation;
+    public Orientation LastOrientation;
 
-    public Position(Vector2 startingPosition)
+    public Position(Vector2 startingLocation, Orientation startingOrientation = Orientation.Right)
     {
-        Current = startingPosition;
-        Next = startingPosition;
-        Last = startingPosition;
+        CurrentLocation = startingLocation;
+        NextLocation = startingLocation;
+        LastLocation = startingLocation;
+        CurrentOrientation = startingOrientation;
+        NextOrientation = startingOrientation;
+        LastOrientation = startingOrientation;
     }
+}
+
+public enum Orientation
+{
+    Up = -1,
+    Down = 1,
+    Left = -1,
+    Right = 1
 }

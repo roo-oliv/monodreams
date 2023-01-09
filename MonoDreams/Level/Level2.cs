@@ -11,9 +11,10 @@ public class Level2
     private static void CreateBrick(World world, int x, int y)
     {
         Entity brick = world.CreateEntity();
+        brick.Set(new Position(new Vector2(x, y)));
         brick.Set(new DrawInfo
         {
-            Color = Color.Red,
+            Color = Color.Black,
             Destination = new Rectangle(x, y, 18 * Scale, 9 * Scale)
         });
         brick.Set<Solid>(default);
@@ -28,12 +29,10 @@ public class Level2
             Color = Color.White,
             Destination = new Rectangle(0, 0, 9 * Scale, 12 * Scale)
         });
-        player.Set(new CameraBoundary(new Rectangle(0, 0, 65 * Scale, 25 * Scale)));
         player.Set(new PlayerInput());
         player.Set(new DynamicBody());
         player.Set(new MovementController());
         player.Set<Solid>(default);
-        player.Set(new CameraBoundary());
     }
         
     public static void Load(World world)

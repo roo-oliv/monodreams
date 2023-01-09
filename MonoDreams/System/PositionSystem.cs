@@ -15,7 +15,9 @@ public sealed class PositionSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         ref var position = ref entity.Get<Position>();
-        position.Last = position.Current;
-        position.Current = position.Next;
+        position.LastLocation = position.CurrentLocation;
+        position.CurrentLocation = position.NextLocation;
+        position.LastOrientation = position.CurrentOrientation;
+        position.CurrentOrientation = position.NextOrientation;
     }
 }

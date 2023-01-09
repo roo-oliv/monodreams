@@ -9,7 +9,7 @@ namespace MonoDreams.System;
 public sealed class DrawInfoPositionSystem : AEntitySetSystem<GameState>
 {
     public DrawInfoPositionSystem(World world, IParallelRunner runner)
-        : base(world.GetEntities().With<DrawInfo>().With<Position>().AsSet(), runner) // TODO: use position in everything so we can dispense With<Position>
+        : base(world.GetEntities().With<DrawInfo>().AsSet(), runner)
     { }
 
     protected override void Update(GameState state, in Entity entity)
@@ -17,7 +17,7 @@ public sealed class DrawInfoPositionSystem : AEntitySetSystem<GameState>
         ref var position = ref entity.Get<Position>();
         ref var drawInfo = ref entity.Get<DrawInfo>();
 
-        drawInfo.Destination.X = (int)position.Current.X;
-        drawInfo.Destination.Y = (int)position.Current.Y;
+        drawInfo.Destination.X = (int)position.CurrentLocation.X;
+        drawInfo.Destination.Y = (int)position.CurrentLocation.Y;
     }
 }

@@ -46,11 +46,11 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
         {
             ref readonly var collidingEntity = ref collision.CollidingEntity;
             var rect = collidingEntity.Get<DrawInfo>().Destination;
-            rect.Inflate(2, 2);
             var hint = _world.CreateEntity();
+            hint.Set(new Position(rect.Location.ToVector2()));
             hint.Set(new DrawInfo
             {
-                Color = Color.Gold,
+                Color = Color.DarkSlateGray,
                 Destination = rect,
             });
             _hints.Add(hint);
