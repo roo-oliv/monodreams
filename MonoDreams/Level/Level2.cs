@@ -7,7 +7,7 @@ namespace MonoDreams.Level;
 public class Level2
 {
 
-    private const int Scale = 2;
+    private const int Scale = 20;
     private static void CreateBrick(World world, int x, int y)
     {
         Entity brick = world.CreateEntity();

@@ -36,8 +36,8 @@ public class Game1 : Game
 
     private void InitializeResolutionIndependence(int realScreenWidth, int realScreenHeight)
     {
-        _resolutionIndependence.VirtualWidth = 720;
-        _resolutionIndependence.VirtualHeight = 480;
+        _resolutionIndependence.VirtualWidth = 7680;
+        _resolutionIndependence.VirtualHeight = 4320;
         _resolutionIndependence.ScreenWidth = realScreenWidth;
         _resolutionIndependence.ScreenHeight = realScreenHeight;
         _resolutionIndependence.Initialize();

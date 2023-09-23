@@ -8,9 +8,9 @@ namespace MonoDreams.System;
 
 public class PlayerMovementSystem : AEntitySetSystem<GameState>
 {
-    private const int JumpGravity = 2000;
-    private const int JumpVelocity = -700;
-    private const int MaxWalkVelocity = 300;
+    private const int JumpGravity = 20000;
+    private const int JumpVelocity = -7000;
+    private const int MaxWalkVelocity = 1500;
 
     public PlayerMovementSystem(World world, IParallelRunner runner)
         : base(world.GetEntities().With<DynamicBody>().With<PlayerInput>().AsSet(), runner)

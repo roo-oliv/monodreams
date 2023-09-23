@@ -26,7 +26,7 @@ public sealed class CameraSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         ref var position = ref entity.Get<Position>();
-        var target = position.CurrentLocation + new Vector2((float)position.CurrentOrientation * 30, 0);
+        var target = position.CurrentLocation + new Vector2((float)position.CurrentOrientation * 300, 0);
         if (target != _lastTarget)
         {
             _lastTarget = target;
@@ -34,14 +34,14 @@ public sealed class CameraSystem : AEntitySetSystem<GameState>
         }
         _followTime += state.Time;
         _camera.Position = _followTime < LerpDuration ? Vector2.Lerp(_camera.Position, target, _followTime / LerpDuration) : target;
-        if (Math.Abs(target.X - _camera.Position.X) > 50)
+        if (Math.Abs(target.X - _camera.Position.X) > 500)
         {
-            _camera.Position = new Vector2(target.X - (float)position.CurrentOrientation * 50, _camera.Position.Y);
+            _camera.Position = new Vector2(target.X - (float)position.CurrentOrientation * 500, _camera.Position.Y);
         }
-        if (Math.Abs(target.Y - _camera.Position.Y) > 30)
+        if (Math.Abs(target.Y - _camera.Position.Y) > 300)
         {
             var sign = target.Y > _camera.Position.Y ? 1 : -1;
-            _camera.Position = new Vector2(_camera.Position.X, target.Y - sign * 30);
+            _camera.Position = new Vector2(_camera.Position.X, target.Y - sign * 300);
         }
     }
 }

@@ -2,7 +2,7 @@ namespace MonoDreams.Component;
 
 public class DynamicBody
 {
-    public static int WorldGravity = 4900;
+    public static int WorldGravity = 49000;
     public bool IsRiding;
     public bool IsJumping;
     public int Gravity;

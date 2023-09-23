@@ -12,7 +12,7 @@ namespace MonoDreams.System;
 
 public class DynamicBodySystem : AEntitySetSystem<GameState>
 {
-    private const int MaxFallVelocity = 800;
+    private const int MaxFallVelocity = 8000;
 
     public DynamicBodySystem(World world, IParallelRunner runner)
         : base(world.GetEntities().With<DynamicBody>().AsSet(), runner)
