@@ -7,13 +7,14 @@ namespace MonoDreams.Level;
 public class Level2
 {
 
-    private const int Scale = 2;
+    private const int Scale = 20;
     private static void CreateBrick(World world, int x, int y)
     {
         Entity brick = world.CreateEntity();
+        brick.Set(new Position(new Vector2(x, y)));
         brick.Set(new DrawInfo
         {
-            Color = Color.Red,
+            Color = Color.Black,
             Destination = new Rectangle(x, y, 18 * Scale, 9 * Scale)
         });
         brick.Set<Solid>(default);
@@ -22,15 +23,16 @@ public class Level2
     public static void CreatePlayer(World world)
     {
         var player = world.CreateEntity();
-        player.Set(new PlayerInput());
-        player.Set(new DynamicBody(60 * Scale, 20 * Scale));
-        player.Set(new MovementController());
-        player.Set<Solid>(default);
+        player.Set(new Position(new Vector2(60 * Scale, 20 * Scale)));
         player.Set(new DrawInfo
         {
             Color = Color.White,
             Destination = new Rectangle(0, 0, 9 * Scale, 12 * Scale)
         });
+        player.Set(new PlayerInput());
+        player.Set(new DynamicBody());
+        player.Set(new MovementController());
+        player.Set<Solid>(default);
     }
         
     public static void Load(World world)

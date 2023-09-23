@@ -20,8 +20,9 @@ public class Level1
     public static void CreatePlayer(World world)
     {
         var player = world.CreateEntity();
+        player.Set(new Position(new Vector2(60, 20)));
         player.Set(new PlayerInput());
-        player.Set(new DynamicBody(60, 20));
+        player.Set(new DynamicBody());
         player.Set(new MovementController());
         // player.Set(new Velocity{ Value = new Vector2(0, 300) });
         // player.Set(new Position(1000, 200));

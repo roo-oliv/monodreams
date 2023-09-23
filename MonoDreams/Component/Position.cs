@@ -4,28 +4,28 @@ namespace MonoDreams.Component;
 
 public struct Position
 {
-    public Vector2 CurrentValue;
-    public Vector2 NextValue;
-    public Vector2 LastValue;
+    public Vector2 CurrentLocation;
+    public Vector2 NextLocation;
+    public Vector2 LastLocation;
+    public Orientation CurrentOrientation;
+    public Orientation NextOrientation;
+    public Orientation LastOrientation;
 
-    public Position(float x, float y)
+    public Position(Vector2 startingLocation, Orientation startingOrientation = Orientation.Right)
     {
-        CurrentValue = new Vector2(x, y);
-        NextValue = new Vector2(x, y);
-        LastValue = new Vector2(x, y);
+        CurrentLocation = startingLocation;
+        NextLocation = startingLocation;
+        LastLocation = startingLocation;
+        CurrentOrientation = startingOrientation;
+        NextOrientation = startingOrientation;
+        LastOrientation = startingOrientation;
     }
+}
 
-    public void UpdateValue(Vector2 newPosition)
-    {
-        LastValue = CurrentValue;
-        CurrentValue = newPosition;
-    }
-
-    public void ArtificialIncrement(float x, float y)
-    {
-        LastValue.X += x;
-        LastValue.Y += y;
-        CurrentValue.X += x;
-        CurrentValue.Y += y;
-    }
+public enum Orientation
+{
+    Up = -1,
+    Down = 1,
+    Left = -1,
+    Right = 1
 }

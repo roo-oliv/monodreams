@@ -41,21 +41,22 @@ public class CollisionResolutionSystem : ISystem<GameState>
     {
         var entity = collision.BaseEntity;
         ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
+        ref var position = ref entity.Get<Position>();
         ref var body = ref entity.Get<DynamicBody>();
-        var displacement = body.NextPosition - body.CurrentPosition;
+        var displacement = position.NextLocation - position.CurrentLocation;
         ref var targetRect = ref collision.CollidingEntity.Get<DrawInfo>().Destination;
         if (!CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, displacement, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
         if (contactNormal.X != 0)
         {
-            body.NextPosition.X = contactPoint.X - dynamicRect.Width / 2f;
-            body.CurrentPosition.X = body.NextPosition.X;
+            position.NextLocation.X = contactPoint.X - dynamicRect.Width / 2f;
+            position.CurrentLocation.X = position.NextLocation.X;
         }
 
         if (contactNormal.Y != 0)
         {
-            body.NextPosition.Y = contactPoint.Y - dynamicRect.Height / 2f;
-            body.CurrentPosition.Y = body.NextPosition.Y;
+            position.NextLocation.Y = contactPoint.Y - dynamicRect.Height / 2f;
+            position.CurrentLocation.Y = position.NextLocation.Y;
             body.IsRiding |= contactNormal.Y < 0;
         }
     }
