@@ -50,6 +50,8 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
             hint.Set(new Position(rect.Location.ToVector2()));
             hint.Set(new DrawInfo
             {
+                SpriteSheet = _square,
+                Source = new Rectangle(0, 0, 1, 1),
                 Color = Color.DarkSlateGray,
                 Destination = rect,
             });

@@ -8,10 +8,9 @@ using MonoDreams.State;
 
 namespace MonoDreams.System;
 
-public sealed class DrawSystem : AComponentSystem<GameState, DrawInfo>
+public sealed class DrawSystem : AEntitySetSystem<GameState>
 {
     private readonly SpriteBatch _batch;
-    private readonly Texture2D _square;
     private readonly ResolutionIndependentRenderer _resolutionIndependentRenderer;
     private readonly Camera _camera;
 
@@ -19,14 +18,12 @@ public sealed class DrawSystem : AComponentSystem<GameState, DrawInfo>
         ResolutionIndependentRenderer resolutionIndependentRenderer,
         Camera camera,
         SpriteBatch batch,
-        Texture2D square,
         World world
-        ) : base(world)
+        ) : base(world.GetEntities().With<DrawInfo>().AsSet())
     {
         _resolutionIndependentRenderer = resolutionIndependentRenderer;
         _camera = camera;
         _batch = batch;
-        _square = square;
     }
 
     protected override void PreUpdate(GameState state)
@@ -35,16 +32,30 @@ public sealed class DrawSystem : AComponentSystem<GameState, DrawInfo>
         _batch.Begin(
             SpriteSortMode.Deferred,
             BlendState.AlphaBlend,
-            SamplerState.LinearWrap,
+            SamplerState.PointClamp,
             DepthStencilState.None,
             RasterizerState.CullNone, 
             null,
             _camera.GetViewTransformationMatrix());
     }
 
-    protected override void Update(GameState state, ref DrawInfo component)
+    protected override void Update(GameState state, in Entity entity)
     {
-        _batch.Draw(_square, component.Destination, component.Color);
+        ref var drawInfo = ref entity.Get<DrawInfo>();
+
+        if (entity.Has<Animation>())
+        {
+            ref var animation = ref entity.Get<Animation>();
+        
+            var totalDuration = animation.FrameDuration * animation.TotalFrames;
+        
+            animation.CurrentFrame = (int)((state.TotalTime % totalDuration) / animation.FrameDuration);
+        
+            var frameWidth = drawInfo.SpriteSheet.Width / animation.TotalFrames;
+            drawInfo.Source = new Rectangle(frameWidth * animation.CurrentFrame, 0, frameWidth, drawInfo.SpriteSheet.Height);
+        }
+
+        _batch.Draw(drawInfo.SpriteSheet, drawInfo.Destination, drawInfo.Source, drawInfo.Color);
     }
 
     protected override void PostUpdate(GameState state) => _batch.End();

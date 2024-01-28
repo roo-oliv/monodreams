@@ -11,7 +11,7 @@ public class ResolutionIndependentRenderer
     private float _ratioY;
     private Vector2 _virtualMousePosition;
 
-    public Color BackgroundColor = Color.DarkCyan;
+    public Color BackgroundColor = new(217, 159, 48, 85);
 
     public ResolutionIndependentRenderer(Game game)
     {
