@@ -24,7 +24,7 @@ public class Camera
     {
         ResolutionIndependentRenderer = resolutionIndependence;
 
-        _zoom = 0.1f;
+        _zoom = 1.0f;
         _rotation = 0.0f;
         _position = Vector2.Zero;
     }

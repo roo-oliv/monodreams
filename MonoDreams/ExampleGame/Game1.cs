@@ -80,7 +80,7 @@ public class Game1 : Game
             new DrawInfoPositionSystem(_world, _runner),
             new FollowingCameraSystem(_camera, _world, _runner),
             new DrawSystem(_resolutionIndependence, _camera, _batch, _world),
-            new HudSystem(_resolutionIndependence, _camera, _batch, _font, _world));
+            new DebugInfoSystem(_resolutionIndependence, _camera, _batch, _font, _world));
     }
 
     protected override void Initialize()

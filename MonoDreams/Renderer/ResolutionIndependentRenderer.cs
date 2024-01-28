@@ -16,8 +16,8 @@ public class ResolutionIndependentRenderer
     public ResolutionIndependentRenderer(Game game)
     {
         _game = game;
-        VirtualWidth = 7680;
-        VirtualHeight = 4320;
+        VirtualWidth = 3840;
+        VirtualHeight = 2160;
 
         ScreenWidth = 800;
         ScreenHeight = 600;

@@ -10,7 +10,7 @@ using MonoDreams.State;
 
 namespace MonoDreams.System;
 
-public sealed class HudSystem : AEntitySetSystem<GameState>
+public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
 {
     private readonly ResolutionIndependentRenderer _renderer;
     private readonly Camera _camera;
@@ -25,7 +25,7 @@ public sealed class HudSystem : AEntitySetSystem<GameState>
     private Stopwatch stopwatch = new();
     private const int Scale = 10;
 
-    public HudSystem(ResolutionIndependentRenderer renderer, Camera camera, SpriteBatch batch, SpriteFont font, World world)
+    public DebugInfoSystem(ResolutionIndependentRenderer renderer, Camera camera, SpriteBatch batch, SpriteFont font, World world)
         : base(world.GetEntities().With<PlayerInput>().AsSet(), true)
     {
         _renderer = renderer;
