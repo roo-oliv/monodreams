@@ -36,13 +36,8 @@ public class AnimationData
             durations.Add(frameData.duration);
         }
 
-        entity.Set(new DrawInfo
-        {
-            SpriteSheet = spriteSheet,
-            Source = entityFrames[0],
-            Destination = destination,
-            Color = Color.White,
-        });
+        entity.Set(new DrawInfo(spriteSheet: spriteSheet, source: entityFrames[0], destination: destination,
+            color: Color.White));
 
         entity.Set(new Animation
         {

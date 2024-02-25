@@ -10,13 +10,16 @@ public class GameState
     public float TotalTime;
     public float LastTotalTime;
     public KeyboardState KeyboardState;
+    public MouseState MouseState;
 
-    public GameState(float time, float lastTime, float totalTime, float lastTotalTime, KeyboardState keyboardState)
+    public GameState(float time, float lastTime, float totalTime, float lastTotalTime, KeyboardState keyboardState,
+        MouseState mouseState)
     {
         Time = time;
         LastTime = lastTime;
         TotalTime = totalTime;
         LastTotalTime = lastTotalTime;
         KeyboardState = keyboardState;
+        MouseState = mouseState;
     }
 }

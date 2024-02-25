@@ -1,6 +1,6 @@
 namespace MonoDreams.Component;
 
-public struct Solid
+public class CursorController
 {
-        
+    
 }

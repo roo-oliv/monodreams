@@ -17,7 +17,7 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
     public CollisionDetectionSystem(World world)
         : base(world.GetEntities().With<DynamicBody>().AsSet(), true)
     {
-        _targets = world.GetEntities().With<Solid>().AsEnumerable();
+        _targets = world.GetEntities().With<Collidable>().AsEnumerable();
         _world = world;
     }
 

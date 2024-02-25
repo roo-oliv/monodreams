@@ -32,6 +32,6 @@ public class PlayerFactory
         player.Set(new PlayerInput());
         player.Set(new DynamicBody());
         player.Set(new MovementController());
-        player.Set<Solid>(default);
+        player.Set<Collidable>(default);
     }
 }

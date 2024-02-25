@@ -48,13 +48,8 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
             var rect = collidingEntity.Get<DrawInfo>().Destination;
             var hint = _world.CreateEntity();
             hint.Set(new Position(rect.Location.ToVector2()));
-            hint.Set(new DrawInfo
-            {
-                SpriteSheet = _square,
-                Source = new Rectangle(0, 0, 1, 1),
-                Color = Color.DarkSlateGray,
-                Destination = rect,
-            });
+            hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray,
+                destination: rect));
             _hints.Add(hint);
         }
 

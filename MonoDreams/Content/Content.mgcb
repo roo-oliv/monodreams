@@ -10,6 +10,7 @@
 
 #-------------------------------- References --------------------------------#
 
+/reference:../../../../../.nuget/packages/monogame.extended.content.pipeline/3.8.0/tools/MonoGame.Extended.Content.Pipeline.dll
 
 #---------------------------------- Content ---------------------------------#
 
@@ -1618,6 +1619,57 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Terrain/Terrain (16x16).png
+
+#begin Text/Renogare-Regular-100p-black-shadow03.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare-Regular-100p-black-shadow03.fnt;Text/Renogare-Regular-100p-black-shadow03-fnt.fnt
+
+#begin Text/Renogare-Regular-100p-black-shadow03.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare-Regular-100p-black-shadow03.png
+
+#begin Text/Renogare-Regular-100p-white-shadow02.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare-Regular-100p-white-shadow02.fnt;Text/Renogare-Regular-100p-white-shadow02-fnt.fnt
+
+#begin Text/Renogare-Regular-100p-white-shadow02.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare-Regular-100p-white-shadow02.png
+
+#begin Text/Title-Font-Green-Bold.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Title-Font-Green-Bold.fnt
+
+#begin Text/Title-Font-Green-Bold.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Title-Font-Green-Bold.png;Text/Unnamed.png
 
 #begin Traps/Arrow/Hit (18x18).png
 /importer:TextureImporter

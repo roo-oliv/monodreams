@@ -14,6 +14,18 @@
         "resolved": "3.8.1.303",
         "contentHash": "9Ilzzje62LhWElbPNEl7vh7XsRSbze+lvCJdZtTZUGu48FRgvYN6THURwIB9PN98EI33/Wnf6iuShNUtD7hL4Q=="
       },
+      "MonoGame.Extended.Content.Pipeline": {
+        "type": "Direct",
+        "requested": "[3.8.0, )",
+        "resolved": "3.8.0",
+        "contentHash": "Kt21Ux4Hdkgm7FMiGhQ7C0+rMS0wMQM63TxWsNBa8DjEDwX1pKIUORxvQBgh89J4TiMSmmK+U6VfxV2kh5PPpg==",
+        "dependencies": {
+          "Autofac": "5.2.0",
+          "MonoGame.Extended": "3.8.0",
+          "MonoGame.Extended.Tiled": "3.8.0",
+          "Newtonsoft.Json": "12.0.3"
+        }
+      },
       "MonoGame.Framework.DesktopGL": {
         "type": "Direct",
         "requested": "[3.8.1.303, )",
@@ -37,10 +49,40 @@
           "StbTrueTypeSharp": "1.24.7"
         }
       },
+      "Autofac": {
+        "type": "Transitive",
+        "resolved": "5.2.0",
+        "contentHash": "V8dBH0dsv75uDzl7Sw+HkhKDPUw2eXnlMjcSVMH+tLo2s67MpTKGyDj1pDcpR+IF2u4YRs0s3/x7R88YJzIWvg=="
+      },
       "Cyotek.Drawing.BitmapFont": {
         "type": "Transitive",
         "resolved": "2.0.1",
         "contentHash": "8C8Vdvf8p6RIOBNFE99ZNPWFxwV/ZT1wk11cajuL3+6/e5DBGPHe+ZjxLu2efTWQ1YvfLh4KpP2epUZ9z/WcFQ=="
+      },
+      "MonoGame.Extended": {
+        "type": "Transitive",
+        "resolved": "3.8.0",
+        "contentHash": "FDPoUOFtslGNHCWSqjKD0C67RYN6Stb6NWnn+rkCmtkPBZlE6LvwuGyQBkHUkAMANO3LzO/Wsz9etMhwZLInqg==",
+        "dependencies": {
+          "Newtonsoft.Json": "12.0.3"
+        }
+      },
+      "MonoGame.Extended.Graphics": {
+        "type": "Transitive",
+        "resolved": "3.8.0",
+        "contentHash": "vSl1+4dFNKnOqHUB1SRQ7IdWXNagJJI+KKCQmaSyfon99/kumsChQ9iZXltEaUO3ArB8QGnblii/PXq/bsLUHQ==",
+        "dependencies": {
+          "MonoGame.Extended": "3.8.0"
+        }
+      },
+      "MonoGame.Extended.Tiled": {
+        "type": "Transitive",
+        "resolved": "3.8.0",
+        "contentHash": "lXE+Ysvep5FCozHlj862kqIG6TWCmjNgjF7xWbJ4ZDkqG+Khi9VrG5G8Pdj80TMRpDhZOz3PICinVZElZU639g==",
+        "dependencies": {
+          "MonoGame.Extended": "3.8.0",
+          "MonoGame.Extended.Graphics": "3.8.0"
+        }
       },
       "StbImageSharp": {
         "type": "Transitive",

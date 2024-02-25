@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using MonoDreams.Renderer;
+using NotImplementedException = System.NotImplementedException;
 
 namespace MonoDreams.Component;
 
@@ -15,14 +16,14 @@ public class Camera
     private Matrix _camScaleMatrix = Matrix.Identity;
     private Matrix _resTranslationMatrix = Matrix.Identity;
 
-    protected ResolutionIndependentRenderer ResolutionIndependentRenderer;
+    protected readonly ResolutionIndependentRenderer Renderer;
     private Vector3 _camTranslationVector = Vector3.Zero;
     private Vector3 _camScaleVector = Vector3.Zero;
     private Vector3 _resTranslationVector = Vector3.Zero;
 
     public Camera(ResolutionIndependentRenderer resolutionIndependence)
     {
-        ResolutionIndependentRenderer = resolutionIndependence;
+        Renderer = resolutionIndependence;
 
         _zoom = 1.0f;
         _rotation = 0.0f;
@@ -79,8 +80,8 @@ public class Camera
 
         Matrix.CreateScale(ref _camScaleVector, out _camScaleMatrix);
 
-        _resTranslationVector.X = ResolutionIndependentRenderer.VirtualWidth * 0.5f;
-        _resTranslationVector.Y = ResolutionIndependentRenderer.VirtualHeight * 0.5f;
+        _resTranslationVector.X = Renderer.VirtualWidth * 0.5f;
+        _resTranslationVector.Y = Renderer.VirtualHeight * 0.5f;
         _resTranslationVector.Z = 0;
 
         Matrix.CreateTranslation(ref _resTranslationVector, out _resTranslationMatrix);
@@ -89,7 +90,7 @@ public class Camera
                      * _camRotationMatrix
                      * _camScaleMatrix
                      * _resTranslationMatrix
-                     * ResolutionIndependentRenderer.GetTransformationMatrix();
+                     * Renderer.GetTransformationMatrix();
 
         _isViewTransformationDirty = false;
 
@@ -99,5 +100,13 @@ public class Camera
     public void RecalculateTransformationMatrices()
     {
         _isViewTransformationDirty = true;
+    }
+
+    public Vector2 ScreenToWorld(Vector2 screenPosition)
+    {
+        var cameraWindowDimensions = new Vector2(Renderer.VirtualWidth, Renderer.VirtualHeight) / _zoom;
+        var cameraWindowTopLeftCorner = _position - cameraWindowDimensions / 2;
+        var cameraScaledPosition = cameraWindowTopLeftCorner + Renderer.ScaleMouseToScreenCoordinates(screenPosition) / _zoom;
+        return cameraScaledPosition;
     }
 }

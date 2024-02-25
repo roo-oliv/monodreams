@@ -10,7 +10,7 @@ using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoDreams.System;
 
-namespace MonoDreams;
+namespace HeartfeltLending;
 
 public class HeartfeltLending : Game
 {
@@ -24,6 +24,7 @@ public class HeartfeltLending : Game
     private readonly ResolutionIndependentRenderer _renderer;
     private readonly Camera _camera;
     private GameState LastState;
+    private Texture2D _cursorTexture;
 
     #endregion
 
@@ -66,10 +67,13 @@ public class HeartfeltLending : Game
         _camera.Zoom = 1f;
         _camera.Position = new Vector2(0, 0);
         
+        _cursorTexture = Content.Load<Texture2D>("Other/Transition");
+        
         _world = new Menu(GraphicsDevice, Content, _renderer).World;
         
         _system = new SequentialSystem<GameState>(
             new PlayerInputSystem(_world),
+            new CursorSystem(_world, _camera, _runner),
             new PositionSystem(_world, _runner),
             new DrawInfoPositionSystem(_world, _runner),
             new DrawSystem(_renderer, _camera, _batch, _world),
@@ -84,9 +88,10 @@ public class HeartfeltLending : Game
 
     protected override void Update(GameTime gameTime)
     {
-        GraphicsDevice.Clear(Color.Black);
+        GraphicsDevice.Clear(Color.OldLace);
+        // Mouse.SetCursor(MouseCursor.FromTexture2D(_cursorTexture, 0, 0));
         var time = (float) gameTime.ElapsedGameTime.TotalSeconds;
-        var state = new GameState(time, LastState?.Time ?? time, (float) gameTime.TotalGameTime.TotalSeconds, LastState?.TotalTime ?? (float) gameTime.TotalGameTime.TotalSeconds, Keyboard.GetState());
+        var state = new GameState(time, LastState?.Time ?? time, (float) gameTime.TotalGameTime.TotalSeconds, LastState?.TotalTime ?? (float) gameTime.TotalGameTime.TotalSeconds, Keyboard.GetState(), Mouse.GetState());
         _system.Update(state);
         LastState = state;
     }

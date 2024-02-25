@@ -1,19 +1,28 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Component;
 
 public struct Text
 {
     public string Value;
-    public SpriteFont SpriteFont;
+    public BitmapFont Font;
     public Color Color;
-    public TextAlign TextAlign;
+    public HorizontalAlign HorizontalAlign;
+    public VerticalAlign VerticalAlign;
 }
 
-public enum TextAlign
+public enum HorizontalAlign
 {
     Left,
     Center,
-    Right
+    Right,
+}
+
+public enum VerticalAlign
+{
+    Top,
+    Center,
+    Bottom,
 }
