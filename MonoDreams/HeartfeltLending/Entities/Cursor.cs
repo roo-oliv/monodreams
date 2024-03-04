@@ -13,7 +13,8 @@ public static class Cursor
         var entity = world.CreateEntity();
         entity.Set(new CursorController());
         entity.Set(new PlayerInput());
-        entity.Set(new Position(new Vector2(50, 50)));
+        entity.Set(new Position(Vector2.Zero));
+        entity.Set(new Collidable(new Rectangle(0, 0, 1, 1), passive: false));
         entity.Set(new DrawInfo(texture));
         return entity;
     }

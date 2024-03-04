@@ -2,15 +2,20 @@ using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
 using MonoDreams.Component;
+using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.System;
 
 public sealed class PositionSystem : AEntitySetSystem<GameState>
 {
+    private readonly World _world;
+
     public PositionSystem(World world, IParallelRunner runner)
-        : base(world.GetEntities().With<Position>().AsSet(), runner)
-    { }
+        : base(world.GetEntities().With((in Position p) => p.HasUpdates).AsSet(), runner)
+    {
+        _world = world;
+    }
 
     protected override void Update(GameState state, in Entity entity)
     {
@@ -21,5 +26,6 @@ public sealed class PositionSystem : AEntitySetSystem<GameState>
         position.CurrentLocation.Y = position.NextLocation.Y;
         position.LastOrientation = position.CurrentOrientation;
         position.CurrentOrientation = position.NextOrientation;
+        _world.Publish(new PositionChangeMessage(entity));
     }
 }

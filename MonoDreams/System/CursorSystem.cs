@@ -24,5 +24,6 @@ public class CursorSystem : AEntitySetSystem<GameState>
         var cameraCursorPosition = _camera.ScreenToWorld(playerInput.CursorPosition);
         
         position.NextLocation = cameraCursorPosition;
+        entity.NotifyChanged<Position>();
     }
 }

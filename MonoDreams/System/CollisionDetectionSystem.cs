@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
+using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Message;
@@ -14,43 +15,47 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
     private readonly IEnumerable<Entity> _targets;
     private readonly World _world;
         
-    public CollisionDetectionSystem(World world)
-        : base(world.GetEntities().With<DynamicBody>().AsSet(), true)
+    public CollisionDetectionSystem(World world, IParallelRunner runner)
+        : base(world.GetEntities().With((in Collidable c) => !c.Passive).AsSet(), runner)
     {
         _targets = world.GetEntities().With<Collidable>().AsEnumerable();
         _world = world;
     }
 
-    protected override void Update(GameState state, ReadOnlySpan<Entity> entities)
+    protected override void Update(GameState state, in Entity entity)
     {
-        foreach (var entity in entities)
+        var bounds = entity.Get<Collidable>().Bounds;
+        var position = entity.Get<Position>();
+        var dynamicRect = new Rectangle(bounds.Location + position.CurrentLocation.ToPoint(), bounds.Size);
+        var displacement = position.NextLocation - position.CurrentLocation;
+        foreach (var target in _targets)
         {
-            ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
-            ref var position = ref entity.Get<Position>();
-            var displacement = position.NextLocation - position.CurrentLocation;
-            foreach (var target in _targets)
+            if (target == entity)
             {
-                ref var targetRect = ref target.Get<DrawInfo>().Destination;
+                continue;
+            }
+            
+            var targetBounds = target.Get<Collidable>().Bounds;
+            var targetPosition = target.Get<Position>();
+            var targetRect = new Rectangle(targetBounds.Location + targetPosition.CurrentLocation.ToPoint(), targetBounds.Size);
 
-                var collides = DynamicRectVsRect(
-                    dynamicRect, displacement, targetRect,
-                    out var contactPoint,
-                    out var contactNormal,
-                    out var contactTime);
-                    
-                if (!collides)
-                {
-                    continue;
-                }
-                    
-                //entity.Set(new Collision(target, contactPoint, contactNormal, contactTime));
-                _world.Publish(new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime));
-            } 
+            var collides = DynamicRectVsRect(
+                dynamicRect, displacement, targetRect,
+                out var contactPoint,
+                out var contactNormal,
+                out var contactTime);
+                
+            if (!collides)
+            {
+                continue;
+            }
+            
+            _world.Publish(new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime));
         }
     }
         
     private static bool RayVsRect(
-        in Vector2 rayOrigin, in Vector2 rayDirection, in Rectangle target, out Vector2 contactPoint,
+        Vector2 rayOrigin, Vector2 rayDirection, Rectangle target, out Vector2 contactPoint,
         out Vector2 contactNormal, out float closestHit)
     {
         closestHit = float.NaN;
@@ -102,13 +107,13 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
         in Rectangle dynamicRect, in Vector2 displacement, in Rectangle staticRect,
         out Vector2 contactPoint, out Vector2 contactNormal, out float contactTime)
     {
-        // Check if dynamic rectangle is actually moving - we assume rectangles are NOT in collision to start
-        if (displacement.X == 0 && displacement.Y == 0)
+        // Check if dynamic rectangle is actually moving - if not, we just check for intersection
+        if (displacement is { X: 0, Y: 0 })
         {
             contactPoint = Vector2.Zero;
             contactNormal = Vector2.Zero;
-            contactTime = float.NaN;
-            return false;
+            contactTime = 0;
+            return dynamicRect.Intersects(staticRect);
         }
 
         // Expand target rectangle by source dimensions
@@ -117,9 +122,10 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
             staticRect.Size + dynamicRect.Size);
 
         var potentialCollision = RayVsRect(
-            dynamicRect.Center.ToVector2(), in displacement, in expandedTarget, out contactPoint,
+            dynamicRect.Center.ToVector2(), displacement, expandedTarget, out contactPoint,
             out contactNormal, out contactTime);
 
-        return potentialCollision && contactTime is >= 0.0f and < 1.0f;
+        // return potentialCollision && contactTime is >= 0.0f and < 1.0f;
+        return potentialCollision && contactTime < 1.0f;
     }
 }

@@ -1,14 +1,11 @@
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
-using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Message;
-using MonoDreams.Renderer;
 using MonoDreams.State;
-using NotImplementedException = System.NotImplementedException;
 
 namespace MonoDreams.System;
 
@@ -44,12 +41,11 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
         }
         foreach (var collision in _collisions)
         {
-            ref readonly var collidingEntity = ref collision.CollidingEntity;
-            var rect = collidingEntity.Get<DrawInfo>().Destination;
+            var collidingEntity = collision.CollidingEntity;
+            var location = collidingEntity.Get<Position>().CurrentLocation;
             var hint = _world.CreateEntity();
-            hint.Set(new Position(rect.Location.ToVector2()));
-            hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray,
-                destination: rect));
+            hint.Set(new Position(location));
+            hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray));
             _hints.Add(hint);
         }
 

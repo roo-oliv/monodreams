@@ -40,11 +40,11 @@ public class CollisionResolutionSystem : ISystem<GameState>
     private static void ResolveCollision(CollisionMessage collision)
     {
         var entity = collision.BaseEntity;
-        ref var dynamicRect = ref entity.Get<DrawInfo>().Destination;
+        ref var dynamicRect = ref entity.Get<Collidable>().Bounds;
         ref var position = ref entity.Get<Position>();
         ref var body = ref entity.Get<DynamicBody>();
         var displacement = position.NextLocation - position.CurrentLocation;
-        ref var targetRect = ref collision.CollidingEntity.Get<DrawInfo>().Destination;
+        ref var targetRect = ref collision.CollidingEntity.Get<Collidable>().Bounds;
         if (!CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, displacement, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
         if (contactNormal.X != 0)

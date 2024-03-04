@@ -27,8 +27,7 @@ public class PlayerFactory
         var frameData = AnimationData.LoadAnimationData("Content/Main Characters/Virtual Guy/Idle.json");
         frameData.PopulateEntityAnimation(
             player,
-            _content.Load<Texture2D>("Main Characters/Virtual Guy/Idle (32x32)"),
-            new Rectangle(0, 0, 12 * _scale, 12 * _scale));
+            _content.Load<Texture2D>("Main Characters/Virtual Guy/Idle (32x32)"));
         player.Set(new PlayerInput());
         player.Set(new DynamicBody());
         player.Set(new MovementController());

@@ -32,6 +32,15 @@
         "resolved": "3.8.1.303",
         "contentHash": "eGYhqn0n1olk8MNYeE9EuBmoNNECN1T18rPMaQpkzsEQ0H3nVyFPXC+uCo78v5pi5juQpJ3PSFnSkjzZJ1U58A=="
       },
+      "MonoGame.ImGuiNet": {
+        "type": "Direct",
+        "requested": "[1.0.5, )",
+        "resolved": "1.0.5",
+        "contentHash": "/hDxFze2vqufg/SMFhxN23dsJqAfuc+aYfRRHikHFFU4SzgrfngfeAPmDGB6C5m5HHgrDEev8i6pFA4fx2GITQ==",
+        "dependencies": {
+          "ImGui.NET": "1.89.7.1"
+        }
+      },
       "Newtonsoft.Json": {
         "type": "Direct",
         "requested": "[13.0.3, )",
@@ -58,6 +67,16 @@
         "type": "Transitive",
         "resolved": "2.0.1",
         "contentHash": "8C8Vdvf8p6RIOBNFE99ZNPWFxwV/ZT1wk11cajuL3+6/e5DBGPHe+ZjxLu2efTWQ1YvfLh4KpP2epUZ9z/WcFQ=="
+      },
+      "ImGui.NET": {
+        "type": "Transitive",
+        "resolved": "1.89.7.1",
+        "contentHash": "e7hAn3Jq4uoiAeQMmxAu9jkdSJnGR74qO1HNVF7wwIq7g6H9tBIDWke72sHbwGOXpZtL1/S678dR5j7VbDzt9A==",
+        "dependencies": {
+          "System.Buffers": "4.4.0",
+          "System.Numerics.Vectors": "4.4.0",
+          "System.Runtime.CompilerServices.Unsafe": "4.4.0"
+        }
       },
       "MonoGame.Extended": {
         "type": "Transitive",
@@ -93,6 +112,21 @@
         "type": "Transitive",
         "resolved": "1.24.7",
         "contentHash": "4hmKw+Fq22Fs8GI8o1U7SUGw7iNTYVNc476o/rxmDVgIsQgQX0nNvlG1hUEhvC0ouNmoJq32yclQko+n67bc7A=="
+      },
+      "System.Buffers": {
+        "type": "Transitive",
+        "resolved": "4.4.0",
+        "contentHash": "AwarXzzoDwX6BgrhjoJsk6tUezZEozOT5Y9QKF94Gl4JK91I4PIIBkBco9068Y9/Dra8Dkbie99kXB8+1BaYKw=="
+      },
+      "System.Numerics.Vectors": {
+        "type": "Transitive",
+        "resolved": "4.4.0",
+        "contentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ=="
+      },
+      "System.Runtime.CompilerServices.Unsafe": {
+        "type": "Transitive",
+        "resolved": "4.4.0",
+        "contentHash": "9dLLuBxr5GNmOfl2jSMcsHuteEg32BEfUotmmUkmZjpR3RpVHE8YQwt0ow3p6prwA1ME8WqDVZqrr8z6H8G+Kw=="
       }
     }
   }

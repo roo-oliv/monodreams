@@ -1,5 +1,6 @@
 using DefaultEcs;
 using DefaultEcs.System;
+using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
@@ -42,6 +43,7 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         ref var drawInfo = ref entity.Get<DrawInfo>();
+        ref var position = ref entity.Get<Position>();
 
         if (entity.Has<Animation>())
         {
@@ -55,7 +57,7 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
             drawInfo.Source = new Rectangle(frameWidth * animation.CurrentFrame, 0, frameWidth, drawInfo.SpriteSheet.Height);
         }
 
-        _batch.Draw(drawInfo.SpriteSheet, drawInfo.Destination, drawInfo.Source, drawInfo.Color);
+        _batch.Draw(drawInfo.SpriteSheet, position.CurrentLocation, drawInfo.Source, drawInfo.Color);
     }
 
     protected override void PostUpdate(GameState state) => _batch.End();

@@ -20,6 +20,8 @@ public struct Position
         NextOrientation = startingOrientation;
         LastOrientation = startingOrientation;
     }
+    
+    public bool HasUpdates => CurrentLocation != NextLocation || LastLocation != CurrentLocation || CurrentOrientation != NextOrientation || LastOrientation != CurrentOrientation;
 }
 
 public enum Orientation

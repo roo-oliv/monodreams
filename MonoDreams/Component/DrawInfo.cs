@@ -7,15 +7,13 @@ public struct DrawInfo
 {
     public Texture2D SpriteSheet;
     public Rectangle Source;
-    public Rectangle Destination;
     public Color Color;
 
-    public DrawInfo(Texture2D spriteSheet, Rectangle source, Color color, Rectangle destination)
+    public DrawInfo(Texture2D spriteSheet, Rectangle source, Color color)
     {
         SpriteSheet = spriteSheet;
         Source = source;
         Color = color;
-        Destination = destination;
     }
     
     public DrawInfo(Texture2D texture, Color? color = null)
@@ -23,6 +21,5 @@ public struct DrawInfo
         SpriteSheet = texture;
         Source = texture.Bounds;
         Color = color ?? Color.White;
-        Destination = texture.Bounds;
     }
 }
