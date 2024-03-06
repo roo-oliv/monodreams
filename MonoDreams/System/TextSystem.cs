@@ -1,11 +1,8 @@
-using System;
-using System.Diagnostics;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
 
@@ -40,29 +37,13 @@ public sealed class TextSystem : AEntitySetSystem<GameState>
     {
         ref var text = ref entity.Get<Text>();
         ref var position = ref entity.Get<Position>();
-        var font = text.Font;
-        Vector2 origin = new Vector2(
-            x: text.HorizontalAlign switch
-            {
-                HorizontalAlign.Left => 0,
-                HorizontalAlign.Center => font.MeasureString(text.Value).Width / 2,
-                HorizontalAlign.Right => font.MeasureString(text.Value).Width,
-                _ => throw new ArgumentOutOfRangeException(),
-            },
-            y: text.VerticalAlign switch
-            {
-                VerticalAlign.Top => font.MeasureString(text.Value).Height,
-                VerticalAlign.Center => font.MeasureString(text.Value).Height / 2,
-                VerticalAlign.Bottom => 0,
-                _ => throw new ArgumentOutOfRangeException(),
-            });
         _batch.DrawString(
-            font,
+            text.Font,
             text.Value,
             position.CurrentLocation,
             text.Color,
             0.0f,
-            origin, 
+            text.Origin, 
             Vector2.One, 
             SpriteEffects.None,
             0.0f);

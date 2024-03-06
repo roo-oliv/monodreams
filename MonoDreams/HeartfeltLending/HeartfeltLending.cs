@@ -20,7 +20,7 @@ public class HeartfeltLending : Game
 {
     #region Fields
 
-    private static readonly bool IsDebug = true;
+    private static readonly bool IsDebug = false;
     private readonly GraphicsDeviceManager _deviceManager;
     private readonly SpriteBatch _batch;
     private World _world;
@@ -64,7 +64,7 @@ public class HeartfeltLending : Game
         _renderer = new ResolutionIndependentRenderer(this);
         _camera = new Camera(_renderer); 
         _batch = new SpriteBatch(GraphicsDevice);
-        _runner = new DefaultParallelRunner(Environment.ProcessorCount);
+        _runner = new DefaultParallelRunner(1);
         _square = Content.Load<Texture2D>("square");
         _font = Content.Load<SpriteFont>("defaultFont");
     }
@@ -84,19 +84,19 @@ public class HeartfeltLending : Game
         
         _cursorTexture = Content.Load<Texture2D>("Other/Transition");
         
-        _world = new Menu(GraphicsDevice, Content, _renderer).World;
-        
+        _world = new Menu(this, GraphicsDevice, Content, _renderer).World;
+
         _system = new SequentialSystem<GameState>(
             new PlayerInputSystem(_world),
-            new CursorSystem(_world, _camera, _runner),
+            new CursorSystem(_world, _camera),
             new CollisionDetectionSystem(_world, _runner),
             new CollisionDrawSystem(_square, _world),
             new ButtonSystem(_world),
             new PositionSystem(_world, _runner),
             new DrawSystem(_renderer, _camera, _batch, _world),
-            new CollidableDrawSystem(_camera, _batch, _world, _runner),
-            new TextSystem(_camera, _batch, _world),
-            new DebugInfoSystem(_renderer, _camera, _batch, _font, _world));
+            // new CollidableDrawSystem(_camera, _batch, _world),
+            new TextSystem(_camera, _batch, _world));
+            // new DebugInfoSystem(_renderer, _camera, _batch, _font, _world));
         
         base.Initialize();
     }

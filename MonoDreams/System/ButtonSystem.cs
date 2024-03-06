@@ -5,6 +5,7 @@ using DefaultEcs.System;
 using MonoDreams.Component;
 using MonoDreams.Message;
 using MonoDreams.State;
+using NotImplementedException = System.NotImplementedException;
 
 namespace MonoDreams.System;
 
@@ -45,13 +46,28 @@ public class ButtonSystem : ISystem<GameState>
             return;
         }
         _collisions.Sort((l, r) => l.ContactTime.CompareTo(r.ContactTime));
+        
         var activeButton = _collisions.Last().CollidingEntity;
-        if (activeButton == _currentlyActiveButton)
+        if (activeButton != _currentlyActiveButton)
         {
-            _collisions.Clear();
-            return;
+            ResetActiveButtonState();
+            SetActiveButtonState(activeButton);
         }
-        ResetActiveButtonState();
+        
+        var cursor = _collisions.Last().BaseEntity;
+        if (cursor.Get<PlayerInput>().LeftClick.JustActivated)
+        {
+            _currentlyActiveButton?.Get<ButtonState>().Press();
+        } else if (cursor.Get<PlayerInput>().LeftClick.JustReleased)
+        {
+            _currentlyActiveButton?.Get<ButtonState>().Release();
+        }
+        
+        _collisions.Clear();
+    }
+
+    private void SetActiveButtonState(Entity activeButton)
+    {
         ref var buttonState = ref activeButton.Get<ButtonState>();
         buttonState.Select();
         if (activeButton.Has<Text>())
@@ -59,7 +75,6 @@ public class ButtonSystem : ISystem<GameState>
             activeButton.Get<Text>().Color = buttonState.SelectedColor;
         }
         _currentlyActiveButton = activeButton;
-        _collisions.Clear();
     }
 
     private void ResetActiveButtonState()

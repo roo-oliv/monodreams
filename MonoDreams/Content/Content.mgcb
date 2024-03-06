@@ -98,6 +98,18 @@
 /processorParam:TextureFormat=Color
 /build:Background/Purple.png
 
+#begin Background/village-wallpaper.webp
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Background/village-wallpaper.webp
+
 #begin Background/Yellow.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -1653,6 +1665,23 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Text/Renogare-Regular-100p-white-shadow02.png
+
+#begin Text/Renogare-Regular-100p-white-stroke3-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare-Regular-100p-white-stroke3-fnt.fnt
+
+#begin Text/Renogare-Regular-100p-white-stroke3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare-Regular-100p-white-stroke3.png
 
 #begin Text/Title-Font-Green-Bold.fnt
 /importer:BitmapFontImporter

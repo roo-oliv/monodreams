@@ -10,8 +10,8 @@ public class CursorSystem : AEntitySetSystem<GameState>
 {
     private readonly Camera _camera;
 
-    public CursorSystem(World world, Camera camera, IParallelRunner runner)
-        : base(world.GetEntities().With<CursorController>().With<PlayerInput>().AsSet(), runner)
+    public CursorSystem(World world, Camera camera)
+        : base(world.GetEntities().With<CursorController>().With<PlayerInput>().AsSet())
     {
         _camera = camera;
     }

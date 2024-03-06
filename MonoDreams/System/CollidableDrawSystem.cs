@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Message;
 using MonoDreams.State;
+using MonoGame.Extended;
 
 namespace MonoDreams.System;
 
@@ -19,9 +20,8 @@ public sealed class CollidableDrawSystem : AEntitySetSystem<GameState>
     public CollidableDrawSystem(
         Camera camera,
         SpriteBatch batch,
-        World world,
-        IParallelRunner runner
-        ) : base(world.GetEntities().With<Collidable>().AsSet(), runner)
+        World world
+        ) : base(world.GetEntities().With<Collidable>().AsSet())
     {
         _camera = camera;
         _batch = batch;
@@ -57,5 +57,7 @@ public sealed class CollidableDrawSystem : AEntitySetSystem<GameState>
         _batch.Draw(_pointTexture, new Rectangle(rectangle.X, rectangle.Y, rectangle.Width + lineWidth, lineWidth), color);
         _batch.Draw(_pointTexture, new Rectangle(rectangle.X + rectangle.Width, rectangle.Y, lineWidth, rectangle.Height + lineWidth), color);
         _batch.Draw(_pointTexture, new Rectangle(rectangle.X, rectangle.Y + rectangle.Height, rectangle.Width + lineWidth, lineWidth), color);
+        _batch.DrawLine(rectangle.Left, rectangle.Top, rectangle.Right, rectangle.Bottom, color, lineWidth);
+        _batch.DrawLine(rectangle.Left, rectangle.Bottom, rectangle.Right, rectangle.Top, color, lineWidth);
     }
 }

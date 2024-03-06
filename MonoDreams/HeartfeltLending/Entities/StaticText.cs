@@ -12,14 +12,7 @@ public static class StaticText
         HorizontalAlign horizontalAlign = HorizontalAlign.Center, VerticalAlign verticalAlign = VerticalAlign.Center)
     {
         var entity = world.CreateEntity();
-        entity.Set(new Text
-        {
-            Value = value,
-            Font = font,
-            Color = color ?? Color.White,
-            HorizontalAlign = horizontalAlign,
-            VerticalAlign = verticalAlign,
-        });
+        entity.Set(new Text(value, font, color ?? Color.White, horizontalAlign, verticalAlign));
         entity.Set(new Position(position));
         return entity;
     }

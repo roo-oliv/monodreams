@@ -32,7 +32,8 @@ public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
             new Vector2(x, y),
             foreColor,
             0.0f,
-            new Vector2((_font.MeasureString(text).X / 2 * scale - _font.MeasureString(text).X / 2), (_font.MeasureString(text).Y / 2 * scale - _font.MeasureString(text).Y / 2)),
+            // new Vector2((_font.MeasureString(text).X / 2 * scale - _font.MeasureString(text).X / 2), (_font.MeasureString(text).Y / 2 * scale - _font.MeasureString(text).Y / 2)),
+            Vector2.Zero,
             scale,
             SpriteEffects.None,
             0.0f);
