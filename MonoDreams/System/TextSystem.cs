@@ -14,7 +14,7 @@ public sealed class TextSystem : AEntitySetSystem<GameState>
     private readonly SpriteBatch _batch;
 
     public TextSystem(Camera camera, SpriteBatch batch, World world)
-        : base(world.GetEntities().With<Text>().With<Position>().AsSet(), true)
+        : base(world.GetEntities().With<SimpleText>().With<Position>().AsSet(), true)
     {
         _camera = camera;
         _batch = batch;
@@ -35,7 +35,7 @@ public sealed class TextSystem : AEntitySetSystem<GameState>
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref var text = ref entity.Get<Text>();
+        ref var text = ref entity.Get<SimpleText>();
         ref var position = ref entity.Get<Position>();
         _batch.DrawString(
             text.Font,

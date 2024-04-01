@@ -12,6 +12,8 @@ using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoDreams.System;
 using MonoGame.ImGuiNet;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 using ButtonState = MonoDreams.Component.ButtonState;
 
 namespace HeartfeltLending;
@@ -20,7 +22,7 @@ public class HeartfeltLending : Game
 {
     #region Fields
 
-    private static readonly bool IsDebug = false;
+    private static readonly bool IsDebug = true;
     private readonly GraphicsDeviceManager _deviceManager;
     private readonly SpriteBatch _batch;
     private World _world;
@@ -34,6 +36,7 @@ public class HeartfeltLending : Game
     private readonly SpriteFont _font;
     private RenderTarget2D _debugRenderTarget;
     private ImGuiRenderer _guiRenderer;
+    public IDeserializer Deserializer;
 
     #endregion
 
@@ -67,6 +70,7 @@ public class HeartfeltLending : Game
         _runner = new DefaultParallelRunner(1);
         _square = Content.Load<Texture2D>("square");
         _font = Content.Load<SpriteFont>("defaultFont");
+        Deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
     }
 
     protected override void Initialize()
@@ -84,7 +88,8 @@ public class HeartfeltLending : Game
         
         _cursorTexture = Content.Load<Texture2D>("Other/Transition");
         
-        _world = new Menu(this, GraphicsDevice, Content, _renderer).World;
+        // _world = new Menu(this, GraphicsDevice, Content, _renderer).World;
+        _world = new DialogueScreen(this, GraphicsDevice, Content, _renderer).World;
 
         _system = new SequentialSystem<GameState>(
             new PlayerInputSystem(_world),
@@ -95,7 +100,8 @@ public class HeartfeltLending : Game
             new PositionSystem(_world, _runner),
             new DrawSystem(_renderer, _camera, _batch, _world),
             // new CollidableDrawSystem(_camera, _batch, _world),
-            new TextSystem(_camera, _batch, _world));
+            new TextSystem(_camera, _batch, _world),
+            new DynamicTextSystem(_camera, _batch, _world));
             // new DebugInfoSystem(_renderer, _camera, _batch, _font, _world));
         
         base.Initialize();
@@ -133,6 +139,8 @@ public class HeartfeltLending : Game
         _batch.GraphicsDevice.Clear(Color.Transparent);
         _guiRenderer.BeforeLayout(gameTime);
 
+        IsMouseVisible = true;
+        
         var cursorEntity = _world.GetEntities().With<CursorController>().AsEnumerable().First();
         ImGui.Begin("Cursor", ImGuiWindowFlags.Modal);
         ImGui.Text($"Position: {cursorEntity.Get<Position>().CurrentLocation}");
@@ -142,7 +150,7 @@ public class HeartfeltLending : Game
         ImGui.Begin("Buttons", ImGuiWindowFlags.Modal);
         foreach (var button in buttons)
         {
-            if (ImGui.TreeNode($"Button: {button.Get<Text>().Value}"))
+            if (ImGui.TreeNode($"Button: {button.Get<SimpleText>().Value}"))
             {
                 ImGui.Text($"Position: {button.Get<Position>().CurrentLocation}");
                 ImGui.Text($"Bounds: {button.Get<Collidable>().Bounds}");

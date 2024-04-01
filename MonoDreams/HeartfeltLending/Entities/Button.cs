@@ -17,7 +17,7 @@ public static class Button
         var entity = world.CreateEntity();
         entity.Set(new Position(position));
         entity.Set(new Collidable(new Rectangle(size/new Point(-2, -2), size)));
-        entity.Set(new Text(value, font, defaultColor.Value, HorizontalAlign.Center, VerticalAlign.Center));
+        entity.Set(new SimpleText(value, font, defaultColor.Value, HorizontalAlign.Center, VerticalAlign.Center));
         entity.Set(new ButtonState(defaultColor.Value, selectedColor.Value, callback));
         return entity;
     }

@@ -58,6 +58,12 @@
           "StbTrueTypeSharp": "1.24.7"
         }
       },
+      "YamlDotNet": {
+        "type": "Direct",
+        "requested": "[15.1.2, )",
+        "resolved": "15.1.2",
+        "contentHash": "qeX0XhzOIcQEvnI5JxnPaIwcINwyY4Qy/LXhSfsdHkFrl9F41AT52UFfy2nIE7kgrhMg+cP7xuS+GtPJhmHmTA=="
+      },
       "Autofac": {
         "type": "Transitive",
         "resolved": "5.2.0",

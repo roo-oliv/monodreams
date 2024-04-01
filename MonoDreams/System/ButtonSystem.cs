@@ -70,9 +70,9 @@ public class ButtonSystem : ISystem<GameState>
     {
         ref var buttonState = ref activeButton.Get<ButtonState>();
         buttonState.Select();
-        if (activeButton.Has<Text>())
+        if (activeButton.Has<SimpleText>())
         {
-            activeButton.Get<Text>().Color = buttonState.SelectedColor;
+            activeButton.Get<SimpleText>().Color = buttonState.SelectedColor;
         }
         _currentlyActiveButton = activeButton;
     }
@@ -85,9 +85,9 @@ public class ButtonSystem : ISystem<GameState>
         }
         var currentlyActiveButton = _currentlyActiveButton.Value;
         currentlyActiveButton.Get<ButtonState>().Reset();
-        if (currentlyActiveButton.Has<Text>())
+        if (currentlyActiveButton.Has<SimpleText>())
         {
-            currentlyActiveButton.Get<Text>().Color = currentlyActiveButton.Get<ButtonState>().DefaultColor;
+            currentlyActiveButton.Get<SimpleText>().Color = currentlyActiveButton.Get<ButtonState>().DefaultColor;
         }
         _currentlyActiveButton = null;
     }

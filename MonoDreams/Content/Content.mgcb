@@ -50,6 +50,30 @@
 /processorParam:TextureFormat=Color
 /build:Background/Brown.png
 
+#begin Background/dialoguebox-300.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Background/dialoguebox-300.png
+
+#begin Background/dialoguebox.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Background/dialoguebox.png
+
 #begin Background/Gray.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -1682,6 +1706,74 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Text/Renogare-Regular-100p-white-stroke3.png
+
+#begin Text/Renogare-Regular-50p-white-stroke1.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare-Regular-50p-white-stroke1.fnt;Text/Renogare-Regular-50p-white-stroke1-fnt.fnt
+
+#begin Text/Renogare-Regular-50p-white-stroke1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare-Regular-50p-white-stroke1.png
+
+#begin Text/Renogare/Renogare-FS48-LH50-GrayF-BlackS1-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare/Renogare-FS48-LH50-GrayF-BlackS1-fnt.fnt
+
+#begin Text/Renogare/Renogare-FS48-LH50-GrayF-BlackS1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare/Renogare-FS48-LH50-GrayF-BlackS1.png
+
+#begin Text/Renogare/Renogare-FS48-LH50-WhiteF-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare/Renogare-FS48-LH50-WhiteF-fnt.fnt
+
+#begin Text/Renogare/Renogare-FS48-LH50-WhiteF.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare/Renogare-FS48-LH50-WhiteF.png
+
+#begin Text/Renogare/Renogare-FS56-LH59-GrayF-BlackS1-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Text/Renogare/Renogare-FS56-LH59-GrayF-BlackS1-fnt.fnt
+
+#begin Text/Renogare/Renogare-FS56-LH59-GrayF-BlackS1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Text/Renogare/Renogare-FS56-LH59-GrayF-BlackS1.png
 
 #begin Text/Title-Font-Green-Bold.fnt
 /importer:BitmapFontImporter

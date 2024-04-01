@@ -5,7 +5,7 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Component;
 
-public struct Text
+public struct SimpleText
 {
     private string _value;
     public string Value
@@ -37,7 +37,7 @@ public struct Text
     public HorizontalAlign HorizontalAlign;
     public VerticalAlign VerticalAlign;
 
-    public Text(string value, BitmapFont font, Color color, HorizontalAlign horizontalAlign, VerticalAlign verticalAlign) : this()
+    public SimpleText(string value, BitmapFont font, Color color, HorizontalAlign horizontalAlign, VerticalAlign verticalAlign) : this()
     {
         Font = font;
         Color = color;
