@@ -1,8 +1,0 @@
----
-- :
-  speaker: Player
-  portrait: Happy
-  text: >
-    Olá! Como [color=Red]você[/color] está?
-    Este é o meu primeiro dia aqui.
-...
