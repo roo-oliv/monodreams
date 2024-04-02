@@ -1,4 +1,3 @@
-using HeartfeltLending;
 using Microsoft.Xna.Framework.Graphics;
 
 namespace MonoDreams.Component;
@@ -20,7 +19,7 @@ public class DialogueController
 public class Speech
 {
     public string Text;
-    public Character Character;
+    public string Character;
     public Texture2D Portrait;
     public bool PortraitOnLeft;
 }
