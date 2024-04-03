@@ -108,16 +108,12 @@
           }
         },
         "warningProperties": {
-          "noWarn": [
-            "NU5105"
-          ],
           "warnAsError": [
             "NU1605"
           ]
         },
         "restoreLockProperties": {
-          "restorePackagesWithLockFile": "true",
-          "nuGetLockFilePath": ""
+          "restorePackagesWithLockFile": "true"
         }
       },
       "frameworks": {
