@@ -11,8 +11,37 @@
         <ApplicationIcon>Icon.ico</ApplicationIcon>
     </PropertyGroup>
     <PropertyGroup>
+        <Authors>Rodrigo Oliveira</Authors>
+        <Description>
+            MonoDreams is a simple 2D game engine written in C# using the MonoGame framework. It is designed to be easy to use and to provide a simple way to create 2D games.
+        </Description>
+        <PackageProjectUrl>https://github.com/roo-oliv/monodreams</PackageProjectUrl>
+        <PackageTags>game, engine, library, monogame, 2d, xna, monodreams</PackageTags>
+    </PropertyGroup>
+    <PropertyGroup>
         <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     </PropertyGroup>
+    <PropertyGroup>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    </PropertyGroup>
+    <PropertyGroup>
+        <EnablePackageValidation>true</EnablePackageValidation>
+        <!-- Optional: Detect breaking changes from a previous version -->
+        <!-- <PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion> -->
+    </PropertyGroup>
+    <PropertyGroup>
+        <GenerateDocumentationFile>True</GenerateDocumentationFile>
+        <!-- If all members are not documented, you can disable the compiler warnings -->
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+    </PropertyGroup>
+    <PropertyGroup>
+        <PackageReadmeFile>MonoDreams/README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Add a README.md next to the csproj -->
+        <None Include="MonoDreams/README.md" Pack="true" PackagePath=""/>
+    </ItemGroup>
     <ItemGroup>
         <None Remove="Icon.ico" />
         <None Remove="Icon.bmp" />
@@ -25,6 +54,14 @@
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="DefaultEcs" Version="0.17.2" />
+        <PackageReference Include="DotNet.ReproducibleBuilds" Version="1.1.1">
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+          <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+        <PackageReference Include="MinVer" Version="5.0.0">
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+          <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
         <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="3.8.0" />
         <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
         <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.1.303" />
