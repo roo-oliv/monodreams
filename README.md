@@ -1,6 +1,23 @@
+MonoDreams
+==========
+
+<p align="center">
+  <br>
+   <img src="/Icon/monodreams-logo.png" width="128" alt="MonoDreams Logo" title="MonoDreams Logo" />
+  <br>
+</p>
+<p align="center">
+A powerful, flexible, and free 2D game engine powered by MonoGame
+</p>
+
+![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams%2F)
+![MIT License](https://img.shields.io/crates/l/mit?link=https%3A%2F%2Fgithub.com%2Froo-oliv%2Fmonodreams%2Fblob%2Fmain%2FLICENSE)
+
+
+
 This is a hobby project of mine.
 
-With no roadmap commitment, this project's goal is to create an opensource 2D game engine on top of Monogame and DefaultECS loaded with common systems for platforming games such as input handling, HUD, camera movement, sprite renderer, level importer, gravity and jumping logics, AABB collision detection and resolution, and more.
+With no roadmap commitment, this project's goal is to create an opensource 2D game engine on top of Monogame and DefaultECS loaded with common systems for 2D games such as input handling, HUD, dialogue system, camera movement, sprite renderer, level importer, gravity and jumping logics, AABB collision detection and resolution, and more.
 
 [You can follow my tentative roadmap here.](https://github.com/users/allrod5/projects/1/views/1)
 
