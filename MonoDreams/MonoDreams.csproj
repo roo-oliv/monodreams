@@ -19,6 +19,9 @@
         <PackageTags>game, engine, library, monogame, 2d, xna, monodreams</PackageTags>
     </PropertyGroup>
     <PropertyGroup>
+        <PackageIcon>Icon.png</PackageIcon>
+    </PropertyGroup>
+    <PropertyGroup>
         <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     </PropertyGroup>
     <PropertyGroup>
@@ -43,6 +46,28 @@
     <PropertyGroup>
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
+    <PropertyGroup>
+        <Deterministic>true</Deterministic>
+        <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">True</ContinuousIntegrationBuild>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <!-- Optional: Declare that the Repository URL can be published to NuSpec -->
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+        <!-- Optional: Embed source files that are not tracked by the source control manager to the PDB -->
+        <!-- This is useful if you generate files during the build -->
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+        <!-- Generate symbol packages (.snupkg) -->
+        <!-- You must publish both packages, the package that contains the DLL (.nupkg) and the one that contains the symbols (.snupkg) -->
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1-*" PrivateAssets="All"/>
+    </ItemGroup>
 
     <ItemGroup>
         <!-- Add a README.md next to the csproj -->
@@ -50,13 +75,14 @@
     </ItemGroup>
     <ItemGroup>
         <None Remove="Icon.ico" />
-        <None Remove="Icon.bmp" />
         <None Remove="Core\**" />
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="Icon.ico" />
-        <EmbeddedResource Include="Icon.bmp" />
         <EmbeddedResource Remove="Core\**" />
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="Icon.png" Pack="true" PackagePath="\" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="DefaultEcs" Version="0.17.2" />
