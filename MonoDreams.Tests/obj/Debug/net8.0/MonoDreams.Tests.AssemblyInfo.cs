@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MonoDreams.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4fc8b1926a91e241177675f4e1acd4b3df72cca6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fa134abf0db55e8ac084d652e9007c0c528d9f42")]
 [assembly: System.Reflection.AssemblyProductAttribute("MonoDreams.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MonoDreams.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

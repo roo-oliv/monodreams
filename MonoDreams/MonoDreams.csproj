@@ -13,7 +13,7 @@
     <PropertyGroup>
         <Authors>Rodrigo Oliveira</Authors>
         <Description>
-            MonoDreams is a simple 2D game engine written in C# using the MonoGame framework. It is designed to be easy to use and to provide a simple way to create 2D games.
+            A code-first and data-driven opensource 2D game engine powered by MonoGame
         </Description>
         <PackageProjectUrl>https://github.com/roo-oliv/monodreams</PackageProjectUrl>
         <PackageTags>game, engine, library, monogame, 2d, xna, monodreams</PackageTags>

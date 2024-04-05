@@ -7,7 +7,7 @@ MonoDreams
   <br>
 </p>
 <p align="center">
-A powerful, flexible, and free 2D game engine powered by MonoGame
+A code-first and data-driven opensource 2D game engine powered by MonoGame
 </p>
 
 ![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams%2F)
@@ -18,8 +18,9 @@ A powerful, flexible, and free 2D game engine powered by MonoGame
 This is a hobby project of mine.
 
 With no roadmap commitment, this project's goal is to create an opensource 2D game engine on top of Monogame and DefaultECS loaded with common systems for 2D games such as input handling, HUD, dialogue system, camera movement, sprite renderer, level importer, gravity and jumping logics, AABB collision detection and resolution, and more.
+MonoDreams is designed to be a code-first and data-driven engine, with a focus on ease of use and flexibility.
 
-[You can follow my tentative roadmap here.](https://github.com/users/allrod5/projects/1/views/1)
+[You can follow my tentative roadmap here.](https://github.com/users/roo-oliv/projects/1/views/1)
 
 # Special Thanks
 This project is intended to support and enable the gamedev community and I hope one day it will be a good starting point for many people to create their own games.

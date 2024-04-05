@@ -6,20 +6,15 @@ namespace MonoDreams.Component;
 public struct DrawInfo
 {
     public Texture2D SpriteSheet;
+    public Point Size;
     public Rectangle Source;
     public Color Color;
 
-    public DrawInfo(Texture2D spriteSheet, Rectangle source, Color color)
+    public DrawInfo(Texture2D spriteSheet, Point? size = null, Rectangle? source = null, Color? color = null)
     {
         SpriteSheet = spriteSheet;
-        Source = source;
-        Color = color;
-    }
-    
-    public DrawInfo(Texture2D texture, Color? color = null)
-    {
-        SpriteSheet = texture;
-        Source = texture.Bounds;
-        Color = color ?? Color.White;
+        Size = size ?? spriteSheet.Bounds.Size;
+        Source = source ?? spriteSheet.Bounds;
+        Color =  color ?? Color.White;
     }
 }

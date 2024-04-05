@@ -57,7 +57,8 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
             drawInfo.Source = new Rectangle(frameWidth * animation.CurrentFrame, 0, frameWidth, drawInfo.SpriteSheet.Height);
         }
 
-        _batch.Draw(drawInfo.SpriteSheet, position.CurrentLocation, drawInfo.Source, drawInfo.Color);
+        var destination = new Rectangle(position.CurrentLocation.ToPoint(), drawInfo.Size);
+        _batch.Draw(drawInfo.SpriteSheet, destination, drawInfo.Source, drawInfo.Color);
     }
 
     protected override void PostUpdate(GameState state) => _batch.End();
