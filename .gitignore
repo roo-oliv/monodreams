@@ -1,1 +1,12 @@
 nuget/
+
+# Jetbrains Rider files
+.idea/
+
+# binary files
+MonoDreams/bin/
+MonoDreams/obj/
+MonoDreams.Examples/bin/
+MonoDreams.Examples/obj/
+MonoDreams.Tests/bin/
+MonoDreams.Tests/obj/
