@@ -1,12 +1,16 @@
 {
   "version": 1,
   "dependencies": {
-    "net8.0": {
+    ".NETFramework,Version=v8.0": {
       "DefaultEcs": {
         "type": "Direct",
         "requested": "[0.17.2, )",
         "resolved": "0.17.2",
-        "contentHash": "3It4x4eCRuJZ3jvMFJFuyL6a4N6+zT0QUopY60xQxikAtzFh7tZ0oDtw8VVT83H95LOJzWZud8lIMVUbtOA7kg=="
+        "contentHash": "3It4x4eCRuJZ3jvMFJFuyL6a4N6+zT0QUopY60xQxikAtzFh7tZ0oDtw8VVT83H95LOJzWZud8lIMVUbtOA7kg==",
+        "dependencies": {
+          "System.Memory": "4.5.4",
+          "System.Reflection.Emit.Lightweight": "4.7.0"
+        }
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
@@ -46,13 +50,7 @@
         "type": "Direct",
         "requested": "[3.8.0, )",
         "resolved": "3.8.0",
-        "contentHash": "Kt21Ux4Hdkgm7FMiGhQ7C0+rMS0wMQM63TxWsNBa8DjEDwX1pKIUORxvQBgh89J4TiMSmmK+U6VfxV2kh5PPpg==",
-        "dependencies": {
-          "Autofac": "5.2.0",
-          "MonoGame.Extended": "3.8.0",
-          "MonoGame.Extended.Tiled": "3.8.0",
-          "Newtonsoft.Json": "12.0.3"
-        }
+        "contentHash": "Kt21Ux4Hdkgm7FMiGhQ7C0+rMS0wMQM63TxWsNBa8DjEDwX1pKIUORxvQBgh89J4TiMSmmK+U6VfxV2kh5PPpg=="
       },
       "MonoGame.Framework.DesktopGL": {
         "type": "Direct",
@@ -64,10 +62,7 @@
         "type": "Direct",
         "requested": "[1.0.5, )",
         "resolved": "1.0.5",
-        "contentHash": "/hDxFze2vqufg/SMFhxN23dsJqAfuc+aYfRRHikHFFU4SzgrfngfeAPmDGB6C5m5HHgrDEev8i6pFA4fx2GITQ==",
-        "dependencies": {
-          "ImGui.NET": "1.89.7.1"
-        }
+        "contentHash": "/hDxFze2vqufg/SMFhxN23dsJqAfuc+aYfRRHikHFFU4SzgrfngfeAPmDGB6C5m5HHgrDEev8i6pFA4fx2GITQ=="
       },
       "SpriteFontPlus": {
         "type": "Direct",
@@ -80,25 +75,10 @@
           "StbTrueTypeSharp": "1.24.7"
         }
       },
-      "Autofac": {
-        "type": "Transitive",
-        "resolved": "5.2.0",
-        "contentHash": "V8dBH0dsv75uDzl7Sw+HkhKDPUw2eXnlMjcSVMH+tLo2s67MpTKGyDj1pDcpR+IF2u4YRs0s3/x7R88YJzIWvg=="
-      },
       "Cyotek.Drawing.BitmapFont": {
         "type": "Transitive",
         "resolved": "2.0.1",
         "contentHash": "8C8Vdvf8p6RIOBNFE99ZNPWFxwV/ZT1wk11cajuL3+6/e5DBGPHe+ZjxLu2efTWQ1YvfLh4KpP2epUZ9z/WcFQ=="
-      },
-      "ImGui.NET": {
-        "type": "Transitive",
-        "resolved": "1.89.7.1",
-        "contentHash": "e7hAn3Jq4uoiAeQMmxAu9jkdSJnGR74qO1HNVF7wwIq7g6H9tBIDWke72sHbwGOXpZtL1/S678dR5j7VbDzt9A==",
-        "dependencies": {
-          "System.Buffers": "4.4.0",
-          "System.Numerics.Vectors": "4.4.0",
-          "System.Runtime.CompilerServices.Unsafe": "4.4.0"
-        }
       },
       "Microsoft.Build.Tasks.Git": {
         "type": "Transitive",
@@ -137,36 +117,6 @@
           "Microsoft.SourceLink.Common": "1.1.1"
         }
       },
-      "MonoGame.Extended": {
-        "type": "Transitive",
-        "resolved": "3.8.0",
-        "contentHash": "FDPoUOFtslGNHCWSqjKD0C67RYN6Stb6NWnn+rkCmtkPBZlE6LvwuGyQBkHUkAMANO3LzO/Wsz9etMhwZLInqg==",
-        "dependencies": {
-          "Newtonsoft.Json": "12.0.3"
-        }
-      },
-      "MonoGame.Extended.Graphics": {
-        "type": "Transitive",
-        "resolved": "3.8.0",
-        "contentHash": "vSl1+4dFNKnOqHUB1SRQ7IdWXNagJJI+KKCQmaSyfon99/kumsChQ9iZXltEaUO3ArB8QGnblii/PXq/bsLUHQ==",
-        "dependencies": {
-          "MonoGame.Extended": "3.8.0"
-        }
-      },
-      "MonoGame.Extended.Tiled": {
-        "type": "Transitive",
-        "resolved": "3.8.0",
-        "contentHash": "lXE+Ysvep5FCozHlj862kqIG6TWCmjNgjF7xWbJ4ZDkqG+Khi9VrG5G8Pdj80TMRpDhZOz3PICinVZElZU639g==",
-        "dependencies": {
-          "MonoGame.Extended": "3.8.0",
-          "MonoGame.Extended.Graphics": "3.8.0"
-        }
-      },
-      "Newtonsoft.Json": {
-        "type": "Transitive",
-        "resolved": "12.0.3",
-        "contentHash": "6mgjfnRB4jKMlzHSl+VD+oUc1IebOZabkbyWj2RiTgWwYPPuaK1H97G1sHqGwPlS5npiF5Q0OrxN1wni2n5QWg=="
-      },
       "StbImageSharp": {
         "type": "Transitive",
         "resolved": "2.22.4",
@@ -179,18 +129,33 @@
       },
       "System.Buffers": {
         "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "AwarXzzoDwX6BgrhjoJsk6tUezZEozOT5Y9QKF94Gl4JK91I4PIIBkBco9068Y9/Dra8Dkbie99kXB8+1BaYKw=="
+        "resolved": "4.5.1",
+        "contentHash": "Rw7ijyl1qqRS0YQD/WycNst8hUUMgrMH4FCn1nNm27M4VxchZ1js3fVjQaANHO5f3sN4isvP4a+Met9Y4YomAg=="
+      },
+      "System.Memory": {
+        "type": "Transitive",
+        "resolved": "4.5.4",
+        "contentHash": "1MbJTHS1lZ4bS4FmsJjnuGJOu88ZzTT2rLvrhW7Ygic+pC0NWA+3hgAen0HRdsocuQXCkUTdFn9yHJJhsijDXw==",
+        "dependencies": {
+          "System.Buffers": "4.5.1",
+          "System.Numerics.Vectors": "4.5.0",
+          "System.Runtime.CompilerServices.Unsafe": "4.5.3"
+        }
       },
       "System.Numerics.Vectors": {
         "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ=="
+        "resolved": "4.5.0",
+        "contentHash": "QQTlPTl06J/iiDbJCiepZ4H//BVraReU4O4EoRw1U02H5TLUIT7xn3GnDp9AXPSlJUDyFs4uWjWafNX6WrAojQ=="
+      },
+      "System.Reflection.Emit.Lightweight": {
+        "type": "Transitive",
+        "resolved": "4.7.0",
+        "contentHash": "a4OLB4IITxAXJeV74MDx49Oq2+PsF6Sml54XAFv+2RyWwtDBcabzoxiiJRhdhx+gaohLh4hEGCLQyBozXoQPqA=="
       },
       "System.Runtime.CompilerServices.Unsafe": {
         "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "9dLLuBxr5GNmOfl2jSMcsHuteEg32BEfUotmmUkmZjpR3RpVHE8YQwt0ow3p6prwA1ME8WqDVZqrr8z6H8G+Kw=="
+        "resolved": "4.5.3",
+        "contentHash": "3TIsJhD1EiiT0w2CcDMN/iSSwnNnsrnbzeVHSKkaEgV85txMprmuO+Yq2AdSbeVGcg28pdNDTPK87tJhX7VFHw=="
       }
     }
   }
