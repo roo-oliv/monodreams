@@ -1,0 +1,98 @@
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/buttons/Small Square Buttons.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/buttons/Square Buttons 19x26.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/buttons/Square Buttons 26x19.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/buttons/Square Buttons 26x26.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Characters/Basic Charakter Actions.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Characters/Basic Charakter Spritesheet.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Characters/Egg_And_Nest.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Characters/Free Chicken Sprites.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Characters/Free Cow Sprites.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Characters/Tools.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/dialog box big.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/dialog box medium.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/dialog box small.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/dialog box.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/Premade dialog box  big.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/Premade dialog box medium.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Dialouge UI/Premade dialog box small.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Icons/All Icons.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Icons/special icons/Small Happines-Sadness icons.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Icons/special icons/Special Icons.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Icons/white icons.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Mouse sprites/Catpaw holding Mouse icon.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Mouse sprites/Catpaw Mouse icon.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Mouse sprites/Catpaw pointing Mouse icon.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Mouse sprites/Triangle Mouse icon 1.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Mouse sprites/Triangle Mouse icon 2.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Mouse sprites/Triangle Mouse icon 3.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Basic_Furniture.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Basic_Grass_Biom_things.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Basic_Plants.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Basic_tools_and_meterials.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Chest.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Egg_item.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Free_Chicken_House.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Paths.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Simple_Milk_and_grass_item.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Objects/Wood_Bridge.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Setting menu.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Sprite sheet for Basic Pack.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Sprout Lands color pallet/Sprout Lands defautlt palette snip.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Sprout Lands color pallet/Sprout Lands defautlt palette.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Bitmask references 1.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Bitmask references 2.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Bitmask references gif.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Fences.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Grass.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Hills.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Tilled_Dirt.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Water.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/Tilesets/Wooden House.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/UI Big Play Button.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/UI Settings Buttons.xnb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples.deps.json
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples.runtimeconfig.json
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples.pdb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Autofac.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Cyotek.Drawing.BitmapFont.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/DefaultEcs.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/ImGui.NET.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoGame.Extended.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoGame.Extended.Graphics.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoGame.Extended.Tiled.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoGame.Framework.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Newtonsoft.Json.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/SpriteFontPlus.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/StbImageSharp.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/StbTrueTypeSharp.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/linux-x64/native/libcimgui.so
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/osx/native/libcimgui.dylib
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-arm64/native/cimgui.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-x64/native/cimgui.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-x86/native/cimgui.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/linux-x64/native/libSDL2-2.0.so.0
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/linux-x64/native/libopenal.so.1
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/osx/native/libSDL2.dylib
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/osx/native/libopenal.1.dylib
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-x64/native/SDL2.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-x64/native/soft_oal.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-x86/native/SDL2.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/runtimes/win-x86/native/soft_oal.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.xml
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.csproj.AssemblyReference.cache
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.GeneratedMSBuildEditorConfig.editorconfig
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.AssemblyInfoInputs.cache
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.AssemblyInfo.cs
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.csproj.CoreCompileInputs.cache
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.sourcelink.json
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.csproj.CopyComplete
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/refint/MonoDreams.Examples.dll
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.pdb
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/MonoDreams.Examples.genruntimeconfig.cache
+/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/obj/Debug/net8.0/ref/MonoDreams.Examples.dll

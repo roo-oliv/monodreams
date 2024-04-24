@@ -5,23 +5,18 @@ namespace MonoDreams.State;
 
 public class GameState
 {
-    public readonly GameTime GameTime;
-    public float Time;
-    public float LastTime;
-    public float TotalTime;
-    public float LastTotalTime;
-    public KeyboardState KeyboardState;
-    public MouseState MouseState;
+    public (GameTime current, GameTime last) GameTime { get; private set; }
+    public float Time => (float) GameTime.current.ElapsedGameTime.TotalSeconds;
+    public float LastTime => (float) GameTime.last.ElapsedGameTime.TotalSeconds;
+    public float TotalTime => (float) GameTime.current.TotalGameTime.TotalSeconds;
 
-    public GameState(GameTime gameTime, float time, float lastTime, float totalTime, float lastTotalTime, KeyboardState keyboardState,
-        MouseState mouseState)
+    public GameState(GameTime gameTime)
     {
-        GameTime = gameTime;
-        Time = time;
-        LastTime = lastTime;
-        TotalTime = totalTime;
-        LastTotalTime = lastTotalTime;
-        KeyboardState = keyboardState;
-        MouseState = mouseState;
+        GameTime = (gameTime, gameTime);
+    }
+    
+    public void Update(GameTime gameTime)
+    {
+        GameTime = (gameTime, GameTime.current);
     }
 }

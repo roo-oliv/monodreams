@@ -8,6 +8,7 @@ public struct DynamicText
     public BitmapFont Font;
     public float RevealingSpeed;
     public float RevealStartTime;
+    public bool IsRevealed = false;
 
     public DynamicText(string value, BitmapFont font, float revealingSpeed = 20) : this()
     {

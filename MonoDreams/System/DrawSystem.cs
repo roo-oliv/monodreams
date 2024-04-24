@@ -33,7 +33,7 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
         _batch.Begin(
             SpriteSortMode.Deferred,
             BlendState.AlphaBlend,
-            SamplerState.PointClamp,
+            SamplerState.PointWrap,
             DepthStencilState.None,
             RasterizerState.CullNone, 
             null,
@@ -56,7 +56,7 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
             var frameWidth = drawInfo.SpriteSheet.Width / animation.TotalFrames;
             drawInfo.Source = new Rectangle(frameWidth * animation.CurrentFrame, 0, frameWidth, drawInfo.SpriteSheet.Height);
         }
-
+        
         var destination = new Rectangle(position.CurrentLocation.ToPoint(), drawInfo.Size);
         _batch.Draw(drawInfo.SpriteSheet, destination, drawInfo.Source, drawInfo.Color);
     }

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MonoDreams</name>
+    </assembly>
+    <members>
+        <member name="M:MonoDreams.Utils.Swap``1(``0@,``0@)">
+            <summary>
+            swaps the two object types
+            </summary>
+            <param name="first">First.</param>
+            <param name="second">Second.</param>
+            <typeparam name="T">The 1st type parameter.</typeparam>
+        </member>
+    </members>
+</doc>

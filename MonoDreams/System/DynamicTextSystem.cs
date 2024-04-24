@@ -39,11 +39,21 @@ public sealed class DynamicTextSystem : AEntitySetSystem<GameState>
         ref var position = ref entity.Get<Position>();
         if (float.IsNaN(text.RevealStartTime)) text.RevealStartTime = state.TotalTime;
         float elapsedTime = state.TotalTime - text.RevealStartTime;
-        int revealedChars = 0;
-        foreach (var (glyph, color) in TextProcessor.GetGlyphs(text, position.CurrentLocation, 600))
+        var glyphs = TextProcessor.GetGlyphs(text, position.CurrentLocation, 600);
+        int revealedChars = text.IsRevealed ? glyphs.Count : 0;
+        foreach (var (glyph, color) in glyphs)
         {
-            if (revealedChars / elapsedTime > text.RevealingSpeed) break;
-            revealedChars++;
+            if (!text.IsRevealed)
+            {
+                if (revealedChars / elapsedTime > text.RevealingSpeed) break;
+                revealedChars++;
+            }
+
+            if (revealedChars == glyphs.Count)
+            {
+                text.IsRevealed = true;
+            }
+            
             if (glyph.FontRegion == null) continue;
             Vector2 origin1 = position.CurrentLocation - glyph.Position;
             _batch.Draw(glyph.FontRegion.TextureRegion, position.CurrentLocation, color, 0.0f, origin1, Vector2.One, SpriteEffects.None, 0.0f);
