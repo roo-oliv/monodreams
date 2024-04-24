@@ -4,6 +4,7 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Draw;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
@@ -31,7 +32,7 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
     {
         _resolutionIndependentRenderer.BeginDraw();
         _batch.Begin(
-            SpriteSortMode.Deferred,
+            SpriteSortMode.BackToFront,
             BlendState.AlphaBlend,
             SamplerState.PointWrap,
             DepthStencilState.None,
@@ -57,8 +58,9 @@ public sealed class DrawSystem : AEntitySetSystem<GameState>
             drawInfo.Source = new Rectangle(frameWidth * animation.CurrentFrame, 0, frameWidth, drawInfo.SpriteSheet.Height);
         }
         
+        float layerDepth = DrawLayerDepth.GetLayerDepth(drawInfo.Layer);
         var destination = new Rectangle(position.CurrentLocation.ToPoint(), drawInfo.Size);
-        _batch.Draw(drawInfo.SpriteSheet, destination, drawInfo.Source, drawInfo.Color);
+        _batch.Draw(drawInfo.SpriteSheet, destination, drawInfo.Source, drawInfo.Color, 0, Vector2.Zero, SpriteEffects.None, layerDepth);
     }
 
     protected override void PostUpdate(GameState state) => _batch.End();

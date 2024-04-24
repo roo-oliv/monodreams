@@ -1,3 +1,4 @@
+using System;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -7,11 +8,11 @@ namespace MonoDreams.Objects;
 
 public static class StaticImage
 {
-    public static Entity Create(World world, Vector2 location, Texture2D texture, Point? size = null, Rectangle? source = null, Color? color = null)
+    public static Entity Create(World world, Vector2 location, Texture2D texture, Point? size = null, Rectangle? source = null, Color? color = null, Enum drawLayer = null)
     {
         var entity = world.CreateEntity();
         entity.Set(new Position(location));
-        entity.Set(new DrawInfo(texture, size, source, color));
+        entity.Set(new DrawInfo(texture, size, source, color, drawLayer));
         return entity;
     }
 }

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <SourceFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 3.png</SourceFile>
-  <SourceTime>2022-07-16T21:44:10-03:00</SourceTime>
-  <DestFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Mouse sprites/Triangle Mouse icon 3.xnb</DestFile>
-  <DestTime>2024-04-23T17:30:30.1316024-03:00</DestTime>
+  <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 3.png</SourceFile>
+  <SourceTime>2024-04-24T08:51:17.3268387-03:00</SourceTime>
+  <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Mouse sprites/Triangle Mouse icon 3.xnb</DestFile>
+  <DestTime>2024-04-24T11:22:53.4754721-03:00</DestTime>
   <Importer>TextureImporter</Importer>
   <ImporterTime>2022-07-26T08:44:56-03:00</ImporterTime>
   <Processor>TextureProcessor</Processor>

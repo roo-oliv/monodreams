@@ -36,14 +36,16 @@ public struct SimpleText
     public Color Color;
     public HorizontalAlign HorizontalAlign;
     public VerticalAlign VerticalAlign;
+    public Enum DrawLayer;
 
-    public SimpleText(string value, BitmapFont font, Color color, HorizontalAlign horizontalAlign, VerticalAlign verticalAlign) : this()
+    public SimpleText(string value, BitmapFont font, Color color, HorizontalAlign horizontalAlign, VerticalAlign verticalAlign, Enum drawLayer = null) : this()
     {
         Font = font;
         Color = color;
         HorizontalAlign = horizontalAlign;
         VerticalAlign = verticalAlign;
         Value = value;
+        DrawLayer = drawLayer;
     }
 
     public Vector2 Origin { get; private set; }

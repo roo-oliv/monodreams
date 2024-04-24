@@ -29,7 +29,7 @@ public class Game1 : Game
     {
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
-        IsMouseVisible = true;
+        IsMouseVisible = false;
         IsFixedTimeStep = true;
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
         _graphics.IsFullScreen = false;

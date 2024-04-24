@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <SourceFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/UI Settings Buttons.png</SourceFile>
-  <SourceTime>2022-03-13T15:07:58-03:00</SourceTime>
-  <DestFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/bin/UI Settings Buttons.xnb</DestFile>
-  <DestTime>2024-04-23T17:15:58.7287349-03:00</DestTime>
+  <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/UI Settings Buttons.png</SourceFile>
+  <SourceTime>2024-04-24T08:51:17.3411998-03:00</SourceTime>
+  <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/UI Settings Buttons.xnb</DestFile>
+  <DestTime>2024-04-24T14:55:34.8158872-03:00</DestTime>
   <Importer>TextureImporter</Importer>
   <ImporterTime>2022-07-26T08:44:56-03:00</ImporterTime>
   <Processor>TextureProcessor</Processor>

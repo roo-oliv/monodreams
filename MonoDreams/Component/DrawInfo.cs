@@ -1,20 +1,19 @@
+using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
 namespace MonoDreams.Component;
 
-public struct DrawInfo
+public struct DrawInfo(
+    Texture2D spriteSheet,
+    Point? size = null,
+    Rectangle? source = null,
+    Color? color = null,
+    Enum layer = null)
 {
-    public Texture2D SpriteSheet;
-    public Point Size;
-    public Rectangle Source;
-    public Color Color;
-
-    public DrawInfo(Texture2D spriteSheet, Point? size = null, Rectangle? source = null, Color? color = null)
-    {
-        SpriteSheet = spriteSheet;
-        Size = size ?? spriteSheet.Bounds.Size;
-        Source = source ?? spriteSheet.Bounds;
-        Color =  color ?? Color.White;
-    }
+    public Texture2D SpriteSheet = spriteSheet;
+    public Point Size = size ?? spriteSheet.Bounds.Size;
+    public Rectangle Source = source ?? spriteSheet.Bounds;
+    public Color Color = color ?? Color.White;
+    public Enum Layer = layer;
 }

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <SourceFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG</SourceFile>
-  <SourceTime>2023-07-18T23:02:38-03:00</SourceTime>
-  <DestFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/bin/Sprout Lands color pallet/Sprout Lands defautlt palette snip.xnb</DestFile>
-  <DestTime>2024-04-23T17:15:58.5407353-03:00</DestTime>
+  <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG</SourceFile>
+  <SourceTime>2024-04-24T08:51:17.3331685-03:00</SourceTime>
+  <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/Sprout Lands color pallet/Sprout Lands defautlt palette snip.xnb</DestFile>
+  <DestTime>2024-04-24T14:55:34.6778203-03:00</DestTime>
   <Importer>TextureImporter</Importer>
   <ImporterTime>2022-07-26T08:44:56-03:00</ImporterTime>
   <Processor>TextureProcessor</Processor>

@@ -4,60 +4,62 @@
   <Platform>DesktopGL</Platform>
   <Config />
   <SourceFiles>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/buttons/Small Square Buttons.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/buttons/Square Buttons 19x26.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/buttons/Square Buttons 26x19.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/buttons/Square Buttons 26x26.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Basic Charakter Actions.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Basic Charakter Spritesheet.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Egg_And_Nest.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Free Chicken Sprites.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Free Cow Sprites.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Tools.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box big.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box medium.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box small.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/Premade dialog box  big.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/Premade dialog box medium.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/Premade dialog box small.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/All Icons.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/special icons/Small Happines-Sadness icons.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/special icons/Special Icons.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/white icons.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Catpaw holding Mouse icon.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Catpaw Mouse icon.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Catpaw pointing Mouse icon.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 1.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 2.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 3.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Basic_Furniture.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Basic_Grass_Biom_things.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Basic_Plants.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Basic_tools_and_meterials.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Chest.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Egg_item.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Free_Chicken_House.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Paths.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Simple_Milk_and_grass_item.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Objects/Wood_Bridge.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Setting menu.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Sprite sheet for Basic Pack.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Sprout Lands color pallet/Sprout Lands defautlt palette.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Bitmask references 1.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Bitmask references 2.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Bitmask references gif.gif</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Fences.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Grass.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Hills.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Tilled_Dirt.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Water.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Wooden House.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/UI Big Play Button.png</File>
-    <File>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/UI Settings Buttons.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/buttons/Small Square Buttons.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/buttons/Square Buttons 19x26.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/buttons/Square Buttons 26x19.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/buttons/Square Buttons 26x26.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Basic Charakter Actions.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Basic Charakter Spritesheet.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Egg_And_Nest.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Free Chicken Sprites.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Free Cow Sprites.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Tools.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box big.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box medium.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box small.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/Premade dialog box  big.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/Premade dialog box medium.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/Premade dialog box small.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Fonts/Kaph-Regular.fnt</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Fonts/Kaph-Regular.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Icons/All Icons.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Icons/special icons/Small Happines-Sadness icons.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Icons/special icons/Special Icons.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Icons/white icons.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Catpaw holding Mouse icon.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Catpaw Mouse icon.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Catpaw pointing Mouse icon.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 1.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 2.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Mouse sprites/Triangle Mouse icon 3.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Basic_Furniture.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Basic_Grass_Biom_things.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Basic_Plants.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Basic_tools_and_meterials.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Chest.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Egg_item.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Free_Chicken_House.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Paths.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Simple_Milk_and_grass_item.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Objects/Wood_Bridge.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Setting menu.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Sprite sheet for Basic Pack.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Sprout Lands color pallet/Sprout Lands defautlt palette.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Bitmask references 1.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Bitmask references 2.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Bitmask references gif.gif</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Fences.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Grass.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Hills.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Tilled_Dirt.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Water.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Tilesets/Wooden House.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/UI Big Play Button.png</File>
+    <File>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/UI Settings Buttons.png</File>
   </SourceFiles>
   <DestFiles>
     <File xsi:nil="true" />
@@ -78,6 +80,8 @@
     <File xsi:nil="true" />
     <File xsi:nil="true" />
     <File xsi:nil="true" />
+    <File xsi:nil="true" />
+    <File>Fonts/Kaph-Regular-fnt.fnt</File>
     <File xsi:nil="true" />
     <File xsi:nil="true" />
     <File xsi:nil="true" />

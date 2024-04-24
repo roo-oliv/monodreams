@@ -14,6 +14,7 @@ using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
+using MonoGame.Extended.BitmapFonts;
 using MonoGame.Extended.Content;
 
 namespace MonoDreams.Examples.Screens;
@@ -47,10 +48,13 @@ public class MainMenuScreen : IGameScreen
     public void Load(ContentManager content)
     {
         var backgroundImage = content.Load<Texture2D>("buttons/Small Square Buttons");
-        StaticBackground.Create(World, backgroundImage, _camera, _renderer);
+        StaticBackground.Create(World, backgroundImage, _camera, _renderer, drawLayer: DrawLayer.Background);
         
         var cursorTexture = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1");
-        Cursor.Create(World, cursorTexture, new Point(84));
+        Cursor.Create(World, cursorTexture, new Point(56), DrawLayer.Cursor);
+        
+        var font = content.Load<BitmapFont>("Fonts/Kaph-Regular-fnt");
+        Button.Create(World, "Test", () => { }, Vector2.Zero, font, drawLayer: DrawLayer.Buttons);
     }
 
     public void Dispose()
@@ -58,5 +62,12 @@ public class MainMenuScreen : IGameScreen
         World.Dispose();
         System.Dispose();
         GC.SuppressFinalize(this);
+    }
+    
+    public enum DrawLayer
+    {
+        Cursor,
+        Buttons,
+        Background,
     }
 }

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Fonts/Kaph-Regular.fnt</SourceFile>
+  <SourceTime>2024-04-24T17:51:38-03:00</SourceTime>
+  <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/Fonts/Kaph-Regular-fnt.xnb</DestFile>
+  <DestTime>2024-04-24T15:03:54.7451266-03:00</DestTime>
+  <Importer>BitmapFontImporter</Importer>
+  <ImporterTime>2020-08-29T14:17:30-03:00</ImporterTime>
+  <Processor>BitmapFontProcessor</Processor>
+  <ProcessorTime>2020-08-29T14:17:30-03:00</ProcessorTime>
+  <Dependencies />
+  <BuildAsset />
+  <BuildOutput />
+</PipelineBuildEvent>

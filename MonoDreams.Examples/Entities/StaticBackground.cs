@@ -9,13 +9,15 @@ namespace MonoDreams.Examples.Entities;
 
 public static class StaticBackground
 {
-    public static Entity Create(World world, Texture2D image, Camera camera, ResolutionIndependentRenderer renderer)
+    public static Entity Create(World world, Texture2D image, Camera camera, ResolutionIndependentRenderer renderer, float scale = 1, Enum drawLayer = null)
     {
-        Point size = image.Width / image.Height < renderer.VirtualWidth / renderer.VirtualHeight
-            ? new Point(renderer.VirtualWidth/2, (int) (renderer.VirtualWidth / (float) image.Width * image.Height)/2)
-            : new Point((int) (renderer.VirtualHeight / (float) image.Height * image.Width)/2, renderer.VirtualHeight/2);
-        Vector2 position = camera.Position - new Vector2(size.X / 2, size.Y / 2);
-        var entity = StaticImage.Create(world, position, image, size, new Rectangle(0, 0, renderer.VirtualHeight, renderer.VirtualWidth));
+        int stretchFactor = image.Width / image.Height < renderer.VirtualWidth / renderer.VirtualHeight
+            ? (int)Math.Ceiling((double)(renderer.VirtualWidth / image.Width))
+            : (int)Math.Ceiling((double)(renderer.VirtualHeight / image.Height));
+        Vector2 position = camera.Position - new Vector2(renderer.VirtualWidth / 2, renderer.VirtualHeight / 2);
+        var size = new Point((int) (image.Width * stretchFactor * scale), (int) (image.Height * stretchFactor * scale));
+        var source = new Rectangle(0, 0, image.Width * stretchFactor, image.Height * stretchFactor);
+        var entity = StaticImage.Create(world, position, image, size, source, new Color(Color.Gray, 0.5f), drawLayer);
         return entity;
     }
 }

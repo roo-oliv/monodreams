@@ -10,6 +10,7 @@
 
 #-------------------------------- References --------------------------------#
 
+/reference:../../../../../.nuget/packages/monogame.extended.content.pipeline/3.8.0/tools/MonoGame.Extended.Content.Pipeline.dll
 
 #---------------------------------- Content ---------------------------------#
 
@@ -240,6 +241,23 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/Premade dialog box small.png
+
+#begin Fonts/Kaph-Regular.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Fonts/Kaph-Regular.fnt;Fonts/Kaph-Regular-fnt.fnt
+
+#begin Fonts/Kaph-Regular.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Fonts/Kaph-Regular.png
 
 #begin Icons/All Icons.png
 /importer:TextureImporter
