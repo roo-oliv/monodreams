@@ -14,6 +14,7 @@ using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
+using MonoDreams.System.Draw;
 using MonoGame.Extended.BitmapFonts;
 using MonoGame.Extended.Content;
 
@@ -41,8 +42,10 @@ public class MainMenuScreen : IGameScreen
             new CollisionDetectionSystem(World, parallelRunner),
             new ButtonSystem(World),
             new PositionSystem(World, parallelRunner),
-            new DrawSystem(renderer, camera, spriteBatch, World),
-            new TextSystem(camera, spriteBatch, World));
+            new BeginDrawSystem(spriteBatch, renderer, camera),
+            new DrawSystem(spriteBatch, World),
+            new TextSystem(spriteBatch, World),
+            new EndDrawSystem(spriteBatch));
     }
     
     public void Load(ContentManager content)
@@ -54,7 +57,7 @@ public class MainMenuScreen : IGameScreen
         Cursor.Create(World, cursorTexture, new Point(56), DrawLayer.Cursor);
         
         var font = content.Load<BitmapFont>("Fonts/Kaph-Regular-fnt");
-        Button.Create(World, "Test", () => { }, Vector2.Zero, font, drawLayer: DrawLayer.Buttons);
+        Button.Create(World, "Test", () => { }, Vector2.Zero, font, Color.Brown, Color.Maroon, DrawLayer.Buttons);
     }
 
     public void Dispose()

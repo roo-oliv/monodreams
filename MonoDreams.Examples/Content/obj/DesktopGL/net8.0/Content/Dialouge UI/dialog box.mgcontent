@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box.png</SourceFile>
-  <SourceTime>2024-04-24T08:51:17.0526773-03:00</SourceTime>
-  <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Dialouge UI/dialog box.xnb</DestFile>
-  <DestTime>2024-04-24T11:22:53.3461348-03:00</DestTime>
+  <SourceFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box.png</SourceFile>
+  <SourceTime>2022-07-16T16:16:10-03:00</SourceTime>
+  <DestFile>/home/rodrigo/git/roo-oliv/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Dialouge UI/dialog box.xnb</DestFile>
+  <DestTime>2024-04-24T22:29:11.916181-03:00</DestTime>
   <Importer>TextureImporter</Importer>
   <ImporterTime>2022-07-26T08:44:56-03:00</ImporterTime>
   <Processor>TextureProcessor</Processor>
