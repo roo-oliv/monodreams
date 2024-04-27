@@ -15,8 +15,10 @@ using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Draw;
+using MonoGame.Extended;
 using MonoGame.Extended.BitmapFonts;
 using MonoGame.Extended.Content;
+using MonoGame.Extended.TextureAtlases;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -44,20 +46,33 @@ public class MainMenuScreen : IGameScreen
             new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
             new DrawSystem(spriteBatch, World),
+            new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),
             new EndDrawSystem(spriteBatch));
     }
     
     public void Load(ContentManager content)
     {
-        var backgroundImage = content.Load<Texture2D>("buttons/Small Square Buttons");
-        StaticBackground.Create(World, backgroundImage, _camera, _renderer, drawLayer: DrawLayer.Background);
+        // var backgroundImage = content.Load<Texture2D>("buttons/Small Square Buttons");
+        // StaticBackground.Create(World, backgroundImage, _camera, _renderer, drawLayer: DrawLayer.Background);
         
         var cursorTexture = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1");
-        Cursor.Create(World, cursorTexture, new Point(56), DrawLayer.Cursor);
+        Cursor.Create(World, cursorTexture, new Point(42), DrawLayer.Cursor);
         
         var font = content.Load<BitmapFont>("Fonts/Kaph-Regular-fnt");
-        Button.Create(World, "Test", () => { }, Vector2.Zero, font, Color.Brown, Color.Maroon, DrawLayer.Buttons);
+        var buttonTexture = content.Load<Texture2D>("buttons/Square Buttons 26x26");
+        Button.Create(
+            World,
+            "Test",
+            () => { },
+            Vector2.Zero,
+            font,
+            Color.Brown,
+            Color.Maroon,
+            buttonTexture,
+            new Thickness(10, 11),
+            new Rectangle(0, 0, 100, 100),
+            DrawLayer.Buttons);
     }
 
     public void Dispose()

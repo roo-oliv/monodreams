@@ -20,9 +20,6 @@ public class Game1 : Game
     private ResolutionIndependentRenderer _renderer;
     private Camera _camera;
     private DefaultParallelRunner _runner;
-    private ISystem<GameState> _system;
-    private World _world;
-    private GameState LastState;
     private ScreenController _screenController;
 
     public Game1()
@@ -65,14 +62,6 @@ public class Game1 : Game
         _camera.Position = Vector2.Zero;
 
         _screenController.LoadScreen(new MainMenuScreen(_camera, _renderer, _runner, _spriteBatch));
-        // _system = new SequentialSystem<GameState>(
-        //     new CursorSystem(_world, _camera),
-        //     new CollisionDetectionSystem(_world, _runner),
-        //     new ButtonSystem(_world),
-        //     new PositionSystem(_world, _runner),
-        //     new DrawSystem(_renderer, _camera, _spriteBatch, _world),
-        //     new TextSystem(_camera, _spriteBatch, _world)
-        // );
         
         base.Initialize();
     }
@@ -84,25 +73,13 @@ public class Game1 : Game
             Exit();
 
         GraphicsDevice.Clear(Color.OldLace);
-        // var state = new GameState(
-        //     gameTime,
-        //     (float) gameTime.ElapsedGameTime.TotalSeconds,
-        //     LastState?.Time ?? (float) gameTime.ElapsedGameTime.TotalSeconds,
-        //     (float) gameTime.TotalGameTime.TotalSeconds,
-        //     LastState?.TotalTime ?? (float) gameTime.TotalGameTime.TotalSeconds,
-        //     Keyboard.GetState(),
-        //     Mouse.GetState());
         _screenController.Update(gameTime);
-        // _system.Update(state);
-        // LastState = state;
     }
 
     protected override void Dispose(bool disposing)
     {
         _screenController.Dispose();
         _runner.Dispose();
-        _world.Dispose();
-        _system.Dispose();
         _spriteBatch.Dispose();
         _graphics.Dispose();
         base.Dispose(disposing);
