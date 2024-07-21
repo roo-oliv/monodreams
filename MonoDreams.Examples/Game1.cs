@@ -61,7 +61,7 @@ public class Game1 : Game
         _camera.Zoom = 1.0f;
         _camera.Position = Vector2.Zero;
 
-        _screenController.LoadScreen(new MainMenuScreen(_camera, _renderer, _runner, _spriteBatch));
+        _screenController.LoadScreen(new MainMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
         
         base.Initialize();
     }

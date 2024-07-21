@@ -31,7 +31,7 @@ public class MainMenuScreen : IGameScreen
     public World World { get; }
     public ISystem<GameState> System { get; }
 
-    public MainMenuScreen(Camera camera, ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+    public MainMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         _camera = camera;
         _renderer = renderer;
@@ -45,7 +45,7 @@ public class MainMenuScreen : IGameScreen
             new ButtonSystem(World),
             new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
-            new DrawSystem(spriteBatch, World),
+            new DrawSystem(graphicsDevice, World, spriteBatch),
             new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),
             new EndDrawSystem(spriteBatch));
@@ -67,8 +67,8 @@ public class MainMenuScreen : IGameScreen
             () => { },
             Vector2.Zero,
             font,
-            Color.Brown,
-            Color.Maroon,
+            Color.White,
+            Color.White,
             buttonTexture,
             new Thickness(10, 11),
             new Rectangle(0, 0, 100, 100),

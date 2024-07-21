@@ -19,8 +19,20 @@ public class Button
         var entity = world.CreateEntity();
         if (buttonTexture != null && buttonRectangle.HasValue && padding.HasValue)
         {
-            var ninePatchRegion = new NinePatchRegion2D(buttonTexture, padding.Value);
-            entity.Set(new CompositeDrawInfo(buttonTexture, ninePatchRegion, size, defaultColor.Value, drawLayer));
+            // var ninePatchRegion = new NinePatchRegion2D(buttonTexture, padding.Value);
+            // entity.Set(new CompositeDrawInfo(buttonTexture, ninePatchRegion, size, defaultColor.Value, drawLayer));
+            var ninePatchInfo = new NinePatchInfo(
+                new Rectangle(10, 10, 10, 10),
+                new Rectangle(20, 10, 10, 10),
+                new Rectangle(30, 10, 10, 10),
+                new Rectangle(10, 20, 10, 10),
+                new Rectangle(20, 20, 10, 10),
+                new Rectangle(30, 20, 10, 10),
+                new Rectangle(10, 30, 10, 10),
+                new Rectangle(20, 30, 10, 10),
+                new Rectangle(30, 30, 10, 10)
+            );
+            entity.Set(new DrawInfo(buttonTexture, size, buttonRectangle, defaultColor.Value, drawLayer, ninePatchInfo));
         }
         entity.Set(new Position(position));
         entity.Set(new Collidable(new Rectangle(size/new Point(-2, -2), size)));

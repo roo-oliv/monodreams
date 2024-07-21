@@ -242,6 +242,9 @@
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/Premade dialog box small.png
 
+#begin Effects/MultiTextureEffect.glsl
+/copy:Effects/MultiTextureEffect.glsl
+
 #begin Fonts/Kaph-Regular.fnt
 /importer:BitmapFontImporter
 /processor:BitmapFontProcessor
