@@ -41,6 +41,7 @@ public class MainMenuScreen : IGameScreen
             new CollisionDetectionSystem(World, parallelRunner),
             new ButtonSystem(World),
             new LayoutSystem(World, renderer),
+            new SizeSystem(World, parallelRunner),
             new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
             new DrawSystem(World, spriteBatch),
@@ -65,7 +66,6 @@ public class MainMenuScreen : IGameScreen
             AlignItems = YogaAlign.Center,
             JustifyContent = YogaJustify.Center,
             Padding = 20,
-            FlexDirection = YogaFlexDirection.Column,
         });
 
         World.CreateButton(rootLayout, "Start", () => { }, Vector2.Zero, font, Color.Pink, Color.Red, DrawLayer.Buttons);

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using DefaultEcs;
+using Facebook.Yoga;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoGame.Extended;
@@ -49,13 +50,14 @@ public static class UIExtensions
         defaultColor ??= Color.White;
         selectedColor ??= Color.Black;
         
-        var buttonEntity = world.CreateLayoutEntity(parent: layoutParent);
-        
-        ref var layoutNode = ref buttonEntity.Get<LayoutNode>();
-        layoutNode.Node.Width = size.X;
-        layoutNode.Node.Height = size.Y;
-        layoutNode.Node.MarginTop = 20;
-        layoutNode.Node.MarginBottom = 20;
+        var buttonEntity = world.CreateLayoutEntity(
+            parent: layoutParent,
+            yogaNode: new YogaNode
+            {
+                Width = size.X,
+                Height = size.Y,
+                Margin = 20,
+            });
         
         buttonEntity.Set(new Position(position));
         buttonEntity.Set(new Collidable(new Rectangle(size / new Point(-2, -2), size)));
