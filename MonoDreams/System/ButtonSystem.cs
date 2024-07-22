@@ -5,7 +5,6 @@ using DefaultEcs.System;
 using MonoDreams.Component;
 using MonoDreams.Message;
 using MonoDreams.State;
-using NotImplementedException = System.NotImplementedException;
 
 namespace MonoDreams.System;
 

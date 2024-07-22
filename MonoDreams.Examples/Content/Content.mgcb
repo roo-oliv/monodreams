@@ -245,6 +245,23 @@
 #begin Effects/MultiTextureEffect.glsl
 /copy:Effects/MultiTextureEffect.glsl
 
+#begin Fonts/Kaph Regular White 80px Stroke Black 4px.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Fonts/Kaph Regular White 80px Stroke Black 4px.fnt;Fonts/Kaph Regular White 80px Stroke Black 4px fnt.fnt
+
+#begin Fonts/Kaph Regular White 80px Stroke Black 4px.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Fonts/Kaph Regular White 80px Stroke Black 4px.png
+
 #begin Fonts/Kaph-Regular.fnt
 /importer:BitmapFontImporter
 /processor:BitmapFontProcessor

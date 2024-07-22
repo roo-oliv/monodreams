@@ -22,6 +22,8 @@ public class Game1 : Game
     private DefaultParallelRunner _runner;
     private ScreenController _screenController;
 
+    
+    
     public Game1()
     {
         _graphics = new GraphicsDeviceManager(this);
@@ -39,7 +41,7 @@ public class Game1 : Game
         _camera = new(_renderer);
         _spriteBatch = new(GraphicsDevice);
         _runner = new(1);
-        _screenController = new(_runner, _renderer, _camera, _spriteBatch, Content);
+        _screenController = new(this, _runner, _renderer, _camera, _spriteBatch, Content);
     }
     
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
@@ -61,7 +63,10 @@ public class Game1 : Game
         _camera.Zoom = 1.0f;
         _camera.Position = Vector2.Zero;
 
-        _screenController.LoadScreen(new MainMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.MainMenu, () => new MainMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.OptionsMenu, () => new OptionsMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
+
+        _screenController.LoadScreen(ScreenName.MainMenu);
         
         base.Initialize();
     }

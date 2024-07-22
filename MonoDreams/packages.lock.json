@@ -20,6 +20,12 @@
           "Microsoft.SourceLink.GitLab": "1.1.1"
         }
       },
+      "Facebook.Yoga": {
+        "type": "Direct",
+        "requested": "[1.5.0-pre1, )",
+        "resolved": "1.5.0-pre1",
+        "contentHash": "vrQlEHwofzmocQT4Dp70xAXoPvqC0a4AGjKlvXLflMyDl75UxNHQ/98be4pHcqXEB+pgUBMjA2iTldZTD7F22A=="
+      },
       "Microsoft.SourceLink.GitHub": {
         "type": "Direct",
         "requested": "[1.1.1-*, )",
