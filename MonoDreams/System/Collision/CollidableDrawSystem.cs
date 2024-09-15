@@ -5,9 +5,12 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
+using MonoDreams.Component.Physics;
 using MonoDreams.Message;
 using MonoDreams.State;
 using MonoGame.Extended;
+using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System;
 
@@ -21,7 +24,7 @@ public sealed class CollidableDrawSystem : AEntitySetSystem<GameState>
         Camera camera,
         SpriteBatch batch,
         World world
-        ) : base(world.GetEntities().With<Collidable>().AsSet())
+        ) : base(world.GetEntities().With<BoxCollidable>().AsSet())
     {
         _camera = camera;
         _batch = batch;
@@ -43,7 +46,7 @@ public sealed class CollidableDrawSystem : AEntitySetSystem<GameState>
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref var collidable = ref entity.Get<Collidable>();
+        ref var collidable = ref entity.Get<BoxCollidable>();
         ref var position = ref entity.Get<Position>();
         var rect = new Rectangle(collidable.Bounds.Location + position.CurrentLocation.ToPoint(), collidable.Bounds.Size);
         DrawRectangle(rect, collidable.Passive ? Color.Red : Color.Blue, 2);

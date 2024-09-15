@@ -46,10 +46,11 @@ public class Game1 : Game
     
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
     {
-        _renderer.VirtualWidth = realScreenWidth;
-        _renderer.VirtualHeight = realScreenHeight;
+        _renderer.VirtualWidth = 800;
+        _renderer.VirtualHeight = 600;
         _renderer.ScreenWidth = realScreenWidth;
         _renderer.ScreenHeight = realScreenHeight;
+        _renderer.BackgroundColor = new Color(68, 76, 86);
         _renderer.Initialize();
         _camera.RecalculateTransformationMatrices();
     }
@@ -63,10 +64,11 @@ public class Game1 : Game
         _camera.Zoom = 1.0f;
         _camera.Position = Vector2.Zero;
 
+        _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, Content, _camera, _renderer, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.MainMenu, () => new MainMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.OptionsMenu, () => new OptionsMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
 
-        _screenController.LoadScreen(ScreenName.MainMenu);
+        _screenController.LoadScreen(ScreenName.Game);
         
         base.Initialize();
     }
@@ -77,7 +79,7 @@ public class Game1 : Game
             Keyboard.GetState().IsKeyDown(Keys.Escape))
             Exit();
 
-        GraphicsDevice.Clear(Color.OldLace);
+        // GraphicsDevice.Clear(Color.OldLace);
         _screenController.Update(gameTime);
     }
 

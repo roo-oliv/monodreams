@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Fonts/Kaph Regular White 80px Stroke Black 4px.fnt</SourceFile>
-  <SourceTime>2024-07-21T18:55:38-03:00</SourceTime>
+  <SourceTime>2024-07-22T12:23:35.2988483-03:00</SourceTime>
   <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Fonts/Kaph Regular White 80px Stroke Black 4px fnt.xnb</DestFile>
-  <DestTime>2024-07-21T23:53:59.8299817-03:00</DestTime>
+  <DestTime>2024-09-14T16:08:25.01345-03:00</DestTime>
   <Importer>BitmapFontImporter</Importer>
   <ImporterTime>2020-08-29T14:17:30-03:00</ImporterTime>
   <Processor>BitmapFontProcessor</Processor>

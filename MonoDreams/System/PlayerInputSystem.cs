@@ -15,11 +15,11 @@ public class PlayerInputSystem : AComponentSystem<GameState, PlayerInput>
 
     protected override void Update(GameState state, ref PlayerInput playerInput)
     {
-        playerInput.Left.Update(Keyboard.GetState().IsKeyDown(Keys.Left));
-        playerInput.Right.Update(Keyboard.GetState().IsKeyDown(Keys.Right));
-        playerInput.Up.Update(Keyboard.GetState().IsKeyDown(Keys.Up));
-        playerInput.Down.Update(Keyboard.GetState().IsKeyDown(Keys.Down));
-        playerInput.CursorPosition = Mouse.GetState().Position.ToVector2();
-        playerInput.LeftClick.Update( Mouse.GetState().LeftButton == ButtonState.Pressed);
+        // playerInput.Left.Update(Keyboard.GetState().IsKeyDown(Keys.Left));
+        // playerInput.Right.Update(Keyboard.GetState().IsKeyDown(Keys.Right));
+        // playerInput.Up.Update(Keyboard.GetState().IsKeyDown(Keys.Up));
+        // playerInput.Down.Update(Keyboard.GetState().IsKeyDown(Keys.Down));
+        // playerInput.CursorPosition = Mouse.GetState().Position.ToVector2();
+        // playerInput.LeftClick.Update( Mouse.GetState().LeftButton == ButtonState.Pressed);
     }
 }

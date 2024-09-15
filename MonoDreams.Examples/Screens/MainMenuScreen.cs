@@ -7,11 +7,13 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Extensions;
+using MonoDreams.Extensions.ECS;
 using MonoDreams.Objects.UI;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
+using MonoDreams.System.Collision;
 using MonoDreams.System.Draw;
 using MonoGame.Extended.BitmapFonts;
 
@@ -38,13 +40,13 @@ public class MainMenuScreen : IGameScreen
         System = new SequentialSystem<GameState>(
             new PlayerInputSystem(World),
             new CursorSystem(World, camera),
-            new CollisionDetectionSystem(World, parallelRunner),
+            new CollisionDetectionSystem(World, _parallelRunner),
             new ButtonSystem(World),
             new LayoutSystem(World, renderer),
             new SizeSystem(World, parallelRunner),
-            new PositionSystem(World, parallelRunner),
+            new PositionUpdatesItselfSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
-            new DrawSystem(World, spriteBatch),
+            new DrawSystem(World, spriteBatch, _parallelRunner),
             new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),
             new EndDrawSystem(spriteBatch));

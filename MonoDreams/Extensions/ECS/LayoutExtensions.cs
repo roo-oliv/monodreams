@@ -3,7 +3,7 @@ using DefaultEcs;
 using Facebook.Yoga;
 using MonoDreams.Component;
 
-namespace MonoDreams.Extensions;
+namespace MonoDreams.Extensions.ECS;
 
 public static class LayoutExtensions
 {

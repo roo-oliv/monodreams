@@ -2,8 +2,10 @@ using System;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoGame.Extended;
 using MonoGame.Extended.BitmapFonts;
+using Position = MonoDreams.Component.Physics.Position;
 
 namespace MonoDreams.Objects.UI;
 
@@ -17,7 +19,7 @@ public class Button
         selectedColor ??= Color.Black;
         var entity = world.CreateEntity();
         entity.Set(new Position(position));
-        entity.Set(new Collidable(new Rectangle(size/new Point(-2, -2), size)));
+        entity.Set(new BoxCollidable(new Rectangle(size/new Point(-2, -2), size)));
         entity.Set(new SimpleText(value, font, defaultColor.Value, HorizontalAlign.Center, VerticalAlign.Center, drawLayer));
         entity.Set(new ButtonState(defaultColor.Value, selectedColor.Value, callback));
         return entity;

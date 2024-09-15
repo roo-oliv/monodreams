@@ -53,14 +53,14 @@ public class ButtonSystem : ISystem<GameState>
             SetActiveButtonState(activeButton);
         }
         
-        var cursor = _collisions.Last().BaseEntity;
-        if (cursor.Get<PlayerInput>().LeftClick.JustActivated)
-        {
-            _currentlyActiveButton?.Get<ButtonState>().Press();
-        } else if (cursor.Get<PlayerInput>().LeftClick.JustReleased)
-        {
-            _currentlyActiveButton?.Get<ButtonState>().Release();
-        }
+        // var cursor = _collisions.Last().BaseEntity;
+        // if (cursor.Get<PlayerInput>().LeftClick.JustActivated)
+        // {
+        //     _currentlyActiveButton?.Get<ButtonState>().Press();
+        // } else if (cursor.Get<PlayerInput>().LeftClick.JustReleased)
+        // {
+        //     _currentlyActiveButton?.Get<ButtonState>().Release();
+        // }
         
         _collisions.Clear();
     }

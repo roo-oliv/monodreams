@@ -4,56 +4,53 @@ using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
-using MonoDreams.Component;
+using MonoDreams.Component.Collision;
+using MonoDreams.Component.Physics;
+using MonoDreams.Extensions.Monogame;
 using MonoDreams.Message;
 using MonoDreams.State;
 
-namespace MonoDreams.System;
+namespace MonoDreams.System.Collision;
 
-public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
+public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent>(World world, IParallelRunner parallelRunner)
+    : AEntitySetSystem<GameState>(
+        world.GetEntities().With((in TCollidableComponent c) => !c.Passive && c.Enabled)
+            .With<TPositionComponent>().AsSet(), parallelRunner)
+    where TCollidableComponent : BoxCollidable, ICollidable
+    where TPositionComponent : Position
 {
-    private readonly IEnumerable<Entity> _targets;
-    private readonly World _world;
-        
-    public CollisionDetectionSystem(World world, IParallelRunner runner)
-        : base(world.GetEntities().With((in Collidable c) => !c.Passive).AsSet(), runner)
-    {
-        _targets = world.GetEntities().With<Collidable>().AsEnumerable();
-        _world = world;
-    }
+    private readonly IEnumerable<Entity> _targets = world.GetEntities().With((in TCollidableComponent c) => c.Enabled).AsEnumerable();
 
     protected override void Update(GameState state, in Entity entity)
     {
-        var bounds = entity.Get<Collidable>().Bounds;
-        var position = entity.Get<Position>();
-        var dynamicRect = new Rectangle(bounds.Location + position.CurrentLocation.ToPoint(), bounds.Size);
-        var displacement = position.NextLocation - position.CurrentLocation;
+        var collidable = entity.Get<TCollidableComponent>();
+        var position = entity.Get<TPositionComponent>();
+        var dynamicRect = collidable.Bounds.AtPosition(position.Current);
+        var displacement = position.Delta;
         foreach (var target in _targets)
         {
-            if (target == entity)
-            {
-                continue;
-            }
-            
-            var targetBounds = target.Get<Collidable>().Bounds;
-            var targetPosition = target.Get<Position>();
-            var targetRect = new Rectangle(targetBounds.Location + targetPosition.CurrentLocation.ToPoint(), targetBounds.Size);
+            if (target == entity) continue;
+
+            var targetCollidable = target.Get<TCollidableComponent>();
+            if (!targetCollidable.SharesLayerWith(collidable)) continue;
 
             var collides = DynamicRectVsRect(
-                dynamicRect, displacement, targetRect,
+                dynamicRect,
+                displacement, 
+                targetCollidable.Bounds.AtPosition(target.Get<TPositionComponent>().Current),
                 out var contactPoint,
                 out var contactNormal,
                 out var contactTime);
                 
-            if (!collides)
+            if (!collides) continue;
+
+            foreach (var layer in targetCollidable.SharedLayers(collidable))
             {
-                continue;
+                world.Publish(new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer));
             }
-            
-            _world.Publish(new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime));
         }
     }
-        
+    
     private static bool RayVsRect(
         Vector2 rayOrigin, Vector2 rayDirection, Rectangle target, out Vector2 contactPoint,
         out Vector2 contactNormal, out float closestHit)
@@ -129,3 +126,10 @@ public sealed class CollisionDetectionSystem : AEntitySetSystem<GameState>
         return potentialCollision && contactTime < 1.0f;
     }
 }
+
+public class CollisionDetectionSystem<TCollidableComponent>(World world, IParallelRunner parallelRunner)
+    : CollisionDetectionSystem<TCollidableComponent, Position>(world, parallelRunner)
+    where TCollidableComponent : BoxCollidable;
+
+public class CollisionDetectionSystem(World world, IParallelRunner parallelRunner)
+    : CollisionDetectionSystem<BoxCollidable, Position>(world, parallelRunner);

@@ -3,8 +3,11 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
+using MonoDreams.Component.Physics;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System;
 
@@ -55,7 +58,7 @@ public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         ref var position = ref entity.Get<Position>();
-        ref var collidable = ref entity.Get<Collidable>();
+        ref var collidable = ref entity.Get<BoxCollidable>();
         ref var playerInput = ref entity.Get<PlayerInput>();
         var x = _camera.Position.X + 310;
         var y = _camera.Position.Y - 530;

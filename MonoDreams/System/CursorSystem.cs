@@ -13,9 +13,9 @@ public class CursorSystem(World world, Camera camera)
         ref var position = ref entity.Get<Position>();
         ref var playerInput = ref entity.Get<PlayerInput>();
         
-        var cameraCursorPosition = camera.ScreenToWorld(playerInput.CursorPosition);
+        // var cameraCursorPosition = camera.ScreenToWorld(playerInput.CursorPosition);
         
-        position.NextLocation = cameraCursorPosition;
+        // position.NextLocation = cameraCursorPosition;
         entity.NotifyChanged<Position>();
     }
 }

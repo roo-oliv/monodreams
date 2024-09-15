@@ -4,10 +4,12 @@ using DefaultEcs;
 using Facebook.Yoga;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoGame.Extended;
 using MonoGame.Extended.BitmapFonts;
+using Position = MonoDreams.Component.Physics.Position;
 
-namespace MonoDreams.Extensions;
+namespace MonoDreams.Extensions.ECS;
 
 public static class UIExtensions
 {
@@ -60,7 +62,7 @@ public static class UIExtensions
             });
         
         buttonEntity.Set(new Position(position));
-        buttonEntity.Set(new Collidable(new Rectangle(size / new Point(-2, -2), size)));
+        buttonEntity.Set(new BoxCollidable(new Rectangle(size / new Point(-2, -2), size)));
         buttonEntity.Set(new SimpleText(text, font, defaultColor.Value, HorizontalAlign.Center, VerticalAlign.Center, drawLayer));
         buttonEntity.Set(new ButtonState(defaultColor.Value, selectedColor.Value, callback));
         

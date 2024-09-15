@@ -8,4 +8,5 @@ public readonly record struct CollisionMessage(
     Entity CollidingEntity,
     Vector2 ContactPoint,
     Vector2 ContactNormal,
-    float ContactTime);
+    float ContactTime,
+    int Layer = -1);

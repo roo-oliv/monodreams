@@ -567,6 +567,18 @@
 /processorParam:TextureFormat=Color
 /build:Sprout Lands color pallet/Sprout Lands defautlt palette.png
 
+#begin square.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:square.png
+
 #begin Tilesets/Bitmask references 1.png
 /importer:TextureImporter
 /processor:TextureProcessor
