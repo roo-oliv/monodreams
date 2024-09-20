@@ -39,10 +39,10 @@ public class OptionsMenuScreen : IGameScreen
             new CursorSystem(World, camera),
             new CollisionDetectionSystem(World, _parallelRunner),
             new ButtonSystem(World),
-            new PositionUpdatesItselfSystem(World, parallelRunner),
+            new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
             new DrawSystem(World, spriteBatch, _parallelRunner),
-            new CompositeDrawSystem(spriteBatch, World),
+            // new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),
             new EndDrawSystem(spriteBatch));
     }

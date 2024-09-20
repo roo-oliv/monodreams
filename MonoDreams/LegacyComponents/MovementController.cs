@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Component;
+namespace MonoDreams.LegacyComponents;
 
 public class MovementController
 {

@@ -66,7 +66,7 @@ public class Level1(ContentManager content, ResolutionIndependentRenderer render
                 case "...":
                     break;
                 case ".@.":
-                    Player.Create(world, Constants.WorldGravity, _square, new Vector2(col+7, row+7));
+                    Player.Create(world, _square, new Vector2(col+7, row+7));
                     break;
                 case ".*.":
                     Tile.Create(

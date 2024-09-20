@@ -2,6 +2,7 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.LegacyComponents;
 using MonoDreams.State;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 

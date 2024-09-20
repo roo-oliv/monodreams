@@ -5,6 +5,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.LegacyComponents;
 using Newtonsoft.Json;
 
 namespace MonoDreams.Sprite;

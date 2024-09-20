@@ -2,7 +2,7 @@ using MonoDreams.Input;
 
 namespace MonoDreams.Examples.Input;
 
-public class InputState() : AInputState(0.5f)
+public class InputState : AInputState
 {
     public static readonly InputState Up = new();
     public static readonly InputState Down = new();

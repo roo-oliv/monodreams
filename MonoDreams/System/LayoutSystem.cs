@@ -72,7 +72,7 @@ public class LayoutSystem(World world, ResolutionIndependentRenderer renderer) :
         if (entity.Has<Position>())
         {
             ref var entityPosition = ref entity.Get<Position>();
-            entityPosition.CurrentLocation = position;
+            entityPosition.Current = position;
         }
 
         foreach (var child in layoutNode.Children)

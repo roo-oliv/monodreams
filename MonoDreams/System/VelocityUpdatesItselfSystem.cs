@@ -1,7 +1,7 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using MonoDreams.Component.Physics.VelocityBased;
+using MonoDreams.Component.Physics;
 using MonoDreams.State;
 
 namespace MonoDreams.System;

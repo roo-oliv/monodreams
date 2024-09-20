@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.State;
 using MonoDreams.Draw;
-using Position = MonoDreams.Component.Physics.Position;
+using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System.Draw;
 

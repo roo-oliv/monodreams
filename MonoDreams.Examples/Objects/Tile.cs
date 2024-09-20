@@ -3,7 +3,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
-using Position = MonoDreams.Component.Physics.Position;
+using MonoDreams.Component.Physics;
+using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.Examples.Objects;
 
@@ -19,7 +20,8 @@ public class Tile
     {
         var entity = world.CreateEntity();
         entity.Set(new Position(position));
-        entity.Set(new BoxCollidable( new Rectangle(Point.Zero, size), passive: true));
+        entity.Set(new BoxCollider( new Rectangle(Point.Zero, size), passive: true));
+        entity.Set(new RigidBody(isKinematic: true, gravityActive: false));
         var color = type switch
         {
             TileType.Default => DefaultColor,

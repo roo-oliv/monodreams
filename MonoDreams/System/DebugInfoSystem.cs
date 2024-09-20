@@ -5,9 +5,10 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
+using MonoDreams.LegacyComponents;
 using MonoDreams.Renderer;
 using MonoDreams.State;
-using Position = MonoDreams.Component.Position;
+using Position = MonoDreams.LegacyComponents.Position;
 
 namespace MonoDreams.System;
 
@@ -58,7 +59,7 @@ public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         ref var position = ref entity.Get<Position>();
-        ref var collidable = ref entity.Get<BoxCollidable>();
+        ref var collidable = ref entity.Get<BoxCollider>();
         ref var playerInput = ref entity.Get<PlayerInput>();
         var x = _camera.Position.X + 310;
         var y = _camera.Position.Y - 530;
@@ -67,7 +68,7 @@ public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
         var scale = Vector2.One;
         
         DrawText("TotalTime: " + state.TotalTime, x, y + textSlot++ * spacing, Color.Black, 0.5f);
-        DrawText("CurrentLocation: " + position.CurrentLocation, x, y + textSlot++ * spacing, Color.Black, 0.5f);
+        DrawText("Current: " + position.CurrentLocation, x, y + textSlot++ * spacing, Color.Black, 0.5f);
         DrawText("Bounds: " + collidable.Bounds, x, y + textSlot++ * spacing, Color.Black, 0.5f);
     }
 

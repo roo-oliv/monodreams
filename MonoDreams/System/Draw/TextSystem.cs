@@ -20,7 +20,7 @@ public sealed class TextSystem(SpriteBatch batch, World world)
         batch.DrawString(
             text.Font,
             text.Value,
-            position.CurrentLocation,
+            position.Current,
             text.Color,
             0.0f,
             text.Origin, 

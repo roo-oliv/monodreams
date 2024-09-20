@@ -10,21 +10,20 @@ using MonoDreams.Component.Physics;
 using MonoDreams.Message;
 using MonoDreams.State;
 using MonoGame.Extended;
-using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System;
 
-public sealed class CollidableDrawSystem : AEntitySetSystem<GameState>
+public sealed class ColliderDrawSystem : AEntitySetSystem<GameState>
 {
     private readonly SpriteBatch _batch;
     private readonly Camera _camera;
     private readonly Texture2D _pointTexture;
 
-    public CollidableDrawSystem(
+    public ColliderDrawSystem(
         Camera camera,
         SpriteBatch batch,
         World world
-        ) : base(world.GetEntities().With<BoxCollidable>().AsSet())
+        ) : base(world.GetEntities().With<BoxCollider>().AsSet())
     {
         _camera = camera;
         _batch = batch;
@@ -46,10 +45,10 @@ public sealed class CollidableDrawSystem : AEntitySetSystem<GameState>
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref var collidable = ref entity.Get<BoxCollidable>();
+        ref var collider = ref entity.Get<BoxCollider>();
         ref var position = ref entity.Get<Position>();
-        var rect = new Rectangle(collidable.Bounds.Location + position.CurrentLocation.ToPoint(), collidable.Bounds.Size);
-        DrawRectangle(rect, collidable.Passive ? Color.Red : Color.Blue, 2);
+        var rect = new Rectangle(collider.Bounds.Location + position.Current.ToPoint(), collider.Bounds.Size);
+        DrawRectangle(rect, collider.Passive ? Color.Red : Color.Blue, 2);
     }
 
     protected override void PostUpdate(GameState state) => _batch.End();

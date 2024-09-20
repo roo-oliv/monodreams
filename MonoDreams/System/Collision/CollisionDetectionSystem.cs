@@ -4,6 +4,7 @@ using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
+using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Extensions.Monogame;
@@ -16,7 +17,7 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent>(
     : AEntitySetSystem<GameState>(
         world.GetEntities().With((in TCollidableComponent c) => !c.Passive && c.Enabled)
             .With<TPositionComponent>().AsSet(), parallelRunner)
-    where TCollidableComponent : BoxCollidable, ICollidable
+    where TCollidableComponent : BoxCollider, ICollider
     where TPositionComponent : Position
 {
     private readonly IEnumerable<Entity> _targets = world.GetEntities().With((in TCollidableComponent c) => c.Enabled).AsEnumerable();
@@ -129,7 +130,7 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent>(
 
 public class CollisionDetectionSystem<TCollidableComponent>(World world, IParallelRunner parallelRunner)
     : CollisionDetectionSystem<TCollidableComponent, Position>(world, parallelRunner)
-    where TCollidableComponent : BoxCollidable;
+    where TCollidableComponent : BoxCollider;
 
 public class CollisionDetectionSystem(World world, IParallelRunner parallelRunner)
-    : CollisionDetectionSystem<BoxCollidable, Position>(world, parallelRunner);
+    : CollisionDetectionSystem<BoxCollider, Position>(world, parallelRunner);

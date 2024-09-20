@@ -42,7 +42,7 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
         foreach (var collision in _collisions)
         {
             var collidingEntity = collision.CollidingEntity;
-            var location = collidingEntity.Get<Position>().CurrentLocation;
+            var location = collidingEntity.Get<Position>().Current;
             var hint = _world.CreateEntity();
             hint.Set(new Position(location));
             hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray));

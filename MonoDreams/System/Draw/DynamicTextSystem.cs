@@ -18,7 +18,7 @@ public sealed class DynamicTextSystem(SpriteBatch batch, World world)
         ref var position = ref entity.Get<Position>();
         if (float.IsNaN(text.RevealStartTime)) text.RevealStartTime = state.TotalTime;
         var elapsedTime = state.TotalTime - text.RevealStartTime;
-        var glyphs = TextProcessor.GetGlyphs(text, position.CurrentLocation, 600);
+        var glyphs = TextProcessor.GetGlyphs(text, position.Current, 600);
         var revealedChars = text.IsRevealed ? glyphs.Count : 0;
         foreach (var (glyph, color) in glyphs)
         {
@@ -34,8 +34,8 @@ public sealed class DynamicTextSystem(SpriteBatch batch, World world)
             }
             
             if (glyph.FontRegion == null) continue;
-            var origin1 = position.CurrentLocation - glyph.Position;
-            batch.Draw(glyph.FontRegion.TextureRegion, position.CurrentLocation, color, 0.0f, origin1, Vector2.One, SpriteEffects.None, 0.0f);
+            var origin1 = position.Current - glyph.Position;
+            batch.Draw(glyph.FontRegion.TextureRegion, position.Current, color, 0.0f, origin1, Vector2.One, SpriteEffects.None, 0.0f);
         }
     }
 }

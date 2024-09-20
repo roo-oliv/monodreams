@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Component.Collision;
 
-public class BoxCollidable(Rectangle bounds, HashSet<int> activeLayers = null, bool passive = false, bool enabled = true) : ICollidable
+public class BoxCollider(Rectangle bounds, HashSet<int> activeLayers = null, bool passive = false, bool enabled = true) : ICollider
 {
     public Rectangle Bounds = bounds;
     public HashSet<int> ActiveLayers { get; set; } = activeLayers ?? [-1];

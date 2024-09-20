@@ -44,10 +44,10 @@ public class MainMenuScreen : IGameScreen
             new ButtonSystem(World),
             new LayoutSystem(World, renderer),
             new SizeSystem(World, parallelRunner),
-            new PositionUpdatesItselfSystem(World, parallelRunner),
+            new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
             new DrawSystem(World, spriteBatch, _parallelRunner),
-            new CompositeDrawSystem(spriteBatch, World),
+            // new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),
             new EndDrawSystem(spriteBatch));
     }

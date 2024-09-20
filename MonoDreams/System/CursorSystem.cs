@@ -1,7 +1,9 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using MonoDreams.Component;
+using MonoDreams.LegacyComponents;
 using MonoDreams.State;
+using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System;
 

@@ -1,11 +1,11 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
+using MonoDreams.Component;
 using MonoDreams.Component.Physics;
-using MonoDreams.Component.Physics.VelocityBased;
 using MonoDreams.State;
 
-namespace MonoDreams.System.Physics.VelocityBased;
+namespace MonoDreams.System.Physics;
 
 public class VelocityUpdatesPositionSystem<TPositionComponent, TVelocityComponent>(World world, IParallelRunner parallelRunner)
     : AEntitySetSystem<GameState>(world.GetEntities().With<TPositionComponent>().With<TVelocityComponent>().AsSet(), parallelRunner)

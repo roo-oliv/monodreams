@@ -1,4 +1,4 @@
-namespace MonoDreams.Component;
+namespace MonoDreams.LegacyComponents;
 
 public struct Animation
 {

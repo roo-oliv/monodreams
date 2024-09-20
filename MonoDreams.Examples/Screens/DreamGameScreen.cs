@@ -13,7 +13,7 @@ using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Draw;
-using MonoDreams.System.Physics.VelocityBased;
+using MonoDreams.System.Physics;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -55,14 +55,10 @@ public class DreamGameScreen : IGameScreen
         return new SequentialSystem<GameState>(
             new InputHandlingSystem(),
             new MovementSystem(_world, _parallelRunner),
-            new GravityUpdatesVelocitySystem(_world, _parallelRunner, Constants.MaxFallVelocity),
-            new VelocityUpdatesPositionSystem(_world, _parallelRunner),
+            new GravitySystem(_world, _parallelRunner, Constants.WorldGravity, Constants.MaxFallVelocity),
             new CollisionDetectionSystem(_world, _parallelRunner),
             new CollisionResolutionSystem(_world),
-            new PositionUpdatesItselfSystem(_world, _parallelRunner),
-            new VelocityUpdatesItselfSystem(_world, _parallelRunner),
-            // new FloorSystem(World),
-            // new WallSystem(World),
+            new PositionSystem(_world, _parallelRunner),
             new BeginDrawSystem(_spriteBatch, _renderer, _camera),
             new DrawSystem(_world, _spriteBatch, _parallelRunner),
             new EndDrawSystem(_spriteBatch)
