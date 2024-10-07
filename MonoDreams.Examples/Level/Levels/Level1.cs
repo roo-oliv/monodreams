@@ -96,7 +96,7 @@ public class Level1(ContentManager content, ResolutionIndependentRenderer render
         }
         
 
-        // Player.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370));
+        // PlayerState.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370));
         // LoadTiles(world);
         // LevelBoundaries.Create(world, _square, renderer);
     }

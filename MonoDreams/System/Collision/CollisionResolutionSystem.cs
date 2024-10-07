@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
@@ -13,9 +14,10 @@ using MonoDreams.Util;
 
 namespace MonoDreams.System.Collision;
 
-public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent> : ISystem<GameState>
+public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent, TVelocityComponent> : ISystem<GameState>
     where TCollidableComponent : BoxCollider, ICollider
     where TPositionComponent : Position
+    where TVelocityComponent : Velocity
 {
     private readonly World _world;
     private readonly List<CollisionMessage> _collisions;
@@ -63,6 +65,12 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent>
         if (contactNormal.X != 0)
         {
             position.Current.X = contactPoint.X - dynamicRect.Width / 2f;
+
+            if (entity.Has<TVelocityComponent>())
+            {
+                var velocity = entity.Get<TVelocityComponent>();
+                velocity.Current.X = 0;
+            }
             
             if ((int)Math.Abs(contactPoint.X + dynamicRect.Width / 2f - targetRect.Left) == 0)
             {
@@ -77,6 +85,13 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent>
         if (contactNormal.Y != 0)
         {
             position.Current.Y = contactPoint.Y - dynamicRect.Height / 2f;
+            
+            if (entity.Has<TVelocityComponent>())
+            {
+                var velocity = entity.Get<TVelocityComponent>();
+                velocity.Current.Y = 0;
+            }
+            
             if ((int)Math.Abs(contactPoint.Y + dynamicRect.Height / 2f - targetRect.Top) == 0)
             {
                 _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Top));
@@ -89,10 +104,11 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent>
     }
 }
 
-public class CollisionResolutionSystem<TPosition>(World world)
-    : CollisionResolutionSystem<BoxCollider, TPosition>(world)
-    where TPosition : Position;
+public class CollisionResolutionSystem<TPosition, TVelocity>(World world)
+    : CollisionResolutionSystem<BoxCollider, TPosition, TVelocity>(world)
+    where TPosition : Position
+    where TVelocity : Velocity;
 
 public class CollisionResolutionSystem(World world)
-    : CollisionResolutionSystem<BoxCollider, Position>(world);
+    : CollisionResolutionSystem<BoxCollider, Position, Velocity>(world);
 

@@ -115,6 +115,9 @@
     <ItemGroup>
       <ClCompile Include="Effect\MultiTextureEffect.fx" />
     </ItemGroup>
+    <ItemGroup>
+      <Content Include="bin\Debug\net8.0\Monogame.ImGuiNet.dll" />
+    </ItemGroup>
     <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
         <Message Text="Restoring dotnet tools" Importance="High" />
         <Exec Command="dotnet tool restore" />

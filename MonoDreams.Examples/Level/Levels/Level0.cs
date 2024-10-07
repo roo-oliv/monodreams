@@ -18,11 +18,11 @@ public class Level0(ContentManager content, ResolutionIndependentRenderer render
     .*..*..*.....*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*.
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
-    .*..*..W..@.....W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
+    .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W........W..W..W..W..W..W..W.....................................................W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
-    .*..*..W........W..W..W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
+    .*..*..W..@.....W..W..W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
     .*..*..W..............W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
     .*..*..W..............W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
     .*..*..W..............W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
@@ -96,7 +96,7 @@ public class Level0(ContentManager content, ResolutionIndependentRenderer render
         }
         
 
-        // Player.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370), DrawLayer.Player);
+        // PlayerState.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370), DrawLayer.PlayerState);
         // LoadTiles(world);
         // LevelBoundaries.Create(world, _square, renderer);
     }
