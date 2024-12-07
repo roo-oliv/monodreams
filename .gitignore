@@ -10,3 +10,5 @@ MonoDreams.Examples/bin/
 MonoDreams.Examples/obj/
 MonoDreams.Tests/bin/
 MonoDreams.Tests/obj/
+
+global.json

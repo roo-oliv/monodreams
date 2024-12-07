@@ -25,6 +25,9 @@
       <Reference Include="ImGui.NET">
         <HintPath>bin\Debug\net8.0\ImGui.NET.dll</HintPath>
       </Reference>
+      <Reference Include="MonoGame.Extended">
+        <HintPath>..\..\..\..\.nuget\packages\monogame.extended.content.pipeline\3.8.0\tools\MonoGame.Extended.dll</HintPath>
+      </Reference>
       <Reference Include="Monogame.ImGuiNet">
         <HintPath>..\MonoDreams\bin\Debug\net8.0\Monogame.ImGuiNet.dll</HintPath>
       </Reference>
