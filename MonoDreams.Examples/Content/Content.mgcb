@@ -146,6 +146,30 @@
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/dialog box big.png
 
+#begin Dialouge UI/dialog box big.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/dialog box big.png
+
+#begin Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
+
 #begin Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -170,6 +194,18 @@
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/dialog box medium.png
 
+#begin Dialouge UI/dialog box medium.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/dialog box medium.png
+
 #begin Dialouge UI/dialog box small.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -181,6 +217,30 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/dialog box small.png
+
+#begin Dialouge UI/dialog box small.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/dialog box small.png
+
+#begin Dialouge UI/dialog box.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/dialog box.png
 
 #begin Dialouge UI/dialog box.png
 /importer:TextureImporter
@@ -218,6 +278,18 @@
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/Premade dialog box  big.png
 
+#begin Dialouge UI/Premade dialog box  big.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/Premade dialog box  big.png
+
 #begin Dialouge UI/Premade dialog box medium.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -229,6 +301,30 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Dialouge UI/Premade dialog box medium.png
+
+#begin Dialouge UI/Premade dialog box medium.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/Premade dialog box medium.png
+
+#begin Dialouge UI/Premade dialog box small.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Dialouge UI/Premade dialog box small.png
 
 #begin Dialouge UI/Premade dialog box small.png
 /importer:TextureImporter
@@ -261,6 +357,23 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:Fonts/Kaph Regular White 80px Stroke Black 4px.png
+
+#begin Fonts/kaph-regular-72px-white.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:Fonts/kaph-regular-72px-white.fnt;Fonts/kaph-regular-72px-white-fnt.fnt
+
+#begin Fonts/kaph-regular-72px-white.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:Fonts/kaph-regular-72px-white.png
 
 #begin Fonts/Kaph-Regular.fnt
 /importer:BitmapFontImporter

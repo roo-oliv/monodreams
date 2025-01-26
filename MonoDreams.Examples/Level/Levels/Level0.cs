@@ -2,16 +2,19 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component;
 using MonoDreams.Examples.Objects;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Renderer;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Level.Levels;
 
 public class Level0(ContentManager content, ResolutionIndependentRenderer renderer) : ILevel
 {
     private readonly Texture2D _square = content.Load<Texture2D>("square");
-    // private readonly BitmapFont font = content.Load<BitmapFont>("Fonts/pixel-8px-white-fnt");
+    private readonly BitmapFont font = content.Load<BitmapFont>("Fonts/kaph-regular-72px-white-fnt");
+    private readonly Texture2D _dialogBox = content.Load<Texture2D>("Dialouge UI/dialog box big");
 
     public const string Layout = @"
     .*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*..*.
@@ -94,8 +97,9 @@ public class Level0(ContentManager content, ResolutionIndependentRenderer render
             // StaticText.Create(world, font, "Jump with Spacebar", Color.White, new Vector2(20 * 12, 20 * 25), DrawLayer.Text);
             // StaticText.Create(world, font, "Hold Jump to go farther", Color.White, new Vector2(20 * 21, 20 * 13), DrawLayer.Text);
         }
-        
 
+        Dialogue.Create(world, "Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet", font, _dialogBox, OptionsMenuScreen.DrawLayer.Buttons);
+        
         // PlayerState.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370), DrawLayer.PlayerState);
         // LoadTiles(world);
         // LevelBoundaries.Create(world, _square, renderer);

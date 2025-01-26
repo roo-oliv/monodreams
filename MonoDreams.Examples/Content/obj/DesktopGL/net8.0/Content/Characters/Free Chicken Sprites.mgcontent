@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <SourceFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/Characters/Free Chicken Sprites.png</SourceFile>
-  <SourceTime>2024-04-24T08:51:17.0190393-03:00</SourceTime>
-  <DestFile>/Users/rodrigooliveira/git/allrod5/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Characters/Free Chicken Sprites.xnb</DestFile>
-  <DestTime>2024-04-26T20:07:26.8078795-03:00</DestTime>
+  <SourceFile>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Free Chicken Sprites.png</SourceFile>
+  <SourceTime>2024-10-08T18:50:08.0137017-03:00</SourceTime>
+  <DestFile>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/bin/DesktopGL/Content/Characters/Free Chicken Sprites.xnb</DestFile>
+  <DestTime>2025-01-22T19:48:13.1383994-03:00</DestTime>
   <Importer>TextureImporter</Importer>
   <ImporterTime>2022-07-26T08:44:56-03:00</ImporterTime>
   <Processor>TextureProcessor</Processor>

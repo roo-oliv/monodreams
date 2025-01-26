@@ -59,13 +59,14 @@ public class DreamGameScreen : IGameScreen
             new DebugSystem(_world, _game, _spriteBatch),
             new InputHandlingSystem(),
             new MovementSystem(_world, _parallelRunner),
-            new GravitySystem(_world, _parallelRunner, Constants.WorldGravity, Constants.MaxFallVelocity),
+            // new GravitySystem(_world, _parallelRunner, Constants.WorldGravity, Constants.MaxFallVelocity),
             new VelocitySystem(_world, _parallelRunner),
             new CollisionDetectionSystem(_world, _parallelRunner),
             new CollisionResolutionSystem(_world),
             new PositionSystem(_world, _parallelRunner),
             new BeginDrawSystem(_spriteBatch, _renderer, _camera),
             new DrawSystem(_world, _spriteBatch, _parallelRunner),
+            new DynamicTextSystem(_spriteBatch, _world),
             new EndDrawSystem(_spriteBatch),
             new DrawDebugSystem(_world, _spriteBatch, _renderer)
             );
