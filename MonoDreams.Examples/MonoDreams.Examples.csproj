@@ -15,6 +15,7 @@
     
     <ItemGroup>
         <PackageReference Include="Facebook.Yoga" Version="1.5.0-pre1" />
+        <PackageReference Include="Iguina" Version="1.1.2" />
         <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="3.8.0" />
         <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
         <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.1.303" />
@@ -31,6 +32,14 @@
       <Reference Include="Monogame.ImGuiNet">
         <HintPath>..\MonoDreams\bin\Debug\net8.0\Monogame.ImGuiNet.dll</HintPath>
       </Reference>
+    </ItemGroup>
+    
+    <ItemGroup>
+      <Folder Include="Assets\" />
+    </ItemGroup>
+    
+    <ItemGroup>
+      <ClCompile Include="Content\disabled_effect.fx" />
     </ItemGroup>
     
     <Target Name="RestoreDotnetTools" BeforeTargets="Restore">

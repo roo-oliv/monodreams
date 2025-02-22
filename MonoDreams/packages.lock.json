@@ -26,6 +26,12 @@
         "resolved": "1.5.0-pre1",
         "contentHash": "vrQlEHwofzmocQT4Dp70xAXoPvqC0a4AGjKlvXLflMyDl75UxNHQ/98be4pHcqXEB+pgUBMjA2iTldZTD7F22A=="
       },
+      "Iguina": {
+        "type": "Direct",
+        "requested": "[1.1.2, )",
+        "resolved": "1.1.2",
+        "contentHash": "bbm9nK9GUeg/MX4H0hQidwWHzWRLTWbuP2ts0rN0wsWhKyZPmGPL6scrrBDlmtCAGmG1t5gDi1fE63/mPgSHPw=="
+      },
       "Microsoft.SourceLink.GitHub": {
         "type": "Direct",
         "requested": "[1.1.1-*, )",

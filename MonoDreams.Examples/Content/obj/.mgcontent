@@ -14,6 +14,7 @@
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Free Chicken Sprites.png</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Free Cow Sprites.png</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Characters/Tools.png</File>
+    <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/default_font.spritefont</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box big.png</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Dialouge UI/dialog box medium.png</File>
@@ -67,6 +68,7 @@
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/UI Settings Buttons.png</File>
   </SourceFiles>
   <DestFiles>
+    <File xsi:nil="true" />
     <File xsi:nil="true" />
     <File xsi:nil="true" />
     <File xsi:nil="true" />

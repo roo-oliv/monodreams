@@ -1,16 +1,22 @@
 using DefaultEcs;
+using Iguina.Defs;
+using Iguina.Entities;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Objects;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Renderer;
 using MonoGame.Extended.BitmapFonts;
+using Color = Iguina.Defs.Color;
+using Point = Microsoft.Xna.Framework.Point;
+using Rectangle = Iguina.Defs.Rectangle;
 
 namespace MonoDreams.Examples.Level.Levels;
 
-public class Level0(ContentManager content, ResolutionIndependentRenderer renderer) : ILevel
+public class Level0(ContentManager content, GraphicsDevice graphicsDevice, SpriteBatch spriteBatch) : ILevel
 {
     private readonly Texture2D _square = content.Load<Texture2D>("square");
     private readonly BitmapFont font = content.Load<BitmapFont>("Fonts/kaph-regular-72px-white-fnt");
@@ -98,11 +104,54 @@ public class Level0(ContentManager content, ResolutionIndependentRenderer render
             // StaticText.Create(world, font, "Hold Jump to go farther", Color.White, new Vector2(20 * 21, 20 * 13), DrawLayer.Text);
         }
 
-        Dialogue.Create(world, "Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet", font, _dialogBox, OptionsMenuScreen.DrawLayer.Buttons);
+        // Dialogue.Create(world, "Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet Lorem ipsum dolor sit amet", font, _dialogBox, OptionsMenuScreen.DrawLayer.Buttons);
         
         // PlayerState.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370), DrawLayer.PlayerState);
         // LoadTiles(world);
         // LevelBoundaries.Create(world, _square, renderer);
+
+        var iguinaInterface = new IguinaInterface("../../../Assets/DefaultTheme", content, spriteBatch, graphicsDevice);
+        var ui = iguinaInterface.UserInterface;
+        var panel = new Panel(ui)
+        {
+            Anchor = Anchor.TopRight,
+        };
+        panel.Size.SetPixels(1600, 200);
+        panel.Offset.SetPixels(32, 32);
+        ui.Root.AddChild(panel);
+
+        // Draw the texture
+        var textureId = "Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png";
+        var sourceRect = new Rectangle(0, 0, 32, 32); // Source rectangle in the texture
+        var destRect = new Rectangle(150, 150, 200, 200); // Destination rectangle on the panel
+        var color = new Color(255, 255, 255, 255); // White color tint
+        
+        var dynParagraph = new Paragraph(ui)
+        {
+            Anchor = Anchor.AutoLTR,
+        };
+        iguinaInterface.DynamicParagraphs.Add(
+            ("Hello World! This is a great example to test as placeholder dialogue text" +
+             " that may overflow the dialogue box! Thank you!",
+                dynParagraph));
+        panel.AddChild(dynParagraph);
+            
+        {
+            var enableDebugModeBtn = new Button(ui, "Debug Mode")
+            {
+                ToggleCheckOnClick = true,
+                Anchor = Anchor.TopRight
+            };
+            enableDebugModeBtn.Events.OnValueChanged = _ =>
+            {
+                ui.DebugRenderEntities = enableDebugModeBtn.Checked;
+            };
+            enableDebugModeBtn.Size.X.SetPixels(400);
+            ui.Root.AddChild(enableDebugModeBtn);
+        }
+        
+        var uiEntity = world.CreateEntity();
+        uiEntity.Set(iguinaInterface);
     }
     
     private void LoadTiles(World world)

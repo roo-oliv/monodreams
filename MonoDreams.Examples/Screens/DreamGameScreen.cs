@@ -30,7 +30,8 @@ public class DreamGameScreen : IGameScreen
     private readonly World _world;
     private readonly LevelLoader _levelLoader;
     
-    public DreamGameScreen(Game game, ContentManager content, Camera camera, ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+    public DreamGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
+        ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         _game = game;
         _content = content;
@@ -39,10 +40,10 @@ public class DreamGameScreen : IGameScreen
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
         
-        camera.Position = new Vector2(440, 340);
+        camera.Position = new Vector2(0, 0);
         
         _world = new World();
-        _levelLoader = new LevelLoader(_world, _content, _renderer);
+        _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch);
         System = CreateSystem();
     }
 
@@ -68,7 +69,8 @@ public class DreamGameScreen : IGameScreen
             new DrawSystem(_world, _spriteBatch, _parallelRunner),
             new DynamicTextSystem(_spriteBatch, _world),
             new EndDrawSystem(_spriteBatch),
-            new DrawDebugSystem(_world, _spriteBatch, _renderer)
+            new IguinaSystem(_world)
+            // new DrawDebugSystem(_world, _spriteBatch, _renderer)
             );
     }
     

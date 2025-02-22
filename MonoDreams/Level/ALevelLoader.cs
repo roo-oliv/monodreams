@@ -4,11 +4,9 @@ using MonoDreams.Renderer;
 
 namespace MonoDreams.Level;
 
-public abstract class ALevelLoader(World world, ContentManager content, ResolutionIndependentRenderer renderer)
+public abstract class ALevelLoader(World world)
 {
     protected World World = world;
-    protected readonly ContentManager Content = content;
-    protected readonly ResolutionIndependentRenderer Renderer = renderer;
 
     public int CurrentLevel { get; protected set; }
 
