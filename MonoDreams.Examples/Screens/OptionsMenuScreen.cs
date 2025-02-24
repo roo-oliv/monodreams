@@ -1,3 +1,4 @@
+using System.Net.Mime;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
@@ -23,6 +24,7 @@ public class OptionsMenuScreen : IGameScreen
     private readonly ResolutionIndependentRenderer _renderer;
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
+    private readonly (RenderTarget2D main, RenderTarget2D ui) _renderTargets;
     public World World { get; }
     public ISystem<GameState> System { get; }
 
@@ -33,6 +35,11 @@ public class OptionsMenuScreen : IGameScreen
         _renderer = renderer;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
+        _renderTargets = (
+            main: new RenderTarget2D(_graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight),
+            ui: new RenderTarget2D(_graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight)
+        );
+        
         World = new World();
         System = new SequentialSystem<GameState>(
             new PlayerInputSystem(World),
@@ -41,7 +48,7 @@ public class OptionsMenuScreen : IGameScreen
             new ButtonSystem(World),
             new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
-            new DrawSystem(World, spriteBatch, _parallelRunner),
+            new DrawSystem(World, spriteBatch, _renderTargets.main, _parallelRunner),
             // new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),
             new EndDrawSystem(spriteBatch));
@@ -53,7 +60,7 @@ public class OptionsMenuScreen : IGameScreen
         // StaticBackground.Create(World, backgroundImage, _camera, _renderer, drawLayer: DrawLayer.Background);
         
         var cursorTexture = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1");
-        Cursor.Create(World, cursorTexture, new Point(42), DrawLayer.Cursor);
+        Cursor.Create(_renderTargets.main, World, cursorTexture, new Point(42), DrawLayer.Cursor);
         
         var font = content.Load<BitmapFont>("Fonts/Kaph Regular White 80px Stroke Black 4px fnt");Button.Create(
             World,

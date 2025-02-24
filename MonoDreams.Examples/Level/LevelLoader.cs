@@ -10,16 +10,21 @@ using MonoDreams.Renderer;
 
 namespace MonoDreams.Examples.Level;
 
-public class LevelLoader(World world, GraphicsDevice graphicsDevice, ContentManager content, SpriteBatch spriteBatch) : ALevelLoader(world)
+public class LevelLoader(
+    World world,
+    GraphicsDevice graphicsDevice,
+    ContentManager content,
+    SpriteBatch spriteBatch,
+    (RenderTarget2D main, RenderTarget2D ui) renderTargets) : ALevelLoader(world)
 {
     public override void LoadLevel(int index)
     {
         CurrentLevel = index;
         ILevel level = index switch
         {
-            0 => new Level0(content, graphicsDevice, spriteBatch),
+            0 => new Level0(content, graphicsDevice, spriteBatch, renderTargets),
             // 1 => new Level1(content, Renderer),
-            _ => new Level0(content, graphicsDevice, spriteBatch),
+            _ => new Level0(content, graphicsDevice, spriteBatch, renderTargets),
         };
         level.Load(World);
     }

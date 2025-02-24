@@ -29,6 +29,7 @@ public class DreamGameScreen : IGameScreen
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
     private readonly LevelLoader _levelLoader;
+    private readonly (RenderTarget2D main, RenderTarget2D ui) _renderTargets;
     
     public DreamGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -39,11 +40,15 @@ public class DreamGameScreen : IGameScreen
         _renderer = renderer;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
+        _renderTargets = (
+            main: new RenderTarget2D(graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight),
+            ui: new RenderTarget2D(graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight)
+        );
         
         camera.Position = new Vector2(0, 0);
         
         _world = new World();
-        _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch);
+        _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
         System = CreateSystem();
     }
 
@@ -66,10 +71,18 @@ public class DreamGameScreen : IGameScreen
             new CollisionResolutionSystem(_world),
             new PositionSystem(_world, _parallelRunner),
             new BeginDrawSystem(_spriteBatch, _renderer, _camera),
-            new DrawSystem(_world, _spriteBatch, _parallelRunner),
-            new DynamicTextSystem(_spriteBatch, _world),
-            new EndDrawSystem(_spriteBatch),
-            new IguinaSystem(_world)
+            new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(_renderTargets.main)),
+            new ParallelSystem<GameState>(_parallelRunner,
+                new DrawSystem(_world, _spriteBatch, _renderTargets.main, _parallelRunner),
+                new DynamicTextSystem(_spriteBatch, _world, _renderTargets.main)
+                ),
+            new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(_renderTargets.ui)),
+            new ParallelSystem<GameState>(_parallelRunner,
+                new DrawSystem(_world, _spriteBatch, _renderTargets.ui, _parallelRunner),
+                new DynamicTextSystem(_spriteBatch, _world, _renderTargets.ui)
+            ),
+            new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(null)),
+            new EndDrawSystem(_spriteBatch)
             // new DrawDebugSystem(_world, _spriteBatch, _renderer)
             );
     }
@@ -78,5 +91,15 @@ public class DreamGameScreen : IGameScreen
     {
         System.Dispose();
         GC.SuppressFinalize(this);
+    }
+    
+    public enum DrawLayer
+    {
+        Cursor,
+        UIText,
+        UIElements,
+        Player,
+        Level,
+        Background,
     }
 }

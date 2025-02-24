@@ -16,7 +16,7 @@ public class Tile
     public static Color DeadlyColor = Color.OrangeRed;
     public static Color ObjectiveColor = Color.Gold;
     
-    public static Entity Create(World world, Texture2D texture, Vector2 position, Point size, TileType type = TileType.Default, Enum? drawLayer = null)
+    public static Entity Create(World world, Texture2D texture, Vector2 position, Point size, RenderTarget2D renderTarget, TileType type = TileType.Default, Enum? drawLayer = null)
     {
         var entity = world.CreateEntity();
         entity.Set(new Position(position));
@@ -30,7 +30,7 @@ public class Tile
             TileType.Objective => ObjectiveColor,
             _ => DefaultColor
         };
-        entity.Set(new DrawInfo(texture, size, color: color, layer: drawLayer));
+        entity.Set(new DrawInfo(renderTarget, texture, size, color: color, layer: drawLayer));
         // switch (type)
         // {
         //     case TileType.Reactive:

@@ -15,14 +15,16 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
     private readonly World _world;
     private readonly List<CollisionMessage> _collisions;
     private readonly List<Entity> _hints;
+    private readonly RenderTarget2D _renderTarget;
 
-    public CollisionDrawSystem(Texture2D square, World world)
+    public CollisionDrawSystem(Texture2D square, World world, RenderTarget2D renderTarget)
     {
         world.Subscribe(this);
         _square = square;
         _world = world;
         _collisions = new List<CollisionMessage>();
         _hints = new List<Entity>();
+        _renderTarget = renderTarget;
     }
         
     [Subscribe]
@@ -45,7 +47,7 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
             var location = collidingEntity.Get<Position>().Current;
             var hint = _world.CreateEntity();
             hint.Set(new Position(location));
-            hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray));
+            hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray, renderTarget: _renderTarget));
             _hints.Add(hint);
         }
 

@@ -26,7 +26,7 @@ public class AnimationData
         return JsonConvert.DeserializeObject<AnimationData>(jsonContent);
     }
 
-    public void PopulateEntityAnimation(Entity entity, Texture2D spriteSheet)
+    public void PopulateEntityAnimation(Entity entity, Texture2D spriteSheet, RenderTarget2D renderTarget)
     {
         var entityFrames = new List<Rectangle>();
         var durations = new List<int>();
@@ -37,7 +37,7 @@ public class AnimationData
             durations.Add(frameData.duration);
         }
 
-        entity.Set(new DrawInfo(spriteSheet: spriteSheet, source: entityFrames[0], color: Color.White));
+        entity.Set(new DrawInfo(spriteSheet: spriteSheet, source: entityFrames[0], color: Color.White, renderTarget: renderTarget));
 
         entity.Set(new Animation
         {
