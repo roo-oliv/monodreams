@@ -11,7 +11,7 @@ public static class Dialogue
     public static Entity Create(World world, String text, Texture2D emoteTexture, BitmapFont font, Texture2D dialogBoxTexture, RenderTarget2D renderTarget, GraphicsDevice graphicsDevice, Enum boxDrawLayer = null, Enum textDrawLayer = null)
     {
         var textEntity = world.CreateEntity();
-        textEntity.Set(new DynamicText(renderTarget, text, font, drawLayer: textDrawLayer));
+        textEntity.Set(new DynamicText(renderTarget, text, font, drawLayer: textDrawLayer, maxLineWidth: 2800));
         textEntity.Set(new Position(new Vector2(-1150, -900)));
         
         var dialogBox = world.CreateEntity();

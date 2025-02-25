@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -6,6 +7,8 @@ using MonoDreams.Component;
 using MonoDreams.Draw;
 using MonoDreams.State;
 using MonoDreams.Text;
+using MonoGame.Extended.BitmapFonts;
+using MonoGame.Extended.Sprites;
 using MonoGame.Extended.TextureAtlases;
 
 namespace MonoDreams.System.Draw;
@@ -20,13 +23,15 @@ public sealed class DynamicTextSystem(SpriteBatch batch, World world, RenderTarg
         ref var position = ref entity.Get<Position>();
         if (float.IsNaN(text.RevealStartTime)) text.RevealStartTime = state.TotalTime;
         var elapsedTime = state.TotalTime - text.RevealStartTime;
-        var glyphs = TextProcessor.GetGlyphs(text, position.Current, 600);
+
+        var glyphs = TextProcessor.GetGlyphs(text, position.Current);
         var revealedChars = text.IsRevealed ? glyphs.Count : 0;
+
         foreach (var (glyph, color) in glyphs)
         {
             if (!text.IsRevealed)
             {
-                if (revealedChars / elapsedTime > text.RevealingSpeed) break;
+                if (revealedChars / elapsedTime > text.RevealingSpeed) return;
                 revealedChars++;
             }
 
@@ -34,10 +39,8 @@ public sealed class DynamicTextSystem(SpriteBatch batch, World world, RenderTarg
             {
                 text.IsRevealed = true;
             }
-            
-            if (glyph.FontRegion == null) continue;
-            var origin1 = position.Current - glyph.Position;
-            batch.Draw(glyph.FontRegion.TextureRegion, position.Current, color, 0.0f, origin1, Vector2.One * 0.75f, SpriteEffects.None, layerDepth);
+
+            batch.Draw(glyph.FontRegion.TextureRegion, glyph.Position, color, 0.0f, Vector2.Zero, Vector2.One, SpriteEffects.None, layerDepth);
         }
     }
 }

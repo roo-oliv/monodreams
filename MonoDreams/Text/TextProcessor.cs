@@ -10,53 +10,73 @@ public static class TextProcessor
 {
     public static List<(BitmapFontGlyph glyph, Color color)> GetGlyphs(DynamicText text, Vector2 origin)
     {
-        var position = new Vector2(origin.X, origin.Y);
         var result = new List<(BitmapFontGlyph glyph, Color color)>();
         var colorStack = new Stack<Color>();
         colorStack.Push(TextColor.DefaultGray);
 
-        var bbCodeRegex = new Regex(@"\[(?<tag>/?\w+)(?:=(?<param>\w+))?\]");
-        var matches = bbCodeRegex.Matches(text.Value);
+        // var bbCodeRegex = new Regex(@"\[(?<tag>/?\w+)(?:=(?<param>\w+))?\]");
+        // var matches = bbCodeRegex.Matches(text.Value);
 
         var currentIndex = 0;
-        foreach (Match match in matches)
-        {
-            var tag = match.Groups["tag"].Value;
-            var param = match.Groups["param"].Value;
+        var lineWidth = 0f;
+        var discount = Vector2.Zero;
 
-            var substring = text.Value.Substring(currentIndex, match.Index - currentIndex);
-            foreach (var glyph in text.Font.GetGlyphs(substring, position))
-            {
-                result.Add((glyph, colorStack.Peek()));
-                if (glyph.FontRegion != null)
-                {
-                    position += new Vector2(glyph.FontRegion.XAdvance, 0);
-                }
-            }
-
-            switch (tag)
-            {
-                case "color":
-                    colorStack.Push(TextColor.Parse(param));
-                    break;
-                case "/color":
-                {
-                    if (colorStack.Count > 1)
-                    {
-                        colorStack.Pop();
-                    }
-
-                    break;
-                }
-            }
-
-            currentIndex = match.Index + match.Length;
-        }
+        // foreach (Match match in matches)
+        // {
+        //     var tag = match.Groups["tag"].Value;
+        //     var param = match.Groups["param"].Value;
+        //
+        //     var substring = text.Value.Substring(currentIndex, match.Index - currentIndex);
+        //     foreach (var glyph in text.Font.GetGlyphs(substring, origin))
+        //     {
+        //         var bitmapFontGlyph = glyph;
+        //         bitmapFontGlyph.Position.X -= xDiscount;
+        //         if (text.MaxLineWidth > 0 && lineWidth + bitmapFontGlyph.FontRegion.Width > text.MaxLineWidth)
+        //         {
+        //             bitmapFontGlyph.Position.Y += text.Font.LineHeight * 2;
+        //             xDiscount += lineWidth;
+        //             lineWidth = 0;
+        //         }
+        //
+        //         result.Add((bitmapFontGlyph, colorStack.Peek()));
+        //         if (bitmapFontGlyph.FontRegion != null)
+        //         {
+        //             lineWidth += bitmapFontGlyph.FontRegion.XAdvance;
+        //         }
+        //     }
+        //
+        //     switch (tag)
+        //     {
+        //         case "color":
+        //             colorStack.Push(TextColor.Parse(param));
+        //             break;
+        //         case "/color":
+        //             if (colorStack.Count > 1)
+        //             {
+        //                 colorStack.Pop();
+        //             }
+        //             break;
+        //     }
+        //
+        //     currentIndex = match.Index + match.Length;
+        // }
 
         string remaining = text.Value[currentIndex..];
-        foreach (var glyph in text.Font.GetGlyphs(remaining, position))
+        foreach (var glyph in text.Font.GetGlyphs(remaining, origin))
         {
-            result.Add((glyph, colorStack.Peek()));
+            var bitmapFontGlyph = glyph;
+            if (text.MaxLineWidth > 0 && lineWidth + bitmapFontGlyph.FontRegion.Width > text.MaxLineWidth)
+            {
+                discount += new Vector2(lineWidth, -text.Font.LineHeight);
+                lineWidth = 0;
+            }
+            bitmapFontGlyph.Position -= discount;
+
+            result.Add((bitmapFontGlyph, colorStack.Peek()));
+            if (bitmapFontGlyph.FontRegion != null)
+            {
+                lineWidth += bitmapFontGlyph.FontRegion.XAdvance;
+            }
         }
 
         return result;

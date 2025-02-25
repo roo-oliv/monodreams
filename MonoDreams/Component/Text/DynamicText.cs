@@ -4,25 +4,20 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Component;
 
-public struct DynamicText
+public struct DynamicText(
+    RenderTarget2D renderTarget,
+    string value,
+    BitmapFont font,
+    float revealingSpeed = 20,
+    Enum drawLayer = null,
+    int maxLineWidth = 0)
 {
-    public string Value;
-    public BitmapFont Font;
-    public float RevealingSpeed;
-    public readonly Enum DrawLayer;
-    public float RevealStartTime;
+    public string Value = value;
+    public BitmapFont Font = font;
+    public float RevealingSpeed = revealingSpeed;
+    public readonly Enum DrawLayer = drawLayer;
+    public float RevealStartTime = float.NaN;
     public bool IsRevealed = false;
-    public readonly RenderTarget2D RenderTarget;
-
-    public DynamicText(RenderTarget2D renderTarget, string value, BitmapFont font,
-        float revealingSpeed = 20, Enum drawLayer = null) : this()
-    {
-        Font = font;
-        Value = value;
-        RevealingSpeed = revealingSpeed;
-        DrawLayer = drawLayer;
-        RevealStartTime = float.NaN;
-        RenderTarget = renderTarget;
-        
-    }
+    public readonly RenderTarget2D RenderTarget = renderTarget;
+    public int MaxLineWidth = maxLineWidth;
 }
