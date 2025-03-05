@@ -66,6 +66,7 @@
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Tilesets/Wooden House.png</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/UI Big Play Button.png</File>
     <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/UI Settings Buttons.png</File>
+    <File>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/YarnScripts/test.yarn</File>
   </SourceFiles>
   <DestFiles>
     <File xsi:nil="true" />
@@ -93,6 +94,7 @@
     <File>Fonts/kaph-regular-72px-white-fnt.fnt</File>
     <File xsi:nil="true" />
     <File>Fonts/Kaph-Regular-fnt.fnt</File>
+    <File xsi:nil="true" />
     <File xsi:nil="true" />
     <File xsi:nil="true" />
     <File xsi:nil="true" />

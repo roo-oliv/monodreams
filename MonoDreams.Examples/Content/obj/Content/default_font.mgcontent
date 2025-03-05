@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PipelineBuildEvent xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <SourceFile>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/default_font.spritefont</SourceFile>
+  <SourceTime>2025-02-21T13:25:21.1830324-03:00</SourceTime>
+  <DestFile>/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/bin/Content/default_font.xnb</DestFile>
+  <DestTime>2025-03-05T17:40:43.0497042-03:00</DestTime>
+  <Importer>FontDescriptionImporter</Importer>
+  <ImporterTime>2024-08-16T14:05:56-03:00</ImporterTime>
+  <Processor>FontDescriptionProcessor</Processor>
+  <ProcessorTime>2024-08-16T14:05:56-03:00</ProcessorTime>
+  <Parameters>
+    <Key>PremultiplyAlpha</Key>
+    <Value>True</Value>
+  </Parameters>
+  <Parameters>
+    <Key>TextureFormat</Key>
+    <Value>Compressed</Value>
+  </Parameters>
+  <Dependencies />
+  <BuildAsset />
+  <BuildOutput />
+</PipelineBuildEvent>

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MonoDreams.YarnSpinner")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e28c0c280b7303b58cfe9287cac0fdd40f649483")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+77a5aae437788258adaca7374cbe128ec366e54a")]
 [assembly: System.Reflection.AssemblyProductAttribute("MonoDreams.YarnSpinner")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MonoDreams.YarnSpinner")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

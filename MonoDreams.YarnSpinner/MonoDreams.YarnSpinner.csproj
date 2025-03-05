@@ -4,24 +4,18 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <IsPackable>true</IsPackable>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.2.1105" />
         <PackageReference Include="MonoGame.Extended" Version="4.0.4" />
+        <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="4.0.4" />
         <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.2.1105" />
-        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.2.1105" />
-        <PackageReference Include="YarnSpinner" Version="3.0.0-beta.1" />
-        <PackageReference Include="YarnSpinner.Compiler" Version="3.0.0-beta.1" />
-    </ItemGroup>
-
-<!--    <ItemGroup>-->
-<!--        <Content Include="$(OutputPath)/*.dll" Pack="true" PackagePath="tools" />-->
-<!--        <Content Include="MonoDreams.YarnSpinner.targets" Pack="true" PackagePath="build" />-->
-<!--    </ItemGroup>-->
-
-    <ItemGroup>
-        <ProjectReference Include="..\MonoDreams.YarnSpinnerPipeline\MonoDreams.YarnSpinnerPipeline.csproj" />
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.2.1105" PrivateAssets="All" />
+        <PackageReference Include="YarnSpinner" Version="3.0.0-beta2" />
+        <PackageReference Include="YarnSpinner.Compiler" Version="3.0.0-beta2" />
     </ItemGroup>
     
 </Project>

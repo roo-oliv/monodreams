@@ -7,11 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Tests", "MonoDre
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Examples", "MonoDreams.Examples\MonoDreams.Examples.csproj", "{05B7C39C-CF10-4BA6-BBDE-9F126E32DAB9}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "MonoDreams.YarnSpinner", "MonoDreams.YarnSpinner", "{43257FFF-B073-4425-8F22-EF46FC7415F3}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.YarnSpinner", "MonoDreams.YarnSpinner\MonoDreams.YarnSpinner.csproj", "{F9285C13-03F5-406E-AA02-A876ADAB5805}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.YarnSpinnerPipeline", "MonoDreams.YarnSpinnerPipeline\MonoDreams.YarnSpinnerPipeline.csproj", "{CBD63F87-0731-42C8-B6F3-945A6BF8C1A3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -35,9 +31,5 @@ Global
 		{F9285C13-03F5-406E-AA02-A876ADAB5805}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F9285C13-03F5-406E-AA02-A876ADAB5805}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F9285C13-03F5-406E-AA02-A876ADAB5805}.Release|Any CPU.Build.0 = Release|Any CPU
-		{CBD63F87-0731-42C8-B6F3-945A6BF8C1A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{CBD63F87-0731-42C8-B6F3-945A6BF8C1A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{CBD63F87-0731-42C8-B6F3-945A6BF8C1A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{CBD63F87-0731-42C8-B6F3-945A6BF8C1A3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

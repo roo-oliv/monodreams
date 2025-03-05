@@ -1,7 +1,0 @@
-<Project>
-    <ItemGroup>
-        <UsingTask AssemblyFile="$(MSBuildThisFileDirectory)../tools/MonoDreams.YarnSpinnerPipeline.dll" TaskName="MonoDreams.YarnSpinnerPipeline.YarnSpinnerImporter" />
-        <UsingTask AssemblyFile="$(MSBuildThisFileDirectory)../tools/MonoDreams.YarnSpinnerPipeline.dll" TaskName="MonoDreams.YarnSpinnerPipeline.YarnSpinnerProcessor" />
-        <UsingTask AssemblyFile="$(MSBuildThisFileDirectory)../tools/MonoDreams.YarnSpinnerPipeline.dll" TaskName="MonoDreams.YarnSpinnerPipeline.YarnSpinnerWriter" />
-    </ItemGroup>
-</Project>
