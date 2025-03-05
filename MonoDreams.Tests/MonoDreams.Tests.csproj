@@ -21,6 +21,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="YarnSpinner" Version="3.0.0-beta.1" />
+    <PackageReference Include="YarnSpinner.Compiler" Version="3.0.0-beta.1" />
   </ItemGroup>
 
   <ItemGroup>

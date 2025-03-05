@@ -1,0 +1,16 @@
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.deps.json
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.pdb
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.csproj.AssemblyReference.cache
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.GeneratedMSBuildEditorConfig.editorconfig
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.AssemblyInfoInputs.cache
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.AssemblyInfo.cs
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.csproj.CoreCompileInputs.cache
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.sourcelink.json
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.dll
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/refint/MonoDreams.YarnSpinner.dll
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDreams.YarnSpinner.pdb
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/ref/MonoDreams.YarnSpinner.dll
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinnerPipeline.dll
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinnerPipeline.pdb
+/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/obj/Debug/net8.0/MonoDrea.2F8CD7D9.Up2Date

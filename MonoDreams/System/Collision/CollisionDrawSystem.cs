@@ -9,11 +9,12 @@ using MonoDreams.State;
 
 namespace MonoDreams.System;
 
-public sealed class CollisionDrawSystem : ISystem<GameState>
+public sealed class CollisionDrawSystem<TCollisionMessage> : ISystem<GameState>
+    where TCollisionMessage : ICollisionMessage
 {
     private readonly Texture2D _square;
     private readonly World _world;
-    private readonly List<CollisionMessage> _collisions;
+    private readonly List<TCollisionMessage> _collisions;
     private readonly List<Entity> _hints;
     private readonly RenderTarget2D _renderTarget;
 
@@ -22,13 +23,13 @@ public sealed class CollisionDrawSystem : ISystem<GameState>
         world.Subscribe(this);
         _square = square;
         _world = world;
-        _collisions = new List<CollisionMessage>();
+        _collisions = new List<TCollisionMessage>();
         _hints = new List<Entity>();
         _renderTarget = renderTarget;
     }
         
     [Subscribe]
-    private void On(in CollisionMessage message) => _collisions.Add(message);
+    private void On(in TCollisionMessage message) => _collisions.Add(message);
 
     public void Update(GameState state)
     {

@@ -29,7 +29,7 @@ public class Button
         World world, string value, Action callback, Vector2 position, BitmapFont font, Color? defaultColor = null,
         Color? selectedColor = null, Enum drawLayer = null)
     {
-        var size = font.MeasureString(value) + new Size2(5, 5);
+        var size = font.MeasureString(value) + new SizeF(5, 5);
         return Create(
             world, value, callback, position, new Point((int)size.Width, (int)size.Height), font, defaultColor,
             selectedColor, drawLayer);

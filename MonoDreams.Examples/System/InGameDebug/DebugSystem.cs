@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Debug;
 using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Message;
 using MonoDreams.LegacyComponents;
 using MonoDreams.Message;
 using MonoDreams.State;

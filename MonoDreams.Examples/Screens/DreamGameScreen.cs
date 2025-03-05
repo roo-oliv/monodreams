@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Level;
+using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.InGameDebug;
 using MonoDreams.Objects;
@@ -67,8 +68,8 @@ public class DreamGameScreen : IGameScreen
             new MovementSystem(_world, _parallelRunner),
             // new GravitySystem(_world, _parallelRunner, Constants.WorldGravity, Constants.MaxFallVelocity),
             new VelocitySystem(_world, _parallelRunner),
-            new CollisionDetectionSystem(_world, _parallelRunner),
-            new CollisionResolutionSystem(_world),
+            new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
+            new PhysicalCollisionResolutionSystem(_world),
             new PositionSystem(_world, _parallelRunner),
             new BeginDrawSystem(_spriteBatch, _renderer, _camera),
             new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(_renderTargets.main)),

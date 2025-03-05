@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Message;
 using MonoDreams.Objects.UI;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
@@ -44,8 +45,8 @@ public class OptionsMenuScreen : IGameScreen
         System = new SequentialSystem<GameState>(
             new PlayerInputSystem(World),
             new CursorSystem(World, camera),
-            new CollisionDetectionSystem(World, _parallelRunner),
-            new ButtonSystem(World),
+            new CollisionDetectionSystem<CollisionMessage>(World, _parallelRunner, CollisionMessage.Create),
+            new ButtonSystem<CollisionMessage>(World),
             new PositionSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, renderer, camera),
             new DrawSystem(World, spriteBatch, _renderTargets.main, _parallelRunner),

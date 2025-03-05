@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -7,9 +6,6 @@ using MonoDreams.Component;
 using MonoDreams.Draw;
 using MonoDreams.State;
 using MonoDreams.Text;
-using MonoGame.Extended.BitmapFonts;
-using MonoGame.Extended.Sprites;
-using MonoGame.Extended.TextureAtlases;
 
 namespace MonoDreams.System.Draw;
 
@@ -40,7 +36,7 @@ public sealed class DynamicTextSystem(SpriteBatch batch, World world, RenderTarg
                 text.IsRevealed = true;
             }
 
-            batch.Draw(glyph.FontRegion.TextureRegion, glyph.Position, color, 0.0f, Vector2.Zero, Vector2.One, SpriteEffects.None, layerDepth);
+            // batch.Draw(glyph.FontRegion.TextureRegion, glyph.Position, color, 0.0f, Vector2.Zero, Vector2.One, SpriteEffects.None, layerDepth);
         }
     }
 }

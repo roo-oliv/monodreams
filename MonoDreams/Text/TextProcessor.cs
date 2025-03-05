@@ -8,9 +8,9 @@ namespace MonoDreams.Text;
 
 public static class TextProcessor
 {
-    public static List<(BitmapFontGlyph glyph, Color color)> GetGlyphs(DynamicText text, Vector2 origin)
+    public static List<(BitmapFont.BitmapFontGlyph glyph, Color color)> GetGlyphs(DynamicText text, Vector2 origin)
     {
-        var result = new List<(BitmapFontGlyph glyph, Color color)>();
+        var result = new List<(BitmapFont.BitmapFontGlyph glyph, Color color)>();
         var colorStack = new Stack<Color>();
         colorStack.Push(TextColor.DefaultGray);
 
@@ -65,7 +65,7 @@ public static class TextProcessor
         foreach (var glyph in text.Font.GetGlyphs(remaining, origin))
         {
             var bitmapFontGlyph = glyph;
-            if (text.MaxLineWidth > 0 && lineWidth + bitmapFontGlyph.FontRegion.Width > text.MaxLineWidth)
+            if (text.MaxLineWidth > 0 && lineWidth + bitmapFontGlyph.Character.TextureRegion.Width > text.MaxLineWidth)
             {
                 discount += new Vector2(lineWidth, -text.Font.LineHeight);
                 lineWidth = 0;
@@ -73,19 +73,19 @@ public static class TextProcessor
             bitmapFontGlyph.Position -= discount;
 
             result.Add((bitmapFontGlyph, colorStack.Peek()));
-            if (bitmapFontGlyph.FontRegion != null)
+            if (bitmapFontGlyph.Character.TextureRegion != null)
             {
-                lineWidth += bitmapFontGlyph.FontRegion.XAdvance;
+                lineWidth += bitmapFontGlyph.Character.XAdvance;
             }
         }
 
         return result;
     }
     
-    public static List<(BitmapFontGlyph glyph, Color color)> GetGlyphs(DynamicText text, Vector2 origin, float maxWidth)
+    public static List<(BitmapFont.BitmapFontGlyph glyph, Color color)> GetGlyphs(DynamicText text, Vector2 origin, float maxWidth)
     {
         var position = new Vector2(origin.X, origin.Y);
-        var result = new List<(BitmapFontGlyph glyph, Color color)>();
+        var result = new List<(BitmapFont.BitmapFontGlyph glyph, Color color)>();
         var colorStack = new Stack<Color>();
         colorStack.Push(TextColor.DefaultGray);
 

@@ -24,7 +24,7 @@ public static class UIExtensions
         Color? selectedColor = null,
         Enum? drawLayer = null)
     {
-        var size = font.MeasureString(text) + new Size2(5, 5);
+        var size = font.MeasureString(text) + new SizeF(5, 5);
         return world.CreateButton(
             layoutParent,
             text,

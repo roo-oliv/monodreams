@@ -2,6 +2,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Objects;
@@ -11,10 +12,12 @@ public static class Dialogue
     public static Entity Create(World world, String text, Texture2D emoteTexture, BitmapFont font, Texture2D dialogBoxTexture, RenderTarget2D renderTarget, GraphicsDevice graphicsDevice, Enum boxDrawLayer = null, Enum textDrawLayer = null)
     {
         var textEntity = world.CreateEntity();
+        textEntity.Set(new EntityInfo(EntityType.Interface));
         textEntity.Set(new DynamicText(renderTarget, text, font, drawLayer: textDrawLayer, maxLineWidth: 2800));
         textEntity.Set(new Position(new Vector2(-1150, -900)));
         
         var dialogBox = world.CreateEntity();
+        dialogBox.Set(new EntityInfo(EntityType.Interface));
         dialogBox.Set(new Position(new Vector2(-1400, -1100)));
         dialogBox.Set(
             new DrawInfo(
@@ -39,6 +42,7 @@ public static class Dialogue
             );
         
         var emote = world.CreateEntity();
+        emote.Set(new EntityInfo(EntityType.Interface));
         emote.Set(new Position(new Vector2(-1900, -1000)));
         emote.Set(new DrawInfo(renderTarget, emoteTexture, new Point(550, 550), layer: boxDrawLayer));
         

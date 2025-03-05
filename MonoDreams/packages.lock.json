@@ -50,27 +50,41 @@
       },
       "MonoGame.Content.Builder.Task": {
         "type": "Direct",
-        "requested": "[3.8.1.303, )",
-        "resolved": "3.8.1.303",
-        "contentHash": "9Ilzzje62LhWElbPNEl7vh7XsRSbze+lvCJdZtTZUGu48FRgvYN6THURwIB9PN98EI33/Wnf6iuShNUtD7hL4Q=="
+        "requested": "[3.8.2.1105, )",
+        "resolved": "3.8.2.1105",
+        "contentHash": "wNlkLaITOqMs9MmCYLp3Qc7QfFng3FhIq/b+njdYV3cTVpLYgs/i56FYtJjm8jLoUA/2sJ36Qo/uqWpgW+jBuQ=="
       },
       "MonoGame.Extended.Content.Pipeline": {
         "type": "Direct",
-        "requested": "[3.8.0, )",
-        "resolved": "3.8.0",
-        "contentHash": "Kt21Ux4Hdkgm7FMiGhQ7C0+rMS0wMQM63TxWsNBa8DjEDwX1pKIUORxvQBgh89J4TiMSmmK+U6VfxV2kh5PPpg==",
+        "requested": "[4.0.4, )",
+        "resolved": "4.0.4",
+        "contentHash": "GRK11nAYQO4mdbbkC6tpKZu7zQBqYioxkfY7B0BreG2kOmoyvD5pfuyy6jfUiPP9rpA8uPX5iYWHo8YyCUqSHw==",
         "dependencies": {
           "Autofac": "5.2.0",
-          "MonoGame.Extended": "3.8.0",
-          "MonoGame.Extended.Tiled": "3.8.0",
-          "Newtonsoft.Json": "12.0.3"
+          "MonoGame.Extended": "4.0.4"
+        }
+      },
+      "MonoGame.Framework.Content.Pipeline": {
+        "type": "Direct",
+        "requested": "[3.8.2.1105, )",
+        "resolved": "3.8.2.1105",
+        "contentHash": "7b91DZY50A2Y/sjnkT+swagBs69D1SP5tf9MGfegWmfijpOm7sOUBzd9OPb47n/jKlcu5EVeAwm+7AS9W49yOQ==",
+        "dependencies": {
+          "AssimpNet": "4.1.0",
+          "Microsoft.NETCore.App": "2.1.30",
+          "SharpDX": "4.0.1",
+          "SharpDX.D3DCompiler": "4.0.1"
         }
       },
       "MonoGame.Framework.DesktopGL": {
         "type": "Direct",
-        "requested": "[3.8.1.303, )",
-        "resolved": "3.8.1.303",
-        "contentHash": "eGYhqn0n1olk8MNYeE9EuBmoNNECN1T18rPMaQpkzsEQ0H3nVyFPXC+uCo78v5pi5juQpJ3PSFnSkjzZJ1U58A=="
+        "requested": "[3.8.2.1105, )",
+        "resolved": "3.8.2.1105",
+        "contentHash": "QwjhmpyMZ9js4zqoYN/0cz//nYZ1u5yB8KWJ1P7nbViqfUyzuFDvGqgUEXFLp+n0Rx4z9PuKfwL5nQpp9LrXhg==",
+        "dependencies": {
+          "MonoGame.Library.SDL": "2.26.5.5",
+          "NVorbis": "0.10.4"
+        }
       },
       "MonoGame.ImGuiNet": {
         "type": "Direct",
@@ -92,15 +106,65 @@
           "StbTrueTypeSharp": "1.24.7"
         }
       },
+      "YarnSpinner": {
+        "type": "Direct",
+        "requested": "[3.0.0-beta.1, )",
+        "resolved": "3.0.0-beta.1",
+        "contentHash": "6P1X477S4Bx3sKROVChqeiwPL+XuUXWvItY7aCRq2FonMvK6dKaImbwfdSEq+bwwArcbf2NQ11g/Gi4h0wUzlA==",
+        "dependencies": {
+          "Google.Protobuf": "3.25.2"
+        }
+      },
+      "YarnSpinner.Compiler": {
+        "type": "Direct",
+        "requested": "[3.0.0-beta.1, )",
+        "resolved": "3.0.0-beta.1",
+        "contentHash": "iu5vWfhpoOYGq4NzqGc24ExCPWgbe2IEsfthomL/YVZHg5Jhq5Wm1+rnM11xCtFznT0o9l67icnQf3GnO2lTAQ==",
+        "dependencies": {
+          "Antlr4.Runtime.Standard": "4.13.1",
+          "CsvHelper": "12.2.2",
+          "Google.Protobuf": "3.25.2",
+          "Microsoft.Extensions.FileSystemGlobbing": "8.0.0",
+          "System.Text.Json": "8.0.1",
+          "YarnSpinner": "3.0.0-beta.1"
+        }
+      },
+      "Antlr4.Runtime.Standard": {
+        "type": "Transitive",
+        "resolved": "4.13.1",
+        "contentHash": "Da5+i4kFHUseJRZGcBG5fmZGpA/Ns180ibrQMxgZzjpQOnENVvSL5gi5HZ8Ncz8/AR2WsKbOg2lMBzjz0HUQcA=="
+      },
+      "AssimpNet": {
+        "type": "Transitive",
+        "resolved": "4.1.0",
+        "contentHash": "z/4Tmf3Q2r1+vN6o/szArEZvPsdYNRYiS0L/yArybQd7n7KCiS9L4lRZhwwlHJb/edECM+Jky0XisVspr5aQWQ==",
+        "dependencies": {
+          "NETStandard.Library": "1.6.1"
+        }
+      },
       "Autofac": {
         "type": "Transitive",
         "resolved": "5.2.0",
         "contentHash": "V8dBH0dsv75uDzl7Sw+HkhKDPUw2eXnlMjcSVMH+tLo2s67MpTKGyDj1pDcpR+IF2u4YRs0s3/x7R88YJzIWvg=="
       },
+      "CsvHelper": {
+        "type": "Transitive",
+        "resolved": "12.2.2",
+        "contentHash": "xsCRcQ8AEMYI3cCdhIULWr9RA79zuGOc5qijEseM4JJ3nsdPLYAch5vUgcH1xWDTYQtKjVt15ep/X7/Y6AymUw==",
+        "dependencies": {
+          "Microsoft.CSharp": "4.5.0",
+          "System.Reflection.TypeExtensions": "4.4.0"
+        }
+      },
       "Cyotek.Drawing.BitmapFont": {
         "type": "Transitive",
         "resolved": "2.0.1",
         "contentHash": "8C8Vdvf8p6RIOBNFE99ZNPWFxwV/ZT1wk11cajuL3+6/e5DBGPHe+ZjxLu2efTWQ1YvfLh4KpP2epUZ9z/WcFQ=="
+      },
+      "Google.Protobuf": {
+        "type": "Transitive",
+        "resolved": "3.25.2",
+        "contentHash": "g/xIIeLhR77bl4ajGGbPYRmZf5acJlCRaSBqUnU8+2aQYREnZnv+UccRNndHof4mWO1ORS0b5i6on40VOjBpsg=="
       },
       "ImGui.NET": {
         "type": "Transitive",
@@ -116,6 +180,58 @@
         "type": "Transitive",
         "resolved": "1.1.1",
         "contentHash": "AT3HlgTjsqHnWpBHSNeR0KxbLZD7bztlZVj7I8vgeYG9SYqbeFGh0TM/KVtC6fg53nrWHl3VfZFvb5BiQFcY6Q=="
+      },
+      "Microsoft.CSharp": {
+        "type": "Transitive",
+        "resolved": "4.5.0",
+        "contentHash": "kaj6Wb4qoMuH3HySFJhxwQfe8R/sJsNJnANrvv8WdFPMoNbKY5htfNscv+LHCu5ipz+49m2e+WQXpLXr9XYemQ=="
+      },
+      "Microsoft.Extensions.FileSystemGlobbing": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "OK+670i7esqlQrPjdIKRbsyMCe9g5kSLpRRQGSr4Q58AOYEe/hCnfLZprh7viNisSUUQZmMrbbuDaIrP+V1ebQ=="
+      },
+      "Microsoft.NETCore.App": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "Hs73dGereVEUeE0f9nGgNrTgESyhm/41pQ3gIW7P/Bwv8yBJwsw8T0Yb40uessXNU6HcfZstudf70+yaHHK/sw==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostPolicy": "2.1.30",
+          "Microsoft.NETCore.Platforms": "2.1.14",
+          "Microsoft.NETCore.Targets": "2.0.0",
+          "NETStandard.Library": "2.0.3"
+        }
+      },
+      "Microsoft.NETCore.DotNetAppHost": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "rbRBSaCEWZfVMVum2OulEELLjFWmiLmJIxeuODOUPgMuDXses4OOc/iQUf8qzNpWCRVGlYXQ0eV1m4Ic1RfVCA=="
+      },
+      "Microsoft.NETCore.DotNetHostPolicy": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "0NCIUV9mlKQeIKnX6UzVvPAFFlqJKxLXmrk3/X7sMSNuX/9JpxleICmkTsHGdDQSoLiUz087pN6UvQinu3btzA==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostResolver": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.DotNetHostResolver": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "4kf9/unrbokd9+gsM6pU/eoHfz9yhGXU2pTSDWLQzhYHfOZuBjT0Ky+GVQzy4AOkxX5hw+lVLYsDXpFgCCZroQ==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetAppHost": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.Platforms": {
+        "type": "Transitive",
+        "resolved": "2.1.14",
+        "contentHash": "NIgzPaYG5IW3uX6trg+no4Z9oOaoeIR4QlvPeiA3P+dgozN/cS1XwyTnIrZmiGZ9GrvcD2ad01O4UiED6hogpw=="
+      },
+      "Microsoft.NETCore.Targets": {
+        "type": "Transitive",
+        "resolved": "2.0.0",
+        "contentHash": "odP/tJj1z6GylFpNo7pMtbd/xQgTC3Ex2If63dRTL38bBNMwsBnJ+RceUIyHdRBC0oik/3NehYT+oECwBhIM3Q=="
       },
       "Microsoft.SourceLink.AzureRepos.Git": {
         "type": "Transitive",
@@ -151,33 +267,47 @@
       },
       "MonoGame.Extended": {
         "type": "Transitive",
-        "resolved": "3.8.0",
-        "contentHash": "FDPoUOFtslGNHCWSqjKD0C67RYN6Stb6NWnn+rkCmtkPBZlE6LvwuGyQBkHUkAMANO3LzO/Wsz9etMhwZLInqg==",
+        "resolved": "4.0.4",
+        "contentHash": "4CXSHzChnp72GXZo/RoK+iKL7nm1X1XI6uer/osbSjyT+YGhXwnta6+P5+ZnwNp+NyeZtYuN+q/9L98pJgYCHQ=="
+      },
+      "MonoGame.Library.SDL": {
+        "type": "Transitive",
+        "resolved": "2.26.5.5",
+        "contentHash": "wSbYCCLeT3p3GZtU8GaYA5+XTjt4kM01yIvik3qm3sjU53jf/w0Pp0GBvOTCHgKxEGwb/IinHIASMcLuVnmgCA=="
+      },
+      "NETStandard.Library": {
+        "type": "Transitive",
+        "resolved": "2.0.3",
+        "contentHash": "st47PosZSHrjECdjeIzZQbzivYBJFv6P2nv4cj2ypdI204DO+vZ7l5raGMiX4eXMJ53RfOIg+/s4DHVZ54Nu2A==",
         "dependencies": {
-          "Newtonsoft.Json": "12.0.3"
+          "Microsoft.NETCore.Platforms": "1.1.0"
         }
       },
-      "MonoGame.Extended.Graphics": {
+      "NVorbis": {
         "type": "Transitive",
-        "resolved": "3.8.0",
-        "contentHash": "vSl1+4dFNKnOqHUB1SRQ7IdWXNagJJI+KKCQmaSyfon99/kumsChQ9iZXltEaUO3ArB8QGnblii/PXq/bsLUHQ==",
+        "resolved": "0.10.4",
+        "contentHash": "WYnil3DhQHzjCY0dM9I2B3r1vWip90AOuQd25KE4NrjPQBg0tBJFluRLm5YPnO5ZLDmwrfosY8jCQGQRmWI/Pg==",
         "dependencies": {
-          "MonoGame.Extended": "3.8.0"
+          "System.Memory": "4.5.3",
+          "System.ValueTuple": "4.5.0"
         }
       },
-      "MonoGame.Extended.Tiled": {
+      "SharpDX": {
         "type": "Transitive",
-        "resolved": "3.8.0",
-        "contentHash": "lXE+Ysvep5FCozHlj862kqIG6TWCmjNgjF7xWbJ4ZDkqG+Khi9VrG5G8Pdj80TMRpDhZOz3PICinVZElZU639g==",
+        "resolved": "4.0.1",
+        "contentHash": "8YA1VFg1/K8Emb8FEZDobojcv1BLuppVo7CRJQEgA1V748VIMPBru0i0OnsCjLSThzTn7juOvH85qjFL9Grl1w==",
         "dependencies": {
-          "MonoGame.Extended": "3.8.0",
-          "MonoGame.Extended.Graphics": "3.8.0"
+          "Microsoft.NETCore.App": "1.0.5"
         }
       },
-      "Newtonsoft.Json": {
+      "SharpDX.D3DCompiler": {
         "type": "Transitive",
-        "resolved": "12.0.3",
-        "contentHash": "6mgjfnRB4jKMlzHSl+VD+oUc1IebOZabkbyWj2RiTgWwYPPuaK1H97G1sHqGwPlS5npiF5Q0OrxN1wni2n5QWg=="
+        "resolved": "4.0.1",
+        "contentHash": "D3OzwToJ8j8dDOeJxUGUxJFwSnTQ89jJejSQkhuIsaBGh8Wd8DhQzmcsKzQaoLnzLBECS1Y37y9bGQaw3CnhxA==",
+        "dependencies": {
+          "Microsoft.NETCore.App": "1.0.5",
+          "SharpDX": "4.0.1"
+        }
       },
       "StbImageSharp": {
         "type": "Transitive",
@@ -194,15 +324,65 @@
         "resolved": "4.4.0",
         "contentHash": "AwarXzzoDwX6BgrhjoJsk6tUezZEozOT5Y9QKF94Gl4JK91I4PIIBkBco9068Y9/Dra8Dkbie99kXB8+1BaYKw=="
       },
+      "System.Memory": {
+        "type": "Transitive",
+        "resolved": "4.5.3",
+        "contentHash": "3oDzvc/zzetpTKWMShs1AADwZjQ/36HnsufHRPcOjyRAAMLDlu2iD33MBI2opxnezcVUtXyqDXXjoFMOU9c7SA=="
+      },
       "System.Numerics.Vectors": {
         "type": "Transitive",
         "resolved": "4.4.0",
         "contentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ=="
       },
+      "System.Reflection.TypeExtensions": {
+        "type": "Transitive",
+        "resolved": "4.4.0",
+        "contentHash": "dkmh/ySlwnXJp/1qYP9uyKkCK1CXR/REFzl7abHcArxBcV91mY2CgrrzSRA5Z/X4MevJWwXsklGRdR3A7K9zbg=="
+      },
       "System.Runtime.CompilerServices.Unsafe": {
         "type": "Transitive",
         "resolved": "4.4.0",
         "contentHash": "9dLLuBxr5GNmOfl2jSMcsHuteEg32BEfUotmmUkmZjpR3RpVHE8YQwt0ow3p6prwA1ME8WqDVZqrr8z6H8G+Kw=="
+      },
+      "System.Text.Encodings.Web": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ=="
+      },
+      "System.Text.Json": {
+        "type": "Transitive",
+        "resolved": "8.0.1",
+        "contentHash": "7AWk2za1hSEJBppe/Lg+uDcam2TrDqwIKa9XcPssSwyjC2xa39EKEGul3CO5RWNF+hMuZG4zlBDrvhBdDTg4lg==",
+        "dependencies": {
+          "System.Text.Encodings.Web": "8.0.0"
+        }
+      },
+      "System.ValueTuple": {
+        "type": "Transitive",
+        "resolved": "4.5.0",
+        "contentHash": "okurQJO6NRE/apDIP23ajJ0hpiNmJ+f0BwOlB/cSqTLQlw5upkf+5+96+iG2Jw40G1fCVCyPz/FhIABUjMR+RQ=="
+      },
+      "monodreams.yarnspinner": {
+        "type": "Project",
+        "dependencies": {
+          "MonoDreams.YarnSpinnerPipeline": "[1.0.0, )",
+          "MonoGame.Content.Builder.Task": "[3.8.2.1105, )",
+          "MonoGame.Extended": "[4.0.4, )",
+          "MonoGame.Framework.Content.Pipeline": "[3.8.2.1105, )",
+          "MonoGame.Framework.DesktopGL": "[3.8.2.1105, )",
+          "YarnSpinner": "[3.0.0-beta.1, )",
+          "YarnSpinner.Compiler": "[3.0.0-beta.1, )"
+        }
+      },
+      "monodreams.yarnspinnerpipeline": {
+        "type": "Project",
+        "dependencies": {
+          "MonoGame.Content.Builder.Task": "[3.8.2.1105, )",
+          "MonoGame.Extended": "[4.0.4, )",
+          "MonoGame.Framework.Content.Pipeline": "[3.8.2.1105, )",
+          "YarnSpinner": "[3.0.0-beta.1, )",
+          "YarnSpinner.Compiler": "[3.0.0-beta.1, )"
+        }
       }
     }
   }

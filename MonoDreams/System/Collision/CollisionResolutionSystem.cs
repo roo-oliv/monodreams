@@ -14,43 +14,45 @@ using MonoDreams.Util;
 
 namespace MonoDreams.System.Collision;
 
-public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent, TVelocityComponent> : ISystem<GameState>
+public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent, TVelocityComponent, TCollisionMessage>
+    : ISystem<GameState>
     where TCollidableComponent : BoxCollider, ICollider
     where TPositionComponent : Position
     where TVelocityComponent : Velocity
+    where TCollisionMessage : ICollisionMessage
 {
     private readonly World _world;
-    private readonly List<CollisionMessage> _collisions;
+    protected readonly List<TCollisionMessage> Collisions;
         
     public CollisionResolutionSystem(World world)
     {
         _world = world;
         world.Subscribe(this);
-        _collisions = [];
+        Collisions = [];
     }
 
     [Subscribe]
-    private void On(in CollisionMessage message) => _collisions.Add(message);
+    protected virtual void On(in TCollisionMessage message) => Collisions.Add(message);
         
     public bool IsEnabled { get; set; } = true;
         
     public void Dispose()
     {
-        _collisions.Clear();
+        Collisions.Clear();
         GC.SuppressFinalize(this);
     }
 
     public void Update(GameState state)
     {
-        _collisions.Sort((l, r) => l.ContactTime.CompareTo(r.ContactTime));
-        foreach (var collision in _collisions)
+        Collisions.Sort((l, r) => l.ContactTime.CompareTo(r.ContactTime));
+        foreach (var collision in Collisions)
         {
             ResolveCollision(collision);
         }
-        _collisions.Clear();
+        Collisions.Clear();
     }
 
-    private void ResolveCollision(CollisionMessage collision)
+    private void ResolveCollision(TCollisionMessage collision)
     {
         var entity = collision.BaseEntity;
         var position = entity.Get<TPositionComponent>();
@@ -60,7 +62,7 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
         var targetPosition = collidingEntity.Get<TPositionComponent>();
         var targetRect = collidingEntity.Get<TCollidableComponent>().Bounds.AtPosition(targetPosition.Current);
         
-        if (!CollisionDetectionSystem.DynamicRectVsRect(dynamicRect, position.Delta, targetRect,
+        if (!CollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, position.Delta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
         if (contactNormal.X != 0)
         {
@@ -104,11 +106,13 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
     }
 }
 
-public class CollisionResolutionSystem<TPosition, TVelocity>(World world)
-    : CollisionResolutionSystem<BoxCollider, TPosition, TVelocity>(world)
+public class CollisionResolutionSystem<TPosition, TVelocity, TCollisionMessage>(World world)
+    : CollisionResolutionSystem<BoxCollider, TPosition, TVelocity, TCollisionMessage>(world)
     where TPosition : Position
-    where TVelocity : Velocity;
+    where TVelocity : Velocity
+    where TCollisionMessage : ICollisionMessage;
 
-public class CollisionResolutionSystem(World world)
-    : CollisionResolutionSystem<BoxCollider, Position, Velocity>(world);
+public class CollisionResolutionSystem<TCollisionMessage>(World world)
+    : CollisionResolutionSystem<BoxCollider, Position, Velocity, TCollisionMessage>(world)
+    where TCollisionMessage : ICollisionMessage;
 

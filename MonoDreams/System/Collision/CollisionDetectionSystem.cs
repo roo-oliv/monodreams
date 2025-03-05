@@ -6,22 +6,23 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
-using MonoDreams.Component.Physics;
 using MonoDreams.Extensions.Monogame;
 using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Collision;
 
-public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent>(World world, IParallelRunner parallelRunner)
+public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, TCollisionMessage>(
+    World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
     : AEntitySetSystem<GameState>(
         world.GetEntities().With((in TCollidableComponent c) => !c.Passive && c.Enabled)
             .With<TPositionComponent>().AsSet(), parallelRunner)
     where TCollidableComponent : BoxCollider, ICollider
     where TPositionComponent : Position
+    where TCollisionMessage : ICollisionMessage
 {
     private readonly IEnumerable<Entity> _targets = world.GetEntities().With((in TCollidableComponent c) => c.Enabled).AsEnumerable();
-
+    
     protected override void Update(GameState state, in Entity entity)
     {
         var collidable = entity.Get<TCollidableComponent>();
@@ -47,7 +48,7 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent>(
 
             foreach (var layer in targetCollidable.SharedLayers(collidable))
             {
-                world.Publish(new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer));
+                world.Publish(createCollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer));
             }
         }
     }
@@ -128,9 +129,11 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent>(
     }
 }
 
-public class CollisionDetectionSystem<TCollidableComponent>(World world, IParallelRunner parallelRunner)
-    : CollisionDetectionSystem<TCollidableComponent, Position>(world, parallelRunner)
-    where TCollidableComponent : BoxCollider;
+public class CollisionDetectionSystem<TCollidableComponent, TCollisionMessage>(World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
+    : CollisionDetectionSystem<TCollidableComponent, Position, TCollisionMessage>(world, parallelRunner, createCollisionMessage)
+    where TCollidableComponent : BoxCollider
+    where TCollisionMessage : ICollisionMessage;
 
-public class CollisionDetectionSystem(World world, IParallelRunner parallelRunner)
-    : CollisionDetectionSystem<BoxCollider, Position>(world, parallelRunner);
+public class CollisionDetectionSystem<TCollisionMessage>(World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
+    : CollisionDetectionSystem<BoxCollider, Position, TCollisionMessage>(world, parallelRunner, createCollisionMessage)
+    where TCollisionMessage : ICollisionMessage;

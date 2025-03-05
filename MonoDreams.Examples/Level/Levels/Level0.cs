@@ -106,7 +106,7 @@ public class Level0(
             // StaticText.Create(world, font, "Hold Jump to go farther", Color.White, new Vector2(20 * 21, 20 * 13), DrawLayer.Text);
         }
 
-        Dialogue.Create(world, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin pellentesque consequat tempor. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
+        Objects.Dialogue.Create(world, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin pellentesque consequat tempor. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
         
         // PlayerState.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370), DrawLayer.PlayerState);
         // LoadTiles(world);

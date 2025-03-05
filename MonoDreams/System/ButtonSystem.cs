@@ -8,9 +8,10 @@ using MonoDreams.State;
 
 namespace MonoDreams.System;
 
-public class ButtonSystem : ISystem<GameState>
+public class ButtonSystem<TCollisionMessage> : ISystem<GameState>
+    where TCollisionMessage : ICollisionMessage
 {
-    private readonly List<CollisionMessage> _collisions;
+    private readonly List<TCollisionMessage> _collisions;
     private Entity? _currentlyActiveButton;
     private readonly World _world;
 
@@ -18,11 +19,11 @@ public class ButtonSystem : ISystem<GameState>
     {
         _world = world;
         world.Subscribe(this);
-        _collisions = new List<CollisionMessage>();
+        _collisions = new List<TCollisionMessage>();
     }
 
     [Subscribe]
-    private void On(in CollisionMessage message)
+    private void On(in TCollisionMessage message)
     {
         if (message.CollidingEntity.Has<ButtonState>())
         {

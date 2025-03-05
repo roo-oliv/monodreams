@@ -10,16 +10,20 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\MonoDreams.YarnSpinner\MonoDreams.YarnSpinner.csproj" />
         <ProjectReference Include="..\MonoDreams\MonoDreams.csproj" />
     </ItemGroup>
     
     <ItemGroup>
         <PackageReference Include="Facebook.Yoga" Version="1.5.0-pre1" />
         <PackageReference Include="Iguina" Version="1.1.2" />
-        <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="3.8.0" />
+        <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="4.0.4" />
+        <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.2.1105" />
         <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
         <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.1.303" />
         <PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" />
+        <PackageReference Include="YarnSpinner" Version="3.0.0-beta.1" />
+        <PackageReference Include="YarnSpinner.Compiler" Version="3.0.0-beta.1" />
     </ItemGroup>
     
     <ItemGroup>
@@ -36,6 +40,7 @@
     
     <ItemGroup>
       <Folder Include="Assets\" />
+      <Folder Include="Dialogue\" />
     </ItemGroup>
     
     <ItemGroup>

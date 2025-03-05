@@ -11,6 +11,7 @@
 #-------------------------------- References --------------------------------#
 
 /reference:../../../../../.nuget/packages/monogame.extended.content.pipeline/3.8.0/tools/MonoGame.Extended.Content.Pipeline.dll
+/reference:../../MonoDreams.YarnSpinnerPipeline/bin/Debug/net8.0/MonoDreams.YarnSpinnerPipeline.dll
 
 #---------------------------------- Content ---------------------------------#
 
@@ -734,4 +735,9 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:UI Settings Buttons.png
+
+#begin YarnScripts/test.yarn
+/importer:
+/processor:
+/build:YarnScripts/test.yarn
 

@@ -1,0 +1,627 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "MonoDreams.YarnSpinnerPipeline/1.0.0": {
+        "dependencies": {
+          "MonoGame.Content.Builder.Task": "3.8.2.1105",
+          "MonoGame.Extended": "4.0.4",
+          "MonoGame.Framework.Content.Pipeline": "3.8.2.1105",
+          "MonoGame.Framework.DesktopGL": "3.8.2.1105",
+          "YarnSpinner": "3.0.0-beta.1",
+          "YarnSpinner.Compiler": "3.0.0-beta.1"
+        },
+        "runtime": {
+          "MonoDreams.YarnSpinnerPipeline.dll": {}
+        }
+      },
+      "Antlr4.Runtime.Standard/4.13.1": {
+        "runtime": {
+          "lib/netstandard2.0/Antlr4.Runtime.Standard.dll": {
+            "assemblyVersion": "4.13.1.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "AssimpNet/4.1.0": {
+        "dependencies": {
+          "NETStandard.Library": "2.0.3"
+        },
+        "runtime": {
+          "lib/netstandard1.3/AssimpNet.dll": {
+            "assemblyVersion": "4.1.0.0",
+            "fileVersion": "4.1.0.0"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/linux-x64/native/libassimp.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx-x64/native/libassimp.dylib": {
+            "rid": "osx-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/assimp.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/assimp.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "CsvHelper/12.2.2": {
+        "dependencies": {
+          "Microsoft.CSharp": "4.5.0",
+          "System.Reflection.TypeExtensions": "4.4.0"
+        },
+        "runtime": {
+          "lib/netstandard2.0/CsvHelper.dll": {
+            "assemblyVersion": "12.0.0.0",
+            "fileVersion": "12.2.2.0"
+          }
+        }
+      },
+      "Google.Protobuf/3.25.2": {
+        "runtime": {
+          "lib/net5.0/Google.Protobuf.dll": {
+            "assemblyVersion": "3.25.2.0",
+            "fileVersion": "3.25.2.0"
+          }
+        }
+      },
+      "Microsoft.CSharp/4.5.0": {},
+      "Microsoft.Extensions.FileSystemGlobbing/8.0.0": {
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.FileSystemGlobbing.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.23.53103"
+          }
+        }
+      },
+      "Microsoft.NETCore.App/2.1.30": {
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostPolicy": "2.1.30",
+          "Microsoft.NETCore.Platforms": "2.1.14",
+          "Microsoft.NETCore.Targets": "2.0.0",
+          "NETStandard.Library": "2.0.3"
+        }
+      },
+      "Microsoft.NETCore.DotNetAppHost/2.1.30": {},
+      "Microsoft.NETCore.DotNetHostPolicy/2.1.30": {
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostResolver": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.DotNetHostResolver/2.1.30": {
+        "dependencies": {
+          "Microsoft.NETCore.DotNetAppHost": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.Platforms/2.1.14": {},
+      "Microsoft.NETCore.Targets/2.0.0": {},
+      "MonoGame.Content.Builder.Task/3.8.2.1105": {},
+      "MonoGame.Extended/4.0.4": {
+        "runtime": {
+          "lib/net8.0/MonoGame.Extended.dll": {
+            "assemblyVersion": "4.0.4.0",
+            "fileVersion": "4.0.4.0"
+          }
+        }
+      },
+      "MonoGame.Framework.Content.Pipeline/3.8.2.1105": {
+        "dependencies": {
+          "AssimpNet": "4.1.0",
+          "Microsoft.NETCore.App": "2.1.30",
+          "SharpDX": "4.0.1",
+          "SharpDX.D3DCompiler": "4.0.1"
+        },
+        "runtime": {
+          "lib/net8.0/ATI.TextureConverter.dll": {
+            "assemblyVersion": "1.0.5522.26319",
+            "fileVersion": "0.0.0.0"
+          },
+          "lib/net8.0/CppNet.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          },
+          "lib/net8.0/MonoGame.Framework.Content.Pipeline.dll": {
+            "assemblyVersion": "3.8.2.1105",
+            "fileVersion": "3.8.2.1105"
+          },
+          "lib/net8.0/Nvidia.TextureTools.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          },
+          "lib/net8.0/PVRTexLibNET.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          },
+          "lib/net8.0/SharpFont.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/linux-x64/native/libFreeImage.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libPVRTexLibWrapper.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libfreetype6.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libnvcore.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libnvimage.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libnvmath.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libnvtt.so": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/libpng16.so.16": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/linux/ffmpeg": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/linux-x64/native/linux/ffprobe": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libFreeImage.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libPVRTexLibWrapper.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libfreetype6.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libnvcore.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libnvimage.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libnvmath.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libnvtt.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libpng16.16.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/osx/ffmpeg": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/osx/ffprobe": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/FreeImage.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/PVRTexLibWrapper.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/ffmpeg.exe": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/ffprobe.exe": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/freetype6.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/libmojoshader_64.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/nvtt.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "MonoGame.Framework.DesktopGL/3.8.2.1105": {
+        "dependencies": {
+          "MonoGame.Library.SDL": "2.26.5.5",
+          "NVorbis": "0.10.4"
+        },
+        "runtime": {
+          "lib/net8.0/MonoGame.Framework.dll": {
+            "assemblyVersion": "3.8.2.1105",
+            "fileVersion": "3.8.2.1105"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/linux-x64/native/libopenal.so.1": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libopenal.1.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/soft_oal.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/soft_oal.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "MonoGame.Library.SDL/2.26.5.5": {
+        "runtimeTargets": {
+          "runtimes/linux-x64/native/libSDL2-2.0.so.0": {
+            "rid": "linux-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/osx/native/libSDL2.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/SDL2.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "NETStandard.Library/2.0.3": {
+        "dependencies": {
+          "Microsoft.NETCore.Platforms": "2.1.14"
+        }
+      },
+      "NVorbis/0.10.4": {
+        "dependencies": {
+          "System.Memory": "4.5.3",
+          "System.ValueTuple": "4.5.0"
+        },
+        "runtime": {
+          "lib/netstandard2.0/NVorbis.dll": {
+            "assemblyVersion": "0.10.4.0",
+            "fileVersion": "0.10.4.0"
+          }
+        }
+      },
+      "SharpDX/4.0.1": {
+        "dependencies": {
+          "Microsoft.NETCore.App": "2.1.30"
+        },
+        "runtime": {
+          "lib/netcoreapp1.0/SharpDX.dll": {
+            "assemblyVersion": "4.0.1.0",
+            "fileVersion": "4.0.1.0"
+          }
+        }
+      },
+      "SharpDX.D3DCompiler/4.0.1": {
+        "dependencies": {
+          "Microsoft.NETCore.App": "2.1.30",
+          "SharpDX": "4.0.1"
+        },
+        "runtime": {
+          "lib/netcoreapp1.0/SharpDX.D3DCompiler.dll": {
+            "assemblyVersion": "4.0.1.0",
+            "fileVersion": "4.0.1.0"
+          }
+        }
+      },
+      "System.Memory/4.5.3": {},
+      "System.Reflection.TypeExtensions/4.4.0": {},
+      "System.Text.Encodings.Web/8.0.0": {},
+      "System.Text.Json/8.0.1": {
+        "dependencies": {
+          "System.Text.Encodings.Web": "8.0.0"
+        }
+      },
+      "System.ValueTuple/4.5.0": {},
+      "YarnSpinner/3.0.0-beta.1": {
+        "dependencies": {
+          "Google.Protobuf": "3.25.2"
+        },
+        "runtime": {
+          "lib/netstandard2.0/YarnSpinner.dll": {
+            "assemblyVersion": "3.0.0.1",
+            "fileVersion": "3.0.0.0"
+          }
+        }
+      },
+      "YarnSpinner.Compiler/3.0.0-beta.1": {
+        "dependencies": {
+          "Antlr4.Runtime.Standard": "4.13.1",
+          "CsvHelper": "12.2.2",
+          "Google.Protobuf": "3.25.2",
+          "Microsoft.Extensions.FileSystemGlobbing": "8.0.0",
+          "System.Text.Json": "8.0.1",
+          "YarnSpinner": "3.0.0-beta.1"
+        },
+        "runtime": {
+          "lib/netstandard2.0/YarnSpinner.Compiler.dll": {
+            "assemblyVersion": "3.0.0.1",
+            "fileVersion": "3.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "MonoDreams.YarnSpinnerPipeline/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Antlr4.Runtime.Standard/4.13.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Da5+i4kFHUseJRZGcBG5fmZGpA/Ns180ibrQMxgZzjpQOnENVvSL5gi5HZ8Ncz8/AR2WsKbOg2lMBzjz0HUQcA==",
+      "path": "antlr4.runtime.standard/4.13.1",
+      "hashPath": "antlr4.runtime.standard.4.13.1.nupkg.sha512"
+    },
+    "AssimpNet/4.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-z/4Tmf3Q2r1+vN6o/szArEZvPsdYNRYiS0L/yArybQd7n7KCiS9L4lRZhwwlHJb/edECM+Jky0XisVspr5aQWQ==",
+      "path": "assimpnet/4.1.0",
+      "hashPath": "assimpnet.4.1.0.nupkg.sha512"
+    },
+    "CsvHelper/12.2.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-xsCRcQ8AEMYI3cCdhIULWr9RA79zuGOc5qijEseM4JJ3nsdPLYAch5vUgcH1xWDTYQtKjVt15ep/X7/Y6AymUw==",
+      "path": "csvhelper/12.2.2",
+      "hashPath": "csvhelper.12.2.2.nupkg.sha512"
+    },
+    "Google.Protobuf/3.25.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-g/xIIeLhR77bl4ajGGbPYRmZf5acJlCRaSBqUnU8+2aQYREnZnv+UccRNndHof4mWO1ORS0b5i6on40VOjBpsg==",
+      "path": "google.protobuf/3.25.2",
+      "hashPath": "google.protobuf.3.25.2.nupkg.sha512"
+    },
+    "Microsoft.CSharp/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-kaj6Wb4qoMuH3HySFJhxwQfe8R/sJsNJnANrvv8WdFPMoNbKY5htfNscv+LHCu5ipz+49m2e+WQXpLXr9XYemQ==",
+      "path": "microsoft.csharp/4.5.0",
+      "hashPath": "microsoft.csharp.4.5.0.nupkg.sha512"
+    },
+    "Microsoft.Extensions.FileSystemGlobbing/8.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-OK+670i7esqlQrPjdIKRbsyMCe9g5kSLpRRQGSr4Q58AOYEe/hCnfLZprh7viNisSUUQZmMrbbuDaIrP+V1ebQ==",
+      "path": "microsoft.extensions.filesystemglobbing/8.0.0",
+      "hashPath": "microsoft.extensions.filesystemglobbing.8.0.0.nupkg.sha512"
+    },
+    "Microsoft.NETCore.App/2.1.30": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Hs73dGereVEUeE0f9nGgNrTgESyhm/41pQ3gIW7P/Bwv8yBJwsw8T0Yb40uessXNU6HcfZstudf70+yaHHK/sw==",
+      "path": "microsoft.netcore.app/2.1.30",
+      "hashPath": "microsoft.netcore.app.2.1.30.nupkg.sha512"
+    },
+    "Microsoft.NETCore.DotNetAppHost/2.1.30": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-rbRBSaCEWZfVMVum2OulEELLjFWmiLmJIxeuODOUPgMuDXses4OOc/iQUf8qzNpWCRVGlYXQ0eV1m4Ic1RfVCA==",
+      "path": "microsoft.netcore.dotnetapphost/2.1.30",
+      "hashPath": "microsoft.netcore.dotnetapphost.2.1.30.nupkg.sha512"
+    },
+    "Microsoft.NETCore.DotNetHostPolicy/2.1.30": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-0NCIUV9mlKQeIKnX6UzVvPAFFlqJKxLXmrk3/X7sMSNuX/9JpxleICmkTsHGdDQSoLiUz087pN6UvQinu3btzA==",
+      "path": "microsoft.netcore.dotnethostpolicy/2.1.30",
+      "hashPath": "microsoft.netcore.dotnethostpolicy.2.1.30.nupkg.sha512"
+    },
+    "Microsoft.NETCore.DotNetHostResolver/2.1.30": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-4kf9/unrbokd9+gsM6pU/eoHfz9yhGXU2pTSDWLQzhYHfOZuBjT0Ky+GVQzy4AOkxX5hw+lVLYsDXpFgCCZroQ==",
+      "path": "microsoft.netcore.dotnethostresolver/2.1.30",
+      "hashPath": "microsoft.netcore.dotnethostresolver.2.1.30.nupkg.sha512"
+    },
+    "Microsoft.NETCore.Platforms/2.1.14": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-NIgzPaYG5IW3uX6trg+no4Z9oOaoeIR4QlvPeiA3P+dgozN/cS1XwyTnIrZmiGZ9GrvcD2ad01O4UiED6hogpw==",
+      "path": "microsoft.netcore.platforms/2.1.14",
+      "hashPath": "microsoft.netcore.platforms.2.1.14.nupkg.sha512"
+    },
+    "Microsoft.NETCore.Targets/2.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-odP/tJj1z6GylFpNo7pMtbd/xQgTC3Ex2If63dRTL38bBNMwsBnJ+RceUIyHdRBC0oik/3NehYT+oECwBhIM3Q==",
+      "path": "microsoft.netcore.targets/2.0.0",
+      "hashPath": "microsoft.netcore.targets.2.0.0.nupkg.sha512"
+    },
+    "MonoGame.Content.Builder.Task/3.8.2.1105": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-wNlkLaITOqMs9MmCYLp3Qc7QfFng3FhIq/b+njdYV3cTVpLYgs/i56FYtJjm8jLoUA/2sJ36Qo/uqWpgW+jBuQ==",
+      "path": "monogame.content.builder.task/3.8.2.1105",
+      "hashPath": "monogame.content.builder.task.3.8.2.1105.nupkg.sha512"
+    },
+    "MonoGame.Extended/4.0.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-4CXSHzChnp72GXZo/RoK+iKL7nm1X1XI6uer/osbSjyT+YGhXwnta6+P5+ZnwNp+NyeZtYuN+q/9L98pJgYCHQ==",
+      "path": "monogame.extended/4.0.4",
+      "hashPath": "monogame.extended.4.0.4.nupkg.sha512"
+    },
+    "MonoGame.Framework.Content.Pipeline/3.8.2.1105": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-7b91DZY50A2Y/sjnkT+swagBs69D1SP5tf9MGfegWmfijpOm7sOUBzd9OPb47n/jKlcu5EVeAwm+7AS9W49yOQ==",
+      "path": "monogame.framework.content.pipeline/3.8.2.1105",
+      "hashPath": "monogame.framework.content.pipeline.3.8.2.1105.nupkg.sha512"
+    },
+    "MonoGame.Framework.DesktopGL/3.8.2.1105": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-QwjhmpyMZ9js4zqoYN/0cz//nYZ1u5yB8KWJ1P7nbViqfUyzuFDvGqgUEXFLp+n0Rx4z9PuKfwL5nQpp9LrXhg==",
+      "path": "monogame.framework.desktopgl/3.8.2.1105",
+      "hashPath": "monogame.framework.desktopgl.3.8.2.1105.nupkg.sha512"
+    },
+    "MonoGame.Library.SDL/2.26.5.5": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-wSbYCCLeT3p3GZtU8GaYA5+XTjt4kM01yIvik3qm3sjU53jf/w0Pp0GBvOTCHgKxEGwb/IinHIASMcLuVnmgCA==",
+      "path": "monogame.library.sdl/2.26.5.5",
+      "hashPath": "monogame.library.sdl.2.26.5.5.nupkg.sha512"
+    },
+    "NETStandard.Library/2.0.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-st47PosZSHrjECdjeIzZQbzivYBJFv6P2nv4cj2ypdI204DO+vZ7l5raGMiX4eXMJ53RfOIg+/s4DHVZ54Nu2A==",
+      "path": "netstandard.library/2.0.3",
+      "hashPath": "netstandard.library.2.0.3.nupkg.sha512"
+    },
+    "NVorbis/0.10.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-WYnil3DhQHzjCY0dM9I2B3r1vWip90AOuQd25KE4NrjPQBg0tBJFluRLm5YPnO5ZLDmwrfosY8jCQGQRmWI/Pg==",
+      "path": "nvorbis/0.10.4",
+      "hashPath": "nvorbis.0.10.4.nupkg.sha512"
+    },
+    "SharpDX/4.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-8YA1VFg1/K8Emb8FEZDobojcv1BLuppVo7CRJQEgA1V748VIMPBru0i0OnsCjLSThzTn7juOvH85qjFL9Grl1w==",
+      "path": "sharpdx/4.0.1",
+      "hashPath": "sharpdx.4.0.1.nupkg.sha512"
+    },
+    "SharpDX.D3DCompiler/4.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-D3OzwToJ8j8dDOeJxUGUxJFwSnTQ89jJejSQkhuIsaBGh8Wd8DhQzmcsKzQaoLnzLBECS1Y37y9bGQaw3CnhxA==",
+      "path": "sharpdx.d3dcompiler/4.0.1",
+      "hashPath": "sharpdx.d3dcompiler.4.0.1.nupkg.sha512"
+    },
+    "System.Memory/4.5.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-3oDzvc/zzetpTKWMShs1AADwZjQ/36HnsufHRPcOjyRAAMLDlu2iD33MBI2opxnezcVUtXyqDXXjoFMOU9c7SA==",
+      "path": "system.memory/4.5.3",
+      "hashPath": "system.memory.4.5.3.nupkg.sha512"
+    },
+    "System.Reflection.TypeExtensions/4.4.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-dkmh/ySlwnXJp/1qYP9uyKkCK1CXR/REFzl7abHcArxBcV91mY2CgrrzSRA5Z/X4MevJWwXsklGRdR3A7K9zbg==",
+      "path": "system.reflection.typeextensions/4.4.0",
+      "hashPath": "system.reflection.typeextensions.4.4.0.nupkg.sha512"
+    },
+    "System.Text.Encodings.Web/8.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ==",
+      "path": "system.text.encodings.web/8.0.0",
+      "hashPath": "system.text.encodings.web.8.0.0.nupkg.sha512"
+    },
+    "System.Text.Json/8.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-7AWk2za1hSEJBppe/Lg+uDcam2TrDqwIKa9XcPssSwyjC2xa39EKEGul3CO5RWNF+hMuZG4zlBDrvhBdDTg4lg==",
+      "path": "system.text.json/8.0.1",
+      "hashPath": "system.text.json.8.0.1.nupkg.sha512"
+    },
+    "System.ValueTuple/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-okurQJO6NRE/apDIP23ajJ0hpiNmJ+f0BwOlB/cSqTLQlw5upkf+5+96+iG2Jw40G1fCVCyPz/FhIABUjMR+RQ==",
+      "path": "system.valuetuple/4.5.0",
+      "hashPath": "system.valuetuple.4.5.0.nupkg.sha512"
+    },
+    "YarnSpinner/3.0.0-beta.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-6P1X477S4Bx3sKROVChqeiwPL+XuUXWvItY7aCRq2FonMvK6dKaImbwfdSEq+bwwArcbf2NQ11g/Gi4h0wUzlA==",
+      "path": "yarnspinner/3.0.0-beta.1",
+      "hashPath": "yarnspinner.3.0.0-beta.1.nupkg.sha512"
+    },
+    "YarnSpinner.Compiler/3.0.0-beta.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-iu5vWfhpoOYGq4NzqGc24ExCPWgbe2IEsfthomL/YVZHg5Jhq5Wm1+rnM11xCtFznT0o9l67icnQf3GnO2lTAQ==",
+      "path": "yarnspinner.compiler/3.0.0-beta.1",
+      "hashPath": "yarnspinner.compiler.3.0.0-beta.1.nupkg.sha512"
+    }
+  }
+}

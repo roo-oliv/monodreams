@@ -15,6 +15,7 @@ public static class Player
     public static Entity Create(World world, Texture2D texture, Vector2 position, RenderTarget2D renderTarget, Enum? drawLayer = null)
     {
         var entity = world.CreateEntity();
+        entity.Set(new EntityInfo(EntityType.Player));
         entity.Set(new PlayerState());
         entity.Set(new InputControlled());
         entity.Set(new Position(position));
