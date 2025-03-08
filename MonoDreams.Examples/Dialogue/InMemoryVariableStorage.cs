@@ -1,6 +1,6 @@
 using Yarn;
 
-namespace MonoDreams.YarnSpinner;
+namespace MonoDreams.Examples.Dialogue;
 
 public class InMemoryVariableStorage : IVariableStorage
 {

@@ -22,6 +22,7 @@
         <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.2.1105" />
         <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.2.1105" />
         <PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" />
+        <PackageReference Include="Nopipeline.Task" Version="2.3.0" />
         <PackageReference Include="YarnSpinner" Version="3.0.0-beta2" />
         <PackageReference Include="YarnSpinner.Compiler" Version="3.0.0-beta2" />
     </ItemGroup>
@@ -40,7 +41,6 @@
     
     <ItemGroup>
       <Folder Include="Assets\" />
-      <Folder Include="Dialogue\" />
     </ItemGroup>
     
     <ItemGroup>

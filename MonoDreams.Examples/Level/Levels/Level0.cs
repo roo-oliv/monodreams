@@ -2,9 +2,14 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component;
+using MonoDreams.Component.Collision;
+using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Objects;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Util;
+using MonoDreams.YarnSpinner;
 using MonoGame.Extended.BitmapFonts;
 using Point = Microsoft.Xna.Framework.Point;
 
@@ -100,53 +105,18 @@ public class Level0(
                 default:
                     throw new ArgumentOutOfRangeException(nameof(chunk), chunk, null);
             }
-            
-            // StaticText.Create(world, font, "Move with Arrow Keys or A and D", Color.White, new Vector2(20 * 12, 20 * 24), DrawLayer.Text);
-            // StaticText.Create(world, font, "Jump with Spacebar", Color.White, new Vector2(20 * 12, 20 * 25), DrawLayer.Text);
-            // StaticText.Create(world, font, "Hold Jump to go farther", Color.White, new Vector2(20 * 21, 20 * 13), DrawLayer.Text);
         }
+        
+        var yarnNodeName = "HelloWorld";
+        var zonePosition = new Vector2(100, 180);
+        var zoneCollider = new Rectangle(0, 0, 40, 40);
+        var variableStorage = new InMemoryVariableStorage();
+        var dialogue = new Yarn.Dialogue(variableStorage);
+        var rawProgram = content.Load<YarnProgram>("Dialogues/hello_world");
+        dialogue.SetProgram(rawProgram.GetProgram());
+        var currentNode = dialogue.CurrentNode;
+        // DialogueZone.Create(world, yarnNodeName, zonePosition, zoneCollider, _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
 
-        Objects.Dialogue.Create(world, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin pellentesque consequat tempor. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
-        
-        // PlayerState.Create(world, Constants.WorldGravity, _square, new Vector2(-900, 370), DrawLayer.PlayerState);
-        // LoadTiles(world);
-        // LevelBoundaries.Create(world, _square, renderer);
-    }
-    
-    private void LoadTiles(World world)
-    {
-        float factor = 0.3f;
-        // ceiling
-        Tile.Create(world, _square, new Vector2(-1000 * factor, -550 * factor), new Point((int)(2000 * factor), (int)(50 * factor)), renderTargets.main, TileType.Default);
-        
-        // left wall
-        Tile.Create(world, _square, new Vector2(-1000 * factor, -500 * factor), new Point((int)(70 * factor), (int)(900 * factor)), renderTargets.main, TileType.Default);
-        
-        // initial floor
-        Tile.Create(world, _square, new Vector2(-1000 * factor, 400 * factor), new Point((int)(670 * factor), (int)(100 * factor)), renderTargets.main, TileType.Default);
-        
-        // small hill
-        Tile.Create(world, _square, new Vector2(-700 * factor, 300 * factor), new Point((int)(220 * factor), (int)(200 * factor)), renderTargets.main, TileType.Default);
-        
-        // left cliff
-        Tile.Create(world, _square, new Vector2(-480 * factor, 200 * factor), new Point((int)(150 * factor), (int)(400 * factor)), renderTargets.main, TileType.Default);
-        
-        // right cliff
-        Tile.Create(world, _square, new Vector2(-130 * factor, 200 * factor), new Point((int)(500 * factor), (int)(520 * factor)), renderTargets.main, TileType.Default);
-        
-        // big hill
-        Tile.Create(world, _square, new Vector2(350 * factor, -300 * factor), new Point((int)(150 * factor), (int)(800 * factor)), renderTargets.main, TileType.Default);
-        
-        // big upside hill
-        Tile.Create(world, _square, new Vector2(-100 * factor, -550 * factor), new Point((int)(300 * factor), (int)(600 * factor)), renderTargets.main, TileType.Default);
-        
-        // finish floor
-        Tile.Create(world, _square, new Vector2(350 * factor, 400 * factor), new Point((int)(700 * factor), (int)(100 * factor)), renderTargets.main, TileType.Default);
-        
-        // right wall
-        Tile.Create(world, _square, new Vector2(800 * factor, -550 * factor), new Point((int)(200 * factor), (int)(850 * factor)), renderTargets.main, TileType.Default);
-        
-        // objective
-        Tile.Create(world, _square, new Vector2(950 * factor, 300 * factor), new Point((int)(200 * factor), (int)(150 * factor)), renderTargets.main, TileType.Objective);
+        // Objects.Dialogue.Create(world, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin pellentesque consequat tempor. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
     }
 }

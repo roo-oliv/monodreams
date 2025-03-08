@@ -1,4 +1,5 @@
 using MonoDreams.Examples.Dialogue;
+using MonoDreams.YarnSpinner;
 
 namespace MonoDreams.Examples.Component;
 
@@ -11,7 +12,7 @@ public class DialogueManagerComponent
     public DialogueManagerComponent()
     {
         DialogueStorage = new InMemoryVariableStorage();
-        DialogueRunner = new DialogueRunner(DialogueStorage);
+        // DialogueRunner = new DialogueRunner(TODO, TODO, TODO, TODO, TODO, DialogueStorage);
         Importer = new YarnSpinnerImporter();
     }
 
