@@ -338,21 +338,21 @@ publish/
 #
 ## NVidia Nsight GPU debugger configuration file
 #*.nvuser
-
-# MFractors (Xamarin productivity tool) working folder
-.mfractor/
-
-# Local History for Visual Studio
-.localhistory/
-
-# BeatPulse healthcheck temp database
-healthchecksdb
-
-# Backup folder for Package Reference Convert tool in Visual Studio 2017
-MigrationBackup/
-
-# End of https://www.gitignore.io/api/visualstudio
-
-Release/
-
-.idea/
+#
+## MFractors (Xamarin productivity tool) working folder
+#.mfractor/
+#
+## Local History for Visual Studio
+#.localhistory/
+#
+## BeatPulse healthcheck temp database
+#healthchecksdb
+#
+## Backup folder for Package Reference Convert tool in Visual Studio 2017
+#MigrationBackup/
+#
+## End of https://www.gitignore.io/api/visualstudio
+#
+#Release/
+#
+#.idea/
