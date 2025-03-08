@@ -1,19 +1,20 @@
 
 #----------------------------- Global Properties ----------------------------#
 
-/outputDir:bin
-/intermediateDir:obj
-/platform:DesktopGL
+/outputDir:bin/$(Platform)
+/intermediateDir:obj/$(Platform)
 /config:
-/profile:HiDef
+/profile:Reach
 /compress:False
 
 #-------------------------------- References --------------------------------#
 
+/reference:/Users/rodrigo.oliveira/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll
+/reference:/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll
 
 #---------------------------------- Content ---------------------------------#
 
-#begin buttons/Small Square Buttons.png
+#begin ./Setting menu.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -23,9 +24,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:buttons/Small Square Buttons.png
+/build:./Setting menu.png
 
-#begin buttons/Square Buttons 19x26.png
+#begin ./Sprite sheet for Basic Pack.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -35,9 +36,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:buttons/Square Buttons 19x26.png
+/build:./Sprite sheet for Basic Pack.png
 
-#begin buttons/Square Buttons 26x19.png
+#begin ./UI Big Play Button.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -47,9 +48,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:buttons/Square Buttons 26x19.png
+/build:./UI Big Play Button.png
 
-#begin buttons/Square Buttons 26x26.png
+#begin ./UI Settings Buttons.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -59,9 +60,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:buttons/Square Buttons 26x26.png
+/build:./UI Settings Buttons.png
 
-#begin Characters/Basic Charakter Actions.png
+#begin ./square.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -71,9 +72,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Characters/Basic Charakter Actions.png
+/build:./square.png
 
-#begin Characters/Basic Charakter Spritesheet.png
+#begin ./buttons/Square Buttons 26x26.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -83,9 +84,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Characters/Basic Charakter Spritesheet.png
+/build:./buttons/Square Buttons 26x26.png
 
-#begin Characters/Egg_And_Nest.png
+#begin ./buttons/Square Buttons 26x19.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -95,9 +96,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Characters/Egg_And_Nest.png
+/build:./buttons/Square Buttons 26x19.png
 
-#begin Characters/Free Chicken Sprites.png
+#begin ./buttons/Small Square Buttons.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -107,9 +108,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Characters/Free Chicken Sprites.png
+/build:./buttons/Small Square Buttons.png
 
-#begin Characters/Free Cow Sprites.png
+#begin ./buttons/Square Buttons 19x26.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -119,9 +120,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Characters/Free Cow Sprites.png
+/build:./buttons/Square Buttons 19x26.png
 
-#begin Characters/Tools.png
+#begin ./Objects/Paths.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -131,16 +132,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Characters/Tools.png
+/build:./Objects/Paths.png
 
-#begin default_font.spritefont
-/importer:FontDescriptionImporter
-/processor:FontDescriptionProcessor
-/processorParam:PremultiplyAlpha=True
-/processorParam:TextureFormat=Compressed
-/build:default_font.spritefont
-
-#begin Dialouge UI/dialog box big.png
+#begin ./Objects/Egg_item.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -150,9 +144,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/dialog box big.png
+/build:./Objects/Egg_item.png
 
-#begin Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
+#begin ./Objects/Free_Chicken_House.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -162,9 +156,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
+/build:./Objects/Free_Chicken_House.png
 
-#begin Dialouge UI/dialog box medium.png
+#begin ./Objects/Basic_Grass_Biom_things.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -174,9 +168,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/dialog box medium.png
+/build:./Objects/Basic_Grass_Biom_things.png
 
-#begin Dialouge UI/dialog box small.png
+#begin ./Objects/Basic_Furniture.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -186,9 +180,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/dialog box small.png
+/build:./Objects/Basic_Furniture.png
 
-#begin Dialouge UI/dialog box.png
+#begin ./Objects/Chest.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -198,9 +192,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/dialog box.png
+/build:./Objects/Chest.png
 
-#begin Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png
+#begin ./Objects/Basic_Plants.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -210,9 +204,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png
+/build:./Objects/Basic_Plants.png
 
-#begin Dialouge UI/Premade dialog box  big.png
+#begin ./Objects/Wood_Bridge.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -222,9 +216,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/Premade dialog box  big.png
+/build:./Objects/Wood_Bridge.png
 
-#begin Dialouge UI/Premade dialog box medium.png
+#begin ./Objects/Basic_tools_and_meterials.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -234,9 +228,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/Premade dialog box medium.png
+/build:./Objects/Basic_tools_and_meterials.png
 
-#begin Dialouge UI/Premade dialog box small.png
+#begin ./Objects/Simple_Milk_and_grass_item.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -246,17 +240,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Dialouge UI/Premade dialog box small.png
+/build:./Objects/Simple_Milk_and_grass_item.png
 
-#begin Effects/MultiTextureEffect.glsl
-/copy:Effects/MultiTextureEffect.glsl
-
-#begin Fonts/Kaph Regular White 80px Stroke Black 4px.fnt
-/importer:BitmapFontImporter
-/processor:BitmapFontProcessor
-/build:Fonts/Kaph Regular White 80px Stroke Black 4px.fnt;Fonts/Kaph Regular White 80px Stroke Black 4px fnt.fnt
-
-#begin Fonts/Kaph Regular White 80px Stroke Black 4px.png
+#begin ./Mouse sprites/Catpaw pointing Mouse icon.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -266,14 +252,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Fonts/Kaph Regular White 80px Stroke Black 4px.png
+/build:./Mouse sprites/Catpaw pointing Mouse icon.png
 
-#begin Fonts/kaph-regular-72px-white.fnt
-/importer:BitmapFontImporter
-/processor:BitmapFontProcessor
-/build:Fonts/kaph-regular-72px-white.fnt;Fonts/kaph-regular-72px-white-fnt.fnt
-
-#begin Fonts/kaph-regular-72px-white.png
+#begin ./Mouse sprites/Catpaw holding Mouse icon.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -283,14 +264,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Fonts/kaph-regular-72px-white.png
+/build:./Mouse sprites/Catpaw holding Mouse icon.png
 
-#begin Fonts/Kaph-Regular.fnt
-/importer:BitmapFontImporter
-/processor:BitmapFontProcessor
-/build:Fonts/Kaph-Regular.fnt;Fonts/Kaph-Regular-fnt.fnt
-
-#begin Fonts/Kaph-Regular.png
+#begin ./Mouse sprites/Triangle Mouse icon 2.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -300,9 +276,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Fonts/Kaph-Regular.png
+/build:./Mouse sprites/Triangle Mouse icon 2.png
 
-#begin Icons/All Icons.png
+#begin ./Mouse sprites/Triangle Mouse icon 3.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -312,9 +288,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Icons/All Icons.png
+/build:./Mouse sprites/Triangle Mouse icon 3.png
 
-#begin Icons/special icons/Small Happines-Sadness icons.png
+#begin ./Mouse sprites/Triangle Mouse icon 1.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -324,9 +300,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Icons/special icons/Small Happines-Sadness icons.png
+/build:./Mouse sprites/Triangle Mouse icon 1.png
 
-#begin Icons/special icons/Special Icons.png
+#begin ./Mouse sprites/Catpaw Mouse icon.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -336,9 +312,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Icons/special icons/Special Icons.png
+/build:./Mouse sprites/Catpaw Mouse icon.png
 
-#begin Icons/white icons.png
+#begin ./Sprout Lands color pallet/Sprout Lands defautlt palette.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -348,9 +324,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Icons/white icons.png
+/build:./Sprout Lands color pallet/Sprout Lands defautlt palette.png
 
-#begin Mouse sprites/Catpaw holding Mouse icon.png
+#begin ./Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -360,9 +336,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Mouse sprites/Catpaw holding Mouse icon.png
+/build:./Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG
 
-#begin Mouse sprites/Catpaw Mouse icon.png
+#begin ./Icons/white icons.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -372,9 +348,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Mouse sprites/Catpaw Mouse icon.png
+/build:./Icons/white icons.png
 
-#begin Mouse sprites/Catpaw pointing Mouse icon.png
+#begin ./Icons/All Icons.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -384,9 +360,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Mouse sprites/Catpaw pointing Mouse icon.png
+/build:./Icons/All Icons.png
 
-#begin Mouse sprites/Triangle Mouse icon 1.png
+#begin ./Characters/Basic Charakter Actions.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -396,9 +372,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Mouse sprites/Triangle Mouse icon 1.png
+/build:./Characters/Basic Charakter Actions.png
 
-#begin Mouse sprites/Triangle Mouse icon 2.png
+#begin ./Characters/Free Cow Sprites.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -408,9 +384,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Mouse sprites/Triangle Mouse icon 2.png
+/build:./Characters/Free Cow Sprites.png
 
-#begin Mouse sprites/Triangle Mouse icon 3.png
+#begin ./Characters/Tools.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -420,9 +396,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Mouse sprites/Triangle Mouse icon 3.png
+/build:./Characters/Tools.png
 
-#begin Objects/Basic_Furniture.png
+#begin ./Characters/Egg_And_Nest.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -432,9 +408,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Basic_Furniture.png
+/build:./Characters/Egg_And_Nest.png
 
-#begin Objects/Basic_Grass_Biom_things.png
+#begin ./Characters/Basic Charakter Spritesheet.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -444,9 +420,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Basic_Grass_Biom_things.png
+/build:./Characters/Basic Charakter Spritesheet.png
 
-#begin Objects/Basic_Plants.png
+#begin ./Characters/Free Chicken Sprites.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -456,9 +432,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Basic_Plants.png
+/build:./Characters/Free Chicken Sprites.png
 
-#begin Objects/Basic_tools_and_meterials.png
+#begin ./Fonts/kaph-regular-72px-white.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -468,9 +444,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Basic_tools_and_meterials.png
+/build:./Fonts/kaph-regular-72px-white.png
 
-#begin Objects/Chest.png
+#begin ./Fonts/Kaph Regular White 80px Stroke Black 4px.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -480,9 +456,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Chest.png
+/build:./Fonts/Kaph Regular White 80px Stroke Black 4px.png
 
-#begin Objects/Egg_item.png
+#begin ./Fonts/Kaph-Regular.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -492,9 +468,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Egg_item.png
+/build:./Fonts/Kaph-Regular.png
 
-#begin Objects/Free_Chicken_House.png
+#begin ./Tilesets/Bitmask references 2.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -504,9 +480,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Free_Chicken_House.png
+/build:./Tilesets/Bitmask references 2.png
 
-#begin Objects/Paths.png
+#begin ./Tilesets/Bitmask references 1.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -516,9 +492,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Paths.png
+/build:./Tilesets/Bitmask references 1.png
 
-#begin Objects/Simple_Milk_and_grass_item.png
+#begin ./Tilesets/Hills.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -528,9 +504,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Simple_Milk_and_grass_item.png
+/build:./Tilesets/Hills.png
 
-#begin Objects/Wood_Bridge.png
+#begin ./Tilesets/Fences.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -540,9 +516,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Objects/Wood_Bridge.png
+/build:./Tilesets/Fences.png
 
-#begin Setting menu.png
+#begin ./Tilesets/Wooden House.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -552,9 +528,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Setting menu.png
+/build:./Tilesets/Wooden House.png
 
-#begin Sprite sheet for Basic Pack.png
+#begin ./Tilesets/Grass.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -564,9 +540,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Sprite sheet for Basic Pack.png
+/build:./Tilesets/Grass.png
 
-#begin Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG
+#begin ./Tilesets/Water.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -576,9 +552,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Sprout Lands color pallet/Sprout Lands defautlt palette snip.PNG
+/build:./Tilesets/Water.png
 
-#begin Sprout Lands color pallet/Sprout Lands defautlt palette.png
+#begin ./Tilesets/Tilled_Dirt.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -588,9 +564,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Sprout Lands color pallet/Sprout Lands defautlt palette.png
+/build:./Tilesets/Tilled_Dirt.png
 
-#begin square.png
+#begin ./Dialouge UI/dialog box medium.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -600,9 +576,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:square.png
+/build:./Dialouge UI/dialog box medium.png
 
-#begin Tilesets/Bitmask references 1.png
+#begin ./Dialouge UI/Premade dialog box small.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -612,9 +588,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Bitmask references 1.png
+/build:./Dialouge UI/Premade dialog box small.png
 
-#begin Tilesets/Bitmask references 2.png
+#begin ./Dialouge UI/dialog box big.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -624,9 +600,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Bitmask references 2.png
+/build:./Dialouge UI/dialog box big.png
 
-#begin Tilesets/Bitmask references gif.gif
+#begin ./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -636,9 +612,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Bitmask references gif.gif
+/build:./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
 
-#begin Tilesets/Fences.png
+#begin ./Dialouge UI/Premade dialog box  big.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -648,9 +624,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Fences.png
+/build:./Dialouge UI/Premade dialog box  big.png
 
-#begin Tilesets/Grass.png
+#begin ./Dialouge UI/Premade dialog box medium.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -660,9 +636,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Grass.png
+/build:./Dialouge UI/Premade dialog box medium.png
 
-#begin Tilesets/Hills.png
+#begin ./Dialouge UI/dialog box.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -672,9 +648,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Hills.png
+/build:./Dialouge UI/dialog box.png
 
-#begin Tilesets/Tilled_Dirt.png
+#begin ./Dialouge UI/dialog box small.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -684,9 +660,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Tilled_Dirt.png
+/build:./Dialouge UI/dialog box small.png
 
-#begin Tilesets/Water.png
+#begin ./Icons/special icons/Small Happines-Sadness icons.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -696,9 +672,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Water.png
+/build:./Icons/special icons/Small Happines-Sadness icons.png
 
-#begin Tilesets/Wooden House.png
+#begin ./Icons/special icons/Special Icons.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -708,9 +684,9 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:Tilesets/Wooden House.png
+/build:./Icons/special icons/Special Icons.png
 
-#begin UI Big Play Button.png
+#begin ./Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /processorParam:ColorKeyColor=255,0,255,255
@@ -720,21 +696,29 @@
 /processorParam:ResizeToPowerOfTwo=False
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
-/build:UI Big Play Button.png
+/build:./Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet.png
 
-#begin UI Settings Buttons.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/processorParam:ColorKeyColor=255,0,255,255
-/processorParam:ColorKeyEnabled=True
-/processorParam:GenerateMipmaps=False
-/processorParam:PremultiplyAlpha=True
-/processorParam:ResizeToPowerOfTwo=False
-/processorParam:MakeSquare=False
-/processorParam:TextureFormat=Color
-/build:UI Settings Buttons.png
-
-#begin YarnScripts/test.yarn
+#begin ./Dialogues/hello_world.yarn
 /importer:YarnSpinnerImporter
 /processor:YarnSpinnerProcessor
-/build:YarnScripts/test.yarn
+/build:./Dialogues/hello_world.yarn
+
+#begin ./YarnScripts/test.yarn
+/importer:YarnSpinnerImporter
+/processor:YarnSpinnerProcessor
+/build:./YarnScripts/test.yarn
+
+#begin ./Fonts/kaph-regular-72px-white-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:./Fonts/kaph-regular-72px-white-fnt.fnt
+
+#begin ./Fonts/Kaph Regular White 80px Stroke Black 4px-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:./Fonts/Kaph Regular White 80px Stroke Black 4px-fnt.fnt
+
+#begin ./Fonts/Kaph-Regular-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:./Fonts/Kaph-Regular-fnt.fnt

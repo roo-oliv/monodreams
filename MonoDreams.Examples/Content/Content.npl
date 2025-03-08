@@ -2,13 +2,26 @@
 	"root": "",
 	"references":
 	[
-
+        "/Users/rodrigo.oliveira/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll",
+        "/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll"
 	],
 	"content":
 	{
+		"contentList":
+		{
+			"path": "$Content.npl",
+			"recursive": "False",
+			"action": "build",
+			"importer": "ResourceInfoImporter",
+			"processor": "PassThroughProcessor",
+			"watch":
+			[
+				"./*"
+			]
+		},
 		"textures":
 		{
-			"path": "Graphics/*.png",
+			"path": "./*.png",
 			"recursive": "True",
 			"action": "build",
 			"importer": "TextureImporter",
@@ -23,6 +36,22 @@
 				"MakeSquare": "False",
 				"TextureFormat": "Color"
 			}
+		},
+		"fonts":
+		{
+			"path": "./*.fnt",
+			"recursive": "True",
+			"action": "build",
+			"importer": "BitmapFontImporter",
+			"processor": "BitmapFontProcessor"
+		},
+		"yarn":
+		{
+			"path": "./*.yarn",
+			"recursive": "True",
+			"action": "build",
+			"importer": "YarnSpinnerImporter",
+			"processor": "YarnSpinnerProcessor"
 		}
 	}
 }
