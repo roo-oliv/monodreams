@@ -11,6 +11,7 @@ using MonoDreams.Examples.Screens;
 using MonoDreams.Util;
 using MonoDreams.YarnSpinner;
 using MonoGame.Extended.BitmapFonts;
+using Yarn;
 using Point = Microsoft.Xna.Framework.Point;
 
 namespace MonoDreams.Examples.Level.Levels;
@@ -21,6 +22,11 @@ public class Level0(
     SpriteBatch spriteBatch,
     (RenderTarget2D main, RenderTarget2D ui) renderTargets) : ILevel
 {
+    public World World { get; private set; }
+    public ContentManager Content { get; } = content;
+    public GraphicsDevice GraphicsDevice { get; } = graphicsDevice;
+    public SpriteBatch SpriteBatch { get; } = spriteBatch;
+    
     private readonly Texture2D _square = content.Load<Texture2D>("square");
     private readonly BitmapFont font = content.Load<BitmapFont>("Fonts/kaph-regular-72px-white-fnt");
     private readonly Texture2D _dialogBox = content.Load<Texture2D>("Dialouge UI/dialog box");
@@ -63,6 +69,7 @@ public class Level0(
 
     public void Load(World world)
     {
+        World = world;
         var levelLayout = string.Concat(Layout.Where(c => !char.IsWhiteSpace(c)));
         
         int columns = 44;
@@ -106,14 +113,35 @@ public class Level0(
                     throw new ArgumentOutOfRangeException(nameof(chunk), chunk, null);
             }
         }
+
+        Zone.Create(this, new Vector2(100, 180), new Point(100, 100), DialogueScript.HelloWorld);
         
+        var dialogueRunner = new DialogueRunner();
         var yarnNodeName = "HelloWorld";
         var zonePosition = new Vector2(100, 180);
         var zoneCollider = new Rectangle(0, 0, 40, 40);
         var variableStorage = new InMemoryVariableStorage();
-        var dialogue = new Yarn.Dialogue(variableStorage);
-        var rawProgram = content.Load<YarnProgram>("Dialogues/hello_world");
+        var dialogue = new Yarn.Dialogue(variableStorage)
+        {
+            LogDebugMessage = Console.WriteLine,
+            LogErrorMessage = Console.WriteLine,
+            LineHandler = line => Console.WriteLine(dialogueRunner.GetLocalizedTextForLine(line)),
+            CommandHandler = command => Console.WriteLine(command),
+            OptionsHandler = options =>
+            {
+                for (var i = 0; i < options.Options.Length; i++)
+                {
+                    var line = options.Options[i].Line;
+                    Console.WriteLine($"{i}: {dialogueRunner.GetLocalizedTextForLine(line)}");
+                }
+            },
+            NodeStartHandler = node => Console.WriteLine(node),
+            NodeCompleteHandler = node => Console.WriteLine(node),
+            DialogueCompleteHandler = () => Console.WriteLine("Dialogue complete"),
+        };
+        var rawProgram = Content.Load<YarnProgram>("Dialogues/hello_world");
         dialogue.SetProgram(rawProgram.GetProgram());
+        dialogueRunner.AddStringTable(rawProgram);
         var currentNode = dialogue.CurrentNode;
         // DialogueZone.Create(world, yarnNodeName, zonePosition, zoneCollider, _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
 

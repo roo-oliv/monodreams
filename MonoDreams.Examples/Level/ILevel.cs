@@ -1,9 +1,16 @@
 using DefaultEcs;
+using Microsoft.Xna.Framework.Content;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace MonoDreams.Examples.Level;
 
 public interface ILevel
 {
+    public World World { get; }
+    public ContentManager Content { get; }
+    public GraphicsDevice GraphicsDevice { get; }
+    public SpriteBatch SpriteBatch { get; }
+    
     public void Load(World world);
     
     public const string Layout = @"
