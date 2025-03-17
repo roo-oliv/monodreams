@@ -2,14 +2,51 @@ title: HelloWorld
 ---
 // Define character name for this line
 Guide: Hello, traveler! Welcome to the dream world.
+<<set_var explored_world false>>
+
 -> Who are you?
-Guide: I am your guide in this mysterious realm.
-Guide: I will help you understand the rules of this place.
+    Guide: I am your guide in this mysterious realm.
+    Guide: I will help you understand the rules of this place.
+    <<set_var asked_about_guide true>>
 -> Where am I?
-Guide: You are in a world shaped by dreams and imagination.
-Guide: The laws of physics are... flexible here.
+    Guide: You are in a world shaped by dreams and imagination.
+    Guide: The laws of physics are... flexible here.
+    <<set_var asked_about_world true>>
+
 Guide: You can move around using the arrow keys.
 Guide: Try to reach the objective markers to progress!
+
+<<if asked_about_guide>>
+Guide: Since you asked, I've been here for a very long time.
+Guide: I've seen many dreamers come and go.
+<<endif>>
+
+<<if asked_about_world>>
+Guide: This world is constantly changing as your thoughts shape it.
+Guide: Pay attention to your surroundings - they might reflect your inner state.
+<<endif>>
+
 Guide: Oh, and watch out for the deadly tiles marked in red.
+<<emote Guide happy>>
 Guide: Good luck on your journey!
+<<set_var explored_world true>>
+===
+
+title: WorldExplored
+---
+<<if explored_world>>
+Guide: I see you've started exploring the dream world!
+Guide: How do you like it so far?
+
+-> It's fascinating!
+    Guide: I'm glad you think so! There's much more to discover.
+-> It's a bit confusing.
+    Guide: Don't worry, it gets easier to navigate as you spend more time here.
+    Guide: The dream logic will start to make sense soon.
+
+Guide: Keep exploring and you'll unlock more abilities.
+<<else>>
+Guide: You should explore the main area first.
+Guide: Come back when you've had a proper look around.
+<<endif>>
 ===

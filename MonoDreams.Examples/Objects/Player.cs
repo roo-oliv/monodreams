@@ -19,7 +19,7 @@ public static class Player
         entity.Set(new PlayerState());
         entity.Set(new InputControlled());
         entity.Set(new Position(position));
-        entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
+        entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize), new HashSet<int> { CollisionLayer.Player }));
         entity.Set(new DrawInfo(renderTarget, texture, Constants.PlayerSize, layer: drawLayer));
         entity.Set(new RigidBody());
         entity.Set(new Velocity());

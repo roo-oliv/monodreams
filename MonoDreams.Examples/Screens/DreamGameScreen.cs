@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
@@ -17,6 +18,10 @@ using MonoDreams.System;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Draw;
 using MonoDreams.System.Physics;
+using MonoDreams.YarnSpinner;
+using MonoGame.Extended.BitmapFonts;
+using MonoDreams.Examples.Extensions;
+using MonoDreams.Examples.Input;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -49,19 +54,88 @@ public class DreamGameScreen : IGameScreen
         camera.Position = new Vector2(0, 0);
         
         _world = new World();
+        
+        // Initialize dialogue manager
+        InitializeDialogueManager(graphicsDevice);
+        
         _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
         System = CreateSystem();
     }
 
+    private void InitializeDialogueManager(GraphicsDevice graphicsDevice)
+    {
+        // Load dialogue resources
+        var font = _content.Load<BitmapFont>("Fonts/kaph-regular-72px-white-fnt");
+        var dialogBox = _content.Load<Texture2D>("Dialouge UI/dialog box");
+        var emoteTexture = _content.Load<Texture2D>("Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet")
+            .Crop(new Rectangle(0, 0, 32, 32), graphicsDevice);
+        
+        // Initialize the dialogue manager
+        DialogueManager.Instance.Initialize(
+            _world,
+            font,
+            emoteTexture,
+            dialogBox,
+            _renderTargets.ui,
+            graphicsDevice
+        );
+        
+        // Set default character colors
+        DialogueManager.Instance.SetCharacterColor("Guide", Color.Yellow);
+        
+        // Load default emote textures
+        DialogueManager.Instance.LoadEmoteTexture("Guide", emoteTexture);
+    }
+
     public ISystem<GameState> System { get; }
+    
     public void Load(ScreenController screenController, ContentManager content)
     {
         _levelLoader.LoadLevel(0);
         InGameDebug.Create(_world, _spriteBatch, _renderer);
+        
+        // Load Yarn scripts
+        LoadDialogueContent();
+    }
+    
+    private void LoadDialogueContent()
+    {
+        try
+        {
+            Console.WriteLine("[Debug] Loading dialogue content...");
+            
+            // Load the Yarn programs
+            Console.WriteLine("[Debug] Attempting to load hello_world.yarn...");
+            var helloWorldProgram = _content.Load<YarnProgram>("Dialogues/hello_world");
+            Console.WriteLine("[Debug] hello_world.yarn loaded successfully");
+            
+            // Check if the program has data
+            if (helloWorldProgram.CompiledProgram != null)
+            {
+                Console.WriteLine($"[Debug] Program has compiled data: {helloWorldProgram.CompiledProgram.Length} bytes");
+            }
+            else
+            {
+                Console.WriteLine("[Debug] Warning: Program's compiled data is null!");
+            }
+            
+            // Add them to the dialogue runner
+            Console.WriteLine("[Debug] Adding dialogue to DialogueRunner");
+            DialogueManager.Instance.GetDialogueRunner().AddStringTable(helloWorldProgram);
+            Console.WriteLine("[Debug] Dialogue content loaded successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Error] Failed to load dialogue content: {ex.Message}");
+            Console.WriteLine($"[Error] Stack trace: {ex.StackTrace}");
+        }
     }
     
     private SequentialSystem<GameState> CreateSystem()
     {
+        // Load the font for dialogue
+        var dialogueFont = _content.Load<BitmapFont>("Fonts/kaph-regular-72px-white-fnt");
+        
         return new SequentialSystem<GameState>(
             new DebugSystem(_world, _game, _spriteBatch),
             new InputHandlingSystem(),
@@ -70,6 +144,7 @@ public class DreamGameScreen : IGameScreen
             new VelocitySystem(_world, _parallelRunner),
             new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
             new PhysicalCollisionResolutionSystem(_world),
+            new DialogueSystem(_world, DialogueManager.Instance.GetDialogueRunner(), new InputState()),
             new PositionSystem(_world, _parallelRunner),
             new BeginDrawSystem(_spriteBatch, _renderer, _camera),
             new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(_renderTargets.main)),

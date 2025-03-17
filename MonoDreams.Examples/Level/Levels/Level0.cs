@@ -40,7 +40,7 @@ public class Level0(
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W........W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
-    .*..*..W........W..W..W..W..W..W..W.....................................................W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
+    .*..*..W........W..W..W..W..W..W..W..................................................W..W..W..W..W..W..W..W..W..W..W..W..W..*..*.
     .*..*..W..@.....W..W..W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
     .*..*..W..............W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
     .*..*..W..............W..W..W..W..W.....................................................W..W..W..W..........................W..*..*.
@@ -114,37 +114,25 @@ public class Level0(
             }
         }
 
-        Zone.Create(this, new Vector2(100, 180), new Point(100, 100), DialogueScript.HelloWorld);
-        
-        var dialogueRunner = new DialogueRunner();
-        var yarnNodeName = "HelloWorld";
-        var zonePosition = new Vector2(100, 180);
-        var zoneCollider = new Rectangle(0, 0, 40, 40);
-        var variableStorage = new InMemoryVariableStorage();
-        var dialogue = new Yarn.Dialogue(variableStorage)
-        {
-            LogDebugMessage = Console.WriteLine,
-            LogErrorMessage = Console.WriteLine,
-            LineHandler = line => Console.WriteLine(dialogueRunner.GetLocalizedTextForLine(line)),
-            CommandHandler = command => Console.WriteLine(command),
-            OptionsHandler = options =>
-            {
-                for (var i = 0; i < options.Options.Length; i++)
-                {
-                    var line = options.Options[i].Line;
-                    Console.WriteLine($"{i}: {dialogueRunner.GetLocalizedTextForLine(line)}");
-                }
-            },
-            NodeStartHandler = node => Console.WriteLine(node),
-            NodeCompleteHandler = node => Console.WriteLine(node),
-            DialogueCompleteHandler = () => Console.WriteLine("Dialogue complete"),
-        };
-        var rawProgram = Content.Load<YarnProgram>("Dialogues/hello_world");
-        dialogue.SetProgram(rawProgram.GetProgram());
-        dialogueRunner.AddStringTable(rawProgram);
-        var currentNode = dialogue.CurrentNode;
-        // DialogueZone.Create(world, yarnNodeName, zonePosition, zoneCollider, _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
+        // Create dialogue zones
+        CreateDialogueZones(world);
+    }
 
-        // Objects.Dialogue.Create(world, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin pellentesque consequat tempor. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
+    private void CreateDialogueZones(World world)
+    {
+        var dialogueZoneEntity = world.CreateEntity();
+        dialogueZoneEntity.Set(new EntityInfo(EntityType.Zone));
+        dialogueZoneEntity.Set(new Position(new Vector2(100, 180)));
+        dialogueZoneEntity.Set(new DrawInfo(renderTargets.ui, _square, new Point(40, 40), layer: DreamGameScreen.DrawLayer.UIElements));
+        dialogueZoneEntity.Set(new BoxCollider(new Rectangle(0, 0, 40, 40), passive: true));
+        dialogueZoneEntity.Set(new DialogueZoneComponent("HelloWorld", oneTimeOnly: true, autoStart: true));
+        
+        // Create a second dialogue zone that checks for variable state
+        var worldExploredZoneEntity = world.CreateEntity();
+        worldExploredZoneEntity.Set(new EntityInfo(EntityType.Zone));
+        worldExploredZoneEntity.Set(new Position(new Vector2(580, 180))); // Place this further to the right
+        worldExploredZoneEntity.Set(new DrawInfo(renderTargets.ui, _square, new Point(40, 40), layer: DreamGameScreen.DrawLayer.UIElements));
+        worldExploredZoneEntity.Set(new BoxCollider(new Rectangle(0, 0, 40, 40), passive: true));
+        worldExploredZoneEntity.Set(new DialogueZoneComponent("WorldExplored", oneTimeOnly: false, autoStart: true));
     }
 }
