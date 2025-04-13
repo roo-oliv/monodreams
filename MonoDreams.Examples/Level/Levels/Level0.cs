@@ -113,36 +113,56 @@ public class Level0(
                     throw new ArgumentOutOfRangeException(nameof(chunk), chunk, null);
             }
         }
-
-        Zone.Create(this, new Vector2(100, 180), new Point(100, 100), DialogueScript.HelloWorld);
         
-        var dialogueRunner = new DialogueRunner();
-        var yarnNodeName = "HelloWorld";
-        var zonePosition = new Vector2(100, 180);
-        var zoneCollider = new Rectangle(0, 0, 40, 40);
-        var variableStorage = new InMemoryVariableStorage();
-        var dialogue = new Yarn.Dialogue(variableStorage)
+        var dialogueZone = world.CreateEntity();
+        dialogueZone.Set(new Position(new Vector2(200, 200)));
+        dialogueZone.Set(new BoxCollider(new Rectangle(0, 0, 64, 64), passive: true));
+        dialogueZone.Set(new DrawInfo(renderTargets.main, _square, new Point(64, 64), layer: DreamGameScreen.DrawLayer.Level));
+        dialogueZone.Set(new DialogueTrigger
         {
-            LogDebugMessage = Console.WriteLine,
-            LogErrorMessage = Console.WriteLine,
-            LineHandler = line => Console.WriteLine(dialogueRunner.GetLocalizedTextForLine(line)),
-            CommandHandler = command => Console.WriteLine(command),
-            OptionsHandler = options =>
-            {
-                for (var i = 0; i < options.Options.Length; i++)
-                {
-                    var line = options.Options[i].Line;
-                    Console.WriteLine($"{i}: {dialogueRunner.GetLocalizedTextForLine(line)}");
-                }
-            },
-            NodeStartHandler = node => Console.WriteLine(node),
-            NodeCompleteHandler = node => Console.WriteLine(node),
-            DialogueCompleteHandler = () => Console.WriteLine("Dialogue complete"),
-        };
-        var rawProgram = Content.Load<YarnProgram>("Dialogues/hello_world");
-        dialogue.SetProgram(rawProgram.GetProgram());
-        dialogueRunner.AddStringTable(rawProgram);
-        var currentNode = dialogue.CurrentNode;
+            Type = TriggerType.Proximity,
+            StartNode = "AreaDiscovery",
+            ProximityRadius = 5.0f,
+            OneTimeOnly = true,
+        });
+        dialogueZone.Set(new DialogueComponent
+        {
+            Program = Content.Load<YarnProgram>("Dialogues/area_discovery"),
+            DefaultStartNode = "AreaDiscovery",
+            Language = "en",
+        });
+
+        // Zone.Create(this, new Vector2(100, 180), new Point(100, 100), DialogueScript.HelloWorld);
+        //
+        // var dialogueRunner = new DialogueRunner();
+        // var yarnNodeName = "HelloWorld";
+        // var zonePosition = new Vector2(100, 180);
+        // var zoneCollider = new Rectangle(0, 0, 40, 40);
+        // var variableStorage = new InMemoryVariableStorage();
+        // var dialogue = new Yarn.Dialogue(variableStorage)
+        // {
+        //     LogDebugMessage = Console.WriteLine,
+        //     LogErrorMessage = Console.WriteLine,
+        //     LineHandler = line => Console.WriteLine(dialogueRunner.GetLocalizedTextForLine(line)),
+        //     CommandHandler = command => Console.WriteLine(command),
+        //     OptionsHandler = options =>
+        //     {
+        //         for (var i = 0; i < options.Options.Length; i++)
+        //         {
+        //             var line = options.Options[i].Line;
+        //             Console.WriteLine($"{i}: {dialogueRunner.GetLocalizedTextForLine(line)}");
+        //         }
+        //     },
+        //     NodeStartHandler = node => Console.WriteLine(node),
+        //     NodeCompleteHandler = node => Console.WriteLine(node),
+        //     DialogueCompleteHandler = () => Console.WriteLine("Dialogue complete"),
+        // };
+        // var rawProgram = Content.Load<YarnProgram>("Dialogues/hello_world");
+        // dialogue.SetProgram(rawProgram.GetProgram());
+        // dialogueRunner.AddStringTable(rawProgram);
+        // var currentNode = dialogue.CurrentNode;
+
+
         // DialogueZone.Create(world, yarnNodeName, zonePosition, zoneCollider, _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
 
         // Objects.Dialogue.Create(world, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin pellentesque consequat tempor. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", _emoteTexture, font, _dialogBox, renderTargets.ui, graphicsDevice, DreamGameScreen.DrawLayer.UIElements);
