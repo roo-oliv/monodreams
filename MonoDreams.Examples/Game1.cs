@@ -17,7 +17,7 @@ public class Game1 : Game
 {
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch;
-    private ResolutionIndependentRenderer _renderer;
+    private ViewportManager _viewportManager;
     private Camera _camera;
     private DefaultParallelRunner _runner;
     private ScreenController _screenController;
@@ -37,21 +37,17 @@ public class Game1 : Game
         GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
         GraphicsDevice.BlendState = BlendState.AlphaBlend;
         
-        _renderer = new(this);
-        _camera = new(_renderer);
+        _viewportManager = new(this);
+        _camera = new(_viewportManager.VirtualWidth, _viewportManager.VirtualHeight);
         _spriteBatch = new(GraphicsDevice);
         _runner = new(1);
-        _screenController = new(this, _runner, _renderer, _camera, _spriteBatch, Content);
+        _screenController = new(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
     }
     
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
     {
-        _renderer.VirtualWidth = 3840;
-        _renderer.VirtualHeight = 2160;
-        _renderer.ScreenWidth = realScreenWidth;
-        _renderer.ScreenHeight = realScreenHeight;
-        _renderer.BackgroundColor = new Color(68, 76, 86);
-        _renderer.Initialize();
+        _viewportManager.ScreenWidth = realScreenWidth;
+        _viewportManager.ScreenHeight = realScreenHeight;
         _camera.RecalculateTransformationMatrices();
     }
 
@@ -64,9 +60,10 @@ public class Game1 : Game
         _camera.Zoom = 1.0f;
         _camera.Position = Vector2.Zero;
 
-        _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
-        _screenController.RegisterScreen(ScreenName.MainMenu, () => new MainMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
-        _screenController.RegisterScreen(ScreenName.OptionsMenu, () => new OptionsMenuScreen(GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
+        // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.Game, () => new BaseGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.MainMenu, () => new MainMenuScreen(GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.OptionsMenu, () => new OptionsMenuScreen(GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
         _screenController.LoadScreen(ScreenName.Game);
         

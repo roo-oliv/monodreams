@@ -1,6 +1,4 @@
 using Microsoft.Xna.Framework;
-using MonoDreams.Renderer;
-using NotImplementedException = System.NotImplementedException;
 
 namespace MonoDreams.Component;
 
@@ -16,15 +14,18 @@ public class Camera
     private Matrix _camScaleMatrix = Matrix.Identity;
     private Matrix _resTranslationMatrix = Matrix.Identity;
 
-    protected readonly ResolutionIndependentRenderer Renderer;
     private Vector3 _camTranslationVector = Vector3.Zero;
     private Vector3 _camScaleVector = Vector3.Zero;
     private Vector3 _resTranslationVector = Vector3.Zero;
 
-    public Camera(ResolutionIndependentRenderer resolutionIndependence)
+    // Camera operates in virtual resolution space
+    private readonly int _virtualWidth;
+    private readonly int _virtualHeight;
+    
+    public Camera(int virtualWidth = 800, int virtualHeight = 600) // Use configured virtual size
     {
-        Renderer = resolutionIndependence;
-
+        _virtualWidth = virtualWidth;
+        _virtualHeight = virtualHeight;
         _zoom = 1.0f;
         _rotation = 0.0f;
         _position = Vector2.Zero;
@@ -80,8 +81,9 @@ public class Camera
 
         Matrix.CreateScale(ref _camScaleVector, out _camScaleMatrix);
 
-        _resTranslationVector.X = Renderer.VirtualWidth * 0.5f;
-        _resTranslationVector.Y = Renderer.VirtualHeight * 0.5f;
+        // Translate origin to center of the virtual screen for rotation/zoom
+        _resTranslationVector.X = _virtualWidth * 0.5f;
+        _resTranslationVector.Y = _virtualHeight * 0.5f;
         _resTranslationVector.Z = 0;
 
         Matrix.CreateTranslation(ref _resTranslationVector, out _resTranslationMatrix);
@@ -89,8 +91,7 @@ public class Camera
         _transform = _camTranslationMatrix 
                      * _camRotationMatrix
                      * _camScaleMatrix
-                     * _resTranslationMatrix
-                     * Renderer.GetTransformationMatrix();
+                     * _resTranslationMatrix;
 
         _isViewTransformationDirty = false;
 
@@ -102,11 +103,15 @@ public class Camera
         _isViewTransformationDirty = true;
     }
 
-    public Vector2 ScreenToWorld(Vector2 screenPosition)
+    /// <summary>
+    /// Converts virtual screen coordinates (e.g., mouse position scaled to virtual resolution)
+    /// to world coordinates.
+    /// </summary>
+    /// <param name="virtualScreenPosition">Coordinates in the virtual screen space (0,0 to VirtualWidth, VirtualHeight).</param>
+    /// <returns>World coordinates.</returns>
+    public Vector2 VirtualScreenToWorld(Vector2 virtualScreenPosition)
     {
-        var cameraWindowDimensions = new Vector2(Renderer.VirtualWidth, Renderer.VirtualHeight) / _zoom;
-        var cameraWindowTopLeftCorner = _position - cameraWindowDimensions / 2;
-        var cameraScaledPosition = cameraWindowTopLeftCorner + Renderer.ScaleMouseToScreenCoordinates(screenPosition) / _zoom;
-        return cameraScaledPosition;
+        Matrix invViewMatrix = Matrix.Invert(GetViewTransformationMatrix());
+        return Vector2.Transform(virtualScreenPosition, invViewMatrix);
     }
 }

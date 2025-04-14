@@ -22,14 +22,14 @@ public class OptionsMenuScreen : IGameScreen
 {
     private readonly GraphicsDevice _graphicsDevice;
     private readonly Camera _camera;
-    private readonly ResolutionIndependentRenderer _renderer;
+    private readonly ViewportManager _renderer;
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     private readonly (RenderTarget2D main, RenderTarget2D ui) _renderTargets;
     public World World { get; }
     public ISystem<GameState> System { get; }
 
-    public OptionsMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+    public OptionsMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         _graphicsDevice = graphicsDevice;
         _camera = camera;
@@ -48,7 +48,7 @@ public class OptionsMenuScreen : IGameScreen
             new CollisionDetectionSystem<CollisionMessage>(World, _parallelRunner, CollisionMessage.Create),
             new ButtonSystem<CollisionMessage>(World),
             new PositionSystem(World, parallelRunner),
-            new BeginDrawSystem(spriteBatch, renderer, camera),
+            new BeginDrawSystem(spriteBatch, camera),
             new DrawSystem(World, spriteBatch, _renderTargets.main, _parallelRunner),
             // new CompositeDrawSystem(spriteBatch, World),
             new TextSystem(spriteBatch, World),

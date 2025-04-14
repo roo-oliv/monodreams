@@ -25,7 +25,7 @@ public class DreamGameScreen : IGameScreen
     private readonly ContentManager _content;
     private readonly Game _game;
     private readonly Camera _camera;
-    private readonly ResolutionIndependentRenderer _renderer;
+    private readonly ViewportManager _renderer;
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
@@ -33,7 +33,7 @@ public class DreamGameScreen : IGameScreen
     private readonly (RenderTarget2D main, RenderTarget2D ui) _renderTargets;
     
     public DreamGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+        ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         _game = game;
         _content = content;
@@ -70,13 +70,13 @@ public class DreamGameScreen : IGameScreen
             new VelocitySystem(_world, _parallelRunner),
             new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
             new DialogueContentSystem(_world),
-            new DialogueTriggerSystem(_world, player),
-            new DialogueStateSystem(_world),
-            new DialogueInputSystem(_world),
-            new DialoguePresentationSystem(_world, _spriteBatch.GraphicsDevice),
+            // new DialogueTriggerSystem(_world, player),
+            // new DialogueStateSystem(_world),
+            // new DialogueInputSystem(_world),
+            // new DialoguePresentationSystem(_world, _spriteBatch.GraphicsDevice),
             new PhysicalCollisionResolutionSystem(_world),
             new PositionSystem(_world, _parallelRunner),
-            new BeginDrawSystem(_spriteBatch, _renderer, _camera),
+            new BeginDrawSystem(_spriteBatch, _camera),
             new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(_renderTargets.main)),
             new ParallelSystem<GameState>(_parallelRunner,
                 new DrawSystem(_world, _spriteBatch, _renderTargets.main, _parallelRunner),

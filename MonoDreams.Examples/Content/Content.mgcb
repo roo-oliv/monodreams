@@ -602,18 +602,6 @@
 /processorParam:TextureFormat=Color
 /build:./Dialouge UI/dialog box big.png
 
-#begin ./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
-/importer:TextureImporter
-/processor:TextureProcessor
-/processorParam:ColorKeyColor=255,0,255,255
-/processorParam:ColorKeyEnabled=True
-/processorParam:GenerateMipmaps=False
-/processorParam:PremultiplyAlpha=True
-/processorParam:ResizeToPowerOfTwo=False
-/processorParam:MakeSquare=False
-/processorParam:TextureFormat=Color
-/build:./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet .png
-
 #begin ./Dialouge UI/Premade dialog box  big.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -722,3 +710,32 @@
 /importer:BitmapFontImporter
 /processor:BitmapFontProcessor
 /build:./Fonts/Kaph-Regular-fnt.fnt
+
+#begin ./Fonts/PPMondwest-Regular.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Fonts/PPMondwest-Regular.png
+
+#begin ./Fonts/PPMondwest-Regular-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:./Fonts/PPMondwest-Regular-fnt.fnt
+
+#begin ./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet.png

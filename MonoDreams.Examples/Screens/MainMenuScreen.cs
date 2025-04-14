@@ -23,13 +23,13 @@ public class MainMenuScreen : IGameScreen
 {
     private readonly GraphicsDevice _graphicsDevice;
     private readonly Camera _camera;
-    private readonly ResolutionIndependentRenderer _renderer;
+    private readonly ViewportManager _renderer;
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     public World World { get; }
     public ISystem<GameState> System { get; }
 
-    public MainMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ResolutionIndependentRenderer renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+    public MainMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         // _graphicsDevice = graphicsDevice;
         // _camera = camera;

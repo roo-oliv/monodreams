@@ -9,7 +9,7 @@ namespace MonoDreams.Examples.Entities;
 
 public static class StaticBackground
 {
-    public static Entity Create(RenderTarget2D renderTarget, World world, Texture2D image, Camera camera, ResolutionIndependentRenderer renderer, float scale = 1, Enum drawLayer = null)
+    public static Entity Create(RenderTarget2D renderTarget, World world, Texture2D image, Camera camera, ViewportManager renderer, float scale = 1, Enum drawLayer = null)
     {
         int stretchFactor = image.Width / image.Height < renderer.VirtualWidth / renderer.VirtualHeight
             ? (int)Math.Ceiling((double)(renderer.VirtualWidth / image.Width))

@@ -21,9 +21,9 @@ public class DialogueContentSystem : AEntitySetSystem<GameState>
         var content = entity.Get<DialogueComponent>();
         
         // If the entity also has a state component, initialize from content
-        if (entity.Has<DialogueState>())
-        {
-            // Initialize dialogue state from content if needed
-        }
+        // if (entity.Has<DialogueState>())
+        // {
+        //     // Initialize dialogue state from content if needed
+        // }
     }
 }

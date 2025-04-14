@@ -7,7 +7,7 @@ namespace MonoDreams.Examples.Objects;
 
 public static class LevelBoundaries
 {
-    public static void Create(World world, Texture2D square, ResolutionIndependentRenderer renderer, RenderTarget2D renderTarget)
+    public static void Create(World world, Texture2D square, ViewportManager renderer, RenderTarget2D renderTarget)
     {
         Tile.Create(
             world, square,

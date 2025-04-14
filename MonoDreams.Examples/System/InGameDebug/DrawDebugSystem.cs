@@ -8,7 +8,7 @@ using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.InGameDebug;
 
-public class DrawDebugSystem(World world, SpriteBatch batch, ResolutionIndependentRenderer renderer) : AComponentSystem<GameState, DebugUI>(world)
+public class DrawDebugSystem(World world, SpriteBatch batch, ViewportManager renderer) : AComponentSystem<GameState, DebugUI>(world)
 {
     protected override void Update(GameState state, ref DebugUI debugUI)
     {

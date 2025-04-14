@@ -82,8 +82,8 @@ public class DialogueTriggerSystem : AEntitySetSystem<GameState>
             {
                 // Create a new dialogue entity
                 dialogueEntity = _world.CreateEntity();
-                dialogueEntity.Set(new DialogueComponent());
-                dialogueEntity.Set(new DialogueState());
+                // dialogueEntity.Set(new DialogueComponent());
+                // dialogueEntity.Set(new DialogueState());
             }
             
             // Publish start message

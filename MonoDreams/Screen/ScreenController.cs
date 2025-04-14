@@ -13,7 +13,7 @@ namespace MonoDreams.Screen;
 public class ScreenController(
     Game game,
     IParallelRunner runner,
-    ResolutionIndependentRenderer renderer,
+    ViewportManager renderer,
     Camera camera,
     SpriteBatch spriteBatch,
     ContentManager content)
@@ -21,7 +21,7 @@ public class ScreenController(
 {
     public Game Game { get; } = game;
     public IParallelRunner Runner { get; } = runner;
-    public ResolutionIndependentRenderer Renderer { get; } = renderer;
+    public ViewportManager Renderer { get; } = renderer;
     public Camera Camera { get; } = camera;
     public SpriteBatch SpriteBatch { get; } = spriteBatch;
     public ContentManager Content { get; } = content;

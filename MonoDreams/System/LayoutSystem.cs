@@ -9,7 +9,7 @@ using MonoDreams.State;
 
 namespace MonoDreams.System;
 
-public class LayoutSystem(World world, ResolutionIndependentRenderer renderer) : ISystem<GameState>
+public class LayoutSystem(World world, ViewportManager renderer) : ISystem<GameState>
 {
     private YogaNode _rootNode = new();
     private Vector2 _rootPosition = new(-renderer.VirtualWidth / 2, -renderer.VirtualHeight / 2);

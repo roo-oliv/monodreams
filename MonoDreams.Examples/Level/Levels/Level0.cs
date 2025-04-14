@@ -125,12 +125,12 @@ public class Level0(
             ProximityRadius = 5.0f,
             OneTimeOnly = true,
         });
-        dialogueZone.Set(new DialogueComponent
-        {
-            Program = Content.Load<YarnProgram>("Dialogues/area_discovery"),
-            DefaultStartNode = "AreaDiscovery",
-            Language = "en",
-        });
+        // dialogueZone.Set(new DialogueComponent
+        // {
+        //     Program = Content.Load<YarnProgram>("Dialogues/area_discovery"),
+        //     DefaultStartNode = "AreaDiscovery",
+        //     Language = "en",
+        // });
 
         // Zone.Create(this, new Vector2(100, 180), new Point(100, 100), DialogueScript.HelloWorld);
         //

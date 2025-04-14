@@ -14,12 +14,12 @@ namespace MonoDreams.System;
 
 public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
 {
-    private readonly ResolutionIndependentRenderer _renderer;
+    private readonly ViewportManager _renderer;
     private readonly Camera _camera;
     private readonly SpriteBatch _batch;
     private readonly SpriteFont _font;
 
-    public DebugInfoSystem(ResolutionIndependentRenderer renderer, Camera camera, SpriteBatch batch, SpriteFont font, World world)
+    public DebugInfoSystem(ViewportManager renderer, Camera camera, SpriteBatch batch, SpriteFont font, World world)
         : base(world.GetEntities().With<PlayerInput>().AsSet(), true)
     {
         _renderer = renderer;
