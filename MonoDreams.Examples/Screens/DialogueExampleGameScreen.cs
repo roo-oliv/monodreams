@@ -26,7 +26,7 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Screens;
 
-public class BaseGameScreen : IGameScreen
+public class DialogueExampleGameScreen : IGameScreen
 {
     private readonly ContentManager _content;
     private readonly Game _game;
@@ -39,7 +39,7 @@ public class BaseGameScreen : IGameScreen
     private readonly LevelLoader _levelLoader;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     
-    public BaseGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
+    public DialogueExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         _game = game;

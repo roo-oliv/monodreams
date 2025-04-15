@@ -64,7 +64,7 @@ public class DreamGameScreen : IGameScreen
     {
         return new SequentialSystem<GameState>(
             new DebugSystem(_world, _game, _spriteBatch),
-            new InputHandlingSystem(),
+            new InputMappingSystem(_world),
             new MovementSystem(_world, _parallelRunner),
             // new GravitySystem(_world, _parallelRunner, Constants.WorldGravity, Constants.MaxFallVelocity),
             new VelocitySystem(_world, _parallelRunner),

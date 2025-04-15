@@ -11,6 +11,7 @@
 
 /reference:/Users/rodrigo.oliveira/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll
 /reference:/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll
+/reference:/Users/rodrigo.oliveira/.nuget/packages/ldtkmonogame.contentpipeline/1.6.0/lib/net8.0/LDtk.ContentPipeline.dll
 
 #---------------------------------- Content ---------------------------------#
 
@@ -739,3 +740,42 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:./Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet.png
+
+#begin ./Characters.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Characters.png
+
+#begin ./Atlas/Tilemap.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Atlas/Tilemap.png
+
+#begin ./World.ldtk
+/importer:LDtkFileImporter
+/processor:LDtkFileProcessor
+/build:./World.ldtk
+
+#begin ./World/Level_1.ldtkl
+/importer:LDtkLevelImporter
+/processor:LDtkLevelProcessor
+/build:./World/Level_1.ldtkl
+
+#begin ./World/Level_0.ldtkl
+/importer:LDtkLevelImporter
+/processor:LDtkLevelProcessor
+/build:./World/Level_0.ldtkl

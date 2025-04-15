@@ -11,7 +11,7 @@ public abstract class AKeyboardInputHandlingSystem : ISystem<GameState>
 {
     public abstract List<(AInputState inputState, Keys)> InputMapping { get; }
     
-    public void Update(GameState state)
+    public virtual void Update(GameState state)
     {
         foreach (var (inputState, key) in InputMapping)
         {

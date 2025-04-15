@@ -1,12 +1,15 @@
+using DefaultEcs;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Examples.Input;
+using MonoDreams.Examples.Message.Level;
 using MonoDreams.Input;
+using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Input;
 
 namespace MonoDreams.Examples.System;
 
-public class InputHandlingSystem : AKeyboardInputHandlingSystem
+public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
 {
     public override List<(AInputState inputState, Keys)> InputMapping =>
     [
@@ -20,4 +23,13 @@ public class InputHandlingSystem : AKeyboardInputHandlingSystem
         (InputState.Grab, Keys.K),
         (InputState.Exit, Keys.Escape)
     ];
+
+    public override void Update(GameState state)
+    {
+        base.Update(state);
+        if (InputState.Grab.Pressed(state))
+        {
+            world.Publish(new LoadLevelRequest("Level_0"));
+        }
+    }
 }

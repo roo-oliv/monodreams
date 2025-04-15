@@ -3,6 +3,7 @@
 	"references":
 	[
         "/Users/rodrigo.oliveira/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll",
+		"/Users/rodrigo.oliveira/.nuget/packages/ldtkmonogame.contentpipeline/1.6.0/lib/net8.0/LDtk.ContentPipeline.dll",
         "/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll"
 	],
 	"content":
@@ -44,6 +45,22 @@
 			"action": "build",
 			"importer": "BitmapFontImporter",
 			"processor": "BitmapFontProcessor"
+		},
+		"ldtk":
+		{
+			"path": "./*.ldtk",
+			"recursive": "True",
+			"action": "build",
+			"importer": "LDtkFileImporter",
+			"processor": "LDtkFileProcessor"
+		},
+		"ldtkl":
+		{
+			"path": "./*.ldtkl",
+			"recursive": "True",
+			"action": "build",
+			"importer": "LDtkLevelImporter",
+			"processor": "LDtkLevelProcessor"
 		},
 		"yarn":
 		{
