@@ -108,11 +108,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
             _renderTargets, // Pass the dictionary/collection of RTs
             _world
         );
-
+    
         // Final system to draw RenderTargets to backbuffer (if needed)
         var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
         
-        var levelLoadSystem = new LevelLoadRequestSystem(_world, _content.Load<LDtkFile>("World").LoadSingleWorld());
+        var levelLoadSystem = new LevelLoadRequestSystem(_world, _content);
 
         var entityParserSystem = new LDtkEntityParserSystem(_world);
         

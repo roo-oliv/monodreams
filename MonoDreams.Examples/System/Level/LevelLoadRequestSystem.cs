@@ -1,6 +1,7 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using LDtk;
+using Microsoft.Xna.Framework.Content;
 using MonoDreams.Examples.Component.Level;
 using MonoDreams.Examples.Message.Level;
 using MonoDreams.State;
@@ -14,16 +15,18 @@ namespace MonoDreams.Examples.System.Level;
 public sealed class LevelLoadRequestSystem : ISystem<GameState>
 {
     private readonly World _world;
+    private readonly ContentManager _content;
     private readonly LDtkWorld _ldtkWorld;
 
     /// <summary>
     /// Listens for LoadLevelRequest messages,
     /// finds the requested level, and sets the CurrentLevelComponent singleton in the World.
     /// </summary>
-    public LevelLoadRequestSystem(World world, LDtkWorld ldtkWorld)
+    public LevelLoadRequestSystem(World world, ContentManager content)
     {
         _world = world;
-        _ldtkWorld = ldtkWorld;
+        _content = content;
+        _ldtkWorld = _content.Load<LDtkFile>("World").LoadSingleWorld();
         _world.Subscribe<LoadLevelRequest>(On);
     }
 
@@ -40,8 +43,9 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
         try
         {
             // Get the specific level data from the loaded world
-            var levelData = _ldtkWorld.Levels?.FirstOrDefault(l => l.Identifier == levelIdentifier);
-
+            // var levelData = _ldtkWorld.Levels?.FirstOrDefault(l => l.Identifier == levelIdentifier);
+            var levelData = _content.Load<LDtkLevel>($"World/{levelIdentifier}");
+            
             if (levelData != null)
             {
                 Console.WriteLine($"Found level data for '{levelIdentifier}'. Setting CurrentLevelComponent.");

@@ -76,7 +76,7 @@ public sealed class TilemapRenderPrepSystem : ISystem<GameState>
             var layer = levelData.LayerInstances[i];
 
             // Process only Tile and Auto layers
-            if (layer._Type != LayerType.Tiles && layer._Type != LayerType.AutoLayer) continue;
+            if (layer._Type != LayerType.Tiles && layer._Type != LayerType.IntGrid) continue;
             if (!layer.Visible) continue; // Skip hidden layers
 
             // Ensure we have tileset info
