@@ -111,15 +111,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         // Final system to draw RenderTargets to backbuffer (if needed)
         var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
-
         
-        // *** Instantiate LevelLoadRequestSystem
         var levelLoadSystem = new LevelLoadRequestSystem(_world, _content.Load<LDtkFile>("World").LoadSingleWorld());
 
+        var entityParserSystem = new LDtkEntityParserSystem(_world);
+        
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
             inputMappingSystem,
             levelLoadSystem,
+            entityParserSystem,
             logicSystems,
             prepDrawSystems,
             renderSystem,
