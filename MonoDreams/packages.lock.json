@@ -4,9 +4,9 @@
     "net8.0": {
       "DefaultEcs": {
         "type": "Direct",
-        "requested": "[0.17.2, )",
-        "resolved": "0.17.2",
-        "contentHash": "3It4x4eCRuJZ3jvMFJFuyL6a4N6+zT0QUopY60xQxikAtzFh7tZ0oDtw8VVT83H95LOJzWZud8lIMVUbtOA7kg=="
+        "requested": "[0.18.0-beta01, )",
+        "resolved": "0.18.0-beta01",
+        "contentHash": "U9PyMOsaBMASUP5H0firyexOwJOUG/fN4Z6C4Ug6PKWfj4zdb8+gbquxmMpxdGDodzjdFQT4ucDQRGm49PMJzQ=="
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",

@@ -92,7 +92,7 @@
         <None Include="Icon.png" Pack="true" PackagePath="\" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="DefaultEcs" Version="0.17.2" />
+        <PackageReference Include="DefaultEcs" Version="0.18.0-beta01" />
         <PackageReference Include="DotNet.ReproducibleBuilds" Version="1.2.25">
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
           <PrivateAssets>all</PrivateAssets>
