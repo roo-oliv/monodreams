@@ -115,12 +115,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var levelLoadSystem = new LevelLoadRequestSystem(_world, _content);
 
         var entityParserSystem = new LDtkEntityParserSystem(_world);
+        var configurableEntitySpawnerSystem = new ConfigurableEntitySpawnerSystem(_world); // Instantiate new system
         
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
             inputMappingSystem,
             levelLoadSystem,
             entityParserSystem,
+            configurableEntitySpawnerSystem, // Add new system here
             logicSystems,
             prepDrawSystems,
             renderSystem,

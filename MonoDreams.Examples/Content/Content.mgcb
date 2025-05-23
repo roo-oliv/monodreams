@@ -9,9 +9,9 @@
 
 #-------------------------------- References --------------------------------#
 
-/reference:/Users/rodrigo.oliveira/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll
-/reference:/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll
-/reference:/Users/rodrigo.oliveira/.nuget/packages/ldtkmonogame.contentpipeline/1.6.0/lib/net8.0/LDtk.ContentPipeline.dll
+/reference:/home/swebot/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll
+/reference:/home/swebot/.nuget/packages/ldtkmonogame.contentpipeline/1.6.0/lib/net8.0/LDtk.ContentPipeline.dll
+/reference:../../MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll
 
 #---------------------------------- Content ---------------------------------#
 
