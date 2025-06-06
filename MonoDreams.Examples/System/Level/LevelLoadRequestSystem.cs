@@ -50,8 +50,8 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
             {
                 Console.WriteLine($"Found level data for '{levelIdentifier}'. Setting CurrentLevelComponent.");
 
-                // Set the singleton component in the world, overwriting any previous level.
                 _world.Set(new CurrentLevelComponent(levelData));
+                _world.Set(new CurrentBackgroundColorComponent(levelData._BgColor));
 
                 // Optional: Publish a success message if other systems need to react immediately AFTER activation
                 // _world.Publish(new LevelLoadSuccessMessage(levelData));
@@ -70,6 +70,7 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
              // Potentially publish a LevelLoadFailed message?
              // Maybe clear the CurrentLevelComponent on error?
               _world.Remove<CurrentLevelComponent>();
+              _world.Remove<CurrentBackgroundColorComponent>();
         }
     }
 
