@@ -53,7 +53,7 @@ public class DialogueRunner()
         }
 
         var configuration =
-            new CsvHelper.Configuration.Configuration(CultureInfo.InvariantCulture);
+            new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture);
             
         using (var reader = new StringReader(textToLoad))
         using (var csv = new CsvReader(reader, configuration))

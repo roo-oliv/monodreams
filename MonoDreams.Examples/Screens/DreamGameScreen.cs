@@ -8,7 +8,6 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
-using MonoDreams.Examples.System.InGameDebug;
 using MonoDreams.Objects;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
@@ -57,13 +56,11 @@ public class DreamGameScreen : IGameScreen
     public void Load(ScreenController screenController, ContentManager content)
     {
         _levelLoader.LoadLevel(0);
-        InGameDebug.Create(_world, _spriteBatch, _renderer);
     }
     
     private SequentialSystem<GameState> CreateSystem()
     {
         return new SequentialSystem<GameState>(
-            new DebugSystem(_world, _game, _spriteBatch),
             new InputMappingSystem(_world),
             new MovementSystem(_world, _parallelRunner),
             // new GravitySystem(_world, _parallelRunner, Constants.WorldGravity, Constants.MaxFallVelocity),

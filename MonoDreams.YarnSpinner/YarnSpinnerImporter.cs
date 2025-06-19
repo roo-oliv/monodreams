@@ -4,7 +4,7 @@ namespace MonoDreams.YarnSpinner;
 
 [ContentImporter(
     ".yarn",
-    DefaultProcessor = nameof(YarnSpinnerProcessor),
+    DefaultProcessor = "YarnSpinnerProcessor",
     DisplayName = "YarnSpinner Importer - MonoDreams")]
 public class YarnSpinnerImporter : ContentImporter<YarnSpinnerFile>
 {

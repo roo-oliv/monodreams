@@ -50,7 +50,7 @@ public class YarnSpinnerProcessor : ContentProcessor<YarnSpinnerFile, YarnProgra
                     // Generate the localized .csv file
 
                     // Use the invariant culture when writing the CSV
-                    var configuration = new CsvHelper.Configuration.Configuration(CultureInfo.InvariantCulture);
+                    var configuration = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture);
 
                     var csv = new CsvHelper.CsvWriter(textWriter, configuration);
                     var lines = compilationResult.StringTable.Select(x => new

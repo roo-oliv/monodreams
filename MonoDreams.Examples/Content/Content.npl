@@ -2,9 +2,9 @@
 	"root": "",
 	"references":
 	[
-        "/Users/rodrigo.oliveira/.nuget/packages/monogame.extended.content.pipeline/4.0.4/tools/MonoGame.Extended.Content.Pipeline.dll",
-		"/Users/rodrigo.oliveira/.nuget/packages/ldtkmonogame.contentpipeline/1.6.0/lib/net8.0/LDtk.ContentPipeline.dll",
-        "/Users/rodrigo.oliveira/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll"
+        "C:/Users/roool/.nuget/packages/monogame.extended.content.pipeline/4.1.0/tools/MonoGame.Extended.Content.Pipeline.dll",
+		"C:/Users/roool/.nuget/packages/ldtkmonogame.contentpipeline/1.8.0/lib/net8.0/LDtk.ContentPipeline.dll",
+        "C:/Users/roool/git/roo-oliv/monodreams/MonoDreams.YarnSpinner/bin/Debug/net8.0/MonoDreams.YarnSpinner.dll"
 	],
 	"content":
 	{

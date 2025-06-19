@@ -2,7 +2,6 @@ using DefaultEcs;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Component.Debug;
 using MonoDreams.Examples.Level.Levels;
 using MonoDreams.Level;
 using MonoDreams.Objects;

@@ -14,7 +14,6 @@ using MonoDreams.Examples.Message.Level;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
-using MonoDreams.Examples.System.InGameDebug;
 using MonoDreams.Examples.System.Level;
 using MonoDreams.Objects;
 using MonoDreams.Renderer;
@@ -69,7 +68,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
     public void Load(ScreenController screenController, ContentManager content)
     {
         // _levelLoader.LoadLevel(0);
-        InGameDebug.Create(_world, _spriteBatch, _viewportManager);
     }
     
     private SequentialSystem<GameState> CreateSystem()
