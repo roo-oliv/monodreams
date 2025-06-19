@@ -4,7 +4,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
-using MonoDreams.Component.Physics;
 using MonoDreams.LegacyComponents;
 using MonoDreams.Renderer;
 using MonoDreams.State;

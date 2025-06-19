@@ -1,21 +1,12 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using Facebook.Yoga;
-using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Extensions;
-using MonoDreams.Extensions.ECS;
-using MonoDreams.Objects.UI;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
-using MonoDreams.System;
-using MonoDreams.System.Collision;
-using MonoDreams.System.Draw;
-using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Screens;
 

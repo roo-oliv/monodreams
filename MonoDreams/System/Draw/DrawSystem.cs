@@ -4,8 +4,8 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.State;
 using MonoDreams.Draw;
+using MonoDreams.State;
 using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System.Draw;

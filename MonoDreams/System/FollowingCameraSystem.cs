@@ -1,11 +1,3 @@
-using System;
-using DefaultEcs;
-using DefaultEcs.System;
-using DefaultEcs.Threading;
-using Microsoft.Xna.Framework;
-using MonoDreams.Component;
-using MonoDreams.State;
-
 namespace MonoDreams.System;
 
 // public sealed class FollowingCameraSystem : AEntitySetSystem<GameState>

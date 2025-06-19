@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
-using DefaultEcs.Threading;
-using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;

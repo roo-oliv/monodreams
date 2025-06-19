@@ -1,9 +1,3 @@
-using DefaultEcs;
-using DefaultEcs.System;
-using DefaultEcs.Threading;
-using MonoDreams.Component.Physics;
-using MonoDreams.State;
-
 namespace MonoDreams.System.Physics;
 
 // public class GravityUpdatesVelocitySystem<TGravityComponent, TVelocityComponent>(World world, IParallelRunner parallelRunner, float maxFallVelocity = 0)

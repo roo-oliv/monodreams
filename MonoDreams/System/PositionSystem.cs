@@ -2,7 +2,6 @@ using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
 using MonoDreams.Component;
-using MonoDreams.Component.Physics;
 using MonoDreams.State;
 
 namespace MonoDreams.System;

@@ -5,13 +5,10 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Objects;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Util;
-using MonoDreams.YarnSpinner;
 using MonoGame.Extended.BitmapFonts;
-using Yarn;
 using Point = Microsoft.Xna.Framework.Point;
 
 namespace MonoDreams.Examples.Level.Levels;

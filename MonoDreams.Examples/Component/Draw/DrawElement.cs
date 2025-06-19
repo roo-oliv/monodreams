@@ -1,8 +1,8 @@
-namespace MonoDreams.Examples.Component.Draw;
-
-using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component;
+
+namespace MonoDreams.Examples.Component.Draw;
 
 public struct DrawElement
 {
@@ -25,7 +25,7 @@ public struct DrawElement
     // For bitmap fonts, you might store pre-calculated glyph data instead.
 
     // NinePatch specific (Texture/SourceRectangle reference the spritesheet)
-    public MonoDreams.Component.NinePatchInfo? NinePatchData; // Your existing 9-patch definition struct/class
+    public NinePatchInfo? NinePatchData; // Your existing 9-patch definition struct/class
     // Note: For 9-patch, Position typically refers to the top-left corner, and Size is the overall target dimensions.
     // The MasterRenderSystem will need logic to handle rendering the 9 slices based on this.
     // Alternatively, SpritePrepSystem could break it into 9 separate DrawElements of Type = Sprite. (Let's do this for simplicity in MasterRenderSystem)

@@ -1,4 +1,3 @@
-using System.Net.Mime;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;

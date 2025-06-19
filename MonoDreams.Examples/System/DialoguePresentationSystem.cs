@@ -1,10 +1,3 @@
-using DefaultEcs;
-using DefaultEcs.System;
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
-using MonoDreams.Examples.Component;
-using MonoDreams.State;
-
 namespace MonoDreams.Examples.System;
 
 // public class DialoguePresentationSystem : AEntitySetSystem<GameState>

@@ -3,11 +3,12 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.State;
 using MonoDreams.Examples.Component.Dialogue;
 using MonoDreams.Examples.Component.Draw;
+using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
-using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText; // For Math.Min/Max if needed for text slicing (though text is passed whole here)
+
+// For Math.Min/Max if needed for text slicing (though text is passed whole here)
 
 namespace MonoDreams.Examples.System.Dialogue;
 

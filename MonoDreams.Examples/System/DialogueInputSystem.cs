@@ -1,10 +1,3 @@
-using DefaultEcs;
-using DefaultEcs.System;
-using Microsoft.Xna.Framework.Input;
-using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Message;
-using MonoDreams.State;
-
 namespace MonoDreams.Examples.System;
 
 // public class DialogueInputSystem : AEntitySetSystem<GameState>

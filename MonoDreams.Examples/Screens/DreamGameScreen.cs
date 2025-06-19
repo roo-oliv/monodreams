@@ -8,7 +8,6 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
-using MonoDreams.Objects;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;

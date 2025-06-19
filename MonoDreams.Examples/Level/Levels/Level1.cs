@@ -1,11 +1,3 @@
-using DefaultEcs;
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Content;
-using Microsoft.Xna.Framework.Graphics;
-using MonoDreams.Examples.Objects;
-using MonoDreams.Examples.Screens;
-using MonoDreams.Renderer;
-
 namespace MonoDreams.Examples.Level.Levels;
 
 // public class Level1(ContentManager content, ResolutionIndependentRenderer renderer) : ILevel

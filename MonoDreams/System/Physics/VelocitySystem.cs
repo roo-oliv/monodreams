@@ -1,7 +1,6 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Physics;
 using MonoDreams.State;

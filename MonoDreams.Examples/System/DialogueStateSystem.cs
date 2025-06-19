@@ -1,9 +1,3 @@
-using DefaultEcs;
-using DefaultEcs.System;
-using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Message;
-using MonoDreams.State;
-
 namespace MonoDreams.Examples.System;
 
 // public class DialogueStateSystem : AEntitySetSystem<GameState>

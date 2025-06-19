@@ -1,5 +1,3 @@
-using SharpDX;
-
 namespace MonoDreams.Examples.Component;
 
 public class ZoneState(Action<ZoneState> callback)

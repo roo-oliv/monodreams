@@ -2,7 +2,6 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Draw;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.State;
 
@@ -81,7 +80,7 @@ public sealed class SpritePrepSystem : DrawPrepSystemBase
     }
 
     // Placeholder for your 9-patch destination rectangle calculation logic
-    private Rectangle CalculateNinePatchDestRect(Vector2 basePos, Vector2 targetSize, MonoDreams.Component.NinePatchInfo ninePatch, NinePatchPiece piece)
+    private Rectangle CalculateNinePatchDestRect(Vector2 basePos, Vector2 targetSize, NinePatchInfo ninePatch, NinePatchPiece piece)
     {
         // Implement the logic to determine the destination rectangle for a given piece
         // based on the ninePatch margins and the overall targetSize.

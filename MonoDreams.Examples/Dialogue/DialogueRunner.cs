@@ -1,10 +1,10 @@
 using System.Globalization;
 using CsvHelper;
+using CsvHelper.Configuration;
 using DefaultEcs;
-using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.YarnSpinner;
-using MonoGame.Extended.BitmapFonts;
 using Yarn;
+using Yarn.Markup;
 
 namespace MonoDreams.Examples.Dialogue;
 
@@ -53,7 +53,7 @@ public class DialogueRunner()
         }
 
         var configuration =
-            new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture);
+            new CsvConfiguration(CultureInfo.InvariantCulture);
             
         using (var reader = new StringReader(textToLoad))
         using (var csv = new CsvReader(reader, configuration))
@@ -72,13 +72,13 @@ public class DialogueRunner()
     {
         if (!_strings.TryGetValue(line.ID, out var result)) return null;
 
-        var lineParser = new Yarn.Markup.LineParser();
-        var builtInReplacer = new Yarn.Markup.BuiltInMarkupReplacer();
+        var lineParser = new LineParser();
+        var builtInReplacer = new BuiltInMarkupReplacer();
         lineParser.RegisterMarkerProcessor("select", builtInReplacer);
         lineParser.RegisterMarkerProcessor("ordinal", builtInReplacer);
         lineParser.RegisterMarkerProcessor("plural", builtInReplacer);
         
-        result = Yarn.Markup.LineParser.ExpandSubstitutions(result, line.Substitutions);
+        result = LineParser.ExpandSubstitutions(result, line.Substitutions);
         result = lineParser.ParseString(result, "en").Text;
 
         return result;

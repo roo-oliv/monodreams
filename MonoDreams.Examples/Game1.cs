@@ -1,14 +1,11 @@
-﻿using DefaultEcs;
-using DefaultEcs.System;
-using DefaultEcs.Threading;
+﻿using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Examples.Screens;
-using MonoDreams.Screen;
 using MonoDreams.Renderer;
-using MonoDreams.State;
+using MonoDreams.Screen;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
 namespace MonoDreams.Examples;

@@ -5,7 +5,6 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Message;
 using MonoDreams.State;
-using MonoDreams.YarnSpinner;
 
 namespace MonoDreams.Examples.System;
 

@@ -1,7 +1,6 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using MonoDreams.Component;
-using MonoDreams.Draw;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.State;
 using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;

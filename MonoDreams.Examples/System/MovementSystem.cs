@@ -3,7 +3,6 @@ using DefaultEcs.System;
 using DefaultEcs.Threading;
 using MonoDreams.Component;
 using MonoDreams.Component.Input;
-using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Input;
 using MonoDreams.State;
 

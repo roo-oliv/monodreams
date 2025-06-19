@@ -1,4 +1,7 @@
 using System.Globalization;
+using CsvHelper;
+using CsvHelper.Configuration;
+using Google.Protobuf;
 using Microsoft.Xna.Framework.Content.Pipeline;
 using Yarn.Compiler;
 
@@ -33,7 +36,7 @@ public class YarnSpinnerProcessor : ContentProcessor<YarnSpinnerFile, YarnProgra
             var programContainer = new YarnProgram();
 
             using (var memoryStream = new MemoryStream())
-            using (var outputStream = new Google.Protobuf.CodedOutputStream(memoryStream))
+            using (var outputStream = new CodedOutputStream(memoryStream))
             {
                 // Serialize the compiled program to memory
                 compilationResult.Program.WriteTo(outputStream);
@@ -50,9 +53,9 @@ public class YarnSpinnerProcessor : ContentProcessor<YarnSpinnerFile, YarnProgra
                     // Generate the localized .csv file
 
                     // Use the invariant culture when writing the CSV
-                    var configuration = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture);
+                    var configuration = new CsvConfiguration(CultureInfo.InvariantCulture);
 
-                    var csv = new CsvHelper.CsvWriter(textWriter, configuration);
+                    var csv = new CsvWriter(textWriter, configuration);
                     var lines = compilationResult.StringTable.Select(x => new
                     {
                         id = x.Key,

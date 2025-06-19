@@ -4,7 +4,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
-using MonoDreams.Renderer;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Draw;

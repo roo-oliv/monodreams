@@ -1,10 +1,3 @@
-using System;
-using DefaultEcs;
-using DefaultEcs.System;
-using DefaultEcs.Threading;
-using MonoDreams.Component;
-using MonoDreams.State;
-
 namespace MonoDreams.System;
 
 // public class DynamicBodySystem : AEntitySetSystem<GameState>

@@ -1,3 +1,5 @@
+using Yarn;
+
 namespace MonoDreams.YarnSpinner;
 
 public class YarnProgram
@@ -10,8 +12,8 @@ public class YarnProgram
         
     public YarnTranslation[] Localizations = new YarnTranslation[0];
 
-    public Yarn.Program GetProgram()
+    public Program GetProgram()
     {
-        return Yarn.Program.Parser.ParseFrom(CompiledProgram);
+        return Program.Parser.ParseFrom(CompiledProgram);
     }
 }

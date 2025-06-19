@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoGame.Extended.BitmapFonts;

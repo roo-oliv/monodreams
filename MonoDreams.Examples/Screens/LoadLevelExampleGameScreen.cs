@@ -1,30 +1,19 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using LDtk;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Dialogue;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
-using MonoDreams.Examples.Message;
-using MonoDreams.Examples.Message.Level;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
 using MonoDreams.Examples.System.Level;
-using MonoDreams.Objects;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
-using MonoDreams.System;
-using MonoDreams.System.Collision;
-using MonoDreams.System.Draw;
-using MonoDreams.System.Physics;
-using MonoDreams.Util;
-using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Screens;
 

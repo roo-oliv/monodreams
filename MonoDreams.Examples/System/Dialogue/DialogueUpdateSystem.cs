@@ -1,7 +1,7 @@
 using DefaultEcs;
 using DefaultEcs.System;
-using MonoDreams.State;
 using MonoDreams.Examples.Component.Dialogue;
+using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Dialogue // Or your appropriate systems namespace
 {

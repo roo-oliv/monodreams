@@ -1,6 +1,4 @@
 using DefaultEcs;
-using Microsoft.Xna.Framework.Content;
-using MonoDreams.Renderer;
 
 namespace MonoDreams.Level;
 

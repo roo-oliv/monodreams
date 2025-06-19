@@ -4,7 +4,6 @@ using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Message.Level;
 using MonoDreams.Input;
 using MonoDreams.State;
-using MonoDreams.System;
 using MonoDreams.System.Input;
 
 namespace MonoDreams.Examples.System;
