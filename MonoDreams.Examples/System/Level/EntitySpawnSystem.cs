@@ -57,19 +57,22 @@ public class EntitySpawnSystem : ISystem<GameState>
     private void CreatePlayerEntity(EntitySpawnRequest request)
     {
         var entity = _world.CreateEntity();
-        
-        entity.Set(new DrawElement
-        {
-            Type = DrawElementType.Sprite,
-            Target = RenderTargetID.Main,
-            Texture = _charactersTileset,
-            Position = request.Position,
-            SourceRectangle = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, request.Layer._GridSize, request.Layer._GridSize),
-            Color = Color.White * request.Layer._Opacity,
-            Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize), // Use GridSize for destination size
-            LayerDepth = _currentLayerDepth,
-            // Rotation, Origin, Scale, Effects usually default for tiles
-        });
+
+        var drawComponent = new DrawComponent();
+        entity.Set(drawComponent);
+        drawComponent.Drawables.Add(
+            new DrawElement
+            {
+                Type = DrawElementType.Sprite,
+                Target = RenderTargetID.Main,
+                Texture = _charactersTileset,
+                Position = request.Position,
+                SourceRectangle = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, request.Layer._GridSize, request.Layer._GridSize),
+                Color = Color.White * request.Layer._Opacity,
+                Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize), // Use GridSize for destination size
+                LayerDepth = _currentLayerDepth,
+                // Rotation, Origin, Scale, Effects usually default for tiles
+            });
         
         // entity.Set(new EntityInfo(EntityType.Player));
         // entity.Set(new PlayerState());
@@ -84,22 +87,21 @@ public class EntitySpawnSystem : ISystem<GameState>
     {
         var entity = _world.CreateEntity();
         
-        entity.Set(new DrawComponent());
-        
-        entity.Set(new SpriteInfo());
-        
-        entity.Set(new DrawElement
-        {
-            Type = DrawElementType.Sprite,
-            Target = RenderTargetID.Main,
-            Texture = _charactersTileset,
-            Position = request.Position,
-            SourceRectangle = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, request.Layer._GridSize, request.Layer._GridSize),
-            Color = Color.White * request.Layer._Opacity,
-            Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize), // Use GridSize for destination size
-            LayerDepth = _currentLayerDepth,
-            // Rotation, Origin, Scale, Effects usually default for tiles
-        });
+        var drawComponent = new DrawComponent();
+        entity.Set(drawComponent);
+        drawComponent.Drawables.Add(
+            new DrawElement
+            {
+                Type = DrawElementType.Sprite,
+                Target = RenderTargetID.Main,
+                Texture = _charactersTileset,
+                Position = request.Position,
+                SourceRectangle = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, request.Layer._GridSize, request.Layer._GridSize),
+                Color = Color.White * request.Layer._Opacity,
+                Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize), // Use GridSize for destination size
+                LayerDepth = _currentLayerDepth,
+                // Rotation, Origin, Scale, Effects usually default for tiles
+            });
         
         // entity.Set(new EntityInfo(EntityType.NPC));
         entity.Set(new Position(request.Position));

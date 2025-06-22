@@ -9,6 +9,7 @@ using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.Objects.UI;
 
+// TODO: Revise the way these factories work and where they belong in the project structure.
 public static class Cursor
 {
     public static Entity Create(RenderTarget2D renderTarget, World world, Texture2D texture, Point size, Enum drawLayer = null)

@@ -9,6 +9,7 @@ using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 
 namespace MonoDreams.Examples.System.Cursor;
 
+// TODO: Render target is hardcoded here, Size too, LayerDepth is hardcoded, Opacity is hardcoded, these should all be configurable
 public class CursorDrawPrepSystem(World world) 
     : AEntitySetSystem<GameState>(world.GetEntities()
         .With<CursorController>()
