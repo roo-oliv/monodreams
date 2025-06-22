@@ -5,15 +5,20 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.System;
+using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
 using MonoDreams.Examples.System.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
+using MonoDreams.System;
+using MonoDreams.System.Physics;
+using CursorController = MonoDreams.Component.CursorController;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -56,23 +61,39 @@ public class LoadLevelExampleGameScreen : IGameScreen
     public ISystem<GameState> System { get; }
     public void Load(ScreenController screenController, ContentManager content)
     {
+        var cursorTextures = new Dictionary<CursorType, Texture2D>
+        {
+            [CursorType.Default] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1"),
+            [CursorType.Pointer] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 2"),
+            [CursorType.Hand] = content.Load<Texture2D>("Mouse sprites/Catpaw Mouse icon"),
+            // Add more cursor types as needed
+        };
+
+        // Create cursor entity
+        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
+
         // _levelLoader.LoadLevel(0);
     }
     
     private SequentialSystem<GameState> CreateSystem()
     {
-        var inputMappingSystem = new InputMappingSystem(_world);
+        var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
+            new CursorInputSystem(_world, _camera),
+            new InputMappingSystem(_world)
+        );
+        
         
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
-            
-            // new MovementSystem(),
-            // new VelocitySystem(),
-            // new CollisionDetectionSystem(),
+            new CursorPositionSystem(_world),
+            new MovementSystem(_world, _parallelRunner),
+            new VelocitySystem(_world, _parallelRunner),
+            // new CollisionDetectionSystem<>(),
             // new PhysicalCollisionResolutionSystem(),
-            // new PositionSystem(),
+            new PositionSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
-            new DialogueUpdateSystem(_world)
+            new DialogueUpdateSystem(_world),
+            new CursorDrawPrepSystem(_world)
             // ... other game logic systems
         );
 
@@ -103,11 +124,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         var entityParserSystem = new LDtkEntityParserSystem(_world);
         
+        var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
+        
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
-            inputMappingSystem,
+            inputSystems,
             levelLoadSystem,
             entityParserSystem,
+            entitySpawnSystem,
             logicSystems,
             prepDrawSystems,
             renderSystem,

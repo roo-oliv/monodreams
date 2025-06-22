@@ -1,3 +1,4 @@
+using LDtk;
 using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Examples.Message.Level;
@@ -33,18 +34,22 @@ public readonly struct EntitySpawnRequest
     /// </summary>
     public readonly Vector2 Pivot;
 
+    public readonly Vector2 TilesetPosition;
+    public readonly LayerInstance Layer;
+
     /// <summary>
     /// A dictionary containing the parsed custom fields for this entity instance.
     /// Keys are field identifiers (names), values are parsed objects (int, float, bool, string, Vector2 for Point, etc.).
     /// </summary>
     public readonly Dictionary<string, object> CustomFields;
 
-    public EntitySpawnRequest(
-        string identifier,
+    public EntitySpawnRequest(string identifier,
         string instanceIid,
         Vector2 position,
         Vector2 size,
         Vector2 pivot,
+        Vector2 tilesetPosition,
+        LayerInstance layer,
         Dictionary<string, object> customFields)
     {
         Identifier = identifier;
@@ -52,6 +57,8 @@ public readonly struct EntitySpawnRequest
         Position = position;
         Size = size;
         Pivot = pivot;
+        TilesetPosition = tilesetPosition;
+        Layer = layer;
         CustomFields = customFields ?? new Dictionary<string, object>();
     }
 }

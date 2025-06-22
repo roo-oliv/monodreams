@@ -24,8 +24,6 @@ public sealed class SpritePrepSystem : DrawPrepSystemBase
         // A simple way is to clear all - assumes this system owns all sprite/9patch DrawElements for the entity.
         // A more robust way could involve tagging DrawElements or clearing selectively.
         drawComponent.Drawables.Clear(); // Clear previous frame's elements for this entity
-        
-        var layerDepth = spriteInfo.LayerDepth;
 
         // --- Handle 9-Patch ---
         if (spriteInfo.NinePatchData.HasValue && spriteInfo.SpriteSheet != null)
@@ -53,7 +51,7 @@ public sealed class SpritePrepSystem : DrawPrepSystemBase
                 Size = destRect.Size.ToVector2(),      // Use calculated dest size
                 SourceRectangle = srcRect,
                 Color = spriteInfo.Color,
-                LayerDepth = layerDepth
+                LayerDepth = spriteInfo.LayerDepth
                 // Add Rotation, Origin, Scale, Effects if needed (usually default for 9-patch)
             });
 
@@ -73,7 +71,7 @@ public sealed class SpritePrepSystem : DrawPrepSystemBase
                  Size = spriteInfo.Size,
                  SourceRectangle = spriteInfo.Source, // Use the source from SpriteInfo
                  Color = spriteInfo.Color,
-                 LayerDepth = layerDepth
+                 LayerDepth = spriteInfo.LayerDepth
                  // Add Rotation, Origin, Scale, Effects from SpriteInfo if they exist
              });
         }

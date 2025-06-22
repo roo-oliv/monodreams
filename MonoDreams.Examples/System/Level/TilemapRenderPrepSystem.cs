@@ -15,6 +15,7 @@ namespace MonoDreams.Examples.System.Level;
 /// Creates dedicated entities for each tile layer and populates their DrawComponent
 /// with DrawElements for each tile. Cleans up when the level is unloaded.
 /// </summary>
+/// TODO: Here we directly manipulate the Drawables in the DrawComponent to add DrawElements, this is redundant with the SpritePrepSystem.
 public sealed class TilemapRenderPrepSystem : ISystem<GameState>
 {
     private const float TILEMAP_BASE_LAYER_DEPTH = 0.9f; // Furthest back layer depth for tiles
@@ -67,14 +68,12 @@ public sealed class TilemapRenderPrepSystem : ISystem<GameState>
 
         // Keep track of loaded textures to avoid reloading per layer if tilesets are reused
         var loadedTextures = new Dictionary<string, Texture2D>();
-        float currentLayerDepth = TILEMAP_BASE_LAYER_DEPTH;
+        var currentLayerDepth = TILEMAP_BASE_LAYER_DEPTH;
 
         // Iterate layers in reverse order because LDtk draws layers from bottom up (first = back)
         // We want the first layer to have the lowest depth value (drawn first by SpriteBatch FrontToBack).
-        for (int i = 0; i < levelData.LayerInstances.Length; i++)
+        foreach (var layer in levelData.LayerInstances)
         {
-            var layer = levelData.LayerInstances[i];
-
             // Process only Tile and Auto layers
             if (layer._Type != LayerType.Tiles && layer._Type != LayerType.IntGrid) continue;
             if (!layer.Visible) continue; // Skip hidden layers

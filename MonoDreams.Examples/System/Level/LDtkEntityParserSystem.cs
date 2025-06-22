@@ -61,17 +61,18 @@ public sealed class LDtkEntityParserSystem : ISystem<GameState>
                 try
                 {
                     // Extract basic properties
-                    string identifier = entityInstance._Identifier;
-                    string instanceIid = entityInstance.Iid.ToString();
-                    Vector2 position = new Vector2(entityInstance.Px.X, entityInstance.Px.Y);
-                    Vector2 size = new Vector2(entityInstance.Width, entityInstance.Height);
-                    Vector2 pivot = new Vector2(entityInstance._Pivot.X, entityInstance._Pivot.Y);
+                    var identifier = entityInstance._Identifier;
+                    var instanceIid = entityInstance.Iid.ToString();
+                    var position = new Vector2(entityInstance.Px.X, entityInstance.Px.Y);
+                    var size = new Vector2(entityInstance.Width, entityInstance.Height);
+                    var pivot = new Vector2(entityInstance._Pivot.X, entityInstance._Pivot.Y);
+                    var tilesetPosition = new Vector2(entityInstance._Tile.X, entityInstance._Tile.Y);
 
                     // Parse custom fields
                     var customFields = ParseFieldInstances(entityInstance.FieldInstances);
 
                     // Create and publish the request message
-                    var request = new EntitySpawnRequest(identifier, instanceIid, position, size, pivot, customFields);
+                    var request = new EntitySpawnRequest(identifier, instanceIid, position, size, pivot, tilesetPosition, layer, customFields);
                     _world.Publish(request);
                     publishedCount++;
 
