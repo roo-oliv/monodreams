@@ -40,11 +40,13 @@ public class DreamGameScreen : IGameScreen
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
         _renderTargets = (
-            main: new RenderTarget2D(graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight),
-            ui: new RenderTarget2D(graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight)
+            main: new RenderTarget2D(graphicsDevice, _renderer.VirtualWidth, _renderer.VirtualHeight),
+            ui: new RenderTarget2D(graphicsDevice, _renderer.VirtualWidth, _renderer.VirtualHeight)
         );
         
-        camera.Position = new Vector2(0, 0);
+        // Initialize camera for the larger virtual space
+        camera.Position = new Vector2(_renderer.VirtualWidth * 0.5f, _renderer.VirtualHeight * 0.5f);
+        camera.Zoom = 1.0f; // Start at 1:1 pixel ratio
         
         _world = new World();
         _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);

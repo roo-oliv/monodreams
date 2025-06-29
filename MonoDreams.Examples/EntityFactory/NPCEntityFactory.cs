@@ -14,16 +14,9 @@ namespace MonoDreams.Examples.EntityFactory;
 /// <summary>
 /// Factory for creating NPC entities
 /// </summary>
-public class NPCEntityFactory : IEntityFactory
+public class NPCEntityFactory(ContentManager content) : IEntityFactory
 {
-    private readonly ContentManager _content;
-    private readonly Texture2D _charactersTileset;
-
-    public NPCEntityFactory(ContentManager content)
-    {
-        _content = content;
-        _charactersTileset = content.Load<Texture2D>("Characters");
-    }
+    private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Characters");
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {

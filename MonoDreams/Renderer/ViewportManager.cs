@@ -10,6 +10,34 @@ namespace MonoDreams.Renderer;
 /// </summary>
 public class ViewportManager
 {
+    // Add configurable virtual resolution
+    public void SetVirtualResolution(int width, int height)
+    {
+        VirtualWidth = width;
+        VirtualHeight = height;
+        MarkDirty();
+    }
+    
+    // Add preset resolution configurations
+    public static readonly (int width, int height)[] PresetResolutions = 
+    {
+        (1920, 1080), // HD
+        (1280, 720),  // HD Ready
+        (2560, 1440), // QHD
+        (3840, 2160), // UHD/4K
+        (800, 600),   // Default/Retro
+        (1600, 900),  // Mid-range
+    };
+    
+    // Add scaling mode options
+    public enum ScalingMode
+    {
+        PixelPerfect,    // Integer scaling only
+        Smooth,          // Allow fractional scaling
+        KeepAspectRatio  // Current behavior (letterbox/pillarbox)
+    }
+    
+    public ScalingMode CurrentScalingMode { get; set; } = ScalingMode.KeepAspectRatio;
     private readonly Game _game;
     private Viewport _currentViewport;
     private Rectangle _destinationRectangle;

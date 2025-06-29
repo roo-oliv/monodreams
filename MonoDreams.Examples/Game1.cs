@@ -7,11 +7,16 @@ using MonoDreams.Examples.Screens;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
+using System;
 
 namespace MonoDreams.Examples;
 
 public class Game1 : Game
 {
+    // Add resolution configuration
+    private const int VIRTUAL_WIDTH = 1920;   // Larger virtual resolution for UHD
+    private const int VIRTUAL_HEIGHT = 1080;
+    
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch;
     private ViewportManager _viewportManager;
@@ -28,17 +33,25 @@ public class Game1 : Game
         IsMouseVisible = false;
         IsFixedTimeStep = true;
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
+        
         _graphics.IsFullScreen = false;
+        _graphics.PreferredBackBufferWidth = 1920;
+        _graphics.PreferredBackBufferHeight = 1080;
+        
         _graphics.SynchronizeWithVerticalRetrace = true;
         _graphics.ApplyChanges();
-        GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
-        GraphicsDevice.BlendState = BlendState.AlphaBlend;
         
-        _viewportManager = new(this);
-        _camera = new(_viewportManager.VirtualWidth, _viewportManager.VirtualHeight);
-        _spriteBatch = new(GraphicsDevice);
-        _runner = new(1);
-        _screenController = new(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
+        // Initialize with larger virtual resolution
+        _viewportManager = new(this, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+        _camera = new(VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+        
+        // Add window resize handling
+        Window.ClientSizeChanged += OnWindowResize;
+    }
+    
+    private void OnWindowResize(object sender, EventArgs e)
+    {
+        InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
     }
     
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
@@ -50,10 +63,31 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        _graphics.PreferredBackBufferWidth = GraphicsDevice.DisplayMode.Width;
-        _graphics.PreferredBackBufferHeight = GraphicsDevice.DisplayMode.Height;
+        // Allow for dynamic resolution detection
+        var displayMode = GraphicsDevice.DisplayMode;
+        
+        // For UHD screens, use a good windowed size
+        if (displayMode.Width >= 3840)
+        {
+            _graphics.PreferredBackBufferWidth = Math.Min(2560, displayMode.Width - 200);
+            _graphics.PreferredBackBufferHeight = Math.Min(1440, displayMode.Height - 200);
+        }
+        else if (displayMode.Width >= 2560)
+        {
+            _graphics.PreferredBackBufferWidth = Math.Min(1920, displayMode.Width - 200);
+            _graphics.PreferredBackBufferHeight = Math.Min(1080, displayMode.Height - 200);
+        }
+        
         _graphics.ApplyChanges();
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        
+        // Rest of initialization...
+        GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
+        GraphicsDevice.BlendState = BlendState.AlphaBlend;
+        
+        _spriteBatch = new(GraphicsDevice);
+        _runner = new(1);
+        _screenController = new(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
         _camera.Zoom = 1.0f;
         _camera.Position = Vector2.Zero;
 
