@@ -7,7 +7,6 @@ using MonoDreams.Examples.Screens;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
-using System;
 
 namespace MonoDreams.Examples;
 
@@ -88,7 +87,7 @@ public class Game1 : Game
         _spriteBatch = new(GraphicsDevice);
         _runner = new(1);
         _screenController = new(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
-        _camera.Zoom = 1.0f;
+        _camera.Zoom = displayMode.Width / 800;
         _camera.Position = Vector2.Zero;
 
         // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
