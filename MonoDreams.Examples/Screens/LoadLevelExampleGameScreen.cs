@@ -8,6 +8,7 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
+using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Dialogue;
@@ -17,6 +18,7 @@ using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
+using MonoDreams.System.Collision;
 using MonoDreams.System.Physics;
 using CursorController = MonoDreams.Component.CursorController;
 
@@ -82,14 +84,19 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new InputMappingSystem(_world)
         );
         
+        var levelLoadSystems = new SequentialSystem<GameState>(
+            new LevelLoadRequestSystem(_world, _content),
+            new LDtkTileParserSystem(_world, _content),
+            new LDtkEntityParserSystem(_world),
+            new EntitySpawnSystem(_world, _content, _renderTargets));
         
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
             new CursorPositionSystem(_world),
             new MovementSystem(_world, _parallelRunner),
             new VelocitySystem(_world, _parallelRunner),
-            // new CollisionDetectionSystem<>(),
-            // new PhysicalCollisionResolutionSystem(),
+            new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
+            new PhysicalCollisionResolutionSystem(_world),
             new PositionSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
             new DialogueUpdateSystem(_world),
@@ -101,7 +108,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
-            new TilemapRenderPrepSystem(_world, _content),
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world),
             new TextPrepSystem(_world)
@@ -120,18 +126,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Final system to draw RenderTargets to backbuffer (if needed)
         var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
         
-        var levelLoadSystem = new LevelLoadRequestSystem(_world, _content);
-
-        var entityParserSystem = new LDtkEntityParserSystem(_world);
-        
-        var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
-        
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
             inputSystems,
-            levelLoadSystem,
-            entityParserSystem,
-            entitySpawnSystem,
+            levelLoadSystems,
             logicSystems,
             prepDrawSystems,
             renderSystem,

@@ -32,6 +32,15 @@ public sealed class MasterRenderSystem : ISystem<GameState>
         _renderTargets = renderTargets;
         _world = world;
     }
+    
+    private static readonly Comparison<DrawElement> DrawElementComparer = (a, b) =>
+    {
+        // Compare RenderTargetID values directly without boxing
+        var targetCompare = ((int)a.Target).CompareTo((int)b.Target);
+        if (targetCompare != 0) return targetCompare;
+        return a.LayerDepth.CompareTo(b.LayerDepth);
+    };
+
 
     public void Update(GameState state)
     {
@@ -46,17 +55,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
         // 2. Sort the list
         // Sort primarily by RenderTarget, secondarily by LayerDepth.
         // Add tertiary sort by Texture for potential batching improvements if needed.
-        _drawList.Sort((a, b) =>
-        {
-            var targetCompare = a.Target.CompareTo(b.Target);
-            if (targetCompare != 0) return targetCompare;
-            // Using FrontToBack sorting (lower layer depth drawn first)
-            return a.LayerDepth.CompareTo(b.LayerDepth);
-             // For BackToFront, use: return b.LayerDepth.CompareTo(a.LayerDepth);
-             // Add texture comparison if using SpriteSortMode.Texture:
-             // int textureCompare = Comparer<Texture2D>.Default.Compare(a.Texture, b.Texture);
-             // if (textureCompare != 0) return textureCompare;
-        });
+        _drawList.Sort(DrawElementComparer);
 
         // 3. Iterate and Draw, handling RenderTarget changes
         RenderTargetID? currentTargetId = null; // Use nullable to track initial state

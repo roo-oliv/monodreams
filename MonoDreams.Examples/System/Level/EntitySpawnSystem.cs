@@ -57,6 +57,8 @@ public class EntitySpawnSystem : ISystem<GameState>
         // Register built-in entity factories
         RegisterEntityFactory("Player", new PlayerEntityFactory(_content));
         RegisterEntityFactory("Enemy", new NPCEntityFactory(_content));
+        RegisterEntityFactory("Tile", new MiscEntityFactory(_content));
+        RegisterEntityFactory("Wall", new WallEntityFactory(_content));
         // Add more default factories as needed
     }
 
@@ -86,7 +88,9 @@ public class EntitySpawnSystem : ISystem<GameState>
         {
             "Player" => EntityType.Player,
             "Enemy" => EntityType.Enemy,
-            _ => EntityType.Enemy // Default fallback
+            "Tile" => EntityType.Tile,
+            "Wall" => EntityType.Tile,
+            _ => EntityType.Tile // Default fallback for tiles
         };
     }
 

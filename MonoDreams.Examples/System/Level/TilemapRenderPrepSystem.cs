@@ -18,7 +18,7 @@ namespace MonoDreams.Examples.System.Level;
 /// TODO: Here we directly manipulate the Drawables in the DrawComponent to add DrawElements, this is redundant with the SpritePrepSystem.
 public sealed class TilemapRenderPrepSystem : ISystem<GameState>
 {
-    private const float TILEMAP_BASE_LAYER_DEPTH = 0.9f; // Furthest back layer depth for tiles
+    private const float TILEMAP_BASE_LAYER_DEPTH = 0.09f; // Furthest back layer depth for tiles
     private const float TILEMAP_LAYER_DEPTH_STEP = 0.001f; // Small increment per layer
 
     private readonly World _world;
@@ -75,7 +75,7 @@ public sealed class TilemapRenderPrepSystem : ISystem<GameState>
         foreach (var layer in levelData.LayerInstances)
         {
             // Process only Tile and Auto layers
-            if (layer._Type != LayerType.Tiles && layer._Type != LayerType.IntGrid) continue;
+            if (layer._Type != LayerType.Tiles && layer._Type != LayerType.AutoLayer) continue;
             if (!layer.Visible) continue; // Skip hidden layers
 
             // Ensure we have tileset info
@@ -140,7 +140,7 @@ public sealed class TilemapRenderPrepSystem : ISystem<GameState>
             }
 
             // Increment layer depth for the next layer (closer to camera)
-            currentLayerDepth += TILEMAP_LAYER_DEPTH_STEP;
+            currentLayerDepth -= TILEMAP_LAYER_DEPTH_STEP;
         }
         Console.WriteLine($"Finished preparing {levelData.LayerInstances.Count(l => l.Visible && (l._Type == LayerType.Tiles || l._Type == LayerType.AutoLayer))} visible tile layers for level {levelData.Identifier}.");
     }

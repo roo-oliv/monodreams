@@ -17,7 +17,7 @@ namespace MonoDreams.Examples.EntityFactory;
 /// </summary>
 public class PlayerEntityFactory(ContentManager content) : IEntityFactory
 {
-    private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Characters");
+    private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Atlas/TX Player");
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -37,8 +37,8 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         {
             SpriteSheet = _charactersTileset,
             Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
-                                 request.Layer._GridSize, request.Layer._GridSize),
-            Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize),
+                                 (int)request.Size.X, (int)request.Size.Y),
+            Size = request.Size,
             Color = Color.White * request.Layer._Opacity,
             Target = RenderTargetID.Main,
             LayerDepth = 0.1f // Or calculate based on some logic
