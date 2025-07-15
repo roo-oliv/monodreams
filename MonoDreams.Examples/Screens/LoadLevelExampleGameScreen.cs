@@ -11,6 +11,7 @@ using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Cursor;
+using MonoDreams.Examples.System.Debug;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
 using MonoDreams.Examples.System.Level;
@@ -104,6 +105,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // ... other game logic systems
         );
 
+        var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
+            new ColliderDebugSystem(_world, _graphicsDevice)
+        );
+        
         // Systems that prepare DrawComponent based on state (can often be parallel)
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
@@ -131,6 +136,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             inputSystems,
             levelLoadSystems,
             logicSystems,
+            debugSystems,
             prepDrawSystems,
             renderSystem,
             finalDrawToScreenSystem // Draw RTs to screen

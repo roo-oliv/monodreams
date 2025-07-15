@@ -64,7 +64,7 @@ public class WallEntityFactory : IEntityFactory
             new Point((int)request.Size.X, (int)request.Size.Y)
         );
         
-        entity.Set(new BoxCollider(colliderBounds, activeLayers: new HashSet<int> { 0 }, passive: true));
+        entity.Set(new BoxCollider(colliderBounds, passive: true));
         entity.Set(new RigidBody());
 
         // Process any additional custom fields
