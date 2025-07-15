@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Examples.Component.Draw;
 

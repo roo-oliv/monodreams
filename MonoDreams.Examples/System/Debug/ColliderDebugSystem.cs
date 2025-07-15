@@ -55,7 +55,8 @@ public sealed class ColliderDebugSystem : ISystem<GameState>
             Color = lineColor,
             Target = RenderTargetID.Main,
             LayerDepth = DEBUG_LINE_DEPTH,
-            NinePatchData = new NinePatchInfo(0, r, r, r, r, c, r, r, r, r)
+            NinePatchData = new NinePatchInfo(0, r, r, r, r, c, r, r, r, r),
+            // Offset = boxCollider.Bounds.Origin(),
         };
 
         var debugEntity = _world.CreateEntity();

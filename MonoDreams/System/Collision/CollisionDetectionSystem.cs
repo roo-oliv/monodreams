@@ -15,8 +15,11 @@ namespace MonoDreams.System.Collision;
 public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, TCollisionMessage>(
     World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
     : AEntitySetSystem<GameState>(
-        world.GetEntities().With((in TCollidableComponent c) => !c.Passive && c.Enabled)
-            .With<TPositionComponent>().AsSet(), parallelRunner)
+        world.GetEntities()
+            .With((in TCollidableComponent c) => !c.Passive && c.Enabled)
+            .With<TPositionComponent>()
+            .AsSet(),
+        parallelRunner)
     where TCollidableComponent : BoxCollider, ICollider
     where TPositionComponent : Position
     where TCollisionMessage : ICollisionMessage

@@ -13,5 +13,6 @@ public static class Constants
     public static int SlidingVelocity = 120;
     
     public static int ScalingSpeed = 8;
-    public static Point PlayerSize { get; } = new(10);
+    public static Point PlayerSize { get; } = new(21, 44);
+    public static Vector2 PlayerOffset { get; } = new(-6, -14);
 }

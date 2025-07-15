@@ -28,7 +28,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         entity.Set(new PlayerState());
         entity.Set(new Position(request.Position));
         entity.Set(new InputControlled());
-        entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
+        entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
         entity.Set(new RigidBody());
         entity.Set(new Velocity());
 
@@ -41,7 +41,8 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
             Size = request.Size,
             Color = Color.White * request.Layer._Opacity,
             Target = RenderTargetID.Main,
-            LayerDepth = 0.1f // Or calculate based on some logic
+            LayerDepth = 0.1f,
+            Offset = Constants.PlayerOffset,
         });
         entity.Set(new DrawComponent());
 

@@ -20,6 +20,14 @@ public struct SpriteInfo : IComponent
         GC.SuppressFinalize(this);
     }
 
+    public Vector2 Offset
+    {
+        get => _offset ?? Vector2.Zero;
+        set => _offset = value;
+    }
+
     public ISite? Site { get; set; }
     public event EventHandler? Disposed;
+    
+    private Vector2? _offset;
 }
