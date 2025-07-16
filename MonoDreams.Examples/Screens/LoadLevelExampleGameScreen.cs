@@ -10,6 +10,7 @@ using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
+using MonoDreams.Examples.System.Camera;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Debug;
 using MonoDreams.Examples.System.Dialogue;
@@ -22,6 +23,7 @@ using MonoDreams.System;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Physics;
 using CursorController = MonoDreams.Component.CursorController;
+using Camera = MonoDreams.Component.Camera;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -104,6 +106,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new CursorDrawPrepSystem(_world)
             // ... other game logic systems
         );
+        
+        var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
 
         var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
             new ColliderDebugSystem(_world, _graphicsDevice)
@@ -136,6 +140,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             inputSystems,
             levelLoadSystems,
             logicSystems,
+            cameraFollowSystem,
             debugSystems,
             prepDrawSystems,
             renderSystem,

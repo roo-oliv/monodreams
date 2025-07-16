@@ -12,7 +12,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
 {
     private readonly SpriteBatch _spriteBatch;
     private readonly GraphicsDevice _graphicsDevice;
-    private readonly Camera _camera; // Assuming you have a Camera class
+    private readonly MonoDreams.Component.Camera _camera; // Assuming you have a Camera class
     private readonly IReadOnlyDictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly World _world;
     private readonly List<DrawElement> _drawList = new(1024); // Pre-allocate
@@ -22,7 +22,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
     public MasterRenderSystem(
         SpriteBatch spriteBatch,
         GraphicsDevice graphicsDevice,
-        Camera camera,
+        MonoDreams.Component.Camera camera,
         IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets, // Pass in your RTs
         World world)
     {

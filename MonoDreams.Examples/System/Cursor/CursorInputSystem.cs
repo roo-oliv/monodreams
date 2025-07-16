@@ -9,7 +9,7 @@ using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 
 namespace MonoDreams.Examples.System.Cursor;
 
-public class CursorInputSystem(World world, Camera camera) 
+public class CursorInputSystem(World world, MonoDreams.Component.Camera camera) 
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorController>().With<CursorInput>().AsSet())
 {
     protected override void Update(GameState state, in Entity entity)

@@ -20,12 +20,12 @@ public sealed class FinalDrawSystem : ISystem<GameState>
          RenderTargetID.UI,
          RenderTargetID.HUD,
      ];
-     private readonly Camera _camera;
+     private readonly MonoDreams.Component.Camera _camera;
 
      public bool IsEnabled { get; set; } = true;
 
 
-     public FinalDrawSystem(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice, ViewportManager viewportManager, Camera camera, IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets)
+     public FinalDrawSystem(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice, ViewportManager viewportManager, MonoDreams.Component.Camera camera, IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets)
      {
          _spriteBatch = spriteBatch;
          _graphicsDevice = graphicsDevice;

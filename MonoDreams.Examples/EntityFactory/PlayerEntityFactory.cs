@@ -7,6 +7,7 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Input;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Message.Level;
 
@@ -31,6 +32,16 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
         entity.Set(new RigidBody());
         entity.Set(new Velocity());
+
+        // Add camera follow target component
+        entity.Set(new CameraFollowTarget
+        {
+            DampingX = 5.0f,  // Adjust for desired smoothness
+            DampingY = 5.0f,
+            MaxDistanceX = 150.0f,  // Maximum distance camera can lag behind
+            MaxDistanceY = 100.0f,
+            IsActive = true
+        });
 
         // Add sprite information for rendering
         entity.Set(new SpriteInfo
@@ -65,6 +76,15 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         {
             // Modify velocity or add speed component
             // entity.Set(new MovementSpeed(speedValue));
+        }
+        
+        // Handle camera follow configuration from LDtk
+        if (customFields.TryGetValue("cameraDamping", out var damping) && damping is float dampingValue)
+        {
+            var followTarget = entity.Get<CameraFollowTarget>();
+            followTarget.DampingX = dampingValue;
+            followTarget.DampingY = dampingValue;
+            entity.Set(followTarget);
         }
     }
 }
