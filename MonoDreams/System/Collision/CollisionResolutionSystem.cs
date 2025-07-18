@@ -54,7 +54,8 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
     {
         var entity = collision.BaseEntity;
         var position = entity.Get<TPositionComponent>();
-        var dynamicRect = entity.Get<TCollidableComponent>().Bounds.AtPosition(position.Current);
+        var collidable = entity.Get<TCollidableComponent>();
+        var dynamicRect = collidable.Bounds.AtPosition(position.Current);
         
         var collidingEntity = collision.CollidingEntity;
         var targetPosition = collidingEntity.Get<TPositionComponent>();
@@ -64,7 +65,7 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
         if (contactNormal.X != 0)
         {
-            position.Current.X = contactPoint.X - dynamicRect.Width / 2f;
+            position.Current.X = contactPoint.X - dynamicRect.Width / 2f - collidable.Bounds.Location.X;
 
             if (entity.Has<TVelocityComponent>())
             {
@@ -84,7 +85,7 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
 
         if (contactNormal.Y != 0)
         {
-            position.Current.Y = contactPoint.Y - dynamicRect.Height / 2f;
+            position.Current.Y = contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y;
             
             if (entity.Has<TVelocityComponent>())
             {
