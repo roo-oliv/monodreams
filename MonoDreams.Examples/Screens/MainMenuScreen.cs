@@ -18,7 +18,8 @@ public class MainMenuScreen : IGameScreen
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     public World World { get; }
-    public ISystem<GameState> System { get; }
+    public ISystem<GameState> UpdateSystem { get; }
+    public ISystem<GameState> DrawSystem { get; }
 
     public MainMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
@@ -69,7 +70,7 @@ public class MainMenuScreen : IGameScreen
     public void Dispose()
     {
         World.Dispose();
-        System.Dispose();
+        UpdateSystem.Dispose();
         GC.SuppressFinalize(this);
     }
     

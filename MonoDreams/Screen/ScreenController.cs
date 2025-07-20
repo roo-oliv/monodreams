@@ -50,7 +50,12 @@ public class ScreenController(
         }
 
         _state.Update(gameTime);
-        _screen.current?.System.Update(_state);
+        _screen.current?.UpdateSystem.Update(_state);
+    }
+    
+    public void Draw(GameTime gameTime)
+    {
+        _screen.current?.DrawSystem.Update(_state);
     }
 
     public void LoadScreen(string screenName)

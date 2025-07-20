@@ -60,10 +60,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
         
         _world = new World();
         // _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
-        System = CreateSystem();
+        UpdateSystem = CreateUpdateSystem();
+        DrawSystem = CreateDrawSystem();
     }
 
-    public ISystem<GameState> System { get; }
+    public ISystem<GameState> UpdateSystem { get; }
+    public ISystem<GameState> DrawSystem { get; }
     public void Load(ScreenController screenController, ContentManager content)
     {
         var cursorTextures = new Dictionary<CursorType, Texture2D>
@@ -80,7 +82,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // _levelLoader.LoadLevel(0);
     }
     
-    private SequentialSystem<GameState> CreateSystem()
+    private SequentialSystem<GameState> CreateUpdateSystem()
     {
         var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
             new CursorInputSystem(_world, _camera),
@@ -113,6 +115,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new ColliderDebugSystem(_world, _graphicsDevice)
         );
         
+        return new SequentialSystem<GameState>(
+            // new DebugSystem(_world, _game, _spriteBatch), // If needed
+            inputSystems,
+            levelLoadSystems,
+            logicSystems,
+            cameraFollowSystem,
+            debugSystems
+        );
+    }
+    
+    private SequentialSystem<GameState> CreateDrawSystem()
+    {
         // Systems that prepare DrawComponent based on state (can often be parallel)
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
@@ -136,12 +150,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
         
         return new SequentialSystem<GameState>(
-            // new DebugSystem(_world, _game, _spriteBatch), // If needed
-            inputSystems,
-            levelLoadSystems,
-            logicSystems,
-            cameraFollowSystem,
-            debugSystems,
             prepDrawSystems,
             renderSystem,
             finalDrawToScreenSystem // Draw RTs to screen
@@ -151,7 +159,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
     public void Dispose()
     {
-        System.Dispose();
+        UpdateSystem.Dispose();
         GC.SuppressFinalize(this);
     }
 }

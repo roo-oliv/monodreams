@@ -26,7 +26,8 @@ public class OptionsMenuScreen : IGameScreen
     private readonly SpriteBatch _spriteBatch;
     private readonly (RenderTarget2D main, RenderTarget2D ui) _renderTargets;
     public World World { get; }
-    public ISystem<GameState> System { get; }
+    public ISystem<GameState> UpdateSystem { get; }
+    public ISystem<GameState> DrawSystem { get; }
 
     public OptionsMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
@@ -41,7 +42,7 @@ public class OptionsMenuScreen : IGameScreen
         );
         
         World = new World();
-        System = new SequentialSystem<GameState>(
+        UpdateSystem = new SequentialSystem<GameState>(
             new PlayerInputSystem(World),
             new CursorSystem(World, camera),
             new CollisionDetectionSystem<CollisionMessage>(World, _parallelRunner, CollisionMessage.Create),
@@ -94,7 +95,7 @@ public class OptionsMenuScreen : IGameScreen
     public void Dispose()
     {
         World.Dispose();
-        System.Dispose();
+        UpdateSystem.Dispose();
         GC.SuppressFinalize(this);
     }
     

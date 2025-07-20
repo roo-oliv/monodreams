@@ -7,6 +7,7 @@ namespace MonoDreams.Screen;
 
 public interface IGameScreen : IDisposable
 {
-    public ISystem<GameState> System { get; }
+    public ISystem<GameState> UpdateSystem { get; }
+    public ISystem<GameState> DrawSystem { get; }
     public void Load(ScreenController screenController, ContentManager content);
 }

@@ -5,29 +5,23 @@ using MonoDreams.Component;
 
 namespace MonoDreams.Examples.Component.Draw;
 
-public struct SpriteInfo : IComponent
+public struct SpriteInfo() : IComponent
 {
-    public Texture2D SpriteSheet;
-    public Rectangle Source; // Source rectangle in the SpriteSheet
-    public Vector2 Size; // Target rendering size on screen
-    public Color Color;
-    public RenderTargetID Target; // Which RenderTarget this belongs to
-    public float LayerDepth; // Or use LayerDepth directly
-    public NinePatchInfo? NinePatchData; // Optional
+    public Texture2D SpriteSheet = null;
+    public Rectangle Source = default; // Source rectangle in the SpriteSheet
+    public Vector2 Size = default; // Target rendering size on screen
+    public Color Color = default;
+    public RenderTargetID Target = RenderTargetID.Main; // Which RenderTarget this belongs to
+    public float LayerDepth = 0; // Or use LayerDepth directly
+    public NinePatchInfo? NinePatchData = null; // Optional
     public void Dispose()
     {
         SpriteSheet?.Dispose();
         GC.SuppressFinalize(this);
     }
 
-    public Vector2 Offset
-    {
-        get => _offset ?? Vector2.Zero;
-        set => _offset = value;
-    }
+    public Vector2 Offset = Vector2.Zero;
 
-    public ISite? Site { get; set; }
-    public event EventHandler? Disposed;
-    
-    private Vector2? _offset;
+    public ISite? Site { get; set; } = null;
+    public event EventHandler? Disposed = null;
 }

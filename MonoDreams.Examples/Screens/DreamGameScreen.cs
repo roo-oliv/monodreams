@@ -50,10 +50,12 @@ public class DreamGameScreen : IGameScreen
         
         _world = new World();
         _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
-        System = CreateSystem();
+        UpdateSystem = CreateSystem();
     }
 
-    public ISystem<GameState> System { get; }
+    public ISystem<GameState> UpdateSystem { get; }
+    public ISystem<GameState> DrawSystem { get; }
+
     public void Load(ScreenController screenController, ContentManager content)
     {
         _levelLoader.LoadLevel(0);
@@ -93,7 +95,7 @@ public class DreamGameScreen : IGameScreen
     
     public void Dispose()
     {
-        System.Dispose();
+        UpdateSystem.Dispose();
         GC.SuppressFinalize(this);
     }
     

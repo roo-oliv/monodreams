@@ -16,6 +16,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
     private readonly IReadOnlyDictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly World _world;
     private readonly List<DrawElement> _drawList = new(1024); // Pre-allocate
+    private readonly EntitySet _drawables;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -31,6 +32,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
         _camera = camera;
         _renderTargets = renderTargets;
         _world = world;
+        _drawables = _world.GetEntities().With<DrawComponent>().AsSet();
     }
     
     private static readonly Comparison<DrawElement> DrawElementComparer = (a, b) =>
@@ -46,8 +48,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
     {
         // 1. Collect all DrawElements
         _drawList.Clear();
-        var drawablesSet = _world.GetEntities().With<DrawComponent>().AsSet();
-        foreach (ref readonly var entity in drawablesSet.GetEntities())
+        foreach (ref readonly var entity in _drawables.GetEntities())
         {
             _drawList.AddRange(entity.Get<DrawComponent>().Drawables);
         }
@@ -55,7 +56,7 @@ public sealed class MasterRenderSystem : ISystem<GameState>
         // 2. Sort the list
         // Sort primarily by RenderTarget, secondarily by LayerDepth.
         // Add tertiary sort by Texture for potential batching improvements if needed.
-        _drawList.Sort(DrawElementComparer);
+        // _drawList.Sort(DrawElementComparer);
 
         // 3. Iterate and Draw, handling RenderTarget changes
         RenderTargetID? currentTargetId = null; // Use nullable to track initial state

@@ -110,6 +110,11 @@ public class Game1 : Game
         // GraphicsDevice.Clear(Color.OldLace);
         _screenController.Update(gameTime);
     }
+    
+    protected override void Draw(GameTime gameTime)
+    {
+        _screenController.Draw(gameTime);
+    }
 
     protected override void Dispose(bool disposing)
     {
