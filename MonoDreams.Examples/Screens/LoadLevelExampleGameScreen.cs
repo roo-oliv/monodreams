@@ -131,8 +131,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
+            new CullingSystem(_world, _camera),
             new DialogueUIRenderPrepSystem(_world),
-            new SpritePrepSystem(_world),
+            new SpritePrepSystem(_world, _graphicsDevice),
             new TextPrepSystem(_world)
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );

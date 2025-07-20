@@ -1,3 +1,5 @@
+using System;
+using System.Runtime.InteropServices.Marshalling;
 using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Component;
@@ -18,6 +20,9 @@ public class Camera
     private Vector3 _camScaleVector = Vector3.Zero;
     private Vector3 _resTranslationVector = Vector3.Zero;
 
+    private (float zoom, Vector2 cached) _viewSize = (float.NaN, Vector2.Zero);
+    private (Vector2 position, Vector2 viewSize, Rectangle cached) _virtualScreenBounds;
+    
     // Camera operates in virtual resolution space
     private readonly int _virtualWidth;
     private readonly int _virtualHeight;
@@ -29,6 +34,17 @@ public class Camera
         _zoom = 1.0f;
         _rotation = 0.0f;
         _position = Vector2.Zero;
+    }
+
+    public Vector2 ViewSize
+    {
+        get {
+            if (_viewSize.zoom != _zoom)
+            {
+                _viewSize = (_zoom, new Vector2(_virtualWidth / _zoom, _virtualHeight / _zoom));
+            }
+            return _viewSize.cached;
+        }
     }
 
     public Vector2 Position
@@ -62,6 +78,19 @@ public class Camera
         {
             _rotation = value;
             _isViewTransformationDirty = true;
+        }
+    }
+
+    public Rectangle VirtualScreenBounds
+    {
+        get
+        {
+            if (_virtualScreenBounds.position != Position || _virtualScreenBounds.viewSize != ViewSize)
+            {
+                var bounds = new Rectangle((Position - ViewSize * 0.5f).ToPoint(), ViewSize.ToPoint());
+                _virtualScreenBounds = (Position, ViewSize, bounds);
+            }
+            return _virtualScreenBounds.cached;
         }
     }
 

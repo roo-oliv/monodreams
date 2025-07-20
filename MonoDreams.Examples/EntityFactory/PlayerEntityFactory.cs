@@ -56,7 +56,11 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
             LayerDepth = 0.1f,
             Offset = Constants.PlayerSpriteOffset,
         });
-        entity.Set(new DrawComponent());
+        entity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Sprite,
+            Target = RenderTargetID.Main,
+        });
 
         // Process custom fields from LDtk
         ProcessCustomFields(entity, request.CustomFields);

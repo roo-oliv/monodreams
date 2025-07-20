@@ -82,7 +82,7 @@ public class DialogueExampleGameScreen : IGameScreen
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
             new DialogueUIRenderPrepSystem(_world),
-            new SpritePrepSystem(_world),
+            new SpritePrepSystem(_world, _graphicsDevice),
             new TextPrepSystem(_world)
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );

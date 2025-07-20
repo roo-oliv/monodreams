@@ -18,31 +18,21 @@ public class CursorDrawPrepSystem(World world)
         .With<Position>()
         .AsSet())
 {
+    private readonly Vector2 _size = new(32);
+    
     protected override void Update(GameState state, in Entity entity)
     {
         ref var controller = ref entity.Get<CursorController>();
         ref var textures = ref entity.Get<CursorTextures>();
         ref var position = ref entity.Get<Position>();
-        var drawComponent = entity.Get<DrawComponent>();
-        
-        // Clear previous draw elements
-        drawComponent.Drawables.Clear();
+        ref var drawComponent = ref entity.Get<DrawComponent>();
         
         // Only add draw element if cursor is visible
-        if (!controller.IsVisible || !textures.Textures.ContainsKey(controller.Type))
+        if (!controller.IsVisible || !textures.Textures.TryGetValue(controller.Type, out var value))
             return;
-        
-        var texture = textures.Textures[controller.Type];
-        
-        drawComponent.Drawables.Add(new DrawElement
-        {
-            Type = DrawElementType.Sprite,
-            Target = RenderTargetID.Main,
-            Texture = texture,
-            Position = position.Current,
-            Size = new Vector2(32),
-            LayerDepth = 1.0f, // Highest layer depth for cursor
-            Color = Color.White,
-        });
+
+        drawComponent.Texture = value;
+        drawComponent.Position = position.Current;
+        drawComponent.Size = _size;
     }
 }

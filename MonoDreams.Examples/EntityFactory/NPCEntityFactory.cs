@@ -40,7 +40,11 @@ public class NPCEntityFactory(ContentManager content) : IEntityFactory
             Target = RenderTargetID.Main,
             LayerDepth = 0.1f
         });
-        entity.Set(new DrawComponent());
+        entity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Sprite,
+            Target = RenderTargetID.Main,
+        });
 
         // Process custom fields from LDtk
         ProcessCustomFields(entity, request.CustomFields);

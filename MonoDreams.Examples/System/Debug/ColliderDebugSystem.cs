@@ -94,7 +94,7 @@ public sealed class ColliderDebugSystem : ISystem<GameState>
             LayerDepth = DEBUG_LINE_DEPTH,
         };
 
-        drawComponent.Drawables.Add(lineElement);
+        // drawComponent.Drawables.Add(lineElement);
     }
 
     public void Update(GameState state)

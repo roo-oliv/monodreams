@@ -1,145 +1,150 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
-using MonoDreams.Extensions.Monogame;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Draw;
 
 // Prepares DrawElements for static sprites and 9-patches
-[With(typeof(SpriteInfo), typeof(Position))] // Ensures entities have these + DrawComponent (from base)
-public sealed class SpritePrepSystem : DrawPrepSystemBase
+[With(typeof(DrawComponent), typeof(SpriteInfo), typeof(Position), typeof(Visible))]
+public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEntitySetSystem<GameState>(world)
 {
-    public SpritePrepSystem(World world) : base(world, false) { } // Set useParallel = true if desired and safe
+    private readonly Dictionary<string, Texture2D> _ninePatchTextureCache = new();
 
     protected override void Update(GameState state, in Entity entity)
     {
         ref readonly var position = ref entity.Get<Position>();
         ref readonly var spriteInfo = ref entity.Get<SpriteInfo>();
-        ref var drawComponent = ref entity.Get<DrawComponent>();
-        drawComponent.Drawables.Clear();
+        ref readonly var drawComponent = ref entity.Get<DrawComponent>();
         
         if (spriteInfo.NinePatchData.HasValue && spriteInfo.SpriteSheet != null)
         {
-            var ninePatch = spriteInfo.NinePatchData.Value;
+            // Create a runtime nine-patch texture
+            var ninePatchTexture = CreateNinePatchTexture(spriteInfo);
 
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + spriteInfo.Offset,
-                Size = ninePatch.TopLeft.Size.ToVector2(),
-                SourceRectangle = ninePatch.TopLeft,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + ninePatch.Top.Origin() + spriteInfo.Offset,
-                Size = new Vector2(spriteInfo.Size.X - ninePatch.TopLeft.Width - ninePatch.TopRight.Width, ninePatch.Top.Height),
-                SourceRectangle = ninePatch.Top,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + new Vector2(spriteInfo.Size.X - ninePatch.TopRight.Width, 0) + spriteInfo.Offset,
-                Size = ninePatch.TopRight.Size.ToVector2(),
-                SourceRectangle = ninePatch.TopRight,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + ninePatch.Left.Origin() + spriteInfo.Offset,
-                Size = new Vector2(ninePatch.Left.Width, spriteInfo.Size.Y - ninePatch.TopLeft.Height - ninePatch.BottomLeft.Height),
-                SourceRectangle = ninePatch.Left,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + new Vector2(ninePatch.Center.X, ninePatch.Left.Y) + spriteInfo.Offset,
-                Size = new Vector2(spriteInfo.Size.X - ninePatch.Left.Width - ninePatch.Right.Width, spriteInfo.Size.Y - ninePatch.TopLeft.Height - ninePatch.BottomLeft.Height),
-                SourceRectangle = ninePatch.Center,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + new Vector2(spriteInfo.Size.X - ninePatch.Right.Width, ninePatch.Left.Y) + spriteInfo.Offset,
-                Size = new Vector2(ninePatch.Right.Width, spriteInfo.Size.Y - ninePatch.TopRight.Height - ninePatch.BottomRight.Height),
-                SourceRectangle = ninePatch.Right,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + new Vector2(0, spriteInfo.Size.Y - ninePatch.BottomLeft.Height) + spriteInfo.Offset,
-                Size = ninePatch.BottomLeft.Size.ToVector2(),
-                SourceRectangle = ninePatch.BottomLeft,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + new Vector2(ninePatch.Bottom.X, spriteInfo.Size.Y - ninePatch.Bottom.Height) + spriteInfo.Offset,
-                Size = new Vector2(spriteInfo.Size.X - ninePatch.BottomLeft.Width - ninePatch.BottomRight.Width, ninePatch.Bottom.Height),
-                SourceRectangle = ninePatch.Bottom,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = spriteInfo.Target,
-                Texture = spriteInfo.SpriteSheet,
-                Position = position.Current + new Vector2(spriteInfo.Size.X - ninePatch.BottomRight.Width, spriteInfo.Size.Y - ninePatch.BottomRight.Width) + spriteInfo.Offset,
-                Size = ninePatch.BottomRight.Size.ToVector2(),
-                SourceRectangle = ninePatch.BottomRight,
-                Color = spriteInfo.Color,
-                LayerDepth = spriteInfo.LayerDepth
-            });
+            drawComponent.Texture = ninePatchTexture;
+            drawComponent.Position = position.Current + spriteInfo.Offset;
+            drawComponent.Size = spriteInfo.Size;
+            drawComponent.SourceRectangle = null;
+            drawComponent.Color = spriteInfo.Color;
+            drawComponent.LayerDepth = spriteInfo.LayerDepth;
         }
         // --- Handle Regular Sprite ---
         else if (spriteInfo.SpriteSheet != null)
         {
-             drawComponent.Drawables.Add(new DrawElement
-             {
-                 Type = DrawElementType.Sprite,
-                 Target = spriteInfo.Target,
-                 Texture = spriteInfo.SpriteSheet,
-                 Position = position.Current + spriteInfo.Offset,
-                 Size = spriteInfo.Size,
-                 SourceRectangle = spriteInfo.Source, // Use the source from SpriteInfo
-                 Color = spriteInfo.Color,
-                 LayerDepth = spriteInfo.LayerDepth
-                 // Add Rotation, Origin, Scale, Effects from SpriteInfo if they exist
-             });
+            drawComponent.Texture = spriteInfo.SpriteSheet;
+            drawComponent.Position = position.Current + spriteInfo.Offset;
+            drawComponent.Size = spriteInfo.Size;
+            drawComponent.SourceRectangle = spriteInfo.Source;
+            drawComponent.Color = spriteInfo.Color;
+            drawComponent.LayerDepth = spriteInfo.LayerDepth;
         }
+    }
+
+    private Texture2D CreateNinePatchTexture(SpriteInfo spriteInfo)
+    {
+        var ninePatch = spriteInfo.NinePatchData.Value;
+        var targetSize = spriteInfo.Size;
+        
+        // Create a cache key based on source texture, nine-patch data, and target size
+        var cacheKey = $"{spriteInfo.SpriteSheet.GetHashCode()}_{ninePatch.GetHashCode()}_{targetSize.X}x{targetSize.Y}";
+        
+        if (_ninePatchTextureCache.TryGetValue(cacheKey, out var cachedTexture))
+        {
+            return cachedTexture;
+        }
+
+        // Create new render target with the target size
+        var renderTarget = new RenderTarget2D(graphicsDevice, 
+            (int)targetSize.X, (int)targetSize.Y, 
+            false, SurfaceFormat.Color, DepthFormat.None);
+
+        // Create a temporary SpriteBatch for rendering to the render target
+        using var spriteBatch = new SpriteBatch(graphicsDevice);
+        
+        // Set render target and clear
+        graphicsDevice.SetRenderTarget(renderTarget);
+        graphicsDevice.Clear(Color.Transparent);
+
+        spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, 
+            SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone);
+
+        // Calculate dimensions for stretching
+        var leftWidth = ninePatch.TopLeft.Width;
+        var rightWidth = ninePatch.TopRight.Width;
+        var topHeight = ninePatch.TopLeft.Height;
+        var bottomHeight = ninePatch.BottomLeft.Height;
+        
+        var centerWidth = targetSize.X - leftWidth - rightWidth;
+        var centerHeight = targetSize.Y - topHeight - bottomHeight;
+
+        // Draw the 9 patches
+        // Top-left corner
+        spriteBatch.Draw(spriteInfo.SpriteSheet, 
+            new Rectangle(0, 0, leftWidth, topHeight),
+            ninePatch.TopLeft, Color.White);
+
+        // Top edge (stretched horizontally)
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle(leftWidth, 0, (int)centerWidth, topHeight),
+            ninePatch.Top, Color.White);
+
+        // Top-right corner
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle((int)(targetSize.X - rightWidth), 0, rightWidth, topHeight),
+            ninePatch.TopRight, Color.White);
+
+        // Left edge (stretched vertically)
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle(0, topHeight, leftWidth, (int)centerHeight),
+            ninePatch.Left, Color.White);
+
+        // Center (stretched both ways)
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle(leftWidth, topHeight, (int)centerWidth, (int)centerHeight),
+            ninePatch.Center, Color.White);
+
+        // Right edge (stretched vertically)
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle((int)(targetSize.X - rightWidth), topHeight, rightWidth, (int)centerHeight),
+            ninePatch.Right, Color.White);
+
+        // Bottom-left corner
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle(0, (int)(targetSize.Y - bottomHeight), leftWidth, bottomHeight),
+            ninePatch.BottomLeft, Color.White);
+
+        // Bottom edge (stretched horizontally)
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle(leftWidth, (int)(targetSize.Y - bottomHeight), (int)centerWidth, bottomHeight),
+            ninePatch.Bottom, Color.White);
+
+        // Bottom-right corner
+        spriteBatch.Draw(spriteInfo.SpriteSheet,
+            new Rectangle((int)(targetSize.X - rightWidth), (int)(targetSize.Y - bottomHeight), rightWidth, bottomHeight),
+            ninePatch.BottomRight, Color.White);
+
+        spriteBatch.End();
+
+        // Reset render target
+        graphicsDevice.SetRenderTarget(null);
+
+        // Cache the result
+        _ninePatchTextureCache[cacheKey] = renderTarget;
+        
+        return renderTarget;
+    }
+
+    public override void Dispose()
+    {
+        // Clean up cached textures
+        foreach (var texture in _ninePatchTextureCache.Values)
+        {
+            texture?.Dispose();
+        }
+        _ninePatchTextureCache.Clear();
     }
 }

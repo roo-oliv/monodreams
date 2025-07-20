@@ -36,10 +36,10 @@ public sealed class DialogueUIRenderPrepSystem : AEntitySetSystem<GameState>
         ref readonly var uiState = ref entity.Get<DialogueUIStateComponent>();
         ref var drawComponent = ref entity.Get<DrawComponent>();
 
-        // Clear previous drawables *related to this UI*
-        // More robust: Tag DrawElements by system/type or use a dedicated Clear system before prep systems.
-        // Simple approach: Assume this system manages all DrawElements on this specific UI entity.
-        drawComponent.Drawables.Clear();
+        // // Clear previous drawables *related to this UI*
+        // // More robust: Tag DrawElements by system/type or use a dedicated Clear system before prep systems.
+        // // Simple approach: Assume this system manages all DrawElements on this specific UI entity.
+        // drawComponent.Drawables.Clear();
 
         // Only proceed if the UI is active
         if (!uiState.IsActive)
@@ -69,84 +69,84 @@ public sealed class DialogueUIRenderPrepSystem : AEntitySetSystem<GameState>
                 RenderTargetID.UI);
         }
             
-        // --- 2. Prepare Speaker Emote ---
-        if (uiState.SpeakerEmoteTexture != null)
-        {
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = RenderTargetID.UI,
-                Texture = uiState.SpeakerEmoteTexture,
-                Position = basePos + uiState.EmoteOffset,
-                SourceRectangle = null, // Draw whole texture
-                Size = new Vector2(uiState.SpeakerEmoteTexture.Width * 4, uiState.SpeakerEmoteTexture.Height * 4),
-                Color = Color.White,
-                LayerDepth = baseLayerDepth + DIALOGUE_EMOTE_LAYER_OFFSET
-            });
-        }
+        // // --- 2. Prepare Speaker Emote ---
+        // if (uiState.SpeakerEmoteTexture != null)
+        // {
+        //     drawComponent.Drawables.Add(new DrawElement
+        //     {
+        //         Type = DrawElementType.Sprite,
+        //         Target = RenderTargetID.UI,
+        //         Texture = uiState.SpeakerEmoteTexture,
+        //         Position = basePos + uiState.EmoteOffset,
+        //         SourceRectangle = null, // Draw whole texture
+        //         Size = new Vector2(uiState.SpeakerEmoteTexture.Width * 4, uiState.SpeakerEmoteTexture.Height * 4),
+        //         Color = Color.White,
+        //         LayerDepth = baseLayerDepth + DIALOGUE_EMOTE_LAYER_OFFSET
+        //     });
+        // }
                         
-        // --- 3. Prepare Dialogue Text ---
-        if (!string.IsNullOrEmpty(uiState.CurrentText) && uiState.DialogueFont != null)
-        {
-            // drawComponent.Drawables.Add(new DrawElement
-            // {
-            //     Type = DrawElementType.Text,
-            //     Target = RenderTargetID.UI,
-            //     Text = uiState.CurrentText, // Pass the whole text for now
-            //     Font = uiState.DialogueFont,
-            //     Position = basePos + uiState.TextOffset, // Top-left position of text area
-            //     Color = uiState.TextColor,
-            //     LayerDepth = baseLayerDepth + DIALOGUE_TEXT_LAYER_OFFSET // Text on top
-            // });
-            BitmapFont font = uiState.DialogueFont;
-            string textToDraw = uiState.CurrentText;
-            Vector2 textDrawPos = basePos + uiState.TextOffset; // Top-left anchor for text
-            Color textColor = uiState.TextColor;
-            float textLayerDepth = baseLayerDepth + DIALOGUE_TEXT_LAYER_OFFSET;
-
-            // Get glyphs for the *entire* string. We'll render only the visible ones later.
-            // Note: This calculates layout for the whole string. Might optimize later if needed.
-            var glyphs = font.GetGlyphs(textToDraw, textDrawPos); // Get glyphs relative to textDrawPos
-
-            // Determine how many glyphs to actually draw based on text reveal state (from DialogueUpdateSystem)
-            // Simplistic approach: Render glyphs whose character index is less than VisibleCharacterCount
-            // More complex logic might be needed for multi-glyph characters or precise timing.
-            var glyphIndex = 0;
-            foreach (var glyph in glyphs)
-            {
-                // Only draw glyph if its corresponding character index is visible
-                if (glyphIndex >= uiState.VisibleCharacterCount) continue;
-                glyphIndex++; // Increment for each glyph processed
-
-                // Each glyph is drawn as a sprite
-                drawComponent.Drawables.Add(new DrawElement {
-                    Type = DrawElementType.Sprite,
-                    Target = RenderTargetID.UI,
-                    Texture = glyph.Character.TextureRegion.Texture, // Texture page for this glyph
-                    SourceRectangle = glyph.Character.TextureRegion.Bounds, // Source rect within the texture page
-                    Position = glyph.Position, // Position calculated by GetGlyphs() relative to textDrawPos
-                    Size = glyph.Character.TextureRegion.Bounds.Size.ToVector2(), // Use glyph size
-                    Color = textColor,
-                    LayerDepth = textLayerDepth
-                });
-            }
-        }
+        // // --- 3. Prepare Dialogue Text ---
+        // if (!string.IsNullOrEmpty(uiState.CurrentText) && uiState.DialogueFont != null)
+        // {
+        //     // drawComponent.Drawables.Add(new DrawElement
+        //     // {
+        //     //     Type = DrawElementType.Text,
+        //     //     Target = RenderTargetID.UI,
+        //     //     Text = uiState.CurrentText, // Pass the whole text for now
+        //     //     Font = uiState.DialogueFont,
+        //     //     Position = basePos + uiState.TextOffset, // Top-left position of text area
+        //     //     Color = uiState.TextColor,
+        //     //     LayerDepth = baseLayerDepth + DIALOGUE_TEXT_LAYER_OFFSET // Text on top
+        //     // });
+        //     BitmapFont font = uiState.DialogueFont;
+        //     string textToDraw = uiState.CurrentText;
+        //     Vector2 textDrawPos = basePos + uiState.TextOffset; // Top-left anchor for text
+        //     Color textColor = uiState.TextColor;
+        //     float textLayerDepth = baseLayerDepth + DIALOGUE_TEXT_LAYER_OFFSET;
+        //
+        //     // Get glyphs for the *entire* string. We'll render only the visible ones later.
+        //     // Note: This calculates layout for the whole string. Might optimize later if needed.
+        //     var glyphs = font.GetGlyphs(textToDraw, textDrawPos); // Get glyphs relative to textDrawPos
+        //
+        //     // Determine how many glyphs to actually draw based on text reveal state (from DialogueUpdateSystem)
+        //     // Simplistic approach: Render glyphs whose character index is less than VisibleCharacterCount
+        //     // More complex logic might be needed for multi-glyph characters or precise timing.
+        //     var glyphIndex = 0;
+        //     foreach (var glyph in glyphs)
+        //     {
+        //         // Only draw glyph if its corresponding character index is visible
+        //         if (glyphIndex >= uiState.VisibleCharacterCount) continue;
+        //         glyphIndex++; // Increment for each glyph processed
+        //
+        //         // Each glyph is drawn as a sprite
+        //         drawComponent.Drawables.Add(new DrawElement {
+        //             Type = DrawElementType.Sprite,
+        //             Target = RenderTargetID.UI,
+        //             Texture = glyph.Character.TextureRegion.Texture, // Texture page for this glyph
+        //             SourceRectangle = glyph.Character.TextureRegion.Bounds, // Source rect within the texture page
+        //             Position = glyph.Position, // Position calculated by GetGlyphs() relative to textDrawPos
+        //             Size = glyph.Character.TextureRegion.Bounds.Size.ToVector2(), // Use glyph size
+        //             Color = textColor,
+        //             LayerDepth = textLayerDepth
+        //         });
+        //     }
+        // }
                                     
-        // --- 4. Prepare Next Indicator ---
-        if (uiState.ShowNextIndicator && uiState.NextIndicatorTexture != null)
-        {
-            drawComponent.Drawables.Add(new DrawElement
-            {
-                Type = DrawElementType.Sprite,
-                Target = RenderTargetID.UI,
-                Texture = uiState.NextIndicatorTexture,
-                Position = basePos + uiState.NextIndicatorOffset,
-                SourceRectangle = null,
-                Size = new Vector2(uiState.NextIndicatorTexture.Width, uiState.NextIndicatorTexture.Height) * 4,
-                Color = Color.White,
-                LayerDepth = baseLayerDepth + DIALOGUE_INDICATOR_LAYER_OFFSET // Same level as text?
-            });
-        }
+        // // --- 4. Prepare Next Indicator ---
+        // if (uiState.ShowNextIndicator && uiState.NextIndicatorTexture != null)
+        // {
+        //     drawComponent.Drawables.Add(new DrawElement
+        //     {
+        //         Type = DrawElementType.Sprite,
+        //         Target = RenderTargetID.UI,
+        //         Texture = uiState.NextIndicatorTexture,
+        //         Position = basePos + uiState.NextIndicatorOffset,
+        //         SourceRectangle = null,
+        //         Size = new Vector2(uiState.NextIndicatorTexture.Width, uiState.NextIndicatorTexture.Height) * 4,
+        //         Color = Color.White,
+        //         LayerDepth = baseLayerDepth + DIALOGUE_INDICATOR_LAYER_OFFSET // Same level as text?
+        //     });
+        // }
     }
         
     /// <summary>
@@ -226,16 +226,16 @@ public sealed class DialogueUIRenderPrepSystem : AEntitySetSystem<GameState>
     // Small helper to reduce repetition when adding elements
     private void AddElement(ref DrawComponent drawComp, Texture2D texture, RenderTargetID target, Vector2 pos, Vector2 size, Rectangle srcRect, Color color, float layerDepth)
     {
-        drawComp.Drawables.Add(new DrawElement
-        {
-            Type = DrawElementType.Sprite,
-            Target = target,
-            Texture = texture,
-            Position = pos,
-            Size = size,
-            SourceRectangle = srcRect,
-            Color = color,
-            LayerDepth = layerDepth
-        });
+        // drawComp.Drawables.Add(new DrawElement
+        // {
+        //     Type = DrawElementType.Sprite,
+        //     Target = target,
+        //     Texture = texture,
+        //     Position = pos,
+        //     Size = size,
+        //     SourceRectangle = srcRect,
+        //     Color = color,
+        //     LayerDepth = layerDepth
+        // });
     }
 }

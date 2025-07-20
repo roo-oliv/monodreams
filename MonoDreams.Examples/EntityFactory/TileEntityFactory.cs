@@ -20,27 +20,44 @@ public class TileEntityFactory(ContentManager content) : IEntityFactory
         entity.Set(new EntityInfo(EntityType.Tile));
         entity.Set(new Position(request.Position));
 
-        // DrawComponent com múltiples sprites (se necessário)
-        var drawComponent = new DrawComponent();
+        // // DrawComponent com múltiples sprites (se necessário)
+        // var drawComponent = new DrawComponent();
         
-        // Sprite principal do tile
-        var mainSprite = new DrawElement
+        // // Sprite principal do tile
+        // var mainSprite = new DrawElement
+        // {
+        //     Type = DrawElementType.Sprite,
+        //     Target = RenderTargetID.Main,
+        //     Texture = _tilemap,
+        //     Position = request.Position,
+        //     SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), new Point(request.Layer._GridSize, request.Layer._GridSize)),
+        //     Color = Color.White * request.Layer._Opacity,
+        //     Size = request.Size,
+        //     LayerDepth = 1f,
+        // };
+        // drawComponent.Drawables.Add(mainSprite);
+        
+        entity.Set(new SpriteInfo
+        {
+            SpriteSheet = _tilemap,
+            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
+                (int)request.Size.X, (int)request.Size.Y),
+            Size = request.Size,
+            Color = Color.White * request.Layer._Opacity,
+            Target = RenderTargetID.Main,
+            LayerDepth = 1f,
+            Offset = Constants.PlayerSpriteOffset,
+        });
+        entity.Set(new DrawComponent
         {
             Type = DrawElementType.Sprite,
             Target = RenderTargetID.Main,
-            Texture = _tilemap,
-            Position = request.Position,
-            SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), new Point(request.Layer._GridSize, request.Layer._GridSize)),
-            Color = Color.White * request.Layer._Opacity,
-            Size = request.Size,
-            LayerDepth = 1f,
-        };
-        drawComponent.Drawables.Add(mainSprite);
+        });
 
         // Adiciona sprites extras se necessário (ex: overlay, efeitos)
         // AddExtraSprites(drawComponent, request);
         
-        entity.Set(drawComponent);
+        // entity.Set(drawComponent);
 
         // Componentes específicos do tipo de tile
         ProcessCustomFields(entity, request.CustomFields);

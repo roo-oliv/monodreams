@@ -31,31 +31,51 @@ public class MiscEntityFactory : IEntityFactory
         entity.Set(new EntityInfo(EntityType.Tile));
         entity.Set(new Position(request.Position));
 
-        // Create DrawComponent with a single DrawElement
-        var drawComponent = new DrawComponent();
+        // // Create DrawComponent with a single DrawElement
+        // var drawComponent = new DrawComponent();
         
         // Extract custom fields
         var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : 0.09f;
         var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
 
+        // if (tilesetTexture != null)
+        // {
+        //     var drawElement = new DrawElement
+        //     {
+        //         Type = DrawElementType.Sprite,
+        //         Target = RenderTargetID.Main,
+        //         Texture = tilesetTexture,
+        //         Position = request.Position,
+        //         SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), 
+        //             new Point((int)request.Size.X, (int)request.Size.Y)),
+        //         Color = Color.White * request.Layer._Opacity,
+        //         Size = request.Size,
+        //         LayerDepth = layerDepth
+        //     };
+        //     drawComponent.Drawables.Add(drawElement);
+        // }
+        //
+        // entity.Set(drawComponent);
+        
         if (tilesetTexture != null)
         {
-            var drawElement = new DrawElement
+            entity.Set(new SpriteInfo
             {
-                Type = DrawElementType.Sprite,
-                Target = RenderTargetID.Main,
-                Texture = tilesetTexture,
-                Position = request.Position,
-                SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), 
-                    new Point((int)request.Size.X, (int)request.Size.Y)),
-                Color = Color.White * request.Layer._Opacity,
+                SpriteSheet = tilesetTexture,
+                Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
+                    (int)request.Size.X, (int)request.Size.Y),
                 Size = request.Size,
-                LayerDepth = layerDepth
-            };
-            drawComponent.Drawables.Add(drawElement);
+                Color = Color.White * request.Layer._Opacity,
+                Target = RenderTargetID.Main,
+                LayerDepth = layerDepth,
+                Offset = Constants.PlayerSpriteOffset,
+            });
         }
-
-        entity.Set(drawComponent);
+        entity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Sprite,
+            Target = RenderTargetID.Main,
+        });
 
         // Process any additional custom fields
         ProcessCustomFields(entity, request.CustomFields);
