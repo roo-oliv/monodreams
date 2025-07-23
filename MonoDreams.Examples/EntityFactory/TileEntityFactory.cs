@@ -46,7 +46,6 @@ public class TileEntityFactory(ContentManager content) : IEntityFactory
             Color = Color.White * request.Layer._Opacity,
             Target = RenderTargetID.Main,
             LayerDepth = 1f,
-            Offset = Constants.PlayerSpriteOffset,
         });
         entity.Set(new DrawComponent
         {

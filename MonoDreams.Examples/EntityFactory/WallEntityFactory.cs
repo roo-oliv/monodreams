@@ -68,7 +68,6 @@ public class WallEntityFactory : IEntityFactory
                 Color = Color.White * request.Layer._Opacity,
                 Target = RenderTargetID.Main,
                 LayerDepth = layerDepth,
-                Offset = Constants.PlayerSpriteOffset,
             });
         }
         entity.Set(new DrawComponent
