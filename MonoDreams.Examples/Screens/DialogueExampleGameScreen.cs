@@ -51,7 +51,8 @@ public class DialogueExampleGameScreen : IGameScreen
         
         _world = new World();
         // _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
-        UpdateSystem = CreateSystem();
+        UpdateSystem = CreateUpdateSystem();
+        DrawSystem = CreateDrawSystem();
     }
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -62,7 +63,7 @@ public class DialogueExampleGameScreen : IGameScreen
         // _levelLoader.LoadLevel(0);
     }
     
-    private SequentialSystem<GameState> CreateSystem()
+    private SequentialSystem<GameState> CreateUpdateSystem()
     {
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
@@ -77,33 +78,11 @@ public class DialogueExampleGameScreen : IGameScreen
             // ... other game logic systems
         );
 
-        // Systems that prepare DrawComponent based on state (can often be parallel)
-        var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
-            // Optional: A system to clear all DrawComponents first?
-            // new ClearDrawComponentSystem(_world),
-            new DialogueUIRenderPrepSystem(_world),
-            new SpritePrepSystem(_world, _graphicsDevice),
-            new TextPrepSystem(_world)
-            // ... other systems preparing DrawElements (UI, particles, etc.)
-        );
-
-        // The single system that handles all rendering (strictly sequential)
-        var renderSystem = new MasterRenderSystem(
-            _spriteBatch,
-            _graphicsDevice,
-            _camera,
-            _renderTargets, // Pass the dictionary/collection of RTs
-            _world
-        );
-
-        // Final system to draw RenderTargets to backbuffer (if needed)
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
-
         // --- Example Setup for Dialogue UI Entity ---
         // This would typically happen elsewhere (e.g., UI manager, game state load)
         var dialogueUIEntity = _world.CreateEntity();
-        dialogueUIEntity.Set(new Position { Current = new Vector2(20, 0) }); // Example position
-        dialogueUIEntity.Set(new DrawComponent()); // Essential for rendering
+        dialogueUIEntity.Set(new Position { Current = new Vector2(20, 0) });
+        dialogueUIEntity.Set(new DrawComponent());
         dialogueUIEntity.Set(new DialogueUIStateComponent {
             IsActive = true,
             CurrentText = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
@@ -127,7 +106,36 @@ public class DialogueExampleGameScreen : IGameScreen
 
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
-            logicSystems,
+            logicSystems
+        );
+    }
+    
+    private SequentialSystem<GameState> CreateDrawSystem()
+    {
+        // Systems that prepare DrawComponent based on state (can often be parallel)
+        var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
+            // Optional: A system to clear all DrawComponents first?
+            // new ClearDrawComponentSystem(_world),
+            new CullingSystem(_world, _camera),
+            new DialogueUIRenderPrepSystem(_world),
+            new SpritePrepSystem(_world, _graphicsDevice),
+            new TextPrepSystem(_world)
+            // ... other systems preparing DrawElements (UI, particles, etc.)
+        );
+
+        // The single system that handles all rendering (strictly sequential)
+        var renderSystem = new MasterRenderSystem(
+            _spriteBatch,
+            _graphicsDevice,
+            _camera,
+            _renderTargets, // Pass the dictionary/collection of RTs
+            _world
+        );
+    
+        // Final system to draw RenderTargets to backbuffer (if needed)
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
+        
+        return new SequentialSystem<GameState>(
             prepDrawSystems,
             renderSystem,
             finalDrawToScreenSystem // Draw RTs to screen
