@@ -12,7 +12,6 @@ using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Collision;
-using MonoDreams.System.Draw;
 using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Screens;
@@ -42,17 +41,17 @@ public class OptionsMenuScreen : IGameScreen
         );
         
         World = new World();
-        UpdateSystem = new SequentialSystem<GameState>(
-            new PlayerInputSystem(World),
-            new CursorSystem(World, camera),
-            new CollisionDetectionSystem<CollisionMessage>(World, _parallelRunner, CollisionMessage.Create),
-            new ButtonSystem<CollisionMessage>(World),
-            new PositionSystem(World, parallelRunner),
-            new BeginDrawSystem(spriteBatch, camera),
-            new DrawSystem(World, spriteBatch, _renderTargets.main, _parallelRunner),
-            // new CompositeDrawSystem(spriteBatch, World),
-            new TextSystem(spriteBatch, World),
-            new EndDrawSystem(spriteBatch));
+        // UpdateSystem = new SequentialSystem<GameState>(
+        //     new PlayerInputSystem(World),
+        //     new CursorSystem(World, camera),
+        //     new CollisionDetectionSystem<CollisionMessage>(World, _parallelRunner, CollisionMessage.Create),
+        //     new ButtonSystem<CollisionMessage>(World),
+        //     new PositionSystem(World, parallelRunner),
+        //     new BeginDrawSystem(spriteBatch, camera),
+        //     new DrawSystem(World, spriteBatch, _renderTargets.main, _parallelRunner),
+        //     // new CompositeDrawSystem(spriteBatch, World),
+        //     new TextSystem(spriteBatch, World),
+        //     new EndDrawSystem(spriteBatch));
     }
     
     public void Load(ScreenController screenController, ContentManager content)
