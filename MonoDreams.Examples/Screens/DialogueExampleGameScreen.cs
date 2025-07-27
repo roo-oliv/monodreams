@@ -57,6 +57,15 @@ public class DialogueExampleGameScreen : IGameScreen
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public void Update(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void Draw(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
 
     public void Load(ScreenController screenController, ContentManager content)
     {

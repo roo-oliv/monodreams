@@ -15,7 +15,7 @@ public abstract class AKeyboardInputHandlingSystem : ISystem<GameState>
     {
         foreach (var (inputState, key) in InputMapping)
         {
-            inputState.Update(Keyboard.GetState().IsKeyDown(key), state);
+            inputState.Update(Keyboard.GetState().IsKeyDown(key), state.TotalTime);
         }
     }
 

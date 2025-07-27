@@ -1,5 +1,7 @@
-﻿using DefaultEcs;
+﻿using Flecs.NET.Core;
 using MonoDreams.Examples.Message.Level;
+using DefaultEcsWorld = DefaultEcs.World;
+using DefaultEcsEntity = DefaultEcs.Entity;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -12,5 +14,5 @@ public interface IEntityFactory
     /// <summary>
     /// Creates an entity in the given world based on the spawn request
     /// </summary>
-    Entity CreateEntity(World world, in EntitySpawnRequest request);
+    DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request);
 }

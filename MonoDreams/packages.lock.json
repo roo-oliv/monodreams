@@ -20,6 +20,15 @@
         "resolved": "1.5.0-pre1",
         "contentHash": "vrQlEHwofzmocQT4Dp70xAXoPvqC0a4AGjKlvXLflMyDl75UxNHQ/98be4pHcqXEB+pgUBMjA2iTldZTD7F22A=="
       },
+      "Flecs.NET.Release": {
+        "type": "Direct",
+        "requested": "[4.0.3, )",
+        "resolved": "4.0.3",
+        "contentHash": "QvXnyw6PHVT7CBYMxfc0hLB5D1wl8vSwTLqrsj3ZENpNapYczG7VglxbtcBXC+V3WdCrhvyXARPQsSpvSj02gw==",
+        "dependencies": {
+          "Flecs.NET.Bindings.Release": "4.0.3"
+        }
+      },
       "Iguina": {
         "type": "Direct",
         "requested": "[1.1.2, )",
@@ -184,6 +193,19 @@
         "type": "Transitive",
         "resolved": "2.0.1",
         "contentHash": "8C8Vdvf8p6RIOBNFE99ZNPWFxwV/ZT1wk11cajuL3+6/e5DBGPHe+ZjxLu2efTWQ1YvfLh4KpP2epUZ9z/WcFQ=="
+      },
+      "Flecs.NET.Bindings.Release": {
+        "type": "Transitive",
+        "resolved": "4.0.3",
+        "contentHash": "ysyDbx8Tp+FNuWEmwd7Q/UbrCv8Dmm8Xpr9m/8cHPloo1rDmhQyBJ9kmk0EjH2OeSbTIpTTxmfW9FPIHJTD4AA==",
+        "dependencies": {
+          "Flecs.NET.Native.Release": "4.0.3"
+        }
+      },
+      "Flecs.NET.Native.Release": {
+        "type": "Transitive",
+        "resolved": "4.0.3",
+        "contentHash": "FwsgKLaiV/TbpqGUwuNJ8cJprGknj/37+OZPb14G3A5sN8N5gvN8h9szL/ElKj8H8e1RUzRC0XgIXDCv5OgsVA=="
       },
       "Google.Protobuf": {
         "type": "Transitive",

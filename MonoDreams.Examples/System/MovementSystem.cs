@@ -1,21 +1,28 @@
-using DefaultEcs;
-using DefaultEcs.System;
-using DefaultEcs.Threading;
+using Flecs.NET.Core;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Input;
+using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Input;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System;
 
-public class MovementSystem(World world, IParallelRunner parallelRunner)
-    : AEntitySetSystem<GameState>(world.GetEntities().With<Position>().With<InputControlled>().AsSet(), parallelRunner)
+public static class MovementSystem
 {
-    protected override void Update(GameState state, in Entity entity)
+    public static void Register(World world, GameState gameState)
     {
-        if (InputState.Left.Pressed(state)) entity.Get<Position>().Current.X -= Constants.MaxWalkVelocity * state.Time;
-        if (InputState.Right.Pressed(state)) entity.Get<Position>().Current.X += Constants.MaxWalkVelocity * state.Time;
-        if (InputState.Up.Pressed(state)) entity.Get<Position>().Current.Y -= Constants.MaxWalkVelocity * state.Time;
-        if (InputState.Down.Pressed(state)) entity.Get<Position>().Current.Y += Constants.MaxWalkVelocity * state.Time;
+        world.System<InputControlled, Position, Velocity>()
+            .Kind(Ecs.OnUpdate)
+            .Each(( ref InputControlled _, ref Position position, ref Velocity _) =>
+            {
+                var totalTime = gameState.TotalTime;
+                var displacement = Constants.MaxWalkVelocity * gameState.Time;
+                
+                if (InputState.Left.Pressed(totalTime)) position.Current.X -= displacement;
+                if (InputState.Right.Pressed(totalTime)) position.Current.X += displacement;
+                if (InputState.Up.Pressed(totalTime)) position.Current.Y -= displacement;
+                if (InputState.Down.Pressed(totalTime)) position.Current.Y += displacement;
+            });
     }
 }

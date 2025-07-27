@@ -2,18 +2,13 @@ using Microsoft.Xna.Framework;
 
 namespace MonoDreams.State;
 
-public class GameState
+public class GameState(GameTime gameTime)
 {
-    public (GameTime current, GameTime last) GameTime { get; private set; }
+    public (GameTime current, GameTime last) GameTime { get; private set; } = (gameTime, gameTime);
     public float Time => (float) GameTime.current.ElapsedGameTime.TotalSeconds;
     public float LastTime => (float) GameTime.last.ElapsedGameTime.TotalSeconds;
     public float TotalTime => (float) GameTime.current.TotalGameTime.TotalSeconds;
 
-    public GameState(GameTime gameTime)
-    {
-        GameTime = (gameTime, gameTime);
-    }
-    
     public void Update(GameTime gameTime)
     {
         GameTime = (gameTime, GameTime.current);

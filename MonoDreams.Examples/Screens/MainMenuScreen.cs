@@ -1,6 +1,7 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
@@ -20,6 +21,15 @@ public class MainMenuScreen : IGameScreen
     public World World { get; }
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public void Update(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void Draw(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
 
     public MainMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {

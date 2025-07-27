@@ -1,4 +1,4 @@
-﻿using DefaultEcs;
+﻿using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -10,6 +10,8 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Message.Level;
+using DefaultEcsWorld = DefaultEcs.World;
+using DefaultEcsEntity = DefaultEcs.Entity;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -20,19 +22,28 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
 {
     private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Atlas/TX Player");
 
-    public Entity CreateEntity(World world, in EntitySpawnRequest request)
+    public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = world.CreateEntity();
+        var positionComponent = new Position(request.Position);
+        var inputControlledComponent = new InputControlled();
+        var velocityComponent = new Velocity();
+
+        world.Entity()
+            .Set(positionComponent)
+            .Set(inputControlledComponent)
+            .Set(velocityComponent);
+        
+        var entity = defaultEcsWorld.CreateEntity();
 
         // Add core components
         entity.Set(new EntityInfo(EntityType.Player));
         entity.Set(new PlayerState());
-        entity.Set(new Position(request.Position));
-        entity.Set(new InputControlled());
+        entity.Set(positionComponent);
+        entity.Set(inputControlledComponent);
         // entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new RigidBody());
-        entity.Set(new Velocity());
+        entity.Set(velocityComponent);
 
         // Add camera follow target component
         entity.Set(new CameraFollowTarget
@@ -68,7 +79,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         return entity;
     }
 
-    private void ProcessCustomFields(Entity entity, Dictionary<string, object> customFields)
+    private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)
     {
         // Handle player-specific custom fields from LDtk
         if (customFields.TryGetValue("health", out var health) && health is int healthValue)

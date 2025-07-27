@@ -1,4 +1,4 @@
-﻿using DefaultEcs;
+﻿using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -6,6 +6,8 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Message.Level;
+using DefaultEcsWorld = DefaultEcs.World;
+using DefaultEcsEntity = DefaultEcs.Entity;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -13,9 +15,9 @@ public class TileEntityFactory(ContentManager content) : IEntityFactory
 {
     private readonly Texture2D _tilemap = content.Load<Texture2D>("Atlas/Tilemap");
 
-    public Entity CreateEntity(World world, in EntitySpawnRequest request)
+    public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = world.CreateEntity();
+        var entity = defaultEcsWorld.CreateEntity();
         
         entity.Set(new EntityInfo(EntityType.Tile));
         entity.Set(new Position(request.Position));
@@ -64,7 +66,7 @@ public class TileEntityFactory(ContentManager content) : IEntityFactory
         return entity;
     }
     
-    private void ProcessCustomFields(Entity entity, Dictionary<string, object> customFields)
+    private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)
     {
         // Handle tile-specific custom fields from LDtk
         // if (customFields.TryGetValue("?", out var ?))

@@ -1,4 +1,4 @@
-﻿using DefaultEcs;
+﻿using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -8,6 +8,8 @@ using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Message.Level;
+using DefaultEcsWorld = DefaultEcs.World;
+using DefaultEcsEntity = DefaultEcs.Entity;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -24,9 +26,9 @@ public class WallEntityFactory : IEntityFactory
         _content = content ?? throw new ArgumentNullException(nameof(content));
     }
 
-    public Entity CreateEntity(World world, in EntitySpawnRequest request)
+    public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = world.CreateEntity();
+        var entity = defaultEcsWorld.CreateEntity();
 
         // Core components for wall entities
         entity.Set(new EntityInfo(EntityType.Tile));
@@ -91,7 +93,7 @@ public class WallEntityFactory : IEntityFactory
         return entity;
     }
 
-    private void ProcessCustomFields(Entity entity, Dictionary<string, object> customFields)
+    private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)
     {
         // Handle wall-specific custom fields from LDtk
         if (customFields.TryGetValue("destructible", out var destructible) && destructible is bool isDestructible && isDestructible)

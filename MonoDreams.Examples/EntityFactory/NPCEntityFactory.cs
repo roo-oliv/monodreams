@@ -1,4 +1,4 @@
-﻿using DefaultEcs;
+﻿using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -8,6 +8,8 @@ using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Message.Level;
+using DefaultEcsWorld = DefaultEcs.World;
+using DefaultEcsEntity = DefaultEcs.Entity;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -18,9 +20,9 @@ public class NPCEntityFactory(ContentManager content) : IEntityFactory
 {
     private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Characters");
 
-    public Entity CreateEntity(World world, in EntitySpawnRequest request)
+    public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = world.CreateEntity();
+        var entity = defaultEcsWorld.CreateEntity();
 
         // Add core components
         entity.Set(new EntityInfo(EntityType.Enemy));
@@ -52,7 +54,7 @@ public class NPCEntityFactory(ContentManager content) : IEntityFactory
         return entity;
     }
 
-    private void ProcessCustomFields(Entity entity, Dictionary<string, object> customFields)
+    private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)
     {
         // Handle NPC-specific custom fields from LDtk
         if (customFields.TryGetValue("dialogue", out var dialogue) && dialogue is string dialogueId)

@@ -27,6 +27,15 @@ public class OptionsMenuScreen : IGameScreen
     public World World { get; }
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public void Update(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void Draw(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
 
     public OptionsMenuScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera, ViewportManager renderer, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {

@@ -1,6 +1,6 @@
-using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
+using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -14,6 +14,8 @@ using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Physics;
+using DefaultEcsWorld = DefaultEcs.World;
+using static MonoDreams.Examples.System.SystemPhase;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -25,7 +27,8 @@ public class DreamGameScreen : IGameScreen
     private readonly ViewportManager _renderer;
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
-    private readonly World _world;
+    private readonly DefaultEcsWorld _defaultEcsWorld;
+    private World _world;
     private readonly LevelLoader _levelLoader;
     private readonly (RenderTarget2D main, RenderTarget2D ui) _renderTargets;
     
@@ -47,13 +50,22 @@ public class DreamGameScreen : IGameScreen
         camera.Position = new Vector2(_renderer.VirtualWidth * 0.5f, _renderer.VirtualHeight * 0.5f);
         camera.Zoom = 1.0f; // Start at 1:1 pixel ratio
         
-        _world = new World();
-        _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
+        _defaultEcsWorld = new DefaultEcsWorld();
+        _levelLoader = new LevelLoader(_defaultEcsWorld, graphicsDevice, _content, _spriteBatch, _renderTargets);
         UpdateSystem = CreateSystem();
     }
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public void Update(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void Draw(GameTime gameTime)
+    {
+        throw new NotImplementedException();
+    }
 
     public void Load(ScreenController screenController, ContentManager content)
     {
@@ -91,6 +103,22 @@ public class DreamGameScreen : IGameScreen
         //     new EndDrawSystem(_spriteBatch)
         //     // new DrawDebugSystem(_world, _spriteBatch, _renderer)
         //     );
+    }
+    
+    private Pipeline CreateUpdatePipeline()
+    {
+        return _world.Pipeline()
+            .With(Ecs.System)
+            .Without(DrawPhase)
+            .Build();
+    }
+    
+    private Pipeline CreateDrawPipeline()
+    {
+        return _world.Pipeline()
+            .With(Ecs.System)
+            .With(DrawPhase)
+            .Build();
     }
     
     public void Dispose()

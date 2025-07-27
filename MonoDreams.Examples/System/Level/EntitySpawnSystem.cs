@@ -7,6 +7,8 @@ using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.EntityFactory;
 using MonoDreams.Examples.Message.Level;
 using MonoDreams.State;
+using DefaultEcsWorld = DefaultEcs.World;
+using World = Flecs.NET.Core.World;
 
 namespace MonoDreams.Examples.System.Level;
 
@@ -17,15 +19,17 @@ namespace MonoDreams.Examples.System.Level;
 public class EntitySpawnSystem : ISystem<GameState>
 {
     public bool IsEnabled { get; set; } = true;
-    
-    private readonly World _world;
+
+    private World _world;
+    private readonly DefaultEcsWorld _defaultEcsWorld;
     private readonly ContentManager _content;
     private readonly IReadOnlyDictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly Dictionary<string, IEntityFactory> _entityFactories;
 
-    public EntitySpawnSystem(World world, ContentManager content, IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets)
+    public EntitySpawnSystem(World world, DefaultEcsWorld defaultEcsWorld, ContentManager content, IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets)
     {
         _world = world;
+        _defaultEcsWorld = defaultEcsWorld;
         _content = content;
         _renderTargets = renderTargets;
         _entityFactories = new Dictionary<string, IEntityFactory>();
@@ -33,7 +37,7 @@ public class EntitySpawnSystem : ISystem<GameState>
         // Register default entity factories
         RegisterDefaultFactories();
         
-        _world.Subscribe<EntitySpawnRequest>(OnEntitySpawnRequest);
+        _defaultEcsWorld.Subscribe<EntitySpawnRequest>(OnEntitySpawnRequest);
     }
 
     /// <summary>
@@ -67,7 +71,7 @@ public class EntitySpawnSystem : ISystem<GameState>
     {
         if (_entityFactories.TryGetValue(request.Identifier, out var factory))
         {
-            var entity = factory.CreateEntity(_world, request);
+            var entity = factory.CreateEntity(_world, _defaultEcsWorld, request);
             
             // Optional: Add common components that all spawned entities might need
             if (!entity.Has<EntityInfo>())

@@ -51,11 +51,13 @@ public class ScreenController(
 
         _state.Update(gameTime);
         _screen.current?.UpdateSystem.Update(_state);
+        _screen.current?.Update(gameTime);
     }
     
     public void Draw(GameTime gameTime)
     {
         _screen.current?.DrawSystem.Update(_state);
+        _screen.current?.Draw(gameTime);
     }
 
     public void LoadScreen(string screenName)
