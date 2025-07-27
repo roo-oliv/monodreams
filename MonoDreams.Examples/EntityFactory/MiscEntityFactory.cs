@@ -15,49 +15,24 @@ namespace MonoDreams.Examples.EntityFactory;
 /// Factory for creating miscellaneous entities like tiles and decorative elements.
 /// Creates entities with EntityInfo, Position, and DrawComponent.
 /// </summary>
-public class MiscEntityFactory : IEntityFactory
+public class MiscEntityFactory(ContentManager content) : IEntityFactory
 {
-    private readonly ContentManager _content;
-
-    public MiscEntityFactory(ContentManager content)
-    {
-        _content = content ?? throw new ArgumentNullException(nameof(content));
-    }
-
     public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = defaultEcsWorld.CreateEntity();
-
-        // Core components for misc entities
-        entity.Set(new EntityInfo(EntityType.Tile));
-        entity.Set(new Position(request.Position));
-
-        // // Create DrawComponent with a single DrawElement
-        // var drawComponent = new DrawComponent();
-        
         // Extract custom fields
         var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : 0.09f;
         var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
 
-        // if (tilesetTexture != null)
-        // {
-        //     var drawElement = new DrawElement
-        //     {
-        //         Type = DrawElementType.Sprite,
-        //         Target = RenderTargetID.Main,
-        //         Texture = tilesetTexture,
-        //         Position = request.Position,
-        //         SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), 
-        //             new Point((int)request.Size.X, (int)request.Size.Y)),
-        //         Color = Color.White * request.Layer._Opacity,
-        //         Size = request.Size,
-        //         LayerDepth = layerDepth
-        //     };
-        //     drawComponent.Drawables.Add(drawElement);
-        // }
-        //
-        // entity.Set(drawComponent);
-        
+        // Create Flecs entity
+        var entity = world.Entity()
+            .Set(new EntityInfo(EntityType.Tile))
+            .Set(new Position(request.Position))
+            .Set(new DrawComponent
+            {
+                Type = DrawElementType.Sprite,
+                Target = RenderTargetID.Main,
+            });
+
         if (tilesetTexture != null)
         {
             entity.Set(new SpriteInfo
@@ -71,19 +46,14 @@ public class MiscEntityFactory : IEntityFactory
                 LayerDepth = layerDepth,
             });
         }
-        entity.Set(new DrawComponent
-        {
-            Type = DrawElementType.Sprite,
-            Target = RenderTargetID.Main,
-        });
 
         // Process any additional custom fields
         ProcessCustomFields(entity, request.CustomFields);
 
-        return entity;
+        return defaultEcsWorld.CreateEntity();
     }
 
-    private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)
+    private void ProcessCustomFields(Entity entity, Dictionary<string, object> customFields)
     {
         // Handle misc-specific custom fields from LDtk
         if (customFields.TryGetValue("animated", out var animated) && animated is bool isAnimated && isAnimated)

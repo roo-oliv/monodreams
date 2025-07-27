@@ -80,6 +80,13 @@ public class LoadLevelExampleGameScreen : IGameScreen
     {
         InputMappingSystem.Register(_world, _defaultEcsWorld, _gameState);
         MovementSystem.Register(_world, _gameState);
+        
+        // Render Phase Systems
+        CullingSystem.Register(_world, _camera);
+        SpritePrepSystem.Register(_world, _graphicsDevice);
+        TextPrepSystem.Register(_world);
+        MasterRenderSystem.Register(_world, _spriteBatch, _graphicsDevice, _camera, _renderTargets);
+        FinalDrawSystem.Register(_world, _spriteBatch, _graphicsDevice, _viewportManager, _renderTargets);
     }
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -107,7 +114,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_defaultEcsWorld, cursorTextures, RenderTargetID.Main);
+        Objects.Cursor.Create(_world, _defaultEcsWorld, cursorTextures, RenderTargetID.Main);
         _world.Set(new InputState());
         // _levelLoader.LoadLevel(0);
     }
@@ -157,35 +164,36 @@ public class LoadLevelExampleGameScreen : IGameScreen
     
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // Systems that prepare DrawComponent based on state (can often be parallel)
-        var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
-            // Optional: A system to clear all DrawComponents first?
-            // new ClearDrawComponentSystem(_world),
-            new CullingSystem(_defaultEcsWorld, _camera),
-            new DialogueUIRenderPrepSystem(_defaultEcsWorld),
-            new SpritePrepSystem(_defaultEcsWorld, _graphicsDevice),
-            new TextPrepSystem(_defaultEcsWorld)
-            // ... other systems preparing DrawElements (UI, particles, etc.)
-        );
-
-        // The single system that handles all rendering (strictly sequential)
-        var renderSystem = new MasterRenderSystem(
-            _spriteBatch,
-            _graphicsDevice,
-            _camera,
-            _renderTargets, // Pass the dictionary/collection of RTs
-            _defaultEcsWorld
-        );
-    
-        // Final system to draw RenderTargets to backbuffer (if needed)
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
-        
-        return new SequentialSystem<GameState>(
-            prepDrawSystems,
-            renderSystem,
-            finalDrawToScreenSystem // Draw RTs to screen
-            // new DrawDebugSystem(_world, _spriteBatch, _renderer) // If needed
-        );
+        // // Systems that prepare DrawComponent based on state (can often be parallel)
+        // var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
+        //     // Optional: A system to clear all DrawComponents first?
+        //     // new ClearDrawComponentSystem(_world),
+        //     new CullingSystem(_defaultEcsWorld, _camera),
+        //     new DialogueUIRenderPrepSystem(_defaultEcsWorld),
+        //     new SpritePrepSystem(_defaultEcsWorld, _graphicsDevice),
+        //     new TextPrepSystem(_defaultEcsWorld)
+        //     // ... other systems preparing DrawElements (UI, particles, etc.)
+        // );
+        //
+        // // The single system that handles all rendering (strictly sequential)
+        // var renderSystem = new MasterRenderSystem(
+        //     _spriteBatch,
+        //     _graphicsDevice,
+        //     _camera,
+        //     _renderTargets, // Pass the dictionary/collection of RTs
+        //     _defaultEcsWorld
+        // );
+        //
+        // // Final system to draw RenderTargets to backbuffer (if needed)
+        // var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
+        //
+        // return new SequentialSystem<GameState>(
+        //     prepDrawSystems,
+        //     renderSystem,
+        //     finalDrawToScreenSystem // Draw RTs to screen
+        //     // new DrawDebugSystem(_world, _spriteBatch, _renderer) // If needed
+        // );
+        return new SequentialSystem<GameState>();
     }
 
     private Pipeline CreateUpdatePipeline()

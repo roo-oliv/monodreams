@@ -17,53 +17,26 @@ public class TileEntityFactory(ContentManager content) : IEntityFactory
 
     public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = defaultEcsWorld.CreateEntity();
-        
-        entity.Set(new EntityInfo(EntityType.Tile));
-        entity.Set(new Position(request.Position));
+        world.Entity()
+            .Set(new EntityInfo(EntityType.Tile))
+            .Set(new Position(request.Position))
+            .Set(new SpriteInfo
+            {
+                SpriteSheet = _tilemap,
+                Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
+                    (int)request.Size.X, (int)request.Size.Y),
+                Size = request.Size,
+                Color = Color.White * request.Layer._Opacity,
+                Target = RenderTargetID.Main,
+                LayerDepth = 1f,
+            })
+            .Set(new DrawComponent
+            {
+                Type = DrawElementType.Sprite,
+                Target = RenderTargetID.Main,
+            });
 
-        // // DrawComponent com múltiples sprites (se necessário)
-        // var drawComponent = new DrawComponent();
-        
-        // // Sprite principal do tile
-        // var mainSprite = new DrawElement
-        // {
-        //     Type = DrawElementType.Sprite,
-        //     Target = RenderTargetID.Main,
-        //     Texture = _tilemap,
-        //     Position = request.Position,
-        //     SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), new Point(request.Layer._GridSize, request.Layer._GridSize)),
-        //     Color = Color.White * request.Layer._Opacity,
-        //     Size = request.Size,
-        //     LayerDepth = 1f,
-        // };
-        // drawComponent.Drawables.Add(mainSprite);
-        
-        entity.Set(new SpriteInfo
-        {
-            SpriteSheet = _tilemap,
-            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
-                (int)request.Size.X, (int)request.Size.Y),
-            Size = request.Size,
-            Color = Color.White * request.Layer._Opacity,
-            Target = RenderTargetID.Main,
-            LayerDepth = 1f,
-        });
-        entity.Set(new DrawComponent
-        {
-            Type = DrawElementType.Sprite,
-            Target = RenderTargetID.Main,
-        });
-
-        // Adiciona sprites extras se necessário (ex: overlay, efeitos)
-        // AddExtraSprites(drawComponent, request);
-        
-        // entity.Set(drawComponent);
-
-        // Componentes específicos do tipo de tile
-        ProcessCustomFields(entity, request.CustomFields);
-
-        return entity;
+        return defaultEcsWorld.CreateEntity();
     }
     
     private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)

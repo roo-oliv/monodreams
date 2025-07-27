@@ -17,51 +17,19 @@ namespace MonoDreams.Examples.EntityFactory;
 /// Factory for creating wall entities that have collision.
 /// Creates entities with EntityInfo, Position, DrawComponent, BoxCollider, and RigidBody.
 /// </summary>
-public class WallEntityFactory : IEntityFactory
+public class WallEntityFactory(ContentManager content) : IEntityFactory
 {
-    private readonly ContentManager _content;
-
-    public WallEntityFactory(ContentManager content)
-    {
-        _content = content ?? throw new ArgumentNullException(nameof(content));
-    }
-
     public DefaultEcsEntity CreateEntity(World world, DefaultEcsWorld defaultEcsWorld, in EntitySpawnRequest request)
     {
-        var entity = defaultEcsWorld.CreateEntity();
-
-        // Core components for wall entities
-        entity.Set(new EntityInfo(EntityType.Tile));
-        entity.Set(new Position(request.Position));
-
-        // // Create DrawComponent with a single DrawElement
-        // var drawComponent = new DrawComponent();
-        
+        var entityInfoComponent = new EntityInfo(EntityType.Tile);
+        var positionComponent = new Position(request.Position);
         // Extract custom fields
         var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : 0.09f;
         var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
-
-        // if (tilesetTexture != null)
-        // {
-        //     var drawElement = new DrawElement
-        //     {
-        //         Type = DrawElementType.Sprite,
-        //         Target = RenderTargetID.Main,
-        //         Texture = tilesetTexture,
-        //         Position = request.Position,
-        //         SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), 
-        //             new Point((int)request.Size.X, (int)request.Size.Y)),
-        //         Color = Color.White * request.Layer._Opacity,
-        //         Size = request.Size,
-        //         LayerDepth = layerDepth
-        //     };
-        //     drawComponent.Drawables.Add(drawElement);
-        // }
-        //
-        // entity.Set(drawComponent);
+        SpriteInfo? spriteInfoComponent = null; 
         if (tilesetTexture != null)
         {
-            entity.Set(new SpriteInfo
+            spriteInfoComponent = new SpriteInfo
             {
                 SpriteSheet = tilesetTexture,
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
@@ -70,27 +38,36 @@ public class WallEntityFactory : IEntityFactory
                 Color = Color.White * request.Layer._Opacity,
                 Target = RenderTargetID.Main,
                 LayerDepth = layerDepth,
-            });
+            };
         }
-        entity.Set(new DrawComponent
+        var drawComponent = new DrawComponent
         {
             Type = DrawElementType.Sprite,
             Target = RenderTargetID.Main,
-        });
+        };
+        var boxColliderComponent = new BoxCollider(
+            new Rectangle(Point.Zero, new Point((int)request.Size.X, (int)request.Size.Y)),
+            passive: true);
+        var rigidBodyComponent = new RigidBody();
 
-        // Add collision components for walls
-        var colliderBounds = new Rectangle(
-            Point.Zero, // Relative to entity position
-            new Point((int)request.Size.X, (int)request.Size.Y)
-        );
+        var entity = world.Entity()
+            .Set(entityInfoComponent)
+            .Set(positionComponent)
+            .Set(drawComponent)
+            .Set(boxColliderComponent)
+            .Set(rigidBodyComponent);
+        if (spriteInfoComponent.HasValue) entity.Set(spriteInfoComponent.Value);
         
-        entity.Set(new BoxCollider(colliderBounds, passive: true));
-        entity.Set(new RigidBody());
+        var defaultEcsEntity = defaultEcsWorld.CreateEntity();
+        defaultEcsEntity.Set(entityInfoComponent);
+        defaultEcsEntity.Set(positionComponent);
+        if (spriteInfoComponent.HasValue) defaultEcsEntity.Set(spriteInfoComponent.Value);
+        defaultEcsEntity.Set(drawComponent);
+        defaultEcsEntity.Set(boxColliderComponent);
+        defaultEcsEntity.Set(rigidBodyComponent);
+        ProcessCustomFields(defaultEcsEntity, request.CustomFields);
 
-        // Process any additional custom fields
-        ProcessCustomFields(entity, request.CustomFields);
-
-        return entity;
+        return defaultEcsEntity;
     }
 
     private void ProcessCustomFields(DefaultEcsEntity entity, Dictionary<string, object> customFields)
