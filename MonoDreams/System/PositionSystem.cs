@@ -1,20 +1,18 @@
-using DefaultEcs;
-using DefaultEcs.System;
-using DefaultEcs.Threading;
+using Flecs.NET.Core;
 using MonoDreams.Component;
-using MonoDreams.State;
 
 namespace MonoDreams.System;
 
-public class PositionSystem<TPositionComponent>(World world, IParallelRunner runner)
-    : AComponentSystem<GameState, TPositionComponent>(world, runner)
-    where TPositionComponent : Position
+public static class PositionSystem
 {
-    protected override void Update(GameState state, ref TPositionComponent position)
+    public static void Register(World world)
     {
-        position.LastDelta = position.Delta;
-        position.Last = position.Current;
+        world.System<Position>()
+            .Kind(Ecs.OnUpdate)
+            .Each((ref Position position) =>
+            {
+                position.LastDelta = position.Delta;
+                position.Last = position.Current;
+            });
     }
 }
-
-public class PositionSystem(World world, IParallelRunner runner) : PositionSystem<Position>(world, runner);

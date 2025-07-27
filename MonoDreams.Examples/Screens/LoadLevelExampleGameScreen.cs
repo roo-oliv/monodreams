@@ -80,6 +80,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
     {
         InputMappingSystem.Register(_world, _defaultEcsWorld, _gameState);
         MovementSystem.Register(_world, _gameState);
+        PositionSystem.Register(_world);
         
         // Render Phase Systems
         CullingSystem.Register(_world, _camera);
@@ -139,7 +140,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new VelocitySystem(_defaultEcsWorld, _parallelRunner),
             new CollisionDetectionSystem<CollisionMessage>(_defaultEcsWorld, _parallelRunner, CollisionMessage.Create),
             new PhysicalCollisionResolutionSystem(_defaultEcsWorld),
-            new PositionSystem(_defaultEcsWorld, _parallelRunner),
             new TextUpdateSystem(_defaultEcsWorld), // Logic only
             new DialogueUpdateSystem(_defaultEcsWorld),
             new CursorDrawPrepSystem(_defaultEcsWorld)
