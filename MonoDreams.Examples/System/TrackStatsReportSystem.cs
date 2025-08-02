@@ -29,7 +29,7 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
         var statValue = GetStatValue(statComponent.Type, velocityProfile);
 
         // Format with one decimal place
-        dynamicText.TextContent = $"{statLabel}: {statValue:F1}";
+        dynamicText.TextContent = $"{statLabel}: {statValue:D}";
         dynamicText.VisibleCharacterCount = dynamicText.TextContent.Length;
         dynamicText.IsRevealed = true;
     }
@@ -45,14 +45,14 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
         };
     }
 
-    private float GetStatValue(StatType statType, VelocityProfileComponent velocityProfile)
+    private int GetStatValue(StatType statType, VelocityProfileComponent velocityProfile)
     {
         return statType switch
         {
-            StatType.MaxSpeed => velocityProfile.MaxSpeed,
-            StatType.MinSpeed => velocityProfile.MinSpeed,
-            StatType.AverageSpeed => velocityProfile.AverageSpeed,
-            _ => 0f
+            StatType.MaxSpeed => (int)velocityProfile.MaxSpeed,
+            StatType.MinSpeed => (int)velocityProfile.MinSpeed,
+            StatType.AverageSpeed => (int)velocityProfile.AverageSpeed,
+            _ => 0
         };
     }
 }

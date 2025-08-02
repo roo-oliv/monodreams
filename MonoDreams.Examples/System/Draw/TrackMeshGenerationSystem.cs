@@ -45,11 +45,23 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
             var perpendicular = new Vector2(-direction.Y, direction.X);
             perpendicular.Normalize();
             
-            // Calculate color based on velocity
+            // Calculate color based on velocity using three-color lerp
             var velocityIndex = Math.Min(i, velocityProfile.Length - 1);
             var normalizedVelocity = velocityProfile[velocityIndex] / velocityRange;
-            
-            var color = Color.Lerp(Color.Yellow, Color.Navy, normalizedVelocity);
+
+            Color color;
+            if (normalizedVelocity <= 0.5f)
+            {
+                // Lerp between Yellow and LightSeaGreen for the first half
+                var s = normalizedVelocity * 2f; // Scale 0-0.5 to 0-1
+                color = Color.Lerp(Color.Yellow, Color.LightSeaGreen, s);
+            }
+            else
+            {
+                // Lerp between LightSeaGreen and Navy for the second half
+                var s = (normalizedVelocity - 0.5f) * 2f; // Scale 0.5-1 to 0-1
+                color = Color.Lerp(Color.LightSeaGreen, Color.Navy, s);
+            }
             
             // Create left and right edge vertices
             var leftPosition = position + perpendicular * (trackWidth * 0.5f);
