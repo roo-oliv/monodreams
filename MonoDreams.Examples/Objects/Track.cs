@@ -11,8 +11,7 @@ namespace MonoDreams.Examples.Objects;
 
 public static class Track
 {
-    public static Entity Create(
-        World world, Texture2D trackTexture)
+    public static Entity Create(World world)
     {
         var entity = world.CreateEntity();
         

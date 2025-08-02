@@ -1,7 +1,6 @@
 ﻿using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
-using Microsoft.Toolkit.HighPerformance.Helpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -93,11 +92,7 @@ public class GameJamScreen : IGameScreen
 
         // Create cursor entity
         Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
-
-        var trackTexture = new Texture2D(_graphicsDevice, 14, 1);
-        var asphalt = new Color(new Vector3(21, 20, 28));
-        trackTexture.SetData([asphalt, asphalt, asphalt, asphalt, asphalt, Color.Yellow, Color.Yellow, Color.Yellow, Color.Yellow, asphalt, asphalt, asphalt, asphalt, asphalt]);
-        Objects.Track.Create(_world, trackTexture);
+        Objects.Track.Create(_world);
         Objects.Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
         // _levelLoader.LoadLevel(0);
     }
