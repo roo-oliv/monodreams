@@ -2,6 +2,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoGame.SplineFlower;
 using MonoGame.SplineFlower.Spline.Types;
@@ -34,6 +35,7 @@ public static class Track
         entity.Set(new Transform(Vector2.Zero));
         entity.Set(new CursorController());
         entity.Set(new CursorInput());
+        entity.Set(new VelocityProfileComponent());
         
         return entity;
     }

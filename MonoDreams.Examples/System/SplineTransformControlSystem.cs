@@ -10,7 +10,6 @@ namespace MonoDreams.Examples.System;
 [With(typeof(HermiteSpline), typeof(CursorInput))]
 public class SplineTransformControlSystem(World world) : AEntitySetSystem<GameState>(world)
 {
-    public bool IsEnabled { get; set; } = true;
     private static readonly Vector2 VoidVector = new(int.MaxValue, int.MaxValue);
 
     protected override void Update(GameState state, in Entity entity)
@@ -32,10 +31,5 @@ public class SplineTransformControlSystem(World world) : AEntitySetSystem<GameSt
         {
             spline.TranslateSelectedTransform(cursorInput.WorldPosition - spline.SelectedTransform.Position);
         }
-    }
-    
-    public void Dispose()
-    {
-        GC.SuppressFinalize(this);
     }
 }

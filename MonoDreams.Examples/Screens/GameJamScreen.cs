@@ -128,6 +128,7 @@ public class GameJamScreen : IGameScreen
             new DialogueUpdateSystem(_world),
             new CursorDrawPrepSystem(_world),
             new SplineTransformControlSystem(_world),
+            new TrackAnalysisSystem(_world),
             new RaceCarSystem(_world)
             // ... other game logic systems
         );
