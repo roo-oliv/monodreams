@@ -104,6 +104,8 @@ public class GameJamScreen : IGameScreen
     
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
+        // ... existing systems ...
+        
         var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
             new CursorInputSystem(_world, _camera),
             new InputMappingSystem(_world)
@@ -124,11 +126,12 @@ public class GameJamScreen : IGameScreen
             new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
             new PhysicalCollisionResolutionSystem(_world),
             new TransformSystem(_world, _parallelRunner),
-            new TextUpdateSystem(_world), // Logic only
+            new TextUpdateSystem(_world),
             new DialogueUpdateSystem(_world),
             new CursorDrawPrepSystem(_world),
             new SplineTransformControlSystem(_world),
             new TrackAnalysisSystem(_world),
+            new TrackMeshGenerationSystem(_world, 30f), // Add this line with desired track width
             new RaceCarSystem(_world)
             // ... other game logic systems
         );
@@ -151,18 +154,14 @@ public class GameJamScreen : IGameScreen
     
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // Systems that prepare DrawComponent based on state (can often be parallel)
-        var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
-            // Optional: A system to clear all DrawComponents first?
-            // new ClearDrawComponentSystem(_world),
-            // new CullingSystem(_world, _camera),
+        var prepDrawSystems = new SequentialSystem<GameState>(
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice),
+            new TriangleMeshPrepSystem(_world), // Add this line
             new TextPrepSystem(_world)
-            // ... other systems preparing DrawElements (UI, particles, etc.)
         );
-
-        // The single system that handles all rendering (strictly sequential)
+        
+        // Systems that prepare DrawComponent based on state (can often be parallel)
         var renderSystem = new MasterRenderSystem(
             _spriteBatch,
             _graphicsDevice,

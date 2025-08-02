@@ -5,7 +5,6 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.State;
-using MonoGame.SplineFlower.Spline;
 using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.System.Draw;
@@ -18,8 +17,23 @@ public class MasterRenderSystem(
     IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets,
     World world) : ISystem<GameState>
 {
+    private BasicEffect _basicEffect;
+    
+    public void Initialize()
+    {
+        _basicEffect = new BasicEffect(graphicsDevice)
+        {
+            VertexColorEnabled = true,
+            View = Matrix.Identity,
+            Projection = Matrix.CreateOrthographicOffCenter(0, graphicsDevice.Viewport.Width, graphicsDevice.Viewport.Height, 0, 0, 1)
+        };
+    }
+
     public void Update(GameState state)
     {
+        if (_basicEffect == null)
+            Initialize();
+            
         foreach (var renderTarget in renderTargets)
         {
             var drawList = world.GetEntities()
@@ -34,37 +48,77 @@ public class MasterRenderSystem(
             }
             
             graphicsDevice.SetRenderTarget(renderTarget.Value);
-
-            // Only clear if you haven't cleared it elsewhere (e.g., at the very start of the frame)
-            // Often UI/HUD targets are cleared, Main might be cleared or just drawn over. Depends on your setup.
-            graphicsDevice.Clear(Color.Transparent); // Or appropriate background color
+            graphicsDevice.Clear(Color.Transparent);
 
             var transformMatrix = Matrix.Identity;
-            // Apply camera transform ONLY to the main game render target
-            // TODO: Check if this is the source of bugs rendering to other render targets other than Main
             if (renderTarget.Key == RenderTargetID.Main)
             {
                 transformMatrix = camera.GetViewTransformationMatrix();
+                _basicEffect.World = transformMatrix;
+            }
+            
+            // Draw triangles first (they need different rendering setup)
+            var triangleElements = drawList.GetEntities().ToArray()
+                .Where(e => e.Get<DrawComponent>().Type == DrawElementType.Triangles)
+                .ToList();
+                
+            if (triangleElements.Count != 0)
+            {
+                DrawTriangles(triangleElements);
             }
                 
+            // Draw sprites and other elements
             spriteBatch.Begin(
                 sortMode: SpriteSortMode.FrontToBack,
-                blendState: BlendState.AlphaBlend, // Common defaults
-                samplerState: SamplerState.PointClamp, // Or PointWrap, LinearClamp, etc.
+                blendState: BlendState.AlphaBlend,
+                samplerState: SamplerState.PointClamp,
                 depthStencilState: DepthStencilState.None,
                 rasterizerState: RasterizerState.CullNone,
                 effect: null,
                 transformMatrix: transformMatrix);
-            foreach (var entity in drawList.GetEntities()) DrawElement(entity.Get<DrawComponent>());
+                
+            foreach (var entity in drawList.GetEntities())
+            {
+                var drawComponent = entity.Get<DrawComponent>();
+                if (drawComponent.Type != DrawElementType.Triangles)
+                {
+                    DrawElement(drawComponent);
+                }
+            }
+            
+            // Temporarily keep spline drawing for comparison
             if (splineList != null)
+            {
                 foreach (var entity in splineList.GetEntities())
                 {
                     var spline = entity.Get<HermiteSpline>();
-                    spline.Draw(spriteBatch);
-                    // spline.CreatePolygonStripe();
-                    // spline.DrawPolygonStripe();
+                    // Comment out to remove original spline drawing
+                    // spline.Draw(spriteBatch);
                 }
+            }
+            
             spriteBatch.End();
+        }
+    }
+    
+    private void DrawTriangles(List<Entity> triangleEntities)
+    {
+        foreach (var pass in _basicEffect.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+
+            foreach (var drawComponent in triangleEntities.Select(entity => entity.Get<DrawComponent>()))
+            {
+                if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    drawComponent.PrimitiveType,
+                    drawComponent.Vertices,
+                    0,
+                    drawComponent.Vertices.Length,
+                    drawComponent.Indices,
+                    0,
+                    drawComponent.Indices.Length / 3);
+            }
         }
     }
     
@@ -73,14 +127,8 @@ public class MasterRenderSystem(
         switch (element.Type)
         {
             case DrawElementType.Sprite:
-                // Simple sprite draw - assumes element.Position is top-left
-                // and element.Size determines destination rect directly.
-                // Origin/Rotation/Scale would need to be included if used.
-                if (element.Texture == null)
-                {
-                    // Log or handle missing texture case
-                    return;
-                }
+                if (element.Texture == null) return;
+                
                 spriteBatch.Draw(
                     element.Texture,
                     new Rectangle((int)element.Position.X, (int)element.Position.Y, (int)element.Size.X, (int)element.Size.Y),
@@ -88,46 +136,37 @@ public class MasterRenderSystem(
                     element.Color,
                     element.Rotation,
                     element.Origin,
-                    SpriteEffects.None, // element.Effects
+                    SpriteEffects.None,
                     element.LayerDepth);
-
-                // Alternative using Position + Scale (if Size isn't pre-calculated):
-                // _spriteBatch.Draw(
-                //     element.Texture,
-                //     element.Position,
-                //     element.SourceRectangle,
-                //     element.Color,
-                //     element.Rotation,
-                //     element.Origin,
-                //     element.Scale, // Use Scale field from DrawElement
-                //     element.Effects,
-                //     element.LayerDepth);
                 break;
 
             case DrawElementType.Text:
-                // Origin/Rotation/Scale/Effects can be added if stored in DrawComponent
                 spriteBatch.DrawString(
                     element.Font,
                     element.Text,
                     element.Position,
                     element.Color,
-                    0f, // Rotation
-                    Vector2.Zero, // Origin (for alignment)
-                    0.5f, // Scale
-                    SpriteEffects.None, // Effects
+                    0f,
+                    Vector2.Zero,
+                    0.5f,
+                    SpriteEffects.None,
                     element.LayerDepth);
+                break;
+
+            case DrawElementType.Triangles:
+                // Handled separately in DrawTriangles method
                 break;
 
             case DrawElementType.NinePatch:
             default:
-                // If SpritePrepSystem generated 9 individual Sprite DrawElements, this case isn't needed.
-                // If DrawElement holds NinePatchData, implement the 9 draw calls here.
-                // Recommendation: Let SpritePrepSystem create the 9 sprite elements for simplicity here.
                 break;
         }
     }
 
-    public void Dispose() { /* Nothing specific to dispose here unless holding unmanaged resources */ }
+    public void Dispose() 
+    { 
+        _basicEffect?.Dispose();
+    }
 
     public bool IsEnabled { get; set; }
 }
