@@ -31,5 +31,7 @@ public class SplineTransformControlSystem(World world) : AEntitySetSystem<GameSt
         {
             spline.TranslateSelectedTransform(cursorInput.WorldPosition - spline.SelectedTransform.Position);
         }
+        
+        spline.GetAllTangents.Last().SetPosition(spline.GetAllTangents.First().Position);
     }
 }

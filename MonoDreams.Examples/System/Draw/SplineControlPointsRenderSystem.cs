@@ -13,7 +13,7 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
 {
     private const float PointSize = 10f; // Size of control points for selection
     private const float HandleSize = 8f; // Size of handle points
-    private const float LineThickness = 2f; // Thickness of lines connecting points and handles
+    private const float LineThickness = 1f; // Thickness of lines connecting points and handles
 
     protected override void Update(GameState state, in Entity entity)
     {
@@ -37,7 +37,7 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
         var lineIndex = 0;
 
         // Process control points (vertices)
-        for (int i = 0; i < spline.GetAllPoints.Length; i++)
+        for (int i = 0; i < spline.GetAllPoints.Length - 1; i++)
         {
             var point = spline.GetAllPoints[i];
             var pointColor = point.IsSelected ? Color.Green : Color.Yellow;
@@ -49,11 +49,11 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
         // Process tangent points (handles) and connecting lines
         if (spline.GetAllTangents != null)
         {
-            for (int i = 0; i < spline.GetAllTangents.Length; i++)
+            for (int i = 0; i < spline.GetAllTangents.Length - 1; i++)
             {
                 var tangent = spline.GetAllTangents[i];
                 var vertex = spline.GetAllPoints[i];
-                var tangentColor = tangent.IsSelected ? Color.Green : Color.DarkGray;
+                var tangentColor = tangent.IsSelected ? Color.Green : Color.Gainsboro;
 
                 // Add tangent handle as a small square
                 AddSquare(pointVertices, pointIndices, tangent.Position, HandleSize, tangentColor, ref pointIndex);

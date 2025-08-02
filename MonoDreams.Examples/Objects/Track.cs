@@ -1,11 +1,8 @@
 ﻿using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
-using MonoGame.SplineFlower;
-using MonoGame.SplineFlower.Spline;
 using MonoGame.SplineFlower.Spline.Types;
 using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 using Transform = MonoDreams.Component.Transform;
@@ -19,19 +16,38 @@ public static class Track
     {
         var entity = world.CreateEntity();
         
-        var spline = new HermiteSpline([
-            new MonoGame.SplineFlower.Transform(new Vector2(0, 0)),
-            new MonoGame.SplineFlower.Transform(new Vector2(100, 100)),
-            new MonoGame.SplineFlower.Transform(new Vector2(200, 80)),
-            new MonoGame.SplineFlower.Transform(new Vector2(300, 150)),
-            new MonoGame.SplineFlower.Transform(new Vector2(150, 0)),
-            new MonoGame.SplineFlower.Transform(new Vector2(10, 200)),
-        ])
+        var points = new Vector2[]
+        {
+            new(0, -100),
+            new(100, 0),
+            new(0, 100),
+            new(-100, 0),
+        };
+        
+        var spline = new HermiteSpline(
+            points.Select(p => new MonoGame.SplineFlower.Transform(p))
+            .Concat([new MonoGame.SplineFlower.Transform(Vector2.Zero)])
+            .ToArray())
         {
             Loop = true,
-            PolygonStripeTexture = trackTexture,
-            PolygonStripeWidth = 10f,
         };
+        
+        for (var i = 0; i < points.Length; i++)
+        {
+            var currentTangent = spline.GetAllTangents[i];
+            var nextPointIndex = i == points.Length - 1 ? 0 : i + 1;
+            var desiredPosition = (points[i] + points[nextPointIndex]) / 2;
+            var currentPosition = currentTangent.Position;
+            var translationNeeded = desiredPosition - currentPosition;
+            
+            spline.SelectTransform(currentPosition);
+            if (spline.SelectedTransform?.IsTangent == true)
+            {
+                spline.TranslateSelectedTransform(translationNeeded);
+            }
+        }
+        spline.SelectedTransform = null;
+        
         entity.Set(spline);
         entity.Set(new Transform(Vector2.Zero));
         entity.Set(new CursorController());

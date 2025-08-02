@@ -84,17 +84,28 @@ public class TrackAnalysisSystem(
 
     private float CalculateCurvature(HermiteSpline spline, float t)
     {
-        const float sampleResolution = 0.001f;
-        const float delta = sampleResolution;
+        const float targetDistance = 5.0f; // Target distance in world units
         
-        // Get three points for curvature calculation
-        var p1 = spline.GetPoint(Math.Max(0, t - delta) * spline.MaxProgress());
+        // Calculate local parameterization density
+        var baseDelta = 0.001f;
+        var p1 = spline.GetPoint(Math.Max(0, t - baseDelta) * spline.MaxProgress());
         var p2 = spline.GetPoint(t * spline.MaxProgress());
-        var p3 = spline.GetPoint(Math.Min(1, t + delta) * spline.MaxProgress());
+        var p3 = spline.GetPoint(Math.Min(1, t + baseDelta) * spline.MaxProgress());
+        
+        var localDensity = (Vector2.Distance(p1, p2) + Vector2.Distance(p2, p3)) / (2 * baseDelta);
+        
+        // Adjust delta to achieve target distance
+        var adjustedDelta = localDensity > 0 ? targetDistance / localDensity : baseDelta;
+        adjustedDelta = MathHelper.Clamp(adjustedDelta, 0.0001f, 0.1f); // Reasonable bounds
+        
+        // Recalculate points with adjusted delta
+        p1 = spline.GetPoint(Math.Max(0, t - adjustedDelta) * spline.MaxProgress());
+        p2 = spline.GetPoint(t * spline.MaxProgress());
+        p3 = spline.GetPoint(Math.Min(1, t + adjustedDelta) * spline.MaxProgress());
 
         // Calculate curvature using the three-point method
-        Vector2 v1 = p2 - p1;
-        Vector2 v2 = p3 - p2;
+        var v1 = p2 - p1;
+        var v2 = p3 - p2;
         
         var cross = v1.X * v2.Y - v1.Y * v2.X;
         var dot = Vector2.Dot(v1, v2);
@@ -104,7 +115,8 @@ public class TrackAnalysisSystem(
         if (v1Mag == 0 || v2Mag == 0) return 0;
         
         var angle = MathF.Atan2(cross, dot);
-        var curvature = MathF.Abs(angle) / (delta * 2);
+        var avgDistance = (v1Mag + v2Mag) / 2;
+        var curvature = MathF.Abs(angle) / avgDistance;
         
         return curvature;
     }

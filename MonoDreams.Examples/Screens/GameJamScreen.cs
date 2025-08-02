@@ -131,7 +131,7 @@ public class GameJamScreen : IGameScreen
             new CursorDrawPrepSystem(_world),
             new SplineTransformControlSystem(_world),
             new TrackAnalysisSystem(_world),
-            new TrackMeshGenerationSystem(_world, 30f),
+            new TrackMeshGenerationSystem(_world, 12f),
             new SplineControlPointsRenderSystem(_world),
             new RaceCarSystem(_world)
             // ... other game logic systems
