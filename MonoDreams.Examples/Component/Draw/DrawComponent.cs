@@ -16,6 +16,7 @@ public class DrawComponent
     public Vector2 Origin;
     public Color Color;
     public float LayerDepth;
+    public float Scale; // Scale factor for text or sprites
 
     // Sprite specific / Also used by NinePatch for texture source
     public Texture2D Texture;

@@ -29,7 +29,8 @@ public static class TrackStat
             Font = font,
             Color = Color.Black,
             IsRevealed = true,
-            VisibleCharacterCount = int.MaxValue
+            VisibleCharacterCount = int.MaxValue,
+            Scale = 0.2f // Smaller scale for stats
         });
 
         return entity;

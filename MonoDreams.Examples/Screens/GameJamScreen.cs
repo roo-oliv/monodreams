@@ -103,13 +103,13 @@ public class GameJamScreen : IGameScreen
         var padding = -200f;
 
         // Create max speed stat display
-        TrackStat.Create(_world, StatType.MaxSpeed, font, new Vector2(padding - 100, padding), RenderTargetID.Main);
+        TrackStat.Create(_world, StatType.MaxSpeed, font, new Vector2(padding - 200, padding), RenderTargetID.Main);
 
         // Create average speed stat display
-        TrackStat.Create(_world, StatType.AverageSpeed, font, new Vector2(padding - 100, padding + 30), RenderTargetID.Main);
+        TrackStat.Create(_world, StatType.AverageSpeed, font, new Vector2(padding - 200, padding + 20), RenderTargetID.Main);
 
         // Create min speed stat display
-        TrackStat.Create(_world, StatType.MinSpeed, font, new Vector2(padding - 100, padding + 60), RenderTargetID.Main);
+        TrackStat.Create(_world, StatType.MinSpeed, font, new Vector2(padding - 200, padding + 40), RenderTargetID.Main);
 
         // _levelLoader.LoadLevel(0);
     }

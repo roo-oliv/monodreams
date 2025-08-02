@@ -12,6 +12,7 @@ public struct DynamicText : IComponent
     public string TextContent; // The full text to potentially display
     public BitmapFont Font; // Or your font asset reference
     public Color Color;
+    public float Scale; // Scale factor for the font size
     public float RevealingSpeed; // Characters per second
     public float RevealStartTime; // GameTime total seconds when reveal started
     public bool IsRevealed;      // Flag if reveal is complete

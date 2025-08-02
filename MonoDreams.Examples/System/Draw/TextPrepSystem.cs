@@ -42,8 +42,8 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
              Position = position.CurrentPosition, // Or apply alignment/origin logic here
              Color = text.Color,
              LayerDepth = layerDepth,
-             Size = text.Font.MeasureString(visibleText) // Store measured size if needed elsewhere
-             // Add Rotation, Origin(for alignment), Scale, Effects if needed
+             Size = text.Font.MeasureString(visibleText), // Store measured size if needed elsewhere
+             Scale = text.Scale > 0 ? text.Scale : 0.5f // Use DynamicText scale or default to 0.5f
         });
 
          // If using a Bitmap Font/Glyph Atlas:

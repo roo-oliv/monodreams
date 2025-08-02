@@ -217,7 +217,7 @@ public class MasterRenderSystem(
                     element.Color,
                     0f,
                     Vector2.Zero,
-                    0.5f,
+                    element.Scale, // Use the scale from DrawComponent
                     SpriteEffects.None,
                     element.LayerDepth);
                 break;
