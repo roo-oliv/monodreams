@@ -5,6 +5,7 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoGame.SplineFlower;
+using MonoGame.SplineFlower.Spline;
 using MonoGame.SplineFlower.Spline.Types;
 using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 using Transform = MonoDreams.Component.Transform;

@@ -131,7 +131,8 @@ public class GameJamScreen : IGameScreen
             new CursorDrawPrepSystem(_world),
             new SplineTransformControlSystem(_world),
             new TrackAnalysisSystem(_world),
-            new TrackMeshGenerationSystem(_world, 30f), // Add this line with desired track width
+            new TrackMeshGenerationSystem(_world, 30f),
+            new SplineControlPointsRenderSystem(_world),
             new RaceCarSystem(_world)
             // ... other game logic systems
         );
@@ -157,7 +158,7 @@ public class GameJamScreen : IGameScreen
         var prepDrawSystems = new SequentialSystem<GameState>(
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice),
-            new TriangleMeshPrepSystem(_world), // Add this line
+            new TriangleMeshPrepSystem(_world),
             new TextPrepSystem(_world)
         );
         

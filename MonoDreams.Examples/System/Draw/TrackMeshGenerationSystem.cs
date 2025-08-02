@@ -50,7 +50,7 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
             var normalizedVelocity = velocityRange > 0 ? 
                 (velocityProfile[velocityIndex] - minVelocity) / velocityRange : 0f;
             
-            var color = Color.Lerp(Color.Red, Color.Blue, normalizedVelocity);
+            var color = Color.Lerp(Color.Blue, Color.Red, normalizedVelocity);
             
             // Create left and right edge vertices
             var leftPosition = position + perpendicular * (trackWidth * 0.5f);

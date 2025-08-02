@@ -39,6 +39,18 @@ public class MasterRenderSystem(
             var drawList = world.GetEntities()
                 .With((in DrawComponent e) => e.Target == renderTarget.Key)
                 .AsSet();
+
+            // Get specialized draw components for control points and lines
+            var controlPointsList = world.GetEntities()
+                .With<ControlPointsDrawComponent>()
+                .With((in ControlPointsDrawComponent e) => e.Target == renderTarget.Key)
+                .AsSet();
+
+            var controlLinesList = world.GetEntities()
+                .With<ControlLinesDrawComponent>()
+                .With((in ControlLinesDrawComponent e) => e.Target == renderTarget.Key)
+                .AsSet();
+
             EntitySet? splineList = null;
             if (renderTarget.Key == RenderTargetID.Main)
             {
@@ -46,7 +58,7 @@ public class MasterRenderSystem(
                     .With<HermiteSpline>()
                     .AsSet();
             }
-            
+
             graphicsDevice.SetRenderTarget(renderTarget.Value);
             graphicsDevice.Clear(Color.Transparent);
 
@@ -56,15 +68,27 @@ public class MasterRenderSystem(
                 transformMatrix = camera.GetViewTransformationMatrix();
                 _basicEffect.World = transformMatrix;
             }
-            
+
             // Draw triangles first (they need different rendering setup)
             var triangleElements = drawList.GetEntities().ToArray()
                 .Where(e => e.Get<DrawComponent>().Type == DrawElementType.Triangles)
                 .ToList();
-                
+
             if (triangleElements.Count != 0)
             {
                 DrawTriangles(triangleElements);
+            }
+
+            // Draw control points triangles
+            if (!controlPointsList.GetEntities().IsEmpty)
+            {
+                DrawControlPoints(controlPointsList.GetEntities().ToArray());
+            }
+
+            // Draw control lines triangles
+            if (!controlLinesList.GetEntities().IsEmpty)
+            {
+                DrawControlLines(controlLinesList.GetEntities().ToArray());
             }
                 
             // Draw sprites and other elements
@@ -109,6 +133,50 @@ public class MasterRenderSystem(
 
             foreach (var drawComponent in triangleEntities.Select(entity => entity.Get<DrawComponent>()))
             {
+                if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    drawComponent.PrimitiveType,
+                    drawComponent.Vertices,
+                    0,
+                    drawComponent.Vertices.Length,
+                    drawComponent.Indices,
+                    0,
+                    drawComponent.Indices.Length / 3);
+            }
+        }
+    }
+
+    private void DrawControlPoints(Entity[] controlPointEntities)
+    {
+        foreach (var pass in _basicEffect.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+
+            foreach (var entity in controlPointEntities)
+            {
+                var drawComponent = entity.Get<ControlPointsDrawComponent>();
+                if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    drawComponent.PrimitiveType,
+                    drawComponent.Vertices,
+                    0,
+                    drawComponent.Vertices.Length,
+                    drawComponent.Indices,
+                    0,
+                    drawComponent.Indices.Length / 3);
+            }
+        }
+    }
+
+    private void DrawControlLines(Entity[] controlLinesEntities)
+    {
+        foreach (var pass in _basicEffect.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+
+            foreach (var entity in controlLinesEntities)
+            {
+                var drawComponent = entity.Get<ControlLinesDrawComponent>();
                 if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
                 graphicsDevice.DrawUserIndexedPrimitives(
                     drawComponent.PrimitiveType,

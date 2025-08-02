@@ -49,6 +49,10 @@
       <ClCompile Include="Content\disabled_effect.fx" />
     </ItemGroup>
     
+    <ItemGroup>
+      <Compile Remove="Component\Draw\ControlLinesMeshInfo.cs" />
+    </ItemGroup>
+    
     <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
         <Message Text="Restoring dotnet tools" Importance="High" />
         <Exec Command="dotnet tool restore" />
