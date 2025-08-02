@@ -39,7 +39,7 @@ public sealed class FinalDrawSystem : ISystem<GameState>
         // Ensure we are drawing to the back buffer
         _graphicsDevice.SetRenderTarget(null);
         // Clear the entire screen (including letter/pillarbox areas)
-        _graphicsDevice.Clear(Color.Black);
+        _graphicsDevice.Clear(Color.GhostWhite);
 
         // No scale matrix needed here, we draw using destination rectangle for scaling.
         _spriteBatch.Begin(

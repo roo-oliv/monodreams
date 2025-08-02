@@ -45,9 +45,9 @@ public sealed class CollisionDrawSystem<TCollisionMessage> : ISystem<GameState>
         foreach (var collision in _collisions)
         {
             var collidingEntity = collision.CollidingEntity;
-            var location = collidingEntity.Get<Position>().Current;
+            var location = collidingEntity.Get<Transform>().CurrentPosition;
             var hint = _world.CreateEntity();
-            hint.Set(new Position(location));
+            hint.Set(new Transform(location));
             hint.Set(new DrawInfo(spriteSheet: _square, source: new Rectangle(0, 0, 1, 1), color: Color.DarkSlateGray, renderTarget: _renderTarget));
             _hints.Add(hint);
         }

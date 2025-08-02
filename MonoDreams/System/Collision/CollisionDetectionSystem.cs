@@ -21,7 +21,7 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
             .AsSet(),
         parallelRunner)
     where TCollidableComponent : BoxCollider, ICollider
-    where TPositionComponent : Position
+    where TPositionComponent : Transform
     where TCollisionMessage : ICollisionMessage
 {
     private readonly IEnumerable<Entity> _targets = world.GetEntities().With((in TCollidableComponent c) => c.Enabled).AsEnumerable();
@@ -30,8 +30,8 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
     {
         var collidable = entity.Get<TCollidableComponent>();
         var position = entity.Get<TPositionComponent>();
-        var dynamicRect = collidable.Bounds.AtPosition(position.Current);
-        var displacement = position.Delta;
+        var dynamicRect = collidable.Bounds.AtPosition(position.CurrentPosition);
+        var displacement = position.PositionDelta;
         foreach (var target in _targets)
         {
             if (target == entity) continue;
@@ -42,7 +42,7 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
             var collides = DynamicRectVsRect(
                 dynamicRect,
                 displacement, 
-                targetCollidable.Bounds.AtPosition(target.Get<TPositionComponent>().Current),
+                targetCollidable.Bounds.AtPosition(target.Get<TPositionComponent>().CurrentPosition),
                 out var contactPoint,
                 out var contactNormal,
                 out var contactTime);
@@ -133,10 +133,10 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
 }
 
 public class CollisionDetectionSystem<TCollidableComponent, TCollisionMessage>(World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
-    : CollisionDetectionSystem<TCollidableComponent, Position, TCollisionMessage>(world, parallelRunner, createCollisionMessage)
+    : CollisionDetectionSystem<TCollidableComponent, Transform, TCollisionMessage>(world, parallelRunner, createCollisionMessage)
     where TCollidableComponent : BoxCollider
     where TCollisionMessage : ICollisionMessage;
 
 public class CollisionDetectionSystem<TCollisionMessage>(World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
-    : CollisionDetectionSystem<BoxCollider, Position, TCollisionMessage>(world, parallelRunner, createCollisionMessage)
+    : CollisionDetectionSystem<BoxCollider, Transform, TCollisionMessage>(world, parallelRunner, createCollisionMessage)
     where TCollisionMessage : ICollisionMessage;

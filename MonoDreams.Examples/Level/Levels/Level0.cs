@@ -112,7 +112,7 @@ public class Level0(
         }
         
         var dialogueZone = world.CreateEntity();
-        dialogueZone.Set(new Position(new Vector2(200, 200)));
+        dialogueZone.Set(new Transform(new Vector2(200, 200)));
         dialogueZone.Set(new BoxCollider(new Rectangle(0, 0, 64, 64), passive: true));
         dialogueZone.Set(new DrawInfo(renderTargets.main, _square, new Point(64, 64), layer: DreamGameScreen.DrawLayer.Level));
         dialogueZone.Set(new DialogueTrigger

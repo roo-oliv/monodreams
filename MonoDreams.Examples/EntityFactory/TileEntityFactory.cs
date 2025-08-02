@@ -18,7 +18,7 @@ public class TileEntityFactory(ContentManager content) : IEntityFactory
         var entity = world.CreateEntity();
         
         entity.Set(new EntityInfo(EntityType.Tile));
-        entity.Set(new Position(request.Position));
+        entity.Set(new Transform(request.Position));
 
         // // DrawComponent com múltiples sprites (se necessário)
         // var drawComponent = new DrawComponent();

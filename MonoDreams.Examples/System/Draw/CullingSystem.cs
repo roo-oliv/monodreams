@@ -7,20 +7,20 @@ using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(SpriteInfo), typeof(Position))]
+[With(typeof(SpriteInfo), typeof(Transform))]
 public class CullingSystem(World world, MonoDreams.Component.Camera camera) : AEntitySetSystem<GameState>(world)
 {
     public bool IsEnabled { get; set; } = true;
 
     protected override void Update(GameState state, in Entity entity)
     {
-        var position = entity.Get<Position>();
+        var position = entity.Get<Transform>();
         var spriteInfo = entity.Get<SpriteInfo>();
         
         // Calculate entity bounds in world space
         var entityBounds = new Rectangle(
-            (int)(position.Current.X + spriteInfo.Offset.X),
-            (int)(position.Current.Y + spriteInfo.Offset.Y),
+            (int)(position.CurrentPosition.X + spriteInfo.Offset.X),
+            (int)(position.CurrentPosition.Y + spriteInfo.Offset.Y),
             (int)spriteInfo.Size.X,
             (int)spriteInfo.Size.Y
         );

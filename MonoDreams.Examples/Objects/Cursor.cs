@@ -2,6 +2,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Component.Cursor;
 using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
@@ -20,7 +21,7 @@ public static class Cursor
         
         entity.Set(new CursorController(initialType));
         entity.Set(new CursorInput());
-        entity.Set(new Position(Vector2.Zero));
+        entity.Set(new Transform(Vector2.Zero));
         entity.Set(new DrawComponent
         {
             Type = DrawElementType.Sprite,

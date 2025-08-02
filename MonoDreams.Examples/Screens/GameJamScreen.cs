@@ -1,24 +1,34 @@
-using DefaultEcs;
+﻿using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
+using Microsoft.Toolkit.HighPerformance.Helpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Dialogue;
+using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
+using MonoDreams.Examples.Message;
+using MonoDreams.Examples.System;
+using MonoDreams.Examples.System.Camera;
+using MonoDreams.Examples.System.Cursor;
+using MonoDreams.Examples.System.Debug;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
+using MonoDreams.Examples.System.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
-using MonoDreams.Util;
-using MonoGame.Extended.BitmapFonts;
+using MonoDreams.System;
+using MonoDreams.System.Collision;
+using MonoDreams.System.Physics;
+using MonoGame.SplineFlower;
+using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.Screens;
 
-public class DialogueExampleGameScreen : IGameScreen
+public class GameJamScreen : IGameScreen
 {
     private readonly ContentManager _content;
     private readonly Game _game;
@@ -31,13 +41,14 @@ public class DialogueExampleGameScreen : IGameScreen
     private readonly LevelLoader _levelLoader;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     
-    public DialogueExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
+    public GameJamScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
         _content = content;
         _camera = camera;
+        // viewportManager.SetVirtualResolution(ViewportManager.PresetResolutions[0].width, ViewportManager.PresetResolutions[0].height);
         _viewportManager = viewportManager;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
@@ -46,6 +57,18 @@ public class DialogueExampleGameScreen : IGameScreen
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
             { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
         };
+        
+        Setup.Initialize(_graphicsDevice, 10000F);
+        Setup.BaseLineColor = Color.DarkRed;
+        Setup.CurveLineColor = Color.Black;// new Color(new Vector3(21, 20, 28));
+        Setup.ShowPoints = true;
+        Setup.ShowCenterSpline = false;
+        Setup.ShowTangents = true;
+        Setup.ShowDirectionVectors = false;
+        Setup.ShowCurves = true;
+        Setup.ShowBaseLine = true;
+        Setup.CurveLineThickness = 1f;
+        Setup.TangentColor = Color.Black;
         
         camera.Position = new Vector2(0, 0);
         
@@ -57,56 +80,71 @@ public class DialogueExampleGameScreen : IGameScreen
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
-
     public void Load(ScreenController screenController, ContentManager content)
     {
+        var cursorTextures = new Dictionary<CursorType, Texture2D>
+        {
+            // [CursorType.Default] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1"),
+            [CursorType.Default] = content.Load<Texture2D>("Mouse sprites/slick_arrow-delta"),
+            [CursorType.Pointer] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 2"),
+            [CursorType.Hand] = content.Load<Texture2D>("Mouse sprites/Catpaw Mouse icon"),
+            // Add more cursor types as needed
+        };
+
+        // Create cursor entity
+        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
+
+        var trackTexture = new Texture2D(_graphicsDevice, 14, 1);
+        var asphalt = new Color(new Vector3(21, 20, 28));
+        trackTexture.SetData([asphalt, asphalt, asphalt, asphalt, asphalt, Color.Yellow, Color.Yellow, Color.Yellow, Color.Yellow, asphalt, asphalt, asphalt, asphalt, asphalt]);
+        Objects.Track.Create(_world, trackTexture);
+        Objects.Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
         // _levelLoader.LoadLevel(0);
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
+        var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
+            new CursorInputSystem(_world, _camera),
+            new InputMappingSystem(_world)
+        );
+        
+        var levelLoadSystems = new SequentialSystem<GameState>(
+            // new LevelLoadRequestSystem(_world, _content),
+            // new LDtkTileParserSystem(_world, _content),
+            // new LDtkEntityParserSystem(_world),
+            new EntitySpawnSystem(_world, _content, _renderTargets));
+        
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
-            // new InputHandlingSystem(),
-            // new MovementSystem(),
-            // new VelocitySystem(),
-            // new CollisionDetectionSystem(),
-            // new PhysicalCollisionResolutionSystem(),
-            // new PositionSystem(),
+            new CameraInputSystem(_world, _camera),
+            new CursorPositionSystem(_world),
+            new MovementSystem(_world, _parallelRunner),
+            new VelocitySystem(_world, _parallelRunner),
+            new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
+            new PhysicalCollisionResolutionSystem(_world),
+            new TransformSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
-            new DialogueUpdateSystem(_world)
+            new DialogueUpdateSystem(_world),
+            new CursorDrawPrepSystem(_world),
+            new SplineTransformControlSystem(_world),
+            new RaceCarSystem(_world)
             // ... other game logic systems
         );
+        
+        var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
 
-        // --- Example Setup for Dialogue UI Entity ---
-        // This would typically happen elsewhere (e.g., UI manager, game state load)
-        var dialogueUIEntity = _world.CreateEntity();
-        dialogueUIEntity.Set(new Transform { CurrentPosition = new Vector2(20, 0) });
-        dialogueUIEntity.Set(new DrawComponent());
-        dialogueUIEntity.Set(new DialogueUIStateComponent {
-            IsActive = true,
-            CurrentText = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-            DialogueFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt"), // Load assets
-            TextColor = Color.SaddleBrown,
-            DialogueBoxTexture = _content.Load<Texture2D>("Dialouge UI/dialog box"),
-            DialogueBoxNinePatch = new NinePatchInfo(),
-            DialogueBoxSize = new Vector2(_graphicsDevice.Viewport.Width - 200, 180), // Example size
-            SpeakerEmoteTexture = _content.Load<Texture2D>("Dialouge UI/Emotes/Teemo Basic emote animations sprite sheet").Crop(new Rectangle(0, 0, 32, 32), _graphicsDevice),
-            NextIndicatorTexture = _content.Load<Texture2D>("Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet").Crop(new Rectangle(96, 0, 16, 16), _graphicsDevice),
-            DialogueBoxOffset = new Vector2(140, 0),
-            EmoteOffset = new Vector2(0, 40),
-            TextOffset = new Vector2(180, 30),
-            TextArea = new Rectangle(180, 30, _graphicsDevice.Viewport.Width - 200 - 160, 120), // Example text area bounds
-            NextIndicatorOffset = new Vector2(_graphicsDevice.Viewport.Width - 180, 100), // Bottom right approx
-            TextRevealingSpeed = 20,
-            IsTextFullyRevealed = false,
-            VisibleCharacterCount = 0,
-            TextRevealStartTime = float.NaN,
-        });
-
+        var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
+            new ColliderDebugSystem(_world, _graphicsDevice)
+        );
+        
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
-            logicSystems
+            inputSystems,
+            levelLoadSystems,
+            logicSystems,
+            cameraFollowSystem,
+            debugSystems
         );
     }
     
@@ -116,7 +154,7 @@ public class DialogueExampleGameScreen : IGameScreen
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
-            new CullingSystem(_world, _camera),
+            // new CullingSystem(_world, _camera),
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice),
             new TextPrepSystem(_world)

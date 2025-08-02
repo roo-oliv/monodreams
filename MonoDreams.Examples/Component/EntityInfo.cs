@@ -7,6 +7,7 @@ public class EntityInfo(EntityType type)
 
 public enum EntityType
 {
+    Car,
     Player,
     Enemy,
     Tile,

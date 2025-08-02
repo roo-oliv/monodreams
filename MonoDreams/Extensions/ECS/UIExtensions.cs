@@ -7,7 +7,6 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoGame.Extended;
 using MonoGame.Extended.BitmapFonts;
-using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.Extensions.ECS;
 
@@ -61,7 +60,7 @@ public static class UIExtensions
                 Margin = 20,
             });
         
-        buttonEntity.Set(new Position(position));
+        buttonEntity.Set(new Transform(position));
         buttonEntity.Set(new BoxCollider(new Rectangle(size / new Point(-2, -2), size)));
         buttonEntity.Set(new SimpleText(text, font, defaultColor.Value, HorizontalAlign.Center, VerticalAlign.Center, drawLayer));
         buttonEntity.Set(new ButtonState(defaultColor.Value, selectedColor.Value, callback));

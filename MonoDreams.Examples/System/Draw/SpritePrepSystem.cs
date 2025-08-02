@@ -9,14 +9,14 @@ using MonoDreams.State;
 namespace MonoDreams.Examples.System.Draw;
 
 // Prepares DrawElements for static sprites and 9-patches
-[With(typeof(DrawComponent), typeof(SpriteInfo), typeof(Position), typeof(Visible))]
+[With(typeof(DrawComponent), typeof(SpriteInfo), typeof(Transform), typeof(Visible))]
 public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEntitySetSystem<GameState>(world)
 {
     private readonly Dictionary<string, Texture2D> _ninePatchTextureCache = new();
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref readonly var position = ref entity.Get<Position>();
+        ref readonly var transform = ref entity.Get<Transform>();
         ref readonly var spriteInfo = ref entity.Get<SpriteInfo>();
         ref readonly var drawComponent = ref entity.Get<DrawComponent>();
         
@@ -26,7 +26,7 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEnt
             var ninePatchTexture = CreateNinePatchTexture(spriteInfo);
 
             drawComponent.Texture = ninePatchTexture;
-            drawComponent.Position = position.Current + spriteInfo.Offset;
+            drawComponent.Position = transform.CurrentPosition + spriteInfo.Offset;
             drawComponent.Size = spriteInfo.Size;
             drawComponent.SourceRectangle = null;
             drawComponent.Color = spriteInfo.Color;
@@ -36,7 +36,9 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEnt
         else if (spriteInfo.SpriteSheet != null)
         {
             drawComponent.Texture = spriteInfo.SpriteSheet;
-            drawComponent.Position = position.Current + spriteInfo.Offset;
+            drawComponent.Position = transform.CurrentPosition + spriteInfo.Offset;
+            drawComponent.Rotation = transform.CurrentRotation;
+            drawComponent.Origin = transform.Origin;
             drawComponent.Size = spriteInfo.Size;
             drawComponent.SourceRectangle = spriteInfo.Source;
             drawComponent.Color = spriteInfo.Color;

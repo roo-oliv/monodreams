@@ -13,7 +13,7 @@ public static class Zone
     {
         var entity = level.World.CreateEntity();
         entity.Set(new EntityInfo(EntityType.Zone));
-        entity.Set(new Position(position));
+        entity.Set(new Transform(position));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, size), passive: true));
         entity.Set(new ZoneState(callback));
         return entity;

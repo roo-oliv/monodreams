@@ -42,8 +42,8 @@ public sealed class ColliderDrawSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         ref var collider = ref entity.Get<BoxCollider>();
-        ref var position = ref entity.Get<Position>();
-        var rect = new Rectangle(collider.Bounds.Location + position.Current.ToPoint(), collider.Bounds.Size);
+        ref var position = ref entity.Get<Transform>();
+        var rect = new Rectangle(collider.Bounds.Location + position.CurrentPosition.ToPoint(), collider.Bounds.Size);
         DrawRectangle(rect, collider.Passive ? Color.Red : Color.Blue, 2);
     }
 

@@ -20,7 +20,7 @@ public class CameraFollowSystem : ISystem<GameState>
         _camera = camera;
         _targetEntities = world.GetEntities()
             .With<CameraFollowTarget>()
-            .With<Position>()
+            .With<Transform>()
             .AsSet();
     }
     
@@ -42,10 +42,10 @@ public class CameraFollowSystem : ISystem<GameState>
         
         var target = activeTarget.Value;
         var followComponent = target.Get<CameraFollowTarget>();
-        var targetPosition = target.Get<Position>();
+        var targetPosition = target.Get<Transform>();
         
         // Calculate desired camera position (target position)
-        var desiredPosition = targetPosition.Current;
+        var desiredPosition = targetPosition.CurrentPosition;
         var currentCameraPosition = _camera.Position;
         
         // Calculate the distance between camera and target

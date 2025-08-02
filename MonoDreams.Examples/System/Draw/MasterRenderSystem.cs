@@ -5,10 +5,12 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.State;
+using MonoGame.SplineFlower.Spline;
+using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(DrawComponent), typeof(Position))]
+[With(typeof(DrawComponent), typeof(Transform))]
 public class MasterRenderSystem(
     SpriteBatch spriteBatch,
     GraphicsDevice graphicsDevice,
@@ -23,6 +25,13 @@ public class MasterRenderSystem(
             var drawList = world.GetEntities()
                 .With((in DrawComponent e) => e.Target == renderTarget.Key)
                 .AsSet();
+            EntitySet? splineList = null;
+            if (renderTarget.Key == RenderTargetID.Main)
+            {
+                splineList = world.GetEntities()
+                    .With<HermiteSpline>()
+                    .AsSet();
+            }
             
             graphicsDevice.SetRenderTarget(renderTarget.Value);
 
@@ -47,6 +56,14 @@ public class MasterRenderSystem(
                 effect: null,
                 transformMatrix: transformMatrix);
             foreach (var entity in drawList.GetEntities()) DrawElement(entity.Get<DrawComponent>());
+            if (splineList != null)
+                foreach (var entity in splineList.GetEntities())
+                {
+                    var spline = entity.Get<HermiteSpline>();
+                    spline.Draw(spriteBatch);
+                    // spline.CreatePolygonStripe();
+                    // spline.DrawPolygonStripe();
+                }
             spriteBatch.End();
         }
     }
@@ -69,8 +86,8 @@ public class MasterRenderSystem(
                     new Rectangle((int)element.Position.X, (int)element.Position.Y, (int)element.Size.X, (int)element.Size.Y),
                     element.SourceRectangle,
                     element.Color,
-                    0f, // element.Rotation
-                    Vector2.Zero, // element.Origin
+                    element.Rotation,
+                    element.Origin,
                     SpriteEffects.None, // element.Effects
                     element.LayerDepth);
 

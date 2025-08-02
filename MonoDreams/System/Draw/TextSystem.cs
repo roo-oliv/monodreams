@@ -10,17 +10,17 @@ using MonoGame.Extended.BitmapFonts;
 namespace MonoDreams.System.Draw;
 
 public sealed class TextSystem(SpriteBatch batch, World world)
-    : AEntitySetSystem<GameState>(world.GetEntities().With<SimpleText>().With<Position>().AsSet(), true)
+    : AEntitySetSystem<GameState>(world.GetEntities().With<SimpleText>().With<Transform>().AsSet(), true)
 {
     protected override void Update(GameState state, in Entity entity)
     {
         ref var text = ref entity.Get<SimpleText>();
-        ref var position = ref entity.Get<Position>();
+        ref var position = ref entity.Get<Transform>();
         var layerDepth = DrawLayerDepth.GetLayerDepth(text.DrawLayer);
         batch.DrawString(
             text.Font,
             text.Value,
-            position.Current,
+            position.CurrentPosition,
             text.Color,
             0.0f,
             text.Origin, 

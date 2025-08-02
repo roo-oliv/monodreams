@@ -6,7 +6,6 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Input;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
-using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.Examples.Objects;
 
@@ -18,7 +17,7 @@ public static class Player
         entity.Set(new EntityInfo(EntityType.Player));
         entity.Set(new PlayerState());
         entity.Set(new InputControlled());
-        entity.Set(new Position(position));
+        entity.Set(new Transform(position));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new DrawInfo(renderTarget, texture, Constants.PlayerSize, layer: drawLayer));
         entity.Set(new RigidBody());

@@ -11,8 +11,10 @@ public class DrawComponent
 
     // Common fields - Add others like Rotation, Origin, Scale, Effects if needed often
     public Vector2 Position;
+    public float Rotation; // In radians, 0 = right, positive = counter-clockwise
+    public Vector2 Origin;
     public Color Color;
-    public float LayerDepth; // Crucial for sorting
+    public float LayerDepth;
 
     // Sprite specific / Also used by NinePatch for texture source
     public Texture2D Texture;

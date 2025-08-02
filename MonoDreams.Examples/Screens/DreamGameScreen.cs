@@ -75,7 +75,7 @@ public class DreamGameScreen : IGameScreen
             // new DialogueInputSystem(_world),
             // new DialoguePresentationSystem(_world, _spriteBatch.GraphicsDevice),
             new PhysicalCollisionResolutionSystem(_world),
-            new PositionSystem(_world, _parallelRunner),
+            new TransformSystem(_world, _parallelRunner),
             new BeginDrawSystem(_spriteBatch, _camera),
             new ActionSystem<GameState>(_ => _spriteBatch.GraphicsDevice.SetRenderTarget(_renderTargets.main)),
             new ParallelSystem<GameState>(_parallelRunner,

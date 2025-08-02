@@ -69,10 +69,10 @@ public class LayoutSystem(World world, ViewportManager renderer) : ISystem<GameS
             parentPosition.Y + layoutNode.Node.LayoutY
         );
 
-        if (entity.Has<Position>())
+        if (entity.Has<Transform>())
         {
-            ref var entityPosition = ref entity.Get<Position>();
-            entityPosition.Current = position;
+            ref var entityPosition = ref entity.Get<Transform>();
+            entityPosition.CurrentPosition = position;
         }
 
         foreach (var child in layoutNode.Children)

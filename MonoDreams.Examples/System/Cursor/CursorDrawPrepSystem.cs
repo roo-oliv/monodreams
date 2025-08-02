@@ -15,7 +15,7 @@ public class CursorDrawPrepSystem(World world)
         .With<CursorController>()
         .With<CursorTextures>()
         .With<DrawComponent>()
-        .With<Position>()
+        .With<Transform>()
         .AsSet())
 {
     private readonly Vector2 _size = new(32);
@@ -24,7 +24,7 @@ public class CursorDrawPrepSystem(World world)
     {
         ref var controller = ref entity.Get<CursorController>();
         ref var textures = ref entity.Get<CursorTextures>();
-        ref var position = ref entity.Get<Position>();
+        ref var position = ref entity.Get<Transform>();
         ref var drawComponent = ref entity.Get<DrawComponent>();
         
         // Only add draw element if cursor is visible
@@ -32,7 +32,7 @@ public class CursorDrawPrepSystem(World world)
             return;
 
         drawComponent.Texture = value;
-        drawComponent.Position = position.Current;
+        drawComponent.Position = position.CurrentPosition;
         drawComponent.Size = _size;
     }
 }

@@ -14,11 +14,11 @@ public static class Dialogue
         var textEntity = world.CreateEntity();
         textEntity.Set(new EntityInfo(EntityType.Interface));
         textEntity.Set(new DynamicText(renderTarget, text, font, drawLayer: textDrawLayer, maxLineWidth: 2800));
-        textEntity.Set(new Position(new Vector2(-1150, -900)));
+        textEntity.Set(new Transform(new Vector2(-1150, -900)));
         
         var dialogBox = world.CreateEntity();
         dialogBox.Set(new EntityInfo(EntityType.Interface));
-        dialogBox.Set(new Position(new Vector2(-1400, -1100)));
+        dialogBox.Set(new Transform(new Vector2(-1400, -1100)));
         dialogBox.Set(
             new DrawInfo(
                 renderTarget,
@@ -43,7 +43,7 @@ public static class Dialogue
         
         var emote = world.CreateEntity();
         emote.Set(new EntityInfo(EntityType.Interface));
-        emote.Set(new Position(new Vector2(-1900, -1000)));
+        emote.Set(new Transform(new Vector2(-1900, -1000)));
         emote.Set(new DrawInfo(renderTarget, emoteTexture, new Point(550, 550), layer: boxDrawLayer));
         
         return textEntity;

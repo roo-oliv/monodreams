@@ -47,7 +47,7 @@ public class OptionsMenuScreen : IGameScreen
             new CursorSystem(World, camera),
             new CollisionDetectionSystem<CollisionMessage>(World, _parallelRunner, CollisionMessage.Create),
             new ButtonSystem<CollisionMessage>(World),
-            new PositionSystem(World, parallelRunner),
+            new TransformSystem(World, parallelRunner),
             new BeginDrawSystem(spriteBatch, camera),
             new DrawSystem(World, spriteBatch, _renderTargets.main, _parallelRunner),
             // new CompositeDrawSystem(spriteBatch, World),

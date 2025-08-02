@@ -15,7 +15,7 @@ public class DialogueTriggerSystem : AEntitySetSystem<GameState>
     private readonly Entity _player;
     
     public DialogueTriggerSystem(World world, Entity player)
-        : base(world.GetEntities().With<DialogueTrigger>().With<Position>().AsSet())
+        : base(world.GetEntities().With<DialogueTrigger>().With<Transform>().AsSet())
     {
         _world = world;
         _player = player;
@@ -35,10 +35,10 @@ public class DialogueTriggerSystem : AEntitySetSystem<GameState>
         {
             case TriggerType.Proximity:
                 // Check if player is within proximity radius
-                if (entity.Has<Position>() && _player.Has<Position>())
+                if (entity.Has<Transform>() && _player.Has<Transform>())
                 {
-                    var triggerPos = entity.Get<Position>().Current;
-                    var playerPos = _player.Get<Position>().Current;
+                    var triggerPos = entity.Get<Transform>().CurrentPosition;
+                    var playerPos = _player.Get<Transform>().CurrentPosition;
                     
                     float distance = Vector2.Distance(triggerPos, playerPos);
                     shouldTrigger = distance <= trigger.ProximityRadius;
@@ -47,10 +47,10 @@ public class DialogueTriggerSystem : AEntitySetSystem<GameState>
                 
             case TriggerType.Interaction:
                 // Check if player is close and interaction key is pressed
-                if (entity.Has<Position>() && _player.Has<Position>())
+                if (entity.Has<Transform>() && _player.Has<Transform>())
                 {
-                    var triggerPos = entity.Get<Position>().Current;
-                    var playerPos = _player.Get<Position>().Current;
+                    var triggerPos = entity.Get<Transform>().CurrentPosition;
+                    var playerPos = _player.Get<Transform>().CurrentPosition;
                     
                     float distance = Vector2.Distance(triggerPos, playerPos);
                     shouldTrigger = distance <= trigger.ProximityRadius && 

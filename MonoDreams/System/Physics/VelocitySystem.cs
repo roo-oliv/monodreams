@@ -9,21 +9,21 @@ namespace MonoDreams.System.Physics;
 
 public class VelocitySystem<TPositionComponent, TVelocityComponent>(World world, IParallelRunner parallelRunner)
     : AEntitySetSystem<GameState>(world.GetEntities().With<TPositionComponent>().With<TVelocityComponent>().AsSet(), parallelRunner)
-    where TPositionComponent : Position
+    where TPositionComponent : Transform
     where TVelocityComponent : Velocity
 {
     protected override void Update(GameState state, in Entity entity)
     {
         var position = entity.Get<TPositionComponent>();
         var velocity = entity.Get<TVelocityComponent>();
-        position.Current += velocity.Current * state.Time;  // S_1 = S_0 + V * dT
+        position.CurrentPosition += velocity.Current * state.Time;  // S_1 = S_0 + V * dT
         velocity.Last = velocity.Current;
     }
 }
 
 public class VelocitySystem<TPositionComponent>(World world, IParallelRunner parallelRunner)
     : VelocitySystem<TPositionComponent, Velocity>(world, parallelRunner)
-    where TPositionComponent : Position;
+    where TPositionComponent : Transform;
 
 public class VelocitySystem(World world, IParallelRunner parallelRunner)
-    : VelocitySystem<Position, Velocity>(world, parallelRunner);
+    : VelocitySystem<Transform, Velocity>(world, parallelRunner);

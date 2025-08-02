@@ -31,6 +31,8 @@
         <PackageReference Include="ImGui.NET" Version="1.89.7.1" />
         <PackageReference Include="MonoGame.Extended" Version="4.1.0" />
         <PackageReference Include="DefaultEcs" Version="0.18.0-beta01" />
+        <PackageReference Include="MonoGame.SplineFlower" Version="3.0.0" />
+        <PackageReference Include="MonoGame.SplineFlower.Content.Pipeline" Version="3.0.0" />
     </ItemGroup>
 
     <ItemGroup>
@@ -40,7 +42,6 @@
     <ItemGroup>
       <Folder Include="Assets\" />
       <Folder Include="Component\Camera\" />
-      <Folder Include="System\Camera\" />
       <Folder Include="System\Debug\" />
     </ItemGroup>
     

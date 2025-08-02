@@ -5,7 +5,6 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
-using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.Examples.Objects;
 
@@ -21,7 +20,7 @@ public class Tile
     {
         var entity = world.CreateEntity();
         entity.Set(new EntityInfo(EntityType.Tile));
-        entity.Set(new Position(position));
+        entity.Set(new Transform(position));
         entity.Set(new BoxCollider( new Rectangle(Point.Zero, size), passive: true));
         entity.Set(new RigidBody(isKinematic: true, gravityActive: false));
         var color = type switch

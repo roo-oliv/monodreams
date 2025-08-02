@@ -10,7 +10,7 @@ public struct SpriteInfo() : IComponent
     public Texture2D SpriteSheet = null;
     public Rectangle Source = default; // Source rectangle in the SpriteSheet
     public Vector2 Size = default; // Target rendering size on screen
-    public Color Color = default;
+    public Color Color = Color.White;
     public RenderTargetID Target = RenderTargetID.Main; // Which RenderTarget this belongs to
     public float LayerDepth = 0; // Or use LayerDepth directly
     public NinePatchInfo? NinePatchData = null; // Optional

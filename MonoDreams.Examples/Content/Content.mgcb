@@ -906,3 +906,27 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:./Atlas/Extra/TX Props with Shadow.png
+
+#begin ./Mouse sprites/slick_arrow-delta.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Mouse sprites/slick_arrow-delta.png
+
+#begin ./Characters/SportsRacingCar_0.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Characters/SportsRacingCar_0.png

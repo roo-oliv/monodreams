@@ -30,7 +30,7 @@ public class WallEntityFactory : IEntityFactory
 
         // Core components for wall entities
         entity.Set(new EntityInfo(EntityType.Tile));
-        entity.Set(new Position(request.Position));
+        entity.Set(new Transform(request.Position));
 
         // // Create DrawComponent with a single DrawElement
         // var drawComponent = new DrawComponent();

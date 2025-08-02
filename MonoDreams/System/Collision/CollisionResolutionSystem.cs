@@ -15,7 +15,7 @@ namespace MonoDreams.System.Collision;
 public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent, TVelocityComponent, TCollisionMessage>
     : ISystem<GameState>
     where TCollidableComponent : BoxCollider, ICollider
-    where TPositionComponent : Position
+    where TPositionComponent : Transform
     where TVelocityComponent : Velocity
     where TCollisionMessage : ICollisionMessage
 {
@@ -55,17 +55,17 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
         var entity = collision.BaseEntity;
         var position = entity.Get<TPositionComponent>();
         var collidable = entity.Get<TCollidableComponent>();
-        var dynamicRect = collidable.Bounds.AtPosition(position.Current);
+        var dynamicRect = collidable.Bounds.AtPosition(position.CurrentPosition);
         
         var collidingEntity = collision.CollidingEntity;
         var targetPosition = collidingEntity.Get<TPositionComponent>();
-        var targetRect = collidingEntity.Get<TCollidableComponent>().Bounds.AtPosition(targetPosition.Current);
+        var targetRect = collidingEntity.Get<TCollidableComponent>().Bounds.AtPosition(targetPosition.CurrentPosition);
         
-        if (!CollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, position.Delta, targetRect,
+        if (!CollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, position.PositionDelta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
         if (contactNormal.X != 0)
         {
-            position.Current.X = contactPoint.X - dynamicRect.Width / 2f - collidable.Bounds.Location.X;
+            position.CurrentPosition.X = contactPoint.X - dynamicRect.Width / 2f - collidable.Bounds.Location.X;
 
             if (entity.Has<TVelocityComponent>())
             {
@@ -85,7 +85,7 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
 
         if (contactNormal.Y != 0)
         {
-            position.Current.Y = contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y;
+            position.CurrentPosition.Y = contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y;
             
             if (entity.Has<TVelocityComponent>())
             {
@@ -107,11 +107,11 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
 
 public class CollisionResolutionSystem<TPosition, TVelocity, TCollisionMessage>(World world)
     : CollisionResolutionSystem<BoxCollider, TPosition, TVelocity, TCollisionMessage>(world)
-    where TPosition : Position
+    where TPosition : Transform
     where TVelocity : Velocity
     where TCollisionMessage : ICollisionMessage;
 
 public class CollisionResolutionSystem<TCollisionMessage>(World world)
-    : CollisionResolutionSystem<BoxCollider, Position, Velocity, TCollisionMessage>(world)
+    : CollisionResolutionSystem<BoxCollider, Transform, Velocity, TCollisionMessage>(world)
     where TCollisionMessage : ICollisionMessage;
 
