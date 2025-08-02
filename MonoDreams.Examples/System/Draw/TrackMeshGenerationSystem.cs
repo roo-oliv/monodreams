@@ -27,8 +27,8 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
         var vertices = new List<VertexPositionColor>();
         var indices = new List<int>();
         
-        var maxVelocity = 2000f;
-        var minVelocity = 200f;
+        var maxVelocity = 1000f;
+        var minVelocity = 50f;
         var velocityRange = maxVelocity - minVelocity;
         
         // Generate vertices along the spline
@@ -49,7 +49,7 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
             var velocityIndex = Math.Min(i, velocityProfile.Length - 1);
             var normalizedVelocity = velocityProfile[velocityIndex] / velocityRange;
             
-            var color = Color.Lerp(Color.Blue, Color.Red, normalizedVelocity);
+            var color = Color.Lerp(Color.Yellow, Color.Navy, normalizedVelocity);
             
             // Create left and right edge vertices
             var leftPosition = position + perpendicular * (trackWidth * 0.5f);

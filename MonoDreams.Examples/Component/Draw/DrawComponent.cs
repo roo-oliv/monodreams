@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Component.Draw;
 
@@ -22,7 +23,7 @@ public class DrawComponent
     public Vector2 Size; // Target size on screen
 
     // Text specific
-    public SpriteFont Font; // Or your glyph texture/info if using bitmap font
+    public BitmapFont Font; // Or your glyph texture/info if using bitmap font
     public string Text;    // The string to draw (SpriteFont ignores SourceRectangle/Texture)
 
     // NinePatch specific (Texture/SourceRectangle reference the spritesheet)

@@ -19,8 +19,15 @@ public class TrackAnalysisSystem(
     protected override void Update(GameState state, in Entity entity)
     {
         ref readonly var spline = ref entity.Get<HermiteSpline>();
-        ref readonly var velocityProfileComponent = ref entity.Get<VelocityProfileComponent>();
+        ref var velocityProfileComponent = ref entity.Get<VelocityProfileComponent>();
         velocityProfileComponent.VelocityProfile = CalculateVelocityProfile(spline);
+
+        // Calculate track statistics
+        if (velocityProfileComponent.VelocityProfile.Length <= 0) return;
+        velocityProfileComponent.MaxSpeed = velocityProfileComponent.VelocityProfile.Max();
+        velocityProfileComponent.MinSpeed = velocityProfileComponent.VelocityProfile.Min();
+        velocityProfileComponent.AverageSpeed = velocityProfileComponent.VelocityProfile.Average();
+        velocityProfileComponent.StatsCalculated = true;
     }
 
     private float[] CalculateVelocityProfile(HermiteSpline spline, int samples = 1000)

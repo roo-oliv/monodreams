@@ -5,10 +5,12 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
+using MonoDreams.Examples.Objects;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Camera;
 using MonoDreams.Examples.System.Cursor;
@@ -22,6 +24,7 @@ using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Physics;
+using MonoGame.Extended.BitmapFonts;
 using MonoGame.SplineFlower;
 using MonoGame.SplineFlower.Spline.Types;
 
@@ -91,9 +94,23 @@ public class GameJamScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
-        Objects.Track.Create(_world);
-        Objects.Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
+        Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
+        Track.Create(_world);
+        Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
+
+        // Create track stat entities
+        var font = content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+        var padding = -200f;
+
+        // Create max speed stat display
+        TrackStat.Create(_world, StatType.MaxSpeed, font, new Vector2(padding - 100, padding), RenderTargetID.Main);
+
+        // Create average speed stat display
+        TrackStat.Create(_world, StatType.AverageSpeed, font, new Vector2(padding - 100, padding + 30), RenderTargetID.Main);
+
+        // Create min speed stat display
+        TrackStat.Create(_world, StatType.MinSpeed, font, new Vector2(padding - 100, padding + 60), RenderTargetID.Main);
+
         // _levelLoader.LoadLevel(0);
     }
     
@@ -128,7 +145,8 @@ public class GameJamScreen : IGameScreen
             new TrackAnalysisSystem(_world),
             new TrackMeshGenerationSystem(_world, 12f),
             new SplineControlPointsRenderSystem(_world),
-            new RaceCarSystem(_world)
+            new RaceCarSystem(_world),
+            new TrackStatsReportSystem(_world)
             // ... other game logic systems
         );
         

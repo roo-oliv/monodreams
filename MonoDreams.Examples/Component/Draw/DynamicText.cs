@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Component.Draw;
 
@@ -9,7 +10,7 @@ public struct DynamicText : IComponent
     public RenderTargetID Target; // Which RenderTarget this belongs to
     public float LayerDepth; // Your existing layer enum/struct
     public string TextContent; // The full text to potentially display
-    public SpriteFont Font; // Or your font asset reference
+    public BitmapFont Font; // Or your font asset reference
     public Color Color;
     public float RevealingSpeed; // Characters per second
     public float RevealStartTime; // GameTime total seconds when reveal started
