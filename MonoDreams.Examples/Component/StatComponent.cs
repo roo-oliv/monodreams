@@ -4,7 +4,9 @@ public enum StatType
 {
     MaxSpeed,
     MinSpeed,
-    AverageSpeed
+    AverageSpeed,
+    OvertakingOpportunities,
+    BestOvertakingQuality
 }
 
 public class StatComponent(StatType type)

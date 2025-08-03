@@ -77,14 +77,55 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
     private void AddSquare(List<VertexPositionColor> vertices, List<int> indices, Vector2 position, float size, Color color, ref int indexOffset)
     {
         float halfSize = size / 2;
+        float borderThickness = 1.0f; // Thickness of the border
 
-        // Define four corners of a square
-        vertices.Add(new VertexPositionColor(new Vector3(position.X - halfSize, position.Y - halfSize, 0), color));
-        vertices.Add(new VertexPositionColor(new Vector3(position.X + halfSize, position.Y - halfSize, 0), color));
-        vertices.Add(new VertexPositionColor(new Vector3(position.X + halfSize, position.Y + halfSize, 0), color));
-        vertices.Add(new VertexPositionColor(new Vector3(position.X - halfSize, position.Y + halfSize, 0), color));
+        // Instead of filling the square, we'll create four thin rectangles for the borders
 
-        // Define two triangles (making a square)
+        // Top border
+        AddBorderLine(
+            vertices, indices,
+            new Vector2(position.X - halfSize, position.Y - halfSize),
+            new Vector2(position.X + halfSize, position.Y - halfSize),
+            borderThickness, color, ref indexOffset);
+
+        // Right border
+        AddBorderLine(
+            vertices, indices,
+            new Vector2(position.X + halfSize, position.Y - halfSize),
+            new Vector2(position.X + halfSize, position.Y + halfSize),
+            borderThickness, color, ref indexOffset);
+
+        // Bottom border
+        AddBorderLine(
+            vertices, indices,
+            new Vector2(position.X + halfSize, position.Y + halfSize),
+            new Vector2(position.X - halfSize, position.Y + halfSize),
+            borderThickness, color, ref indexOffset);
+
+        // Left border
+        AddBorderLine(
+            vertices, indices,
+            new Vector2(position.X - halfSize, position.Y + halfSize),
+            new Vector2(position.X - halfSize, position.Y - halfSize),
+            borderThickness, color, ref indexOffset);
+    }
+
+    private void AddBorderLine(List<VertexPositionColor> vertices, List<int> indices, 
+        Vector2 start, Vector2 end, float thickness, Color color, ref int indexOffset)
+    {
+        // Calculate direction and perpendicular vector for thickness
+        Vector2 direction = end - start;
+        Vector2 perpendicular = new Vector2(-direction.Y, direction.X);
+        perpendicular.Normalize();
+        perpendicular *= thickness / 2;
+
+        // Create the four corners of the line segment
+        vertices.Add(new VertexPositionColor(new Vector3(start + perpendicular, 0), color));
+        vertices.Add(new VertexPositionColor(new Vector3(start - perpendicular, 0), color));
+        vertices.Add(new VertexPositionColor(new Vector3(end - perpendicular, 0), color));
+        vertices.Add(new VertexPositionColor(new Vector3(end + perpendicular, 0), color));
+
+        // Create two triangles to form the line
         indices.Add(indexOffset);
         indices.Add(indexOffset + 1);
         indices.Add(indexOffset + 2);

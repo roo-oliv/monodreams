@@ -111,6 +111,12 @@ public class GameJamScreen : IGameScreen
         // Create min speed stat display
         TrackStat.Create(_world, StatType.MinSpeed, font, new Vector2(padding - 200, padding + 40), RenderTargetID.Main);
 
+        // Create overtaking opportunities stat display
+        TrackStat.Create(_world, StatType.OvertakingOpportunities, font, new Vector2(padding - 200, padding + 60), RenderTargetID.Main);
+
+        // Create best overtaking quality stat display
+        TrackStat.Create(_world, StatType.BestOvertakingQuality, font, new Vector2(padding - 200, padding + 80), RenderTargetID.Main);
+
         // _levelLoader.LoadLevel(0);
     }
     

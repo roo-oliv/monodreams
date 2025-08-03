@@ -37,7 +37,7 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
         var velocityRange = maxVelocity - minVelocity;
 
         // Generate vertices along the spline
-        for (int i = 0; i <= segments; i++)
+        for (var i = 0; i <= segments; i++)
         {
             var t = (float)i / segments;
             var progress = t * spline.MaxProgress();
@@ -92,7 +92,7 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
         }
         
         // Generate triangle indices
-        for (int i = 0; i < segments; i++)
+        for (var i = 0; i < segments; i++)
         {
             var baseIndex = i * 2;
             

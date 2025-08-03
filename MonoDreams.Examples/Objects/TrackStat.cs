@@ -43,6 +43,8 @@ public static class TrackStat
             StatType.MaxSpeed => "Top Speed",
             StatType.MinSpeed => "Lowest Speed",
             StatType.AverageSpeed => "Average Speed",
+            StatType.OvertakingOpportunities => "Overtaking Spots",
+            StatType.BestOvertakingQuality => "Best Overtaking",
             _ => "Unknown Stat"
         };
     }

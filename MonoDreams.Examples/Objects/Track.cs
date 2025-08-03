@@ -17,10 +17,12 @@ public static class Track
         
         var points = new Vector2[]
         {
-            new(0, -100),
+            new(-50, -100),
+            new(50, -100),
             new(100, 0),
             new(0, 100),
-            new(-100, 0),
+            new(50, 0),
+            new(-50, 0),
         };
         
         var spline = new HermiteSpline(

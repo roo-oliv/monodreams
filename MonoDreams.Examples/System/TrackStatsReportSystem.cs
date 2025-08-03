@@ -41,10 +41,11 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
             StatType.MaxSpeed => "Top Speed",
             StatType.MinSpeed => "Lowest Speed",
             StatType.AverageSpeed => "Average Speed",
+            StatType.OvertakingOpportunities => "Overtaking Spots",
+            StatType.BestOvertakingQuality => "Best Overtaking",
             _ => "Unknown Stat"
         };
     }
-
     private int GetStatValue(StatType statType, VelocityProfileComponent velocityProfile)
     {
         return statType switch
@@ -52,6 +53,8 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
             StatType.MaxSpeed => (int)velocityProfile.MaxSpeed,
             StatType.MinSpeed => (int)velocityProfile.MinSpeed,
             StatType.AverageSpeed => (int)velocityProfile.AverageSpeed,
+            StatType.OvertakingOpportunities => velocityProfile.OvertakingOpportunityCount,
+            StatType.BestOvertakingQuality => (int)(velocityProfile.BestOvertakingQuality * 100), // Convert quality to percentage
             _ => 0
         };
     }
