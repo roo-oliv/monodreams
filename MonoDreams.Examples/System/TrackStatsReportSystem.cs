@@ -11,12 +11,12 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
 {
     protected override void Update(GameState state, in Entity entity)
     {
-        // Get track entity with velocity profile
-        var trackEntity = world.GetEntities().With<VelocityProfileComponent>().AsEnumerable().FirstOrDefault();
-        if (trackEntity == null || !trackEntity.Has<VelocityProfileComponent>())
+        var boundary = world.GetEntities().With<LevelBoundaryComponent>().AsEnumerable().FirstOrDefault().Get<LevelBoundaryComponent>();
+        var track = world.GetEntities().With<VelocityProfileComponent>().AsEnumerable().FirstOrDefault();
+        if (track == null || !track.Has<VelocityProfileComponent>())
             return;
 
-        var velocityProfile = trackEntity.Get<VelocityProfileComponent>();
+        var velocityProfile = track.Get<VelocityProfileComponent>();
         if (!velocityProfile.StatsCalculated)
             return;
 
@@ -25,7 +25,7 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
         ref var dynamicText = ref entity.Get<DynamicText>();
 
         // Update the text content based on stat type
-        var statValue = GetStatValue(statComponent.Type, velocityProfile);
+        var statValue = GetStatValue(statComponent.Type, velocityProfile, boundary);
 
         // Format with one decimal place
         dynamicText.TextContent = $"{statValue:D}";
@@ -33,16 +33,17 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
         dynamicText.IsRevealed = true;
     }
 
-    private int GetStatValue(StatType statType, VelocityProfileComponent velocityProfile)
+    private int GetStatValue(StatType statType, VelocityProfileComponent velocityProfile, LevelBoundaryComponent boundary)
     {
+        var isValid = boundary.IntersectionPoints.Count == 0;
         return statType switch
         {
-            StatType.TopSpeed => (int)velocityProfile.MaxSpeed,
-            StatType.MinSpeed => (int)velocityProfile.MinSpeed,
-            StatType.AverageSpeed => (int)velocityProfile.AverageSpeed,
-            StatType.OvertakingSpots => velocityProfile.OvertakingOpportunityCount,
-            StatType.BestOvertakingQuality => (int)(velocityProfile.BestOvertakingQuality * 100), // Convert quality to percentage
-            StatType.Score => (int)velocityProfile.MaxSpeed * velocityProfile.OvertakingOpportunityCount,
+            StatType.TopSpeed => isValid ? (int)velocityProfile.MaxSpeed : 0,
+            StatType.MinSpeed => isValid ? (int)velocityProfile.MinSpeed : 0,
+            StatType.AverageSpeed => isValid ? (int)velocityProfile.AverageSpeed : 0,
+            StatType.OvertakingSpots => isValid ? velocityProfile.OvertakingOpportunityCount : 0,
+            StatType.BestOvertakingQuality => isValid ? (int)(velocityProfile.BestOvertakingQuality * 100) : 0,
+            StatType.Score => isValid ? (int)velocityProfile.MaxSpeed * velocityProfile.OvertakingOpportunityCount : 0,
             _ => 0
         };
     }

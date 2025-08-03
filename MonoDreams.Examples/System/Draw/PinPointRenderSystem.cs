@@ -19,6 +19,7 @@ public class PinPointRenderSystem(World world) : AEntitySetSystem<GameState>(wor
     private const float LineThickness = 1f;         // Thickness of the perpendicular line
     private static readonly Color OvertakingColor = new(203, 30, 75);
     private static readonly Color MaxSpeedColor = new(255, 201, 7);
+    private static readonly Color SpeedSymbolColor = Color.White;  // Color for the speed symbols
 
     protected override void Update(GameState state, in Entity entity)
     {
@@ -105,6 +106,9 @@ public class PinPointRenderSystem(World world) : AEntitySetSystem<GameState>(wor
 
                 // Add a larger circle at the end of the perpendicular line for max speed
                 AddCircle(circleVertices, circleIndices, maxSpeedEndPoint, EndCircleRadius, MaxSpeedColor, ref vertexIndex);
+
+                // Add the speed symbols (two '>' shapes) on top of the end circle
+                // AddSpeedSymbols(circleVertices, circleIndices, maxSpeedEndPoint, EndCircleRadius * 0.7f, SpeedSymbolColor, ref vertexIndex);
             }
         }
 
@@ -173,6 +177,46 @@ public class PinPointRenderSystem(World world) : AEntitySetSystem<GameState>(wor
         indices.Add(indexOffset + 3);
 
         indexOffset += 4;
+    }
+
+    private void AddSpeedSymbols(List<VertexPositionColor> vertices, List<int> indices, Vector2 center, float size, Color color, ref int indexOffset)
+    {
+        // Parameters for the symbols
+        float symbolWidth = size * 1.2f;
+        float symbolHeight = size * 1.5f;
+        float symbolThickness = size * 0.4f;
+        float spacing = size * 0.9f; // Space between the two symbols
+
+        // Calculate the position of the first symbol (left one)
+        Vector2 leftSymbolCenter = new(center.X - spacing/2, center.Y);
+
+        // Create first '>' symbol (left one)
+        AddGreaterThanSymbol(vertices, indices, leftSymbolCenter, symbolWidth, symbolHeight, symbolThickness, color, ref indexOffset);
+
+        // Calculate the position of the second symbol (right one)
+        Vector2 rightSymbolCenter = new(center.X + spacing/2, center.Y);
+
+        // Create second '>' symbol (right one)
+        AddGreaterThanSymbol(vertices, indices, rightSymbolCenter, symbolWidth, symbolHeight, symbolThickness, color, ref indexOffset);
+    }
+
+    private void AddGreaterThanSymbol(List<VertexPositionColor> vertices, List<int> indices, 
+        Vector2 center, float width, float height, float thickness, Color color, ref int indexOffset)
+    {
+        // Calculate points for the greater than symbol
+        // The symbol consists of two line segments that form a '>' shape
+
+        // Calculate points for the symbol
+        Vector2 leftPoint = new(center.X - width/2, center.Y);
+        Vector2 rightPoint = new(center.X + width/2, center.Y);
+        Vector2 topPoint = new(center.X, center.Y - height/2);
+        Vector2 bottomPoint = new(center.X, center.Y + height/2);
+
+        // Add top line (left point to top point)
+        AddLine(vertices, indices, rightPoint, topPoint, thickness, color, ref indexOffset);
+
+        // Add bottom line (left point to bottom point)
+        AddLine(vertices, indices, rightPoint, bottomPoint, thickness, color, ref indexOffset);
     }
 
 

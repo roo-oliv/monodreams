@@ -11,10 +11,8 @@ namespace MonoDreams.Examples.System.Draw;
 [With(typeof(LevelBoundaryComponent))]
 public class LevelBoundaryRenderSystem(World world) : AEntitySetSystem<GameState>(world)
 {
-    private const float BorderThickness = 2f;
-    private static readonly Color BorderColor = Color.White; // Deep blue for the boundary lines
-    private static readonly Color IntersectionColor = Color.Red; // Red for intersection points
-    private const float IntersectionPointSize = 8f;
+    private static readonly Color IntersectionColor = Color.Red;
+    private const float IntersectionPointSize = 5f;
 
     protected override void Update(GameState state, in Entity entity)
     {
@@ -59,7 +57,7 @@ public class LevelBoundaryRenderSystem(World world) : AEntitySetSystem<GameState
         {
             foreach (var point in boundaryComponent.IntersectionPoints)
             {
-                AddSquare(vertices, indices, point, IntersectionPointSize, IntersectionColor, ref indexOffset);
+                AddXMark(vertices, indices, point, IntersectionPointSize, IntersectionColor, ref indexOffset);
             }
         }
 
@@ -119,6 +117,25 @@ public class LevelBoundaryRenderSystem(World world) : AEntitySetSystem<GameState
         indices.Add(indexOffset + 3);
 
         indexOffset += 4;
+    }
+
+    private void AddXMark(List<VertexPositionColor> vertices, List<int> indices, Vector2 position, float size, Color color, ref int indexOffset)
+    {
+        float halfSize = size / 2;
+        float lineThickness = 2f;
+
+        // Create two lines that form an X
+        // First line: top-left to bottom-right
+        AddLine(vertices, indices, 
+            new Vector2(position.X - halfSize, position.Y - halfSize),
+            new Vector2(position.X + halfSize, position.Y + halfSize),
+            lineThickness, color, ref indexOffset);
+
+        // Second line: top-right to bottom-left
+        AddLine(vertices, indices, 
+            new Vector2(position.X + halfSize, position.Y - halfSize),
+            new Vector2(position.X - halfSize, position.Y + halfSize),
+            lineThickness, color, ref indexOffset);
     }
 
     private void AddSquare(List<VertexPositionColor> vertices, List<int> indices, Vector2 position, float size, Color color, ref int indexOffset)

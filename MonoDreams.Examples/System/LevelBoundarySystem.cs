@@ -83,7 +83,7 @@ public class LevelBoundarySystem(World world) : AEntitySetSystem<GameState>(worl
                 {
                     // Add the intersection point to the list
                     boundaryComponent.IntersectionPoints.Add(intersection);
-                    return false; // Spline intersects boundary
+                    // return false; // Spline intersects boundary
                 }
             }
         }
@@ -96,7 +96,7 @@ public class LevelBoundarySystem(World world) : AEntitySetSystem<GameState>(worl
             return IsPointInsideBoundary(splinePoints[0], boundaryComponent.BoundaryPolygons);
         }
 
-        return true; // Default to true if no points to check
+        return boundaryComponent.IntersectionPoints.Count == 0;
     }
 
     private bool IsPointInsideBoundary(Vector2 point, List<Vector2[]> boundaryPolygons)
