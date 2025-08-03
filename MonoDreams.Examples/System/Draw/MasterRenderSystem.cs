@@ -58,6 +58,12 @@ public class MasterRenderSystem(
                 .With((in OvertakingOpportunityDrawComponent e) => e.Target == renderTarget.Key)
                 .AsSet();
 
+            // Get specialized draw components for level boundaries
+            var boundariesList = world.GetEntities()
+                .With<BoundaryDrawComponent>()
+                .With((in BoundaryDrawComponent e) => e.Target == renderTarget.Key)
+                .AsSet();
+
             EntitySet? splineList = null;
             if (renderTarget.Key == RenderTargetID.Main)
             {
@@ -102,6 +108,12 @@ public class MasterRenderSystem(
             if (!overtakingOpportunitiesList.GetEntities().IsEmpty)
             {
                 DrawOvertakingOpportunities(overtakingOpportunitiesList.GetEntities().ToArray());
+            }
+
+            // Draw level boundaries
+            if (!boundariesList.GetEntities().IsEmpty)
+            {
+                DrawBoundaries(boundariesList.GetEntities().ToArray());
             }
             
             // Draw sprites and other elements
@@ -220,6 +232,28 @@ public class MasterRenderSystem(
             foreach (var entity in overtakingOpportunitiesEntities)
             {
                 var drawComponent = entity.Get<OvertakingOpportunityDrawComponent>();
+                if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    drawComponent.PrimitiveType,
+                    drawComponent.Vertices,
+                    0,
+                    drawComponent.Vertices.Length,
+                    drawComponent.Indices,
+                    0,
+                    drawComponent.Indices.Length / 3);
+            }
+        }
+    }
+
+    private void DrawBoundaries(Entity[] boundaryEntities)
+    {
+        foreach (var pass in _basicEffect.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+
+            foreach (var entity in boundaryEntities)
+            {
+                var drawComponent = entity.Get<BoundaryDrawComponent>();
                 if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
                 graphicsDevice.DrawUserIndexedPrimitives(
                     drawComponent.PrimitiveType,

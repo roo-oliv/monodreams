@@ -96,6 +96,7 @@ public class GameJamScreen : IGameScreen
         // Create cursor entity
         Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
         Track.Create(_world);
+        LevelBoundary.Create(_world);
         Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
 
         // Create track stat entities
@@ -148,9 +149,11 @@ public class GameJamScreen : IGameScreen
             new DialogueUpdateSystem(_world),
             new CursorDrawPrepSystem(_world),
             new SplineTransformControlSystem(_world),
+            new LevelBoundarySystem(_world),
             new TrackAnalysisSystem(_world),
             new TrackMeshGenerationSystem(_world, 3f),
             new SplineControlPointsRenderSystem(_world),
+            new LevelBoundaryRenderSystem(_world),
             new OvertakingOpportunityRenderSystem(_world),
             new RaceCarSystem(_world),
             new TrackStatsReportSystem(_world)

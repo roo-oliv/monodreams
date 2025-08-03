@@ -17,14 +17,14 @@ public static class Track
         
         var points = new Vector2[]
         {
-            new(-50, -100),
+            new(-150, -100),
             new(50, -100),
             new(100, 0),
             new(0, 100),
             new(50, 0),
-            new(-50, 0),
+            new(-150, 0),
         };
-        
+
         var spline = new HermiteSpline(
             points.Select(p => new MonoGame.SplineFlower.Transform(p))
             .Concat([new MonoGame.SplineFlower.Transform(Vector2.Zero)])
