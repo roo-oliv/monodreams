@@ -11,9 +11,9 @@ namespace MonoDreams.Examples.System;
 public class TrackAnalysisSystem(
     World world,
     float maxSpeed = 2000f,
-    float maxAcceleration = 100f,
-    float maxDeceleration = 400f,
-    float frictionCoefficient = 5.0f)
+    float maxAcceleration = 350f,
+    float maxDeceleration = 1200f,
+    float frictionCoefficient = 500.0f)
     : AEntitySetSystem<GameState>(world)
 {
     protected override void Update(GameState state, in Entity entity)
@@ -57,10 +57,12 @@ public class TrackAnalysisSystem(
 
             // Calculate maximum speed for this corner based on curvature
             // v_max = sqrt(friction * g * radius) where radius = 1/curvature -- removed the sqrt for racing similarity
-            if (curvatures[i] > 0.001f) // Avoid division by zero
+            if (curvatures[i] > 0.0001f) // Avoid division by zero
             {
                 var radius = 1f / curvatures[i];
-                maxCorneringSpeeds[i] = frictionCoefficient * 9.81f * radius;
+                var smoothSpeed = Math.Sqrt(frictionCoefficient * 9.81f * radius);
+                var sigmoidSpeed = maxSpeed / (1 + Math.Exp(-0.012 * smoothSpeed + 7));
+                maxCorneringSpeeds[i] = (float)sigmoidSpeed;
                 maxCorneringSpeeds[i] = MathF.Min(maxCorneringSpeeds[i], maxSpeed);
             }
             else

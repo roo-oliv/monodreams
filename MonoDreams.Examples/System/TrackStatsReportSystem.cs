@@ -38,12 +38,12 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
         var isValid = boundary.IntersectionPoints.Count == 0;
         return statType switch
         {
-            StatType.TopSpeed => isValid ? (int)velocityProfile.MaxSpeed : 0,
-            StatType.MinSpeed => isValid ? (int)velocityProfile.MinSpeed : 0,
-            StatType.AverageSpeed => isValid ? (int)velocityProfile.AverageSpeed : 0,
+            StatType.TopSpeed => isValid ? (int)(velocityProfile.MaxSpeed / 5f) : 0,
+            StatType.MinSpeed => isValid ? (int)(velocityProfile.MinSpeed / 5f) : 0,
+            StatType.AverageSpeed => isValid ? (int)(velocityProfile.AverageSpeed / 5f) : 0,
             StatType.OvertakingSpots => isValid ? velocityProfile.OvertakingOpportunityCount : 0,
             StatType.BestOvertakingQuality => isValid ? (int)(velocityProfile.BestOvertakingQuality * 100) : 0,
-            StatType.Score => isValid ? (int)velocityProfile.MaxSpeed * velocityProfile.OvertakingOpportunityCount : 0,
+            StatType.Score => isValid ? (int)(velocityProfile.MaxSpeed / 5f) * velocityProfile.OvertakingOpportunityCount : 0,
             _ => 0
         };
     }
