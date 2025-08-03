@@ -25,36 +25,24 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
         ref var dynamicText = ref entity.Get<DynamicText>();
 
         // Update the text content based on stat type
-        var statLabel = GetStatLabel(statComponent.Type);
         var statValue = GetStatValue(statComponent.Type, velocityProfile);
 
         // Format with one decimal place
-        dynamicText.TextContent = $"{statLabel}: {statValue:D}";
+        dynamicText.TextContent = $"{statValue:D}";
         dynamicText.VisibleCharacterCount = dynamicText.TextContent.Length;
         dynamicText.IsRevealed = true;
     }
 
-    private string GetStatLabel(StatType statType)
-    {
-        return statType switch
-        {
-            StatType.MaxSpeed => "Top Speed",
-            StatType.MinSpeed => "Lowest Speed",
-            StatType.AverageSpeed => "Average Speed",
-            StatType.OvertakingOpportunities => "Overtaking Spots",
-            StatType.BestOvertakingQuality => "Best Overtaking",
-            _ => "Unknown Stat"
-        };
-    }
     private int GetStatValue(StatType statType, VelocityProfileComponent velocityProfile)
     {
         return statType switch
         {
-            StatType.MaxSpeed => (int)velocityProfile.MaxSpeed,
+            StatType.TopSpeed => (int)velocityProfile.MaxSpeed,
             StatType.MinSpeed => (int)velocityProfile.MinSpeed,
             StatType.AverageSpeed => (int)velocityProfile.AverageSpeed,
-            StatType.OvertakingOpportunities => velocityProfile.OvertakingOpportunityCount,
+            StatType.OvertakingSpots => velocityProfile.OvertakingOpportunityCount,
             StatType.BestOvertakingQuality => (int)(velocityProfile.BestOvertakingQuality * 100), // Convert quality to percentage
+            StatType.Score => (int)velocityProfile.MaxSpeed * velocityProfile.OvertakingOpportunityCount,
             _ => 0
         };
     }

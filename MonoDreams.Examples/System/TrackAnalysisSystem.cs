@@ -30,6 +30,9 @@ public class TrackAnalysisSystem(
         velocityProfileComponent.MinSpeed = velocityProfileComponent.VelocityProfile.Min();
         velocityProfileComponent.AverageSpeed = velocityProfileComponent.VelocityProfile.Average();
 
+        // Calculate lap time based on velocity profile
+        // velocityProfileComponent.LapTime = CalculateLapTime(velocityProfileComponent.VelocityProfile, velocityProfileComponent.DistanceProfile);
+
         // Analyze overtaking opportunities
         velocityProfileComponent.OvertakingOpportunities = AnalyzeOvertakingOpportunities(
             velocityProfileComponent.VelocityProfile, 
@@ -325,5 +328,32 @@ public class TrackAnalysisSystem(
         result.Add(current);
 
         return result;
+    }
+
+    private float CalculateLapTime(float[] velocityProfile, float[] distanceProfile)
+    {
+        if (velocityProfile.Length <= 1 || distanceProfile.Length <= 1 || velocityProfile.Length != distanceProfile.Length)
+            return 0f;
+
+        float totalTime = 0f;
+
+        // Calculate time for each segment based on average velocity and distance
+        for (int i = 1; i < velocityProfile.Length; i++)
+        {
+            // Get segment distance
+            float segmentDistance = distanceProfile[i] - distanceProfile[i - 1];
+
+            // Get average velocity for this segment (using trapezoidal approximation)
+            float avgVelocity = (velocityProfile[i] + velocityProfile[i - 1]) / 2f;
+
+            // Calculate time for this segment (t = d/v) and add to total
+            // Avoid division by zero
+            if (avgVelocity > 0.001f)
+            {
+                totalTime += segmentDistance / avgVelocity;
+            }
+        }
+
+        return totalTime;
     }
 }

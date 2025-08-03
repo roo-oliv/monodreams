@@ -11,7 +11,7 @@ namespace MonoDreams.Examples.Objects;
 
 public static class TrackStat
 {
-    public static Entity Create(World world, StatType statType, BitmapFont font, Vector2 position, RenderTargetID renderTarget)
+    public static Entity Create(World world, StatType statType, BitmapFont font, Vector2 position, RenderTargetID renderTarget, Color? labelColor = null, Color? statColor = null)
     {
         var entity = world.CreateEntity();
 
@@ -25,12 +25,27 @@ public static class TrackStat
         {
             Target = renderTarget,
             LayerDepth = 0.9f,
-            TextContent = GetStatLabel(statType) + ": 0",
+            TextContent = "0",
             Font = font,
-            Color = Color.White,
+            Color = statColor ?? Color.White,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
-            Scale = 0.2f // Smaller scale for stats
+            Scale = 0.3f
+        });
+        
+        var label = world.CreateEntity();
+        label.Set(new Transform(position + new Vector2(0, -20))); // Position above the stat
+        label.Set(new Visible());
+        label.Set(new DynamicText
+        {
+            Target = renderTarget,
+            LayerDepth = 0.9f,
+            TextContent = GetStatLabel(statType),
+            Font = font,
+            Color = labelColor ?? Color.White,
+            IsRevealed = true,
+            VisibleCharacterCount = int.MaxValue,
+            Scale = 0.15f // Smaller scale for label
         });
 
         return entity;
@@ -40,11 +55,10 @@ public static class TrackStat
     {
         return statType switch
         {
-            StatType.MaxSpeed => "Top Speed",
-            StatType.MinSpeed => "Lowest Speed",
-            StatType.AverageSpeed => "Average Speed",
-            StatType.OvertakingOpportunities => "Overtaking Spots",
-            StatType.BestOvertakingQuality => "Best Overtaking",
+            StatType.TopSpeed => "Top Speed",
+            StatType.LapTime => "Lap Time",
+            StatType.OvertakingSpots => "Overtaking Spots",
+            StatType.Score => "Score",
             _ => "Unknown Stat"
         };
     }

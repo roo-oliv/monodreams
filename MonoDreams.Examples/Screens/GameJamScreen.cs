@@ -26,7 +26,7 @@ using MonoDreams.System.Collision;
 using MonoDreams.System.Physics;
 using MonoGame.Extended.BitmapFonts;
 using MonoGame.SplineFlower;
-using MonoGame.SplineFlower.Spline.Types;
+using SimpleText = MonoDreams.Examples.Objects.SimpleText;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -101,30 +101,19 @@ public class GameJamScreen : IGameScreen
 
         // Create track stat entities
         var font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
-        var padding = -200f;
+        var padding = -230f;
 
-        // Create max speed stat display
-        TrackStat.Create(_world, StatType.MaxSpeed, font, new Vector2(padding - 200, padding), RenderTargetID.Main);
-
-        // Create average speed stat display
-        TrackStat.Create(_world, StatType.AverageSpeed, font, new Vector2(padding - 200, padding + 20), RenderTargetID.Main);
-
-        // Create min speed stat display
-        TrackStat.Create(_world, StatType.MinSpeed, font, new Vector2(padding - 200, padding + 40), RenderTargetID.Main);
-
-        // Create overtaking opportunities stat display
-        TrackStat.Create(_world, StatType.OvertakingOpportunities, font, new Vector2(padding - 200, padding + 60), RenderTargetID.Main);
-
-        // Create best overtaking quality stat display
-        TrackStat.Create(_world, StatType.BestOvertakingQuality, font, new Vector2(padding - 200, padding + 80), RenderTargetID.Main);
+        TrackStat.Create(_world, StatType.TopSpeed, font, new Vector2(-400, padding), RenderTargetID.Main, new Color(255, 201, 7));
+        SimpleText.Create(_world, "*", font, new Vector2(-270, padding), RenderTargetID.Main, 0.2f);
+        TrackStat.Create(_world, StatType.OvertakingSpots, font, new Vector2(-200, padding), RenderTargetID.Main, new Color(203, 30, 75));
+        SimpleText.Create(_world, "=", font, new Vector2(0, padding), RenderTargetID.Main, 0.3f);
+        TrackStat.Create(_world, StatType.Score, font, new Vector2(80, padding), RenderTargetID.Main);
 
         // _levelLoader.LoadLevel(0);
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        // ... existing systems ...
-        
         var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
             new CursorInputSystem(_world, _camera),
             new InputMappingSystem(_world)

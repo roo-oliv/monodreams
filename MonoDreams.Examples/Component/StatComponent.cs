@@ -2,11 +2,13 @@
 
 public enum StatType
 {
-    MaxSpeed,
+    TopSpeed,
     MinSpeed,
     AverageSpeed,
-    OvertakingOpportunities,
-    BestOvertakingQuality
+    OvertakingSpots,
+    BestOvertakingQuality,
+    LapTime,
+    Score
 }
 
 public class StatComponent(StatType type)
