@@ -103,7 +103,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
             new PhysicalCollisionResolutionSystem(_world),
             new TransformSystem(_world, _parallelRunner),
-            new TextUpdateSystem(_world), // Logic only
+            new TextUpdateSystem(_world),
             new DialogueUpdateSystem(_world),
             new CursorDrawPrepSystem(_world)
             // ... other game logic systems

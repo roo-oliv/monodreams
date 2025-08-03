@@ -30,7 +30,7 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
         }
 
         var layerDepth = text.LayerDepth;
-        var visibleText = text.TextContent[..text.VisibleCharacterCount];
+        var visibleText = text.TextContent[..Math.Min(text.VisibleCharacterCount, text.TextContent.Length)];
 
         // Add a single DrawElement for the visible text (SpriteFont handles glyphs)
         entity.Set(new DrawComponent

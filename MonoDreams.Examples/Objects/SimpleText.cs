@@ -1,6 +1,7 @@
 ﻿using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoGame.Extended.BitmapFonts;
 using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
@@ -29,6 +30,7 @@ public static class SimpleText
             VisibleCharacterCount = int.MaxValue,
             Scale = scale
         });
+        entity.Set(new LevelEntity());
 
         return entity;
     }

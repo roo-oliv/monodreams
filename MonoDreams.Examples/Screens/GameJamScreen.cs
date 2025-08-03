@@ -42,6 +42,7 @@ public class GameJamScreen : IGameScreen
     private readonly World _world;
     private readonly LevelLoader _levelLoader;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
+    private readonly LevelSelectionSystem _levelSelectionSystem;
     
     public GameJamScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -75,7 +76,11 @@ public class GameJamScreen : IGameScreen
         camera.Position = new Vector2(0, 0);
         
         _world = new World();
-        // _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
+        _world.Set(new ContentProvider(content)); // Set content provider early
+
+        // Create level selection system
+        _levelSelectionSystem = new LevelSelectionSystem(_world);
+
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
     }
@@ -84,6 +89,9 @@ public class GameJamScreen : IGameScreen
     public ISystem<GameState> DrawSystem { get; }
     public void Load(ScreenController screenController, ContentManager content)
     {
+        // Add content provider to world for systems to access
+        _world.Set(new ContentProvider(content));
+
         var cursorTextures = new Dictionary<CursorType, Texture2D>
         {
             // [CursorType.Default] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1"),
@@ -95,23 +103,8 @@ public class GameJamScreen : IGameScreen
 
         // Create cursor entity
         Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
-        Track.Create(_world);
-        LevelBoundary.Create(_world);
-        Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
 
-        // Create track stat entities
-        var font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
-        var padding = -230f;
-
-        TrackStat.Create(_world, StatType.TopSpeed, font, new Vector2(-400, padding), RenderTargetID.Main, new Color(255, 201, 7));
-        SimpleText.Create(_world, "*", font, new Vector2(-270, padding), RenderTargetID.Main, 0.2f);
-        TrackStat.Create(_world, StatType.OvertakingSpots, font, new Vector2(-200, padding), RenderTargetID.Main, new Color(203, 30, 75));
-        SimpleText.Create(_world, "=", font, new Vector2(0, padding), RenderTargetID.Main, 0.3f);
-        TrackStat.Create(_world, StatType.Score, font, new Vector2(80, padding), RenderTargetID.Main);
-        TrackGradeDisplay.Create(_world, font, new Vector2(300, 220), RenderTargetID.Main);
-        // SimpleText.Create(_world, "Mini Track", font, new Vector2(-100, -50), RenderTargetID.Main, 0.2f, new Color(255, 201, 7));
-
-        // _levelLoader.LoadLevel(0);
+        _levelSelectionSystem.ReturnToLevelSelection();
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
@@ -147,7 +140,8 @@ public class GameJamScreen : IGameScreen
             new LevelBoundaryRenderSystem(_world),
             new PinPointRenderSystem(_world),
             new RaceCarSystem(_world),
-            new TrackScoreSystem(_world)
+            new TrackScoreSystem(_world),
+            _levelSelectionSystem
             // ... other game logic systems
         );
         
@@ -174,7 +168,8 @@ public class GameJamScreen : IGameScreen
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice),
             new TriangleMeshPrepSystem(_world),
-            new TextPrepSystem(_world)
+            new TextPrepSystem(_world),
+            new ButtonOutlineRenderSystem(_world)
         );
         
         // Systems that prepare DrawComponent based on state (can often be parallel)

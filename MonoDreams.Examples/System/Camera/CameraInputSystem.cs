@@ -15,7 +15,7 @@ public class CameraInputSystem(World world, MonoDreams.Component.Camera camera) 
     {
         var cursorInput = entity.Get<CursorInput>();
 
-        camera.Zoom += cursorInput.ScrollWheelDelta * 0.001f; // Adjust zoom sensitivity as needed
+        // camera.Zoom += cursorInput.ScrollWheelDelta * 0.001f; // Adjust zoom sensitivity as needed
     }
     
     public void Dispose()

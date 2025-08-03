@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
 using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Component.Draw;
