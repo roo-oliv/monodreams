@@ -38,9 +38,9 @@ public class TrackStatsReportSystem(World world) : AEntitySetSystem<GameState>(w
     {
         return statType switch
         {
-            StatType.MaxSpeed => "Max Speed",
-            StatType.MinSpeed => "Min Speed",
-            StatType.AverageSpeed => "Avg Speed",
+            StatType.MaxSpeed => "Top Speed",
+            StatType.MinSpeed => "Lowest Speed",
+            StatType.AverageSpeed => "Average Speed",
             _ => "Unknown Stat"
         };
     }

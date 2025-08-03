@@ -27,7 +27,7 @@ public static class TrackStat
             LayerDepth = 0.9f,
             TextContent = GetStatLabel(statType) + ": 0",
             Font = font,
-            Color = Color.Black,
+            Color = Color.White,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
             Scale = 0.2f // Smaller scale for stats
@@ -40,9 +40,9 @@ public static class TrackStat
     {
         return statType switch
         {
-            StatType.MaxSpeed => "Max Speed",
-            StatType.MinSpeed => "Min Speed",
-            StatType.AverageSpeed => "Avg Speed",
+            StatType.MaxSpeed => "Top Speed",
+            StatType.MinSpeed => "Lowest Speed",
+            StatType.AverageSpeed => "Average Speed",
             _ => "Unknown Stat"
         };
     }

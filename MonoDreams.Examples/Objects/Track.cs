@@ -48,10 +48,15 @@ public static class Track
         spline.SelectedTransform = null;
         
         entity.Set(spline);
-        entity.Set(new Transform(Vector2.Zero));
+        var transform = new Transform(Vector2.Zero);
+        entity.Set(transform);
         entity.Set(new CursorController());
         entity.Set(new CursorInput());
         entity.Set(new VelocityProfileComponent());
+
+        var borderEntity = world.CreateEntity();
+        borderEntity.Set(transform);
+        entity.Set(borderEntity);
         
         return entity;
     }

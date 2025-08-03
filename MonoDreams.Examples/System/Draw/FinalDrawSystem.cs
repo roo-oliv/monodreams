@@ -21,6 +21,7 @@ public sealed class FinalDrawSystem : ISystem<GameState>
          RenderTargetID.HUD,
      ];
      private readonly MonoDreams.Component.Camera _camera;
+     private static readonly Color ClearColor = new(18, 32, 69);
 
      public bool IsEnabled { get; set; } = true;
 
@@ -39,13 +40,13 @@ public sealed class FinalDrawSystem : ISystem<GameState>
         // Ensure we are drawing to the back buffer
         _graphicsDevice.SetRenderTarget(null);
         // Clear the entire screen (including letter/pillarbox areas)
-        _graphicsDevice.Clear(Color.GhostWhite);
+        _graphicsDevice.Clear(ClearColor);
 
         // No scale matrix needed here, we draw using destination rectangle for scaling.
         _spriteBatch.Begin(
             SpriteSortMode.Immediate, // Draw RTs in specific order
             BlendState.AlphaBlend,    // Use AlphaBlend for UI overlays
-            SamplerState.PointClamp,  // PointClamp for pixel art, LinearClamp otherwise
+            SamplerState.LinearClamp,  // PointClamp for pixel art, LinearClamp otherwise
             DepthStencilState.None,
             RasterizerState.CullNone);
 

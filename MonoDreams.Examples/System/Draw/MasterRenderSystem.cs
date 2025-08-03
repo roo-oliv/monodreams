@@ -34,7 +34,7 @@ public class MasterRenderSystem(
     {
         if (_basicEffect == null)
             Initialize();
-            
+        
         foreach (var renderTarget in renderTargets)
         {
             var drawList = world.GetEntities()
@@ -91,7 +91,7 @@ public class MasterRenderSystem(
             {
                 DrawControlLines(controlLinesList.GetEntities().ToArray());
             }
-                
+            
             // Draw sprites and other elements
             spriteBatch.Begin(
                 sortMode: SpriteSortMode.FrontToBack,
@@ -101,7 +101,7 @@ public class MasterRenderSystem(
                 rasterizerState: RasterizerState.CullNone,
                 effect: null,
                 transformMatrix: transformMatrix);
-                
+            
             foreach (var entity in drawList.GetEntities())
             {
                 var drawComponent = entity.Get<DrawComponent>();
@@ -128,21 +128,29 @@ public class MasterRenderSystem(
     
     private void DrawTriangles(List<Entity> triangleEntities)
     {
+        // Sort triangles by layer depth for proper rendering order
+        var sortedTriangles = triangleEntities
+            .Select(entity => entity.Get<DrawComponent>())
+            .OrderBy(dc => dc.LayerDepth)
+            .ToList();
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
 
-            foreach (var drawComponent in triangleEntities.Select(entity => entity.Get<DrawComponent>()))
+            foreach (var drawComponent in sortedTriangles)
             {
                 if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
-                graphicsDevice.DrawUserIndexedPrimitives(
-                    drawComponent.PrimitiveType,
-                    drawComponent.Vertices,
-                    0,
-                    drawComponent.Vertices.Length,
-                    drawComponent.Indices,
-                    0,
-                    drawComponent.Indices.Length / 3);
+            
+            // Use the original vertices without modifying Z coordinates for now
+            graphicsDevice.DrawUserIndexedPrimitives(
+                drawComponent.PrimitiveType,
+                drawComponent.Vertices,
+                0,
+                drawComponent.Vertices.Length,
+                drawComponent.Indices,
+                0,
+                drawComponent.Indices.Length / 3);
             }
         }
     }

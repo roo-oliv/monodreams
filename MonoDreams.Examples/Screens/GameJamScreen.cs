@@ -99,7 +99,7 @@ public class GameJamScreen : IGameScreen
         Car.Create(_world, content.Load<Texture2D>("Characters/SportsRacingCar_0"));
 
         // Create track stat entities
-        var font = content.Load<BitmapFont>("Fonts/Kaph-Regular-fnt");
+        var font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
         var padding = -200f;
 
         // Create max speed stat display
@@ -143,7 +143,7 @@ public class GameJamScreen : IGameScreen
             new CursorDrawPrepSystem(_world),
             new SplineTransformControlSystem(_world),
             new TrackAnalysisSystem(_world),
-            new TrackMeshGenerationSystem(_world, 12f),
+            new TrackMeshGenerationSystem(_world, 3f),
             new SplineControlPointsRenderSystem(_world),
             new RaceCarSystem(_world),
             new TrackStatsReportSystem(_world)

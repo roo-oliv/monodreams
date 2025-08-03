@@ -930,3 +930,20 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:./Characters/SportsRacingCar_0.png
+
+#begin ./Fonts/UAV-OSD-Sans-Mono-72-White.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./Fonts/UAV-OSD-Sans-Mono-72-White.png
+
+#begin ./Fonts/UAV-OSD-Sans-Mono-72-White-fnt.fnt
+/importer:BitmapFontImporter
+/processor:BitmapFontProcessor
+/build:./Fonts/UAV-OSD-Sans-Mono-72-White-fnt.fnt
