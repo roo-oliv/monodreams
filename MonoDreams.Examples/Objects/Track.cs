@@ -23,6 +23,8 @@ public static class Track
             new(0, 100),
             new(50, 0),
             new(-150, 0),
+            // new(-100, 100),
+            // new(-50, 100),
         };
         
         var spline = new CatMulRomSpline(

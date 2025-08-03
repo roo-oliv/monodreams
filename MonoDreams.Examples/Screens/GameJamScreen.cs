@@ -108,6 +108,7 @@ public class GameJamScreen : IGameScreen
         TrackStat.Create(_world, StatType.OvertakingSpots, font, new Vector2(-200, padding), RenderTargetID.Main, new Color(203, 30, 75));
         SimpleText.Create(_world, "=", font, new Vector2(0, padding), RenderTargetID.Main, 0.3f);
         TrackStat.Create(_world, StatType.Score, font, new Vector2(80, padding), RenderTargetID.Main);
+        // SimpleText.Create(_world, "Mini Track", font, new Vector2(-100, -50), RenderTargetID.Main, 0.2f, new Color(255, 201, 7));
 
         // _levelLoader.LoadLevel(0);
     }
