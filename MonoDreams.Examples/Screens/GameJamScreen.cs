@@ -108,6 +108,7 @@ public class GameJamScreen : IGameScreen
         TrackStat.Create(_world, StatType.OvertakingSpots, font, new Vector2(-200, padding), RenderTargetID.Main, new Color(203, 30, 75));
         SimpleText.Create(_world, "=", font, new Vector2(0, padding), RenderTargetID.Main, 0.3f);
         TrackStat.Create(_world, StatType.Score, font, new Vector2(80, padding), RenderTargetID.Main);
+        TrackGradeDisplay.Create(_world, font, new Vector2(300, 220), RenderTargetID.Main);
         // SimpleText.Create(_world, "Mini Track", font, new Vector2(-100, -50), RenderTargetID.Main, 0.2f, new Color(255, 201, 7));
 
         // _levelLoader.LoadLevel(0);
@@ -146,7 +147,7 @@ public class GameJamScreen : IGameScreen
             new LevelBoundaryRenderSystem(_world),
             new PinPointRenderSystem(_world),
             new RaceCarSystem(_world),
-            new TrackStatsReportSystem(_world)
+            new TrackScoreSystem(_world)
             // ... other game logic systems
         );
         
@@ -169,6 +170,7 @@ public class GameJamScreen : IGameScreen
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var prepDrawSystems = new SequentialSystem<GameState>(
+            new TrackScoreDrawPrepSystem(_world),
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice),
             new TriangleMeshPrepSystem(_world),

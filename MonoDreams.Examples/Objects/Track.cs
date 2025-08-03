@@ -57,6 +57,7 @@ public static class Track
         entity.Set(new CursorController());
         entity.Set(new CursorInput());
         entity.Set(new VelocityProfileComponent());
+        entity.Set(new TrackScoreComponent([300, 400, 500, 600]));
 
         var borderEntity = world.CreateEntity();
         borderEntity.Set(transform);

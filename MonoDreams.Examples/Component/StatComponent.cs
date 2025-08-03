@@ -8,7 +8,8 @@ public enum StatType
     OvertakingSpots,
     BestOvertakingQuality,
     LapTime,
-    Score
+    Score,
+    Grade,
 }
 
 public class StatComponent(StatType type)
