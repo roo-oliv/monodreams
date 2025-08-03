@@ -8,7 +8,7 @@ using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(HermiteSpline))]
+[With(typeof(CatMulRomSpline))]
 public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     private const float PointSize = 10f; // Size of control points for selection
@@ -21,13 +21,13 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref readonly var spline = ref entity.Get<HermiteSpline>();
+        ref readonly var spline = ref entity.Get<CatMulRomSpline>();
 
         // Generate visualization for control points and handles
         GenerateControlPointVisualization(entity, spline);
     }
 
-    private void GenerateControlPointVisualization(Entity entity, HermiteSpline spline)
+    private void GenerateControlPointVisualization(Entity entity, CatMulRomSpline spline)
     {
         // Create meshes for control points and handles
         var pointVertices = new List<VertexPositionColor>();
@@ -41,7 +41,7 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
         var lineIndex = 0;
 
         // Process control points (vertices)
-        for (int i = 0; i < spline.GetAllPoints.Length - 1; i++)
+        for (int i = 0; i < spline.GetAllPoints.Length; i++)
         {
             var point = spline.GetAllPoints[i];
             var pointColor = point.IsSelected ? SelectedColor : PointColor;
@@ -50,22 +50,22 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
             AddSquare(pointVertices, pointIndices, point.Position, PointSize, pointColor, ref pointIndex);
         }
 
-        // Process tangent points (handles) and connecting lines
-        if (spline.GetAllTangents != null)
-        {
-            for (int i = 0; i < spline.GetAllTangents.Length - 1; i++)
-            {
-                var tangent = spline.GetAllTangents[i];
-                var vertex = spline.GetAllPoints[i];
-                var tangentColor = tangent.IsSelected ? SelectedColor : TangentColor;
-
-                // Add tangent handle as a small square
-                AddSquare(pointVertices, pointIndices, tangent.Position, HandleSize, tangentColor, ref pointIndex);
-
-                // Add line connecting vertex to handle
-                AddLine(lineVertices, lineIndices, vertex.Position, tangent.Position, LineThickness, tangentColor, ref lineIndex);
-            }
-        }
+        // // Process tangent points (handles) and connecting lines
+        // if (spline.GetAllTangents != null)
+        // {
+        //     for (int i = 0; i < spline.GetAllTangents.Length - 1; i++)
+        //     {
+        //         var tangent = spline.GetAllTangents[i];
+        //         var vertex = spline.GetAllPoints[i];
+        //         var tangentColor = tangent.IsSelected ? SelectedColor : TangentColor;
+        //
+        //         // Add tangent handle as a small square
+        //         AddSquare(pointVertices, pointIndices, tangent.Position, HandleSize, tangentColor, ref pointIndex);
+        //
+        //         // Add line connecting vertex to handle
+        //         AddLine(lineVertices, lineIndices, vertex.Position, tangent.Position, LineThickness, tangentColor, ref lineIndex);
+        //     }
+        // }
 
         // Set or update the control points mesh component
         SetMeshComponent(entity, "ControlPointsMesh", pointVertices.ToArray(), pointIndices.ToArray(), PrimitiveType.TriangleList);

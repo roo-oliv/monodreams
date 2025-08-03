@@ -10,33 +10,38 @@ using System;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(HermiteSpline), typeof(VelocityProfileComponent))]
-public class OvertakingOpportunityRenderSystem(World world) : AEntitySetSystem<GameState>(world)
+[With(typeof(CatMulRomSpline), typeof(VelocityProfileComponent))]
+public class PinPointRenderSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     private const float MainCircleRadius = 1.5f;      // Size of the main circle indicator
     private const float EndCircleRadius = 6f;       // Size of the circle at the end of perpendicular line
     private const float LineLength = 16f;            // Length of the perpendicular line
     private const float LineThickness = 1f;         // Thickness of the perpendicular line
-    private static readonly Color CircleColor = new(203, 30, 75);
+    private static readonly Color OvertakingColor = new(203, 30, 75);
+    private static readonly Color MaxSpeedColor = new(255, 201, 7);
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref readonly var spline = ref entity.Get<HermiteSpline>();
+        ref readonly var spline = ref entity.Get<CatMulRomSpline>();
         ref readonly var velocityProfile = ref entity.Get<VelocityProfileComponent>();
 
-        if (velocityProfile.OvertakingOpportunities.Count == 0)
+        // Check if we have anything to visualize
+        bool hasOvertakingOpportunities = velocityProfile.OvertakingOpportunities.Count > 0;
+        bool hasMaxSpeed = velocityProfile.MaxSpeed > 0;
+
+        if (!hasOvertakingOpportunities && !hasMaxSpeed)
         {
             ClearVisualizations(entity);
             return;
         }
 
-        // Generate visualization for overtaking opportunities
-        GenerateOvertakingOpportunityVisualization(entity, spline, velocityProfile);
+        // Generate visualizations
+        GeneratePinPointVisualizations(entity, spline, velocityProfile);
     }
 
-    private void GenerateOvertakingOpportunityVisualization(Entity entity, HermiteSpline spline, VelocityProfileComponent velocityProfile)
+    private void GeneratePinPointVisualizations(Entity entity, CatMulRomSpline spline, VelocityProfileComponent velocityProfile)
     {
-        // Create meshes for opportunity circles
+        // Create meshes for all pin points
         var circleVertices = new List<VertexPositionColor>();
         var circleIndices = new List<int>();
 
@@ -61,16 +66,49 @@ public class OvertakingOpportunityRenderSystem(World world) : AEntitySetSystem<G
             var perpendicularEndPoint = endPoint + perpendicular * LineLength;
 
             // Add a circle at the end point (braking point) of the overtaking opportunity
-            AddCircle(circleVertices, circleIndices, endPoint, MainCircleRadius, CircleColor, ref vertexIndex);
+            AddCircle(circleVertices, circleIndices, endPoint, MainCircleRadius, OvertakingColor, ref vertexIndex);
 
             // Add a perpendicular line
-            AddLine(circleVertices, circleIndices, endPoint, perpendicularEndPoint, LineThickness, CircleColor, ref vertexIndex);
+            AddLine(circleVertices, circleIndices, endPoint, perpendicularEndPoint, LineThickness, OvertakingColor, ref vertexIndex);
 
             // Add a larger circle at the end of the perpendicular line
-            AddCircle(circleVertices, circleIndices, perpendicularEndPoint, EndCircleRadius, CircleColor, ref vertexIndex);
+            AddCircle(circleVertices, circleIndices, perpendicularEndPoint, EndCircleRadius, OvertakingColor, ref vertexIndex);
         }
 
-        // Set or update the overtaking opportunities mesh component
+        // Find the point of maximum speed on the track if available
+        if (velocityProfile.StatsCalculated && velocityProfile.MaxSpeed > 0 && velocityProfile.VelocityProfile.Length > 0)
+        {
+            // Find the index of the maximum speed in the velocity profile
+            int maxSpeedIndex = Array.IndexOf(velocityProfile.VelocityProfile, velocityProfile.MaxSpeed);
+
+            if (maxSpeedIndex >= 0 && maxSpeedIndex < velocityProfile.VelocityProfile.Length)
+            {
+                // Calculate the progress along the spline
+                float maxSpeedProgress = (float)maxSpeedIndex / velocityProfile.VelocityProfile.Length * spline.MaxProgress();
+                var maxSpeedPoint = spline.GetPoint(maxSpeedProgress);
+
+                // Get the direction at the max speed point
+                var maxSpeedDirection = spline.GetDirection(maxSpeedProgress);
+
+                // Calculate perpendicular vector for the max speed indicator
+                var maxSpeedPerpendicular = new Vector2(maxSpeedDirection.Y, -maxSpeedDirection.X);
+                maxSpeedPerpendicular.Normalize();
+
+                // Calculate the end point of the perpendicular line for max speed
+                var maxSpeedEndPoint = maxSpeedPoint + maxSpeedPerpendicular * LineLength;
+
+                // Add a circle at the max speed point
+                AddCircle(circleVertices, circleIndices, maxSpeedPoint, MainCircleRadius, MaxSpeedColor, ref vertexIndex);
+
+                // Add a perpendicular line for max speed
+                AddLine(circleVertices, circleIndices, maxSpeedPoint, maxSpeedEndPoint, LineThickness, MaxSpeedColor, ref vertexIndex);
+
+                // Add a larger circle at the end of the perpendicular line for max speed
+                AddCircle(circleVertices, circleIndices, maxSpeedEndPoint, EndCircleRadius, MaxSpeedColor, ref vertexIndex);
+            }
+        }
+
+        // Set or update the pin points mesh component
         SetMeshComponent(entity, circleVertices.ToArray(), circleIndices.ToArray(), PrimitiveType.TriangleList);
     }
 

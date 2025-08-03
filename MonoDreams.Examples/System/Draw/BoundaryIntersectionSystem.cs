@@ -7,12 +7,12 @@ using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(HermiteSpline))]
+[With(typeof(CatMulRomSpline))]
 public class BoundaryIntersectionSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     protected override void Update(GameState state, in Entity entity)
     {
-        ref readonly var spline = ref entity.Get<HermiteSpline>();
+        ref readonly var spline = ref entity.Get<CatMulRomSpline>();
         ref var boundaryComponent = ref world.GetEntities().With<LevelBoundaryComponent>().AsEnumerable().First().Get<LevelBoundaryComponent>();
 
         if (boundaryComponent.TrackEvaluated && !boundaryComponent.IsTrackInsideBoundary)

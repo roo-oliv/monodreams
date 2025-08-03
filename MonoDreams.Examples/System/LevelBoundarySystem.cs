@@ -17,7 +17,7 @@ public class LevelBoundarySystem(World world) : AEntitySetSystem<GameState>(worl
     protected override void Update(GameState state, in Entity entity)
     {
         ref var boundaryComponent = ref entity.Get<LevelBoundaryComponent>();
-        ref readonly var spline = ref world.GetEntities().With<HermiteSpline>().AsEnumerable().First().Get<HermiteSpline>();
+        ref readonly var spline = ref world.GetEntities().With<CatMulRomSpline>().AsEnumerable().First().Get<CatMulRomSpline>();
 
         // If there are no boundary polygons, don't do anything
         if (boundaryComponent.BoundaryPolygons.Count == 0)
@@ -47,7 +47,7 @@ public class LevelBoundarySystem(World world) : AEntitySetSystem<GameState>(worl
         }
     }
 
-    private bool IsSplineInsideBoundary(HermiteSpline spline, LevelBoundaryComponent boundaryComponent)
+    private bool IsSplineInsideBoundary(CatMulRomSpline spline, LevelBoundaryComponent boundaryComponent)
     {
         // We'll check each segment of the spline against each boundary line
         var maxProgress = spline.MaxProgress();

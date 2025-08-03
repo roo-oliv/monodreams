@@ -9,14 +9,14 @@ using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(HermiteSpline), typeof(VelocityProfileComponent))]
+[With(typeof(CatMulRomSpline), typeof(VelocityProfileComponent))]
 public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AEntitySetSystem<GameState>(world)
 {
     private static readonly Color BorderColor = new(35, 57, 114);
     
     protected override void Update(GameState state, in Entity entity)
     {
-        ref readonly var spline = ref entity.Get<HermiteSpline>();
+        ref readonly var spline = ref entity.Get<CatMulRomSpline>();
         ref readonly var velocityProfile = ref entity.Get<VelocityProfileComponent>();
         
         // First generate the black border track mesh
@@ -26,7 +26,7 @@ public class TrackMeshGenerationSystem(World world, float trackWidth = 20f) : AE
         GenerateTrackMesh(entity, spline, velocityProfile.VelocityProfile, trackWidth, null, 0.5f);
     }
 
-    private void GenerateTrackMesh(Entity entity, HermiteSpline spline, float[] velocityProfile, float width, Color? fixedColor = null, float layerDepth = 0.5f)
+    private void GenerateTrackMesh(Entity entity, CatMulRomSpline spline, float[] velocityProfile, float width, Color? fixedColor = null, float layerDepth = 0.5f)
     {
         const int segments = 1000; // Number of segments along the spline
         var vertices = new List<VertexPositionColor>();

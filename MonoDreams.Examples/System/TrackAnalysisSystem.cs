@@ -7,7 +7,7 @@ using MonoGame.SplineFlower.Spline.Types;
 
 namespace MonoDreams.Examples.System;
 
-[With(typeof(HermiteSpline), typeof(VelocityProfileComponent))]
+[With(typeof(CatMulRomSpline), typeof(VelocityProfileComponent))]
 public class TrackAnalysisSystem(
     World world,
     float maxSpeed = 2000f,
@@ -18,7 +18,7 @@ public class TrackAnalysisSystem(
 {
     protected override void Update(GameState state, in Entity entity)
     {
-        ref readonly var spline = ref entity.Get<HermiteSpline>();
+        ref readonly var spline = ref entity.Get<CatMulRomSpline>();
         ref var velocityProfileComponent = ref entity.Get<VelocityProfileComponent>();
         (velocityProfileComponent.VelocityProfile, velocityProfileComponent.DistanceProfile) = CalculateVelocityProfile(spline);
         velocityProfileComponent.TotalTrackLength = velocityProfileComponent.DistanceProfile.Length > 0 ? 
@@ -42,7 +42,7 @@ public class TrackAnalysisSystem(
         velocityProfileComponent.StatsCalculated = true;
     }
 
-    private (float[] velocities, float[] distances) CalculateVelocityProfile(HermiteSpline spline, int samples = 1000)
+    private (float[] velocities, float[] distances) CalculateVelocityProfile(CatMulRomSpline spline, int samples = 1000)
     {
         var velocities = new float[samples];
         var distances = new float[samples];
@@ -112,7 +112,7 @@ public class TrackAnalysisSystem(
         return (velocities, distances);
     }
 
-    private float CalculateCurvature(HermiteSpline spline, float t)
+    private float CalculateCurvature(CatMulRomSpline spline, float t)
     {
         const float targetDistance = 5.0f; // Target distance in world units
         
@@ -152,7 +152,7 @@ public class TrackAnalysisSystem(
     }
 
     // Calculate actual distance between two points on the spline
-    private float CalculateDistance(HermiteSpline spline, float t1, float t2)
+    private float CalculateDistance(CatMulRomSpline spline, float t1, float t2)
     {
         const float sampleResolution = 0.001f;
         float distance = 0;
@@ -172,7 +172,7 @@ public class TrackAnalysisSystem(
         return distance;
     }
 
-    private List<OvertakingOpportunity> AnalyzeOvertakingOpportunities(float[] velocities, float[] distances, HermiteSpline spline)
+    private List<OvertakingOpportunity> AnalyzeOvertakingOpportunities(float[] velocities, float[] distances, CatMulRomSpline spline)
     {
         if (velocities.Length <= 10 || distances.Length <= 10)
             return [];

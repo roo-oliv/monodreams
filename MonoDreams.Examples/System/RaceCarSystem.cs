@@ -15,12 +15,12 @@ public class RaceCarSystem(World world) : AEntitySetSystem<GameState>(world)
     {
         ref var car = ref entity.Get<CarComponent>();
         ref var transform = ref entity.Get<Transform>();
-        ref var track = ref world.GetEntities().With<HermiteSpline>().AsEnumerable().First().Get<HermiteSpline>();
+        ref var track = ref world.GetEntities().With<CatMulRomSpline>().AsEnumerable().First().Get<CatMulRomSpline>();
         
         UpdateCarPosition(track, car, transform, state.Time);
     }
     
-    public void UpdateCarPosition(in HermiteSpline spline, in CarComponent car, in Transform transform, float deltaTime)
+    public void UpdateCarPosition(in CatMulRomSpline spline, in CarComponent car, in Transform transform, float deltaTime)
     {
         // Calculate current velocity from Transform position delta
         var currentVelocity = GetCurrentVelocityFromTransform(transform, deltaTime);
@@ -95,7 +95,7 @@ public class RaceCarSystem(World world) : AEntitySetSystem<GameState>(world)
         }
     }
 
-    private void MoveCarAlongSpline(in HermiteSpline spline, in CarComponent car, in Transform transform, float distanceToMove)
+    private void MoveCarAlongSpline(in CatMulRomSpline spline, in CarComponent car, in Transform transform, float distanceToMove)
     {
         if (distanceToMove <= 0) return;
         var velocityProfile = world.GetEntities().With<VelocityProfileComponent>().AsEnumerable().First().Get<VelocityProfileComponent>().VelocityProfile;

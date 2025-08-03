@@ -24,8 +24,8 @@ public static class Track
             new(50, 0),
             new(-150, 0),
         };
-
-        var spline = new HermiteSpline(
+        
+        var spline = new CatMulRomSpline(
             points.Select(p => new MonoGame.SplineFlower.Transform(p))
             .Concat([new MonoGame.SplineFlower.Transform(Vector2.Zero)])
             .ToArray())
@@ -33,21 +33,21 @@ public static class Track
             Loop = true,
         };
         
-        for (var i = 0; i < points.Length; i++)
-        {
-            var currentTangent = spline.GetAllTangents[i];
-            var nextPointIndex = i == points.Length - 1 ? 0 : i + 1;
-            var desiredPosition = (points[i] + points[nextPointIndex]) / 2;
-            var currentPosition = currentTangent.Position;
-            var translationNeeded = desiredPosition - currentPosition;
-            
-            spline.SelectTransform(currentPosition);
-            if (spline.SelectedTransform?.IsTangent == true)
-            {
-                spline.TranslateSelectedTransform(translationNeeded);
-            }
-        }
-        spline.SelectedTransform = null;
+        // for (var i = 0; i < points.Length; i++)
+        // {
+        //     var currentTangent = spline.GetAllTangents[i];
+        //     var nextPointIndex = i == points.Length - 1 ? 0 : i + 1;
+        //     var desiredPosition = (points[i] + points[nextPointIndex]) / 2;
+        //     var currentPosition = currentTangent.Position;
+        //     var translationNeeded = desiredPosition - currentPosition;
+        //     
+        //     spline.SelectTransform(currentPosition);
+        //     if (spline.SelectedTransform?.IsTangent == true)
+        //     {
+        //         spline.TranslateSelectedTransform(translationNeeded);
+        //     }
+        // }
+        // spline.SelectedTransform = null;
         
         entity.Set(spline);
         var transform = new Transform(Vector2.Zero);

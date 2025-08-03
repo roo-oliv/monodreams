@@ -68,7 +68,7 @@ public class MasterRenderSystem(
             if (renderTarget.Key == RenderTargetID.Main)
             {
                 splineList = world.GetEntities()
-                    .With<HermiteSpline>()
+                    .With<CatMulRomSpline>()
                     .AsSet();
             }
 
@@ -140,7 +140,7 @@ public class MasterRenderSystem(
             {
                 foreach (var entity in splineList.GetEntities())
                 {
-                    var spline = entity.Get<HermiteSpline>();
+                    var spline = entity.Get<CatMulRomSpline>();
                     // Comment out to remove original spline drawing
                     // spline.Draw(spriteBatch);
                 }
