@@ -151,6 +151,7 @@ public class GameJamScreen : IGameScreen
             new TrackAnalysisSystem(_world),
             new TrackMeshGenerationSystem(_world, 3f),
             new SplineControlPointsRenderSystem(_world),
+            new OvertakingOpportunityRenderSystem(_world),
             new RaceCarSystem(_world),
             new TrackStatsReportSystem(_world)
             // ... other game logic systems

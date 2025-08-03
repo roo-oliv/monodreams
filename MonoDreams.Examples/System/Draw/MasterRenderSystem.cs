@@ -52,6 +52,12 @@ public class MasterRenderSystem(
                 .With((in ControlLinesDrawComponent e) => e.Target == renderTarget.Key)
                 .AsSet();
 
+            // Get specialized draw components for overtaking opportunities
+            var overtakingOpportunitiesList = world.GetEntities()
+                .With<OvertakingOpportunityDrawComponent>()
+                .With((in OvertakingOpportunityDrawComponent e) => e.Target == renderTarget.Key)
+                .AsSet();
+
             EntitySet? splineList = null;
             if (renderTarget.Key == RenderTargetID.Main)
             {
@@ -90,6 +96,12 @@ public class MasterRenderSystem(
             if (!controlLinesList.GetEntities().IsEmpty)
             {
                 DrawControlLines(controlLinesList.GetEntities().ToArray());
+            }
+
+            // Draw overtaking opportunities
+            if (!overtakingOpportunitiesList.GetEntities().IsEmpty)
+            {
+                DrawOvertakingOpportunities(overtakingOpportunitiesList.GetEntities().ToArray());
             }
             
             // Draw sprites and other elements
@@ -186,6 +198,28 @@ public class MasterRenderSystem(
             foreach (var entity in controlLinesEntities)
             {
                 var drawComponent = entity.Get<ControlLinesDrawComponent>();
+                if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    drawComponent.PrimitiveType,
+                    drawComponent.Vertices,
+                    0,
+                    drawComponent.Vertices.Length,
+                    drawComponent.Indices,
+                    0,
+                    drawComponent.Indices.Length / 3);
+            }
+        }
+    }
+
+    private void DrawOvertakingOpportunities(Entity[] overtakingOpportunitiesEntities)
+    {
+        foreach (var pass in _basicEffect.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+
+            foreach (var entity in overtakingOpportunitiesEntities)
+            {
+                var drawComponent = entity.Get<OvertakingOpportunityDrawComponent>();
                 if (!(drawComponent.Vertices?.Length > 0) || !(drawComponent.Indices?.Length > 0)) continue;
                 graphicsDevice.DrawUserIndexedPrimitives(
                     drawComponent.PrimitiveType,

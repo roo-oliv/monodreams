@@ -14,8 +14,8 @@ public class SplineControlPointsRenderSystem(World world) : AEntitySetSystem<Gam
     private const float PointSize = 10f; // Size of control points for selection
     private const float HandleSize = 8f; // Size of handle points
     private const float LineThickness = 1f; // Thickness of lines connecting points and handles
-    private static readonly Color PointColor = new(203, 30, 75);
-    private static readonly Color TangentColor = new(35, 57, 114);
+    private static readonly Color PointColor = new(35, 57, 114);
+    private static readonly Color TangentColor = new(35, 57, 114);//new(203, 30, 75);
     private static readonly Color SelectedColor = Color.White;
     
 
