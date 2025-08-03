@@ -13,7 +13,10 @@ namespace MonoDreams.Examples.System.Draw;
 [With(typeof(HermiteSpline), typeof(VelocityProfileComponent))]
 public class OvertakingOpportunityRenderSystem(World world) : AEntitySetSystem<GameState>(world)
 {
-    private const float CircleRadius = 2f;         // Size of the overtaking opportunity indicators (smaller dot)
+    private const float MainCircleRadius = 1.5f;      // Size of the main circle indicator
+    private const float EndCircleRadius = 6f;       // Size of the circle at the end of perpendicular line
+    private const float LineLength = 16f;            // Length of the perpendicular line
+    private const float LineThickness = 1f;         // Thickness of the perpendicular line
     private static readonly Color CircleColor = new(203, 30, 75);
 
     protected override void Update(GameState state, in Entity entity)
@@ -43,10 +46,28 @@ public class OvertakingOpportunityRenderSystem(World world) : AEntitySetSystem<G
         foreach (var opportunity in velocityProfile.OvertakingOpportunities)
         {
             // Get the position on the spline at the end percentage (braking point)
-            var endPoint = spline.GetPoint(opportunity.EndPercentage * spline.MaxProgress());
+            var endProgress = opportunity.EndPercentage * spline.MaxProgress();
+            var endPoint = spline.GetPoint(endProgress);
+
+            // Get the direction of the spline at the end point
+            var direction = spline.GetDirection(endProgress);
+
+            // Calculate perpendicular vector (180 degrees to the spline direction)
+            // Make sure it's always consistent in direction (-90 degrees, not 90)
+            var perpendicular = new Vector2(direction.Y, -direction.X);
+            perpendicular.Normalize();
+
+            // Calculate the end point of the perpendicular line
+            var perpendicularEndPoint = endPoint + perpendicular * LineLength;
 
             // Add a circle at the end point (braking point) of the overtaking opportunity
-            AddCircle(circleVertices, circleIndices, endPoint, CircleRadius, CircleColor, ref vertexIndex);
+            AddCircle(circleVertices, circleIndices, endPoint, MainCircleRadius, CircleColor, ref vertexIndex);
+
+            // Add a perpendicular line
+            AddLine(circleVertices, circleIndices, endPoint, perpendicularEndPoint, LineThickness, CircleColor, ref vertexIndex);
+
+            // Add a larger circle at the end of the perpendicular line
+            AddCircle(circleVertices, circleIndices, perpendicularEndPoint, EndCircleRadius, CircleColor, ref vertexIndex);
         }
 
         // Set or update the overtaking opportunities mesh component
@@ -88,6 +109,32 @@ public class OvertakingOpportunityRenderSystem(World world) : AEntitySetSystem<G
 
             indexOffset += 2;
         }
+    }
+
+    private void AddLine(List<VertexPositionColor> vertices, List<int> indices, Vector2 start, Vector2 end, float thickness, Color color, ref int indexOffset)
+    {
+        // Calculate direction and perpendicular vector for thickness
+        Vector2 direction = end - start;
+        Vector2 perpendicular = new Vector2(-direction.Y, direction.X);
+        perpendicular.Normalize();
+        perpendicular *= thickness / 2;
+
+        // Create the four corners of the line segment
+        vertices.Add(new VertexPositionColor(new Vector3(start + perpendicular, 0), color));
+        vertices.Add(new VertexPositionColor(new Vector3(start - perpendicular, 0), color));
+        vertices.Add(new VertexPositionColor(new Vector3(end - perpendicular, 0), color));
+        vertices.Add(new VertexPositionColor(new Vector3(end + perpendicular, 0), color));
+
+        // Create two triangles to form the line
+        indices.Add(indexOffset);
+        indices.Add(indexOffset + 1);
+        indices.Add(indexOffset + 2);
+
+        indices.Add(indexOffset);
+        indices.Add(indexOffset + 2);
+        indices.Add(indexOffset + 3);
+
+        indexOffset += 4;
     }
 
 
