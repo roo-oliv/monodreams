@@ -48,6 +48,8 @@ public static class TrackStat
             Scale = 0.15f // Smaller scale for label
         });
 
+        entity.Set(new LevelEntity());
+        label.Set(new LevelEntity());
         return entity;
     }
 

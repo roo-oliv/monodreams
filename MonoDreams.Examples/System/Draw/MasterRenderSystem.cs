@@ -26,7 +26,7 @@ public class MasterRenderSystem(
         {
             VertexColorEnabled = true,
             View = Matrix.Identity,
-            Projection = Matrix.CreateOrthographicOffCenter(0, graphicsDevice.Viewport.Width, graphicsDevice.Viewport.Height, 0, 0, 1)
+            Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1)
         };
     }
 
@@ -34,6 +34,11 @@ public class MasterRenderSystem(
     {
         if (_basicEffect == null)
             Initialize();
+        else
+        {
+            // Always update the projection matrix to match the virtual dimensions
+            _basicEffect.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+        }
         
         foreach (var renderTarget in renderTargets)
         {
@@ -158,6 +163,9 @@ public class MasterRenderSystem(
             .OrderBy(dc => dc.LayerDepth)
             .ToList();
 
+        // Update the projection matrix for the current viewport state
+        _basicEffect.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
@@ -181,6 +189,9 @@ public class MasterRenderSystem(
 
     private void DrawControlPoints(Entity[] controlPointEntities)
     {
+        // Update the projection matrix for the current viewport state
+        _basicEffect.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
@@ -203,6 +214,9 @@ public class MasterRenderSystem(
 
     private void DrawControlLines(Entity[] controlLinesEntities)
     {
+        // Update the projection matrix for the current viewport state
+        _basicEffect.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
@@ -225,6 +239,9 @@ public class MasterRenderSystem(
 
     private void DrawOvertakingOpportunities(Entity[] overtakingOpportunitiesEntities)
     {
+        // Update the projection matrix for the current viewport state
+        _basicEffect.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
@@ -247,6 +264,9 @@ public class MasterRenderSystem(
 
     private void DrawBoundaries(Entity[] boundaryEntities)
     {
+        // Update the projection matrix for the current viewport state
+        _basicEffect.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();

@@ -32,8 +32,9 @@ public class Game1 : Game
         IsMouseVisible = false;
         IsFixedTimeStep = true;
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
-        
-        _graphics.IsFullScreen = false;
+
+        // _graphics.IsFullScreen = true;
+        // Use standard resolution initially, we'll adjust in Initialize()
         _graphics.PreferredBackBufferWidth = 1920;
         _graphics.PreferredBackBufferHeight = 1080;
         
@@ -41,14 +42,14 @@ public class Game1 : Game
         _graphics.ApplyChanges();
         
         // Initialize with larger virtual resolution
-        _viewportManager = new(this, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
-        _camera = new(VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+        _viewportManager = new ViewportManager(this, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+        _camera = new Camera(VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
         
         // Add window resize handling
         Window.ClientSizeChanged += OnWindowResize;
     }
     
-    private void OnWindowResize(object sender, EventArgs e)
+    private void OnWindowResize(object? sender, EventArgs e)
     {
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
     }
@@ -57,6 +58,10 @@ public class Game1 : Game
     {
         _viewportManager.ScreenWidth = realScreenWidth;
         _viewportManager.ScreenHeight = realScreenHeight;
+
+        // Maintain the virtual resolution regardless of window/fullscreen size
+        _camera.VirtualWidth = VIRTUAL_WIDTH;
+        _camera.VirtualHeight = VIRTUAL_HEIGHT;
         _camera.RecalculateTransformationMatrices();
     }
 
@@ -64,19 +69,31 @@ public class Game1 : Game
     {
         // Allow for dynamic resolution detection
         var displayMode = GraphicsDevice.DisplayMode;
-        
-        // For UHD screens, use a good windowed size
-        if (displayMode.Width >= 3840)
+
+        // If in fullscreen mode, use the current display resolution
+        if (_graphics.IsFullScreen)
         {
-            _graphics.PreferredBackBufferWidth = Math.Min(2560, displayMode.Width - 200);
-            _graphics.PreferredBackBufferHeight = Math.Min(1440, displayMode.Height - 200);
+            _graphics.PreferredBackBufferWidth = displayMode.Width;
+            _graphics.PreferredBackBufferHeight = displayMode.Height;
         }
-        else if (displayMode.Width >= 2560)
+        // Otherwise use appropriate windowed size based on screen resolution
+        else
         {
-            _graphics.PreferredBackBufferWidth = Math.Min(1920, displayMode.Width - 200);
-            _graphics.PreferredBackBufferHeight = Math.Min(1080, displayMode.Height - 200);
+            Window.AllowUserResizing = true;
+            // For UHD screens, use a good windowed size
+            if (displayMode.Width >= 3840)
+            {
+                _graphics.PreferredBackBufferWidth = Math.Min(2560, displayMode.Width - 200);
+                _graphics.PreferredBackBufferHeight = Math.Min(1440, displayMode.Height - 200);
+            }
+            else if (displayMode.Width >= 2560)
+            {
+                _graphics.PreferredBackBufferWidth = Math.Min(1920, displayMode.Width - 200);
+                _graphics.PreferredBackBufferHeight = Math.Min(1080, displayMode.Height - 200);
+            }
         }
-        
+
+        _graphics.SynchronizeWithVerticalRetrace = true;
         _graphics.ApplyChanges();
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
         

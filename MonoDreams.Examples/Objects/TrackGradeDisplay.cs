@@ -35,6 +35,7 @@ public static class TrackGradeDisplay
                 VisibleCharacterCount = int.MaxValue,
                 Scale = 0.15f // Smaller scale for label
             });
+            label.Set(new LevelEntity());
             
             var threshold = world.CreateEntity();
             threshold.Set(new Transform(startingPosition));
@@ -50,6 +51,7 @@ public static class TrackGradeDisplay
                 VisibleCharacterCount = int.MaxValue,
                 Scale = 0.2f
             });
+            threshold.Set(new LevelEntity());
             
             displays[(TrackScoreComponent.Grade)grade] = (label, threshold);
         }
@@ -57,6 +59,7 @@ public static class TrackGradeDisplay
         
         var entity = world.CreateEntity();
         entity.Set(new TrackGradeDisplayComponent(displays));
+        entity.Set(new LevelEntity());
         return entity;
     }
 }

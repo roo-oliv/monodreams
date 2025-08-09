@@ -10,7 +10,7 @@ namespace MonoDreams.Examples.Objects;
 
 public static class SimpleText
 {
-    public static Entity Create(World world, string text, BitmapFont font, Vector2 position, RenderTargetID renderTarget, float scale = 0.5f, Color? color = null)
+    public static Entity Create(World world, string text, BitmapFont font, Vector2 position, RenderTargetID renderTarget, float scale = 0.5f, Color? color = null, float revealingSpeed = -1f)
     {
         var entity = world.CreateEntity();
 
@@ -26,8 +26,9 @@ public static class SimpleText
             TextContent = text,
             Font = font,
             Color = color ?? Color.White,
-            IsRevealed = true,
-            VisibleCharacterCount = int.MaxValue,
+            IsRevealed = revealingSpeed < 0f,
+            VisibleCharacterCount = revealingSpeed < 0f ? int.MaxValue : 0,
+            RevealingSpeed = revealingSpeed >= 0f ? revealingSpeed : 0f,
             Scale = scale
         });
         entity.Set(new LevelEntity());

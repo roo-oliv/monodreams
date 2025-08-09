@@ -46,7 +46,8 @@ public static class Car
             Target = RenderTargetID.Main,
         });
         entity.Set(new Visible());
-
+        entity.Set(new LevelEntity());
+        
         return entity;
     }
 }

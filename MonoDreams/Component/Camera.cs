@@ -24,13 +24,13 @@ public class Camera
     private (Vector2 position, Vector2 viewSize, Rectangle cached) _virtualScreenBounds;
     
     // Camera operates in virtual resolution space
-    private readonly int _virtualWidth;
-    private readonly int _virtualHeight;
+    public int VirtualWidth;
+    public int VirtualHeight;
     
     public Camera(int virtualWidth = 800, int virtualHeight = 600) // Use configured virtual size
     {
-        _virtualWidth = virtualWidth;
-        _virtualHeight = virtualHeight;
+        VirtualWidth = virtualWidth;
+        VirtualHeight = virtualHeight;
         _zoom = 1.0f;
         _rotation = 0.0f;
         _position = Vector2.Zero;
@@ -41,7 +41,7 @@ public class Camera
         get {
             if (_viewSize.zoom != _zoom)
             {
-                _viewSize = (_zoom, new Vector2(_virtualWidth / _zoom, _virtualHeight / _zoom));
+                _viewSize = (_zoom, new Vector2(VirtualWidth / _zoom, VirtualHeight / _zoom));
             }
             return _viewSize.cached;
         }
@@ -111,8 +111,8 @@ public class Camera
         Matrix.CreateScale(ref _camScaleVector, out _camScaleMatrix);
 
         // Translate origin to center of the virtual screen for rotation/zoom
-        _resTranslationVector.X = _virtualWidth * 0.5f;
-        _resTranslationVector.Y = _virtualHeight * 0.5f;
+        _resTranslationVector.X = VirtualWidth * 0.5f;
+        _resTranslationVector.Y = VirtualHeight * 0.5f;
         _resTranslationVector.Z = 0;
 
         Matrix.CreateTranslation(ref _resTranslationVector, out _resTranslationMatrix);
