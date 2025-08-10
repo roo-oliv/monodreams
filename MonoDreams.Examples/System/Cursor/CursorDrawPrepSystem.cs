@@ -34,5 +34,7 @@ public class CursorDrawPrepSystem(World world)
         drawComponent.Texture = value;
         drawComponent.Position = position.CurrentPosition;
         drawComponent.Size = _size;
+        // Make sure cursor is drawn to a render target that doesn't use camera transform
+        drawComponent.Target = RenderTargetID.UI; // Use UI render target instead of Main
     }
 }

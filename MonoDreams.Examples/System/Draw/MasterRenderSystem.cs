@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
 using MonoGame.SplineFlower.Spline.Types;
@@ -16,7 +17,8 @@ public class MasterRenderSystem(
     GraphicsDevice graphicsDevice,
     MonoDreams.Component.Camera camera,
     IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets,
-    World world) : ISystem<GameState>
+    World world,
+    ViewportManager viewportManager) : ISystem<GameState>
 {
     private BasicEffect _basicEffect;
     
@@ -86,6 +88,11 @@ public class MasterRenderSystem(
                 transformMatrix = camera.GetViewTransformationMatrix();
                 _basicEffect.World = transformMatrix;
             }
+            // Remove the UI scaling transform since render target is now in virtual coordinates
+            // else if (renderTarget.Key == RenderTargetID.UI)
+            // {
+            //     transformMatrix = viewportManager.GetScaleMatrix();
+            // }
 
             // Draw triangles first (they need different rendering setup)
             var triangleElements = drawList.GetEntities().ToArray()
@@ -125,7 +132,7 @@ public class MasterRenderSystem(
             spriteBatch.Begin(
                 sortMode: SpriteSortMode.FrontToBack,
                 blendState: BlendState.AlphaBlend,
-                samplerState: SamplerState.PointClamp,
+                samplerState: SamplerState.LinearClamp,
                 depthStencilState: DepthStencilState.None,
                 rasterizerState: RasterizerState.CullNone,
                 effect: null,

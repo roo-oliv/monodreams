@@ -3,13 +3,14 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Renderer;
 using MonoDreams.State;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 
 namespace MonoDreams.Examples.System.Cursor;
 
-public class CursorInputSystem(World world, MonoDreams.Component.Camera camera) 
+public class CursorInputSystem(World world, MonoDreams.Component.Camera camera, ViewportManager viewportManager) 
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorController>().With<CursorInput>().AsSet())
 {
     protected override void Update(GameState state, in Entity entity)
@@ -21,8 +22,12 @@ public class CursorInputSystem(World world, MonoDreams.Component.Camera camera)
         input.PreviousScreenPosition = input.ScreenPosition;
         input.PreviousWorldPosition = input.WorldPosition;
         
-        // Update current positions
-        input.ScreenPosition = mouseState.Position.ToVector2();
+        // Get raw mouse position and convert to virtual coordinates
+        var rawMousePosition = mouseState.Position.ToVector2();
+        var virtualMousePosition = viewportManager.ScaleMouseToVirtualCoordinates(rawMousePosition);
+        
+        // Update current positions using properly scaled coordinates
+        input.ScreenPosition = virtualMousePosition ?? rawMousePosition; // Fallback to raw if scaling fails
         input.WorldPosition = camera.VirtualScreenToWorld(input.ScreenPosition);
         
         // Calculate delta

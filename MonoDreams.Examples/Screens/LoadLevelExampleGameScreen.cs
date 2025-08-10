@@ -52,8 +52,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
-            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
-            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
+            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _camera.VirtualWidth, _camera.VirtualHeight) },
+            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _camera.VirtualWidth, _camera.VirtualHeight) }
         };
         
         camera.Position = new Vector2(0, 0);
@@ -85,7 +85,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
         var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorInputSystem(_world, _camera),
+            new CursorInputSystem(_world, _camera, _viewportManager),
             new InputMappingSystem(_world)
         );
         
@@ -144,7 +144,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             _graphicsDevice,
             _camera,
             _renderTargets, // Pass the dictionary/collection of RTs
-            _world
+            _world,
+            _viewportManager
         );
     
         // Final system to draw RenderTargets to backbuffer (if needed)

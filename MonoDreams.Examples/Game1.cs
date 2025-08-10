@@ -33,7 +33,7 @@ public class Game1 : Game
         IsFixedTimeStep = true;
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
 
-        // _graphics.IsFullScreen = true;
+        _graphics.IsFullScreen = true;
         // Use standard resolution initially, we'll adjust in Initialize()
         _graphics.PreferredBackBufferWidth = 1920;
         _graphics.PreferredBackBufferHeight = 1080;
@@ -64,7 +64,7 @@ public class Game1 : Game
         _camera.VirtualHeight = VIRTUAL_HEIGHT;
         _camera.RecalculateTransformationMatrices();
     }
-
+    
     protected override void Initialize()
     {
         // Allow for dynamic resolution detection
@@ -104,8 +104,10 @@ public class Game1 : Game
         _spriteBatch = new(GraphicsDevice);
         _runner = new(1);
         _screenController = new(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
-        _camera.Zoom = displayMode.Width / 800;
+        
+        // Set camera position and calculate proper zoom
         _camera.Position = Vector2.Zero;
+        _camera.Zoom = 2;
 
         // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
         // _screenController.RegisterScreen(ScreenName.Game, () => new DialogueExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));

@@ -16,8 +16,9 @@ public class CursorPositionSystem(World world)
         ref var input = ref entity.Get<CursorInput>();
         ref var controller = ref entity.Get<CursorController>();
         
-        // Update cursor position based on input
-        position.CurrentPosition = input.WorldPosition + controller.HotSpot;
+        // Use screen position directly for cursor rendering to avoid camera influence
+        // The cursor should always appear at the mouse position regardless of camera movement
+        position.CurrentPosition = input.ScreenPosition + controller.HotSpot;
         
         entity.NotifyChanged<Transform>();
     }

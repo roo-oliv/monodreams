@@ -57,8 +57,8 @@ public class GameJamScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
-            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
-            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
+            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _camera.VirtualWidth, _camera.VirtualHeight) },
+            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _camera.VirtualWidth, _camera.VirtualHeight) }
         };
         
         Setup.Initialize(_graphicsDevice, 10000F);
@@ -110,7 +110,7 @@ public class GameJamScreen : IGameScreen
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
         var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorInputSystem(_world, _camera),
+            new CursorInputSystem(_world, _camera, _viewportManager),
             new InputMappingSystem(_world)
         );
         
@@ -178,7 +178,8 @@ public class GameJamScreen : IGameScreen
             _graphicsDevice,
             _camera,
             _renderTargets, // Pass the dictionary/collection of RTs
-            _world
+            _world,
+            _viewportManager // Add ViewportManager parameter
         );
     
         // Final system to draw RenderTargets to backbuffer (if needed)

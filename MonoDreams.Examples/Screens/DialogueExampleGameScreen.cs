@@ -43,8 +43,8 @@ public class DialogueExampleGameScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
-            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
-            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
+            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _camera.VirtualWidth, _camera.VirtualHeight) },
+            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _camera.VirtualWidth, _camera.VirtualHeight) }
         };
         
         camera.Position = new Vector2(0, 0);
@@ -129,7 +129,8 @@ public class DialogueExampleGameScreen : IGameScreen
             _graphicsDevice,
             _camera,
             _renderTargets, // Pass the dictionary/collection of RTs
-            _world
+            _world,
+            _viewportManager
         );
     
         // Final system to draw RenderTargets to backbuffer (if needed)

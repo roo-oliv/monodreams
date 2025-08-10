@@ -101,6 +101,28 @@ public class ViewportManager
         }
     }
 
+    /// <summary>
+    /// Gets the scaling transformation matrix for UI elements.
+    /// This matrix accounts for the viewport scaling without translation.
+    /// </summary>
+    public Matrix GetScaleMatrix()
+    {
+        if (_dirty) Recalculate();
+        
+        // Create a scaling matrix that matches the viewport scaling
+        // This ensures UI elements are scaled consistently with the viewport
+        return Matrix.CreateScale(_scaleX, _scaleY, 1.0f);
+    }
+
+    /// <summary>
+    /// Gets the scaling factors being used for X and Y axes.
+    /// </summary>
+    public Vector2 GetScaleFactors()
+    {
+        if (_dirty) Recalculate();
+        return new Vector2(_scaleX, _scaleY);
+    }
+
     private void MarkDirty()
     {
         _dirty = true;
