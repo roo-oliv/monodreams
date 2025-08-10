@@ -398,6 +398,133 @@
           "YarnSpinner.Compiler": "[3.0.2, )"
         }
       }
+    },
+    "net8.0/linux-x64": {
+      "Facebook.Yoga": {
+        "type": "Direct",
+        "requested": "[1.5.0-pre1, )",
+        "resolved": "1.5.0-pre1",
+        "contentHash": "vrQlEHwofzmocQT4Dp70xAXoPvqC0a4AGjKlvXLflMyDl75UxNHQ/98be4pHcqXEB+pgUBMjA2iTldZTD7F22A=="
+      },
+      "MonoGame.Framework.Content.Pipeline": {
+        "type": "Direct",
+        "requested": "[3.8.4, )",
+        "resolved": "3.8.4",
+        "contentHash": "dtxophMFhHnlNqmY+NIIPAEwhwiQiQtNB1L+j5pwa/GT7Hs3HyoYH8Y5s18pAXfFAP4zI7k6PuqLhes/GMr3Bg==",
+        "dependencies": {
+          "AssimpNetter": "5.4.3.3",
+          "BCnEncoder.Net": "2.1.0",
+          "LibKTX": "0.9.2",
+          "Microsoft.NETCore.App": "2.1.30",
+          "MonoGame.Library.FreeImage": "3.18.0.3",
+          "MonoGame.Library.FreeType": "2.13.2.2",
+          "MonoGame.Tool.Basisu": "1.60.0.2",
+          "MonoGame.Tool.Crunch": "1.0.4.4",
+          "MonoGame.Tool.FFmpeg": "7.0.0.8",
+          "MonoGame.Tool.FFprobe": "7.0.0.8",
+          "SharpDX": "4.0.1",
+          "SharpDX.D3DCompiler": "4.0.1"
+        }
+      },
+      "AssimpNetter": {
+        "type": "Transitive",
+        "resolved": "5.4.3.3",
+        "contentHash": "iqCpQZVySlrU8+g/GuLoifAmdHVz6Hyb9Xx6MW62cuwezUi/ppUgFNNDZu8yIXztnP8k0AJJPHfZOZRu2zSmtg=="
+      },
+      "ImGui.NET": {
+        "type": "Transitive",
+        "resolved": "1.89.7.1",
+        "contentHash": "e7hAn3Jq4uoiAeQMmxAu9jkdSJnGR74qO1HNVF7wwIq7g6H9tBIDWke72sHbwGOXpZtL1/S678dR5j7VbDzt9A==",
+        "dependencies": {
+          "System.Buffers": "4.4.0",
+          "System.Numerics.Vectors": "4.4.0",
+          "System.Runtime.CompilerServices.Unsafe": "4.4.0"
+        }
+      },
+      "Microsoft.NETCore.App": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "Hs73dGereVEUeE0f9nGgNrTgESyhm/41pQ3gIW7P/Bwv8yBJwsw8T0Yb40uessXNU6HcfZstudf70+yaHHK/sw==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostPolicy": "2.1.30",
+          "Microsoft.NETCore.Platforms": "2.1.14",
+          "Microsoft.NETCore.Targets": "2.0.0",
+          "NETStandard.Library": "2.0.3",
+          "runtime.linux-x64.Microsoft.NETCore.App": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.DotNetAppHost": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "rbRBSaCEWZfVMVum2OulEELLjFWmiLmJIxeuODOUPgMuDXses4OOc/iQUf8qzNpWCRVGlYXQ0eV1m4Ic1RfVCA==",
+        "dependencies": {
+          "runtime.linux-x64.Microsoft.NETCore.DotNetAppHost": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.DotNetHostPolicy": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "0NCIUV9mlKQeIKnX6UzVvPAFFlqJKxLXmrk3/X7sMSNuX/9JpxleICmkTsHGdDQSoLiUz087pN6UvQinu3btzA==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostResolver": "2.1.30",
+          "runtime.linux-x64.Microsoft.NETCore.DotNetHostPolicy": "2.1.30"
+        }
+      },
+      "Microsoft.NETCore.DotNetHostResolver": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "4kf9/unrbokd9+gsM6pU/eoHfz9yhGXU2pTSDWLQzhYHfOZuBjT0Ky+GVQzy4AOkxX5hw+lVLYsDXpFgCCZroQ==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetAppHost": "2.1.30",
+          "runtime.linux-x64.Microsoft.NETCore.DotNetHostResolver": "2.1.30"
+        }
+      },
+      "MonoGame.Library.FreeImage": {
+        "type": "Transitive",
+        "resolved": "3.18.0.3",
+        "contentHash": "j9yrJb/3Ya0yqFvfjko+Qj3QCdC/Q7M6F/nseGHvAtdt4fsrbMhck665nIvseC+RNEmImhrNnDDvgnDA1Lyryg=="
+      },
+      "MonoGame.Library.FreeType": {
+        "type": "Transitive",
+        "resolved": "2.13.2.2",
+        "contentHash": "EdsNeJHA1l5BTPHLulezJpNLlTI+ZRmsIJZCRyw8cAi0jzoy8rah6O19brAW3tKRmNCQY9KkP4vuOh5LNc/zqw=="
+      },
+      "MonoGame.Library.OpenAL": {
+        "type": "Transitive",
+        "resolved": "1.23.1.10",
+        "contentHash": "4/F4FFyt7OYhtEmgi/Qmv01eC6GfQ9dkIPsymgkwJ/tV7PewmWrHg/LvTKjd6R+5j/tlO8JkjsEb0Aje6bxfxw=="
+      },
+      "MonoGame.Library.SDL": {
+        "type": "Transitive",
+        "resolved": "2.32.2.1",
+        "contentHash": "T4E2ppGlSTC2L9US1rxtdg3qTbarRzNId31xZoumUW9cf9Nq8nRQPMu9GzvZGrhfSySf0+UWPEj1rlicps+P/w=="
+      },
+      "runtime.linux-x64.Microsoft.NETCore.App": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "xBICyOPmNm+R9XbUMCVGZPMbu7tPDB6g+AE6FxBxSHfl9kJOcbDoQlkjs1cUXvNxIfL9nxpEKJNHtxjp6jttSw=="
+      },
+      "runtime.linux-x64.Microsoft.NETCore.DotNetAppHost": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "oTtWwx8j43Bg/ABToj32z+p1RH+cuctd+TFamoBw6dtlriDPS1NVvpCrbgIkp+JeXCrr1hqIicP73CVZXmn9nA=="
+      },
+      "runtime.linux-x64.Microsoft.NETCore.DotNetHostPolicy": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "0V8e4SyixlnK3rdy0tOkUiJ9Ns9wC2zWY6/9FyE8VUd1WMl3pmn094ygF+795oKHCqBNhLpJucOgTDw1cjZDzw==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetHostResolver": "2.1.30"
+        }
+      },
+      "runtime.linux-x64.Microsoft.NETCore.DotNetHostResolver": {
+        "type": "Transitive",
+        "resolved": "2.1.30",
+        "contentHash": "9tDtlYX1eE3QPdZHQChTtNgPQa2Kz2FVEuqc8EWol0SDG5P0udgSahtPzQ9n+yXJ8kxvNpM8wR7Uw3s4yySlkg==",
+        "dependencies": {
+          "Microsoft.NETCore.DotNetAppHost": "2.1.30"
+        }
+      }
     }
   }
 }
