@@ -1,78 +1,47 @@
-﻿using DefaultEcs;
-using DefaultEcs.System;
+using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Camera;
 using MonoDreams.State;
+using static MonoDreams.Examples.System.SystemPhase;
 
 namespace MonoDreams.Examples.System.Camera;
 
-public class CameraFollowSystem : ISystem<GameState>
+public static class CameraFollowSystem
 {
-    private readonly MonoDreams.Component.Camera _camera;
-    private readonly EntitySet _targetEntities;
-    private Entity? _currentTarget;
-    
-    public bool IsEnabled { get; set; } = true;
-    
-    public CameraFollowSystem(World world, MonoDreams.Component.Camera camera)
+    public static void Register(World world, MonoDreams.Component.Camera camera, GameState gameState)
     {
-        _camera = camera;
-        _targetEntities = world.GetEntities()
-            .With<CameraFollowTarget>()
-            .With<Position>()
-            .AsSet();
-    }
-    
-    public void Update(GameState state)
-    {
-        // Find the active target (for now, just use the first one)
-        Entity? activeTarget = null;
-        foreach (var entity in _targetEntities.GetEntities())
-        {
-            var followTarget = entity.Get<CameraFollowTarget>();
-            if (followTarget.IsActive)
+        world.System<CameraFollowTarget, Position>()
+            .Kind(CameraPhase)
+            .Each((Entity entity, ref CameraFollowTarget followTarget, ref Position targetPosition) =>
             {
-                activeTarget = entity;
-                break;
-            }
-        }
-        
-        if (activeTarget == null) return;
-        
-        var target = activeTarget.Value;
-        var followComponent = target.Get<CameraFollowTarget>();
-        var targetPosition = target.Get<Position>();
-        
-        // Calculate desired camera position (target position)
-        var desiredPosition = targetPosition.Current;
-        var currentCameraPosition = _camera.Position;
-        
-        // Calculate the distance between camera and target
-        var distance = desiredPosition - currentCameraPosition;
-        
-        // Apply maximum distance constraints
-        var clampedDistance = new Vector2(
-            MathHelper.Clamp(distance.X, -followComponent.MaxDistanceX, followComponent.MaxDistanceX),
-            MathHelper.Clamp(distance.Y, -followComponent.MaxDistanceY, followComponent.MaxDistanceY)
-        );
-        
-        // Calculate the target position with distance constraints
-        var constrainedTarget = currentCameraPosition + clampedDistance;
-        
-        // Apply damping for smooth movement
-        var dampedX = MathHelper.Lerp(currentCameraPosition.X, constrainedTarget.X, 
-            followComponent.DampingX * state.Time);
-        var dampedY = MathHelper.Lerp(currentCameraPosition.Y, constrainedTarget.Y, 
-            followComponent.DampingY * state.Time);
-        
-        // Update camera position
-        _camera.Position = new Vector2(dampedX, dampedY);
-    }
-    
-    public void Dispose()
-    {
-        _targetEntities?.Dispose();
-        GC.SuppressFinalize(this);
+                // Only process active targets
+                if (!followTarget.IsActive) return;
+
+                // Calculate desired camera position (target position)
+                var desiredPosition = targetPosition.Current;
+                var currentCameraPosition = camera.Position;
+
+                // Calculate the distance between camera and target
+                var distance = desiredPosition - currentCameraPosition;
+
+                // Apply maximum distance constraints
+                var clampedDistance = new Vector2(
+                    MathHelper.Clamp(distance.X, -followTarget.MaxDistanceX, followTarget.MaxDistanceX),
+                    MathHelper.Clamp(distance.Y, -followTarget.MaxDistanceY, followTarget.MaxDistanceY)
+                );
+
+                // Calculate the target position with distance constraints
+                var constrainedTarget = currentCameraPosition + clampedDistance;
+
+                // Apply damping for smooth movement
+                var dampedX = MathHelper.Lerp(currentCameraPosition.X, constrainedTarget.X,
+                    followTarget.DampingX * gameState.Time);
+                var dampedY = MathHelper.Lerp(currentCameraPosition.Y, constrainedTarget.Y,
+                    followTarget.DampingY * gameState.Time);
+
+                // Update camera position
+                camera.Position = new Vector2(dampedX, dampedY);
+            });
     }
 }

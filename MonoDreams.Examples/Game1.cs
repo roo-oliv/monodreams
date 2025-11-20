@@ -12,9 +12,9 @@ namespace MonoDreams.Examples;
 
 public class Game1 : Game
 {
-    // Add resolution configuration
-    private const int VIRTUAL_WIDTH = 1920;   // Larger virtual resolution for UHD
-    private const int VIRTUAL_HEIGHT = 1080;
+    // Add resolution configuration - 720p for testing
+    private const int VIRTUAL_WIDTH = 1280;
+    private const int VIRTUAL_HEIGHT = 720;
     
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch;
@@ -34,8 +34,8 @@ public class Game1 : Game
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
         
         _graphics.IsFullScreen = false;
-        _graphics.PreferredBackBufferWidth = 1920;
-        _graphics.PreferredBackBufferHeight = 1080;
+        _graphics.PreferredBackBufferWidth = 1280;
+        _graphics.PreferredBackBufferHeight = 720;
         
         _graphics.SynchronizeWithVerticalRetrace = true;
         _graphics.ApplyChanges();
@@ -64,17 +64,23 @@ public class Game1 : Game
     {
         // Allow for dynamic resolution detection
         var displayMode = GraphicsDevice.DisplayMode;
-        
-        // For UHD screens, use a good windowed size
-        if (displayMode.Width >= 3840)
+
+        // Keep a reasonable windowed size based on display
+        if (displayMode.Width >= 2560)
         {
-            _graphics.PreferredBackBufferWidth = Math.Min(2560, displayMode.Width - 200);
-            _graphics.PreferredBackBufferHeight = Math.Min(1440, displayMode.Height - 200);
+            _graphics.PreferredBackBufferWidth = 1280;
+            _graphics.PreferredBackBufferHeight = 720;
         }
-        else if (displayMode.Width >= 2560)
+        else if (displayMode.Width >= 1920)
         {
-            _graphics.PreferredBackBufferWidth = Math.Min(1920, displayMode.Width - 200);
-            _graphics.PreferredBackBufferHeight = Math.Min(1080, displayMode.Height - 200);
+            _graphics.PreferredBackBufferWidth = 1280;
+            _graphics.PreferredBackBufferHeight = 720;
+        }
+        else
+        {
+            // For smaller displays, use 960x540
+            _graphics.PreferredBackBufferWidth = 960;
+            _graphics.PreferredBackBufferHeight = 540;
         }
         
         _graphics.ApplyChanges();
@@ -90,9 +96,10 @@ public class Game1 : Game
         _camera.Zoom = displayMode.Width / 800;
         _camera.Position = Vector2.Zero;
 
-        // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
+        // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         // _screenController.RegisterScreen(ScreenName.Game, () => new DialogueExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
-        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        // _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.Game, () => new TestGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.MainMenu, () => new MainMenuScreen(GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.OptionsMenu, () => new OptionsMenuScreen(GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
