@@ -13,7 +13,56 @@ A code-first and data-driven opensource 2D game engine powered by MonoGame
 ![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams%2F)
 ![MIT License](https://img.shields.io/crates/l/mit?link=https%3A%2F%2Fgithub.com%2Froo-oliv%2Fmonodreams%2Fblob%2Fmain%2FLICENSE)
 
+## Prerequisites
 
+- .NET 8.0 SDK (or .NET 9+ with rollforward support)
+
+## Setup & Build
+
+### First-Time Setup
+
+**On macOS:**
+```bash
+# Install .NET 8 SDK (if not already installed)
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0
+
+# Add to PATH (add to ~/.zshrc or ~/.bash_profile for persistence)
+export PATH="$HOME/.dotnet:$PATH"
+
+# Clone and navigate to project
+git clone https://github.com/roo-oliv/monodreams.git
+cd monodreams
+```
+
+**On Windows:**
+```powershell
+# Install .NET 8 SDK from https://dotnet.microsoft.com/download/dotnet/8.0
+
+# Clone and navigate to project
+git clone https://github.com/roo-oliv/monodreams.git
+cd monodreams
+```
+
+**Important:** When switching between Mac and Windows, you must update the reference paths in `MonoDreams.Examples/Content/Content.npl`:
+
+- **Mac paths:** `/Users/[username]/.nuget/packages/...`
+- **Windows paths:** `C:/Users/[username]/.nuget/packages/...`
+
+### Build & Run
+
+```bash
+# Restore tools and packages
+dotnet tool restore
+dotnet restore
+
+# Build the solution (compiles assets via nopipeline)
+dotnet build
+
+# Run the examples
+dotnet run --project MonoDreams.Examples/MonoDreams.Examples.csproj
+```
+
+## About
 
 This is a hobby project of mine.
 
