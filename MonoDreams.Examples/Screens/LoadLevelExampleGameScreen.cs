@@ -66,7 +66,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         
         _world = World.Create();
         _defaultEcsWorld = new DefaultEcsWorld();
-        
+
+        SystemPhase.Initialize(_world);
+
         RegisterSystems();
         _updatePipeline = CreateUpdatePipeline();
         _drawPipeline = CreateDrawPipeline();
@@ -78,10 +80,15 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
     private void RegisterSystems()
     {
+        // Input Phase Systems
         InputMappingSystem.Register(_world, _defaultEcsWorld, _gameState);
+        CursorInputSystem.Register(_world, _camera);
+
+        // Logic Phase Systems
+        CursorPositionSystem.Register(_world);
         MovementSystem.Register(_world, _gameState);
         PositionSystem.Register(_world);
-        
+
         // Render Phase Systems
         CullingSystem.Register(_world, _camera);
         SpritePrepSystem.Register(_world, _graphicsDevice);
@@ -115,28 +122,21 @@ public class LoadLevelExampleGameScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_world, _defaultEcsWorld, cursorTextures, RenderTargetID.Main);
+        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
         _world.Set(new InputState());
         // _levelLoader.LoadLevel(0);
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorInputSystem(_defaultEcsWorld, _camera)
-            // new InputMappingSystem(_defaultEcsWorld)
-        );
-        
         var levelLoadSystems = new SequentialSystem<GameState>(
             new LevelLoadRequestSystem(_defaultEcsWorld, _content),
             new LDtkTileParserSystem(_defaultEcsWorld, _content),
             new LDtkEntityParserSystem(_defaultEcsWorld),
             new EntitySpawnSystem(_world, _defaultEcsWorld, _content, _renderTargets));
-        
+
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorPositionSystem(_defaultEcsWorld),
-            // new MovementSystem(_defaultEcsWorld, _parallelRunner),
             new VelocitySystem(_defaultEcsWorld, _parallelRunner),
             new CollisionDetectionSystem<CollisionMessage>(_defaultEcsWorld, _parallelRunner, CollisionMessage.Create),
             new PhysicalCollisionResolutionSystem(_defaultEcsWorld),
@@ -145,16 +145,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new CursorDrawPrepSystem(_defaultEcsWorld)
             // ... other game logic systems
         );
-        
+
         var cameraFollowSystem = new CameraFollowSystem(_defaultEcsWorld, _camera);
 
         var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
             new ColliderDebugSystem(_defaultEcsWorld, _graphicsDevice)
         );
-        
+
         return new SequentialSystem<GameState>(
-            // new DebugSystem(_world, _game, _spriteBatch), // If needed
-            inputSystems,
             levelLoadSystems,
             logicSystems,
             cameraFollowSystem,

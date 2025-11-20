@@ -1,24 +1,21 @@
-﻿using DefaultEcs;
-using DefaultEcs.System;
+using Flecs.NET.Core;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Cursor;
-using MonoDreams.State;
 using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
+using static MonoDreams.Examples.System.SystemPhase;
 
 namespace MonoDreams.Examples.System.Cursor;
 
-public class CursorPositionSystem(World world) 
-    : AEntitySetSystem<GameState>(world.GetEntities().With<CursorController>().With<CursorInput>().With<Position>().AsSet())
+public static class CursorPositionSystem
 {
-    protected override void Update(GameState state, in Entity entity)
+    public static void Register(World world)
     {
-        ref var position = ref entity.Get<Position>();
-        ref var input = ref entity.Get<CursorInput>();
-        ref var controller = ref entity.Get<CursorController>();
-        
-        // Update cursor position based on input
-        position.Current = input.WorldPosition + controller.HotSpot;
-        
-        entity.NotifyChanged<Position>();
+        world.System<CursorController, CursorInput, Position>()
+            .Kind(LogicPhase)
+            .Each((ref CursorController controller, ref CursorInput input, ref Position position) =>
+            {
+                // Update cursor position based on input
+                position.Current = input.WorldPosition + controller.HotSpot;
+            });
     }
 }

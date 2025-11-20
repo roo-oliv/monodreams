@@ -15,13 +15,14 @@ public static class SystemPhase
 
     public static void Initialize(World world)
     {
-        // Logic Phases
+        // Logic Phases (run during Update pipeline)
         InputPhase = world.Entity("InputPhase").DependsOn(Ecs.OnUpdate);
         LogicPhase = world.Entity("LogicPhase").DependsOn(InputPhase);
         PhysicsPhase = world.Entity("PhysicsPhase").DependsOn(LogicPhase);
         CameraPhase = world.Entity("CameraPhase").DependsOn(PhysicsPhase);
-        
-        // Draw Phases
+
+        // Draw Phases (run during Draw pipeline - DrawPhase is a tag, actual phases are Culling -> PrepDraw -> Render)
+        DrawPhase = world.Entity("DrawPhase");
         CullingPhase = world.Entity("CullingPhase").DependsOn(Ecs.OnUpdate);
         PrepDrawPhase = world.Entity("PrepDrawPhase").DependsOn(CullingPhase);
         RenderPhase = world.Entity("RenderPhase").DependsOn(PrepDrawPhase);
