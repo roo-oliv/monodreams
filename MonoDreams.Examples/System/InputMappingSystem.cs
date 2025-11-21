@@ -23,7 +23,7 @@ public static class InputMappingSystem
         (InputState.Exit, Keys.Escape)
     ];
 
-    public static void Register(World world, DefaultEcs.World defaultEcsWorld, GameState gameState)
+    public static void Register(World world, GameState gameState)
     {
         world.System<InputState>()
             .Kind(Ecs.PreUpdate)
@@ -33,19 +33,9 @@ public static class InputMappingSystem
                 {
                     input.Update(Keyboard.GetState().IsKeyDown(key), gameState.TotalTime);
                 }
-                
-                if (InputState.Grab.Pressed(gameState.TotalTime))
-                {
-                    defaultEcsWorld.Publish(new LoadLevelRequest("Level_0"));
-                }
+
+                // Note: Level loading functionality will be re-added when level loading systems
+                // (LevelLoadRequestSystem, LDtkTileParserSystem, etc.) are migrated to Flecs
             });
     }
-
-    // public override void Update(GameState state)
-    // {
-    //     if (InputState.Grab.Pressed(state))
-    //     {
-    //         world.Publish(new LoadLevelRequest("Level_0"));
-    //     }
-    // }
 }

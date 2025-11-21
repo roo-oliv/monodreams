@@ -12,17 +12,20 @@ public static class MovementSystem
 {
     public static void Register(World world, GameState gameState)
     {
-        world.System<InputControlled, Position, Velocity>()
+        world.System<InputControlled, Velocity>()
             .Kind(Ecs.OnUpdate)
-            .Each(( ref InputControlled _, ref Position position, ref Velocity _) =>
+            .Each((ref InputControlled _, ref Velocity velocity) =>
             {
                 var totalTime = gameState.TotalTime;
-                var displacement = Constants.MaxWalkVelocity * gameState.Time;
-                
-                if (InputState.Left.Pressed(totalTime)) position.Current.X -= displacement;
-                if (InputState.Right.Pressed(totalTime)) position.Current.X += displacement;
-                if (InputState.Up.Pressed(totalTime)) position.Current.Y -= displacement;
-                if (InputState.Down.Pressed(totalTime)) position.Current.Y += displacement;
+
+                // Reset velocity
+                velocity.Current = Vector2.Zero;
+
+                // Set velocity based on input
+                if (InputState.Left.Pressed(totalTime)) velocity.Current.X -= Constants.MaxWalkVelocity;
+                if (InputState.Right.Pressed(totalTime)) velocity.Current.X += Constants.MaxWalkVelocity;
+                if (InputState.Up.Pressed(totalTime)) velocity.Current.Y -= Constants.MaxWalkVelocity;
+                if (InputState.Down.Pressed(totalTime)) velocity.Current.Y += Constants.MaxWalkVelocity;
             });
     }
 }

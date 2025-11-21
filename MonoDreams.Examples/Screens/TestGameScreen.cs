@@ -41,7 +41,6 @@ public class TestGameScreen : IGameScreen
     private readonly ViewportManager _viewportManager;
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
-    private readonly DefaultEcsWorld _defaultEcsWorld;
     private World _world;
     private Pipeline _updatePipeline;
     private Pipeline _drawPipeline;
@@ -67,7 +66,6 @@ public class TestGameScreen : IGameScreen
         camera.Position = new Vector2(640, 360); // Center of 1280x720
 
         _world = World.Create();
-        _defaultEcsWorld = new DefaultEcsWorld();
 
         SystemPhase.Initialize(_world);
 
@@ -82,13 +80,18 @@ public class TestGameScreen : IGameScreen
     private void RegisterSystems()
     {
         // Input Phase Systems
-        InputMappingSystem.Register(_world, _defaultEcsWorld, _gameState);
+        InputMappingSystem.Register(_world, _gameState);
         CursorInputSystem.Register(_world, _camera);
 
         // Logic Phase Systems
         CursorPositionSystem.Register(_world);
         MovementSystem.Register(_world, _gameState);
         PositionSystem.Register(_world);
+
+        // Physics Phase Systems
+        System.Physics.VelocitySystem.Register(_world);
+        System.Collision.CollisionDetectionSystem.Register(_world);
+        System.Collision.PhysicalCollisionResolutionSystem.Register(_world);
 
         // Debug Systems
         ColliderDebugSystem.Register(_world, _graphicsDevice);
@@ -133,6 +136,9 @@ public class TestGameScreen : IGameScreen
         Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
         _world.Set(new InputState());
 
+        // Initialize collision buffer for physics systems
+        _world.Set(new CollisionBuffer());
+
         // Load square texture for player and walls
         var squareTexture = content.Load<Texture2D>("square");
 
@@ -153,20 +159,17 @@ public class TestGameScreen : IGameScreen
     private void CreatePlayer(World world, Texture2D texture, Vector2 position)
     {
         var size = new Vector2(32, 32);
-        var positionComponent = new Position(position);
-        var velocityComponent = new Velocity();
-        var colliderComponent = new BoxCollider(
-            bounds: new Rectangle(Point.Zero, size.ToPoint()),
-            passive: false,
-            enabled: true
-        );
 
-        // Create in Flecs (for rendering, camera, input)
+        // Create player entity in Flecs only
         world.Entity("Player")
-            .Set(positionComponent)
-            .Set(velocityComponent)
+            .Set(new Position(position))
+            .Set(new Velocity())
             .Set(new InputControlled())
-            .Set(colliderComponent)
+            .Set(new BoxCollider(
+                bounds: new Rectangle(Point.Zero, size.ToPoint()),
+                passive: false,
+                enabled: true
+            ))
             .Set(new SpriteInfo
             {
                 SpriteSheet = texture,
@@ -185,29 +188,20 @@ public class TestGameScreen : IGameScreen
                 MaxDistanceY = 150f,
                 DampingX = 5f,
                 DampingY = 5f
-            });
-
-        // ALSO create in DefaultECS (for collision detection)
-        var defaultEcsEntity = _defaultEcsWorld.CreateEntity();
-        defaultEcsEntity.Set(positionComponent);
-        defaultEcsEntity.Set(velocityComponent);
-        defaultEcsEntity.Set(colliderComponent);
-        defaultEcsEntity.Set(new EntityInfo(EntityType.Player));
+            })
+            .Set(new EntityInfo(EntityType.Player));
     }
 
     private void CreateWall(World world, Texture2D texture, Vector2 position, Vector2 size, Color color)
     {
-        var positionComponent = new Position(position);
-        var colliderComponent = new BoxCollider(
-            bounds: new Rectangle(Point.Zero, size.ToPoint()),
-            enabled: true,
-            passive: true
-        );
-
-        // Create in Flecs (for rendering)
+        // Create wall entity in Flecs only
         world.Entity()
-            .Set(positionComponent)
-            .Set(colliderComponent)
+            .Set(new Position(position))
+            .Set(new BoxCollider(
+                bounds: new Rectangle(Point.Zero, size.ToPoint()),
+                enabled: true,
+                passive: true
+            ))
             .Set(new SpriteInfo
             {
                 SpriteSheet = texture,
@@ -218,25 +212,14 @@ public class TestGameScreen : IGameScreen
                 LayerDepth = 0.3f,
                 Offset = Vector2.Zero
             })
-            .Set(new DrawComponent());
-
-        // ALSO create in DefaultECS (for collision detection)
-        var defaultEcsEntity = _defaultEcsWorld.CreateEntity();
-        defaultEcsEntity.Set(positionComponent);
-        defaultEcsEntity.Set(colliderComponent);
-        defaultEcsEntity.Set(new EntityInfo(EntityType.Tile));
+            .Set(new DrawComponent())
+            .Set(new EntityInfo(EntityType.Tile));
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        // Only DefaultECS systems that haven't been migrated
-        var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new VelocitySystem(_defaultEcsWorld, _parallelRunner),
-            new CollisionDetectionSystem<CollisionMessage>(_defaultEcsWorld, _parallelRunner, CollisionMessage.Create),
-            new PhysicalCollisionResolutionSystem(_defaultEcsWorld)
-        );
-
-        return new SequentialSystem<GameState>(logicSystems);
+        // All systems have been migrated to Flecs - return empty system
+        return new SequentialSystem<GameState>();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()

@@ -4,11 +4,10 @@ using Flecs.NET.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Input;
-using MonoDreams.Examples.Level;
-using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Camera;
 using MonoDreams.Examples.System.Cursor;
@@ -20,8 +19,6 @@ using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System;
-using MonoDreams.System.Collision;
-using MonoDreams.System.Physics;
 using Camera = MonoDreams.Component.Camera;
 using DefaultEcsWorld = DefaultEcs.World;
 using static MonoDreams.Examples.System.SystemPhase;
@@ -42,7 +39,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private World _world;
     private Pipeline _updatePipeline;
     private Pipeline _drawPipeline;
-    private readonly LevelLoader _levelLoader;
+    // private readonly LevelLoader _levelLoader;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
@@ -81,13 +78,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private void RegisterSystems()
     {
         // Input Phase Systems
-        InputMappingSystem.Register(_world, _defaultEcsWorld, _gameState);
+        InputMappingSystem.Register(_world, _gameState);
         CursorInputSystem.Register(_world, _camera);
 
         // Logic Phase Systems
         CursorPositionSystem.Register(_world);
         MovementSystem.Register(_world, _gameState);
         PositionSystem.Register(_world);
+
+        // Physics Phase Systems
+        System.Physics.VelocitySystem.Register(_world);
+        System.Collision.CollisionDetectionSystem.Register(_world);
+        System.Collision.PhysicalCollisionResolutionSystem.Register(_world);
 
         // Camera Phase Systems
         CameraFollowSystem.Register(_world, _camera, _gameState);
@@ -131,6 +133,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Create cursor entity
         Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
         _world.Set(new InputState());
+
+        // Initialize collision buffer for physics systems
+        _world.Set(new CollisionBuffer());
+
         // _levelLoader.LoadLevel(0);
     }
     
@@ -147,9 +153,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new VelocitySystem(_defaultEcsWorld, _parallelRunner),
-            new CollisionDetectionSystem<CollisionMessage>(_defaultEcsWorld, _parallelRunner, CollisionMessage.Create),
-            new PhysicalCollisionResolutionSystem(_defaultEcsWorld),
             new TextUpdateSystem(_defaultEcsWorld), // Logic only
             new DialogueUpdateSystem(_defaultEcsWorld)
         );
