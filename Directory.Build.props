@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- Cross-platform NuGet package root detection -->
+    <!-- NuGetPackageRoot is typically set by NuGet restore, but we provide fallbacks -->
+    <NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(OS)' == 'Windows_NT'">$(USERPROFILE)\.nuget\packages\</NuGetPackageRoot>
+    <NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(OS)' != 'Windows_NT'">$(HOME)/.nuget/packages/</NuGetPackageRoot>
+  </PropertyGroup>
+</Project>

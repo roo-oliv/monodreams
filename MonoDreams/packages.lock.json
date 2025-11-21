@@ -68,6 +68,12 @@
         "resolved": "3.8.4",
         "contentHash": "Oc/tp6liQ34BkBCrdQO23JDf1Z8r11kKeL9oXSlEfUiRSQYs7C0TYaKIjhfYGjSRaV7JaFIisLDToWpnf7ztKg=="
       },
+      "MonoGame.Extended": {
+        "type": "Direct",
+        "requested": "[4.1.0, )",
+        "resolved": "4.1.0",
+        "contentHash": "ES6VVjdoFAkCYzrkfAJ1Mfc0neMSqBhbgzyf3fM/sl9AvPTa8MMx1/YuqIEhEb5MeDTauQRkFNWWfA4XgMUCaw=="
+      },
       "MonoGame.Extended.Content.Pipeline": {
         "type": "Direct",
         "requested": "[4.1.0, )",
@@ -266,11 +272,6 @@
         "type": "Transitive",
         "resolved": "7.0.2",
         "contentHash": "tG6v0AhDw/yJMtiH/tI4F6I/+sNIfu4++6WFfN73FyNcPh31et33w45wo8Lx1sfxcfLtkYk+w2fvU/MubYg4VQ=="
-      },
-      "MonoGame.Extended": {
-        "type": "Transitive",
-        "resolved": "4.1.0",
-        "contentHash": "ES6VVjdoFAkCYzrkfAJ1Mfc0neMSqBhbgzyf3fM/sl9AvPTa8MMx1/YuqIEhEb5MeDTauQRkFNWWfA4XgMUCaw=="
       },
       "MonoGame.Library.FreeImage": {
         "type": "Transitive",

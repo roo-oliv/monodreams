@@ -13,7 +13,51 @@ A code-first and data-driven opensource 2D game engine powered by MonoGame
 ![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams%2F)
 ![MIT License](https://img.shields.io/crates/l/mit?link=https%3A%2F%2Fgithub.com%2Froo-oliv%2Fmonodreams%2Fblob%2Fmain%2FLICENSE)
 
+## Prerequisites
 
+- .NET 8.0 SDK or newer (project uses RollForward to support .NET 9+)
+
+## Setup & Build
+
+### macOS (Intel & Apple Silicon)
+
+```bash
+# Install .NET 8 SDK via Homebrew (recommended for Apple Silicon)
+brew install dotnet@8 freeimage
+
+# Add to your ~/.zshrc or ~/.bash_profile:
+export PATH="/opt/homebrew/opt/dotnet@8/bin:$PATH"
+export DOTNET_ROOT="/opt/homebrew/opt/dotnet@8/libexec"
+
+# For Apple Silicon Macs, copy FreeImage to MGCB tools (one-time setup after first restore)
+cp /opt/homebrew/lib/libfreeimage.dylib ~/.nuget/packages/dotnet-mgcb/3.8.4/tools/net8.0/any/libFreeImage.dylib
+```
+
+### Windows
+
+```powershell
+# Install .NET 8 SDK from https://dotnet.microsoft.com/download/dotnet/8.0
+```
+
+### Build & Run (All Platforms)
+
+```bash
+# Clone and navigate to project
+git clone https://github.com/roo-oliv/monodreams.git
+cd monodreams
+
+# Restore tools and packages
+dotnet tool restore
+dotnet restore
+
+# Build the solution
+dotnet build
+
+# Run the examples
+dotnet run --project MonoDreams.Examples/MonoDreams.Examples.csproj
+```
+
+## About
 
 This is a hobby project of mine.
 

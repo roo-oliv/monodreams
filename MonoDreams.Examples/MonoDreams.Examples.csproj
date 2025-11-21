@@ -2,6 +2,7 @@
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
         <TargetFramework>net8.0</TargetFramework>
+        <RollForward>Major</RollForward>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
@@ -47,7 +48,12 @@
     <ItemGroup>
       <ClCompile Include="Content\disabled_effect.fx" />
     </ItemGroup>
-    
+
+    <!-- Cross-platform content pipeline references - passed via MSBuild -->
+    <PropertyGroup>
+        <MonoGameMGCBAdditionalArguments>$(MonoGameMGCBAdditionalArguments) /reference:$(NuGetPackageRoot)monogame.extended.content.pipeline/4.1.0/tools/MonoGame.Extended.Content.Pipeline.dll /reference:$(NuGetPackageRoot)ldtkmonogame.contentpipeline/1.8.0/lib/net8.0/LDtk.ContentPipeline.dll /reference:$(MSBuildThisFileDirectory)../MonoDreams.YarnSpinner/bin/$(Configuration)/net8.0/MonoDreams.YarnSpinner.dll</MonoGameMGCBAdditionalArguments>
+    </PropertyGroup>
+
     <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
         <Message Text="Restoring dotnet tools" Importance="High" />
         <Exec Command="dotnet tool restore" />
