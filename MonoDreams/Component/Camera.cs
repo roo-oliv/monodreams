@@ -26,7 +26,10 @@ public class Camera
     // Camera operates in virtual resolution space
     private readonly int _virtualWidth;
     private readonly int _virtualHeight;
-    
+
+    public int VirtualWidth => _virtualWidth;
+    public int VirtualHeight => _virtualHeight;
+
     public Camera(int virtualWidth = 800, int virtualHeight = 600) // Use configured virtual size
     {
         _virtualWidth = virtualWidth;

@@ -8,7 +8,12 @@ using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(DrawComponent), typeof(Position))]
+/// <summary>
+/// Unified rendering system that handles all draw types: sprites, text, nine-patch, and mesh.
+/// This system is game-agnostic - it only renders what's in DrawComponent without any
+/// specialized component handling.
+/// </summary>
+[With(typeof(DrawComponent))]
 public class MasterRenderSystem(
     SpriteBatch spriteBatch,
     GraphicsDevice graphicsDevice,
@@ -16,101 +21,150 @@ public class MasterRenderSystem(
     IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets,
     World world) : ISystem<GameState>
 {
+    private BasicEffect? _basicEffect;
+
+    private void EnsureBasicEffect()
+    {
+        _basicEffect ??= new BasicEffect(graphicsDevice)
+        {
+            VertexColorEnabled = true,
+            View = Matrix.Identity,
+            Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1)
+        };
+    }
+
     public void Update(GameState state)
     {
+        EnsureBasicEffect();
+
         foreach (var renderTarget in renderTargets)
         {
             var drawList = world.GetEntities()
                 .With((in DrawComponent e) => e.Target == renderTarget.Key)
                 .AsSet();
-            
-            graphicsDevice.SetRenderTarget(renderTarget.Value);
 
-            // Only clear if you haven't cleared it elsewhere (e.g., at the very start of the frame)
-            // Often UI/HUD targets are cleared, Main might be cleared or just drawn over. Depends on your setup.
-            graphicsDevice.Clear(Color.Transparent); // Or appropriate background color
+            graphicsDevice.SetRenderTarget(renderTarget.Value);
+            graphicsDevice.Clear(Color.Transparent);
 
             var transformMatrix = Matrix.Identity;
-            // Apply camera transform ONLY to the main game render target
-            // TODO: Check if this is the source of bugs rendering to other render targets other than Main
             if (renderTarget.Key == RenderTargetID.Main)
             {
                 transformMatrix = camera.GetViewTransformationMatrix();
             }
-                
-            spriteBatch.Begin(
-                sortMode: SpriteSortMode.FrontToBack,
-                blendState: BlendState.AlphaBlend, // Common defaults
-                samplerState: SamplerState.PointClamp, // Or PointWrap, LinearClamp, etc.
-                depthStencilState: DepthStencilState.None,
-                rasterizerState: RasterizerState.CullNone,
-                effect: null,
-                transformMatrix: transformMatrix);
-            foreach (var entity in drawList.GetEntities()) DrawElement(entity.Get<DrawComponent>());
-            spriteBatch.End();
+
+            // Separate mesh and sprite elements
+            var entities = drawList.GetEntities().ToArray();
+            var meshElements = entities.Where(e => e.Get<DrawComponent>().Type == DrawElementType.Mesh).ToList();
+            var spriteElements = entities.Where(e => e.Get<DrawComponent>().Type != DrawElementType.Mesh).ToList();
+
+            // Draw meshes first (they need BasicEffect, not SpriteBatch)
+            if (meshElements.Count > 0)
+            {
+                DrawMeshes(meshElements, transformMatrix);
+            }
+
+            // Draw sprites, text, and nine-patch using SpriteBatch
+            if (spriteElements.Count > 0)
+            {
+                spriteBatch.Begin(
+                    sortMode: SpriteSortMode.FrontToBack,
+                    blendState: BlendState.AlphaBlend,
+                    samplerState: SamplerState.PointClamp,
+                    depthStencilState: DepthStencilState.None,
+                    rasterizerState: RasterizerState.CullNone,
+                    effect: null,
+                    transformMatrix: transformMatrix);
+
+                foreach (var entity in spriteElements)
+                {
+                    DrawElement(entity.Get<DrawComponent>());
+                }
+
+                spriteBatch.End();
+            }
         }
     }
-    
+
+    private void DrawMeshes(List<Entity> meshEntities, Matrix transformMatrix)
+    {
+        // Sort by layer depth
+        var sortedMeshes = meshEntities
+            .Select(e => e.Get<DrawComponent>())
+            .Where(dc => dc.HasValidMesh)
+            .OrderBy(dc => dc.LayerDepth)
+            .ToList();
+
+        if (sortedMeshes.Count == 0) return;
+
+        // Update projection and world transform
+        _basicEffect!.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+        _basicEffect.World = transformMatrix;
+
+        foreach (var pass in _basicEffect.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+
+            foreach (var dc in sortedMeshes)
+            {
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    dc.PrimitiveType,
+                    dc.Vertices,
+                    0,
+                    dc.Vertices!.Length,
+                    dc.Indices,
+                    0,
+                    dc.GetPrimitiveCount());
+            }
+        }
+    }
+
     private void DrawElement(DrawComponent element)
     {
         switch (element.Type)
         {
             case DrawElementType.Sprite:
-                // Simple sprite draw - assumes element.Position is top-left
-                // and element.Size determines destination rect directly.
-                // Origin/Rotation/Scale would need to be included if used.
-                if (element.Texture == null)
-                {
-                    // Log or handle missing texture case
-                    return;
-                }
+                if (element.Texture == null) return;
+
                 spriteBatch.Draw(
                     element.Texture,
                     new Rectangle((int)element.Position.X, (int)element.Position.Y, (int)element.Size.X, (int)element.Size.Y),
                     element.SourceRectangle,
                     element.Color,
-                    0f, // element.Rotation
-                    Vector2.Zero, // element.Origin
-                    SpriteEffects.None, // element.Effects
+                    element.Rotation,
+                    element.Origin,
+                    SpriteEffects.None,
                     element.LayerDepth);
-
-                // Alternative using Position + Scale (if Size isn't pre-calculated):
-                // _spriteBatch.Draw(
-                //     element.Texture,
-                //     element.Position,
-                //     element.SourceRectangle,
-                //     element.Color,
-                //     element.Rotation,
-                //     element.Origin,
-                //     element.Scale, // Use Scale field from DrawElement
-                //     element.Effects,
-                //     element.LayerDepth);
                 break;
 
             case DrawElementType.Text:
-                // Origin/Rotation/Scale/Effects can be added if stored in DrawComponent
+                if (element.Font == null || element.Text == null) return;
+
                 spriteBatch.DrawString(
                     element.Font,
                     element.Text,
                     element.Position,
                     element.Color,
-                    0f, // Rotation
-                    Vector2.Zero, // Origin (for alignment)
-                    0.5f, // Scale
-                    SpriteEffects.None, // Effects
+                    element.Rotation,
+                    element.Origin,
+                    element.Scale,
+                    SpriteEffects.None,
                     element.LayerDepth);
                 break;
 
             case DrawElementType.NinePatch:
-            default:
-                // If SpritePrepSystem generated 9 individual Sprite DrawElements, this case isn't needed.
-                // If DrawElement holds NinePatchData, implement the 9 draw calls here.
-                // Recommendation: Let SpritePrepSystem create the 9 sprite elements for simplicity here.
+                // NinePatch handled by SpritePrepSystem creating 9 sprite elements
+                break;
+
+            case DrawElementType.Mesh:
+                // Handled separately in DrawMeshes
                 break;
         }
     }
 
-    public void Dispose() { /* Nothing specific to dispose here unless holding unmanaged resources */ }
+    public void Dispose()
+    {
+        _basicEffect?.Dispose();
+    }
 
-    public bool IsEnabled { get; set; }
+    public bool IsEnabled { get; set; } = true;
 }
