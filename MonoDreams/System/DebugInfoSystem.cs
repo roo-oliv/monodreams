@@ -7,7 +7,6 @@ using MonoDreams.Component.Collision;
 using MonoDreams.LegacyComponents;
 using MonoDreams.Renderer;
 using MonoDreams.State;
-using Position = MonoDreams.LegacyComponents.Position;
 
 namespace MonoDreams.System;
 
@@ -57,7 +56,7 @@ public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref var position = ref entity.Get<Position>();
+        ref var transform = ref entity.Get<Transform>();
         ref var collidable = ref entity.Get<BoxCollider>();
         ref var playerInput = ref entity.Get<PlayerInput>();
         var x = _camera.Position.X + 310;
@@ -65,9 +64,9 @@ public sealed class DebugInfoSystem : AEntitySetSystem<GameState>
         var textSlot = 0;
         var spacing = 40;
         var scale = Vector2.One;
-        
+
         DrawText("TotalTime: " + state.TotalTime, x, y + textSlot++ * spacing, Color.Black, 0.5f);
-        DrawText("Current: " + position.CurrentLocation, x, y + textSlot++ * spacing, Color.Black, 0.5f);
+        DrawText("Position: " + transform.Position, x, y + textSlot++ * spacing, Color.Black, 0.5f);
         DrawText("Bounds: " + collidable.Bounds, x, y + textSlot++ * spacing, Color.Black, 0.5f);
     }
 

@@ -66,9 +66,10 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error during level activation request handling for level '{levelIdentifier}': {ex.Message}");
+            Console.WriteLine(
+                $"Error during level activation request handling for level '{levelIdentifier}':" +
+                $"\n-----\n{ex.Message}\n{ex.StackTrace}\n-----");
              // Potentially publish a LevelLoadFailed message?
-             // Maybe clear the CurrentLevelComponent on error?
               _world.Remove<CurrentLevelComponent>();
               _world.Remove<CurrentBackgroundColorComponent>();
         }

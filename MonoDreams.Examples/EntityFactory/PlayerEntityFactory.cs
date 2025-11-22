@@ -27,7 +27,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         // Add core components
         entity.Set(new EntityInfo(EntityType.Player));
         entity.Set(new PlayerState());
-        entity.Set(new Position(request.Position));
+        entity.Set(new Transform(request.Position));
         entity.Set(new InputControlled());
         // entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));

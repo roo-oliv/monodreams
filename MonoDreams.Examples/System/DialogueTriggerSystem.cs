@@ -15,45 +15,45 @@ public class DialogueTriggerSystem : AEntitySetSystem<GameState>
     private readonly Entity _player;
     
     public DialogueTriggerSystem(World world, Entity player)
-        : base(world.GetEntities().With<DialogueTrigger>().With<Position>().AsSet())
+        : base(world.GetEntities().With<DialogueTrigger>().With<Transform>().AsSet())
     {
         _world = world;
         _player = player;
     }
-    
+
     protected override void Update(GameState state, in Entity entity)
     {
         var trigger = entity.Get<DialogueTrigger>();
-        
+
         // Skip if the trigger is one-time-only and already used
         if (trigger.OneTimeOnly && trigger.HasBeenUsed) return;
-        
+
         // Check if trigger conditions are met
         bool shouldTrigger = false;
-        
+
         switch (trigger.Type)
         {
             case TriggerType.Proximity:
                 // Check if player is within proximity radius
-                if (entity.Has<Position>() && _player.Has<Position>())
+                if (entity.Has<Transform>() && _player.Has<Transform>())
                 {
-                    var triggerPos = entity.Get<Position>().Current;
-                    var playerPos = _player.Get<Position>().Current;
-                    
+                    var triggerPos = entity.Get<Transform>().Position;
+                    var playerPos = _player.Get<Transform>().Position;
+
                     float distance = Vector2.Distance(triggerPos, playerPos);
                     shouldTrigger = distance <= trigger.ProximityRadius;
                 }
                 break;
-                
+
             case TriggerType.Interaction:
                 // Check if player is close and interaction key is pressed
-                if (entity.Has<Position>() && _player.Has<Position>())
+                if (entity.Has<Transform>() && _player.Has<Transform>())
                 {
-                    var triggerPos = entity.Get<Position>().Current;
-                    var playerPos = _player.Get<Position>().Current;
-                    
+                    var triggerPos = entity.Get<Transform>().Position;
+                    var playerPos = _player.Get<Transform>().Position;
+
                     float distance = Vector2.Distance(triggerPos, playerPos);
-                    shouldTrigger = distance <= trigger.ProximityRadius && 
+                    shouldTrigger = distance <= trigger.ProximityRadius &&
                                     Keyboard.GetState().IsKeyDown(trigger.InteractionKey);
                 }
                 break;

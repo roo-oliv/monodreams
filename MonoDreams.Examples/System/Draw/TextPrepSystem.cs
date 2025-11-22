@@ -7,14 +7,14 @@ using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(DynamicText), typeof(Position), typeof(Visible))] // Ensures entities have these + DrawComponent (from base)
+[With(typeof(DynamicText), typeof(Transform), typeof(Visible))] // Ensures entities have these + DrawComponent (from base)
 public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     // Set useParallel = true if desired and safe
 
      protected override void Update(GameState state, in Entity entity)
      {
-        ref readonly var position = ref entity.Get<Position>();
+        ref readonly var transform = ref entity.Get<Transform>();
         ref readonly var text = ref entity.Get<DynamicText>(); // State updated by TextUpdateSystem
 
         // *** Strategy: Clear drawables added by this system type ***
@@ -39,7 +39,7 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
              Target = text.Target,
              Text = visibleText,
              Font = text.Font,
-             Position = position.Current, // Or apply alignment/origin logic here
+             Position = transform.Position, // Or apply alignment/origin logic here
              Color = text.Color,
              LayerDepth = layerDepth,
              Size = text.Font.MeasureString(visibleText) // Store measured size if needed elsewhere

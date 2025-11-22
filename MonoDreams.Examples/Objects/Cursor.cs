@@ -11,16 +11,16 @@ namespace MonoDreams.Examples.Objects;
 public static class Cursor
 {
     public static Entity Create(
-        World world, 
+        World world,
         Dictionary<CursorType, Texture2D> cursorTextures,
         RenderTargetID renderTarget,
         CursorType initialType = CursorType.Default)
     {
         var entity = world.CreateEntity();
-        
+
         entity.Set(new CursorController(initialType));
         entity.Set(new CursorInput());
-        entity.Set(new Position(Vector2.Zero));
+        entity.Set(new Transform(Vector2.Zero));
         entity.Set(new DrawComponent
         {
             Type = DrawElementType.Sprite,

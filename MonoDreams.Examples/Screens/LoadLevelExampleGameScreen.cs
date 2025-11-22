@@ -11,6 +11,7 @@ using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Camera;
+using MonoDreams.Examples.System.Collision;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Debug;
 using MonoDreams.Examples.System.Dialogue;
@@ -19,9 +20,6 @@ using MonoDreams.Examples.System.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
-using MonoDreams.System;
-using MonoDreams.System.Collision;
-using MonoDreams.System.Physics;
 using CursorController = MonoDreams.Component.CursorController;
 using Camera = MonoDreams.Component.Camera;
 
@@ -99,10 +97,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
             new CursorPositionSystem(_world),
             new MovementSystem(_world, _parallelRunner),
-            new VelocitySystem(_world, _parallelRunner),
-            new CollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
-            new PhysicalCollisionResolutionSystem(_world),
-            new PositionSystem(_world, _parallelRunner),
+            new TransformVelocitySystem(_world, _parallelRunner),
+            new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
+            new TransformPhysicalCollisionResolutionSystem(_world),
+            new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
             new DialogueUpdateSystem(_world),
             new CursorDrawPrepSystem(_world)

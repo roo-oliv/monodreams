@@ -24,7 +24,7 @@ public class NPCEntityFactory(ContentManager content) : IEntityFactory
 
         // Add core components
         entity.Set(new EntityInfo(EntityType.Enemy));
-        entity.Set(new Position(request.Position));
+        entity.Set(new Transform(request.Position));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new RigidBody());
         entity.Set(new Velocity());

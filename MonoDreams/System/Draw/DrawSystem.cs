@@ -6,7 +6,6 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Draw;
 using MonoDreams.State;
-using Position = MonoDreams.Component.Position;
 
 namespace MonoDreams.System.Draw;
 
@@ -17,17 +16,17 @@ public class DrawSystem(World world, SpriteBatch spriteBatch, RenderTarget2D ren
     protected override void Update(GameState state, in Entity entity)
     {
         ref var drawInfo = ref entity.Get<DrawInfo>();
-        ref var position = ref entity.Get<Position>();
+        ref var transform = ref entity.Get<Transform>();
         var layerDepth = DrawLayerDepth.GetLayerDepth(drawInfo.Layer);
         if (drawInfo.NinePatchInfo == null)
         {
             spriteBatch.Draw(
-                drawInfo.SpriteSheet, new Rectangle(position.Current.ToPoint(), drawInfo.Size), drawInfo.Source,
+                drawInfo.SpriteSheet, new Rectangle(transform.Position.ToPoint(), drawInfo.Size), drawInfo.Source,
                 drawInfo.Color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
         }
         else
         {
-            var pos = position.Current.ToPoint();
+            var pos = transform.Position.ToPoint();
 
             spriteBatch.Draw(drawInfo.NinePatchTextures.topLeft, new Rectangle(pos + drawInfo.NinePatchDestinations.topLeft.Location, drawInfo.NinePatchDestinations.topLeft.Size), null, drawInfo.Color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
             spriteBatch.Draw(drawInfo.NinePatchTextures.top, new Rectangle(pos + drawInfo.NinePatchDestinations.top.Location, drawInfo.NinePatchDestinations.top.Size), null, drawInfo.Color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);

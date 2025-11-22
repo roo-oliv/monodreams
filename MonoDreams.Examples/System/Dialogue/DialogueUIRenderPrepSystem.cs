@@ -16,7 +16,7 @@ namespace MonoDreams.Examples.System.Dialogue;
 /// Prepares DrawElements for the Dialogue UI based on DialogueUIStateComponent.
 /// Populates the DrawComponent of the Dialogue UI entity.
 /// </summary>
-[With(typeof(DialogueUIStateComponent), typeof(Position), typeof(DrawComponent))]
+[With(typeof(DialogueUIStateComponent), typeof(Transform), typeof(DrawComponent))]
 public sealed class DialogueUIRenderPrepSystem : AEntitySetSystem<GameState>
 {
     // Define layer depth constants for UI elements for clarity
@@ -32,7 +32,7 @@ public sealed class DialogueUIRenderPrepSystem : AEntitySetSystem<GameState>
     protected override void Update(GameState state, in Entity entity)
     {
         // Get components
-        ref readonly var position = ref entity.Get<Position>();
+        ref readonly var transform = ref entity.Get<Transform>();
         ref readonly var uiState = ref entity.Get<DialogueUIStateComponent>();
         ref var drawComponent = ref entity.Get<DrawComponent>();
 
@@ -52,7 +52,7 @@ public sealed class DialogueUIRenderPrepSystem : AEntitySetSystem<GameState>
         // You might have a helper or constant for this. Let's assume UI layer corresponds to depth 0.5f
         float baseLayerDepth = 0.5f; // Example: Higher values are further back with SpriteSortMode.FrontToBack
 
-        Vector2 basePos = position.Current;
+        Vector2 basePos = transform.Position;
 
         // --- 1. Prepare Dialogue Box (9-Patch) ---
         if (uiState.DialogueBoxTexture != null)

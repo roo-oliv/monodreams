@@ -12,18 +12,18 @@ public class CameraFollowSystem : ISystem<GameState>
     private readonly MonoDreams.Component.Camera _camera;
     private readonly EntitySet _targetEntities;
     private Entity? _currentTarget;
-    
+
     public bool IsEnabled { get; set; } = true;
-    
+
     public CameraFollowSystem(World world, MonoDreams.Component.Camera camera)
     {
         _camera = camera;
         _targetEntities = world.GetEntities()
             .With<CameraFollowTarget>()
-            .With<Position>()
+            .With<Transform>()
             .AsSet();
     }
-    
+
     public void Update(GameState state)
     {
         // Find the active target (for now, just use the first one)
@@ -37,15 +37,15 @@ public class CameraFollowSystem : ISystem<GameState>
                 break;
             }
         }
-        
+
         if (activeTarget == null) return;
-        
+
         var target = activeTarget.Value;
         var followComponent = target.Get<CameraFollowTarget>();
-        var targetPosition = target.Get<Position>();
-        
+        var targetTransform = target.Get<Transform>();
+
         // Calculate desired camera position (target position)
-        var desiredPosition = targetPosition.Current;
+        var desiredPosition = targetTransform.Position;
         var currentCameraPosition = _camera.Position;
         
         // Calculate the distance between camera and target

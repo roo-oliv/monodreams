@@ -36,7 +36,7 @@ public sealed class ColliderDebugSystem : ISystem<GameState>
 
     private void AddDebugLinesToEntity(in Entity entity, in BoxCollider boxCollider)
     {
-        ref readonly var position = ref entity.Get<Position>();
+        ref readonly var transform = ref entity.Get<Transform>();
         Color lineColor;
         if (boxCollider.Enabled)
         {
@@ -60,7 +60,7 @@ public sealed class ColliderDebugSystem : ISystem<GameState>
         };
 
         var debugEntity = _world.CreateEntity();
-        debugEntity.Set(position);
+        debugEntity.Set(transform);
         debugEntity.Set(spriteInfo);
         debugEntity.Set(new DrawComponent());
 
