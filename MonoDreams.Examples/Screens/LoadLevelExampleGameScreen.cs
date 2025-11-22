@@ -4,11 +4,12 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
-using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
+using MonoDreams.Examples.Message.Level;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Camera;
 using MonoDreams.Examples.System.Collision;
@@ -20,7 +21,6 @@ using MonoDreams.Examples.System.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
-using CursorController = MonoDreams.Component.CursorController;
 using Camera = MonoDreams.Component.Camera;
 
 namespace MonoDreams.Examples.Screens;
@@ -77,7 +77,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Create cursor entity
         Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
 
-        // _levelLoader.LoadLevel(0);
+        // Check if a level was requested from the level selection screen
+        var requestedLevel = screenController.Game.Services.GetService(typeof(RequestedLevelComponent)) as RequestedLevelComponent;
+        if (requestedLevel != null)
+        {
+            // Load the requested level
+            _world.Publish(new LoadLevelRequest(requestedLevel.LevelIdentifier));
+
+            // Remove the service so it doesn't interfere with future screen loads
+            screenController.Game.Services.RemoveService(typeof(RequestedLevelComponent));
+        }
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()

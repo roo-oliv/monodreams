@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.State;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.System.Draw;
 

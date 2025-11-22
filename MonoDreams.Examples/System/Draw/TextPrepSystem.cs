@@ -1,5 +1,6 @@
 using DefaultEcs;
 using DefaultEcs.System;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.State;
@@ -7,7 +8,7 @@ using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
 
 namespace MonoDreams.Examples.System.Draw;
 
-[With(typeof(DynamicText), typeof(Transform), typeof(Visible))] // Ensures entities have these + DrawComponent (from base)
+[With(typeof(DynamicText), typeof(Transform))] // Ensures entities have these + DrawComponent (from base)
 public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     // Set useParallel = true if desired and safe
@@ -30,7 +31,8 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
         }
 
         var layerDepth = text.LayerDepth;
-        var visibleText = text.TextContent[..text.VisibleCharacterCount];
+        var visibleChars = Math.Min(text.VisibleCharacterCount, text.TextContent.Length);
+        var visibleText = text.TextContent[..visibleChars];
 
         // Add a single DrawElement for the visible text (SpriteFont handles glyphs)
         entity.Set(new DrawComponent
@@ -42,8 +44,9 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
              Position = transform.Position, // Or apply alignment/origin logic here
              Color = text.Color,
              LayerDepth = layerDepth,
-             Size = text.Font.MeasureString(visibleText) // Store measured size if needed elsewhere
-             // Add Rotation, Origin(for alignment), Scale, Effects if needed
+             Size = text.Font.MeasureString(visibleText), // Store measured size if needed elsewhere
+             Scale = new Vector2(text.Scale > 0 ? text.Scale : 0.5f) // Use DynamicText scale or default to 0.5f
+             // Add Rotation, Origin(for alignment), , Effects if needed
         });
 
          // If using a Bitmap Font/Glyph Atlas:

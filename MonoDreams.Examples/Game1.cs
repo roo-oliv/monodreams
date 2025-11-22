@@ -92,11 +92,12 @@ public class Game1 : Game
 
         // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
         // _screenController.RegisterScreen(ScreenName.Game, () => new DialogueExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.MainMenu, () => new MainMenuScreen(GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.OptionsMenu, () => new OptionsMenuScreen(GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
-        _screenController.LoadScreen(ScreenName.Game);
+        _screenController.LoadScreen(ScreenName.LevelSelection);
         
         base.Initialize();
     }

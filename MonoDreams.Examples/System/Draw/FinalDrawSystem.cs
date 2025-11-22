@@ -21,6 +21,7 @@ public sealed class FinalDrawSystem : ISystem<GameState>
          RenderTargetID.HUD,
      ];
      private readonly MonoDreams.Component.Camera _camera;
+     private static readonly Color ClearColor = new(245, 235, 220); // Warm, cozy lofi background
 
      public bool IsEnabled { get; set; } = true;
 
@@ -39,7 +40,7 @@ public sealed class FinalDrawSystem : ISystem<GameState>
         // Ensure we are drawing to the back buffer
         _graphicsDevice.SetRenderTarget(null);
         // Clear the entire screen (including letter/pillarbox areas)
-        _graphicsDevice.Clear(Color.Black);
+        _graphicsDevice.Clear(ClearColor);
 
         // No scale matrix needed here, we draw using destination rectangle for scaling.
         _spriteBatch.Begin(

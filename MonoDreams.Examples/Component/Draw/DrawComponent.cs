@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Draw;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Component.Draw;
 
@@ -28,7 +29,7 @@ public class DrawComponent
     public Vector2 Size;
 
     // Text specific
-    public SpriteFont? Font;
+    public BitmapFont? Font;
     public string? Text;
 
     // NinePatch specific
