@@ -1,5 +1,6 @@
 using DefaultEcs;
 using DefaultEcs.System;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.State;
@@ -21,8 +22,8 @@ public class OrbSystem(World world) : AEntitySetSystem<GameState>(world)
         motion.Angle -= motion.Speed * state.Time;
 
         // Calculate new local position using trigonometry
-        transform.Position.X = MathF.Cos(motion.Angle) * motion.Radius + motion.CenterOffset.X;
-        transform.Position.Y = MathF.Sin(motion.Angle) * motion.Radius + motion.CenterOffset.Y;
-        transform.SetDirty();
+        transform.Position = new Vector2(
+            MathF.Cos(motion.Angle) * motion.Radius + motion.CenterOffset.X,
+            MathF.Sin(motion.Angle) * motion.Radius + motion.CenterOffset.Y);
     }
 }

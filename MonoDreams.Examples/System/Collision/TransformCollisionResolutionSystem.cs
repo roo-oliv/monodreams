@@ -64,7 +64,7 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
 
         if (contactNormal.X != 0)
         {
-            transform.Position.X = contactPoint.X - dynamicRect.Width / 2f - collidable.Bounds.Location.X;
+            transform.SetPositionX(contactPoint.X - dynamicRect.Width / 2f - collidable.Bounds.Location.X);
 
             if (entity.Has<Velocity>())
             {
@@ -84,7 +84,7 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
 
         if (contactNormal.Y != 0)
         {
-            transform.Position.Y = contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y;
+            transform.SetPositionY(contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y);
 
             if (entity.Has<Velocity>())
             {

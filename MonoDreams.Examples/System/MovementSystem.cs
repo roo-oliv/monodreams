@@ -14,32 +14,14 @@ public class MovementSystem(World world, IParallelRunner parallelRunner)
     protected override void Update(GameState state, in Entity entity)
     {
         ref var transform = ref entity.Get<Transform>();
-        var moved = false;
 
         if (InputState.Left.Pressed(state))
-        {
-            transform.Position.X -= Constants.MaxWalkVelocity * state.Time;
-            moved = true;
-        }
+            transform.TranslateX(-Constants.MaxWalkVelocity * state.Time);
         if (InputState.Right.Pressed(state))
-        {
-            transform.Position.X += Constants.MaxWalkVelocity * state.Time;
-            moved = true;
-        }
+            transform.TranslateX(Constants.MaxWalkVelocity * state.Time);
         if (InputState.Up.Pressed(state))
-        {
-            transform.Position.Y -= Constants.MaxWalkVelocity * state.Time;
-            moved = true;
-        }
+            transform.TranslateY(-Constants.MaxWalkVelocity * state.Time);
         if (InputState.Down.Pressed(state))
-        {
-            transform.Position.Y += Constants.MaxWalkVelocity * state.Time;
-            moved = true;
-        }
-
-        if (moved)
-        {
-            transform.SetDirty();
-        }
+            transform.TranslateY(Constants.MaxWalkVelocity * state.Time);
     }
 }
