@@ -106,6 +106,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
             new CursorPositionSystem(_world),
             new MovementSystem(_world, _parallelRunner),
+            new OrbSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
             new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
             new TransformPhysicalCollisionResolutionSystem(_world),
@@ -116,17 +117,22 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // ... other game logic systems
         );
         
+        // Transform hierarchy system must run AFTER logic systems modify transforms
+        // but BEFORE any systems read world transforms (camera, rendering, etc.)
+        var transformHierarchySystem = new TransformHierarchySystem(_world);
+
         var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
 
         var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
             new ColliderDebugSystem(_world, _graphicsDevice)
         );
-        
+
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
             inputSystems,
             levelLoadSystems,
             logicSystems,
+            transformHierarchySystem, // Propagate transform hierarchy dirty flags
             cameraFollowSystem,
             debugSystems
         );
@@ -141,7 +147,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new CullingSystem(_world, _camera),
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice),
-            new TextPrepSystem(_world)
+            new TextPrepSystem(_world),
+            new MeshPrepSystem(_world)
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );
 

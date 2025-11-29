@@ -9,6 +9,7 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.UI;
 using MonoDreams.Examples.Message;
+using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Draw;
 using MonoDreams.Examples.System.UI;
@@ -112,10 +113,13 @@ public class LevelSelectionScreen : IGameScreen
         // Create title
         CreateTitle("Select Level", font, new Vector2(0, -150), darkBrown);
 
-        // Create level buttons
-        CreateLevelButton("Level 1", 0, font, new Vector2(-250, 0), isClickable: true, darkBrown, terracotta, mutedBrown);
-        CreateLevelButton("Level 2", 1, font, new Vector2(0, 0), isClickable: false, darkBrown, terracotta, mutedBrown);
-        CreateLevelButton("Level 3", 2, font, new Vector2(250, 0), isClickable: false, darkBrown, terracotta, mutedBrown);
+        // Create level buttons with chained relative transforms
+        // Level 1: at (-250, 0) with no parent
+        var level1Transform = CreateLevelButton("Level 1", 0, font, new Vector2(-250, 0), null, isClickable: true, darkBrown, terracotta, mutedBrown);
+        // Level 2: at (250, 0) relative to Level 1 (world position: -250 + 250 = 0)
+        var level2Transform = CreateLevelButton("Level 2", 1, font, new Vector2(250, 0), level1Transform, isClickable: false, darkBrown, terracotta, mutedBrown);
+        // Level 3: at (250, 0) relative to Level 2 (world position: 0 + 250 = 250)
+        var level3Transform = CreateLevelButton("Level 3", 2, font, new Vector2(250, 0), level2Transform, isClickable: false, darkBrown, terracotta, mutedBrown);
     }
 
     private Entity CreateTitle(string text, BitmapFont font, Vector2 position, Color color)
@@ -139,11 +143,12 @@ public class LevelSelectionScreen : IGameScreen
         return entity;
     }
 
-    private Entity CreateLevelButton(string levelName, int levelIndex, BitmapFont font, Vector2 position, bool isClickable,
+    private Transform CreateLevelButton(string levelName, int levelIndex, BitmapFont font, Vector2 position, Transform? parentTransform, bool isClickable,
         Color defaultColor, Color hoverColor, Color disabledColor)
     {
         // Create shared transform for button and outline
         var buttonTransform = new Transform(position);
+        buttonTransform.Parent = parentTransform;
 
         // Create button entity (text + interaction)
         var buttonTextEntity = _world.CreateEntity();
@@ -184,7 +189,7 @@ public class LevelSelectionScreen : IGameScreen
         });
         outlineEntity.Set(new LevelSelectionEntity());
 
-        return buttonTextEntity;
+        return buttonTransform;
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()
@@ -200,9 +205,14 @@ public class LevelSelectionScreen : IGameScreen
             new CursorDrawPrepSystem(_world)
         );
 
+        // Transform hierarchy system must run AFTER any systems that modify transforms
+        // but BEFORE any systems read world transforms (rendering, etc.)
+        var transformHierarchySystem = new TransformHierarchySystem(_world);
+
         return new SequentialSystem<GameState>(
             inputSystems,
-            uiSystems
+            uiSystems,
+            transformHierarchySystem // Propagate transform hierarchy dirty flags
         );
     }
 

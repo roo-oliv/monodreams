@@ -24,6 +24,11 @@ public class MasterRenderSystem(
 {
     private BasicEffect? _basicEffect;
 
+    private enum BatchType { None, Sprite, Mesh }
+
+    private static BatchType GetBatchType(DrawElementType type) =>
+        type == DrawElementType.Mesh ? BatchType.Mesh : BatchType.Sprite;
+
     private void EnsureBasicEffect()
     {
         _basicEffect ??= new BasicEffect(graphicsDevice)
@@ -32,6 +37,29 @@ public class MasterRenderSystem(
             View = Matrix.Identity,
             Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1)
         };
+    }
+
+    private void BeginSpriteBatch(Matrix transformMatrix)
+    {
+        spriteBatch.Begin(
+            sortMode: SpriteSortMode.Deferred, // We pre-sort, so no need for FrontToBack
+            blendState: BlendState.AlphaBlend,
+            samplerState: SamplerState.PointClamp,
+            depthStencilState: DepthStencilState.None,
+            rasterizerState: RasterizerState.CullNone,
+            effect: null,
+            transformMatrix: transformMatrix);
+    }
+
+    private void EndSpriteBatch() => spriteBatch.End();
+
+    private void ResetGraphicsStateForMeshRendering()
+    {
+        // Reset states after SpriteBatch.End() before mesh rendering
+        graphicsDevice.BlendState = BlendState.AlphaBlend;
+        graphicsDevice.DepthStencilState = DepthStencilState.None;
+        graphicsDevice.RasterizerState = RasterizerState.CullNone;
+        graphicsDevice.SamplerStates[0] = SamplerState.PointClamp;
     }
 
     public void Update(GameState state)
@@ -53,69 +81,79 @@ public class MasterRenderSystem(
                 transformMatrix = camera.GetViewTransformationMatrix();
             }
 
-            // Separate mesh and sprite elements
+            // Sort ALL entities by LayerDepth (stable sort preserves order for same depth)
             var entities = drawList.GetEntities().ToArray();
-            var meshElements = entities.Where(e => e.Get<DrawComponent>().Type == DrawElementType.Mesh).ToList();
-            var spriteElements = entities.Where(e => e.Get<DrawComponent>().Type != DrawElementType.Mesh).ToList();
+            var sortedEntities = entities
+                .Select((entity, index) => (entity, index, dc: entity.Get<DrawComponent>()))
+                .Where(x => x.dc.Type != DrawElementType.Mesh || x.dc.HasValidMesh)
+                .OrderBy(x => x.dc.LayerDepth)
+                .ThenBy(x => x.index) // Stable sort
+                .ToList();
 
-            // Draw meshes first (they need BasicEffect, not SpriteBatch)
-            if (meshElements.Count > 0)
+            if (sortedEntities.Count > 0)
             {
-                DrawMeshes(meshElements, transformMatrix);
-            }
-
-            // Draw sprites, text, and nine-patch using SpriteBatch
-            if (spriteElements.Count > 0)
-            {
-                spriteBatch.Begin(
-                    sortMode: SpriteSortMode.FrontToBack,
-                    blendState: BlendState.AlphaBlend,
-                    samplerState: SamplerState.PointClamp,
-                    depthStencilState: DepthStencilState.None,
-                    rasterizerState: RasterizerState.CullNone,
-                    effect: null,
-                    transformMatrix: transformMatrix);
-
-                foreach (var entity in spriteElements)
-                {
-                    DrawElement(entity.Get<DrawComponent>());
-                }
-
-                spriteBatch.End();
+                RenderInterleaved(sortedEntities, transformMatrix);
             }
         }
     }
 
-    private void DrawMeshes(List<Entity> meshEntities, Matrix transformMatrix)
+    private void RenderInterleaved(
+        List<(Entity entity, int index, DrawComponent dc)> sortedEntities,
+        Matrix transformMatrix)
     {
-        // Sort by layer depth
-        var sortedMeshes = meshEntities
-            .Select(e => e.Get<DrawComponent>())
-            .Where(dc => dc.HasValidMesh)
-            .OrderBy(dc => dc.LayerDepth)
-            .ToList();
+        BatchType currentBatch = BatchType.None;
 
-        if (sortedMeshes.Count == 0) return;
+        foreach (var (_, _, dc) in sortedEntities)
+        {
+            var requiredBatch = GetBatchType(dc.Type);
 
-        // Update projection and world transform
-        _basicEffect!.Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
-        _basicEffect.World = transformMatrix;
+            // Batch type changed - switch context
+            if (requiredBatch != currentBatch)
+            {
+                // End previous batch
+                if (currentBatch == BatchType.Sprite)
+                    EndSpriteBatch();
+
+                // Start new batch
+                if (requiredBatch == BatchType.Sprite)
+                    BeginSpriteBatch(transformMatrix);
+                else if (requiredBatch == BatchType.Mesh)
+                    ResetGraphicsStateForMeshRendering();
+
+                currentBatch = requiredBatch;
+            }
+
+            // Draw the element
+            if (requiredBatch == BatchType.Sprite)
+                DrawElement(dc);
+            else
+                DrawSingleMesh(dc, transformMatrix);
+        }
+
+        // End final batch if sprites
+        if (currentBatch == BatchType.Sprite)
+            EndSpriteBatch();
+    }
+
+    private void DrawSingleMesh(DrawComponent dc, Matrix transformMatrix)
+    {
+        if (!dc.HasValidMesh) return;
+
+        _basicEffect!.Projection = Matrix.CreateOrthographicOffCenter(
+            0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+        _basicEffect.World = (dc.WorldMatrix ?? Matrix.Identity) * transformMatrix;
 
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
-
-            foreach (var dc in sortedMeshes)
-            {
-                graphicsDevice.DrawUserIndexedPrimitives(
-                    dc.PrimitiveType,
-                    dc.Vertices,
-                    0,
-                    dc.Vertices!.Length,
-                    dc.Indices,
-                    0,
-                    dc.GetPrimitiveCount());
-            }
+            graphicsDevice.DrawUserIndexedPrimitives(
+                dc.PrimitiveType,
+                dc.Vertices,
+                0,
+                dc.Vertices!.Length,
+                dc.Indices,
+                0,
+                dc.GetPrimitiveCount());
         }
     }
 
@@ -157,7 +195,7 @@ public class MasterRenderSystem(
                 break;
 
             case DrawElementType.Mesh:
-                // Handled separately in DrawMeshes
+                // Handled separately in DrawSingleMesh via RenderInterleaved
                 break;
         }
     }

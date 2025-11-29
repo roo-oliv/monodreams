@@ -25,10 +25,10 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
         var indices = new List<int>();
         var indexOffset = 0;
 
-        // Calculate corners of the button
+        // Calculate corners of the button using world position
         var halfWidth = outline.Size.X / 2;
         var halfHeight = outline.Size.Y / 2;
-        var position = transform.Position;
+        var position = transform.WorldPosition;
 
         // Top-left, top-right, bottom-right, bottom-left corners
         var topLeft = new Vector2(position.X - halfWidth, position.Y - halfHeight);

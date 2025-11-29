@@ -18,6 +18,7 @@ public class TransformVelocitySystem(World world, IParallelRunner parallelRunner
         ref var transform = ref entity.Get<Transform>();
         ref var velocity = ref entity.Get<Velocity>();
         transform.Position += velocity.Current * state.Time; // S_1 = S_0 + V * dT
+        transform.SetDirty();
         velocity.Last = velocity.Current;
     }
 }

@@ -26,7 +26,9 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEnt
             var ninePatchTexture = CreateNinePatchTexture(spriteInfo);
 
             drawComponent.Texture = ninePatchTexture;
-            drawComponent.Position = transform.Position + spriteInfo.Offset;
+            drawComponent.Position = transform.WorldPosition + spriteInfo.Offset;
+            drawComponent.Rotation = transform.WorldRotation;
+            drawComponent.Scale = transform.WorldScale;
             drawComponent.Size = spriteInfo.Size;
             drawComponent.SourceRectangle = null;
             drawComponent.Color = spriteInfo.Color;
@@ -36,7 +38,9 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEnt
         else if (spriteInfo.SpriteSheet != null)
         {
             drawComponent.Texture = spriteInfo.SpriteSheet;
-            drawComponent.Position = transform.Position + spriteInfo.Offset;
+            drawComponent.Position = transform.WorldPosition + spriteInfo.Offset;
+            drawComponent.Rotation = transform.WorldRotation;
+            drawComponent.Scale = transform.WorldScale;
             drawComponent.Size = spriteInfo.Size;
             drawComponent.SourceRectangle = spriteInfo.Source;
             drawComponent.Color = spriteInfo.Color;
