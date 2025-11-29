@@ -41,12 +41,13 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
              Target = text.Target,
              Text = visibleText,
              Font = text.Font,
-             Position = transform.Position, // Or apply alignment/origin logic here
+             Position = transform.WorldPosition, // Or apply alignment/origin logic here
+             Rotation = transform.WorldRotation,
              Color = text.Color,
              LayerDepth = layerDepth,
              Size = text.Font.MeasureString(visibleText), // Store measured size if needed elsewhere
-             Scale = new Vector2(text.Scale > 0 ? text.Scale : 0.5f) // Use DynamicText scale or default to 0.5f
-             // Add Rotation, Origin(for alignment), , Effects if needed
+             Scale = transform.WorldScale * new Vector2(text.Scale > 0 ? text.Scale : 0.5f) // Combine world scale with DynamicText scale
+             // Add Origin(for alignment), Effects if needed
         });
 
          // If using a Bitmap Font/Glyph Atlas:

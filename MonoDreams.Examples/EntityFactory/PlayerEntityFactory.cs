@@ -6,6 +6,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Input;
 using MonoDreams.Component.Physics;
+using MonoDreams.Draw;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Examples.Component.Draw;
@@ -65,6 +66,10 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         // Process custom fields from LDtk
         ProcessCustomFields(entity, request.CustomFields);
 
+        // Create orbiting orbs
+        var playerTransform = entity.Get<Transform>();
+        CreateBlueOrb(world, playerTransform);
+
         return entity;
     }
 
@@ -91,5 +96,95 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
             followTarget.DampingY = dampingValue;
             entity.Set(followTarget);
         }
+    }
+
+    private void CreateBlueOrb(World world, Transform parentTransform)
+    {
+        var orbEntity = world.CreateEntity();
+
+        // Create transform parented to player
+        var orbTransform = new Transform(
+            position: new Vector2(50, 0),
+            rotation: 0f,
+            scale: Vector2.One
+        );
+        orbTransform.Parent = parentTransform;
+        orbEntity.Set(orbTransform);
+
+        // Add orbital motion component
+        orbEntity.Set(new OrbitalMotion
+        {
+            Angle = 0f,
+            Radius = 50f,
+            Speed = 3f,  // clockwise
+            CenterOffset = new Vector2(8, 16)
+        });
+
+        // Create blue circle mesh
+        var circleMesh = new CircleMeshGenerator(
+            center: Vector2.Zero,
+            radius: 9f,
+            color: Color.DodgerBlue,
+            segments: 20
+        ).Generate();
+
+        orbEntity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Main,
+            Vertices = circleMesh.Vertices,
+            Indices = circleMesh.Indices,
+            PrimitiveType = circleMesh.PrimitiveType,
+            LayerDepth = 0.991f
+        });
+        orbEntity.Set(new Visible());
+
+        // Create 3 red child orbs evenly spaced (0°, 120°, 240°)
+        CreateRedOrb(world, orbTransform, 0f);
+        CreateRedOrb(world, orbTransform, MathF.PI * 2f / 3f);      // 120°
+        CreateRedOrb(world, orbTransform, MathF.PI * 4f / 3f);      // 240°
+    }
+
+    private void CreateRedOrb(World world, Transform parentTransform, float startAngle)
+    {
+        var orbEntity = world.CreateEntity();
+        var rnd = new Random();
+
+        // Create transform parented to blue orb
+        var orbTransform = new Transform(
+            position: new Vector2(20, 0),
+            rotation: 0f,
+            scale: Vector2.One
+        );
+        orbTransform.Parent = parentTransform;
+        orbEntity.Set(orbTransform);
+
+        // Add orbital motion component with starting angle offset
+        orbEntity.Set(new OrbitalMotion
+        {
+            Angle = startAngle,
+            Radius = 20f,
+            Speed = 5.0f + (rnd.NextSingle() * (7.0f - 5.0f)),  // clockwise, same direction as parent
+            CenterOffset = Vector2.Zero
+        });
+
+        // Create red circle mesh (smaller)
+        var circleMesh = new CircleMeshGenerator(
+            center: Vector2.Zero,
+            radius: 4f,
+            color: Color.Red,
+            segments: 16
+        ).Generate();
+
+        orbEntity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Main,
+            Vertices = circleMesh.Vertices,
+            Indices = circleMesh.Indices,
+            PrimitiveType = circleMesh.PrimitiveType,
+            LayerDepth = 0.992f
+        });
+        orbEntity.Set(new Visible());
     }
 }

@@ -11,4 +11,5 @@ public class InputState : AInputState
     public static readonly InputState Jump = new();
     public static readonly InputState Grab = new();
     public static readonly InputState Exit = new();
+    public static readonly InputState Orb = new();
 }

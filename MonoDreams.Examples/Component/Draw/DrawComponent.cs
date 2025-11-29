@@ -39,6 +39,7 @@ public class DrawComponent
     public VertexPositionColor[]? Vertices;
     public int[]? Indices;
     public PrimitiveType PrimitiveType = PrimitiveType.TriangleList;
+    public Matrix? WorldMatrix; // Transform matrix for mesh rendering
 
     /// <summary>
     /// Sets the mesh data from a MeshData struct.

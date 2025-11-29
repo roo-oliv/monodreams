@@ -17,9 +17,9 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
         (InputState.Left, Keys.A),
         (InputState.Right, Keys.D),
         (InputState.Jump, Keys.Space),
-        (InputState.Grab, Keys.LeftShift),
-        (InputState.Grab, Keys.RightShift),
         (InputState.Grab, Keys.K),
+        (InputState.Orb, Keys.LeftShift),
+        (InputState.Orb, Keys.RightShift),
         (InputState.Exit, Keys.Escape)
     ];
 
