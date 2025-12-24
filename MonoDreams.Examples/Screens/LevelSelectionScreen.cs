@@ -7,17 +7,19 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Examples.Component.Layout;
 using MonoDreams.Examples.Component.UI;
+using MonoDreams.Examples.Layout;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Draw;
+using MonoDreams.Examples.System.Layout;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
-using CursorController = MonoDreams.Component.CursorController;
 using Camera = MonoDreams.Component.Camera;
 using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
 using RenderTargetID = MonoDreams.Examples.Component.Draw.RenderTargetID;
@@ -38,6 +40,7 @@ public class LevelSelectionScreen : IGameScreen
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
+    private readonly BitmapFont _font;
 
     public LevelSelectionScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -54,6 +57,9 @@ public class LevelSelectionScreen : IGameScreen
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
             { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
         };
+
+        // Load font early so it's available for systems
+        _font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
 
         camera.Position = Vector2.Zero;
 
@@ -103,116 +109,162 @@ public class LevelSelectionScreen : IGameScreen
 
     private void CreateLevelSelectionUI()
     {
-        var font = _content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
-
         // Lofi color palette
         var darkBrown = new Color(60, 50, 45);        // Main text color
         var terracotta = new Color(200, 120, 80);     // Hover/accent color
         var mutedBrown = new Color(150, 140, 130);    // Disabled color
 
-        // Create title
-        CreateTitle("Select Level", font, new Vector2(0, -150), darkBrown);
+        // Create button style
+        var buttonStyle = ButtonStyle.WithColors(darkBrown, terracotta, mutedBrown);
 
-        // Create level buttons with chained relative transforms
-        // Level 1: at (-250, 0) with no parent
-        var level1Transform = CreateLevelButton("Level 1", 0, font, new Vector2(-250, 0), null, isClickable: true, darkBrown, terracotta, mutedBrown);
-        // Level 2: at (250, 0) relative to Level 1 (world position: -250 + 250 = 0)
-        var level2Transform = CreateLevelButton("Level 2", 1, font, new Vector2(250, 0), level1Transform, isClickable: false, darkBrown, terracotta, mutedBrown);
-        // Level 3: at (250, 0) relative to Level 2 (world position: 0 + 250 = 250)
-        var level3Transform = CreateLevelButton("Level 3", 2, font, new Vector2(250, 0), level2Transform, isClickable: false, darkBrown, terracotta, mutedBrown);
+        // Create entities first
+        var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f);
+        var button1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
+        var button2 = CreateButtonEntity("Level 2", _font, 1, "Level_0", false, buttonStyle);
+        var button3 = CreateButtonEntity("Level 3", _font, 2, "Level_0", false, buttonStyle);
+
+        // Create UI using auto layout with slots
+        var layout = new AutoLayoutBuilder(_world, _viewportManager);
+
+        layout.CreateRoot(ScreenAnchor.Center)
+            .Name("Root")
+            .Direction(LayoutDirection.Vertical)
+            .Gap(40)
+            .AlignMain(MainAxisAlignment.Center)
+            .AlignCross(CrossAxisAlignment.Center)
+            .AddSlot(slot => slot
+                .Attach(titleEntity)
+                .MeasureWith(MeasureText))
+            .AddContainer(row => row
+                .Name("ButtonColumn")
+                .Direction(LayoutDirection.Vertical)
+                .Gap(50)
+                .AlignCross(CrossAxisAlignment.Center)
+                .AddSlot(slot => slot.Attach(button1.container).MeasureWith(_ => button1.size))
+                .AddSlot(slot => slot.Attach(button2.container).MeasureWith(_ => button2.size))
+                .AddSlot(slot => slot.Attach(button3.container).MeasureWith(_ => button3.size))
+            )
+            .Build();
     }
 
-    private Entity CreateTitle(string text, BitmapFont font, Vector2 position, Color color)
+    private Entity CreateTextEntity(string text, BitmapFont font, Color color, float scale = 0.15f, float layerDepth = 0.9f)
     {
         var entity = _world.CreateEntity();
-
-        entity.Set(new Transform(position));
+        entity.Set(new Transform(Vector2.Zero));
         entity.Set(new DynamicText
         {
             Target = RenderTargetID.Main,
-            LayerDepth = 0.9f,
+            LayerDepth = layerDepth,
             TextContent = text,
             Font = font,
             Color = color,
-            Scale = 0.3f,
+            Scale = scale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
-        entity.Set(new LevelSelectionEntity());
-
         return entity;
     }
 
-    private Transform CreateLevelButton(string levelName, int levelIndex, BitmapFont font, Vector2 position, Transform? parentTransform, bool isClickable,
-        Color defaultColor, Color hoverColor, Color disabledColor)
+    private (Entity container, Vector2 size) CreateButtonEntity(
+        string text,
+        BitmapFont font,
+        int levelIndex,
+        string levelName,
+        bool isClickable,
+        ButtonStyle style)
     {
-        // Create shared transform for button and outline
-        var buttonTransform = new Transform(position);
-        buttonTransform.Parent = parentTransform;
+        // Measure text to determine button size
+        var textSize = font.MeasureString(text) * style.TextScale;
+        var buttonSize = new Vector2(
+            textSize.Width + style.Padding * 2,
+            textSize.Height + style.Padding * 2);
 
-        // Create button entity (text + interaction)
+        // Create button container entity
+        var buttonContainerEntity = _world.CreateEntity();
+        var buttonTransform = new Transform(Vector2.Zero);
+        buttonContainerEntity.Set(buttonTransform);
+
+        // Create button text entity with its own transform, offset by padding to center text
         var buttonTextEntity = _world.CreateEntity();
-        buttonTextEntity.Set(buttonTransform);
+        var textTransform = new Transform(new Vector2(style.Padding, style.Padding));
+        textTransform.Parent = buttonTransform;  // Child of button container transform
+        buttonTextEntity.Set(textTransform);
         buttonTextEntity.Set(new DynamicText
         {
             Target = RenderTargetID.Main,
             LayerDepth = 0.95f,
-            TextContent = levelName,
+            TextContent = text,
             Font = font,
-            Color = isClickable ? defaultColor : disabledColor,
-            Scale = 0.15f,
+            Color = isClickable ? style.DefaultColor : style.DisabledColor,
+            Scale = style.TextScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
-        buttonTextEntity.Set(new LevelSelectionEntity());
 
-        // Create separate outline entity that shares the same transform
+        // Create outline entity (shares transform with button)
         var outlineEntity = _world.CreateEntity();
-        outlineEntity.Set(buttonTransform); // Share the same transform reference
+        outlineEntity.Set(buttonTransform); // Share transform
         outlineEntity.Set(new SimpleButton
         {
-            Size = new Vector2(200, 60),
-            LineThickness = 2f,
-            Color = defaultColor,
+            Size = buttonSize,
+            LineThickness = style.BorderThickness,
+            Color = style.BorderColor,
             TextEntity = buttonTextEntity,
             Target = RenderTargetID.Main
         });
         outlineEntity.Set(new LevelSelector
         {
             LevelIndex = levelIndex,
-            LevelName = "Level_0", // The identifier of the level in World.ldtk
+            LevelName = levelName,
             IsClickable = isClickable,
             IsHovered = false,
-            DefaultColor = defaultColor,
-            HoveredColor = hoverColor,
-            DisabledColor = disabledColor
+            DefaultColor = style.DefaultColor,
+            HoveredColor = style.HoveredColor,
+            DisabledColor = style.DisabledColor
         });
-        outlineEntity.Set(new LevelSelectionEntity());
 
-        return buttonTransform;
+        return (buttonContainerEntity, buttonSize);
+    }
+
+    private static Vector2 MeasureText(Entity entity)
+    {
+        if (!entity.Has<DynamicText>()) return Vector2.Zero;
+
+        ref var text = ref entity.Get<DynamicText>();
+        var measuredSize = text.Font.MeasureString(text.TextContent);
+        return new Vector2(measuredSize.Width * text.Scale, measuredSize.Height * text.Scale);
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorInputSystem(_world, _camera),
-            new CursorPositionSystem(_world)
+        var inputSystems = new CursorInputSystem(_world);
+
+        // Layout systems must run before UI systems to position elements
+        var layoutSystems = new SequentialSystem<GameState>(
+            new IntrinsicSizingSystem(_world),     // Measure content sizes via callbacks
+            new AutoLayoutSystem(_world, _viewportManager),  // Calculate and apply layout
+            new LayoutDebugSystem(_world, _font, _camera)   // Debug visualization (toggle with LayoutDebugSystem.Enabled)
         );
 
         var uiSystems = new SequentialSystem<GameState>(
             new ButtonInteractionSystem(_world),
-            new ButtonMeshPrepSystem(_world),
-            new CursorDrawPrepSystem(_world)
+            new ButtonMeshPrepSystem(_world)
         );
 
         // Transform hierarchy system must run AFTER any systems that modify transforms
         // but BEFORE any systems read world transforms (rendering, etc.)
         var transformHierarchySystem = new TransformHierarchySystem(_world);
 
+        // Cursor position must update after layout/UI to use current camera state
+        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera);
+
         return new SequentialSystem<GameState>(
             inputSystems,
+            layoutSystems,  // Layout before UI interaction
             uiSystems,
-            transformHierarchySystem // Propagate transform hierarchy dirty flags
+            transformHierarchySystem,         // Propagate transform hierarchy dirty flags
+            cursorLateUpdateSystem,           // Cursor position updates after camera
+            new CursorDrawPrepSystem(_world)  // Draw prep after position is finalized
         );
     }
 

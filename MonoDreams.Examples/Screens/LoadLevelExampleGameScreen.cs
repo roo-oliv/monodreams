@@ -92,7 +92,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
         var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorInputSystem(_world, _camera),
+            new CursorInputSystem(_world),
             new InputMappingSystem(_world)
         );
         
@@ -104,7 +104,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         
         // Systems that modify component state (can often be parallel)
         var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorPositionSystem(_world),
             new MovementSystem(_world, _parallelRunner),
             new OrbSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
@@ -112,8 +111,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new TransformPhysicalCollisionResolutionSystem(_world),
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
-            new DialogueUpdateSystem(_world),
-            new CursorDrawPrepSystem(_world)
+            new DialogueUpdateSystem(_world)
             // ... other game logic systems
         );
         
@@ -122,6 +120,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var transformHierarchySystem = new TransformHierarchySystem(_world);
 
         var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
+
+        // Cursor position must update AFTER camera has moved to avoid 1-frame lag
+        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera);
 
         var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
             new ColliderDebugSystem(_world, _graphicsDevice)
@@ -134,6 +135,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             logicSystems,
             transformHierarchySystem, // Propagate transform hierarchy dirty flags
             cameraFollowSystem,
+            cursorLateUpdateSystem,          // Cursor position updates after camera
+            new CursorDrawPrepSystem(_world), // Draw prep after position is finalized
             debugSystems
         );
     }

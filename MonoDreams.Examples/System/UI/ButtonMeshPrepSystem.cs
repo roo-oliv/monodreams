@@ -25,16 +25,15 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
         var indices = new List<int>();
         var indexOffset = 0;
 
-        // Calculate corners of the button using world position
-        var halfWidth = outline.Size.X / 2;
-        var halfHeight = outline.Size.Y / 2;
+        // Calculate corners of the button using world position as top-left origin
+        // (Layout system positions elements at their top-left corner)
         var position = transform.WorldPosition;
 
         // Top-left, top-right, bottom-right, bottom-left corners
-        var topLeft = new Vector2(position.X - halfWidth, position.Y - halfHeight);
-        var topRight = new Vector2(position.X + halfWidth, position.Y - halfHeight);
-        var bottomRight = new Vector2(position.X + halfWidth, position.Y + halfHeight);
-        var bottomLeft = new Vector2(position.X - halfWidth, position.Y + halfHeight);
+        var topLeft = position;
+        var topRight = new Vector2(position.X + outline.Size.X, position.Y);
+        var bottomRight = position + outline.Size;
+        var bottomLeft = new Vector2(position.X, position.Y + outline.Size.Y);
 
         // Create thick lines for the four sides of the rectangle
         AddThickLine(vertices, indices, topLeft, topRight, outline.LineThickness, outline.Color, ref indexOffset);

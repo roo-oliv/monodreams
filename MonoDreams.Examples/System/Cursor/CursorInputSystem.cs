@@ -1,7 +1,6 @@
 ﻿using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework.Input;
-using MonoDreams.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.State;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
@@ -9,21 +8,20 @@ using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 
 namespace MonoDreams.Examples.System.Cursor;
 
-public class CursorInputSystem(World world, MonoDreams.Component.Camera camera) 
+public class CursorInputSystem(World world)
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorController>().With<CursorInput>().AsSet())
 {
     protected override void Update(GameState state, in Entity entity)
     {
         ref var input = ref entity.Get<CursorInput>();
         var mouseState = Mouse.GetState();
-        
+
         // Store previous positions
         input.PreviousScreenPosition = input.ScreenPosition;
         input.PreviousWorldPosition = input.WorldPosition;
-        
-        // Update current positions
+
+        // Update current screen position (world position is calculated later after camera updates)
         input.ScreenPosition = mouseState.Position.ToVector2();
-        input.WorldPosition = camera.VirtualScreenToWorld(input.ScreenPosition);
         
         // Calculate delta
         input.Delta = input.ScreenPosition - input.PreviousScreenPosition;
