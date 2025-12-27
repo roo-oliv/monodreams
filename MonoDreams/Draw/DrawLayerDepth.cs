@@ -31,7 +31,8 @@ public static class DrawLayerDepth
 
         for (int i = 0; i < length; i++)
         {
-            mapping[(Enum)values.GetValue(i)] = i / (float)(length - 1);
+            // Invert so first enum value = 1.0 (front), last = 0.0 (back)
+            mapping[(Enum)values.GetValue(i)] = (length - 1 - i) / (float)(length - 1);
         }
 
         Cache[enumType] = mapping;

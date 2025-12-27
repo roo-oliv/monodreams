@@ -17,6 +17,7 @@ using MonoDreams.Examples.System.Draw;
 using MonoDreams.Examples.System.Layout;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.Renderer;
+using MonoDreams.Draw;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
@@ -118,7 +119,7 @@ public class LevelSelectionScreen : IGameScreen
         var buttonStyle = ButtonStyle.WithColors(darkBrown, terracotta, mutedBrown);
 
         // Create entities first
-        var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f);
+        var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, DrawLayerDepth.GetLayerDepth(DrawLayer.Title));
         var button1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
         var button2 = CreateButtonEntity("Level 2", _font, 1, "Level_0", false, buttonStyle);
         var button3 = CreateButtonEntity("Level 3", _font, 2, "Level_0", false, buttonStyle);
@@ -147,7 +148,7 @@ public class LevelSelectionScreen : IGameScreen
             .Build();
     }
 
-    private Entity CreateTextEntity(string text, BitmapFont font, Color color, float scale = 0.15f, float layerDepth = 0.9f)
+    private Entity CreateTextEntity(string text, BitmapFont font, Color color, float scale, float layerDepth)
     {
         var entity = _world.CreateEntity();
         entity.Set(new Transform(Vector2.Zero));
@@ -192,7 +193,7 @@ public class LevelSelectionScreen : IGameScreen
         buttonTextEntity.Set(new DynamicText
         {
             Target = RenderTargetID.Main,
-            LayerDepth = 0.95f,
+            LayerDepth = DrawLayerDepth.GetLayerDepth(DrawLayer.ButtonText),
             TextContent = text,
             Font = font,
             Color = isClickable ? style.DefaultColor : style.DisabledColor,
@@ -301,5 +302,12 @@ public class LevelSelectionScreen : IGameScreen
         }
         _world.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    public enum DrawLayer
+    {
+        Cursor,      // 1.0 - front
+        ButtonText,  // middle
+        Title,       // 0.0 - back
     }
 }
