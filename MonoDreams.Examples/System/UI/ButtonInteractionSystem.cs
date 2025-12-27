@@ -34,12 +34,9 @@ public class ButtonInteractionSystem(World world) : AEntitySetSystem<GameState>(
 
         ref readonly var cursor = ref cursorEntity.Get<CursorInput>();
 
-        // Calculate button bounds
-        var halfWidth = button.Size.X / 2;
-        var halfHeight = button.Size.Y / 2;
         var buttonBounds = new Rectangle(
-            (int)(transform.Position.X - halfWidth),
-            (int)(transform.Position.Y - halfHeight),
+            (int)transform.WorldPosition.X,
+            (int)transform.WorldPosition.Y,
             (int)button.Size.X,
             (int)button.Size.Y);
 
