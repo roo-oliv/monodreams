@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "exportedFrom": "Blender 5.0.0",
+  "scaleFactor": 16.0,
+  "objects": [
+    {
+      "name": "Camera",
+      "type": "CAMERA",
+      "meshType": null,
+      "position": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "dimensions": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "rotation": 0.0,
+      "customProperties": {
+        "zoom": 10.0
+      }
+    },
+    {
+      "name": "Small Happines-Sadness icons",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": -18.5574,
+        "y": 8.7679
+      },
+      "dimensions": {
+        "x": 7.68,
+        "y": 8.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "rotation": 0.0,
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/special icons/Small Happines-Sadness icons.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 1.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 0.84,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 1.0,
+                "v": 0.5
+              },
+              {
+                "vertexIndex": 3,
+                "u": 0.84,
+                "v": 0.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Small Happines-Sadness icons.001",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": 5.0225,
+        "y": -0.1703
+      },
+      "dimensions": {
+        "x": 7.68,
+        "y": 8.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "rotation": 0.0,
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/special icons/Small Happines-Sadness icons.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.167813,
+                "v": 0.992188
+              },
+              {
+                "vertexIndex": 1,
+                "u": 0.007812,
+                "v": 0.992188
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.167813,
+                "v": 0.492188
+              },
+              {
+                "vertexIndex": 3,
+                "u": 0.007812,
+                "v": 0.492188
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

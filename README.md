@@ -33,6 +33,16 @@ export DOTNET_ROOT="/opt/homebrew/opt/dotnet@8/libexec"
 cp /opt/homebrew/lib/libfreeimage.dylib ~/.nuget/packages/dotnet-mgcb/3.8.4/tools/net8.0/any/libFreeImage.dylib
 ```
 
+#### Alternative: Manual .NET Installation
+
+If you installed .NET manually to `~/.dotnet`:
+
+```bash
+# Add to your ~/.zshrc or ~/.bash_profile:
+export DOTNET_ROOT="$HOME/.dotnet"
+export PATH="$DOTNET_ROOT:$PATH"
+```
+
 ### Windows
 
 ```powershell
@@ -55,6 +65,23 @@ dotnet build
 
 # Run the examples
 dotnet run --project MonoDreams.Examples/MonoDreams.Examples.csproj
+```
+
+### Building Individual Projects
+
+```bash
+# Build core engine only
+dotnet build MonoDreams/MonoDreams.csproj
+
+# Build examples
+dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
+
+# Build YarnSpinner integration
+dotnet build MonoDreams.YarnSpinner/MonoDreams.YarnSpinner.csproj
+
+# Build and run tests
+dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
+dotnet test
 ```
 
 ## About

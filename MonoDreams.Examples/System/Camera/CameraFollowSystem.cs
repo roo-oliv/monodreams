@@ -1,4 +1,5 @@
-﻿using DefaultEcs;
+﻿using System;
+using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
@@ -60,14 +61,25 @@ public class CameraFollowSystem : ISystem<GameState>
         // Calculate the target position with distance constraints
         var constrainedTarget = currentCameraPosition + clampedDistance;
         
-        // Apply damping for smooth movement
-        var dampedX = MathHelper.Lerp(currentCameraPosition.X, constrainedTarget.X, 
-            followComponent.DampingX * state.Time);
-        var dampedY = MathHelper.Lerp(currentCameraPosition.Y, constrainedTarget.Y, 
-            followComponent.DampingY * state.Time);
-        
-        // Update camera position
-        _camera.Position = new Vector2(dampedX, dampedY);
+        // Frame-rate independent exponential smoothing
+        // Using exp decay: smoothFactor = 1 - exp(-speed * deltaTime)
+        // This ensures consistent behavior regardless of frame rate and never overshoots
+        float smoothFactorX = 1f - (float)Math.Exp(-followComponent.DampingX * state.Time);
+        float smoothFactorY = 1f - (float)Math.Exp(-followComponent.DampingY * state.Time);
+
+        var newPosition = new Vector2(
+            MathHelper.Lerp(currentCameraPosition.X, constrainedTarget.X, smoothFactorX),
+            MathHelper.Lerp(currentCameraPosition.Y, constrainedTarget.Y, smoothFactorY)
+        );
+
+        // Snap to target when very close to avoid micro-jitter
+        const float snapThreshold = 0.01f;
+        if (Math.Abs(newPosition.X - constrainedTarget.X) < snapThreshold)
+            newPosition.X = constrainedTarget.X;
+        if (Math.Abs(newPosition.Y - constrainedTarget.Y) < snapThreshold)
+            newPosition.Y = constrainedTarget.Y;
+
+        _camera.Position = newPosition;
     }
     
     public void Dispose()

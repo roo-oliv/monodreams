@@ -1568,3 +1568,6 @@
 /importer:BitmapFontImporter
 /processor:BitmapFontProcessor
 /build:./Fonts/UAV-OSD-Sans-Mono-72-White-fnt.fnt
+
+#begin ./blender_level.json
+/copy:./blender_level.json

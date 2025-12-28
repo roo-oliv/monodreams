@@ -37,8 +37,8 @@ public class OptionsMenuScreen : IGameScreen
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
         _renderTargets = (
-            main: new RenderTarget2D(_graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight),
-            ui: new RenderTarget2D(_graphicsDevice, _renderer.ScreenWidth, _renderer.ScreenHeight)
+            main: new RenderTarget2D(_graphicsDevice, _renderer.VirtualWidth, _renderer.VirtualHeight),
+            ui: new RenderTarget2D(_graphicsDevice, _renderer.VirtualWidth, _renderer.VirtualHeight)
         );
         
         World = new World();

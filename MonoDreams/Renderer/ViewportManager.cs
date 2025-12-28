@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -44,6 +45,9 @@ public class ViewportManager
     private float _scaleX = 1.0f;
     private float _scaleY = 1.0f;
     private bool _dirty = true; // Flag to recalculate when screen size changes
+
+    public int IntegerScale { get; private set; } = 1;
+    public Rectangle PixelPerfectDestinationRectangle { get; private set; }
 
     public ViewportManager(Game game, int virtualWidth = 800, int virtualHeight = 600)
     {
@@ -164,6 +168,25 @@ public class ViewportManager
         _destinationRectangle = _currentViewport.Bounds; // This is where we draw the final RT
         _scaleX = (float)_destinationRectangle.Width / VirtualWidth;
         _scaleY = (float)_destinationRectangle.Height / VirtualHeight;
+
+        // Calculate integer scale for pixel-perfect mode
+        if (CurrentScalingMode == ScalingMode.PixelPerfect)
+        {
+            int scaleX = ScreenWidth / VirtualWidth;
+            int scaleY = ScreenHeight / VirtualHeight;
+            IntegerScale = Math.Max(1, Math.Min(scaleX, scaleY));
+
+            int ppWidth = VirtualWidth * IntegerScale;
+            int ppHeight = VirtualHeight * IntegerScale;
+            int ppX = (ScreenWidth - ppWidth) / 2;
+            int ppY = (ScreenHeight - ppHeight) / 2;
+
+            PixelPerfectDestinationRectangle = new Rectangle(ppX, ppY, ppWidth, ppHeight);
+        }
+        else
+        {
+            PixelPerfectDestinationRectangle = _destinationRectangle;
+        }
 
         _dirty = false;
 

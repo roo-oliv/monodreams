@@ -164,13 +164,27 @@ public class MasterRenderSystem(
             case DrawElementType.Sprite:
                 if (element.Texture == null) return;
 
+                // Calculate scale from source to destination size for sub-pixel precision
+                Vector2 scale;
+                if (element.SourceRectangle.HasValue && element.SourceRectangle.Value.Width > 0 && element.SourceRectangle.Value.Height > 0)
+                {
+                    scale = new Vector2(
+                        element.Size.X / element.SourceRectangle.Value.Width,
+                        element.Size.Y / element.SourceRectangle.Value.Height);
+                }
+                else
+                {
+                    scale = element.Scale;
+                }
+
                 spriteBatch.Draw(
                     element.Texture,
-                    new Rectangle((int)element.Position.X, (int)element.Position.Y, (int)element.Size.X, (int)element.Size.Y),
+                    element.Position,  // Vector2 preserves sub-pixel precision
                     element.SourceRectangle,
                     element.Color,
                     element.Rotation,
                     element.Origin,
+                    scale,
                     SpriteEffects.None,
                     element.LayerDepth);
                 break;

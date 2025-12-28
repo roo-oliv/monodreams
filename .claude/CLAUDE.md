@@ -25,3 +25,24 @@ LoadLevelExampleGameScreen.cs file.
    and systems when you can just add functionality to existing ones.
  - Refactorings are fine since this project is still in alpha. Just be sure to
    align with the user your plan first.
+
+# Building the Project
+Before making changes, ensure the project builds successfully.
+
+## Build Commands
+```bash
+# Build core engine
+dotnet build MonoDreams/MonoDreams.csproj
+
+# Build examples (includes MonoDreams)
+dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
+
+# Build YarnSpinner integration (includes MonoDreams)
+dotnet build MonoDreams.YarnSpinner/MonoDreams.YarnSpinner.csproj
+
+# Build tests
+dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
+
+# Build everything
+dotnet build
+```

@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Examples.Screens;
+using MonoDreams.Examples.Settings;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
@@ -12,38 +13,37 @@ namespace MonoDreams.Examples;
 
 public class Game1 : Game
 {
-    // Add resolution configuration
-    private const int VIRTUAL_WIDTH = 1920;   // Larger virtual resolution for UHD
-    private const int VIRTUAL_HEIGHT = 1080;
-    
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch;
     private ViewportManager _viewportManager;
     private Camera _camera;
     private DefaultParallelRunner _runner;
     private ScreenController _screenController;
+    private GameSettings _settings;
 
-    
-    
     public Game1()
     {
+        // Load settings first
+        _settings = SettingsManager.Instance.Settings;
+
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = false;
         IsFixedTimeStep = true;
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
-        
-        _graphics.IsFullScreen = false;
-        _graphics.PreferredBackBufferWidth = 1920;
-        _graphics.PreferredBackBufferHeight = 1080;
-        
+
+        // Apply settings
+        _graphics.IsFullScreen = _settings.IsFullscreen;
+        _graphics.PreferredBackBufferWidth = _settings.WindowWidth;
+        _graphics.PreferredBackBufferHeight = _settings.WindowHeight;
+
         _graphics.SynchronizeWithVerticalRetrace = true;
         _graphics.ApplyChanges();
-        
-        // Initialize with larger virtual resolution
-        _viewportManager = new(this, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
-        _camera = new(VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
-        
+
+        // Initialize with virtual resolution from settings
+        _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight);
+        _camera = new(_settings.VirtualWidth, _settings.VirtualHeight);
+
         // Add window resize handling
         Window.ClientSizeChanged += OnWindowResize;
     }
@@ -62,32 +62,23 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        // Allow for dynamic resolution detection
-        var displayMode = GraphicsDevice.DisplayMode;
-        
-        // For UHD screens, use a good windowed size
-        if (displayMode.Width >= 3840)
-        {
-            _graphics.PreferredBackBufferWidth = Math.Min(2560, displayMode.Width - 200);
-            _graphics.PreferredBackBufferHeight = Math.Min(1440, displayMode.Height - 200);
-        }
-        else if (displayMode.Width >= 2560)
-        {
-            _graphics.PreferredBackBufferWidth = Math.Min(1920, displayMode.Width - 200);
-            _graphics.PreferredBackBufferHeight = Math.Min(1080, displayMode.Height - 200);
-        }
-        
-        _graphics.ApplyChanges();
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
-        
-        // Rest of initialization...
+
+        // Apply scaling mode from settings
+        _viewportManager.CurrentScalingMode = _settings.ScalingMode switch
+        {
+            "PixelPerfect" => ViewportManager.ScalingMode.PixelPerfect,
+            "Smooth" => ViewportManager.ScalingMode.Smooth,
+            _ => ViewportManager.ScalingMode.KeepAspectRatio
+        };
+
         GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
         GraphicsDevice.BlendState = BlendState.AlphaBlend;
-        
+
         _spriteBatch = new(GraphicsDevice);
         _runner = new(1);
         _screenController = new(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
-        _camera.Zoom = displayMode.Width / 800;
+        _camera.Zoom = _settings.CameraZoom;
         _camera.Position = Vector2.Zero;
 
         // _screenController.RegisterScreen(ScreenName.Game, () => new DreamGameScreen(this, GraphicsDevice, Content, _camera, _renderer, _runner, _spriteBatch));
@@ -115,6 +106,18 @@ public class Game1 : Game
     protected override void Draw(GameTime gameTime)
     {
         _screenController.Draw(gameTime);
+    }
+
+    /// <summary>
+    /// Applies new resolution settings at runtime.
+    /// </summary>
+    public void ApplyResolutionSettings(int width, int height, bool fullscreen)
+    {
+        _graphics.PreferredBackBufferWidth = width;
+        _graphics.PreferredBackBufferHeight = height;
+        _graphics.IsFullScreen = fullscreen;
+        _graphics.ApplyChanges();
+        InitializeRenderer(width, height);
     }
 
     protected override void Dispose(bool disposing)

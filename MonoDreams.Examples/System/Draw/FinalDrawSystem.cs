@@ -14,11 +14,11 @@ public sealed class FinalDrawSystem : ISystem<GameState>
      private readonly GraphicsDevice _graphicsDevice;
      private readonly ViewportManager _viewportManager;
      private readonly IReadOnlyDictionary<RenderTargetID, RenderTarget2D> _renderTargets;
-     // Define the order and how to draw your RTs
+     // Define the order and how to draw your RTs (drawn later = on top)
      private readonly RenderTargetID[] _renderTargetsToDraw = [
-         RenderTargetID.Main,
-         RenderTargetID.UI,
-         RenderTargetID.HUD,
+         RenderTargetID.Main,  // Back (game world with camera)
+         RenderTargetID.UI,    // Middle
+         RenderTargetID.HUD,   // Front (cursor, always on top)
      ];
      private readonly MonoDreams.Component.Camera _camera;
      private static readonly Color ClearColor = new(245, 235, 220); // Warm, cozy lofi background
@@ -42,36 +42,54 @@ public sealed class FinalDrawSystem : ISystem<GameState>
         // Clear the entire screen (including letter/pillarbox areas)
         _graphicsDevice.Clear(ClearColor);
 
-        // No scale matrix needed here, we draw using destination rectangle for scaling.
-        _spriteBatch.Begin(
-            SpriteSortMode.Immediate, // Draw RTs in specific order
-            BlendState.AlphaBlend,    // Use AlphaBlend for UI overlays
-            SamplerState.PointClamp,  // PointClamp for pixel art, LinearClamp otherwise
-            DepthStencilState.None,
-            RasterizerState.CullNone);
-
-        // Iterate through render targets in the desired draw order
+        // Draw each render target with appropriate sampler and destination
         foreach (var targetId in _renderTargetsToDraw)
         {
-            if (_renderTargets.TryGetValue(targetId, out var renderTarget) && renderTarget != null)
-            {
-                Rectangle destinationRect;
-                
-                // Apply letter/pillarboxing only to the main game view?
-                if (targetId == RenderTargetID.Main)
-                {
-                    destinationRect = _viewportManager.DestinationRectangle;
-                }
-                else // Assume UI/HUD stretch or use full screen dimensions
-                {
-                    destinationRect = new Rectangle(0, 0, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight);
-                }
-                
-                _spriteBatch.Draw(renderTarget, destinationRect, Color.White);
-            }
-        }
+            if (!_renderTargets.TryGetValue(targetId, out var renderTarget) || renderTarget == null)
+                continue;
 
-        _spriteBatch.End();
+            Rectangle destinationRect;
+            SamplerState samplerState;
+
+            switch (targetId)
+            {
+                case RenderTargetID.Main:
+                    // Use integer-scaled destination for pixel-perfect mode
+                    destinationRect = _viewportManager.CurrentScalingMode == ViewportManager.ScalingMode.PixelPerfect
+                        ? _viewportManager.PixelPerfectDestinationRectangle
+                        : _viewportManager.DestinationRectangle;
+                    samplerState = SamplerState.PointClamp;
+                    break;
+
+                case RenderTargetID.UI:
+                    destinationRect = _viewportManager.DestinationRectangle;
+                    // LinearClamp for smooth text in Smooth mode, PointClamp otherwise
+                    samplerState = _viewportManager.CurrentScalingMode == ViewportManager.ScalingMode.Smooth
+                        ? SamplerState.LinearClamp
+                        : SamplerState.PointClamp;
+                    break;
+
+                case RenderTargetID.HUD:
+                    destinationRect = new Rectangle(0, 0, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight);
+                    samplerState = SamplerState.PointClamp;
+                    break;
+
+                default:
+                    destinationRect = _viewportManager.DestinationRectangle;
+                    samplerState = SamplerState.PointClamp;
+                    break;
+            }
+
+            _spriteBatch.Begin(
+                SpriteSortMode.Immediate,
+                BlendState.AlphaBlend,
+                samplerState,
+                DepthStencilState.None,
+                RasterizerState.CullNone);
+
+            _spriteBatch.Draw(renderTarget, destinationRect, Color.White);
+            _spriteBatch.End();
+        }
      }
      public void Dispose() { }
  }

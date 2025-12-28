@@ -55,8 +55,9 @@ public class LevelSelectionScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
-            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
-            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
+            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
+            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
+            { RenderTargetID.HUD, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) }
         };
 
         // Load font early so it's available for systems
@@ -89,7 +90,7 @@ public class LevelSelectionScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
+        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
 
         // Create level selection UI
         CreateLevelSelectionUI();
@@ -121,7 +122,7 @@ public class LevelSelectionScreen : IGameScreen
         // Create entities first
         var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, DrawLayerDepth.GetLayerDepth(DrawLayer.Title));
         var button1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
-        var button2 = CreateButtonEntity("Level 2", _font, 1, "Level_0", false, buttonStyle);
+        var button2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
         var button3 = CreateButtonEntity("Level 3", _font, 2, "Level_0", false, buttonStyle);
 
         // Create UI using auto layout with slots
@@ -257,7 +258,7 @@ public class LevelSelectionScreen : IGameScreen
         var transformHierarchySystem = new TransformHierarchySystem(_world);
 
         // Cursor position must update after layout/UI to use current camera state
-        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera);
+        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
         return new SequentialSystem<GameState>(
             inputSystems,

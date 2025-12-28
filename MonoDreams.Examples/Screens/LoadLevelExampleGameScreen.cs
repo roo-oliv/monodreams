@@ -50,8 +50,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
-            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) },
-            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.ScreenWidth, _viewportManager.ScreenHeight) }
+            { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
+            { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
+            { RenderTargetID.HUD, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) }
         };
         
         camera.Position = new Vector2(0, 0);
@@ -75,7 +76,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.Main);
+        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
 
         // Check if a level was requested from the level selection screen
         var requestedLevel = screenController.Game.Services.GetService(typeof(RequestedLevelComponent)) as RequestedLevelComponent;
@@ -98,6 +99,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         
         var levelLoadSystems = new SequentialSystem<GameState>(
             new LevelLoadRequestSystem(_world, _content),
+            new BlenderLevelParserSystem(_world, _content, _camera),
             new LDtkTileParserSystem(_world, _content),
             new LDtkEntityParserSystem(_world),
             new EntitySpawnSystem(_world, _content, _renderTargets));
@@ -122,7 +124,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
 
         // Cursor position must update AFTER camera has moved to avoid 1-frame lag
-        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera);
+        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
         var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
             new ColliderDebugSystem(_world, _graphicsDevice)
