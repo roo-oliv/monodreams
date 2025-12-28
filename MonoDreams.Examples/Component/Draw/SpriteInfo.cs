@@ -14,6 +14,8 @@ public struct SpriteInfo() : IComponent
     public RenderTargetID Target = RenderTargetID.Main; // Which RenderTarget this belongs to
     public float LayerDepth = 0; // Or use LayerDepth directly
     public NinePatchInfo? NinePatchData = null; // Optional
+    public Vector2 Origin = Vector2.Zero; // Origin point in sprite coordinates (pixels from top-left)
+
     public void Dispose()
     {
         SpriteSheet?.Dispose();

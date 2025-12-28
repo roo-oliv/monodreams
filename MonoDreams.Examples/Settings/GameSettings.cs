@@ -44,7 +44,13 @@ public class GameSettings
     /// Smooth uses bilinear filtering for UI/text.
     /// KeepAspectRatio maintains aspect ratio with fractional scaling.
     /// </summary>
-    public string ScalingMode { get; set; } = "Smooth";
+    public string ScalingMode { get; set; } = "KeepAspectRatio";
+
+    /// <summary>
+    /// When true, sprite and text positions are snapped to integer coordinates at render time.
+    /// Physics and logic retain sub-pixel precision. Recommended for pixel art games.
+    /// </summary>
+    public bool PixelPerfectRendering { get; set; } = false;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

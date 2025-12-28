@@ -10,8 +10,9 @@ namespace MonoDreams.Examples.System.Draw;
 
 // Prepares DrawElements for static sprites and 9-patches
 [With(typeof(DrawComponent), typeof(SpriteInfo), typeof(Transform), typeof(Visible))]
-public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEntitySetSystem<GameState>(world)
+public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice, bool pixelPerfectRendering) : AEntitySetSystem<GameState>(world)
 {
+    private readonly bool _pixelPerfectRendering = pixelPerfectRendering;
     private readonly Dictionary<string, Texture2D> _ninePatchTextureCache = new();
 
     protected override void Update(GameState state, in Entity entity)
@@ -25,26 +26,34 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice) : AEnt
             // Create a runtime nine-patch texture
             var ninePatchTexture = CreateNinePatchTexture(spriteInfo);
 
+            var position = transform.WorldPosition + spriteInfo.Offset;
             drawComponent.Texture = ninePatchTexture;
-            drawComponent.Position = transform.WorldPosition + spriteInfo.Offset;
+            drawComponent.Position = _pixelPerfectRendering
+                ? new Vector2(MathF.Round(position.X), MathF.Round(position.Y))
+                : position;
             drawComponent.Rotation = transform.WorldRotation;
             drawComponent.Scale = transform.WorldScale;
             drawComponent.Size = spriteInfo.Size;
             drawComponent.SourceRectangle = null;
             drawComponent.Color = spriteInfo.Color;
             drawComponent.LayerDepth = spriteInfo.LayerDepth;
+            drawComponent.Origin = spriteInfo.Origin;
         }
         // --- Handle Regular Sprite ---
         else if (spriteInfo.SpriteSheet != null)
         {
+            var position = transform.WorldPosition + spriteInfo.Offset;
             drawComponent.Texture = spriteInfo.SpriteSheet;
-            drawComponent.Position = transform.WorldPosition + spriteInfo.Offset;
+            drawComponent.Position = _pixelPerfectRendering
+                ? new Vector2(MathF.Round(position.X), MathF.Round(position.Y))
+                : position;
             drawComponent.Rotation = transform.WorldRotation;
             drawComponent.Scale = transform.WorldScale;
             drawComponent.Size = spriteInfo.Size;
             drawComponent.SourceRectangle = spriteInfo.Source;
             drawComponent.Color = spriteInfo.Color;
             drawComponent.LayerDepth = spriteInfo.LayerDepth;
+            drawComponent.Origin = spriteInfo.Origin;
         }
     }
 

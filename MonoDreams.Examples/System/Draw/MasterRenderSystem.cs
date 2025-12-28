@@ -44,7 +44,7 @@ public class MasterRenderSystem(
         spriteBatch.Begin(
             sortMode: SpriteSortMode.Deferred, // We pre-sort, so no need for FrontToBack
             blendState: BlendState.AlphaBlend,
-            samplerState: SamplerState.PointClamp,
+            samplerState: SamplerState.LinearClamp,
             depthStencilState: DepthStencilState.None,
             rasterizerState: RasterizerState.CullNone,
             effect: null,

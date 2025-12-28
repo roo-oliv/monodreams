@@ -8,6 +8,7 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component.Dialogue;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
+using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
 using MonoDreams.Renderer;
@@ -112,14 +113,16 @@ public class DialogueExampleGameScreen : IGameScreen
     
     private SequentialSystem<GameState> CreateDrawSystem()
     {
+        var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
+
         // Systems that prepare DrawComponent based on state (can often be parallel)
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
             new CullingSystem(_world, _camera),
             new DialogueUIRenderPrepSystem(_world),
-            new SpritePrepSystem(_world, _graphicsDevice),
-            new TextPrepSystem(_world)
+            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
+            new TextPrepSystem(_world, pixelPerfectRendering)
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );
 

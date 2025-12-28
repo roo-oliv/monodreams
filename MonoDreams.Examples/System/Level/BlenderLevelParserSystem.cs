@@ -79,7 +79,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 switch (obj.Type)
                 {
                     case "CAMERA":
-                        ProcessCamera(obj);
+                        ProcessCamera(obj, levelData.ScaleFactor);
                         break;
                     case "MESH":
                         ProcessMesh(obj);
@@ -102,20 +102,26 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         }
     }
 
-    private void ProcessCamera(BlenderObject cameraObj)
+    private void ProcessCamera(BlenderObject cameraObj, float scaleFactor)
     {
         if (cameraObj.Position == null) return;
 
         var cameraPosition = new Vector2(cameraObj.Position.X, cameraObj.Position.Y);
         _camera.Position = cameraPosition;
 
-        // Read zoom from custom properties, default to current zoom if not specified
+        // Read ortho_scale from custom properties and convert to game zoom
+        // Blender ortho_scale = visible width in Blender units
+        // With scaleFactor, visible world pixels = ortho_scale * scaleFactor
+        // Game zoom = virtualWidth / visible_world_pixels
         if (cameraObj.CustomProperties?.TryGetValue("zoom", out var zoomValue) == true)
         {
-            if (zoomValue is JsonElement jsonElement && jsonElement.TryGetDouble(out var zoom))
+            if (zoomValue is JsonElement jsonElement && jsonElement.TryGetDouble(out var orthoScale))
             {
-                _camera.Zoom = (float)zoom;
-                Console.WriteLine($"Set camera zoom to {zoom}");
+                // Convert Blender ortho_scale to game zoom
+                var visibleWorldWidth = orthoScale * scaleFactor;
+                var gameZoom = _camera.VirtualWidth / visibleWorldWidth;
+                _camera.Zoom = (float)gameZoom;
+                Console.WriteLine($"Set camera zoom to {gameZoom} (from Blender ortho_scale {orthoScale}, scaleFactor {scaleFactor})");
             }
         }
 
@@ -186,6 +192,15 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             meshObj.Dimensions?.Y ?? sourceRect.Height
         );
 
+        // Calculate origin from Blender's origin offset
+        // Blender origin offset is normalized (0-1) where (0,0) is bottom-left and (0.5,0.5) is center
+        // SpriteBatch.Draw expects origin in SOURCE TEXTURE coordinates (not destination size)
+        var originOffsetX = meshObj.OriginOffset?.X ?? 0.5f;  // Default to center
+        var originOffsetY = meshObj.OriginOffset?.Y ?? 0.5f;
+        // Y is inverted: Blender Y=0 is bottom, engine Y=0 is top
+        // Use sourceRect dimensions since SpriteBatch.Draw origin is in source coordinates
+        var origin = new Vector2(sourceRect.Width * originOffsetX, sourceRect.Height * (1 - originOffsetY));
+
         entity.Set(new SpriteInfo
         {
             SpriteSheet = texture,
@@ -193,7 +208,8 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             Size = size,
             Color = Color.White,
             Target = RenderTargetID.Main,
-            LayerDepth = DEFAULT_LAYER_DEPTH
+            LayerDepth = DEFAULT_LAYER_DEPTH,
+            Origin = origin
         });
 
         // DrawComponent
@@ -206,7 +222,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Make visible
         entity.Set(new Visible());
 
-        Console.WriteLine($"Created entity for mesh '{meshObj.Name}' at ({position.X}, {position.Y}) with size ({size.X}, {size.Y}) and source rect ({sourceRect.X}, {sourceRect.Y}, {sourceRect.Width}, {sourceRect.Height})");
+        Console.WriteLine($"Created entity for mesh '{meshObj.Name}' at ({position.X}, {position.Y}) with size ({size.X}, {size.Y}), origin ({origin.X}, {origin.Y}), and source rect ({sourceRect.X}, {sourceRect.Y}, {sourceRect.Width}, {sourceRect.Height})");
     }
 
     /// <summary>

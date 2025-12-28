@@ -4,7 +4,7 @@
 bl_info = {
     "name": "MonoDreams Level Exporter",
     "author": "MonoDreams Team",
-    "version": (1, 1, 1),
+    "version": (1, 4, 0),
     "blender": (5, 0, 0),
     "location": "File > Export > MonoDreams Level (.json)",
     "description": "Export level objects to JSON for MonoDreams game engine",
@@ -122,6 +122,40 @@ def get_uv_data(obj):
     return uv_data
 
 
+def get_origin_offset(obj):
+    """
+    Calculate the origin point position relative to the mesh bounding box.
+    Returns normalized coordinates (0-1) where:
+    - (0, 0) = bottom-left corner
+    - (0.5, 0.5) = center
+    - (1, 1) = top-right corner
+    """
+    if obj.type != 'MESH':
+        return {"x": 0.5, "y": 0.5}  # Default to center for non-meshes
+
+    # Get local bounding box (8 corners)
+    bbox = obj.bound_box
+
+    # Find min/max in local X and Z (Z is up in Blender, maps to Y in 2D)
+    min_x = min(v[0] for v in bbox)
+    max_x = max(v[0] for v in bbox)
+    min_z = min(v[2] for v in bbox)
+    max_z = max(v[2] for v in bbox)
+
+    # Origin is at local (0,0,0), calculate normalized position within bounding box
+    width = max_x - min_x
+    height = max_z - min_z
+
+    # Avoid division by zero
+    offset_x = (-min_x / width) if width > 0 else 0.5
+    offset_y = (-min_z / height) if height > 0 else 0.5
+
+    return {
+        "x": round(offset_x, 4),
+        "y": round(offset_y, 4)
+    }
+
+
 def get_custom_properties(obj):
     """Extract custom properties from a Blender object."""
     custom_props = {}
@@ -172,7 +206,7 @@ def get_object_data(obj, scale_factor):
     # Map coordinates: X stays X, Z becomes Y
     position = {
         "x": round(location.x * scale_factor, 4),
-        "y": round(location.z * scale_factor, 4)
+        "y": -round(location.z * scale_factor, 4)
     }
 
     # Map scale: X stays X, Z becomes Y
@@ -182,16 +216,15 @@ def get_object_data(obj, scale_factor):
     }
 
     # Get dimensions (bounding box size, includes scale)
-    # Map dimensions: X stays X, Z becomes Y
     dimensions = obj.dimensions
     dimensions_data = {
         "x": round(dimensions.x * scale_factor, 4),
         "y": round(dimensions.y * scale_factor, 4)
     }
 
-    # Use Z rotation (around vertical axis in Blender = around screen in 2D)
+    # Use Y rotation
     # Convert from radians to degrees
-    rotation_degrees = round(math.degrees(rotation.z), 4)
+    rotation_degrees = round(math.degrees(rotation.y), 4)
 
     # Determine object type
     obj_type = obj.type  # MESH, CAMERA, LIGHT, EMPTY, etc.
@@ -205,6 +238,13 @@ def get_object_data(obj, scale_factor):
     # Get custom properties
     custom_props = get_custom_properties(obj)
 
+    # For cameras, add orthographic scale as zoom
+    if obj.type == 'CAMERA' and obj.data:
+        custom_props["zoom"] = round(obj.data.ortho_scale, 4)
+
+    # Get origin offset for meshes
+    origin_offset = get_origin_offset(obj) if obj.type == 'MESH' else {"x": 0.5, "y": 0.5}
+
     result = {
         "name": obj.name,
         "type": obj_type,
@@ -213,6 +253,7 @@ def get_object_data(obj, scale_factor):
         "dimensions": dimensions_data,
         "scale": scale_data,
         "rotation": rotation_degrees,
+        "originOffset": origin_offset,
         "customProperties": custom_props
     }
 

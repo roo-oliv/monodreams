@@ -15,6 +15,7 @@ using MonoDreams.Examples.System.Camera;
 using MonoDreams.Examples.System.Collision;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Debug;
+using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.Examples.System.Draw;
 using MonoDreams.Examples.System.Level;
@@ -145,15 +146,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
     
     private SequentialSystem<GameState> CreateDrawSystem()
     {
+        var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
+
         // Systems that prepare DrawComponent based on state (can often be parallel)
         var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
             new CullingSystem(_world, _camera),
             new DialogueUIRenderPrepSystem(_world),
-            new SpritePrepSystem(_world, _graphicsDevice),
-            new TextPrepSystem(_world),
-            new MeshPrepSystem(_world)
+            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
+            new TextPrepSystem(_world, pixelPerfectRendering),
+            new MeshPrepSystem(_world),
+            new SpriteDebugSystem(_world)  // Debug visualization for sprite bounds and origins
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );
 

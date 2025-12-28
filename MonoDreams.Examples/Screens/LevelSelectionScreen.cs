@@ -11,6 +11,7 @@ using MonoDreams.Examples.Component.Layout;
 using MonoDreams.Examples.Component.UI;
 using MonoDreams.Examples.Layout;
 using MonoDreams.Examples.Message;
+using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Cursor;
 using MonoDreams.Examples.System.Draw;
@@ -272,8 +273,10 @@ public class LevelSelectionScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
+        var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
+
         var prepDrawSystems = new SequentialSystem<GameState>(
-            new TextPrepSystem(_world)
+            new TextPrepSystem(_world, pixelPerfectRendering)
         );
 
         var renderSystem = new MasterRenderSystem(

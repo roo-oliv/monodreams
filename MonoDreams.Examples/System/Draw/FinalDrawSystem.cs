@@ -58,7 +58,8 @@ public sealed class FinalDrawSystem : ISystem<GameState>
                     destinationRect = _viewportManager.CurrentScalingMode == ViewportManager.ScalingMode.PixelPerfect
                         ? _viewportManager.PixelPerfectDestinationRectangle
                         : _viewportManager.DestinationRectangle;
-                    samplerState = SamplerState.PointClamp;
+                    // LinearClamp for smooth filtering matching Blender's Linear interpolation
+                    samplerState = SamplerState.LinearClamp;
                     break;
 
                 case RenderTargetID.UI:

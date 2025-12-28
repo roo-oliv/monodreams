@@ -46,6 +46,9 @@ public class BlenderObject
     [JsonPropertyName("rotation")]
     public float Rotation { get; set; }
 
+    [JsonPropertyName("originOffset")]
+    public Vector2Json OriginOffset { get; set; }
+
     [JsonPropertyName("customProperties")]
     public Dictionary<string, object> CustomProperties { get; set; }
 

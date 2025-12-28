@@ -9,8 +9,9 @@ using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
 namespace MonoDreams.Examples.System.Draw;
 
 [With(typeof(DynamicText), typeof(Transform))] // Ensures entities have these + DrawComponent (from base)
-public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(world)
+public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AEntitySetSystem<GameState>(world)
 {
+    private readonly bool _pixelPerfectRendering = pixelPerfectRendering;
     // Set useParallel = true if desired and safe
 
      protected override void Update(GameState state, in Entity entity)
@@ -35,13 +36,16 @@ public sealed class TextPrepSystem(World world) : AEntitySetSystem<GameState>(wo
         var visibleText = text.TextContent[..visibleChars];
 
         // Add a single DrawElement for the visible text (SpriteFont handles glyphs)
+        var position = transform.WorldPosition;
         entity.Set(new DrawComponent
         {
              Type = DrawElementType.Text,
              Target = text.Target,
              Text = visibleText,
              Font = text.Font,
-             Position = transform.WorldPosition, // Or apply alignment/origin logic here
+             Position = _pixelPerfectRendering
+                 ? new Vector2(MathF.Round(position.X), MathF.Round(position.Y))
+                 : position,
              Rotation = transform.WorldRotation,
              Color = text.Color,
              LayerDepth = layerDepth,

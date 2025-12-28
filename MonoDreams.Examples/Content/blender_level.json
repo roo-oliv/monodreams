@@ -4,69 +4,52 @@
   "scaleFactor": 16.0,
   "objects": [
     {
-      "name": "Camera",
-      "type": "CAMERA",
-      "meshType": null,
-      "position": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "dimensions": {
-        "x": 0.0,
-        "y": 0.0
-      },
-      "scale": {
-        "x": 1.0,
-        "y": 1.0
-      },
-      "rotation": 0.0,
-      "customProperties": {
-        "zoom": 10.0
-      }
-    },
-    {
-      "name": "Small Happines-Sadness icons",
+      "name": "Banner",
       "type": "MESH",
       "meshType": "plane",
       "position": {
-        "x": -18.5574,
-        "y": 8.7679
+        "x": 19.8516,
+        "y": 2.3586
       },
       "dimensions": {
-        "x": 7.68,
-        "y": 8.0
+        "x": 3.0029,
+        "y": 3.6034
       },
       "scale": {
-        "x": 1.0,
-        "y": 1.0
+        "x": 0.2252,
+        "y": 0.2252
       },
-      "rotation": 0.0,
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/special icons/Small Happines-Sadness icons.png",
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Banner.png",
         "uvLayers": [
           {
             "name": "UVMap",
             "uvCoordinates": [
               {
                 "vertexIndex": 0,
-                "u": 1.0,
-                "v": 1.0
+                "u": 0.0,
+                "v": 0.0
               },
               {
                 "vertexIndex": 1,
-                "u": 0.84,
-                "v": 1.0
+                "u": 1.0,
+                "v": 0.0
               },
               {
                 "vertexIndex": 2,
-                "u": 1.0,
-                "v": 0.5
+                "u": 0.0,
+                "v": 1.0
               },
               {
                 "vertexIndex": 3,
-                "u": 0.84,
-                "v": 0.5
+                "u": 1.0,
+                "v": 1.0
               }
             ]
           }
@@ -74,48 +57,342 @@
       }
     },
     {
-      "name": "Small Happines-Sadness icons.001",
+      "name": "Bed",
       "type": "MESH",
       "meshType": "plane",
       "position": {
-        "x": 5.0225,
-        "y": -0.1703
+        "x": 16.8051,
+        "y": 9.2379
       },
       "dimensions": {
-        "x": 7.68,
-        "y": 8.0
+        "x": 9.8515,
+        "y": 8.1275
       },
       "scale": {
-        "x": 1.0,
-        "y": 1.0
+        "x": 0.508,
+        "y": 0.508
       },
-      "rotation": 0.0,
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/Icons/special icons/Small Happines-Sadness icons.png",
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Bed.png",
         "uvLayers": [
           {
             "name": "UVMap",
             "uvCoordinates": [
               {
                 "vertexIndex": 0,
-                "u": 0.167813,
-                "v": 0.992188
+                "u": 0.0,
+                "v": 0.0
               },
               {
                 "vertexIndex": 1,
-                "u": 0.007812,
-                "v": 0.992188
+                "u": 1.0,
+                "v": 0.0
               },
               {
                 "vertexIndex": 2,
-                "u": 0.167813,
-                "v": 0.492188
+                "u": 0.0,
+                "v": 1.0
               },
               {
                 "vertexIndex": 3,
-                "u": 0.007812,
-                "v": 0.492188
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Bucket",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": 14.1517,
+        "y": 14.4465
+      },
+      "dimensions": {
+        "x": 2.6455,
+        "y": 3.0103
+      },
+      "scale": {
+        "x": 0.1881,
+        "y": 0.1881
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Bucket.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Camera",
+      "type": "CAMERA",
+      "meshType": null,
+      "position": {
+        "x": 0.0,
+        "y": -0.0
+      },
+      "dimensions": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {
+        "zoom": 6.0
+      }
+    },
+    {
+      "name": "Skill_18",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": -25.9447,
+        "y": 0.1966
+      },
+      "dimensions": {
+        "x": 6.6369,
+        "y": 6.6369
+      },
+      "scale": {
+        "x": 0.4148,
+        "y": 0.4148
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skill_18.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Skull",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": 0.0,
+        "y": -0.0
+      },
+      "dimensions": {
+        "x": 2.6599,
+        "y": 3.2858
+      },
+      "scale": {
+        "x": 0.2054,
+        "y": 0.2054
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skull.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tomato",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": 20.4413,
+        "y": 13.7586
+      },
+      "dimensions": {
+        "x": 2.111,
+        "y": 1.9248
+      },
+      "scale": {
+        "x": 0.1203,
+        "y": 0.1203
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Tomato.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tower",
+      "type": "MESH",
+      "meshType": "plane",
+      "position": {
+        "x": -31.2516,
+        "y": -12.9724
+      },
+      "dimensions": {
+        "x": 11.5556,
+        "y": 16.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Tower.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
               }
             ]
           }
