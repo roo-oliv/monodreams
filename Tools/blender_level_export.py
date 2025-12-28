@@ -4,7 +4,7 @@
 bl_info = {
     "name": "MonoDreams Level Exporter",
     "author": "MonoDreams Team",
-    "version": (1, 4, 0),
+    "version": (1, 4, 1),
     "blender": (5, 0, 0),
     "location": "File > Export > MonoDreams Level (.json)",
     "description": "Export level objects to JSON for MonoDreams game engine",
@@ -136,19 +136,19 @@ def get_origin_offset(obj):
     # Get local bounding box (8 corners)
     bbox = obj.bound_box
 
-    # Find min/max in local X and Z (Z is up in Blender, maps to Y in 2D)
+    # Find min/max in local X and Y
     min_x = min(v[0] for v in bbox)
     max_x = max(v[0] for v in bbox)
-    min_z = min(v[2] for v in bbox)
-    max_z = max(v[2] for v in bbox)
+    min_y = min(v[1] for v in bbox)
+    max_y = max(v[1] for v in bbox)
 
     # Origin is at local (0,0,0), calculate normalized position within bounding box
     width = max_x - min_x
-    height = max_z - min_z
+    height = max_y - min_y
 
     # Avoid division by zero
     offset_x = (-min_x / width) if width > 0 else 0.5
-    offset_y = (-min_z / height) if height > 0 else 0.5
+    offset_y = (-min_y / height) if height > 0 else 0.5
 
     return {
         "x": round(offset_x, 4),
