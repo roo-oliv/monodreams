@@ -26,7 +26,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Banner.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Banner.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -79,7 +79,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Bed.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Bed.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -132,7 +132,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Bucket.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Bucket.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -210,7 +210,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skill_18.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skill_18.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -249,12 +249,12 @@
         "y": -0.0
       },
       "dimensions": {
-        "x": 2.6599,
-        "y": 3.2858
+        "x": 5.6526,
+        "y": 6.9826
       },
       "scale": {
-        "x": 0.2054,
-        "y": 0.2054
+        "x": 0.4364,
+        "y": 0.4364
       },
       "rotation": -0.0,
       "originOffset": {
@@ -263,7 +263,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skull.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skull.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -316,7 +316,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Tomato.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Tomato.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -369,7 +369,7 @@
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Tower.png",
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Tower.png",
         "uvLayers": [
           {
             "name": "UVMap",

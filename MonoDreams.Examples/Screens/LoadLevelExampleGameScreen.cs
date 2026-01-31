@@ -139,8 +139,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             transformHierarchySystem, // Propagate transform hierarchy dirty flags
             cameraFollowSystem,
             cursorLateUpdateSystem,          // Cursor position updates after camera
-            new CursorDrawPrepSystem(_world), // Draw prep after position is finalized
-            debugSystems
+            new CursorDrawPrepSystem(_world) // Draw prep after position is finalized
+            // debugSystems
         );
     }
     
@@ -156,8 +156,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
             new TextPrepSystem(_world, pixelPerfectRendering),
-            new MeshPrepSystem(_world),
-            new SpriteDebugSystem(_world)  // Debug visualization for sprite bounds and origins
+            new MeshPrepSystem(_world)
+            // new SpriteDebugSystem(_world)  // Debug visualization for sprite bounds and origins
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );
 

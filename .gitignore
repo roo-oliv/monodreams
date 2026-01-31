@@ -1,8 +1,24 @@
 # Build outputs
-[Bb]in/
-[Oo]bj/
-[Dd]ebug/
-[Rr]elease/
+/[Bb]in/
+/[Oo]bj/
+/[Dd]ebug/
+/[Rr]elease/
+/MonoDreams/[Bb]in/
+/MonoDreams/[Oo]bj/
+/MonoDreams/[Dd]ebug/
+/MonoDreams/[Rr]elease/
+/MonoDreams.Examples/[Bb]in/
+/MonoDreams.Examples/[Oo]bj/
+/MonoDreams.Examples/[Dd]ebug/
+/MonoDreams.Examples/[Rr]elease/
+/MonoDreams.Tests/[Bb]in/
+/MonoDreams.Tests/[Oo]bj/
+/MonoDreams.Tests/[Dd]ebug/
+/MonoDreams.Tests/[Rr]elease/
+/MonoDreams.YarnSpinner/[Bb]in/
+/MonoDreams.YarnSpinner/[Oo]bj/
+/MonoDreams.YarnSpinner/[Dd]ebug/
+/MonoDreams.YarnSpinner/[Rr]elease/
 
 # NuGet
 nuget/

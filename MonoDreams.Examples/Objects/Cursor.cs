@@ -26,9 +26,10 @@ public static class Cursor
             Type = DrawElementType.Sprite,
             Target = renderTarget,
             Texture = cursorTextures[initialType],
+            SourceRectangle = new Rectangle(0, 0, cursorTextures[initialType].Width, cursorTextures[initialType].Height),
             Color = Color.White,
             Position = Vector2.Zero,
-            Size = new Vector2(128, 128),
+            Size = new Vector2(64),
             LayerDepth = 1.0f, // Highest layer for cursor
         });
         entity.Set(new CursorTextures { Textures = cursorTextures });

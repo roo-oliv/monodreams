@@ -18,7 +18,7 @@ public class CursorDrawPrepSystem(World world)
         .With<Transform>()
         .AsSet())
 {
-    private readonly Vector2 _size = new(32);
+    private readonly Vector2 _size = new(64);
 
     protected override void Update(GameState state, in Entity entity)
     {
