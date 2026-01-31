@@ -12958,3 +12958,27 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:./CoMiGoFantasyIcons/PNG_White/Rainbow.png
+
+#begin ./GreasePencil/Stroke.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/Stroke.png
+
+#begin ./GreasePencil/Suzanne.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/Suzanne.png

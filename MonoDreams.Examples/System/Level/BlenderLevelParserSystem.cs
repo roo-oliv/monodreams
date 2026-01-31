@@ -82,6 +82,9 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                         ProcessCamera(obj, levelData.ScaleFactor);
                         break;
                     case "MESH":
+                    case "GREASEPENCIL":
+                        // GREASEPENCIL objects are rendered to PNG and exported as planes
+                        // They are processed the same way as MESH objects
                         ProcessMesh(obj);
                         break;
                     case "EMPTY":

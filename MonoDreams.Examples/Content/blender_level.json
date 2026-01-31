@@ -192,8 +192,8 @@
       "type": "MESH",
       "meshType": "plane",
       "position": {
-        "x": -25.9447,
-        "y": 0.1966
+        "x": -25.7553,
+        "y": 13.4559
       },
       "dimensions": {
         "x": 6.6369,
@@ -264,6 +264,112 @@
       "customProperties": {},
       "uvMapping": {
         "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/CoMiGoFantasyIcons/PNG_Black/Skull.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Stroke",
+      "type": "GREASEPENCIL",
+      "meshType": "plane",
+      "position": {
+        "x": 14.1117,
+        "y": -5.7773
+      },
+      "dimensions": {
+        "x": 40.8358,
+        "y": 21.1032
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5025,
+        "y": 0.4459
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/Stroke.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Suzanne",
+      "type": "GREASEPENCIL",
+      "meshType": "plane",
+      "position": {
+        "x": -18.4683,
+        "y": 1.5154
+      },
+      "dimensions": {
+        "x": 9.589,
+        "y": 7.7419
+      },
+      "scale": {
+        "x": 0.2603,
+        "y": 0.2603
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.4967,
+        "y": 0.5597
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/Suzanne.png",
         "uvLayers": [
           {
             "name": "UVMap",

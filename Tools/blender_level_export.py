@@ -4,7 +4,7 @@
 bl_info = {
     "name": "MonoDreams Level Exporter",
     "author": "MonoDreams Team",
-    "version": (1, 4, 1),
+    "version": (1, 5, 0),
     "blender": (5, 0, 0),
     "location": "File > Export > MonoDreams Level (.json)",
     "description": "Export level objects to JSON for MonoDreams game engine",
@@ -14,6 +14,8 @@ bl_info = {
 import bpy
 import json
 import math
+import os
+from mathutils import Vector
 from bpy.props import StringProperty, FloatProperty, BoolProperty
 from bpy_extras.io_utils import ExportHelper
 
@@ -156,6 +158,289 @@ def get_origin_offset(obj):
     }
 
 
+def get_gp_bounds(obj):
+    """
+    Calculate world-space bounding box for a Grease Pencil object.
+    Returns (min_x, min_y, min_z, max_x, max_y, max_z) in world coordinates.
+    """
+    if obj.type != 'GREASEPENCIL':
+        return None
+
+    bbox = obj.bound_box
+    matrix = obj.matrix_world
+
+    # Transform all 8 bounding box corners to world space
+    world_corners = [matrix @ Vector(corner) for corner in bbox]
+
+    min_x = min(v.x for v in world_corners)
+    max_x = max(v.x for v in world_corners)
+    min_y = min(v.y for v in world_corners)
+    max_y = max(v.y for v in world_corners)
+    min_z = min(v.z for v in world_corners)
+    max_z = max(v.z for v in world_corners)
+
+    return (min_x, min_y, min_z, max_x, max_y, max_z)
+
+
+def get_gp_origin_offset(obj):
+    """
+    Calculate the origin point position relative to the GP bounding box.
+    Returns normalized coordinates (0-1) where:
+    - (0, 0) = bottom-left corner
+    - (0.5, 0.5) = center
+    - (1, 1) = top-right corner
+    """
+    if obj.type != 'GREASEPENCIL':
+        return {"x": 0.5, "y": 0.5}
+
+    # Get local bounding box (8 corners)
+    bbox = obj.bound_box
+
+    # Find min/max in local X and Z (Z becomes Y in game)
+    min_x = min(v[0] for v in bbox)
+    max_x = max(v[0] for v in bbox)
+    min_z = min(v[2] for v in bbox)
+    max_z = max(v[2] for v in bbox)
+
+    # Origin is at local (0,0,0), calculate normalized position within bounding box
+    width = max_x - min_x
+    height = max_z - min_z
+
+    # Avoid division by zero
+    offset_x = (-min_x / width) if width > 0 else 0.5
+    offset_y = (-min_z / height) if height > 0 else 0.5
+
+    return {
+        "x": round(offset_x, 4),
+        "y": round(offset_y, 4)
+    }
+
+
+def setup_gp_render_camera(scene, gp_obj, padding=1.1):
+    """
+    Create a temporary orthographic camera positioned to capture the GP object.
+    Returns (temp_camera, original_camera).
+    """
+    bounds = get_gp_bounds(gp_obj)
+    if not bounds:
+        return None, None
+
+    min_x, min_y, min_z, max_x, max_y, max_z = bounds
+
+    # Calculate center and dimensions
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+    center_z = (min_z + max_z) / 2
+
+    width = max_x - min_x
+    height = max_z - min_z
+
+    # Create temporary camera data
+    cam_data = bpy.data.cameras.new(name="TempGPCamera")
+    cam_data.type = 'ORTHO'
+    # Set orthographic scale to fit the object with padding
+    cam_data.ortho_scale = max(width, height) * padding
+
+    # Create camera object
+    temp_camera = bpy.data.objects.new(name="TempGPCamera", object_data=cam_data)
+    scene.collection.objects.link(temp_camera)
+
+    # Position camera above the object, looking down -Y axis (Blender front view)
+    temp_camera.location = (center_x, center_y - 10, center_z)
+    temp_camera.rotation_euler = (math.radians(90), 0, 0)
+
+    # Store original camera
+    original_camera = scene.camera
+
+    # Set as active camera
+    scene.camera = temp_camera
+
+    return temp_camera, original_camera
+
+
+def cleanup_gp_render_camera(scene, temp_camera, original_camera):
+    """Remove temporary camera and restore original."""
+    if temp_camera:
+        # Get the camera data before unlinking
+        cam_data = temp_camera.data
+
+        # Unlink and remove the object
+        scene.collection.objects.unlink(temp_camera)
+        bpy.data.objects.remove(temp_camera)
+
+        # Remove the camera data
+        if cam_data:
+            bpy.data.cameras.remove(cam_data)
+
+    # Restore original camera
+    scene.camera = original_camera
+
+
+def render_grease_pencil_to_png(scene, gp_obj, output_path, scale_factor, resolution_multiplier=1.0):
+    """
+    Render a Grease Pencil object to a PNG file with transparency.
+    Returns True on success, False on failure.
+    """
+    # Store original settings
+    original_render_filepath = scene.render.filepath
+    original_file_format = scene.render.image_settings.file_format
+    original_color_mode = scene.render.image_settings.color_mode
+    original_film_transparent = scene.render.film_transparent
+    original_resolution_x = scene.render.resolution_x
+    original_resolution_y = scene.render.resolution_y
+    original_resolution_percentage = scene.render.resolution_percentage
+
+    # Store hide_render state for all objects
+    original_hide_render = {}
+    for obj in scene.objects:
+        original_hide_render[obj.name] = obj.hide_render
+
+    try:
+        # Setup temporary camera
+        temp_camera, original_camera = setup_gp_render_camera(scene, gp_obj)
+        if not temp_camera:
+            print(f"Failed to setup camera for {gp_obj.name}")
+            return False
+
+        # Hide all objects except the target GP object
+        for obj in scene.objects:
+            obj.hide_render = (obj != gp_obj and obj != temp_camera)
+
+        # Configure render settings
+        scene.render.filepath = output_path
+        scene.render.image_settings.file_format = 'PNG'
+        scene.render.image_settings.color_mode = 'RGBA'
+        scene.render.film_transparent = True
+
+        # Calculate resolution from GP dimensions
+        bounds = get_gp_bounds(gp_obj)
+        if bounds:
+            min_x, _, min_z, max_x, _, max_z = bounds
+            width = max_x - min_x
+            height = max_z - min_z
+
+            # Resolution = dimensions * scale_factor * resolution_multiplier
+            res_x = int(width * scale_factor * resolution_multiplier)
+            res_y = int(height * scale_factor * resolution_multiplier)
+
+            # Ensure minimum resolution
+            res_x = max(res_x, 1)
+            res_y = max(res_y, 1)
+
+            scene.render.resolution_x = res_x
+            scene.render.resolution_y = res_y
+            scene.render.resolution_percentage = 100
+
+        # Render
+        bpy.ops.render.render(write_still=True)
+
+        return True
+
+    except Exception as e:
+        print(f"Error rendering GP object {gp_obj.name}: {e}")
+        return False
+
+    finally:
+        # Cleanup camera
+        cleanup_gp_render_camera(scene, temp_camera, original_camera)
+
+        # Restore hide_render state
+        for obj in scene.objects:
+            if obj.name in original_hide_render:
+                obj.hide_render = original_hide_render[obj.name]
+
+        # Restore original render settings
+        scene.render.filepath = original_render_filepath
+        scene.render.image_settings.file_format = original_file_format
+        scene.render.image_settings.color_mode = original_color_mode
+        scene.render.film_transparent = original_film_transparent
+        scene.render.resolution_x = original_resolution_x
+        scene.render.resolution_y = original_resolution_y
+        scene.render.resolution_percentage = original_resolution_percentage
+
+
+def get_gp_object_data(obj, scale_factor, texture_path):
+    """
+    Extract Grease Pencil object data for export.
+
+    Coordinate mapping:
+    - Blender X -> Game X
+    - Blender Z -> Game Y (Z-up to Y-down)
+    """
+    # Get world-space location
+    location = obj.matrix_world.to_translation()
+
+    # Get scale from object
+    scale = obj.scale
+
+    # Get rotation in Euler angles
+    rotation = obj.matrix_world.to_euler('XYZ')
+
+    # Get bounding box dimensions
+    bounds = get_gp_bounds(obj)
+    if bounds:
+        min_x, _, min_z, max_x, _, max_z = bounds
+        width = max_x - min_x
+        height = max_z - min_z
+    else:
+        width = 1
+        height = 1
+
+    # Map coordinates: X stays X, Z becomes Y (negated for Y-down)
+    position = {
+        "x": round(location.x * scale_factor, 4),
+        "y": -round(location.z * scale_factor, 4)
+    }
+
+    # Map scale: X stays X, Z becomes Y
+    scale_data = {
+        "x": round(scale.x, 4),
+        "y": round(scale.z, 4)
+    }
+
+    # Dimensions in game units
+    dimensions_data = {
+        "x": round(width * scale_factor, 4),
+        "y": round(height * scale_factor, 4)
+    }
+
+    # Use Y rotation, convert from radians to degrees
+    rotation_degrees = round(math.degrees(rotation.y), 4)
+
+    # Get origin offset
+    origin_offset = get_gp_origin_offset(obj)
+
+    # Get custom properties
+    custom_props = get_custom_properties(obj)
+
+    # Build UV mapping with full texture coverage
+    uv_data = {
+        "texturePath": texture_path,
+        "uvLayers": [{
+            "name": "UVMap",
+            "uvCoordinates": [
+                {"vertexIndex": 0, "u": 0.0, "v": 0.0},
+                {"vertexIndex": 1, "u": 1.0, "v": 0.0},
+                {"vertexIndex": 2, "u": 0.0, "v": 1.0},
+                {"vertexIndex": 3, "u": 1.0, "v": 1.0}
+            ]
+        }]
+    }
+
+    return {
+        "name": obj.name,
+        "type": "GREASEPENCIL",
+        "meshType": "plane",
+        "position": position,
+        "dimensions": dimensions_data,
+        "scale": scale_data,
+        "rotation": rotation_degrees,
+        "originOffset": origin_offset,
+        "customProperties": custom_props,
+        "uvMapping": uv_data
+    }
+
+
 def get_custom_properties(obj):
     """Extract custom properties from a Blender object."""
     custom_props = {}
@@ -294,6 +579,27 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
         default=False,
     )
 
+    # Grease Pencil export options
+    export_grease_pencil: BoolProperty(
+        name="Export Grease Pencil",
+        description="Render Grease Pencil objects to PNG and include in export",
+        default=True,
+    )
+
+    gp_resolution_multiplier: FloatProperty(
+        name="GP Resolution Multiplier",
+        description="Resolution scaling for rendered Grease Pencil PNGs",
+        default=1.0,
+        min=0.1,
+        max=10.0,
+    )
+
+    gp_output_folder: StringProperty(
+        name="GP Output Folder",
+        description="Subfolder name for Grease Pencil PNG output",
+        default="GreasePencil",
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
@@ -301,6 +607,15 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
 
         layout.prop(self, "scale_factor")
         layout.prop(self, "export_selected_only")
+
+        # Grease Pencil section
+        layout.separator()
+        layout.label(text="Grease Pencil:")
+        layout.prop(self, "export_grease_pencil")
+        col = layout.column()
+        col.enabled = self.export_grease_pencil
+        col.prop(self, "gp_resolution_multiplier")
+        col.prop(self, "gp_output_folder")
 
     def execute(self, context):
         return self.export_level(context)
@@ -312,9 +627,13 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
         else:
             objects = context.scene.objects
 
-        # Filter to exportable types
-        exportable_types = {'MESH', 'CAMERA', 'LIGHT', 'EMPTY'}
+        # Filter to exportable types (include GREASEPENCIL)
+        exportable_types = {'MESH', 'CAMERA', 'LIGHT', 'EMPTY', 'GREASEPENCIL'}
         objects_to_export = [obj for obj in objects if obj.type in exportable_types]
+
+        # Separate GP objects from regular objects
+        gp_objects = [obj for obj in objects_to_export if obj.type == 'GREASEPENCIL']
+        regular_objects = [obj for obj in objects_to_export if obj.type != 'GREASEPENCIL']
 
         # Build export data
         export_data = {
@@ -324,9 +643,49 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
             "objects": []
         }
 
-        for obj in objects_to_export:
+        # Export regular objects
+        for obj in regular_objects:
             obj_data = get_object_data(obj, self.scale_factor)
             export_data["objects"].append(obj_data)
+
+        # Export Grease Pencil objects
+        if self.export_grease_pencil and gp_objects:
+            # Get JSON file directory
+            json_dir = os.path.dirname(self.filepath)
+
+            # Create output folder for GP PNGs
+            gp_output_dir = os.path.join(json_dir, self.gp_output_folder)
+            os.makedirs(gp_output_dir, exist_ok=True)
+
+            gp_exported_count = 0
+            for gp_obj in gp_objects:
+                # Generate safe filename from object name
+                safe_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in gp_obj.name)
+                png_filename = f"{safe_name}.png"
+                png_path = os.path.join(gp_output_dir, png_filename)
+
+                # Render GP to PNG
+                success = render_grease_pencil_to_png(
+                    context.scene,
+                    gp_obj,
+                    png_path,
+                    self.scale_factor,
+                    self.gp_resolution_multiplier
+                )
+
+                if success:
+                    # Build texture path for JSON (relative path that works with Content pipeline)
+                    texture_path = os.path.join(gp_output_dir, png_filename)
+
+                    # Get GP object data and add to export
+                    gp_data = get_gp_object_data(gp_obj, self.scale_factor, texture_path)
+                    export_data["objects"].append(gp_data)
+                    gp_exported_count += 1
+                else:
+                    self.report({'WARNING'}, f"Failed to render Grease Pencil object: {gp_obj.name}")
+
+            if gp_exported_count > 0:
+                self.report({'INFO'}, f"Rendered {gp_exported_count} Grease Pencil objects to {gp_output_dir}")
 
         # Sort objects by name for consistent output
         export_data["objects"].sort(key=lambda x: x["name"])
