@@ -1,0 +1,91 @@
+[Request interrupted by user for tool use]
+
+---
+
+Implement the following plan:
+
+# Fix CullingSystem — Entities Never Culled After Becoming Visible
+
+## Context
+
+CullingSystem correctly adds/removes the `Visible` tag on entities as they
+enter/leave camera bounds. However, entities that leave the bounds remain
+rendered on screen. The debug green rectangle shows the correct boundary, but
+sprites beyond it are still drawn.
+
+## Root Cause
+
+`MasterRenderSystem` implements `ISystem<GameState>` (not
+`AEntitySetSystem<GameState>`). The `[With(typeof(DrawComponent), typeof(Visible))]`
+attribute on line 17 is **decorative only** — DefaultEcs only uses `[With]`
+attributes on `AEntitySetSystem` / `AEntityMultiMapSystem` subclasses.
+
+The actual runtime entity query in `MasterRenderSystem.Update()` (line 71-73):
+
+```csharp
+var drawList = world.GetEntities()
+    .With((in DrawComponent e) => e.Target == renderTarget.Key)
+    .AsSet();
+```
+
+This filters **only by DrawComponent target** — it never checks for `Visible`.
+So removing `Visible` in CullingSystem has zero effect on rendering.
+
+## Fix
+
+**File: `MonoDreams.Examples/System/Draw/MasterRenderSystem.cs`** (line 71-73)
+
+Add `.With<Visible>()` to the entity query, but **only for the Main render
+target**. HUD/UI entities don't go through CullingSystem and many don't have
+`Visible` set at creation — requiring it would break cursor, dialogue UI, etc.
+
+```csharp
+var queryBuilder = world.GetEntities()
+    .With((in DrawComponent e) => e.Target == renderTarget.Key);
+
+// Main target: respect CullingSystem visibility. HUD/UI: always render.
+if (renderTarget.Key == RenderTargetID.Main)
+    queryBuilder.With<Visible>();
+
+var drawList = queryBuilder.AsSet();
+```
+
+Also remove the misleading `[With(typeof(DrawComponent), typeof(Visible))]`
+attribute from the class declaration (line 17), since MasterRenderSystem
+is not an `AEntitySetSystem` and the attribute has no runtime effect.
+
+## Why only Main target?
+
+- **Main**: Camera-transformed world rendering. CullingSystem manages `Visible`
+  for all entities with `SpriteInfo+Transform`. BlenderLevelParserSystem also
+  sets `Visible` on mesh entities. All Main-target entities have `Visible`
+  managed.
+- **HUD/UI**: Screen-space overlays (cursor, debug rect, dialogue UI). These
+  entities are created without `Visible` and don't pass through CullingSystem.
+  Requiring `Visible` would break them without adding value (they're always
+  on-screen by definition).
+
+## Files Modified
+
+- `MonoDreams.Examples/System/Draw/MasterRenderSystem.cs` — entity query in
+  `Update()` + remove misleading `[With]` attribute
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — 0 errors
+2. Level 2 (Blender, zoom=20): sprites outside the green debug boundary are
+   culled (not drawn)
+3. Cursor, debug rectangle, and any HUD/UI elements still render normally
+4. Moving entities pop in/out at the green boundary
+5. Level 1: behavior unchanged
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Ok, this seems to work better, just one issue: on the main level selection screen now I don't see any of the buttons (they're still clickable though)
+
+---
+
+[Request interrupted by user for tool use]

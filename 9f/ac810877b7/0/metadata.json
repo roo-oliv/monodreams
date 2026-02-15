@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "9fac810877b7",
+  "session_id": "e3b135af-3efc-4951-bf2e-e293a391f51e",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T21:32:30.652395Z",
+  "branch": "ro/culling-blender-collections",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Examples/System/Draw/MasterRenderSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 56276,
+    "cache_read_tokens": 334867,
+    "output_tokens": 914,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T21:32:30.277091Z",
+    "agent_lines": 8,
+    "human_added": 754,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 762,
+    "agent_percentage": 1.0498687664041995
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/e3b135af-3efc-4951-bf2e-e293a391f51e.jsonl"
+}

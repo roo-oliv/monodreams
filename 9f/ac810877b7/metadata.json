@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "9fac810877b7",
+  "strategy": "manual-commit",
+  "branch": "ro/culling-blender-collections",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Examples/System/Draw/MasterRenderSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9f/ac810877b7/0/metadata.json",
+      "transcript": "/9f/ac810877b7/0/full.jsonl",
+      "context": "/9f/ac810877b7/0/context.md",
+      "content_hash": "/9f/ac810877b7/0/content_hash.txt",
+      "prompt": "/9f/ac810877b7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 56276,
+    "cache_read_tokens": 334867,
+    "output_tokens": 914,
+    "api_call_count": 14
+  }
+}
