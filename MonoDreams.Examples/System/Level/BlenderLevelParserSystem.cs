@@ -5,6 +5,11 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
+using MonoDreams.Component.Input;
+using MonoDreams.Component.Physics;
+using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Examples.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message.Level;
@@ -225,6 +230,9 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Make visible
         entity.Set(new Visible());
 
+        // Process collection-based components
+        ProcessCollections(entity, meshObj, size);
+
         Console.WriteLine($"Created entity for mesh '{meshObj.Name}' at ({position.X}, {position.Y}) with size ({size.X}, {size.Y}), origin ({origin.X}, {origin.Y}), and source rect ({sourceRect.X}, {sourceRect.Y}, {sourceRect.Width}, {sourceRect.Height})");
     }
 
@@ -282,6 +290,129 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         int height = (int)Math.Round((maxV - minV) * texture.Height);
 
         return new Rectangle(x, y, width, height);
+    }
+
+    /// <summary>
+    /// Processes Blender collection membership and adds appropriate components.
+    /// Collection names determine entity behavior (e.g., "Collision" adds BoxCollider).
+    /// Collection custom properties can configure component settings.
+    /// </summary>
+    private void ProcessCollections(Entity entity, BlenderObject meshObj, Vector2 size)
+    {
+        if (meshObj.Collections == null || meshObj.Collections.Count == 0)
+            return;
+
+        // Check for Collision collection
+        if (meshObj.Collections.Contains("Collision"))
+        {
+            entity.Set(new EntityInfo(EntityType.Tile));
+                
+            // Get collision layer from collection properties (default to -1 for all layers)
+            int layer = -1;
+            bool passive = false;
+
+            if (meshObj.CollectionProperties?.TryGetValue("Collision", out var collisionProps) == true)
+            {
+                layer = GetIntProperty(collisionProps, "layer", -1);
+                passive = GetBoolProperty(collisionProps, "passive", false);
+            }
+
+            var bounds = new Rectangle(0, 0, (int)size.X, (int)size.Y);
+            var activeLayers = new HashSet<int> { layer };
+            entity.Set(new BoxCollider(bounds, activeLayers, passive));
+
+            Console.WriteLine($"Added BoxCollider to '{meshObj.Name}' (layer: {layer}, passive: {passive})");
+        }
+
+        // Check for Player collection
+        if (meshObj.Collections.Contains("Player"))
+        {
+            entity.Set(new EntityInfo(EntityType.Player));
+            entity.Set(new PlayerState());
+            entity.Set(new InputControlled());
+            // entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
+            entity.Set(new BoxCollider(new Rectangle(Point.Zero, new Point(1, 1))));
+            entity.Set(new RigidBody());
+            entity.Set(new Velocity());
+
+            // Add camera follow target component
+            entity.Set(new CameraFollowTarget
+            {
+                DampingX = 5.0f,  // Adjust for desired smoothness
+                DampingY = 5.0f,
+                MaxDistanceX = 150.0f,  // Maximum distance camera can lag behind
+                MaxDistanceY = 100.0f,
+                IsActive = true
+            });
+            Console.WriteLine($"Set EntityType.Player for '{meshObj.Name}'");
+        }
+
+        // Check for Enemy collection
+        if (meshObj.Collections.Contains("Enemy"))
+        {
+            entity.Set(new EntityInfo(EntityType.Enemy));
+            Console.WriteLine($"Set EntityType.Enemy for '{meshObj.Name}'");
+        }
+
+        // Check for Trigger collection (collision but no physics push)
+        if (meshObj.Collections.Contains("Trigger"))
+        {
+            if (!entity.Has<BoxCollider>())
+            {
+                var bounds = new Rectangle(0, 0, (int)size.X, (int)size.Y);
+                entity.Set(new BoxCollider(bounds, passive: true));
+            }
+            entity.Set(new EntityInfo(EntityType.Zone));
+            Console.WriteLine($"Set as Trigger zone for '{meshObj.Name}'");
+        }
+    }
+
+    /// <summary>
+    /// Gets an integer property from collection properties dictionary.
+    /// </summary>
+    private static int GetIntProperty(Dictionary<string, object> props, string key, int defaultValue)
+    {
+        if (props == null || !props.TryGetValue(key, out var value))
+            return defaultValue;
+
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.TryGetInt32(out var intVal))
+                return intVal;
+            if (jsonElement.TryGetDouble(out var doubleVal))
+                return (int)doubleVal;
+        }
+
+        if (value is int intValue)
+            return intValue;
+        if (value is double doubleValue)
+            return (int)doubleValue;
+        if (value is float floatValue)
+            return (int)floatValue;
+
+        return defaultValue;
+    }
+
+    /// <summary>
+    /// Gets a boolean property from collection properties dictionary.
+    /// </summary>
+    private static bool GetBoolProperty(Dictionary<string, object> props, string key, bool defaultValue)
+    {
+        if (props == null || !props.TryGetValue(key, out var value))
+            return defaultValue;
+
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.True)
+                return true;
+            if (jsonElement.ValueKind == JsonValueKind.False)
+                return false;
+        }
+
+        if (value is bool boolValue)
+            return boolValue;
+
+        return defaultValue;
     }
 
     private void CleanupEntities()

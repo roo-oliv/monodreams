@@ -14,7 +14,6 @@ namespace MonoDreams.Examples.System.Draw;
 /// This system is game-agnostic - it only renders what's in DrawComponent without any
 /// specialized component handling.
 /// </summary>
-[With(typeof(DrawComponent))]
 public class MasterRenderSystem(
     SpriteBatch spriteBatch,
     GraphicsDevice graphicsDevice,
@@ -68,9 +67,14 @@ public class MasterRenderSystem(
 
         foreach (var renderTarget in renderTargets)
         {
-            var drawList = world.GetEntities()
-                .With((in DrawComponent e) => e.Target == renderTarget.Key)
-                .AsSet();
+            var queryBuilder = world.GetEntities()
+                .With((in DrawComponent e) => e.Target == renderTarget.Key);
+
+            // Main target: respect CullingSystem visibility. HUD/UI: always render.
+            if (renderTarget.Key == RenderTargetID.Main)
+                queryBuilder.With<Visible>();
+
+            var drawList = queryBuilder.AsSet();
 
             graphicsDevice.SetRenderTarget(renderTarget.Value);
             graphicsDevice.Clear(Color.Transparent);

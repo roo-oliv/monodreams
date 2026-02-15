@@ -41,6 +41,7 @@ public class CursorPositionSystem(World world, MonoDreams.Component.Camera camer
             }
         }
         // else: Mouse is outside the viewport (in letterbox/pillarbox area) - keep previous position
+        // Console.WriteLine($"Mouse: {transform.Position}");
 
         entity.NotifyChanged<CursorInput>();
         entity.NotifyChanged<Transform>();

@@ -29,7 +29,13 @@ public class BlenderObject
     public string Name { get; set; }
 
     [JsonPropertyName("type")]
-    public string Type { get; set; } // MESH, CAMERA, EMPTY, LIGHT
+    public string Type { get; set; } // MESH, CAMERA, EMPTY, LIGHT, GREASEPENCIL
+
+    [JsonPropertyName("collections")]
+    public List<string> Collections { get; set; }
+
+    [JsonPropertyName("collectionProperties")]
+    public Dictionary<string, Dictionary<string, object>> CollectionProperties { get; set; }
 
     [JsonPropertyName("meshType")]
     public string MeshType { get; set; } // plane, cube, or custom mesh name

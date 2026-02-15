@@ -90,7 +90,7 @@ public class Camera
         {
             if (_virtualScreenBounds.position != Position || _virtualScreenBounds.viewSize != ViewSize)
             {
-                var bounds = new Rectangle((Position - ViewSize * 0.5f).ToPoint(), ViewSize.ToPoint());
+                var bounds = new Rectangle( new Point((int)(Position.X - ViewSize.X * 0.5f), (int)(Position.Y - ViewSize.Y * 0.5f)), ViewSize.ToPoint());
                 _virtualScreenBounds = (Position, ViewSize, bounds);
             }
             return _virtualScreenBounds.cached;

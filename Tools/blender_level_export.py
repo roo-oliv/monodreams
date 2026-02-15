@@ -4,7 +4,7 @@
 bl_info = {
     "name": "MonoDreams Level Exporter",
     "author": "MonoDreams Team",
-    "version": (1, 5, 0),
+    "version": (1, 6, 0),
     "blender": (5, 0, 0),
     "location": "File > Export > MonoDreams Level (.json)",
     "description": "Export level objects to JSON for MonoDreams game engine",
@@ -276,10 +276,14 @@ def cleanup_gp_render_camera(scene, temp_camera, original_camera):
     scene.camera = original_camera
 
 
-def render_grease_pencil_to_png(scene, gp_obj, output_path, scale_factor, resolution_multiplier=1.0):
+def render_grease_pencil_to_png(scene, gp_obj, output_path, scale_factor, resolution_multiplier=1.0, use_workbench=False):
     """
     Render a Grease Pencil object to a PNG file with transparency.
     Returns True on success, False on failure.
+
+    Args:
+        use_workbench: If True, uses Workbench engine for crispest possible rendering.
+                       If False, uses Eevee with TAA disabled for sharp strokes.
     """
     # Store original settings
     original_render_filepath = scene.render.filepath
@@ -289,6 +293,15 @@ def render_grease_pencil_to_png(scene, gp_obj, output_path, scale_factor, resolu
     original_resolution_x = scene.render.resolution_x
     original_resolution_y = scene.render.resolution_y
     original_resolution_percentage = scene.render.resolution_percentage
+    original_render_engine = scene.render.engine
+
+    # Store Eevee anti-aliasing settings
+    original_taa_samples = scene.eevee.taa_render_samples
+    original_taa_reprojection = scene.eevee.use_taa_reprojection
+
+    # Store Workbench settings (in case we switch to it)
+    original_shading_light = scene.display.shading.light
+    original_shading_color_type = scene.display.shading.color_type
 
     # Store hide_render state for all objects
     original_hide_render = {}
@@ -311,6 +324,18 @@ def render_grease_pencil_to_png(scene, gp_obj, output_path, scale_factor, resolu
         scene.render.image_settings.file_format = 'PNG'
         scene.render.image_settings.color_mode = 'RGBA'
         scene.render.film_transparent = True
+
+        # Configure render engine for sharp GP strokes
+        if use_workbench:
+            # Workbench engine for crispest possible rendering (no post-processing)
+            scene.render.engine = 'BLENDER_WORKBENCH'
+            scene.display.shading.light = 'FLAT'
+            scene.display.shading.color_type = 'MATERIAL'
+        else:
+            # Keep current engine but disable anti-aliasing for sharp strokes
+            # (works with Eevee/Eevee Next - the default render engine)
+            scene.eevee.taa_render_samples = 1  # Minimum samples (no averaging)
+            scene.eevee.use_taa_reprojection = False  # No temporal reprojection
 
         # Calculate resolution from GP dimensions
         bounds = get_gp_bounds(gp_obj)
@@ -357,6 +382,15 @@ def render_grease_pencil_to_png(scene, gp_obj, output_path, scale_factor, resolu
         scene.render.resolution_x = original_resolution_x
         scene.render.resolution_y = original_resolution_y
         scene.render.resolution_percentage = original_resolution_percentage
+        scene.render.engine = original_render_engine
+
+        # Restore Eevee settings
+        scene.eevee.taa_render_samples = original_taa_samples
+        scene.eevee.use_taa_reprojection = original_taa_reprojection
+
+        # Restore Workbench settings
+        scene.display.shading.light = original_shading_light
+        scene.display.shading.color_type = original_shading_color_type
 
 
 def get_gp_object_data(obj, scale_factor, texture_path):
@@ -413,6 +447,15 @@ def get_gp_object_data(obj, scale_factor, texture_path):
     # Get custom properties
     custom_props = get_custom_properties(obj)
 
+    # Get collection membership
+    collections = get_object_collections(obj)
+
+    # Get custom properties from each collection
+    collection_properties = {}
+    for col in obj.users_collection:
+        if col.name != "Scene Collection":
+            collection_properties[col.name] = get_collection_properties(col)
+
     # Build UV mapping with full texture coverage
     uv_data = {
         "texturePath": texture_path,
@@ -430,6 +473,8 @@ def get_gp_object_data(obj, scale_factor, texture_path):
     return {
         "name": obj.name,
         "type": "GREASEPENCIL",
+        "collections": collections,
+        "collectionProperties": collection_properties,
         "meshType": "plane",
         "position": position,
         "dimensions": dimensions_data,
@@ -468,6 +513,46 @@ def get_custom_properties(obj):
                     pass  # Skip properties that can't be serialized
 
     return custom_props
+
+
+def get_object_collections(obj):
+    """
+    Get list of collection names the object belongs to.
+    Excludes the default "Scene Collection".
+    """
+    return [col.name for col in obj.users_collection if col.name != "Scene Collection"]
+
+
+def get_collection_properties(collection):
+    """
+    Extract custom properties from a Blender collection.
+    Handles: float, int, bool, string, and their array variants (Vector).
+    """
+    props = {}
+
+    for key in collection.keys():
+        if key.startswith("_"):
+            continue
+
+        value = collection[key]
+
+        # Convert to JSON-serializable types
+        if isinstance(value, (int, float, str, bool)):
+            props[key] = value
+        elif hasattr(value, "to_list"):
+            # Handle Vector, Color, and other array-like types
+            props[key] = value.to_list()
+        else:
+            # Try to convert to a basic type
+            try:
+                props[key] = float(value)
+            except (TypeError, ValueError):
+                try:
+                    props[key] = str(value)
+                except:
+                    pass  # Skip properties that can't be serialized
+
+    return props
 
 
 def get_object_data(obj, scale_factor):
@@ -530,9 +615,20 @@ def get_object_data(obj, scale_factor):
     # Get origin offset for meshes
     origin_offset = get_origin_offset(obj) if obj.type == 'MESH' else {"x": 0.5, "y": 0.5}
 
+    # Get collection membership
+    collections = get_object_collections(obj)
+
+    # Get custom properties from each collection
+    collection_properties = {}
+    for col in obj.users_collection:
+        if col.name != "Scene Collection":
+            collection_properties[col.name] = get_collection_properties(col)
+
     result = {
         "name": obj.name,
         "type": obj_type,
+        "collections": collections,
+        "collectionProperties": collection_properties,
         "meshType": mesh_type,
         "position": position,
         "dimensions": dimensions_data,
@@ -589,15 +685,21 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
     gp_resolution_multiplier: FloatProperty(
         name="GP Resolution Multiplier",
         description="Resolution scaling for rendered Grease Pencil PNGs",
-        default=1.0,
+        default=10.0,
         min=0.1,
-        max=10.0,
+        max=100.0,
     )
 
     gp_output_folder: StringProperty(
         name="GP Output Folder",
         description="Subfolder name for Grease Pencil PNG output",
         default="GreasePencil",
+    )
+
+    gp_use_workbench: BoolProperty(
+        name="Use Workbench (Crispest)",
+        description="Use Workbench engine for sharpest possible GP rendering (no material effects)",
+        default=False,
     )
 
     def draw(self, context):
@@ -616,6 +718,7 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
         col.enabled = self.export_grease_pencil
         col.prop(self, "gp_resolution_multiplier")
         col.prop(self, "gp_output_folder")
+        col.prop(self, "gp_use_workbench")
 
     def execute(self, context):
         return self.export_level(context)
@@ -670,7 +773,8 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
                     gp_obj,
                     png_path,
                     self.scale_factor,
-                    self.gp_resolution_multiplier
+                    self.gp_resolution_multiplier,
+                    self.gp_use_workbench
                 )
 
                 if success:
