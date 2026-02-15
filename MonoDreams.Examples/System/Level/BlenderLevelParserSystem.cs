@@ -302,6 +302,23 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         if (meshObj.Collections == null || meshObj.Collections.Count == 0)
             return;
 
+        // Compute visual offset from origin so collision boxes align with rendered sprites.
+        // SpriteBatch.Draw renders at: position - origin * scale
+        // In destination space: offset = -(size * originOffset)
+        var originOffsetX = meshObj.OriginOffset?.X ?? 0.5f;
+        var originOffsetY = meshObj.OriginOffset?.Y ?? 0.5f;
+        // Compute float edges of visual bounds relative to entity position
+        float left = -size.X * originOffsetX;
+        float top = -size.Y * (1 - originOffsetY);  // Y inverted: Blender Y=0 is bottom
+        // Snap to smallest enclosing integer rectangle (floor expands left/top, ceiling expands right/bottom)
+        int intLeft = (int)Math.Floor(left);
+        int intTop = (int)Math.Floor(top);
+        int intRight = (int)Math.Ceiling(left + size.X);
+        int intBottom = (int)Math.Ceiling(top + size.Y);
+
+        var boundsOffset = new Point(intLeft, intTop);
+        var boundsSize = new Point(intRight - intLeft, intBottom - intTop);
+
         // Check for Collision collection
         if (meshObj.Collections.Contains("Collision"))
         {
@@ -317,7 +334,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 passive = GetBoolProperty(collisionProps, "passive", false);
             }
 
-            var bounds = new Rectangle(0, 0, (int)size.X, (int)size.Y);
+            var bounds = new Rectangle(boundsOffset, boundsSize);
             var activeLayers = new HashSet<int> { layer };
             entity.Set(new BoxCollider(bounds, activeLayers, passive));
 
@@ -330,8 +347,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             entity.Set(new EntityInfo(EntityType.Player));
             entity.Set(new PlayerState());
             entity.Set(new InputControlled());
-            // entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
-            entity.Set(new BoxCollider(new Rectangle(Point.Zero, new Point(1, 1))));
+            entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
             entity.Set(new RigidBody());
             entity.Set(new Velocity());
 
@@ -359,7 +375,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         {
             if (!entity.Has<BoxCollider>())
             {
-                var bounds = new Rectangle(0, 0, (int)size.X, (int)size.Y);
+                var bounds = new Rectangle(boundsOffset, boundsSize);
                 entity.Set(new BoxCollider(bounds, passive: true));
             }
             entity.Set(new EntityInfo(EntityType.Zone));
