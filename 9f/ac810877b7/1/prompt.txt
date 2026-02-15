@@ -1,0 +1,57 @@
+Implement the following plan:
+
+# Fix Level Selection Screen — Buttons Invisible After CullingSystem Fix
+
+## Context
+
+The previous fix made `MasterRenderSystem` require `Visible` on all Main-target
+entities. This correctly culls world sprites outside camera bounds, but it also
+hides the level selection screen's buttons and title text — they target
+`RenderTargetID.Main` but never receive the `Visible` component.
+
+The level selection screen doesn't use `CullingSystem` (no camera-based
+culling needed for a menu), so nothing ever adds `Visible` to these entities.
+
+## Fix
+
+**File: `MonoDreams.Examples/Screens/LevelSelectionScreen.cs`**
+
+Set `Visible` on all entities that target `RenderTargetID.Main` at creation
+time. Since this screen has no `CullingSystem`, the tag stays permanently —
+which is correct for always-on-screen menu UI.
+
+Three places need `entity.Set<Visible>()`:
+
+1. **`CreateTextEntity()`** (line ~155) — the title text entity
+2. **`CreateButtonEntity()`** (line ~191) — `buttonTextEntity` (the label)
+3. **`CreateButtonEntity()`** (line ~208) — `outlineEntity` (the button border mesh)
+
+The `buttonContainerEntity` does NOT need `Visible` — it has no
+`DrawComponent` and is only a transform parent.
+
+## Convention established
+
+The contract for Main-target entities is now: **you must have `Visible` to
+render.** On game screens, `CullingSystem` manages this. On UI-only screens
+without culling, set it at creation time. HUD/UI render targets are unaffected.
+
+## Files Modified
+
+- `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` — add `Visible` to
+  3 entity creation points
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — 0 errors
+2. Level selection screen: title text and all 3 buttons render correctly
+3. Button hover/click interaction still works
+4. Cursor still renders (HUD target, unaffected)
+5. Entering Level 1 / Level 2: culling still works, sprites outside camera
+   bounds are not drawn
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/e3b135af-3efc-4951-bf2e-e293a391f51e.jsonl
+
+---
+
+Open a new Pull Request with all the changes currently made localy. Read them all to give a good but brief description for the Pull Request (I've gh installed, you can use it).
