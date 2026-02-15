@@ -25,6 +25,7 @@ using MonoGame.Extended.BitmapFonts;
 using Camera = MonoDreams.Component.Camera;
 using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
 using RenderTargetID = MonoDreams.Examples.Component.Draw.RenderTargetID;
+using Visible = MonoDreams.Examples.Component.Draw.Visible;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -165,6 +166,7 @@ public class LevelSelectionScreen : IGameScreen
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
+        entity.Set<Visible>();
         return entity;
     }
 
@@ -203,6 +205,7 @@ public class LevelSelectionScreen : IGameScreen
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
+        buttonTextEntity.Set<Visible>();
 
         // Create outline entity (shares transform with button)
         var outlineEntity = _world.CreateEntity();
@@ -225,6 +228,7 @@ public class LevelSelectionScreen : IGameScreen
             HoveredColor = style.HoveredColor,
             DisabledColor = style.DisabledColor
         });
+        outlineEntity.Set<Visible>();
 
         return (buttonContainerEntity, buttonSize);
     }

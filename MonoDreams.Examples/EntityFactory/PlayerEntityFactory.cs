@@ -115,8 +115,8 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         orbEntity.Set(new OrbitalMotion
         {
             Angle = 0f,
-            Radius = 50f,
-            Speed = 3f,  // clockwise
+            Radius = 300f,
+            Speed = 1f,  // clockwise
             CenterOffset = new Vector2(8, 16)
         });
 
