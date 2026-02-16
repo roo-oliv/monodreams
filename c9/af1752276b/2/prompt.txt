@@ -1,0 +1,43 @@
+Implement the following plan:
+
+# Fix: Dialogue text invisible (drawn behind box)
+
+## Context
+
+After the CullingSystem and JustPressed fixes, the dialogue box now renders at the bottom of the screen. However, the text is invisible — it's being drawn **behind** the box due to inverted LayerDepth values.
+
+## Root Cause
+
+`MasterRenderSystem` (`MasterRenderSystem.cs:88-95`) sorts all entities by ascending LayerDepth — lower values draw first (behind), higher values draw on top.
+
+Current values in `DialogueSystem.cs`:
+- Box `SpriteInfo.LayerDepth = 0.1f` → draws **on top** (second)
+- Text `DynamicText.LayerDepth = 0.05f` → draws **behind** (first)
+- Indicator `SpriteInfo.LayerDepth = 0.05f` → draws **behind** (first)
+
+The box covers the text and indicator entirely.
+
+## Fix
+
+**File**: `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs`
+
+Swap LayerDepth values so the box is behind and text/indicator are on top:
+
+| Entity | Current | New |
+|--------|---------|-----|
+| Box (line 64) | `0.1f` | `0.05f` |
+| Text (line 92) | `0.05f` | `0.1f` |
+| Indicator (line 117) | `0.05f` | `0.1f` |
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run game → Level 2 → walk into trigger zone
+3. **Expected**: Box visible, text renders on top of box, indicator appears after text finishes revealing
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Commit this to a new branch and open a Pull Request
