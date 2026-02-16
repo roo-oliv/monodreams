@@ -1,0 +1,52 @@
+Implement the following plan:
+
+# Configure macOS Notifications for Claude Code
+
+## Context
+You want to be notified when Claude Code needs your attention — whether it's asking a question, requesting permission approval, or finished executing. This avoids having to constantly watch the terminal.
+
+## Approach
+Add a **`Notification`** hook to your **global** settings (`~/.claude/settings.json`) so it works across all projects.
+
+The `Notification` event fires for:
+- **`idle_prompt`** — Claude is idle waiting for your input (covers both "asking a question" and "done executing")
+- **`permission_prompt`** — Claude needs you to approve/deny a tool execution
+
+Using an empty matcher (`""`) catches all notification types, covering all three scenarios you described.
+
+## Changes
+
+**File: `~/.claude/settings.json`**
+
+Add a `hooks` section with a `Notification` hook that uses `osascript` to trigger a native macOS notification:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "osascript -e 'display notification \"Claude Code needs your attention\" with title \"Claude Code\" sound name \"Glass\"'"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": { ... existing ... },
+  "alwaysThinkingEnabled": true
+}
+```
+
+The `sound name "Glass"` adds an audible chime so you don't need to be looking at the screen.
+
+## Verification
+- Start a new Claude Code session or continue the current one
+- Trigger a permission prompt (e.g., run a command that requires approval) — you should see a macOS notification with sound
+- Ask Claude a question that causes it to use `AskUserQuestion` — notification should fire when idle
+- Let Claude finish a task — notification should fire when done
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/a6d2d8f3-8289-49f6-ba4e-3c8a66923d62.jsonl

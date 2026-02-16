@@ -3,7 +3,7 @@
   "checkpoint_id": "f181670b112d",
   "strategy": "manual-commit",
   "branch": "ro/fix-collision-detection",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     ".claude/settings.local.json",
     "MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs",
@@ -17,13 +17,20 @@
       "context": "/f1/81670b112d/0/context.md",
       "content_hash": "/f1/81670b112d/0/content_hash.txt",
       "prompt": "/f1/81670b112d/0/prompt.txt"
+    },
+    {
+      "metadata": "/f1/81670b112d/1/metadata.json",
+      "transcript": "/f1/81670b112d/1/full.jsonl",
+      "context": "/f1/81670b112d/1/context.md",
+      "content_hash": "/f1/81670b112d/1/content_hash.txt",
+      "prompt": "/f1/81670b112d/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 19,
-    "cache_creation_tokens": 93696,
-    "cache_read_tokens": 497345,
-    "output_tokens": 993,
-    "api_call_count": 14
+    "input_tokens": 25,
+    "cache_creation_tokens": 100366,
+    "cache_read_tokens": 586343,
+    "output_tokens": 1219,
+    "api_call_count": 18
   }
 }
