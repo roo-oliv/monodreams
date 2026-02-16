@@ -1,0 +1,118 @@
+Implement the following plan:
+
+# Fix Collision Detection Bugs (Movement Snapping & Bounding Box Misalignment)
+
+## Context
+
+When colliding with obstacles in Level 2, the player experiences movement "snapping" (getting locked to one axis while touching certain edges) and visual misalignment between debug bounding boxes and actual collision behavior. Three interrelated bugs cause these issues.
+
+## Root Cause Analysis
+
+### Bug 1: Integer truncation in collision rectangle positioning
+`RectangleExtensions.AtPosition()` uses `position.ToPoint()` which truncates floats to ints, causing up to 1px error between the collision rect and the entity's actual position. The debug rendering uses float positions (via `SpritePrepSystem`), so the red boxes are more accurate than the actual collision math. This explains:
+- "Don't actually touch" cases: collision box shifted away from debug box
+- "Overlap" cases: collision box shifted into obstacle
+
+### Bug 2: Negative contactTime accepted as valid collision
+`DynamicRectVsRect` (line 117) only checks `contactTime < 1.0f` with no lower bound. When Bug 1 causes sub-pixel overlap, the ray in `RayVsRect` starts inside the expanded target, producing `contactTime < 0`. The resulting contact normal is perpendicular to the player's movement, so resolution snaps the wrong axis and zeros the wrong velocity component -- causing the "locked to one axis" behavior.
+
+The legacy `CollisionDetectionSystem.cs:130` even has the correct fix commented out: `// return potentialCollision && contactTime is >= 0.0f and < 1.0f;`
+
+### Bug 3: ParallelSystem for sequential collision pipeline
+`LoadLevelExampleGameScreen.cs:109` wraps Movement, Velocity, Detection, Resolution, and Commit in `ParallelSystem`. These must run sequentially. Race conditions cause non-deterministic collision failures. (`DreamGameScreen.cs:66` already uses `SequentialSystem` for the same pipeline -- the correct pattern.)
+
+## Implementation Plan
+
+### Step 1: Create `CollisionRect` struct
+**New file**: `MonoDreams/Extensions/Monogame/CollisionRect.cs`
+
+A float-precision AABB struct that replaces `Rectangle` in collision math, eliminating the integer truncation at the source.
+
+```csharp
+public readonly struct CollisionRect(Vector2 position, Vector2 size)
+{
+    public readonly Vector2 Position = position; // Top-left
+    public readonly Vector2 Size = size;
+    // Properties: Center, Left, Top, Right, Bottom, Width, Height
+    // Method: Intersects(CollisionRect)
+    // Factory: FromBounds(Rectangle bounds, Vector2 entityPosition)
+}
+```
+
+`FromBounds` replaces all `bounds.AtPosition(position)` calls: it adds the float entity position to the integer bounds offset without truncation.
+
+### Step 2: Update `TransformCollisionDetectionSystem`
+**File**: `MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs`
+
+- `Update()` lines 33, 48: Replace `bounds.AtPosition(transform.Position)` with `CollisionRect.FromBounds(bounds, transform.Position)`
+- `RayVsRect`: Change `Rectangle target` param to `CollisionRect target`. Replace `target.Location.ToVector2()` with `target.Position`, `target.Size.ToVector2()` with `target.Size`
+- `DynamicRectVsRect`: Change both `Rectangle` params to `CollisionRect`. Update expanded target to use float math. **Add `contactTime >= 0` check on line 117**: `return potentialCollision && contactTime >= 0f && contactTime < 1.0f;`
+
+### Step 3: Update `TransformCollisionResolutionSystem`
+**File**: `MonoDreams.Examples/System/Collision/TransformCollisionResolutionSystem.cs`
+
+- Lines 56, 60: Replace `bounds.AtPosition(...)` with `CollisionRect.FromBounds(...)`
+- The resolution formulas (`.Width`, `.Height`, `.Left`, `.Right`, `.Top`, `.Bottom`) all exist on `CollisionRect` with matching semantics
+
+### Step 4: Fix system execution order
+**File**: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+- Line 109: Change `ParallelSystem<GameState>(_parallelRunner,` to `SequentialSystem<GameState>(`. Individual systems keep their internal `_parallelRunner` for entity-level parallelism.
+
+### Step 5: Apply same fixes to legacy core systems
+**Files**:
+- `MonoDreams/System/Collision/CollisionDetectionSystem.cs`: Same changes as Step 2 (CollisionRect params, contactTime >= 0 on line 131)
+- `MonoDreams/System/Collision/CollisionResolutionSystem.cs`: Same changes as Step 3 (CollisionRect for rects)
+
+### Deferred: Zero-displacement overlap (Bug 4)
+When `displacement == (0,0)` and boxes overlap, `contactNormal` is `Vector2.Zero` so resolution does nothing. With Bug 1 fixed, sub-pixel overlaps from truncation won't occur, making this a rare edge case. Defer to follow-up if it still manifests.
+
+### Deferred: Corner normal (closestDistance.X == closestDistance.Y)
+The legacy code has an intentional comment (line 102-104) explaining this is a diagonal hit that's "pointless to resolve." Keeping the current behavior.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run the game, load Level 2
+3. Test all 4 collision directions on both towers:
+   - Slide along every wall edge -- no snapping or axis locking
+   - Approach walls from all directions -- solid collision, no penetration
+   - Diagonal movement near walls -- smooth sliding, no "jump" on release
+4. Enable `ColliderDebugSystem` (uncomment line 143 in `LoadLevelExampleGameScreen.cs`) to verify debug boxes match collision behavior
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Well, snapping is gone but so it collision resolution. Detection seems to work but it identifies ghost collisions (at 0;0) as well: Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,74848 Y:0,10790014}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+Collision detected: Entity 2:15.0 vs Entity 2:11.0 at {X:0 Y:0}
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:0 Y:0}
+
+---
+
+[Request interrupted by user for tool use]

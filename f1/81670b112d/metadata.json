@@ -3,12 +3,15 @@
   "checkpoint_id": "f181670b112d",
   "strategy": "manual-commit",
   "branch": "ro/fix-collision-detection",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     ".claude/settings.local.json",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
     "MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs",
+    "MonoDreams.Examples/System/Collision/TransformCollisionResolutionSystem.cs",
     "MonoDreams/Extensions/Monogame/CollisionRect.cs",
-    "MonoDreams/System/Collision/CollisionDetectionSystem.cs"
+    "MonoDreams/System/Collision/CollisionDetectionSystem.cs",
+    "MonoDreams/System/Collision/CollisionResolutionSystem.cs"
   ],
   "sessions": [
     {
@@ -24,13 +27,20 @@
       "context": "/f1/81670b112d/1/context.md",
       "content_hash": "/f1/81670b112d/1/content_hash.txt",
       "prompt": "/f1/81670b112d/1/prompt.txt"
+    },
+    {
+      "metadata": "/f1/81670b112d/2/metadata.json",
+      "transcript": "/f1/81670b112d/2/full.jsonl",
+      "context": "/f1/81670b112d/2/context.md",
+      "content_hash": "/f1/81670b112d/2/content_hash.txt",
+      "prompt": "/f1/81670b112d/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 25,
-    "cache_creation_tokens": 100366,
-    "cache_read_tokens": 586343,
-    "output_tokens": 1219,
-    "api_call_count": 18
+    "input_tokens": 75,
+    "cache_creation_tokens": 204538,
+    "cache_read_tokens": 2358547,
+    "output_tokens": 11963,
+    "api_call_count": 63
   }
 }
