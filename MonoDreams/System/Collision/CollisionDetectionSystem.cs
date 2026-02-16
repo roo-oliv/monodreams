@@ -25,12 +25,12 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
     where TCollisionMessage : ICollisionMessage
 {
     private readonly IEnumerable<Entity> _targets = world.GetEntities().With((in TCollidableComponent c) => c.Enabled).AsEnumerable();
-    
+
     protected override void Update(GameState state, in Entity entity)
     {
         var collidable = entity.Get<TCollidableComponent>();
         var position = entity.Get<TPositionComponent>();
-        var dynamicRect = collidable.Bounds.AtPosition(position.Current);
+        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, position.Current);
         var displacement = position.Delta;
         foreach (var target in _targets)
         {
@@ -41,13 +41,14 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
 
             var collides = DynamicRectVsRect(
                 dynamicRect,
-                displacement, 
-                targetCollidable.Bounds.AtPosition(target.Get<TPositionComponent>().Current),
+                displacement,
+                CollisionRect.FromBounds(targetCollidable.Bounds, target.Get<TPositionComponent>().Current),
                 out var contactPoint,
                 out var contactNormal,
                 out var contactTime);
-                
+
             if (!collides) continue;
+            if (contactNormal == Vector2.Zero) continue;
 
             foreach (var layer in targetCollidable.SharedLayers(collidable))
             {
@@ -55,9 +56,9 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
             }
         }
     }
-    
+
     private static bool RayVsRect(
-        Vector2 rayOrigin, Vector2 rayDirection, Rectangle target, out Vector2 contactPoint,
+        Vector2 rayOrigin, Vector2 rayDirection, CollisionRect target, out Vector2 contactPoint,
         out Vector2 contactNormal, out float closestHit)
     {
         closestHit = float.NaN;
@@ -68,8 +69,8 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
         var inverseDirection = Vector2.One / rayDirection;
 
         // Calculate intersections with rectangle bounding axes
-        var closestDistance = (target.Location.ToVector2() - rayOrigin) * inverseDirection;
-        var furthestDistance = (target.Location.ToVector2() + target.Size.ToVector2() - rayOrigin) * inverseDirection;
+        var closestDistance = (target.Position - rayOrigin) * inverseDirection;
+        var furthestDistance = (target.Position + target.Size - rayOrigin) * inverseDirection;
 
         if (float.IsNaN(furthestDistance.Y) || float.IsNaN(furthestDistance.X)) return false;
         if (float.IsNaN(closestDistance.Y) || float.IsNaN(closestDistance.X)) return false;
@@ -104,9 +105,9 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
         // considered a hit, the resolver wont change anything.
         return true;
     }
-        
+
     public static bool DynamicRectVsRect(
-        in Rectangle dynamicRect, in Vector2 displacement, in Rectangle staticRect,
+        in CollisionRect dynamicRect, in Vector2 displacement, in CollisionRect staticRect,
         out Vector2 contactPoint, out Vector2 contactNormal, out float contactTime)
     {
         // Check if dynamic rectangle is actually moving - if not, we just check for intersection
@@ -119,15 +120,14 @@ public class CollisionDetectionSystem<TCollidableComponent, TPositionComponent, 
         }
 
         // Expand target rectangle by source dimensions
-        var expandedTarget = new Rectangle(
-            (staticRect.Location.ToVector2() - dynamicRect.Size.ToVector2() / 2).ToPoint(),
+        var expandedTarget = new CollisionRect(
+            staticRect.Position - dynamicRect.Size / 2,
             staticRect.Size + dynamicRect.Size);
 
         var potentialCollision = RayVsRect(
-            dynamicRect.Center.ToVector2(), displacement, expandedTarget, out contactPoint,
+            dynamicRect.Center, displacement, expandedTarget, out contactPoint,
             out contactNormal, out contactTime);
 
-        // return potentialCollision && contactTime is >= 0.0f and < 1.0f;
         return potentialCollision && contactTime < 1.0f;
     }
 }

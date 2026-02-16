@@ -13,6 +13,7 @@ namespace MonoDreams.Examples.System.Collision;
 
 /// <summary>
 /// Collision detection system that works with Transform component instead of Position.
+/// Uses float-precision CollisionRect to avoid integer truncation artifacts.
 /// </summary>
 public class TransformCollisionDetectionSystem<TCollisionMessage>(
     World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
@@ -30,7 +31,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
     {
         var collidable = entity.Get<BoxCollider>();
         var transform = entity.Get<Transform>();
-        var dynamicRect = collidable.Bounds.AtPosition(transform.Position);
+        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.Position);
         var displacement = transform.Delta;
 
         foreach (var target in _targets)
@@ -45,12 +46,13 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
             var collides = DynamicRectVsRect(
                 dynamicRect,
                 displacement,
-                targetCollidable.Bounds.AtPosition(target.Get<Transform>().Position),
+                CollisionRect.FromBounds(targetCollidable.Bounds, target.Get<Transform>().Position),
                 out var contactPoint,
                 out var contactNormal,
                 out var contactTime);
 
             if (!collides) continue;
+            if (contactNormal == Vector2.Zero) continue;
 
             foreach (var layer in colliderB.SharedLayers(colliderA))
             {
@@ -60,7 +62,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
     }
 
     private static bool RayVsRect(
-        Vector2 rayOrigin, Vector2 rayDirection, Rectangle target, out Vector2 contactPoint,
+        Vector2 rayOrigin, Vector2 rayDirection, CollisionRect target, out Vector2 contactPoint,
         out Vector2 contactNormal, out float closestHit)
     {
         closestHit = float.NaN;
@@ -68,8 +70,8 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
         contactPoint = Vector2.Zero;
 
         var inverseDirection = Vector2.One / rayDirection;
-        var closestDistance = (target.Location.ToVector2() - rayOrigin) * inverseDirection;
-        var furthestDistance = (target.Location.ToVector2() + target.Size.ToVector2() - rayOrigin) * inverseDirection;
+        var closestDistance = (target.Position - rayOrigin) * inverseDirection;
+        var furthestDistance = (target.Position + target.Size - rayOrigin) * inverseDirection;
 
         if (float.IsNaN(furthestDistance.Y) || float.IsNaN(furthestDistance.X)) return false;
         if (float.IsNaN(closestDistance.Y) || float.IsNaN(closestDistance.X)) return false;
@@ -95,7 +97,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
     }
 
     public static bool DynamicRectVsRect(
-        in Rectangle dynamicRect, in Vector2 displacement, in Rectangle staticRect,
+        in CollisionRect dynamicRect, in Vector2 displacement, in CollisionRect staticRect,
         out Vector2 contactPoint, out Vector2 contactNormal, out float contactTime)
     {
         if (displacement is { X: 0, Y: 0 })
@@ -106,12 +108,12 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
             return dynamicRect.Intersects(staticRect);
         }
 
-        var expandedTarget = new Rectangle(
-            (staticRect.Location.ToVector2() - dynamicRect.Size.ToVector2() / 2).ToPoint(),
+        var expandedTarget = new CollisionRect(
+            staticRect.Position - dynamicRect.Size / 2,
             staticRect.Size + dynamicRect.Size);
 
         var potentialCollision = RayVsRect(
-            dynamicRect.Center.ToVector2(), displacement, expandedTarget, out contactPoint,
+            dynamicRect.Center, displacement, expandedTarget, out contactPoint,
             out contactNormal, out contactTime);
 
         return potentialCollision && contactTime < 1.0f;

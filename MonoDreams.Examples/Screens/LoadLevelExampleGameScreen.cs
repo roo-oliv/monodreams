@@ -105,8 +105,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new LDtkEntityParserSystem(_world),
             new EntitySpawnSystem(_world, _content, _renderTargets));
         
-        // Systems that modify component state (can often be parallel)
-        var logicSystems = new ParallelSystem<GameState>(_parallelRunner,
+        // Collision pipeline must run sequentially (movement → velocity → detect → resolve → commit)
+        // Individual systems keep their internal _parallelRunner for entity-level parallelism
+        var logicSystems = new SequentialSystem<GameState>(
             new MovementSystem(_world, _parallelRunner),
             new OrbSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
