@@ -1,0 +1,60 @@
+Implement the following plan:
+
+# Fix: `contactTime < 0f` filter blocks wall-pinning collisions
+
+## Context
+
+The previous fix moved the `contactTime >= 0f` check from `DynamicRectVsRect` into the detection `Update()` as `contactTime < 0f`. Ghost collisions stopped, but collision resolution is still non-functional — entities pass through walls.
+
+## Root Cause
+
+The `contactTime < 0f` check in detection is **inverted in intent**. It blocks exactly the collisions that keep entities pinned to surfaces.
+
+Frame-by-frame trace:
+1. Entity approaches floor. `contactTime = 0.43` → detected → resolved → entity placed at floor surface, velocity.Y zeroed.
+2. Next frame: gravity re-applies a tiny velocity. `TransformVelocitySystem` pushes entity slightly past the floor surface. `Delta` = tiny downward value.
+3. Detection: `DynamicRectVsRect` finds the entity slightly overlapping the floor. `contactTime = -0.01` (slightly negative because entity is already past the contact surface).
+4. **Our filter `contactTime < 0f` catches -0.01 → collision BLOCKED.**
+5. Entity is not pushed back. Gravity keeps accumulating. Entity falls through floor.
+
+The `-0` values in the logs are the borderline case (IEEE 754 negative zero passes `< 0f` as false, but truly negative values like `-0.01` don't). As the entity approaches slowly, it hovers between detectable and undetectable.
+
+## Fix
+
+Remove `contactTime < 0f` from the detection filter. Keep only the `contactNormal == Vector2.Zero` guard.
+
+`contactNormal == Vector2.Zero` already handles both problem cases:
+- Ghost collisions from overlapping static entities (zero-displacement branch returns `contactNormal = Vector2.Zero`)
+- Unresolvable diagonal corner hits (`RayVsRect` returns `contactNormal = {0,0}` when `closestDistance.X == closestDistance.Y`)
+
+### Files to change
+
+**`MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs`** — line 55:
+```csharp
+// FROM:
+if (contactTime < 0f || contactNormal == Vector2.Zero) continue;
+// TO:
+if (contactNormal == Vector2.Zero) continue;
+```
+
+**`MonoDreams/System/Collision/CollisionDetectionSystem.cs`** — line 51:
+Same change.
+
+### No other changes needed
+- `DynamicRectVsRect` is already correct: `return potentialCollision && contactTime < 1.0f;`
+- Resolution systems are unchanged — they re-verify with the unfiltered `DynamicRectVsRect` and apply position correction.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run the game, load Level 2
+3. Confirm: entity stops at walls in all 4 directions (floor, ceiling, left wall, right wall)
+4. Confirm: no ghost collision logs at `(0,0)` from overlapping static walls
+5. Confirm: no snapping/teleportation when sliding along walls
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+It's working now. Checkout to a new branch, commit everything (staging with git add .) and create a Pull Request.
