@@ -59,7 +59,7 @@ is `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`.
 - After planning but before coding, build the MonoDreams.Examples solution so
   that you know how to build and not question the build process after you
   commit your changes and test the build.
-- Eval between using the LoadLevelExampleGameScreen as a starting point for
+- Eval between using the LevelSelectionScreen as a starting point for
   your own work or creating a new screen.
 - When adding new functionality, first check MonoDreams.Examples for existing
   components and systems that can be extended. Prefer adding fields to existing
