@@ -4,6 +4,8 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
@@ -89,6 +91,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Remove the service so it doesn't interfere with future screen loads
             screenController.Game.Services.RemoveService(typeof(RequestedLevelComponent));
         }
+
+        // Create dialogue trigger zone near the right Tower
+        var triggerZone = _world.CreateEntity();
+        triggerZone.Set(new EntityInfo(EntityType.Zone));
+        triggerZone.Set(new Transform(new Vector2(25, 5)));
+        triggerZone.Set(new BoxCollider(new Rectangle(-4, -4, 8, 8), passive: true));
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
@@ -115,7 +123,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new TransformPhysicalCollisionResolutionSystem(_world),
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
-            new DialogueUpdateSystem(_world)
+            new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight)
             // ... other game logic systems
         );
         
@@ -154,7 +162,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Optional: A system to clear all DrawComponents first?
             // new ClearDrawComponentSystem(_world),
             new CullingSystem(_world, _camera),
-            new DialogueUIRenderPrepSystem(_world),
             new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
             new TextPrepSystem(_world, pixelPerfectRendering),
             new MeshPrepSystem(_world)

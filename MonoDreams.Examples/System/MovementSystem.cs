@@ -4,15 +4,25 @@ using DefaultEcs.Threading;
 using MonoDreams.Component;
 using MonoDreams.Component.Input;
 using MonoDreams.Examples.Input;
+using MonoDreams.Examples.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System;
 
-public class MovementSystem(World world, IParallelRunner parallelRunner)
-    : AEntitySetSystem<GameState>(world.GetEntities().With<Transform>().With<InputControlled>().AsSet(), parallelRunner)
+public class MovementSystem : AEntitySetSystem<GameState>
 {
+    private bool _dialogueActive;
+
+    public MovementSystem(World world, IParallelRunner parallelRunner)
+        : base(world.GetEntities().With<Transform>().With<InputControlled>().AsSet(), parallelRunner)
+    {
+        world.Subscribe((in DialogueActiveMessage msg) => _dialogueActive = msg.IsActive);
+    }
+
     protected override void Update(GameState state, in Entity entity)
     {
+        if (_dialogueActive) return;
+
         ref var transform = ref entity.Get<Transform>();
 
         if (InputState.Left.Pressed(state))

@@ -65,8 +65,13 @@ public class CullingSystem(World world, MonoDreams.Component.Camera camera) : AE
 
     protected override void Update(GameState state, in Entity entity)
     {
-        var transform = entity.Get<Transform>();
         var spriteInfo = entity.Get<SpriteInfo>();
+
+        // Only cull world-space entities (Main render target)
+        // UI/HUD entities use screen coordinates — camera culling doesn't apply
+        if (spriteInfo.Target != RenderTargetID.Main) return;
+
+        var transform = entity.Get<Transform>();
 
         // Calculate scale from source to destination (matches MasterRenderSystem logic)
         var scaleX = spriteInfo.Source.Width > 0 ? spriteInfo.Size.X / spriteInfo.Source.Width : 1f;

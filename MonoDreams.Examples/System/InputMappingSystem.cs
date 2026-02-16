@@ -20,7 +20,8 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
         (InputState.Grab, Keys.K),
         (InputState.Orb, Keys.LeftShift),
         (InputState.Orb, Keys.RightShift),
-        (InputState.Exit, Keys.Escape)
+        (InputState.Exit, Keys.Escape),
+        (InputState.Interact, Keys.E)
     ];
 
     public override void Update(GameState state)

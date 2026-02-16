@@ -23,7 +23,7 @@ public readonly record struct CollisionMessage(
         int layer)
     {
         CollisionType collisionType = DetermineCollisionType(entity, target);
-        Console.WriteLine($"Collision detected: {entity} vs {target} at {contactPoint} (contact normal: {contactNormal}| time: {contactTime})");
+        // Console.WriteLine($"Collision detected: {entity} vs {target} at {contactPoint} (contact normal: {contactNormal}| time: {contactTime})");
         return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, collisionType);
     }
 
