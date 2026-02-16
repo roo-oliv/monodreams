@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "c9af1752276b",
+  "strategy": "manual-commit",
+  "branch": "ro/fix-dialogue-layer-depth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Component/Dialogue/DialogueState.cs",
+    "MonoDreams.Examples/Component/Dialogue/DialogueUIStateComponent.cs",
+    "MonoDreams.Examples/Input/InputState.cs",
+    "MonoDreams.Examples/Message/DialogueActiveMessage.cs",
+    "MonoDreams.Examples/Screens/DialogueExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueUIRenderPrepSystem.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueUpdateSystem.cs",
+    "MonoDreams.Examples/System/DialogueSystem.cs",
+    "MonoDreams.Examples/System/InputMappingSystem.cs",
+    "MonoDreams.Examples/System/MovementSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c9/af1752276b/0/metadata.json",
+      "transcript": "/c9/af1752276b/0/full.jsonl",
+      "context": "/c9/af1752276b/0/context.md",
+      "content_hash": "/c9/af1752276b/0/content_hash.txt",
+      "prompt": "/c9/af1752276b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 65,
+    "cache_creation_tokens": 182326,
+    "cache_read_tokens": 4115103,
+    "output_tokens": 5598,
+    "api_call_count": 61
+  }
+}

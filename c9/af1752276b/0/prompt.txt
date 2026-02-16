@@ -1,0 +1,179 @@
+Implement the following plan:
+
+# Dialogue System: Collision Trigger + UI (Level 2)
+
+## Context
+
+The previous dialogue implementation used a monolithic `DialogueUIStateComponent` on a single entity with a custom `DialogueUIRenderPrepSystem` that tried to render all UI elements (box, text, emote, indicator) from one component. This approach was left incomplete because:
+1. `DrawComponent` is a one-per-entity pattern — each entity renders one visual element
+2. The hierarchical transform system wasn't ready yet
+
+Now that hierarchical transforms are validated (orbiting orbs in Level 1), we can implement dialogue UI properly: **each visual element is its own entity, composed via parent-child transforms, rendered by existing prep systems** (SpritePrepSystem, TextPrepSystem). No custom render system needed.
+
+The collision system already emits `CollisionType.Dialogue` when the player collides with a `EntityType.Zone` entity, but nothing consumes it yet. We'll wire this up.
+
+## Architecture
+
+### Entity Hierarchy (all targeting `RenderTargetID.UI`)
+
+```
+DialogueRoot (Transform at screen position)
+  ├── DialogueBox    (child: SpriteInfo with NinePatch + DrawComponent)
+  ├── DialogueText   (child: DynamicText + DrawComponent)
+  └── ContinueArrow  (child: SpriteInfo + DrawComponent)
+```
+
+All children set `transform.Parent = rootTransform`. Moving the root repositions everything. Each child uses a local position offset from root.
+
+### Visibility Control
+
+- **Active**: Add `Visible` to sprite children so SpritePrepSystem processes them. DynamicText is controlled via `VisibleCharacterCount > 0` (TextPrepSystem already early-returns on 0). TextUpdateSystem drives the reveal.
+- **Inactive**: Remove `Visible` from sprite children AND null out their `DrawComponent.Texture`. Set `DynamicText.VisibleCharacterCount = 0` and null `DrawComponent.Text`/`Font`. MasterRenderSystem safely skips null textures/fonts (lines 169, 197).
+
+This uses existing systems with zero modifications to the render pipeline.
+
+### Trigger Flow
+
+1. Player walks into zone entity → collision system publishes `CollisionMessage(Type=Dialogue)`
+2. `DialogueSystem` subscribes, activates dialogue, populates text, shows UI entities
+3. Text reveals via existing `TextUpdateSystem` → `TextPrepSystem` pipeline
+4. When text is fully revealed, `DialogueSystem` shows the continue indicator
+5. Player presses interact key (E) → dialogue dismissed, UI hidden
+6. Player movement is paused during active dialogue
+
+---
+
+## Implementation Steps
+
+### Step 1: New component — `DialogueState`
+
+**File**: `MonoDreams.Examples/Component/Dialogue/DialogueState.cs` (new)
+
+Replaces the monolithic `DialogueUIStateComponent`. Lightweight class holding state + child entity references:
+
+```csharp
+public class DialogueState
+{
+    public bool IsActive;
+    public bool WasTriggered; // Prevents re-triggering while overlapping
+    public Entity BoxEntity;
+    public Entity TextEntity;
+    public Entity IndicatorEntity;
+}
+```
+
+### Step 2: New system — `DialogueSystem`
+
+**File**: `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs` (new)
+
+Single system that handles the full dialogue lifecycle:
+- **Constructor**: Takes `World`, `ContentManager`, `GraphicsDevice` (for texture crop). Creates the dialogue entity hierarchy (root + 3 children) with all components. Subscribes to `CollisionMessage`.
+- **On CollisionMessage**: If `Type == Dialogue` and not already active → activate dialogue, set hardcoded test text, reset text reveal, add `Visible` to sprite children, set `WasTriggered = true`.
+- **Update**: Each frame:
+  - If active: check if text entity's `DynamicText.IsRevealed` → show/hide continue indicator's `Visible`. Check interact input → deactivate dialogue.
+  - On deactivate: remove `Visible` from sprite children, null `DrawComponent.Texture`/`Text`/`Font`, set `VisibleCharacterCount = 0`, set `IsActive = false`.
+  - If not active and `WasTriggered`: monitor if player is no longer overlapping zone, reset `WasTriggered` (or simply keep it set to prevent repeat triggers for this test).
+
+**Entity creation details** (in constructor):
+- **Root**: `Transform(screenPosition)` + `DialogueState` + `EntityInfo(Interface)`
+- **Box child**: `Transform(parent=root, localOffset)` + `SpriteInfo` (9-patch dialog box medium, targeting UI) + `DrawComponent` (Sprite, UI target)
+- **Text child**: `Transform(parent=root, localOffset)` + `DynamicText` (font, color, reveal speed, targeting UI) + `DrawComponent`
+- **Indicator child**: `Transform(parent=root, localOffset)` + `SpriteInfo` (continue arrow sprite, targeting UI) + `DrawComponent` (Sprite, UI target)
+
+Assets to use:
+- Dialog box: `"Dialouge UI/dialog box medium"` with NinePatch (SpritePrepSystem handles 9-patch rendering with caching)
+- Font: `"Fonts/PPMondwest-Regular-fnt"` (BitmapFont)
+- Continue indicator: `"Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet"` cropped to `Rectangle(96, 0, 16, 16)`
+
+### Step 3: Add interact input
+
+**File**: `MonoDreams.Examples/Input/InputState.cs` — add `Interact` state
+**File**: `MonoDreams.Examples/System/InputMappingSystem.cs` — map `E` key to `Interact`
+
+### Step 4: Pause player movement during dialogue
+
+**File**: `MonoDreams.Examples/System/MovementSystem.cs` — check if dialogue is active (via a world-level flag or by querying the DialogueState entity). Skip movement processing when dialogue is active.
+
+Approach: `DialogueSystem` publishes a `DialogueActiveMessage(bool IsActive)`. `MovementSystem` subscribes and tracks the flag.
+
+### Step 5: Create a trigger zone in Level 2
+
+**File**: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+After publishing `LoadLevelRequest`, create a trigger zone entity programmatically near the right Tower (position ~(25, 5)):
+- `Transform` at chosen position
+- `BoxCollider` (passive, suitable size like 8x8)
+- `EntityInfo(EntityType.Zone)`
+
+This is invisible (no SpriteInfo/DrawComponent) — just a collision trigger.
+
+### Step 6: Wire systems into game screen pipeline
+
+**File**: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+- Add `DialogueSystem` to `logicSystems` (after collision resolution, so it receives collision messages in the same frame)
+- Remove `DialogueUpdateSystem` from the pipeline (replaced by DialogueSystem + TextUpdateSystem)
+- Remove `DialogueUIRenderPrepSystem` from draw pipeline (no longer needed — SpritePrepSystem and TextPrepSystem handle dialogue children)
+
+### Step 7: Clean up obsolete code
+
+- **Delete**: `DialogueUIStateComponent` (`MonoDreams.Examples/Component/Dialogue/DialogueUIStateComponent.cs`)
+- **Delete**: `DialogueUIRenderPrepSystem` (`MonoDreams.Examples/System/Dialogue/DialogueUIRenderPrepSystem.cs`)
+- **Delete**: `DialogueUpdateSystem` (`MonoDreams.Examples/System/Dialogue/DialogueUpdateSystem.cs`) — text reveal is handled by `TextUpdateSystem`
+
+### Step 8: Update DialogueExampleGameScreen
+
+**File**: `MonoDreams.Examples/Screens/DialogueExampleGameScreen.cs`
+
+Update to use the new `DialogueSystem` instead of the deleted components. This screen should serve as a standalone dialogue test screen where dialogue is immediately active on load (no collision trigger needed). Replace the inline entity creation with `DialogueSystem` and activate the dialogue directly.
+
+---
+
+## Files Modified/Created Summary
+
+| Action | File |
+|--------|------|
+| **Create** | `MonoDreams.Examples/Component/Dialogue/DialogueState.cs` |
+| **Create** | `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs` |
+| **Edit** | `MonoDreams.Examples/Input/InputState.cs` (add Interact) |
+| **Edit** | `MonoDreams.Examples/System/InputMappingSystem.cs` (map E key) |
+| **Edit** | `MonoDreams.Examples/System/MovementSystem.cs` (pause during dialogue) |
+| **Edit** | `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (wire systems, add trigger zone) |
+| **Edit** | `MonoDreams.Examples/Screens/DialogueExampleGameScreen.cs` (update to new system) |
+| **Delete** | `MonoDreams.Examples/Component/Dialogue/DialogueUIStateComponent.cs` |
+| **Delete** | `MonoDreams.Examples/System/Dialogue/DialogueUIRenderPrepSystem.cs` |
+| **Delete** | `MonoDreams.Examples/System/Dialogue/DialogueUpdateSystem.cs` |
+
+## Existing code reused (no modifications needed)
+
+- `SpritePrepSystem` — renders box and indicator sprites (incl. 9-patch via `NinePatchData`)
+- `TextUpdateSystem` — drives text reveal animation on `DynamicText`
+- `TextPrepSystem` — renders revealed text to `DrawComponent`
+- `MasterRenderSystem` — renders all `DrawComponent` entities (UI target, no camera transform)
+- `TransformHierarchySystem` — propagates dirty flags through parent-child transforms
+- `Transform` — parent-child hierarchy via `Parent` property
+- `CollisionMessage.DetermineCollisionType` — already maps Player+Zone → `CollisionType.Dialogue`
+- `TransformPhysicalCollisionResolutionSystem` — already filters to only `Physics` type (ignores Dialogue)
+- `BoxCollider(passive: true)` — trigger zones don't cause physics pushback
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — must compile cleanly
+2. Run the game, navigate to Level 2 from the level selection screen
+3. Move the player (Tomato) toward the trigger zone near the right Tower
+4. **Expected**: Dialogue box appears at bottom of screen with text revealing character-by-character
+5. Wait for text to fully reveal → continue indicator arrow appears
+6. Press E → dialogue dismisses
+7. Player movement should be paused while dialogue is active
+8. Walking back into the zone should not re-trigger (one-shot for this test)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+The text is displayed correctly at the bottom of the screen but there is no dialogue box under the text (or its color is the same as the background) and I can't move after the dialogue is triggered and pressing E doesn't close/end the dialogue. See the print attached (if it doesn't work, look at /Users/rodrigooliveira/Desktop/Captura de Tela 2026-02-16 às 00.24.19.png)
+
+---
+
+[Request interrupted by user for tool use]
