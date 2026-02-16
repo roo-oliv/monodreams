@@ -1,0 +1,89 @@
+Implement the following plan:
+
+# Fix: contactTime >= 0 check breaks collision resolution
+
+## Context
+
+The previous round of changes (CollisionRect, SequentialSystem, `contactTime >= 0f`) fixed the snapping bug but broke collision resolution entirely. Two issues remain:
+
+1. **Resolution re-verification fails**: The resolution system calls `DynamicRectVsRect` to re-verify each collision. After resolving collision #1 for an entity (adjusting its position), the re-check for collision #2 may produce negative `contactTime` because the entity was moved. The `>= 0f` check inside `DynamicRectVsRect` rejects it, causing resolution to silently `return`.
+
+2. **Ghost collisions at (0,0)**: Two non-moving wall entities that overlap hit the zero-displacement branch, which returns `contactNormal = Vector2.Zero`. These unresolvable collisions spam the message bus.
+
+## Root Cause
+
+The `contactTime >= 0f` check belongs in the **detection** system (to prevent publishing bad collisions), not in `DynamicRectVsRect` itself (which the resolution system also calls for re-verification).
+
+## Implementation Plan
+
+### Step 1: Revert `DynamicRectVsRect` return condition (both systems)
+
+Remove `contactTime >= 0f` from `DynamicRectVsRect` so it's a pure geometric test again.
+
+**`MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs`** — line 118:
+```csharp
+// FROM:
+return potentialCollision && contactTime >= 0f && contactTime < 1.0f;
+// TO:
+return potentialCollision && contactTime < 1.0f;
+```
+
+**`MonoDreams/System/Collision/CollisionDetectionSystem.cs`** — line 130:
+Same change.
+
+### Step 2: Add post-check in detection `Update()` (both systems)
+
+After `DynamicRectVsRect` returns true but before publishing, filter out bad collisions.
+
+**`TransformCollisionDetectionSystem.cs`** — after `if (!collides) continue;`:
+```csharp
+if (contactTime < 0f || contactNormal == Vector2.Zero) continue;
+```
+
+**`CollisionDetectionSystem.cs`** — after `if (!collides) continue;`:
+Same line added.
+
+This filters:
+- Negative contactTime → prevents snapping (same protection as before)
+- Zero contactNormal → eliminates ghost collisions from overlapping static entities and unresolvable diagonal corner hits
+
+### No changes needed to resolution systems
+The resolution re-verification now gets the unfiltered `DynamicRectVsRect`, allowing it to re-check after position adjustments.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run the game, load Level 2
+3. Confirm: no ghost collision logs at (0,0)
+4. Confirm: solid wall collisions in all 4 directions
+5. Confirm: no snapping/axis-locking when sliding along walls
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+The ghost collisions stopped but collision resolution is still non-functional. Maybe you got this inverted? Look at the logs of me colliding (when I approach slowly the collision time goes to -0): Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:27,441307 Y:10,107901} (contact normal: {X:0 Y:1}| time: 0,43055898)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:24,1316 Y:4,157889} (contact normal: {X:-1 Y:0}| time: 0,5437028)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:29,031605 Y:0,10790013} (contact normal: {X:0 Y:-1}| time: 0,42862466)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:29,031605 Y:10,107901} (contact normal: {X:0 Y:1}| time: 0,4286244)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:34,1316 Y:0,8079063} (contact normal: {X:1 Y:0}| time: 0,42863837)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:24,1316 Y:6,257894} (contact normal: {X:-1 Y:0}| time: 0,42863527)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,531612 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,531612 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,531612 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,531612 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:31,48161 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:31,48161 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:30,63159 Y:0,10790013} (contact normal: {X:0 Y:-1}| time: 0,42862466)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:33,081596 Y:10,107901} (contact normal: {X:0 Y:1}| time: 0,4286244)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:24,1316 Y:1,7078826} (contact normal: {X:-1 Y:0}| time: 0,9999946)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,18161 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:24,1316 Y:3,1078851} (contact normal: {X:-1 Y:0}| time: 0,9999946)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:32,881615 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:24,1316 Y:8,357899} (contact normal: {X:-1 Y:0}| time: 0,9999946)
+Collision detected: Entity 2:11.0 vs Entity 2:15.0 at {X:29,031607 Y:10,107901} (contact normal: {X:0 Y:1}| time: -0)
+
+---
+
+[Request interrupted by user for tool use]

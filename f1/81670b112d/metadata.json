@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f181670b112d",
+  "strategy": "manual-commit",
+  "branch": "ro/fix-collision-detection",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs",
+    "MonoDreams/Extensions/Monogame/CollisionRect.cs",
+    "MonoDreams/System/Collision/CollisionDetectionSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f1/81670b112d/0/metadata.json",
+      "transcript": "/f1/81670b112d/0/full.jsonl",
+      "context": "/f1/81670b112d/0/context.md",
+      "content_hash": "/f1/81670b112d/0/content_hash.txt",
+      "prompt": "/f1/81670b112d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19,
+    "cache_creation_tokens": 93696,
+    "cache_read_tokens": 497345,
+    "output_tokens": 993,
+    "api_call_count": 14
+  }
+}

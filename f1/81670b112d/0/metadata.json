@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f181670b112d",
+  "session_id": "03eb9553-f5ae-4605-b8ac-39195aabe5db",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-16T01:24:34.432352Z",
+  "branch": "ro/fix-collision-detection",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/System/Collision/TransformCollisionDetectionSystem.cs",
+    "MonoDreams/Extensions/Monogame/CollisionRect.cs",
+    "MonoDreams/System/Collision/CollisionDetectionSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 19,
+    "cache_creation_tokens": 93696,
+    "cache_read_tokens": 497345,
+    "output_tokens": 993,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-16T01:24:34.044721Z",
+    "agent_lines": 64,
+    "human_added": 17,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 81,
+    "agent_percentage": 79.01234567901234
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/03eb9553-f5ae-4605-b8ac-39195aabe5db.jsonl"
+}
