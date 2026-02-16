@@ -13,6 +13,7 @@ namespace MonoDreams.Examples.System.Collision;
 
 /// <summary>
 /// Collision resolution system that works with Transform component instead of Position.
+/// Uses float-precision CollisionRect to avoid integer truncation artifacts.
 /// </summary>
 public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<GameState>
     where TCollisionMessage : ICollisionMessage
@@ -53,11 +54,11 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
         var entity = collision.BaseEntity;
         ref var transform = ref entity.Get<Transform>();
         var collidable = entity.Get<BoxCollider>();
-        var dynamicRect = collidable.Bounds.AtPosition(transform.Position);
+        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.Position);
 
         var collidingEntity = collision.CollidingEntity;
         var targetTransform = collidingEntity.Get<Transform>();
-        var targetRect = collidingEntity.Get<BoxCollider>().Bounds.AtPosition(targetTransform.Position);
+        var targetRect = CollisionRect.FromBounds(collidingEntity.Get<BoxCollider>().Bounds, targetTransform.Position);
 
         if (!TransformCollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, transform.Delta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;

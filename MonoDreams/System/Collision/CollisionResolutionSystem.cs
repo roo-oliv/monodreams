@@ -21,7 +21,7 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
 {
     private readonly World _world;
     protected readonly List<TCollisionMessage> Collisions;
-        
+
     public CollisionResolutionSystem(World world)
     {
         _world = world;
@@ -31,9 +31,9 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
 
     [Subscribe]
     protected virtual void On(in TCollisionMessage message) => Collisions.Add(message);
-        
+
     public bool IsEnabled { get; set; } = true;
-        
+
     public void Dispose()
     {
         Collisions.Clear();
@@ -55,12 +55,12 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
         var entity = collision.BaseEntity;
         var position = entity.Get<TPositionComponent>();
         var collidable = entity.Get<TCollidableComponent>();
-        var dynamicRect = collidable.Bounds.AtPosition(position.Current);
-        
+        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, position.Current);
+
         var collidingEntity = collision.CollidingEntity;
         var targetPosition = collidingEntity.Get<TPositionComponent>();
-        var targetRect = collidingEntity.Get<TCollidableComponent>().Bounds.AtPosition(targetPosition.Current);
-        
+        var targetRect = CollisionRect.FromBounds(collidingEntity.Get<TCollidableComponent>().Bounds, targetPosition.Current);
+
         if (!CollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, position.Delta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
         if (contactNormal.X != 0)
@@ -72,7 +72,7 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
                 var velocity = entity.Get<TVelocityComponent>();
                 velocity.Current.X = 0;
             }
-            
+
             if ((int)Math.Abs(contactPoint.X + dynamicRect.Width / 2f - targetRect.Left) == 0)
             {
                 _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Left));
@@ -86,13 +86,13 @@ public class CollisionResolutionSystem<TCollidableComponent, TPositionComponent,
         if (contactNormal.Y != 0)
         {
             position.Current.Y = contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y;
-            
+
             if (entity.Has<TVelocityComponent>())
             {
                 var velocity = entity.Get<TVelocityComponent>();
                 velocity.Current.Y = 0;
             }
-            
+
             if ((int)Math.Abs(contactPoint.Y + dynamicRect.Height / 2f - targetRect.Top) == 0)
             {
                 _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Top));
@@ -114,4 +114,3 @@ public class CollisionResolutionSystem<TPosition, TVelocity, TCollisionMessage>(
 public class CollisionResolutionSystem<TCollisionMessage>(World world)
     : CollisionResolutionSystem<BoxCollider, Position, Velocity, TCollisionMessage>(world)
     where TCollisionMessage : ICollisionMessage;
-
