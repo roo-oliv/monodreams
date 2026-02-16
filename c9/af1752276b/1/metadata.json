@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "c9af1752276b",
+  "session_id": "b5928c70-d66b-43ff-9d67-64913f2869ce",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-16T03:38:35.195466Z",
+  "branch": "ro/fix-dialogue-layer-depth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Component/Dialogue/DialogueState.cs",
+    "MonoDreams.Examples/Component/Dialogue/DialogueUIStateComponent.cs",
+    "MonoDreams.Examples/Message/DialogueActiveMessage.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueUIRenderPrepSystem.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueUpdateSystem.cs",
+    "MonoDreams.Examples/System/DialogueSystem.cs",
+    "MonoDreams.Examples/System/Draw/CullingSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 53962,
+    "cache_read_tokens": 240007,
+    "output_tokens": 2589,
+    "api_call_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-16T03:38:34.859913Z",
+    "agent_lines": 239,
+    "human_added": 50,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 289,
+    "agent_percentage": 82.69896193771626
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/b5928c70-d66b-43ff-9d67-64913f2869ce.jsonl"
+}

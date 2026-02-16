@@ -1,0 +1,96 @@
+Implement the following plan:
+
+# Fix: Dialogue Box Invisible + E Key Doesn't Dismiss
+
+## Context
+
+The dialogue system implementation is mostly working — text renders correctly at the bottom of the screen via `TextPrepSystem`. However, three bugs remain:
+1. The dialogue box (9-patch background) is invisible
+2. Pressing E doesn't dismiss the dialogue
+3. Player movement stays frozen after dialogue triggers (consequence of #2)
+
+## Root Cause Analysis
+
+### Bug 1: Dialogue box invisible
+
+**Root cause**: `CullingSystem` (`MonoDreams.Examples/System/Draw/CullingSystem.cs:66-99`) processes ALL entities with `SpriteInfo + Transform`. It compares entity positions against `camera.VirtualScreenBounds` (world-space bounds). The dialogue box entity is positioned in UI screen coordinates (`~(20, 460)`) which don't fall within the camera's world-space cull bounds. CullingSystem removes `Visible` from the box, so `SpritePrepSystem` (which requires `Visible`) never processes it.
+
+**Why text works**: `TextPrepSystem` has `[With(typeof(DynamicText), typeof(Transform))]` — it does NOT require `Visible`. So text renders regardless of culling.
+
+**Execution order**:
+1. `DialogueSystem.Update()` (update pipeline) → sets `Visible` on BoxEntity
+2. `CullingSystem.Update()` (draw pipeline, runs after) → removes `Visible` because UI coords are outside world-space cull bounds
+
+### Bug 2: E key doesn't dismiss
+
+**Root cause**: `DialogueSystem` line 176 calls `InputState.Interact.JustPressed(state)`. All `InputState` fields are created via `new()` with default `buffer = 0`. `JustPressed` calls `WithinBuffer(delta)` which computes `delta * (0 - delta) >= 0` → `-delta² >= 0` — only true when `delta` is exactly `0.0f`. This float-exact equality essentially never happens, so `JustPressed` always returns false.
+
+The other systems (MovementSystem, InputMappingSystem) use `Pressed(state)` which simply returns `_pressed` (current key state). That's why movement keys work fine.
+
+### Bug 3: Movement stays frozen
+
+**Direct consequence of Bug 2**. Since E never triggers dismiss, `DeactivateDialogue()` is never called → `DialogueActiveMessage(false)` is never published → `MovementSystem._dialogueActive` stays true.
+
+---
+
+## Fixes
+
+### Fix 1: CullingSystem — skip non-Main render target entities
+
+**File**: `MonoDreams.Examples/System/Draw/CullingSystem.cs`
+
+In `Update()`, check `spriteInfo.Target` — if it's not `RenderTargetID.Main`, skip culling for that entity (leave its `Visible` state unchanged). UI/HUD entities use screen coordinates, not world coordinates, so camera-based culling is semantically wrong for them.
+
+```csharp
+protected override void Update(GameState state, in Entity entity)
+{
+    var spriteInfo = entity.Get<SpriteInfo>();
+
+    // Only cull world-space entities (Main render target)
+    // UI/HUD entities use screen coordinates — camera culling doesn't apply
+    if (spriteInfo.Target != RenderTargetID.Main) return;
+
+    var transform = entity.Get<Transform>();
+    // ... rest of existing culling logic
+}
+```
+
+### Fix 2: DialogueSystem — use `Pressed` instead of `JustPressed`
+
+**File**: `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs`
+
+Line 176: Change `InputState.Interact.JustPressed(state)` → `InputState.Interact.Pressed(state)`.
+
+Since `DeactivateDialogue()` sets `IsActive = false` immediately, the Update method returns on line 159 in subsequent frames, so there's no risk of repeated triggering.
+
+### Fix 3: Automatic
+
+Resolved when Fix 2 is applied — dialogue dismisses → `DialogueActiveMessage(false)` publishes → movement resumes.
+
+---
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `MonoDreams.Examples/System/Draw/CullingSystem.cs` | Skip culling for non-Main render target entities |
+| `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs` | `JustPressed` → `Pressed` |
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — compiles cleanly
+2. Run game → Level 2 → walk into trigger zone
+3. **Expected**: Dialogue box (9-patch background) visible behind text
+4. Text reveals character-by-character
+5. Press E → dialogue dismisses, movement resumes
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Look at /Users/rodrigooliveira/Desktop/Captura de Tela 2026-02-16 às 00.31.48.png. Now the Dialogue box appears but the text doesnt (maybe it's the same color of the dialogue box or it's been drawn underneath it).
+
+---
+
+[Request interrupted by user for tool use]
