@@ -9,7 +9,7 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Camera;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message.Level;
 using MonoDreams.State;

@@ -4,7 +4,7 @@ using MonoDreams.Component;
 using MonoDreams.Draw;
 using MonoGame.Extended.BitmapFonts;
 
-namespace MonoDreams.Examples.Component.Draw;
+namespace MonoDreams.Component.Draw;
 
 /// <summary>
 /// Unified drawing component that supports multiple rendering methods:

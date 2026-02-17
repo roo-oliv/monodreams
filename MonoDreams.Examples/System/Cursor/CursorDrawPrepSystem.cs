@@ -3,7 +3,7 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component.Cursor;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.State;
 using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
 

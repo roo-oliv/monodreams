@@ -1,12 +1,13 @@
+using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.State;
-using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
+using DynamicText = MonoDreams.Component.Draw.DynamicText;
 
-namespace MonoDreams.Examples.System.Draw;
+namespace MonoDreams.System.Draw;
 
 [With(typeof(DynamicText), typeof(Transform))] // Ensures entities have these + DrawComponent (from base)
 public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AEntitySetSystem<GameState>(world)

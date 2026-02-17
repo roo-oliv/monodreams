@@ -1,4 +1,4 @@
-namespace MonoDreams.Examples.Component.Draw;
+namespace MonoDreams.Component.Draw;
 
 /// <summary>
 /// Defines the type of drawable element.

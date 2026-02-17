@@ -1,9 +1,10 @@
+using System;
 using System.ComponentModel;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 
-namespace MonoDreams.Examples.Component.Draw;
+namespace MonoDreams.Component.Draw;
 
 public struct SpriteInfo() : IComponent
 {

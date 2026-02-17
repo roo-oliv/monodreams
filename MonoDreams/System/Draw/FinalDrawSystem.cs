@@ -1,12 +1,13 @@
+using System.Collections.Generic;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Draw;
+namespace MonoDreams.System.Draw;
 
 public sealed class FinalDrawSystem : ISystem<GameState>
  {

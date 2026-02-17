@@ -1,8 +1,9 @@
+using System;
 using System.ComponentModel;
 using Microsoft.Xna.Framework;
 using MonoGame.Extended.BitmapFonts;
 
-namespace MonoDreams.Examples.Component.Draw;
+namespace MonoDreams.Component.Draw;
 
 public struct DynamicText : IComponent
 {

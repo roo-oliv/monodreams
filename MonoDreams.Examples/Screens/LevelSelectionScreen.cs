@@ -14,7 +14,7 @@ using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System;
 using MonoDreams.Examples.System.Cursor;
-using MonoDreams.Examples.System.Draw;
+using MonoDreams.System.Draw;
 using MonoDreams.Examples.System.Layout;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.Renderer;
@@ -23,9 +23,9 @@ using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
 using Camera = MonoDreams.Component.Camera;
-using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
-using RenderTargetID = MonoDreams.Examples.Component.Draw.RenderTargetID;
-using Visible = MonoDreams.Examples.Component.Draw.Visible;
+using DynamicText = MonoDreams.Component.Draw.DynamicText;
+using RenderTargetID = MonoDreams.Component.Draw.RenderTargetID;
+using Visible = MonoDreams.Component.Draw.Visible;
 
 namespace MonoDreams.Examples.Screens;
 

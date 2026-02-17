@@ -6,7 +6,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message.Level;
 
 namespace MonoDreams.Examples.EntityFactory;

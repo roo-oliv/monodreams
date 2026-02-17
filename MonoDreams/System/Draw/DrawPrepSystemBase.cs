@@ -1,9 +1,9 @@
 using DefaultEcs;
 using DefaultEcs.System;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Draw;
+namespace MonoDreams.System.Draw;
 
 [With(typeof(DrawComponent))]
 public abstract class DrawPrepSystemBase(World world, bool useParallel = false)

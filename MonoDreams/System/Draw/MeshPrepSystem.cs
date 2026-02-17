@@ -1,11 +1,11 @@
 using DefaultEcs;
 using DefaultEcs.System;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.State;
-using Visible = MonoDreams.Examples.Component.Draw.Visible;
+using Visible = MonoDreams.Component.Draw.Visible;
 
-namespace MonoDreams.Examples.System.Draw;
+namespace MonoDreams.System.Draw;
 
 /// <summary>
 /// Prepares mesh DrawComponents by applying world transforms.

@@ -1,9 +1,10 @@
+using System;
 using DefaultEcs;
 using DefaultEcs.System;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Draw;
+namespace MonoDreams.System.Draw;
 
 // This system ONLY updates the state of the text, doesn't prepare drawing
 [With(typeof(DynamicText))] // Ensures entities have DynamicText

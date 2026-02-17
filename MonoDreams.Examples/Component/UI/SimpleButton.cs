@@ -1,6 +1,6 @@
 using DefaultEcs;
 using Microsoft.Xna.Framework;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 
 namespace MonoDreams.Examples.Component.UI;
 

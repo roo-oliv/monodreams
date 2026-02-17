@@ -2,7 +2,7 @@
 using DefaultEcs;
 using MonoDreams.Examples.Component.Layout;
 using MonoDreams.Renderer;
-using RenderTargetID = MonoDreams.Examples.Component.Draw.RenderTargetID;
+using RenderTargetID = MonoDreams.Component.Draw.RenderTargetID;
 
 namespace MonoDreams.Examples.Layout;
 

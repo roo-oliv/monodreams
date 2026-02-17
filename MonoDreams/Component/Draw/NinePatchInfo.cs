@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Examples.Component.Draw;
+namespace MonoDreams.Component.Draw;
 
 public readonly struct NinePatchInfo(
     int borderSize,

@@ -1,13 +1,15 @@
+using System.Collections.Generic;
+using System.Linq;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
 
-namespace MonoDreams.Examples.System.Draw;
+namespace MonoDreams.System.Draw;
 
 /// <summary>
 /// Unified rendering system that handles all draw types: sprites, text, nine-patch, and mesh.

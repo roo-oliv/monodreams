@@ -1,6 +1,6 @@
-﻿using MonoDreams.Component;
+using MonoDreams.Component;
 
-namespace MonoDreams.Examples.Component.Draw;
+namespace MonoDreams.Component.Draw;
 
 /// <summary>
 /// Tag component that indicates an entity is currently visible and should be rendered.

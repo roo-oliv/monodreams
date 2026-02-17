@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Dialogue;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Message;
@@ -15,7 +15,7 @@ using MonoDreams.Util;
 using MonoDreams.YarnSpinner;
 using MonoGame.Extended.BitmapFonts;
 using Yarn;
-using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
+using DynamicText = MonoDreams.Component.Draw.DynamicText;
 
 namespace MonoDreams.Examples.System.Dialogue;
 
