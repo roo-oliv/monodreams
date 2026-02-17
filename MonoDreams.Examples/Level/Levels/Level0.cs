@@ -115,13 +115,7 @@ public class Level0(
         dialogueZone.Set(new Position(new Vector2(200, 200)));
         dialogueZone.Set(new BoxCollider(new Rectangle(0, 0, 64, 64), passive: true));
         dialogueZone.Set(new DrawInfo(renderTargets.main, _square, new Point(64, 64), layer: DreamGameScreen.DrawLayer.Level));
-        dialogueZone.Set(new DialogueTrigger
-        {
-            Type = TriggerType.Proximity,
-            StartNode = "AreaDiscovery",
-            ProximityRadius = 5.0f,
-            OneTimeOnly = true,
-        });
+        dialogueZone.Set(new DialogueZoneComponent("AreaDiscovery", oneTimeOnly: true));
         // dialogueZone.Set(new DialogueComponent
         // {
         //     Program = Content.Load<YarnProgram>("Dialogues/area_discovery"),

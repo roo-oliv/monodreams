@@ -1,13 +1,12 @@
 title: HelloWorld
 ---
-// Define character name for this line
 Guide: Hello, traveler! Welcome to the dream world.
 -> Who are you?
-Guide: I am your guide in this mysterious realm.
-Guide: I will help you understand the rules of this place.
+    Guide: I am your guide in this mysterious realm.
+    Guide: I will help you understand the rules of this place.
 -> Where am I?
-Guide: You are in a world shaped by dreams and imagination.
-Guide: The laws of physics are... flexible here.
+    Guide: You are in a world shaped by dreams and imagination.
+    Guide: The laws of physics are... flexible here.
 Guide: You can move around using the arrow keys.
 Guide: Try to reach the objective markers to progress!
 Guide: Oh, and watch out for the deadly tiles marked in red.
