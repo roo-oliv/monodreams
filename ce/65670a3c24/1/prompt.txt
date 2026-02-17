@@ -1,0 +1,58 @@
+Implement the following plan:
+
+# Fix: Register entity factories with EntitySpawnSystem
+
+## Context
+
+After the core/Examples alignment refactor, loading Level 1 (LDtk) produces nothing on screen. The logs show:
+```
+Warning: No factory registered for entity type 'Tile'
+Published 21307 tile spawn requests for level 'Level_0'.
+```
+
+**Root cause:** `EntitySpawnSystem` is instantiated in `LoadLevelExampleGameScreen.CreateUpdateSystem()` (line 119) but no factories are ever registered with it. The five factory classes exist in `MonoDreams.Examples/EntityFactory/` but `RegisterEntityFactory()` is never called. Every spawn request falls through to the warning branch.
+
+## Fix
+
+**File:** `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (lines 114-119)
+
+Extract the `EntitySpawnSystem` into a local variable and register all factories before adding it to the pipeline:
+
+```csharp
+var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
+entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory(_content));
+entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content));
+entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content));
+entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content));
+
+var levelLoadSystems = new SequentialSystem<GameState>(
+    new LevelLoadRequestSystem(_world, _content),
+    blenderParser,
+    new LDtkTileParserSystem(_world, _content),
+    new LDtkEntityParserSystem(_world),
+    entitySpawnSystem);
+```
+
+**Identifiers to register** (must match what parsers emit):
+- `"Tile"` — from `LDtkTileParserSystem` for non-wall tile layers
+- `"Wall"` — from `LDtkTileParserSystem` for `Wall_AutoLayer`
+- `"Player"` — from `LDtkEntityParserSystem` (entity `_Identifier` in LDtk)
+- `"Enemy"` — from `LDtkEntityParserSystem` (entity `_Identifier` in LDtk)
+
+> `MiscEntityFactory` is not registered since no parser currently emits a matching identifier. Can be added later if needed.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — must compile
+2. Run the game, load Level 1 — tiles and player should appear, no "No factory registered" warnings in console
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Now it loads, almost perfectly, but it's not loading the grass tiles correctly, I don't know why. /Users/rodrigooliveira/Desktop/Captura de Tela 2026-02-17 às 20.26.10.png
+
+---
+
+[Request interrupted by user for tool use]
