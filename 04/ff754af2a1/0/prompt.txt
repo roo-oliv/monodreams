@@ -1,0 +1,59 @@
+Implement the following plan:
+
+# Update CLAUDE.md to Reflect Post-Refactoring State
+
+## Context
+
+The core/Examples alignment refactoring is complete (7 commits on `ro/core-examples-alignment`). The CLAUDE.md still describes the pre-refactoring state where "core contains legacy code" and "Examples has the most current patterns." This is now wrong — core IS the authoritative source for all engine infrastructure, and Examples contains only game-specific logic.
+
+## Changes
+
+### File: `.claude/CLAUDE.md`
+
+**Section: "About this project" (lines 1-11)**
+- Remove "core library contains some legacy code" — legacy code was deleted
+- Remove "MonoDreams.Examples/ has the most current and mature patterns" — infrastructure is now in core
+- Remove "Always prefer conventions found in MonoDreams.Examples over the core library when they diverge" — core is now authoritative
+- Keep the starting point reference to `LoadLevelExampleGameScreen.cs` as the best example of how to wire up a game screen
+
+**Section: "Project structure" (lines 13-20)**
+- Update `MonoDreams/` description to reflect it now contains rendering, camera, cursor, collision, physics, entity spawning, level loading, and screen management
+- Update `MonoDreams.Examples/` description to clarify it's game-specific logic only (screens, input mapping, dialogue, movement, entity factories, settings)
+- Add note that `MonoDreams.YarnSpinner/` is standalone (not referenced by core)
+
+**Section: "Component design" (lines 24-36)**
+- Add that `EntityInfo` is string-based in core (`new EntityInfo("Player")`), game code can define its own enum for convenience
+- Add that `Transform` is the single spatial component (Position was removed)
+- Note that `CameraFollowTarget` is in `MonoDreams.Component` (not a Camera subdirectory, to avoid namespace conflicts)
+- Existing DrawComponent/SpriteInfo/Visible guidance is correct and stays
+
+**Section: "Entity creation" (lines 38-45)**
+- Update to clarify `IEntityFactory` and `EntitySpawnSystem` are in core (`MonoDreams.EntityFactory` and `MonoDreams.System.EntitySpawn`)
+- Note namespace choice: `MonoDreams.EntityFactory` (not `.Entity`) to avoid shadowing `DefaultEcs.Entity`
+- BlenderLevelParserSystem guidance is correct and stays
+
+**Section: "Rendering pipeline" (lines 47-56)**
+- Add that all rendering infrastructure lives in `MonoDreams.Component.Draw` and `MonoDreams.System.Draw`
+- Existing MasterRenderSystem / CullingSystem guidance is correct and stays
+
+**New section: "Collision and physics"**
+- `BoxCollider`, `RigidBody`, `Velocity` components in `MonoDreams.Component.Collision` / `.Physics`
+- Transform-based collision detection and resolution in `MonoDreams.System.Collision`
+- `GravitySystem` in `MonoDreams.System.Physics`
+
+**New section: "Level loading"**
+- LDtk and Blender parsers in `MonoDreams.System.Level`
+- `LoadLevelRequest` message triggers the pipeline
+- `LevelLoadRequestSystem` → parser systems → `EntitySpawnSystem`
+
+**Section: "Workflow" (lines 58-71)**
+- Update "check MonoDreams.Examples for existing components" to "check MonoDreams/ (core) first for existing components and systems"
+- Keep the advice about extending existing components over creating new ones
+- Keep the framework mindset guidance
+
+## Verification
+- Read the updated file and confirm it matches the actual codebase structure
+- `dotnet build` to confirm nothing was accidentally changed (documentation-only change)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl

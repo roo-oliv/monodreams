@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "04ff754af2a1",
+  "strategy": "manual-commit",
+  "branch": "ro/core-examples-alignment",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".claude/settings.local.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/04/ff754af2a1/0/metadata.json",
+      "transcript": "/04/ff754af2a1/0/full.jsonl",
+      "context": "/04/ff754af2a1/0/context.md",
+      "content_hash": "/04/ff754af2a1/0/content_hash.txt",
+      "prompt": "/04/ff754af2a1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 30398,
+    "cache_read_tokens": 78537,
+    "output_tokens": 229,
+    "api_call_count": 4
+  }
+}
