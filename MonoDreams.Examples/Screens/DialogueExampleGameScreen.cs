@@ -50,8 +50,8 @@ public class DialogueExampleGameScreen : IGameScreen
         _world = new World();
         _dialogueSystem = new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight);
 
-        // Activate dialogue immediately for testing
-        _dialogueSystem.ActivateDialogue("Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+        // Start yarn dialogue immediately for testing
+        _dialogueSystem.StartYarnDialogue("HelloWorld");
 
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();

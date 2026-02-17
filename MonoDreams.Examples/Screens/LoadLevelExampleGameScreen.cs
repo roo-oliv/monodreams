@@ -97,6 +97,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         triggerZone.Set(new EntityInfo(EntityType.Zone));
         triggerZone.Set(new Transform(new Vector2(25, 5)));
         triggerZone.Set(new BoxCollider(new Rectangle(-4, -4, 8, 8), passive: true));
+        triggerZone.Set(new DialogueZoneComponent("HelloWorld", oneTimeOnly: true));
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
