@@ -4,6 +4,7 @@ using LDtk;
 using Microsoft.Xna.Framework.Content;
 using MonoDreams.Examples.Component.Level;
 using MonoDreams.Examples.Message.Level;
+using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Level;

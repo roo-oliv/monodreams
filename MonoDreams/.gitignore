@@ -113,9 +113,7 @@ fabric.properties
 ipch/
 obj/
 [Bb]in
-[Dd]ebug*/
-[Rr]elease*/
-Ankh.NoLoad
+/[Dd]ebug*/
 
 #Tooling
 _ReSharper*/

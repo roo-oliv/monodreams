@@ -1,7 +1,8 @@
+using System.Collections.Generic;
 using LDtk;
 using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Examples.Message.Level;
+namespace MonoDreams.Message;
 
 /// <summary>
 /// Message published when an LDtk entity instance should be spawned into the ECS world.

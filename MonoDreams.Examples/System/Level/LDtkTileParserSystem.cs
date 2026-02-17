@@ -5,7 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Examples.Component.Level;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Level;

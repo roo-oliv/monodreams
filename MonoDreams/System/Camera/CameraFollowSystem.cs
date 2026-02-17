@@ -1,12 +1,11 @@
-﻿using System;
+using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Camera;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Camera;
+namespace MonoDreams.System.Camera;
 
 public class CameraFollowSystem : ISystem<GameState>
 {

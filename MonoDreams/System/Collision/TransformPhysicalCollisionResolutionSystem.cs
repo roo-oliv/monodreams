@@ -1,7 +1,7 @@
 using DefaultEcs;
-using MonoDreams.Examples.Message;
+using MonoDreams.Message;
 
-namespace MonoDreams.Examples.System.Collision;
+namespace MonoDreams.System.Collision;
 
 /// <summary>
 /// Physical collision resolution system that works with Transform component.

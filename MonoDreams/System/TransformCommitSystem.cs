@@ -4,7 +4,7 @@ using DefaultEcs.Threading;
 using MonoDreams.Component;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System;
+namespace MonoDreams.System;
 
 /// <summary>
 /// Commits transform changes by updating LastPosition.

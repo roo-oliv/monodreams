@@ -1,12 +1,12 @@
-﻿using DefaultEcs;
+using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework.Input;
-using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Component.Cursor;
 using MonoDreams.State;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
-using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
+using CursorController = MonoDreams.Component.Cursor.CursorController;
 
-namespace MonoDreams.Examples.System.Cursor;
+namespace MonoDreams.System.Cursor;
 
 public class CursorInputSystem(World world)
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorController>().With<CursorInput>().AsSet())

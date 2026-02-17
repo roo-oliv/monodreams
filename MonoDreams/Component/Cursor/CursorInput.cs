@@ -1,6 +1,6 @@
-﻿using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Examples.Component.Cursor;
+namespace MonoDreams.Component.Cursor;
 
 public struct CursorInput
 {

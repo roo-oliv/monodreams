@@ -2,13 +2,13 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Renderer;
 using MonoDreams.State;
-using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
+using CursorController = MonoDreams.Component.Cursor.CursorController;
 
-namespace MonoDreams.Examples.System.Cursor;
+namespace MonoDreams.System.Cursor;
 
 public class CursorPositionSystem(World world, MonoDreams.Component.Camera camera, ViewportManager viewportManager)
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorController>().With<CursorInput>().With<Transform>().With<DrawComponent>().AsSet())

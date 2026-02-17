@@ -1,14 +1,15 @@
-﻿using DefaultEcs;
+using System;
+using System.Collections.Generic;
+using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
-using MonoDreams.Examples.Component;
 using MonoDreams.Component.Draw;
-using MonoDreams.Examples.EntityFactory;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.EntityFactory;
+using MonoDreams.Message;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Level;
+namespace MonoDreams.System.EntitySpawn;
 
 /// <summary>
 /// Modular entity spawning system that delegates entity creation to registered factories.
@@ -30,9 +31,6 @@ public class EntitySpawnSystem : ISystem<GameState>
         _renderTargets = renderTargets;
         _entityFactories = new Dictionary<string, IEntityFactory>();
         
-        // Register default entity factories
-        RegisterDefaultFactories();
-        
         _world.Subscribe<EntitySpawnRequest>(OnEntitySpawnRequest);
     }
 
@@ -52,46 +50,18 @@ public class EntitySpawnSystem : ISystem<GameState>
         _entityFactories.Remove(identifier);
     }
 
-    private void RegisterDefaultFactories()
-    {
-        // Register built-in entity factories
-        RegisterEntityFactory("Player", new PlayerEntityFactory(_content));
-        RegisterEntityFactory("Enemy", new NPCEntityFactory(_content));
-        RegisterEntityFactory("Tile", new MiscEntityFactory(_content));
-        RegisterEntityFactory("Wall", new WallEntityFactory(_content));
-        // Add more default factories as needed
-    }
-
     [Subscribe]
     private void OnEntitySpawnRequest(in EntitySpawnRequest request)
     {
         if (_entityFactories.TryGetValue(request.Identifier, out var factory))
         {
-            var entity = factory.CreateEntity(_world, request);
-            
-            // Optional: Add common components that all spawned entities might need
-            if (!entity.Has<EntityInfo>())
-            {
-                entity.Set(new EntityInfo(DetermineEntityType(request.Identifier)));
-            }
+            factory.CreateEntity(_world, request);
         }
         else
         {
-            // Log warning or throw exception for unknown entity types
+            // Log warning for unknown entity types
             Console.WriteLine($"Warning: No factory registered for entity type '{request.Identifier}'");
         }
-    }
-
-    private EntityType DetermineEntityType(string identifier)
-    {
-        return identifier switch
-        {
-            "Player" => EntityType.Player,
-            "Enemy" => EntityType.Enemy,
-            "Tile" => EntityType.Tile,
-            "Wall" => EntityType.Tile,
-            _ => EntityType.Tile // Default fallback for tiles
-        };
     }
 
     public void Update(GameState state)

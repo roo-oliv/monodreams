@@ -1,13 +1,13 @@
-﻿using DefaultEcs;
+using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.State;
-using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
+using CursorController = MonoDreams.Component.Cursor.CursorController;
 
-namespace MonoDreams.Examples.System.Cursor;
+namespace MonoDreams.System.Cursor;
 
 // TODO: Render target is hardcoded here, Size too, LayerDepth is hardcoded, Opacity is hardcoded, these should all be configurable
 public class CursorDrawPrepSystem(World world)

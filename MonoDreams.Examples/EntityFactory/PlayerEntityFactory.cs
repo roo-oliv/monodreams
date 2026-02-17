@@ -7,9 +7,9 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Component.Draw;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.EntityFactory;
+using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -25,7 +25,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
         var entity = world.CreateEntity();
 
         // Add core components
-        entity.Set(new EntityInfo(EntityType.Player));
+        entity.Set(new EntityInfo(nameof(EntityType.Player)));
         entity.Set(new PlayerState());
         entity.Set(new Transform(request.Position));
         // entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));

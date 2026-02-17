@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
@@ -7,9 +9,8 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Extensions.Monogame;
 using MonoDreams.Message;
 using MonoDreams.State;
-using MonoDreams.System.Collision;
 
-namespace MonoDreams.Examples.System.Collision;
+namespace MonoDreams.System.Collision;
 
 /// <summary>
 /// Collision detection system that works with Transform component instead of Position.

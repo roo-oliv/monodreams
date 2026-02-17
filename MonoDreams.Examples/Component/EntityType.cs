@@ -1,10 +1,5 @@
 namespace MonoDreams.Examples.Component;
 
-public class EntityInfo(EntityType type)
-{
-    public EntityType Type = type;
-}
-
 public enum EntityType
 {
     Player,

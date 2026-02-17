@@ -1,7 +1,7 @@
-﻿using DefaultEcs;
-using MonoDreams.Examples.Message.Level;
+using DefaultEcs;
+using MonoDreams.Message;
 
-namespace MonoDreams.Examples.EntityFactory;
+namespace MonoDreams.EntityFactory;
 
 /// <summary>
 /// Factory interface for creating entities from spawn requests.

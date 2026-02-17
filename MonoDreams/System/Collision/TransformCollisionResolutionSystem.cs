@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -9,7 +11,7 @@ using MonoDreams.Message;
 using MonoDreams.State;
 using MonoDreams.Util;
 
-namespace MonoDreams.Examples.System.Collision;
+namespace MonoDreams.System.Collision;
 
 /// <summary>
 /// Collision resolution system that works with Transform component instead of Position.

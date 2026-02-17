@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -6,7 +8,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Debug;
+namespace MonoDreams.System.Debug;
 
 /// <summary>
 /// Debug visualization system for sprite rendering.

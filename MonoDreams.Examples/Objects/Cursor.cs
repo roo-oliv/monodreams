@@ -3,8 +3,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
-using MonoDreams.Examples.Component.Cursor;
-using CursorController = MonoDreams.Examples.Component.Cursor.CursorController;
+using MonoDreams.Component.Cursor;
+using CursorController = MonoDreams.Component.Cursor.CursorController;
 
 namespace MonoDreams.Examples.Objects;
 

@@ -1,4 +1,4 @@
-﻿using DefaultEcs;
+using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -8,7 +8,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Extensions.Monogame;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Debug;
+namespace MonoDreams.System.Debug;
 
 /// <summary>
 /// Debug system that renders collision boxes for entities with BoxCollider components.

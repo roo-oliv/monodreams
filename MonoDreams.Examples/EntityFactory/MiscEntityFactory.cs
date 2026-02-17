@@ -6,7 +6,8 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Component.Draw;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.EntityFactory;
+using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -28,7 +29,7 @@ public class MiscEntityFactory : IEntityFactory
         var entity = world.CreateEntity();
 
         // Core components for misc entities
-        entity.Set(new EntityInfo(EntityType.Tile));
+        entity.Set(new EntityInfo(nameof(EntityType.Tile)));
         entity.Set(new Transform(request.Position));
 
         // // Create DrawComponent with a single DrawElement

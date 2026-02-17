@@ -8,10 +8,10 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Camera;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message.Level;
+using MonoDreams.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Level;
@@ -321,7 +321,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Collision collection
         if (meshObj.Collections.Contains("Collision"))
         {
-            entity.Set(new EntityInfo(EntityType.Tile));
+            entity.Set(new EntityInfo(nameof(EntityType.Tile)));
                 
             // Get collision layer from collection properties (default to -1 for all layers)
             int layer = -1;
@@ -343,7 +343,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Player collection
         if (meshObj.Collections.Contains("Player"))
         {
-            entity.Set(new EntityInfo(EntityType.Player));
+            entity.Set(new EntityInfo(nameof(EntityType.Player)));
             entity.Set(new PlayerState());
             entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
             entity.Set(new RigidBody());
@@ -364,7 +364,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Enemy collection
         if (meshObj.Collections.Contains("Enemy"))
         {
-            entity.Set(new EntityInfo(EntityType.Enemy));
+            entity.Set(new EntityInfo(nameof(EntityType.Enemy)));
             Console.WriteLine($"Set EntityType.Enemy for '{meshObj.Name}'");
         }
 
@@ -376,7 +376,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 var bounds = new Rectangle(boundsOffset, boundsSize);
                 entity.Set(new BoxCollider(bounds, passive: true));
             }
-            entity.Set(new EntityInfo(EntityType.Zone));
+            entity.Set(new EntityInfo(nameof(EntityType.Zone)));
             Console.WriteLine($"Set as Trigger zone for '{meshObj.Name}'");
         }
     }

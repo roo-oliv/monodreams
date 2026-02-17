@@ -4,7 +4,7 @@ using MonoDreams.Component;
 using MonoDreams.State;
 using System.Collections.Generic;
 
-namespace MonoDreams.Examples.System
+namespace MonoDreams.System
 {
     /// <summary>
     /// Handles Transform hierarchy updates by propagating dirty flags from parents to children.

@@ -7,15 +7,19 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Message.Level;
+using MonoDreams.Message;
 using MonoDreams.Examples.System;
-using MonoDreams.Examples.System.Camera;
-using MonoDreams.Examples.System.Collision;
-using MonoDreams.Examples.System.Cursor;
-using MonoDreams.Examples.System.Debug;
+using MonoDreams.System;
+using MonoDreams.System.Camera;
+using MonoDreams.System.EntitySpawn;
+using MonoDreams.System.Physics;
+using MonoDreams.System.Collision;
+using MonoDreams.System.Cursor;
+using MonoDreams.System.Debug;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.System.Draw;
@@ -91,7 +95,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         // Create dialogue trigger zone near the right Tower
         var triggerZone = _world.CreateEntity();
-        triggerZone.Set(new EntityInfo(EntityType.Zone));
+        triggerZone.Set(new EntityInfo(nameof(EntityType.Zone)));
         triggerZone.Set(new Transform(new Vector2(25, 5)));
         triggerZone.Set(new BoxCollider(new Rectangle(-4, -4, 8, 8), passive: true));
         triggerZone.Set(new DialogueZoneComponent("HelloWorld", oneTimeOnly: true));

@@ -1,4 +1,4 @@
-﻿namespace MonoDreams.Examples.Component.Camera;
+namespace MonoDreams.Component;
 
 public class CameraFollowTarget
 {
