@@ -9,7 +9,6 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Cursor;
 using MonoDreams.Examples.Component.Draw;
-using MonoDreams.Examples.Level;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Message.Level;
 using MonoDreams.Examples.System;
@@ -38,7 +37,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
-    private readonly LevelLoader _levelLoader;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
@@ -61,7 +59,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         camera.Position = new Vector2(0, 0);
         
         _world = new World();
-        // _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
     }

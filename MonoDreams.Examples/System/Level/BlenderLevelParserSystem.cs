@@ -6,7 +6,6 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
-using MonoDreams.Component.Input;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Camera;
@@ -346,7 +345,6 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         {
             entity.Set(new EntityInfo(EntityType.Player));
             entity.Set(new PlayerState());
-            entity.Set(new InputControlled());
             entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
             entity.Set(new RigidBody());
             entity.Set(new Velocity());
