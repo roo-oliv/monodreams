@@ -1,0 +1,13 @@
+Now that a basic dialogue is working, make it work with YarnSpinner. hello_world.yarn is an example, but feel free to create other test files as well.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+Accept plan
+
+---
+
+Open a new branch, commit everything, push and open a pull request

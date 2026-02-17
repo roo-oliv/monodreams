@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "ed522352fab2",
+  "strategy": "manual-commit",
+  "branch": "ro/yarn-spinner-integration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Examples/Component/Dialogue/DialogueState.cs",
+    "MonoDreams.Examples/Component/DialogueComponent.cs",
+    "MonoDreams.Examples/Component/DialogueManagerComponent.cs",
+    "MonoDreams.Examples/Component/DialoguePresenter.cs",
+    "MonoDreams.Examples/Component/DialogueTrigger.cs",
+    "MonoDreams.Examples/Content/Dialogues/hello_world.yarn",
+    "MonoDreams.Examples/Dialogue/DialogueRunner.cs",
+    "MonoDreams.Examples/Dialogue/DialogueScript.cs",
+    "MonoDreams.Examples/Level/Levels/Level0.cs",
+    "MonoDreams.Examples/Screens/DialogueExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/DreamGameScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/DialogueContentSystem.cs",
+    "MonoDreams.Examples/System/DialogueInputSystem.cs",
+    "MonoDreams.Examples/System/DialoguePresentationSystem.cs",
+    "MonoDreams.Examples/System/DialogueStateSystem.cs",
+    "MonoDreams.Examples/System/DialogueTriggerSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ed/522352fab2/0/metadata.json",
+      "transcript": "/ed/522352fab2/0/full.jsonl",
+      "context": "/ed/522352fab2/0/context.md",
+      "content_hash": "/ed/522352fab2/0/content_hash.txt",
+      "prompt": "/ed/522352fab2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 215,
+    "cache_creation_tokens": 155491,
+    "cache_read_tokens": 6616992,
+    "output_tokens": 5180,
+    "api_call_count": 78
+  }
+}
