@@ -3,10 +3,31 @@
   "checkpoint_id": "04ff754af2a1",
   "strategy": "manual-commit",
   "branch": "ro/core-examples-alignment",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     ".claude/CLAUDE.md",
-    ".claude/settings.local.json"
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Component/Draw/NinePatchInfo.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/TileEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Layout/AutoLayoutBuilder.cs",
+    "MonoDreams.Examples/MonoDreams.Examples.csproj",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/ScreenName.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/InputMappingSystem.cs",
+    "MonoDreams.Examples/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams.Examples/System/Level/LevelLoadRequestSystem.cs",
+    "MonoDreams.Examples/System/MovementSystem.cs",
+    "MonoDreams.Tests/MonoDreams.Tests.csproj",
+    "MonoDreams/MonoDreams.csproj",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams/System/Physics/VelocitySystem.cs"
   ],
   "sessions": [
     {
@@ -15,13 +36,20 @@
       "context": "/04/ff754af2a1/0/context.md",
       "content_hash": "/04/ff754af2a1/0/content_hash.txt",
       "prompt": "/04/ff754af2a1/0/prompt.txt"
+    },
+    {
+      "metadata": "/04/ff754af2a1/1/metadata.json",
+      "transcript": "/04/ff754af2a1/1/full.jsonl",
+      "context": "/04/ff754af2a1/1/context.md",
+      "content_hash": "/04/ff754af2a1/1/content_hash.txt",
+      "prompt": "/04/ff754af2a1/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6,
-    "cache_creation_tokens": 30398,
-    "cache_read_tokens": 78537,
-    "output_tokens": 229,
-    "api_call_count": 4
+    "input_tokens": 39,
+    "cache_creation_tokens": 275657,
+    "cache_read_tokens": 2407403,
+    "output_tokens": 3328,
+    "api_call_count": 29
   }
 }

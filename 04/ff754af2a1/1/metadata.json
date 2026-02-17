@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "04ff754af2a1",
+  "session_id": "d891f91c-05f3-4701-bd0f-13655c7c9d43",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-17T23:11:36.206306Z",
+  "branch": "ro/core-examples-alignment",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Component/Draw/NinePatchInfo.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/TileEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Layout/AutoLayoutBuilder.cs",
+    "MonoDreams.Examples/MonoDreams.Examples.csproj",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/ScreenName.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/InputMappingSystem.cs",
+    "MonoDreams.Examples/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams.Examples/System/Level/LevelLoadRequestSystem.cs",
+    "MonoDreams.Examples/System/MovementSystem.cs",
+    "MonoDreams.Tests/MonoDreams.Tests.csproj",
+    "MonoDreams/MonoDreams.csproj",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams/System/Physics/VelocitySystem.cs"
+  ],
+  "agent": "Claude Code",
+  "checkpoint_transcript_start": 1376,
+  "transcript_lines_at_start": 1376,
+  "token_usage": {
+    "input_tokens": 33,
+    "cache_creation_tokens": 245259,
+    "cache_read_tokens": 2328866,
+    "output_tokens": 3099,
+    "api_call_count": 25
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-17T23:11:34.767864Z",
+    "agent_lines": 0,
+    "human_added": 39,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 39,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/d891f91c-05f3-4701-bd0f-13655c7c9d43.jsonl"
+}
