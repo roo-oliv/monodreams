@@ -1,0 +1,54 @@
+Implement the following plan:
+
+# Fix: Player movement broken on Blender levels after refactor
+
+## Context
+
+After the `ro/core-examples-alignment` refactor, clicking Level 2 (a Blender level) loads all entities visually, but the player doesn't respond to WASD/arrow keys.
+
+**Root cause**: When `BlenderLevelParserSystem` was moved from Examples → core, two game-specific components were dropped from the "Player" collection handler:
+- `PlayerState` (lives in `MonoDreams.Examples.Component` — core can't reference it)
+- `InputControlled` (deleted entirely during the refactor)
+
+`MovementSystem` queries `With<Transform>().With<PlayerState>()` but Blender-created player entities no longer have `PlayerState`, so the system never matches them.
+
+## Approach: Collection handler registration on BlenderLevelParserSystem
+
+Follow the same pattern as `EntitySpawnSystem` (factory registration): let game code register callbacks for specific Blender collection names. The core parser handles universal components (Transform, SpriteInfo, DrawComponent, Visible, BoxCollider, RigidBody, Velocity, CameraFollowTarget), and game code adds game-specific components (PlayerState, etc.).
+
+### Files to modify
+
+1. **`MonoDreams/System/Level/BlenderLevelParserSystem.cs`** — Add collection handler registration
+   - Add `Dictionary<string, Action<Entity>>` field for collection handlers
+   - Add `RegisterCollectionHandler(string collectionName, Action<Entity> handler)` method
+   - In `ProcessCollections()`, after adding core components for a collection, call the registered handler if one exists
+
+2. **`MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`** — Register game-specific handlers
+   - Extract `BlenderLevelParserSystem` into a local variable (currently created inline)
+   - Register a "Player" collection handler that adds `PlayerState`:
+     ```csharp
+     blenderParser.RegisterCollectionHandler("Player", entity => entity.Set(new PlayerState()));
+     ```
+
+### Steps
+
+1. In `BlenderLevelParserSystem`:
+   - Add field: `private readonly Dictionary<string, Action<Entity>> _collectionHandlers = new();`
+   - Add method: `public void RegisterCollectionHandler(string collectionName, Action<Entity> handler)`
+   - In `ProcessCollections()`, after each collection block (Player, Enemy, Trigger, Collision), check and invoke: `if (_collectionHandlers.TryGetValue(collectionName, out var handler)) handler(entity);`
+
+2. In `LoadLevelExampleGameScreen.CreateUpdateSystem()`:
+   - Change `new BlenderLevelParserSystem(...)` to a local variable
+   - Call `blenderParser.RegisterCollectionHandler("Player", entity => entity.Set(new PlayerState()));`
+   - Use the variable in the `levelLoadSystems` sequential system
+
+3. Build and verify
+
+## Verification
+
+1. `dotnet build` — ensure clean build
+2. Run the game, click Level 2, verify player moves with WASD/arrow keys
+3. Verify Level 1 (LDtk level) still works — this change doesn't affect the LDtk path
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
