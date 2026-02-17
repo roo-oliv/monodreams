@@ -1,6 +1,7 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace MonoDreams.Examples.Level;
+namespace MonoDreams.Level;
 
 /// <summary>
 /// Root data structure for Blender-exported level JSON files.

@@ -1,14 +1,17 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using DefaultEcs;
 using DefaultEcs.System;
 using LDtk;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
-using MonoDreams.Examples.Component.Level;
+using MonoDreams.Component.Level;
 using MonoDreams.Message;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Level
+namespace MonoDreams.System.Level
 {
     /// <summary>
     /// Unified system that handles parsing of all LDtk entities, including both 

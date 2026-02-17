@@ -1,14 +1,17 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 ﻿using DefaultEcs;
 using DefaultEcs.System;
 using LDtk;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
-using MonoDreams.Examples.Component.Level;
+using MonoDreams.Component.Level;
 using MonoDreams.Message;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Level;
+namespace MonoDreams.System.Level;
 
 /// <summary>
 /// Processes LDtk tile layers when a new level is loaded and creates individual entities for each tile.

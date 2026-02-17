@@ -1,13 +1,14 @@
+using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using LDtk;
 using Microsoft.Xna.Framework.Content;
-using MonoDreams.Examples.Component.Level;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.Component.Level;
+using MonoDreams.Message.Level;
 using MonoDreams.Message;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Level;
+namespace MonoDreams.System.Level;
 
 /// <summary>
 /// Listens for LoadLevelRequest messages,

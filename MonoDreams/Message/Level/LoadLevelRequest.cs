@@ -1,4 +1,4 @@
-namespace MonoDreams.Examples.Message.Level;
+namespace MonoDreams.Message.Level;
 
 /// <summary>
 /// Message published to request loading a specific level.

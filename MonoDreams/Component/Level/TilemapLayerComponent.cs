@@ -1,4 +1,4 @@
-namespace MonoDreams.Examples.Component.Level;
+namespace MonoDreams.Component.Level;
 
 /// <summary>
 /// Added to ECS entities that represent a specific LDtk tile layer

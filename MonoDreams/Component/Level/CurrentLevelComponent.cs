@@ -1,6 +1,6 @@
 using LDtk;
 
-namespace MonoDreams.Examples.Component.Level;
+namespace MonoDreams.Component.Level;
 
 /// <summary>
 /// Singleton component holding the data for the currently loaded LDtk level.

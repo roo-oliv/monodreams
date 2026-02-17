@@ -1,7 +1,7 @@
 using DefaultEcs;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Examples.Input;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.Message.Level;
 using MonoDreams.Input;
 using MonoDreams.State;
 using MonoDreams.System.Input;

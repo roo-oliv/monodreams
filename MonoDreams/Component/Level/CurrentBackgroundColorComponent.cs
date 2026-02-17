@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace MonoDreams.Examples.Component.Level;
+namespace MonoDreams.Component.Level;
 
 /// <summary>
 /// Singleton component holding the desired background clear color,

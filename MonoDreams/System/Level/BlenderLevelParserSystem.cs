@@ -4,17 +4,19 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
-using MonoDreams.Examples.Component;
 using MonoDreams.Component.Draw;
-using MonoDreams.Examples.Level;
-using MonoDreams.Examples.Message.Level;
-using MonoDreams.Message;
+using MonoDreams.Level;
+using MonoDreams.Message.Level;
 using MonoDreams.State;
 
-namespace MonoDreams.Examples.System.Level;
+namespace MonoDreams.System.Level;
 
 /// <summary>
 /// Parses Blender-exported JSON level files and creates entities for meshes.
@@ -321,7 +323,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Collision collection
         if (meshObj.Collections.Contains("Collision"))
         {
-            entity.Set(new EntityInfo(nameof(EntityType.Tile)));
+            entity.Set(new EntityInfo("Collision"));
                 
             // Get collision layer from collection properties (default to -1 for all layers)
             int layer = -1;
@@ -343,8 +345,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Player collection
         if (meshObj.Collections.Contains("Player"))
         {
-            entity.Set(new EntityInfo(nameof(EntityType.Player)));
-            entity.Set(new PlayerState());
+            entity.Set(new EntityInfo("Player"));
             entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
             entity.Set(new RigidBody());
             entity.Set(new Velocity());
@@ -352,20 +353,20 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             // Add camera follow target component
             entity.Set(new CameraFollowTarget
             {
-                DampingX = 5.0f,  // Adjust for desired smoothness
+                DampingX = 5.0f,
                 DampingY = 5.0f,
-                MaxDistanceX = 150.0f,  // Maximum distance camera can lag behind
+                MaxDistanceX = 150.0f,
                 MaxDistanceY = 100.0f,
                 IsActive = true
             });
-            Console.WriteLine($"Set EntityType.Player for '{meshObj.Name}'");
+            Console.WriteLine($"Set Player for '{meshObj.Name}'");
         }
 
         // Check for Enemy collection
         if (meshObj.Collections.Contains("Enemy"))
         {
-            entity.Set(new EntityInfo(nameof(EntityType.Enemy)));
-            Console.WriteLine($"Set EntityType.Enemy for '{meshObj.Name}'");
+            entity.Set(new EntityInfo("Enemy"));
+            Console.WriteLine($"Set Enemy for '{meshObj.Name}'");
         }
 
         // Check for Trigger collection (collision but no physics push)
@@ -376,7 +377,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 var bounds = new Rectangle(boundsOffset, boundsSize);
                 entity.Set(new BoxCollider(bounds, passive: true));
             }
-            entity.Set(new EntityInfo(nameof(EntityType.Zone)));
+            entity.Set(new EntityInfo("Trigger"));
             Console.WriteLine($"Set as Trigger zone for '{meshObj.Name}'");
         }
     }
