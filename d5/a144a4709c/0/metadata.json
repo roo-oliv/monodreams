@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d5a144a4709c",
+  "session_id": "d891f91c-05f3-4701-bd0f-13655c7c9d43",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-17T04:22:02.522447Z",
+  "branch": "ro/core-examples-alignment",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Examples/Component/Draw/NinePatchInfo.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/TileEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Layout/AutoLayoutBuilder.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/ScreenName.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/InputMappingSystem.cs",
+    "MonoDreams.Examples/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams.Examples/System/Level/LevelLoadRequestSystem.cs",
+    "MonoDreams.Examples/System/MovementSystem.cs",
+    "MonoDreams/System/Physics/VelocitySystem.cs"
+  ],
+  "agent": "Claude Code",
+  "checkpoint_transcript_start": 809,
+  "transcript_lines_at_start": 809,
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 75962,
+    "cache_read_tokens": 8491889,
+    "output_tokens": 4579,
+    "api_call_count": 64
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-17T04:22:01.215445Z",
+    "agent_lines": 0,
+    "human_added": 525,
+    "human_modified": 547,
+    "human_removed": 0,
+    "total_committed": 525,
+    "agent_percentage": 0
+  }
+}
