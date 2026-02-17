@@ -31,6 +31,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
     private readonly MonoDreams.Component.Camera _camera;
     private readonly Dictionary<string, Texture2D> _loadedTextures = new();
     private readonly HashSet<Entity> _blenderEntities = new();
+    private readonly Dictionary<string, Action<Entity>> _collectionHandlers = new();
 
     public bool IsEnabled { get; set; } = true;
 
@@ -41,6 +42,15 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
 
         _world.Subscribe<LoadLevelRequest>(OnLoadLevelRequest);
+    }
+
+    /// <summary>
+    /// Registers a handler that will be called for entities belonging to the specified Blender collection.
+    /// This allows game code to add game-specific components to entities created by the core parser.
+    /// </summary>
+    public void RegisterCollectionHandler(string collectionName, Action<Entity> handler)
+    {
+        _collectionHandlers[collectionName] = handler ?? throw new ArgumentNullException(nameof(handler));
     }
 
     [Subscribe]
@@ -379,6 +389,15 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             }
             entity.Set(new EntityInfo("Trigger"));
             Console.WriteLine($"Set as Trigger zone for '{meshObj.Name}'");
+        }
+
+        // Invoke registered game-specific collection handlers
+        foreach (var collection in meshObj.Collections)
+        {
+            if (_collectionHandlers.TryGetValue(collection, out var handler))
+            {
+                handler(entity);
+            }
         }
     }
 

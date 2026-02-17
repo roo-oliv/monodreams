@@ -16,6 +16,7 @@ using MonoDreams.Examples.System;
 using MonoDreams.System;
 using MonoDreams.System.Camera;
 using MonoDreams.System.EntitySpawn;
+using MonoDreams.Examples.EntityFactory;
 using MonoDreams.System.Physics;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Cursor;
@@ -108,12 +109,21 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new InputMappingSystem(_world)
         );
         
+        var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
+        blenderParser.RegisterCollectionHandler("Player", entity => entity.Set(new PlayerState()));
+
+        var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
+        entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory());
+        entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content));
+        entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content));
+        entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content));
+
         var levelLoadSystems = new SequentialSystem<GameState>(
             new LevelLoadRequestSystem(_world, _content),
-            new BlenderLevelParserSystem(_world, _content, _camera),
+            blenderParser,
             new LDtkTileParserSystem(_world, _content),
             new LDtkEntityParserSystem(_world),
-            new EntitySpawnSystem(_world, _content, _renderTargets));
+            entitySpawnSystem);
         
         // Collision pipeline must run sequentially (movement → velocity → detect → resolve → commit)
         // Individual systems keep their internal _parallelRunner for entity-level parallelism
