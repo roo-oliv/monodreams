@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "11376572843b",
+  "strategy": "manual-commit",
+  "branch": "ro/core-examples-alignment",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Examples/Component/Draw/NinePatchInfo.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/TileEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Layout/AutoLayoutBuilder.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/ScreenName.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/InputMappingSystem.cs",
+    "MonoDreams.Examples/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams.Examples/System/Level/LevelLoadRequestSystem.cs",
+    "MonoDreams.Examples/System/MovementSystem.cs",
+    "MonoDreams/MonoDreams.csproj",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams/System/Physics/VelocitySystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/11/376572843b/0/metadata.json",
+      "transcript": "/11/376572843b/0/full.jsonl",
+      "context": "/11/376572843b/0/context.md",
+      "content_hash": "/11/376572843b/0/content_hash.txt",
+      "prompt": "/11/376572843b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 47,
+    "cache_creation_tokens": 33817,
+    "cache_read_tokens": 3648323,
+    "output_tokens": 4163,
+    "api_call_count": 47
+  }
+}

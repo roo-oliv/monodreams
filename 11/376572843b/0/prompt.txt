@@ -1,0 +1,651 @@
+Implement the following plan:
+
+# MonoDreams Housekeeping: Core/Examples Alignment
+
+## Context
+
+MonoDreams.Examples has evolved well beyond the core library in rendering, camera, cursor, entity spawning, and collision handling. The core still carries dead/broken/legacy code (commented-out systems, broken render calls, superseded components). This refactor:
+1. Deletes all dead weight from core
+2. Promotes mature Examples patterns into core (new namespaces under `MonoDreams.*`)
+3. Updates Examples to consume from core instead of defining its own
+4. Strips unnecessary dependencies from core .csproj
+5. Ensures core = reusable engine, Examples = game-specific logic
+
+## User Decisions
+- **Dependencies**: Strip core to essentials. Remove Iguina, ImGuiNet, SpriteFontPlus, YarnSpinner. Keep Yoga (layout) and LDtk (level loading).
+- **Level loading**: Move ALL parsers (Blender + LDtk) to core.
+- **Position**: Drop entirely. Transform is the single spatial component.
+- **Layout**: Keep Yoga-based layout in core.
+- **Old screens**: Delete OptionsMenuScreen, DreamGameScreen, MainMenuScreen, Level0.cs.
+- **Legacy components**: Delete SimpleText, ButtonState, DialogueController.
+- **EntityInfo**: Refactor to string-based tag in core (extensible by any game).
+
+---
+
+## Phase 0: Pre-flight
+- `dotnet build` the entire solution to confirm clean starting state
+
+---
+
+## Phase 1: Delete Dead Code from Core
+
+**Goal**: Remove all commented-out, broken, empty, and legacy code from MonoDreams/.
+
+### Commented-out systems (entirely dead)
+- `MonoDreams/System/FollowingCameraSystem.cs` — DELETE
+- `MonoDreams/System/Physics/GravityUpdatesVelocitySystem.cs` — DELETE
+- `MonoDreams/System/DynamicBodySystem.cs` — DELETE
+
+### Broken/incomplete systems
+- `MonoDreams/System/Draw/DynamicTextSystem.cs` — DELETE (render call commented out)
+- `MonoDreams/System/ButtonSystem.cs` — DELETE (click logic commented out)
+- `MonoDreams/System/CursorSystem.cs` — DELETE (mostly commented out)
+- `MonoDreams/System/DebugInfoSystem.cs` — DELETE (references legacy PlayerInput)
+
+### Legacy render systems (superseded by Examples' MasterRenderSystem pipeline)
+- `MonoDreams/System/Draw/DrawSystem.cs` — DELETE
+- `MonoDreams/System/Draw/TextSystem.cs` — DELETE
+- `MonoDreams/System/Draw/BeginDrawSystem.cs` — DELETE
+- `MonoDreams/System/Draw/EndDrawSystem.cs` — DELETE
+- `MonoDreams/System/Collision/CollisionDrawSystem.cs` — DELETE (replaced by Examples' ColliderDebugSystem)
+
+### Legacy components
+- `MonoDreams/Component/DynamicBody.cs` — DELETE (superseded by RigidBody + Velocity)
+- `MonoDreams/Component/DrawInfo.cs` — DELETE (superseded by DrawComponent + SpriteInfo)
+- `MonoDreams/Component/Position.cs` — DELETE (superseded by Transform)
+- `MonoDreams/Component/CursorController.cs` — DELETE (empty)
+- `MonoDreams/Component/Input/InputControlled.cs` — DELETE (empty)
+- `MonoDreams/Component/Text/SimpleText.cs` — DELETE (tied to old pattern)
+- `MonoDreams/Component/Text/DialogueController.cs` — DELETE (unused)
+- `MonoDreams/Component/ButtonState.cs` — DELETE (tied to broken ButtonSystem)
+- `MonoDreams/Component/Text/DynamicText.cs` — DELETE (broken, replaced by Examples' version)
+- `MonoDreams/LegacyComponents/` — DELETE entire folder
+
+### Legacy utility code using deleted components
+- `MonoDreams/Objects/UI/Button.cs` — DELETE (uses Position + SimpleText)
+- `MonoDreams/Objects/UI/Cursor.cs` — DELETE (uses Position)
+- `MonoDreams/Extensions/ECS/UIExtensions.cs` — DELETE (uses Position + SimpleText + ButtonState)
+
+### Systems with Position-based overloads to clean
+- `MonoDreams/System/Physics/VelocitySystem.cs` — DELETE overloads that use `Position`, keep Transform-based if any exist (or delete entirely if Examples' TransformVelocitySystem replaces it)
+- `MonoDreams/System/Physics/PositionSystem.cs` — DELETE (tracks Position changes)
+- `MonoDreams/System/Physics/VelocityUpdatesItselfSystem.cs` — REVIEW: keep if useful with Velocity component alone, else DELETE
+- `MonoDreams/System/Physics/GravitySystem.cs` — REMOVE Position-based overloads; keep Transform/Velocity/RigidBody overloads
+- `MonoDreams/System/Collision/CollisionDetectionSystem.cs` — DELETE (Position-based, replaced by Examples' TransformCollisionDetectionSystem)
+- `MonoDreams/System/Collision/CollisionResolutionSystem.cs` — DELETE (Position-based, replaced by Examples' TransformPhysicalCollisionResolutionSystem)
+
+### Legacy input systems
+- `MonoDreams/System/PlayerInputSystem.cs` — DELETE (old input pattern)
+- `MonoDreams/System/AbstractInputHandlingSystem.cs` — DELETE if only used by PlayerInputSystem
+
+### Verify: `dotnet build MonoDreams/MonoDreams.csproj` should compile (may have errors from missing references — fix as needed)
+
+---
+
+## Phase 2: Delete Old Screens from Examples
+
+**Goal**: Remove screens and levels using the legacy pattern.
+
+### Files to delete
+- `MonoDreams.Examples/Screens/OptionsMenuScreen.cs` — uses old core systems
+- `MonoDreams.Examples/Screens/DreamGameScreen.cs` — old pattern
+- `MonoDreams.Examples/Screens/MainMenuScreen.cs` — old pattern
+- `MonoDreams.Examples/Level/Levels/Level0.cs` — uses Position, DrawInfo
+- `MonoDreams.Examples/Screens/DialogueExampleGameScreen.cs` — DELETE if it uses old pattern (verify first)
+
+### Related cleanup
+- `MonoDreams.Examples/Objects/Player.cs` — REVIEW: if it creates entities with old Position/DrawInfo pattern, delete. (Note: there may be a modern version used by entity factories — keep that one)
+- `MonoDreams.Examples/Objects/Tile.cs` — REVIEW: same as above
+- `MonoDreams.Examples/EntityFactory/StaticBackground.cs` — REVIEW: uses `MonoDreams.Objects.UI`, may need update
+- `MonoDreams.Examples/PROPOSAL.md` — DELETE if it's outdated notes
+- Update `ScreenName.cs` constants if screens are removed (remove OptionsMenu etc.)
+- Update `Game1.cs` screen registration to remove deleted screens
+
+### Verify: `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` compiles
+
+---
+
+## Phase 3: Move Rendering Pipeline to Core
+
+**Goal**: The modern rendering pipeline from Examples becomes the core rendering pipeline.
+
+### Components to move (Examples → Core)
+Source namespace `MonoDreams.Examples.Component.Draw` → Target namespace `MonoDreams.Component.Draw`
+
+| File (in Examples) | New location in Core | Notes |
+|---|---|---|
+| `Component/Draw/DrawComponent.cs` | `MonoDreams/Component/Draw/DrawComponent.cs` | Unified render component |
+| `Component/Draw/SpriteInfo.cs` | `MonoDreams/Component/Draw/SpriteInfo.cs` | Sprite source data |
+| `Component/Draw/VisibleComponent.cs` | `MonoDreams/Component/Draw/Visible.cs` | Rename file to match struct name |
+| `Component/Draw/RenderTargetID.cs` | `MonoDreams/Component/Draw/RenderTargetID.cs` | Enum: Main, UI, HUD |
+| `Component/Draw/DynamicText.cs` | `MonoDreams/Component/Draw/DynamicText.cs` | Replaces core's broken version |
+| `Component/Draw/DrawElementType.cs` | `MonoDreams/Component/Draw/DrawElementType.cs` | Enum |
+
+### Systems to move
+Source namespace `MonoDreams.Examples.System.Draw` → Target namespace `MonoDreams.System.Draw`
+
+| File (in Examples) | New location in Core | Notes |
+|---|---|---|
+| `System/Draw/MasterRenderSystem.cs` | `MonoDreams/System/Draw/MasterRenderSystem.cs` | Single unified renderer |
+| `System/Draw/SpritePrepSystem.cs` | `MonoDreams/System/Draw/SpritePrepSystem.cs` | SpriteInfo → DrawComponent |
+| `System/Draw/TextPrepSystem.cs` | `MonoDreams/System/Draw/TextPrepSystem.cs` | DynamicText → DrawComponent |
+| `System/Draw/TextUpdateSystem.cs` | `MonoDreams/System/Draw/TextUpdateSystem.cs` | Text reveal animation |
+| `System/Draw/MeshPrepSystem.cs` | `MonoDreams/System/Draw/MeshPrepSystem.cs` | Mesh → DrawComponent |
+| `System/Draw/CullingSystem.cs` | `MonoDreams/System/Draw/CullingSystem.cs` | Adds/removes Visible tag |
+| `System/Draw/FinalDrawSystem.cs` | `MonoDreams/System/Draw/FinalDrawSystem.cs` | Render targets → backbuffer |
+
+### For each moved file:
+1. Move file to new path
+2. Update namespace from `MonoDreams.Examples.*` to `MonoDreams.*`
+3. Update internal `using` statements
+4. Delete original file from Examples
+
+### Update Examples references:
+- All files that `using MonoDreams.Examples.Component.Draw` → `using MonoDreams.Component.Draw`
+- All files that `using MonoDreams.Examples.System.Draw` → `using MonoDreams.System.Draw`
+
+### Verify: `dotnet build` both projects
+
+---
+
+## Phase 4: Move Infrastructure to Core
+
+### Transform systems
+`MonoDreams.Examples.System` → `MonoDreams.System`
+
+| File | New location | Notes |
+|---|---|---|
+| `System/TransformHierarchySystem.cs` | `MonoDreams/System/TransformHierarchySystem.cs` | Parent→child dirty propagation |
+| `System/TransformVelocitySystem.cs` | `MonoDreams/System/TransformVelocitySystem.cs` | Velocity → Transform |
+| `System/TransformCommitSystem.cs` | `MonoDreams/System/TransformCommitSystem.cs` | Finalizes transform state |
+
+### Camera
+`MonoDreams.Examples.System.Camera` → `MonoDreams.System.Camera`
+`MonoDreams.Examples.Component.Camera` → `MonoDreams.Component.Camera`
+
+| File | New location |
+|---|---|
+| `System/Camera/CameraFollowSystem.cs` | `MonoDreams/System/Camera/CameraFollowSystem.cs` |
+| `Component/Camera/CameraFollowTarget.cs` | `MonoDreams/Component/Camera/CameraFollowTarget.cs` |
+
+### Cursor
+`MonoDreams.Examples.System.Cursor` → `MonoDreams.System.Cursor`
+`MonoDreams.Examples.Component.Cursor` → `MonoDreams.Component.Cursor`
+
+| File | New location |
+|---|---|
+| `System/Cursor/CursorInputSystem.cs` | `MonoDreams/System/Cursor/CursorInputSystem.cs` |
+| `System/Cursor/CursorPositionSystem.cs` | `MonoDreams/System/Cursor/CursorPositionSystem.cs` |
+| `System/Cursor/CursorDrawPrepSystem.cs` | `MonoDreams/System/Cursor/CursorDrawPrepSystem.cs` |
+| `Component/Cursor/CursorInput.cs` | `MonoDreams/Component/Cursor/CursorInput.cs` |
+| `Component/Cursor/CursorController.cs` | `MonoDreams/Component/Cursor/CursorController.cs` |
+| `Component/Cursor/CursorTextures.cs` | `MonoDreams/Component/Cursor/CursorTextures.cs` |
+| `Component/Cursor/CursorType.cs` | `MonoDreams/Component/Cursor/CursorType.cs` |
+
+### Entity spawning
+`MonoDreams.Examples.System.Level` → `MonoDreams.System.Entity`
+`MonoDreams.Examples.Message` → `MonoDreams.Message`
+
+| File | New location | Notes |
+|---|---|---|
+| `System/Level/EntitySpawnSystem.cs` | `MonoDreams/System/Entity/EntitySpawnSystem.cs` | Factory-driven entity creation |
+| `EntityFactory/IEntityFactory.cs` | `MonoDreams/Entity/IEntityFactory.cs` | Interface |
+| `Message/EntitySpawnRequest.cs` | `MonoDreams/Message/EntitySpawnRequest.cs` | Spawn message |
+
+### EntityInfo — refactor to string-based
+- Move `Examples/Component/EntityInfo.cs` → `MonoDreams/Component/EntityInfo.cs`
+- Change from `EntityType` enum to `string Identifier` field
+- Core version: `public class EntityInfo(string type) { public string Type { get; } = type; }`
+- Examples keeps its `EntityType` enum and uses `new EntityInfo(EntityType.Player.ToString())` or defines constants
+
+### Collision systems (replacing core's Position-based ones)
+`MonoDreams.Examples.System.Collision` → `MonoDreams.System.Collision`
+`MonoDreams.Examples.Message` → `MonoDreams.Message`
+
+| File | New location |
+|---|---|
+| `System/Collision/TransformCollisionDetectionSystem.cs` | `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs` |
+| `System/Collision/TransformPhysicalCollisionResolutionSystem.cs` | `MonoDreams/System/Collision/TransformPhysicalCollisionResolutionSystem.cs` |
+| `Message/CollisionMessage.cs` | `MonoDreams/Message/CollisionMessage.cs` |
+
+Keep core's existing `ICollisionMessage` interface and `RigidBodyTouchMessage`.
+
+### Debug systems (move to core as optional utilities)
+| File | New location |
+|---|---|
+| `System/Debug/ColliderDebugSystem.cs` | `MonoDreams/System/Debug/ColliderDebugSystem.cs` |
+| `System/Debug/SpriteDebugSystem.cs` | `MonoDreams/System/Debug/SpriteDebugSystem.cs` |
+
+### Verify: `dotnet build` both projects
+
+---
+
+## Phase 5: Move Level Loading to Core
+
+`MonoDreams.Examples.System.Level` → `MonoDreams.System.Level`
+`MonoDreams.Examples.Component` → `MonoDreams.Component`
+`MonoDreams.Examples.Message.Level` → `MonoDreams.Message.Level`
+`MonoDreams.Examples.Level` → `MonoDreams.Level`
+
+| File | New location | Notes |
+|---|---|---|
+| `System/Level/LevelLoadRequestSystem.cs` | `MonoDreams/System/Level/LevelLoadRequestSystem.cs` | Listens for LoadLevelRequest |
+| `System/Level/BlenderLevelParserSystem.cs` | `MonoDreams/System/Level/BlenderLevelParserSystem.cs` | Blender JSON → entities |
+| `System/Level/LDtkTileParserSystem.cs` | `MonoDreams/System/Level/LDtkTileParserSystem.cs` | LDtk tilemap parsing |
+| `System/Level/LDtkEntityParserSystem.cs` | `MonoDreams/System/Level/LDtkEntityParserSystem.cs` | LDtk entity instances |
+| `Message/Level/LoadLevelRequest.cs` | `MonoDreams/Message/Level/LoadLevelRequest.cs` | Request message |
+| `Component/Level/CurrentLevelComponent.cs` | `MonoDreams/Component/Level/CurrentLevelComponent.cs` | Active level data |
+| `Component/Level/CurrentBackgroundColorComponent.cs` | `MonoDreams/Component/Level/CurrentBackgroundColorComponent.cs` | |
+| `Component/Level/TilemapLayerComponent.cs` | `MonoDreams/Component/Level/TilemapLayerComponent.cs` | |
+| `Level/LevelLoader.cs` | `MonoDreams/Level/LevelLoader.cs` | If still used |
+
+Also review: `MonoDreams/Level/` already has `ILevel.cs` and `ALevelLoader.cs` — integrate or replace with the new approach.
+
+### Verify: `dotnet build` both projects
+
+---
+
+## Phase 6: Clean Up Dependencies
+
+### Core .csproj (`MonoDreams/MonoDreams.csproj`) — REMOVE:
+```xml
+<!-- DELETE these -->
+<PackageReference Include="Iguina" Version="1.1.2" />
+<PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" />
+<PackageReference Include="SpriteFontPlus" Version="0.9.2" />
+<PackageReference Include="YarnSpinner" Version="3.0.2" />
+<PackageReference Include="YarnSpinner.Compiler" Version="3.0.2" />
+<ProjectReference Include="..\MonoDreams.YarnSpinner\MonoDreams.YarnSpinner.csproj" />
+<!-- DELETE stale content reference -->
+<Content Include="bin\Debug\net8.0\Monogame.ImGuiNet.dll" />
+```
+
+### Core .csproj — KEEP:
+- MonoGame.Framework.DesktopGL, MonoGame.Extended, MonoGame.Extended.Content.Pipeline
+- MonoGame.Content.Builder.Task, MonoGame.Framework.Content.Pipeline
+- DefaultEcs
+- Facebook.Yoga (layout)
+- LDtkMonogame, LDtkMonogame.ContentPipeline (level loading)
+- Build tooling (SourceLink, ReproducibleBuilds, MinVer)
+
+### Examples .csproj — ADD if not already present:
+- MonoGame.ImGuiNet (if debug UI is used)
+- Iguina (if used — check, may not be needed at all)
+
+### Verify: `dotnet build` entire solution
+
+---
+
+## Phase 7: Update Examples to Use Core
+
+### Namespace updates across all remaining Examples files
+Every `using MonoDreams.Examples.Component.Draw` → `using MonoDreams.Component.Draw`
+Every `using MonoDreams.Examples.System.Draw` → `using MonoDreams.System.Draw`
+Every `using MonoDreams.Examples.System.Camera` → `using MonoDreams.System.Camera`
+Every `using MonoDreams.Examples.System.Cursor` → `using MonoDreams.System.Cursor`
+Every `using MonoDreams.Examples.System.Collision` → `using MonoDreams.System.Collision`
+Every `using MonoDreams.Examples.System.Level` → `using MonoDreams.System.Level`
+Every `using MonoDreams.Examples.Message.Level` → `using MonoDreams.Message.Level`
+Every `using MonoDreams.Examples.Component.Camera` → `using MonoDreams.Component.Camera`
+Every `using MonoDreams.Examples.Component.Cursor` → `using MonoDreams.Component.Cursor`
+Every `using MonoDreams.Examples.Component.Level` → `using MonoDreams.Component.Level`
+(etc. for all moved namespaces)
+
+### Key files that need import updates
+- `LoadLevelExampleGameScreen.cs` — primary screen, many imports change
+- `LevelSelectionScreen.cs` — UI screen
+- Entity factories (`PlayerEntityFactory.cs`, `NPCEntityFactory.cs`, etc.)
+- `Objects/Cursor.cs` — cursor factory
+- Any remaining system files in Examples that reference moved types
+
+### EntityInfo migration
+- Update all `new EntityInfo(EntityType.X)` → `new EntityInfo("Player")` etc. (or define string constants)
+- Keep `EntityType` enum in Examples as a convenience, with a helper: `new EntityInfo(EntityType.Player.ToString())`
+
+### Files that stay in Examples (game-specific)
+- `System/MovementSystem.cs` — game-specific input→movement
+- `System/OrbSystem.cs` + `Component/OrbitalMotion.cs` — game-specific
+- `System/Dialogue/DialogueSystem.cs` + dialogue components — YarnSpinner integration
+- `System/UI/ButtonInteractionSystem.cs` + `Component/UI/SimpleButton.cs` — game-specific UI
+- `System/UI/ButtonMeshPrepSystem.cs` — game-specific
+- `System/Layout/AutoLayoutSystem.cs`, `IntrinsicSizingSystem.cs`, `LayoutDebugSystem.cs` — REVIEW: these may depend on core's LayoutNode or Examples' LayoutSlot
+- `Input/` — game-specific input state
+- `Settings/` — game-specific settings
+- `Component/DialogueZoneComponent.cs`, `DialogueState` — game-specific
+- `Component/PlayerState.cs`, `ZoneState.cs` — game-specific
+- `Component/RequestedLevelComponent.cs` — game-specific screen transition
+
+### Verify: `dotnet build` entire solution
+
+---
+
+## Phase 8: Final Cleanup
+
+- Delete any empty directories left behind in Examples after moves
+- Delete `MonoDreams/Objects/` folder if empty after Phase 1 deletions
+- Review `MonoDreams/Input/` folder — check if InputState or similar is still needed
+- Review `MonoDreams/Text/` folder — TextProcessor may be needed by DynamicText pipeline
+- Review `MonoDreams/Effect/` folder — keep if MultiTextureEffect is used
+- Review `MonoDreams/Draw/` folder — DrawLayerDepth utility stays, delete anything else that's legacy
+- Update `MonoDreams.Tests/MonoDreams.Tests.csproj` — remove Iguina, YarnSpinner refs if only testing core
+- Clean up any remaining `using` of deleted namespaces
+
+---
+
+## Verification
+
+After all phases:
+1. `dotnet build` — entire solution must compile clean
+2. `dotnet build MonoDreams/MonoDreams.csproj` — core builds independently
+3. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — examples build with core
+4. `dotnet build MonoDreams.YarnSpinner/MonoDreams.YarnSpinner.csproj` — still builds (no core dependency changes affect it)
+5. Run `MonoDreams.Examples` — LoadLevelExampleGameScreen and LevelSelectionScreen should work as before
+6. Verify cursor, rendering, collision, camera follow, level loading, dialogue all function correctly
+
+---
+
+## Execution Notes
+
+- **This will be done as a series of commits**, one per phase or sub-phase, so we can bisect if something breaks.
+- **Namespace changes are the riskiest part** — we'll do bulk find-and-replace carefully.
+- **Build after every phase** to catch issues early.
+- **The core .csproj OutputType should remain Library** (not WinExe).
+- Some files may need minor code changes beyond namespace updates (e.g., if they reference deleted types internally).
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. The user provided a detailed multi-phase refactoring plan for the MonoDreams game engine project.
+2. The plan involves 8 phases (0-8) to align core library with Examples patterns.
+3. I created task tracking items for all phases.
+
+Phase 0: Pre-flight build - confirmed clean build (0 errors, 2 warnings).
+
+Phase 1: Delete dead code from core
+- Deleted 37+ files from MonoDreams/ including:
+  - Commented-out systems (FollowingCameraSystem, GravityUpdatesVelocitySystem, DynamicBodySystem)
+  - Broken systems (DynamicTextSystem, ButtonSystem, CursorSystem, DebugInfoSystem)
+  - Legacy render systems (DrawSystem, TextSystem, BeginDrawSystem, EndDrawSystem, CollisionDrawSystem)
+  - Legacy components (DynamicBody, DrawInfo, Position, CursorController, InputControlled, SimpleText, DialogueController, ButtonState, DynamicText)
+  - LegacyComponents/ folder
+  - Legacy UI objects and extensions
+  - Position-based collision and physics systems
+  - Rewrote VelocitySystem.cs to keep only Transform-based overloads
+  - Deleted VelocityUpdatesItselfSystem, TextProcessor, TextColor
+- GravitySystem was kept as-is (only uses RigidBody/Velocity, no Position)
+- Core built clean after Phase 1
+
+Phase 2: Delete old screens from Examples
+- Deleted screens: OptionsMenuScreen, MainMenuScreen, DreamGameScreen, DialogueExampleGameScreen
+- Deleted levels: Level0, Level1, LevelLoader, ILevel (both core and examples)
+- Deleted old objects: Player, Tile, Dialogue, Zone, LevelBoundaries, StaticBackground
+- Deleted PhysicalCollisionResolutionSystem, core ALevelLoader
+- Created NinePatchInfo.cs as standalone struct (was nested in deleted DrawInfo)
+- Replaced InputControlled tag with PlayerState in MovementSystem, PlayerEntityFactory, BlenderLevelParserSystem
+- Updated Game1.cs and ScreenName.cs
+- Build errors fixed: Missing InputControlled (removed), missing ILevel (deleted Zone.cs), missing LevelLoader (removed field)
+
+Phase 3: Move rendering pipeline to core
+- Moved 8 component files and 8 system files from Examples to Core
+- Components: DrawComponent, SpriteInfo, Visible, RenderTargetID, DynamicText, DrawElementType, DrawElement, NinePatchInfo
+- Systems: MasterRenderSystem, SpritePrepSystem, TextPrepSystem, TextUpdateSystem, MeshPrepSystem, CullingSystem, FinalDrawSystem, DrawPrepSystemBase
+- Updated namespaces from MonoDreams.Examples.Component.Draw → MonoDreams.Component.Draw
+- Updated namespaces from MonoDreams.Examples.System.Draw → MonoDreams.System.Draw
+- Had to fix remaining alias references (RenderTargetID aliases in LevelSelectionScreen and AutoLayoutBuilder)
+- Full solution built clean
+
+Phase 4: Move infrastructure to core (IN PROGRESS)
+- Used a Bash agent to move files:
+  - Transform systems: TransformHierarchySystem, TransformCommitSystem (TransformVelocitySystem skipped - core already had it)
+  - Camera: CameraFollowTarget, CameraFollowSystem
+  - Cursor: CursorInput, CursorController (includes CursorType enum), CursorTextures, CursorInputSystem, CursorPositionSystem, CursorDrawPrepSystem
+  - Entity spawning: IEntityFactory → MonoDreams.EntityFactory, EntitySpawnRequest → MonoDreams.Message, EntitySpawnSystem → MonoDreams.System.EntitySpawn
+  - Collision: TransformCollisionDetectionSystem, TransformCollisionResolutionSystem, TransformPhysicalCollisionResolutionSystem, CollisionMessage
+  - Debug: ColliderDebugSystem, SpriteDebugSystem
+  - EntityInfo: Changed to string-based `public class EntityInfo(string type)`, created EntityType enum in Examples
+- Namespace deviations from plan:
+  - MonoDreams.Entity → MonoDreams.EntityFactory (avoid DefaultEcs.Entity conflict)
+  - MonoDreams.System.Entity → MonoDreams.System.EntitySpawn (same reason)
+  - CameraFollowTarget placed in MonoDreams.Component (not Camera subdir, to avoid namespace conflict)
+
+Then I started fixing Examples build errors from Phase 4:
+- Applied bulk sed replacements for moved namespaces
+- Fixed EntityInfo constructors: `new EntityInfo(EntityType.X)` → `new EntityInfo(nameof(EntityType.X))`
+- Had a bad sed attempt that duplicated lines in factory files - reverted with git checkout
+- Fixed LoadLevelRequest references - it's still in MonoDreams.Examples.Message.Level (not yet moved, that's Phase 5)
+- Added MonoDreams.EntityFactory using to factory files
+- Added MonoDreams.Message using for CollisionMessage
+- Fixed duplicate using statements
+- Still fixing: LoadLevelExampleGameScreen needs MonoDreams.System, MonoDreams.System.EntitySpawn, MonoDreams.System.Physics
+
+USER FEEDBACK: The user asked me to use `cp` or `git mv` + `sed` instead of reading files and writing them with cat/heredoc, so permissions can be cached in Claude Code.
+
+Current state: Just added usings to LoadLevelExampleGameScreen.cs and LevelSelectionScreen.cs. The last build showed errors for EntitySpawnSystem, TransformVelocitySystem, TransformCommitSystem, TransformHierarchySystem not found. I fixed LoadLevelExampleGameScreen but still need to fix LevelSelectionScreen with the TransformHierarchySystem using.
+
+The last build error output showed:
+- LoadLevelExampleGameScreen: EntitySpawnSystem, TransformVelocitySystem, TransformCommitSystem, TransformHierarchySystem not found
+- LevelSelectionScreen: TransformHierarchySystem not found
+
+I added the needed usings to LoadLevelExampleGameScreen but hadn't yet fixed LevelSelectionScreen when the summary was requested.
+
+Pending phases: 5 (Level loading), 6 (Dependencies), 7 (Update Examples), 8 (Final cleanup)
+
+Summary:
+1. Primary Request and Intent:
+   The user requested implementation of a comprehensive multi-phase refactoring plan titled "MonoDreams Housekeeping: Core/Examples Alignment". The goal is to:
+   - Delete all dead/broken/legacy code from the MonoDreams core library
+   - Promote mature patterns from MonoDreams.Examples into the core
+   - Update Examples to consume from core instead of defining its own implementations
+   - Strip unnecessary dependencies from core .csproj
+   - Ensure core = reusable engine, Examples = game-specific logic
+   
+   The plan has 9 phases (0-8), each committed separately for bisectability. The user also explicitly requested using `cp`/`git mv` + `sed` instead of cat/heredoc for file moves, so permissions can be cached in Claude Code.
+
+2. Key Technical Concepts:
+   - MonoGame (rendering framework) + DefaultEcs (ECS framework)
+   - ECS architecture: Components are pure data, all behavior in Systems
+   - Factory-based entity creation with IEntityFactory + EntitySpawnSystem
+   - Rendering pipeline: Prep systems → MasterRenderSystem → FinalDrawSystem
+   - Three render targets: Main (game world), UI, HUD
+   - Transform-based spatial system (replacing legacy Position component)
+   - String-based EntityInfo (replacing enum-based EntityType)
+   - Namespace migration pattern: MonoDreams.Examples.* → MonoDreams.*
+   - Namespace conflict avoidance: MonoDreams.EntityFactory (not .Entity) to avoid DefaultEcs.Entity shadowing
+   - CameraFollowTarget in MonoDreams.Component (not Camera subdir) to avoid namespace conflict with Camera class
+
+3. Files and Code Sections:
+
+   **Phase 1 - Deleted from Core (37 files):**
+   - `MonoDreams/System/FollowingCameraSystem.cs` - commented-out system
+   - `MonoDreams/System/Physics/GravityUpdatesVelocitySystem.cs` - commented-out
+   - `MonoDreams/System/DynamicBodySystem.cs` - commented-out
+   - `MonoDreams/System/Draw/DynamicTextSystem.cs` - render call commented out
+   - `MonoDreams/System/ButtonSystem.cs` - click logic commented out
+   - `MonoDreams/System/CursorSystem.cs` - mostly commented out
+   - `MonoDreams/System/DebugInfoSystem.cs` - references legacy PlayerInput
+   - `MonoDreams/System/Draw/DrawSystem.cs`, `TextSystem.cs`, `BeginDrawSystem.cs`, `EndDrawSystem.cs` - legacy render systems
+   - `MonoDreams/System/Collision/CollisionDrawSystem.cs`, `ColliderDrawSystem.cs` - legacy collision debug
+   - `MonoDreams/System/Collision/CollisionDetectionSystem.cs`, `CollisionResolutionSystem.cs` - Position-based
+   - `MonoDreams/System/PlayerInputSystem.cs` - old input (all commented out)
+   - `MonoDreams/System/PositionSystem.cs` - tracks Position changes
+   - `MonoDreams/System/VelocityUpdatesItselfSystem.cs` - unused
+   - `MonoDreams/Component/DynamicBody.cs`, `DrawInfo.cs`, `Position.cs`, `CursorController.cs` - legacy components
+   - `MonoDreams/Component/Input/InputControlled.cs` - empty tag struct
+   - `MonoDreams/Component/Text/SimpleText.cs`, `DialogueController.cs`, `DynamicText.cs` - legacy text
+   - `MonoDreams/Component/ButtonState.cs` - tied to broken ButtonSystem
+   - `MonoDreams/LegacyComponents/` - entire folder (Animation, MovementController, PlayerInput, Position)
+   - `MonoDreams/Objects/UI/Button.cs`, `Cursor.cs`, `StaticText.cs`, `StaticImage.cs`
+   - `MonoDreams/Extensions/ECS/UIExtensions.cs`
+   - `MonoDreams/Text/TextProcessor.cs`, `TextColor.cs` - dead code
+   
+   **Phase 1 - Modified:**
+   - `MonoDreams/System/Physics/VelocitySystem.cs` - Removed Position-based overloads, kept only Transform-based:
+     ```csharp
+     namespace MonoDreams.System.Physics;
+     
+     public class TransformVelocitySystem<TVelocityComponent>(World world, IParallelRunner parallelRunner)
+         : AEntitySetSystem<GameState>(world.GetEntities().With<Transform>().With<TVelocityComponent>().AsSet(), parallelRunner)
+         where TVelocityComponent : Velocity
+     {
+         protected override void Update(GameState state, in Entity entity)
+         {
+             ref var transform = ref entity.Get<Transform>();
+             var velocity = entity.Get<TVelocityComponent>();
+             transform.Position += velocity.Current * state.Time;
+             velocity.Last = velocity.Current;
+         }
+     }
+     
+     public class TransformVelocitySystem(World world, IParallelRunner parallelRunner)
+         : TransformVelocitySystem<Velocity>(world, parallelRunner);
+     ```
+   - `MonoDreams/System/Physics/GravitySystem.cs` - Kept as-is (only uses RigidBody/Velocity)
+
+   **Phase 2 - Deleted from Examples:**
+   - `MonoDreams.Examples/Screens/OptionsMenuScreen.cs`, `DreamGameScreen.cs`, `MainMenuScreen.cs`, `DialogueExampleGameScreen.cs`
+   - `MonoDreams.Examples/Level/Levels/Level0.cs`, `Level1.cs`
+   - `MonoDreams.Examples/Level/LevelLoader.cs`, `ILevel.cs`
+   - `MonoDreams.Examples/Objects/Player.cs`, `Tile.cs`, `Dialogue.cs`, `Zone.cs`, `LevelBoundaries.cs`
+   - `MonoDreams.Examples/EntityFactory/StaticBackground.cs`
+   - `MonoDreams.Examples/PROPOSAL.md`, `DIALOGUE_UI_RFC.md`
+   - `MonoDreams.Examples/System/PhysicalCollisionResolutionSystem.cs`
+   - `MonoDreams/Level/ALevelLoader.cs`, `ILevel.cs` (core)
+   
+   **Phase 2 - Created:**
+   - `MonoDreams.Examples/Component/Draw/NinePatchInfo.cs` - Extracted from deleted DrawInfo:
+     ```csharp
+     namespace MonoDreams.Examples.Component.Draw;
+     
+     public readonly struct NinePatchInfo(
+         int borderSize, Rectangle topLeft, Rectangle top, Rectangle topRight,
+         Rectangle left, Rectangle center, Rectangle right,
+         Rectangle bottomLeft, Rectangle bottom, Rectangle bottomRight)
+     { /* properties */ }
+     ```
+   
+   **Phase 2 - Modified:**
+   - `MonoDreams.Examples/Screens/ScreenName.cs` - Removed MainMenu, OptionsMenu constants
+   - `MonoDreams.Examples/Game1.cs` - Removed deleted screen registrations and commented-out lines
+   - `MonoDreams.Examples/System/MovementSystem.cs` - Replaced `With<InputControlled>()` with `With<PlayerState>()`
+   - `MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs` - Removed `using MonoDreams.Component.Input` and `InputControlled` usage
+   - `MonoDreams.Examples/System/Level/BlenderLevelParserSystem.cs` - Removed InputControlled import and usage
+   - `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` - Removed LevelLoader field and import
+
+   **Phase 3 - Moved to Core (16 files):**
+   - Components (MonoDreams.Examples/Component/Draw/ → MonoDreams/Component/Draw/):
+     - DrawComponent.cs, SpriteInfo.cs, Visible.cs (renamed from VisibleComponent.cs), RenderTargetID.cs, DynamicText.cs, DrawElementType.cs, DrawElement.cs, NinePatchInfo.cs
+   - Systems (MonoDreams.Examples/System/Draw/ → MonoDreams/System/Draw/):
+     - MasterRenderSystem.cs, SpritePrepSystem.cs, TextPrepSystem.cs, TextUpdateSystem.cs, MeshPrepSystem.cs, CullingSystem.cs, FinalDrawSystem.cs, DrawPrepSystemBase.cs
+   - All namespaces changed from `MonoDreams.Examples.*` to `MonoDreams.*`
+   - Added explicit `using System;`, `using System.Collections.Generic;`, `using System.Linq;` where needed (core doesn't have implicit usings)
+   
+   **Phase 3 - Bulk namespace updates in Examples:**
+   - All `using MonoDreams.Examples.Component.Draw` → `using MonoDreams.Component.Draw`
+   - All `using MonoDreams.Examples.System.Draw` → `using MonoDreams.System.Draw`
+   - Fixed alias references in LevelSelectionScreen.cs and AutoLayoutBuilder.cs
+
+   **Phase 4 - Moved to Core (IN PROGRESS, ~20 files):**
+   - Transform systems: TransformHierarchySystem.cs, TransformCommitSystem.cs → MonoDreams/System/
+   - TransformVelocitySystem.cs from Examples was deleted (core already has the equivalent)
+   - Camera: CameraFollowTarget.cs → MonoDreams/Component/CameraFollowTarget.cs, CameraFollowSystem.cs → MonoDreams/System/Camera/
+   - Cursor: CursorInput.cs, CursorController.cs (includes CursorType enum), CursorTextures.cs → MonoDreams/Component/Cursor/; CursorInputSystem.cs, CursorPositionSystem.cs, CursorDrawPrepSystem.cs → MonoDreams/System/Cursor/
+   - Entity spawning: IEntityFactory.cs → MonoDreams/EntityFactory/, EntitySpawnRequest.cs → MonoDreams/Message/, EntitySpawnSystem.cs → MonoDreams/System/EntitySpawn/
+   - Collision: TransformCollisionDetectionSystem.cs, TransformCollisionResolutionSystem.cs, TransformPhysicalCollisionResolutionSystem.cs → MonoDreams/System/Collision/; CollisionMessage.cs → MonoDreams/Message/
+   - Debug: ColliderDebugSystem.cs, SpriteDebugSystem.cs → MonoDreams/System/Debug/
+   - EntityInfo changed to string-based in core:
+     ```csharp
+     namespace MonoDreams.Component;
+     public class EntityInfo(string type)
+     {
+         public string Type { get; } = type;
+     }
+     ```
+   - EntityType enum created in Examples:
+     ```csharp
+     namespace MonoDreams.Examples.Component;
+     public enum EntityType { Player, Enemy, Tile, Collectible, Projectile, Zone, Interface }
+     ```
+   - CollisionMessage.DetermineCollisionType converted to string comparisons
+   - .gitignore modified: `[Dd]ebug*/` → `/[Dd]ebug*/` to not ignore System/Debug/
+
+   **Phase 4 - Examples namespace fixes applied:**
+   - Bulk sed: Camera, Cursor, Collision, Debug, Message.Level namespace replacements
+   - EntityInfo constructors: `new EntityInfo(EntityType.X)` → `new EntityInfo(nameof(EntityType.X))`
+   - Added `using MonoDreams.EntityFactory;` to all entity factory files
+   - Added `using MonoDreams.Message;` for CollisionMessage references
+   - Re-added `using MonoDreams.Examples.Message.Level;` where LoadLevelRequest is still needed (Phase 5)
+   - Added `using MonoDreams.System;`, `using MonoDreams.System.EntitySpawn;`, `using MonoDreams.System.Physics;` to LoadLevelExampleGameScreen.cs
+
+4. Errors and Fixes:
+   - **Phase 2 build errors (8 errors):**
+     - `MonoDreams.Component.Input` not found → Removed using and replaced InputControlled with PlayerState
+     - `MonoDreams.Examples.Level.Levels` not found → Deleted old LevelLoader.cs
+     - `NinePatchInfo` not found → Created standalone NinePatchInfo.cs struct
+     - `CollisionResolutionSystem<>` not found → Deleted PhysicalCollisionResolutionSystem.cs (replaced by Transform version)
+     - `ILevel` not found → Deleted Zone.cs (unused)
+     - `LevelLoader` not found → Removed field from LoadLevelExampleGameScreen
+   - **Phase 3 build errors (2 errors):**
+     - `RenderTargetID` aliases still pointing to old namespace → Fixed in LevelSelectionScreen.cs and AutoLayoutBuilder.cs
+   - **Phase 4 build errors (many):**
+     - Stale namespace references for Camera, Cursor, Collision, Debug → Bulk sed replacement
+     - IEntityFactory not found → Added `using MonoDreams.EntityFactory;` to factory files
+     - EntitySpawnRequest not found → Added `using MonoDreams.Message;` to factory files
+     - CollisionMessage not found in DialogueSystem → Added `using MonoDreams.Message;`
+     - LoadLevelRequest not found → Re-added `using MonoDreams.Examples.Message.Level;` (still in Examples)
+     - **Bad sed append that duplicated lines in factory files** → Reverted with `git checkout -- MonoDreams.Examples/EntityFactory/`
+     - Duplicate `using MonoDreams.Component;` in BlenderLevelParserSystem → Removed duplicate
+     - EntitySpawnSystem, TransformVelocitySystem, TransformCommitSystem, TransformHierarchySystem not found → Added `using MonoDreams.System;`, `using MonoDreams.System.EntitySpawn;`, `using MonoDreams.System.Physics;` to LoadLevelExampleGameScreen (LevelSelectionScreen still needs fix)
+   - **User feedback on approach:** User asked to use `cp`/`git mv` + `sed` instead of reading/writing files with cat/heredoc, so permissions can be cached in Claude Code.
+
+5. Problem Solving:
+   - Determined that GravitySystem has no Position dependency and should be kept as-is
+   - Identified that TransformVelocitySystem already existed in core's VelocitySystem.cs, so the Examples version was just deleted
+   - Resolved namespace conflict: Used MonoDreams.EntityFactory instead of MonoDreams.Entity to avoid shadowing DefaultEcs.Entity
+   - Resolved namespace conflict: CameraFollowTarget placed in MonoDreams.Component (not Camera subdir)
+   - Identified that TextProcessor was dead code (only used by deleted DynamicText)
+   - Determined Zone.cs and LevelBoundaries.cs were unused and could be deleted
+   - CollisionMessage.DetermineCollisionType needed conversion from EntityType enum to string comparisons for core
+
+6. All User Messages:
+   - **Message 1:** "Implement the following plan: [detailed 8-phase refactoring plan for MonoDreams Housekeeping: Core/Examples Alignment]" - This was the main request with the complete plan.
+   - **Message 2 (during Phase 4 work):** "Instead of cat to move the contents, can't you use another command so I can cache permissions for claude code?" - User requested using cp/git mv + sed instead of cat/heredoc for file operations to enable permission caching.
+
+7. Pending Tasks:
+   - **Phase 4 (IN PROGRESS):** Fix remaining Examples build error - LevelSelectionScreen.cs needs `using MonoDreams.System;` for TransformHierarchySystem. Then build verify and commit.
+   - **Phase 5:** Move level loading to core (LevelLoadRequestSystem, BlenderLevelParserSystem, LDtkTileParserSystem, LDtkEntityParserSystem, LoadLevelRequest, CurrentLevelComponent, CurrentBackgroundColorComponent, TilemapLayerComponent, LevelLoader)
+   - **Phase 6:** Clean up dependencies (remove Iguina, ImGuiNet, SpriteFontPlus, YarnSpinner from core .csproj; keep Yoga, LDtk)
+   - **Phase 7:** Update remaining Examples namespace references
+   - **Phase 8:** Final cleanup (empty directories, review folders, update test project)
+
+8. Current Work:
+   Phase 4 is in progress. The last action was adding missing `using` statements to `LoadLevelExampleGameScreen.cs`:
+   ```csharp
+   using MonoDreams.System;
+   using MonoDreams.System.Camera;
+   using MonoDreams.System.EntitySpawn;
+   using MonoDreams.System.Physics;
+   ```
+   
+   The last build still had errors for `LevelSelectionScreen.cs:263` - `TransformHierarchySystem` not found. This file needs `using MonoDreams.System;` added.
+   
+   The git branch is `ro/core-examples-alignment` with 3 commits so far:
+   - `0ee13f3` Phase 1: Delete dead code from MonoDreams core
+   - `7f704b1` Phase 2: Delete old screens and legacy patterns from Examples
+   - `8890fc5` Phase 3: Move rendering pipeline from Examples to core
+   
+   Phase 4 changes are staged but not yet committed.
+
+9. Optional Next Step:
+   Fix the remaining build error in `LevelSelectionScreen.cs` by adding `using MonoDreams.System;`, then run `dotnet build` to verify the full solution compiles, and commit Phase 4.
+   
+   The user's original request was: "Implement the following plan:" with Phase 4 stating: "Move Infrastructure to Core" including Transform systems, Camera, Cursor, Entity spawning, EntityInfo, Collision systems, and Debug systems. The user also requested: "Instead of cat to move the contents, can't you use another command so I can cache permissions for claude code?" - this should be applied for remaining phases (5-8) by using `git mv` + `sed` instead of read/write patterns.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+Please continue the conversation from where we left it off without asking the user any further questions. Continue with the last task that you were asked to work on.
