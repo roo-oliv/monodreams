@@ -68,13 +68,10 @@
     <ItemGroup>
         <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
         <PackageReference Include="Facebook.Yoga" Version="1.5.0-pre1" />
-        <PackageReference Include="Iguina" Version="1.1.2" />
         <PackageReference Include="LDtkMonogame" Version="1.8.0" />
         <PackageReference Include="LDtkMonogame.ContentPipeline" Version="1.8.0" />
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
         <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.4" />
-        <PackageReference Include="YarnSpinner" Version="3.0.2" />
-        <PackageReference Include="YarnSpinner.Compiler" Version="3.0.2" />
     </ItemGroup>
 
     <ItemGroup>
@@ -104,8 +101,6 @@
         </PackageReference>
         <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="4.1.0" />
         <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4" />
-        <PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" />
-        <PackageReference Include="SpriteFontPlus" Version="0.9.2" />
     </ItemGroup>
     <ItemGroup>
       <Compile Remove="Core\**" />
@@ -115,12 +110,6 @@
     </ItemGroup>
     <ItemGroup>
       <ClCompile Include="Effect\MultiTextureEffect.fx" />
-    </ItemGroup>
-    <ItemGroup>
-      <Content Include="bin\Debug\net8.0\Monogame.ImGuiNet.dll" />
-    </ItemGroup>
-    <ItemGroup>
-      <ProjectReference Include="..\MonoDreams.YarnSpinner\MonoDreams.YarnSpinner.csproj" />
     </ItemGroup>
     <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
         <Message Text="Restoring dotnet tools" Importance="High" />
