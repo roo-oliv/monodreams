@@ -1,0 +1,270 @@
+Implement the following plan:
+
+# Debug Infrastructure for Claude Code Game Sessions
+
+## Context
+
+MonoDreams is debugged by running the game, but a Claude Code agent can't see the
+screen or interact live with reliable timing. This plan adds three systems that
+let an agent: (1) script a timed sequence of inputs before launch, (2) capture
+periodic screenshots, and (3) review structured logs — all correlated by
+timestamps. Together they form a "record & replay" debugging loop.
+
+All output goes to a shared `debug/` directory under the build output root
+(e.g. `bin/Debug/net8.0/debug/`), added to `.gitignore`.
+
+---
+
+## Phase 1 — Logger (`MonoDreams/State/Logger.cs`)
+
+**Why first:** The other two systems need to log, and all existing
+`Console.WriteLine` calls (~35) need replacing.
+
+### New file: `MonoDreams/State/Logger.cs`
+
+Static class in `MonoDreams.State`. API:
+
+```csharp
+public static class Logger
+{
+    public static void Initialize(string outputDirectory, LogLevel minimumLevel = LogLevel.Debug);
+    public static void UpdateGameTime(float totalTime); // called once per frame
+    public static void Debug(string message);
+    public static void Info(string message);
+    public static void Warning(string message);
+    public static void Error(string message);
+    public static void Shutdown();
+}
+```
+
+Log line format:
+```
+[2026-02-17 14:32:05.123] [GT  42.57] [ INFO] Loaded 12 objects from Blender level.
+[2026-02-17 14:32:05.125] [GT   0.00] [ WARN] No factory registered for 'Unknown'
+```
+
+- Writes to both console and file (`monodreams_{yyyyMMdd_HHmmss}.log`)
+- Thread-safe via `lock`; flushes after every write (crash-safe)
+- Before first `UpdateGameTime()` call, game time shows `N/A`
+
+### Wiring
+
+| Location | Change |
+|----------|--------|
+| `ScreenController.Update()` (line 52) | Add `Logger.UpdateGameTime(_state.TotalTime)` after `_state.Update(gameTime)` |
+| `Game1.Initialize()` | Add `Logger.Initialize(...)` at top |
+| `Game1.Dispose()` | Add `Logger.Shutdown()` |
+
+### Console.WriteLine migration
+
+Replace all ~35 calls across 6 files. Level assignments:
+
+| File | Info | Debug | Warning | Error |
+|------|------|-------|---------|-------|
+| `BlenderLevelParserSystem.cs` | 4 (pipeline start/end, entity count, cleanup) | 8 (positions, paths, per-entity) | 4 (skip mesh/UV) | 2 (exceptions) |
+| `LDtkTileParserSystem.cs` | 3 (start, summary, cleanup) | 1 (dispose detail) | 1 (skip layer) | 1 (load failure) |
+| `LDtkEntityParserSystem.cs` | 2 (start, summary) | 0 | 4 (parse failures) | 2 (exceptions) |
+| `LevelLoadRequestSystem.cs` | 2 (request, found) | 0 | 0 | 2 (not found, exception) |
+| `EntitySpawnSystem.cs` | 0 | 0 | 1 (no factory) | 0 |
+| `CursorPositionSystem.cs` | 0 | 0 (keep commented) | 0 | 0 |
+
+---
+
+## Phase 2 — Screenshot Capture (`MonoDreams/System/Debug/ScreenshotCaptureSystem.cs`)
+
+### New file: `MonoDreams/System/Debug/ScreenshotCaptureSystem.cs`
+
+`ISystem<GameState>` placed **after FinalDrawSystem** in the draw pipeline.
+
+```csharp
+public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
+{
+    // Constructor: GraphicsDevice, float captureIntervalSeconds, string outputDirectory
+}
+```
+
+**Capture strategy:**
+1. Accumulate `state.Time` (frame delta) until interval is reached
+2. `GraphicsDevice.GetBackBufferData(pixelBuffer)` — reads composited frame (fast, must be on main thread)
+3. Copy into a reusable `Texture2D` staging buffer, encode to PNG via `SaveAsPng` into a `MemoryStream` (main thread, ~1-3ms)
+4. `Task.Run` → `File.WriteAllBytes` (disk I/O on background thread)
+5. `_pendingSave` flag prevents queue buildup
+
+**Filename:** `screenshot_{counter:D6}_gt{TotalTime:F2}_{yyyyMMdd_HHmmss_fff}.png`
+
+### Wiring in `LoadLevelExampleGameScreen.CreateDrawSystem()`
+
+Add as last system in the `SequentialSystem`, after `finalDrawToScreenSystem`:
+
+```csharp
+var screenshotSystem = new ScreenshotCaptureSystem(
+    _graphicsDevice, captureIntervalSeconds: 2.0f, outputDirectory);
+// ...
+return new SequentialSystem<GameState>(prepDrawSystems, renderSystem, finalDrawToScreenSystem, screenshotSystem);
+```
+
+---
+
+## Phase 3 — Input Replay System
+
+### New file: `MonoDreams/Input/InputReplayPlan.cs`
+
+Data model for the JSON file (same pattern as `BlenderLevelData.cs`):
+
+```json
+{
+  "description": "Walk right for 3 seconds then exit",
+  "commands": [
+    { "action": "Right", "type": "press",   "time": 1.0 },
+    { "action": "Right", "type": "release", "time": 4.0 },
+    { "action": "Exit",  "type": "press",   "time": 4.5 }
+  ]
+}
+```
+
+- `action`: string matching a registered `AInputState` name (e.g. "Left", "Jump", "Exit")
+- `type`: `"press"` or `"release"`
+- `time`: `GameState.TotalTime` at which to execute (must be sorted ascending)
+
+### New file: `MonoDreams/System/Input/InputReplaySystem.cs`
+
+`ISystem<GameState>`. Receives `Game` in constructor (for `Game.Exit()` on completion).
+
+**Update logic:**
+1. Advance a cursor through sorted commands; execute all where `cmd.Time <= state.TotalTime`
+2. Maintain a `HashSet<AInputState>` of currently-pressed actions
+3. After advancing, call `inputState.Update(isPressed, state)` for **every** registered action each frame
+4. When all commands consumed and no actions pressed → `Game.Exit()`
+5. Log each command execution via `Logger.Info`
+
+**Static factory:** `InputReplaySystem.TryLoad(contentDir, actionMap, game)` — returns `null` if no `input_replay.json` file exists (opt-in).
+
+### Modify: `MonoDreams/System/Input/AbstractInputHandlingSystem.cs`
+
+Add one property:
+
+```csharp
+public bool SkipHardwareRead { get; set; } = false;
+```
+
+In `Update()`, early-return when `SkipHardwareRead` is true. This lets `InputMappingSystem.Update()` skip `base.Update()` (hardware read) while still running its game-logic override (e.g. publishing `LoadLevelRequest` on Grab).
+
+### Wiring in `LoadLevelExampleGameScreen.CreateUpdateSystem()`
+
+```csharp
+var inputMappingSystem = new InputMappingSystem(_world);
+var actionMap = new Dictionary<string, AInputState>
+{
+    ["Up"] = InputState.Up, ["Down"] = InputState.Down,
+    ["Left"] = InputState.Left, ["Right"] = InputState.Right,
+    ["Jump"] = InputState.Jump, ["Grab"] = InputState.Grab,
+    ["Orb"] = InputState.Orb, ["Exit"] = InputState.Exit,
+    ["Interact"] = InputState.Interact,
+};
+
+var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
+
+ISystem<GameState> inputSystems;
+if (replaySystem != null)
+{
+    inputMappingSystem.SkipHardwareRead = true;
+    // Sequential: replay must write AInputState before InputMappingSystem reads it
+    inputSystems = new SequentialSystem<GameState>(
+        new CursorInputSystem(_world), replaySystem, inputMappingSystem);
+}
+else
+{
+    inputSystems = new ParallelSystem<GameState>(_parallelRunner,
+        new CursorInputSystem(_world), inputMappingSystem);
+}
+```
+
+---
+
+## Files Changed Summary
+
+| File | Action |
+|------|--------|
+| `MonoDreams/State/Logger.cs` | **New** |
+| `MonoDreams/System/Debug/ScreenshotCaptureSystem.cs` | **New** |
+| `MonoDreams/Input/InputReplayPlan.cs` | **New** |
+| `MonoDreams/System/Input/InputReplaySystem.cs` | **New** |
+| `MonoDreams/System/Input/AbstractInputHandlingSystem.cs` | Add `SkipHardwareRead` property + early return |
+| `MonoDreams/Screen/ScreenController.cs` | Add `Logger.UpdateGameTime()` call |
+| `MonoDreams.Examples/Game1.cs` | Add `Logger.Initialize()` + `Logger.Shutdown()` |
+| `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` | Wire screenshot + replay systems |
+| `MonoDreams/System/Level/BlenderLevelParserSystem.cs` | Replace Console.WriteLine → Logger |
+| `MonoDreams/System/Level/LDtkTileParserSystem.cs` | Replace Console.WriteLine → Logger |
+| `MonoDreams/System/Level/LDtkEntityParserSystem.cs` | Replace Console.WriteLine → Logger |
+| `MonoDreams/System/Level/LevelLoadRequestSystem.cs` | Replace Console.WriteLine → Logger |
+| `MonoDreams/System/EntitySpawn/EntitySpawnSystem.cs` | Replace Console.WriteLine → Logger |
+| `.gitignore` | Add `debug/` |
+
+---
+
+## Implementation Order
+
+1. **Logger** — create class, wire init/shutdown/update, build
+2. **Migrate Console.WriteLine** — file by file, build after each
+3. **ScreenshotCaptureSystem** — create class, wire into draw pipeline, build
+4. **InputReplayPlan + InputReplaySystem** — create data model + system, modify AbstractInputHandlingSystem, wire into update pipeline, build
+5. **Integration test** — write a simple `input_replay.json`, run the game, verify screenshots + logs appear in `debug/`
+
+Build command after each phase: `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+
+---
+
+## Verification
+
+1. Run `dotnet build` — clean build with no warnings
+2. Place a test `input_replay.json` in `bin/Debug/net8.0/debug/`
+3. Run `dotnet run --project MonoDreams.Examples`
+4. Verify `debug/` contains:
+   - `monodreams_*.log` with timestamped, leveled log lines
+   - `screenshot_*.png` files at the configured interval
+   - Log entries for each replayed input command
+5. Game exits cleanly after final Exit command
+6. Without `input_replay.json`, game runs normally with keyboard input
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Well, let's test it then. You'll need a few rounds of running and closing to understand what and how to do it. Test this flow by trying to click on Level 2, move the player (red rectangle) to the green zone and see the dialogue playout.
+
+---
+
+<task-notification>
+<task-id>bf8de24</task-id>
+<output-file>/private/tmp/claude-502/-Users-rodrigooliveira-git-roo-oliv-monodreams/tasks/bf8de24.output</output-file>
+<status>completed</status>
+<summary>Background command "Run game round 2 — move player right + jump" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: /private/tmp/claude-502/-Users-rodrigooliveira-git-roo-oliv-monodreams/tasks/bf8de24.output
+
+---
+
+<task-notification>
+<task-id>b90072b</task-id>
+<output-file>/private/tmp/claude-502/-Users-rodrigooliveira-git-roo-oliv-monodreams/tasks/b90072b.output</output-file>
+<status>completed</status>
+<summary>Background command "Run game round 3 — precise movement to trigger zone" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: /private/tmp/claude-502/-Users-rodrigooliveira-git-roo-oliv-monodreams/tasks/b90072b.output
+
+---
+
+Ok, now you need to update CLAUDE.md to inform future Claude Code session on how to use this. Also, spawn another plan agent to think of a way to use this system in tests, it would be great if there were a way to execute these without the visual part, no screenshots and even not displaying anything, just playing the input replay and matching the logs, I think this would be a great way to write tests for a game.
+
+---
+
+[Request interrupted by user]
+
+---
+
+Ok, now you need to update CLAUDE.md to inform future Claude Code session on how to use this (and/or would it be better to write a tool or skill?). Also, spawn another plan agent to think of a way to use this system in tests, it would be great if there were a way to execute these without the visual part, no screenshots and even not displaying anything, just playing the input replay and matching the logs, I think this would be a great way to write tests for a game.
+
+---
+
+[Request interrupted by user for tool use]

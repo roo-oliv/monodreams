@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "c1dbd2c1975a",
+  "strategy": "manual-commit",
+  "branch": "ro/headless-replay-tests",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".claude/settings.local.json",
+    ".gitignore",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/bin/Debug/net8.0/debug/input_replay.json",
+    "MonoDreams/Input/InputReplayPlan.cs",
+    "MonoDreams/Screen/ScreenController.cs",
+    "MonoDreams/State/Logger.cs",
+    "MonoDreams/System/Debug/ScreenshotCaptureSystem.cs",
+    "MonoDreams/System/EntitySpawn/EntitySpawnSystem.cs",
+    "MonoDreams/System/Input/AbstractInputHandlingSystem.cs",
+    "MonoDreams/System/Input/InputReplaySystem.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams/System/Level/LDtkEntityParserSystem.cs",
+    "MonoDreams/System/Level/LDtkTileParserSystem.cs",
+    "MonoDreams/System/Level/LevelLoadRequestSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c1/dbd2c1975a/0/metadata.json",
+      "transcript": "/c1/dbd2c1975a/0/full.jsonl",
+      "context": "/c1/dbd2c1975a/0/context.md",
+      "content_hash": "/c1/dbd2c1975a/0/content_hash.txt",
+      "prompt": "/c1/dbd2c1975a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 171,
+    "cache_creation_tokens": 197413,
+    "cache_read_tokens": 12649877,
+    "output_tokens": 21906,
+    "api_call_count": 155
+  }
+}
