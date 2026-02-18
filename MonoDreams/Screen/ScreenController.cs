@@ -50,6 +50,7 @@ public class ScreenController(
         }
 
         _state.Update(gameTime);
+        Logger.UpdateGameTime(_state.TotalTime);
         _screen.current?.UpdateSystem.Update(_state);
     }
     

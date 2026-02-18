@@ -15,6 +15,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Level;
 using MonoDreams.Message.Level;
 using MonoDreams.State;
+using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.System.Level;
 
@@ -62,7 +63,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         if (!request.LevelIdentifier.StartsWith("Blender_"))
             return;
 
-        Console.WriteLine($"Loading Blender level: {request.LevelIdentifier}");
+        Logger.Info($"Loading Blender level: {request.LevelIdentifier}");
 
         // Clean up previous entities
         CleanupEntities();
@@ -72,7 +73,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             // Load JSON file from Content directory
             // The Content.RootDirectory gives us the path to the Content folder
             var jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _content.RootDirectory, "blender_level.json");
-            Console.WriteLine($"Loading Blender level from: {jsonPath}");
+            Logger.Debug($"Loading Blender level from: {jsonPath}");
             var jsonContent = File.ReadAllText(jsonPath);
 
             var options = new JsonSerializerOptions
@@ -84,11 +85,11 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
             if (levelData?.Objects == null)
             {
-                Console.WriteLine("No objects found in Blender level data.");
+                Logger.Warning("No objects found in Blender level data.");
                 return;
             }
 
-            Console.WriteLine($"Loaded {levelData.Objects.Count} objects from Blender level.");
+            Logger.Info($"Loaded {levelData.Objects.Count} objects from Blender level.");
 
             foreach (var obj in levelData.Objects)
             {
@@ -105,19 +106,19 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                         break;
                     case "EMPTY":
                         // Could be used for spawn points, triggers, etc.
-                        Console.WriteLine($"Empty object: {obj.Name} at ({obj.Position?.X}, {obj.Position?.Y})");
+                        Logger.Debug($"Empty object: {obj.Name} at ({obj.Position?.X}, {obj.Position?.Y})");
                         break;
                     default:
-                        Console.WriteLine($"Skipping object type: {obj.Type}");
+                        Logger.Warning($"Skipping unknown object type: {obj.Type}");
                         break;
                 }
             }
 
-            Console.WriteLine($"Created {_blenderEntities.Count} entities from Blender level.");
+            Logger.Info($"Created {_blenderEntities.Count} entities from Blender level.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading Blender level: {ex.Message}\n{ex.StackTrace}");
+            Logger.Error($"Error loading Blender level: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
@@ -140,18 +141,18 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 var visibleWorldWidth = orthoScale * scaleFactor;
                 var gameZoom = _camera.VirtualWidth / visibleWorldWidth;
                 _camera.Zoom = (float)gameZoom;
-                Console.WriteLine($"Set camera zoom to {gameZoom} (from Blender ortho_scale {orthoScale}, scaleFactor {scaleFactor})");
+                Logger.Debug($"Set camera zoom to {gameZoom} (from Blender ortho_scale {orthoScale}, scaleFactor {scaleFactor})");
             }
         }
 
-        Console.WriteLine($"Set camera position to ({cameraPosition.X}, {cameraPosition.Y})");
+        Logger.Debug($"Set camera position to ({cameraPosition.X}, {cameraPosition.Y})");
     }
 
     private void ProcessMesh(BlenderObject meshObj)
     {
         if (meshObj.UvMapping == null)
         {
-            Console.WriteLine($"Skipping mesh '{meshObj.Name}' - no UV mapping.");
+            Logger.Warning($"Skipping mesh '{meshObj.Name}' - no UV mapping.");
             return;
         }
 
@@ -159,7 +160,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         var contentPath = ExtractContentPath(meshObj.UvMapping.TexturePath);
         if (string.IsNullOrEmpty(contentPath))
         {
-            Console.WriteLine($"Skipping mesh '{meshObj.Name}' - invalid texture path: {meshObj.UvMapping.TexturePath}");
+            Logger.Warning($"Skipping mesh '{meshObj.Name}' - invalid texture path: {meshObj.UvMapping.TexturePath}");
             return;
         }
 
@@ -171,11 +172,11 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             {
                 texture = _content.Load<Texture2D>(contentPath);
                 _loadedTextures[contentPath] = texture;
-                Console.WriteLine($"Loaded texture: {contentPath}");
+                Logger.Debug($"Loaded texture: {contentPath}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to load texture '{contentPath}': {ex.Message}");
+                Logger.Error($"Failed to load texture '{contentPath}': {ex.Message}");
                 return;
             }
         }
@@ -184,7 +185,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         var uvLayer = meshObj.UvMapping.UvLayers?.FirstOrDefault();
         if (uvLayer?.UvCoordinates == null || uvLayer.UvCoordinates.Count == 0)
         {
-            Console.WriteLine($"Skipping mesh '{meshObj.Name}' - no UV coordinates.");
+            Logger.Warning($"Skipping mesh '{meshObj.Name}' - no UV coordinates.");
             return;
         }
 
@@ -244,7 +245,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Process collection-based components
         ProcessCollections(entity, meshObj, size);
 
-        Console.WriteLine($"Created entity for mesh '{meshObj.Name}' at ({position.X}, {position.Y}) with size ({size.X}, {size.Y}), origin ({origin.X}, {origin.Y}), and source rect ({sourceRect.X}, {sourceRect.Y}, {sourceRect.Width}, {sourceRect.Height})");
+        Logger.Debug($"Created entity for mesh '{meshObj.Name}' at ({position.X}, {position.Y}) with size ({size.X}, {size.Y}), origin ({origin.X}, {origin.Y}), and source rect ({sourceRect.X}, {sourceRect.Y}, {sourceRect.Width}, {sourceRect.Height})");
     }
 
     /// <summary>
@@ -349,7 +350,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             var activeLayers = new HashSet<int> { layer };
             entity.Set(new BoxCollider(bounds, activeLayers, passive));
 
-            Console.WriteLine($"Added BoxCollider to '{meshObj.Name}' (layer: {layer}, passive: {passive})");
+            Logger.Debug($"Added BoxCollider to '{meshObj.Name}' (layer: {layer}, passive: {passive})");
         }
 
         // Check for Player collection
@@ -369,14 +370,14 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 MaxDistanceY = 100.0f,
                 IsActive = true
             });
-            Console.WriteLine($"Set Player for '{meshObj.Name}'");
+            Logger.Debug($"Set Player for '{meshObj.Name}'");
         }
 
         // Check for Enemy collection
         if (meshObj.Collections.Contains("Enemy"))
         {
             entity.Set(new EntityInfo("Enemy"));
-            Console.WriteLine($"Set Enemy for '{meshObj.Name}'");
+            Logger.Debug($"Set Enemy for '{meshObj.Name}'");
         }
 
         // Check for Trigger collection (collision but no physics push)
@@ -388,7 +389,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 entity.Set(new BoxCollider(bounds, passive: true));
             }
             entity.Set(new EntityInfo("Trigger"));
-            Console.WriteLine($"Set as Trigger zone for '{meshObj.Name}'");
+            Logger.Debug($"Set as Trigger zone for '{meshObj.Name}'");
         }
 
         // Invoke registered game-specific collection handlers
@@ -451,7 +452,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
     private void CleanupEntities()
     {
-        Console.WriteLine($"Cleaning up {_blenderEntities.Count} Blender entities...");
+        Logger.Info($"Cleaning up {_blenderEntities.Count} Blender entities...");
         foreach (var entity in _blenderEntities.ToArray())
         {
             if (entity.IsAlive)

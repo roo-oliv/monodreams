@@ -10,6 +10,7 @@ using Microsoft.Xna.Framework.Content;
 using MonoDreams.Component.Level;
 using MonoDreams.Message;
 using MonoDreams.State;
+using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.System.Level
 {
@@ -42,11 +43,11 @@ namespace MonoDreams.System.Level
             var levelData = currentLevelComp.LevelData;
             if (levelData?.LayerInstances == null)
             {
-                Console.WriteLine("No layer instances found in level data.");
+                Logger.Warning("No layer instances found in level data.");
                 return;
             }
 
-            Console.WriteLine($"Parsing entities for level '{levelData.Identifier}'...");
+            Logger.Info($"Parsing entities for level '{levelData.Identifier}'...");
             int publishedCount = 0;
 
             foreach (var layer in levelData.LayerInstances)
@@ -61,7 +62,7 @@ namespace MonoDreams.System.Level
                 }
             }
 
-            Console.WriteLine($"Finished parsing entities for level '{levelData.Identifier}'. Published {publishedCount} spawn requests.");
+            Logger.Info($"Finished parsing entities for level '{levelData.Identifier}'. Published {publishedCount} spawn requests.");
         }
 
         private static EntitySpawnRequest CreateEntitySpawnRequest(EntityInstance entityInstance, LayerInstance layer)
@@ -97,7 +98,7 @@ namespace MonoDreams.System.Level
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Could not parse field '{field._Identifier}' of type '{field._Type}'. Storing raw value.");
+                    Logger.Warning($"Could not parse field '{field._Identifier}' of type '{field._Type}'. Storing raw value.");
                     fields[field._Identifier] = field._Value;
                 }
             }
@@ -138,7 +139,7 @@ namespace MonoDreams.System.Level
                             return new Vector2(jePoint[0].GetSingle(), jePoint[1].GetSingle());
                         }
                     }
-                    Console.WriteLine($"Could not parse LDtk Point field '{field._Identifier}'. Value: {field._Value}");
+                    Logger.Warning($"Could not parse LDtk Point field '{field._Identifier}'. Value: {field._Value}");
                     return null;
                 }
 
@@ -153,16 +154,16 @@ namespace MonoDreams.System.Level
                         int b = Convert.ToInt32(colorHex.Substring(5, 2), 16);
                         return new Color(r, g, b);
                     }
-                    Console.WriteLine($"Could not parse LDtk Color field '{field._Identifier}'. Value: {field._Value}");
+                    Logger.Warning($"Could not parse LDtk Color field '{field._Identifier}'. Value: {field._Value}");
                     return null;
                 }
 
-                Console.WriteLine($"Unknown LDtk field type '{fieldType}' for field '{field._Identifier}'. Returning raw value.");
+                Logger.Warning($"Unknown LDtk field type '{fieldType}' for field '{field._Identifier}'. Returning raw value.");
                 return field._Value;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Exception parsing field '{field._Identifier}' of type '{fieldType}' with value '{field._Value}'.");
+                Logger.Error($"Exception parsing field '{field._Identifier}' of type '{fieldType}' with value '{field._Value}'.");
                 return null;
             }
         }

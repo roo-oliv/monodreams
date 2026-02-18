@@ -10,9 +10,13 @@ namespace MonoDreams.System.Input;
 public abstract class AKeyboardInputHandlingSystem : ISystem<GameState>
 {
     public abstract List<(AInputState inputState, Keys)> InputMapping { get; }
-    
+
+    public bool SkipHardwareRead { get; set; }
+
     public virtual void Update(GameState state)
     {
+        if (SkipHardwareRead) return;
+
         foreach (var (inputState, key) in InputMapping)
         {
             inputState.Update(Keyboard.GetState().IsKeyDown(key), state);

@@ -7,6 +7,7 @@ using MonoDreams.Component.Level;
 using MonoDreams.Message.Level;
 using MonoDreams.Message;
 using MonoDreams.State;
+using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.System.Level;
 
@@ -40,7 +41,7 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
         if (!IsEnabled) return;
 
         var levelIdentifier = message.LevelIdentifier;
-        Console.WriteLine($"Received request to activate level '{levelIdentifier}'.");
+        Logger.Info($"Received request to activate level '{levelIdentifier}'.");
 
         try
         {
@@ -50,7 +51,7 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
             
             if (levelData != null)
             {
-                Console.WriteLine($"Found level data for '{levelIdentifier}'. Setting CurrentLevelComponent.");
+                Logger.Info($"Found level data for '{levelIdentifier}'. Setting CurrentLevelComponent.");
 
                 _world.Set(new CurrentLevelComponent(levelData));
                 _world.Set(new CurrentBackgroundColorComponent(levelData._BgColor));
@@ -60,7 +61,7 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
             }
             else
             {
-                Console.WriteLine($"Failed to find level data for '{levelIdentifier}' in the loaded LDtkWorld.");
+                Logger.Error($"Failed to find level data for '{levelIdentifier}' in the loaded LDtkWorld.");
                 // Potentially publish a LevelLoadFailed message?
                 // Maybe clear the CurrentLevelComponent if loading fails?
                  _world.Remove<CurrentLevelComponent>();
@@ -68,7 +69,7 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
         }
         catch (Exception ex)
         {
-            Console.WriteLine(
+            Logger.Error(
                 $"Error during level activation request handling for level '{levelIdentifier}':" +
                 $"\n-----\n{ex.Message}\n{ex.StackTrace}\n-----");
              // Potentially publish a LevelLoadFailed message?
