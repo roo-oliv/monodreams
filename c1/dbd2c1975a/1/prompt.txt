@@ -216,3 +216,7 @@ If you need specific details from before exiting plan mode (like exact code snip
 ---
 
 Delete branch main, fetch origin, checkout main (that has all the commits of this branch already), then checkout on a new branch, git add ., commit, push and open a pull request
+
+---
+
+The recurring screenshots should be off by default and enabled only when needed (most often by Claude Code).

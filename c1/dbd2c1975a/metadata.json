@@ -9,12 +9,8 @@
     ".claude/settings.local.json",
     ".gitignore",
     "MonoDreams.Examples/Game1.cs",
-    "MonoDreams.Examples/Program.cs",
     "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
     "MonoDreams.Examples/bin/Debug/net8.0/debug/input_replay.json",
-    "MonoDreams.Tests/GameTestRunner.cs",
-    "MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs",
-    "MonoDreams.Tests/UnitTest1.cs",
     "MonoDreams/Input/InputReplayPlan.cs",
     "MonoDreams/Screen/ScreenController.cs",
     "MonoDreams/State/Logger.cs",
@@ -44,10 +40,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 230,
-    "cache_creation_tokens": 315840,
-    "cache_read_tokens": 15334356,
-    "output_tokens": 28080,
-    "api_call_count": 210
+    "input_tokens": 188,
+    "cache_creation_tokens": 206041,
+    "cache_read_tokens": 13786431,
+    "output_tokens": 24252,
+    "api_call_count": 170
   }
 }

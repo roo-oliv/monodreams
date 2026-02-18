@@ -27,3 +27,7 @@ Add a new `## Debug infrastru...
 
 Delete branch main, fetch origin, checkout main (that has all the commits of this branch already), then checkout on a new branch, git add ., commit, push and open a pull request
 
+### Prompt 3
+
+The recurring screenshots should be off by default and enabled only when needed (most often by Claude Code).
+
