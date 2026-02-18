@@ -10,6 +10,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component.Level;
 using MonoDreams.Message;
 using MonoDreams.State;
+using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.System.Level;
 
@@ -51,7 +52,7 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
     {
         if (!IsEnabled) return;
 
-        Console.WriteLine($"Parsing tiles for level '{currentLevelComp.LevelData?.Identifier}'...");
+        Logger.Info($"Parsing tiles for level '{currentLevelComp.LevelData?.Identifier}'...");
         
         // Clean up existing tiles
         CleanupTileEntities();
@@ -59,7 +60,7 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
         var levelData = currentLevelComp.LevelData;
         if (levelData?.LayerInstances == null)
         {
-            Console.WriteLine("No layer instances found in level data.");
+            Logger.Warning("No layer instances found in level data.");
             return;
         }
 
@@ -74,7 +75,7 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
 
             if (string.IsNullOrEmpty(layer._TilesetRelPath))
             {
-                Console.WriteLine($"Skipping layer {layer._Identifier} - no tileset path.");
+                Logger.Warning($"Skipping layer {layer._Identifier} - no tileset path.");
                 continue;
             }
 
@@ -89,7 +90,7 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Failed to load tileset '{layer._TilesetRelPath}': {ex.Message}");
+                    Logger.Error($"Failed to load tileset '{layer._TilesetRelPath}': {ex.Message}");
                     continue;
                 }
             }
@@ -124,19 +125,19 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
             currentLayerDepth -= TILEMAP_LAYER_DEPTH_STEP;
         }
 
-        Console.WriteLine($"Published {tilesProcessed} tile spawn requests for level '{levelData.Identifier}'.");
+        Logger.Info($"Published {tilesProcessed} tile spawn requests for level '{levelData.Identifier}'.");
     }
 
     private void HandleLevelUnloaded(World _, in CurrentLevelComponent currentLevelComp)
     {
         if (!IsEnabled) return;
-        Console.WriteLine($"Cleaning up tiles for level '{currentLevelComp.LevelData?.Identifier}'...");
+        Logger.Info($"Cleaning up tiles for level '{currentLevelComp.LevelData?.Identifier}'...");
         CleanupTileEntities();
     }
 
     private void CleanupTileEntities()
     {
-        Console.WriteLine($"Disposing {_tileEntities.Count} tile entities...");
+        Logger.Debug($"Disposing {_tileEntities.Count} tile entities...");
         foreach (var entity in _tileEntities.ToArray())
         {
             if (entity.IsAlive)

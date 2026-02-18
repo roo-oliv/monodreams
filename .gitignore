@@ -20,6 +20,9 @@
 /MonoDreams.YarnSpinner/[Dd]ebug/
 /MonoDreams.YarnSpinner/[Rr]elease/
 
+# Debug output (screenshots, logs, replay files) — inside build output directories only
+**/bin/**/debug/
+
 # NuGet
 nuget/
 *.nupkg

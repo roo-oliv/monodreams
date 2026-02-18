@@ -7,6 +7,8 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Input;
+using MonoDreams.Input;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message;
@@ -24,6 +26,7 @@ using MonoDreams.System.Debug;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.System.Draw;
+using MonoDreams.System.Input;
 using MonoDreams.System.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
@@ -104,10 +107,32 @@ public class LoadLevelExampleGameScreen : IGameScreen
     
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new CursorInputSystem(_world),
-            new InputMappingSystem(_world)
-        );
+        var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+        var inputMappingSystem = new InputMappingSystem(_world);
+        var actionMap = new Dictionary<string, AInputState>
+        {
+            ["Up"] = InputState.Up, ["Down"] = InputState.Down,
+            ["Left"] = InputState.Left, ["Right"] = InputState.Right,
+            ["Jump"] = InputState.Jump, ["Grab"] = InputState.Grab,
+            ["Orb"] = InputState.Orb, ["Exit"] = InputState.Exit,
+            ["Interact"] = InputState.Interact,
+        };
+
+        var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
+
+        ISystem<GameState> inputSystems;
+        if (replaySystem != null)
+        {
+            inputMappingSystem.SkipHardwareRead = true;
+            inputSystems = new SequentialSystem<GameState>(
+                new CursorInputSystem(_world), replaySystem, inputMappingSystem);
+        }
+        else
+        {
+            inputSystems = new ParallelSystem<GameState>(_parallelRunner,
+                new CursorInputSystem(_world), inputMappingSystem);
+        }
         
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
         blenderParser.RegisterCollectionHandler("Player", entity => entity.Set(new PlayerState()));
@@ -192,12 +217,20 @@ public class LoadLevelExampleGameScreen : IGameScreen
     
         // Final system to draw RenderTargets to backbuffer (if needed)
         var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
-        
+
+        var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+        var replayPlan = InputReplayPlan.TryLoad(debugDir);
+        var screenshotSystem = new ScreenshotCaptureSystem(_graphicsDevice, captureIntervalSeconds: 2.0f, debugDir)
+        {
+            IsEnabled = replayPlan?.Screenshots ?? false
+        };
+
         return new SequentialSystem<GameState>(
             prepDrawSystems,
             renderSystem,
-            finalDrawToScreenSystem // Draw RTs to screen
-            // new DrawDebugSystem(_world, _spriteBatch, _renderer) // If needed
+            finalDrawToScreenSystem, // Draw RTs to screen
+            screenshotSystem
         );
     }
 

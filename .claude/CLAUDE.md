@@ -80,6 +80,34 @@ understand how to wire up a game screen is
 - `LoadLevelRequest` message triggers the pipeline.
 - `LevelLoadRequestSystem` → parser systems → `EntitySpawnSystem`.
 
+## Debug infrastructure
+- **Logger** — `MonoDreams.State.Logger`, replaces `Console.WriteLine`. Writes
+  to `debug/monodreams_*.log` with `[wallclock] [GT gametime] [LEVEL] message`
+  format. Call `Logger.Info(msg)`, `.Debug()`, `.Warning()`, `.Error()`.
+- **Input replay** — place `debug/input_replay.json` in the build output dir.
+  Format: `{ startLevel, description, commands: [{ action, type, time }] }`.
+  `startLevel` skips menus and jumps straight to the game screen. Actions match
+  `AInputState` names (Up, Down, Left, Right, Jump, Grab, Orb, Exit, Interact).
+  Game auto-exits when replay finishes.
+- **Screenshots** — `ScreenshotCaptureSystem` saves PNGs every 2s to `debug/`.
+  Off by default; enable by setting `"screenshots": true` in `input_replay.json`.
+- **Running a test session** — write `input_replay.json`, run
+  `dotnet run --project MonoDreams.Examples`, check `debug/` for log +
+  screenshots.
+- **Headless mode** — `dotnet run --project MonoDreams.Examples -- --headless`
+  skips rendering, runs at max speed (no VSync, no fixed timestep), for
+  automated testing. The game window is created at 1×1 off-screen.
+- **Debug directory override** — set `MONODREAMS_DEBUG_DIR` env var to redirect
+  all debug output (logs, replay input, screenshots) to a custom path. Used by
+  the test runner for parallel test isolation.
+
+## Testing
+- Run tests: `dotnet test MonoDreams.Tests/`
+- Integration tests use headless replay + log assertions via `GameTestRunner`.
+- `GameTestRunner` spawns the game in headless mode with a temp debug dir,
+  writes an `InputReplayPlan`, waits for exit, and provides log assertion
+  helpers (`AssertLogContains`, `AssertLogContainsInOrder`, `GetLogLines`).
+
 # Workflow
 - After planning but before coding, build the MonoDreams.Examples solution so
   that you know how to build and not question the build process after you

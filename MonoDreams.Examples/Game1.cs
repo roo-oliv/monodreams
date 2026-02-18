@@ -3,10 +3,13 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Renderer;
+using MonoDreams.Input;
 using MonoDreams.Screen;
+using MonoDreams.State;
 using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
 namespace MonoDreams.Examples;
@@ -20,24 +23,35 @@ public class Game1 : Game
     private DefaultParallelRunner _runner;
     private ScreenController _screenController;
     private GameSettings _settings;
+    private readonly bool _headless;
 
-    public Game1()
+    public Game1(string[] args = null)
     {
+        _headless = args?.Contains("--headless") ?? false;
+
         // Load settings first
         _settings = SettingsManager.Instance.Settings;
 
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = false;
-        IsFixedTimeStep = true;
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
 
-        // Apply settings
-        _graphics.IsFullScreen = _settings.IsFullscreen;
-        _graphics.PreferredBackBufferWidth = _settings.WindowWidth;
-        _graphics.PreferredBackBufferHeight = _settings.WindowHeight;
-
-        _graphics.SynchronizeWithVerticalRetrace = true;
+        if (_headless)
+        {
+            _graphics.PreferredBackBufferWidth = 1;
+            _graphics.PreferredBackBufferHeight = 1;
+            _graphics.SynchronizeWithVerticalRetrace = false;
+            IsFixedTimeStep = false;
+        }
+        else
+        {
+            IsFixedTimeStep = true;
+            _graphics.IsFullScreen = _settings.IsFullscreen;
+            _graphics.PreferredBackBufferWidth = _settings.WindowWidth;
+            _graphics.PreferredBackBufferHeight = _settings.WindowHeight;
+            _graphics.SynchronizeWithVerticalRetrace = true;
+        }
         _graphics.ApplyChanges();
 
         // Initialize with virtual resolution from settings
@@ -62,6 +76,16 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
+        var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+        Logger.Initialize(debugDir);
+
+        if (_headless)
+        {
+            Window.Position = new Point(-2000, -2000);
+            Logger.Info("Running in headless mode.");
+        }
+
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
 
         // Apply scaling mode from settings
@@ -84,7 +108,18 @@ public class Game1 : Game
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
-        _screenController.LoadScreen(ScreenName.LevelSelection);
+        // If a replay plan specifies a start level, skip menus and jump straight to the game screen
+        var replayPlan = InputReplayPlan.TryLoad(debugDir);
+        if (replayPlan?.StartLevel != null)
+        {
+            Logger.Info($"Replay plan detected. Skipping to level '{replayPlan.StartLevel}'.");
+            Services.AddService(new RequestedLevelComponent(replayPlan.StartLevel));
+            _screenController.LoadScreen(ScreenName.Game);
+        }
+        else
+        {
+            _screenController.LoadScreen(ScreenName.LevelSelection);
+        }
         
         base.Initialize();
     }
@@ -101,6 +136,7 @@ public class Game1 : Game
     
     protected override void Draw(GameTime gameTime)
     {
+        if (_headless) return;
         _screenController.Draw(gameTime);
     }
 
@@ -119,6 +155,7 @@ public class Game1 : Game
     protected override void Dispose(bool disposing)
     {
         _screenController.Dispose();
+        Logger.Shutdown();
         _runner.Dispose();
         _spriteBatch.Dispose();
         _graphics.Dispose();

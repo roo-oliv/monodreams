@@ -8,6 +8,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Message;
 using MonoDreams.State;
+using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.System.EntitySpawn;
 
@@ -59,8 +60,7 @@ public class EntitySpawnSystem : ISystem<GameState>
         }
         else
         {
-            // Log warning for unknown entity types
-            Console.WriteLine($"Warning: No factory registered for entity type '{request.Identifier}'");
+            Logger.Warning($"No factory registered for entity type '{request.Identifier}'");
         }
     }
 
