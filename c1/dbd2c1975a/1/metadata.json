@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "c1dbd2c1975a",
+  "session_id": "c87481dc-868e-4804-bb24-155f713c266d",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-18T01:28:59.124435Z",
+  "branch": "ro/headless-replay-tests",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Program.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Tests/GameTestRunner.cs",
+    "MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs",
+    "MonoDreams.Tests/UnitTest1.cs",
+    "MonoDreams/Input/InputReplayPlan.cs",
+    "MonoDreams/State/Logger.cs",
+    "MonoDreams/System/Debug/ScreenshotCaptureSystem.cs",
+    "MonoDreams/System/Input/InputReplaySystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 59,
+    "cache_creation_tokens": 118427,
+    "cache_read_tokens": 2684479,
+    "output_tokens": 6174,
+    "api_call_count": 55
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-18T01:28:59.021135Z",
+    "agent_lines": 629,
+    "human_added": 55,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 684,
+    "agent_percentage": 91.95906432748538
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/c87481dc-868e-4804-bb24-155f713c266d.jsonl"
+}

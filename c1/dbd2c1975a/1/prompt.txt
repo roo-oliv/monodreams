@@ -1,0 +1,218 @@
+Implement the following plan:
+
+# CLAUDE.md Update + Headless Replay Tests
+
+## Context
+
+We just implemented a debug infrastructure (Logger, ScreenshotCapture, InputReplay)
+and tested it successfully. Two follow-ups:
+
+1. **Document it in CLAUDE.md** so future Claude Code sessions know how to use it
+2. **Add a headless test mode** so replay scenarios can run as xunit tests without
+   a visible window — just logic + log assertions
+
+---
+
+## Part 1 — Update CLAUDE.md
+
+Add a new `## Debug infrastructure` section after the existing `## Level loading`
+section. Content:
+
+- **Logger** — `MonoDreams.State.Logger`, replaces Console.WriteLine, writes to
+  `debug/monodreams_*.log` with `[wallclock] [GT gametime] [LEVEL] message` format
+- **Input replay** — place `debug/input_replay.json` in the build output dir;
+  format: `{ startLevel, description, commands: [{ action, type, time }] }`;
+  `startLevel` skips menus; actions match `AInputState` names (Up, Down, Left,
+  Right, Jump, Grab, Orb, Exit, Interact); game auto-exits when replay finishes
+- **Screenshots** — `ScreenshotCaptureSystem` saves PNGs every 2s to `debug/`
+- **Running a test session** — write `input_replay.json`, run
+  `dotnet run --project MonoDreams.Examples`, check `debug/` for log + screenshots
+- **Headless mode** — `dotnet run --project MonoDreams.Examples -- --headless`
+  skips rendering, runs at max speed, for automated testing
+
+Also add a `## Testing` section documenting:
+- `dotnet test MonoDreams.Tests/` to run tests
+- Integration tests use headless replay + log assertions
+
+### File: `.claude/CLAUDE.md`
+
+---
+
+## Part 2 — Headless Mode (`--headless` flag)
+
+### Why
+
+MonoGame requires `GraphicsDevice` to initialize, so we can't fully avoid creating
+a window. But we can: (1) make it tiny and invisible, (2) disable VSync and fixed
+timestep so it runs at max speed, (3) skip the draw pipeline entirely.
+
+### Changes
+
+**`MonoDreams.Examples/Program.cs`** — pass args to Game1:
+```csharp
+using var game = new Game1(args);
+game.Run();
+```
+
+**`MonoDreams.Examples/Game1.cs`** — accept and apply headless mode:
+- Constructor: parse `args` for `--headless` flag, store in `_headless` field
+- `Initialize()`: if headless, set `Window.Position` off-screen, set
+  `_graphics.PreferredBackBufferWidth/Height` to 1×1, disable VSync
+  (`SynchronizeWithVerticalRetrace = false`), disable fixed timestep
+  (`IsFixedTimeStep = false`)
+- `Draw()`: if headless, return immediately (skip `_screenController.Draw()`)
+- Keep `Update()` unchanged — full logic pipeline runs
+
+**`MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`** — skip screenshot
+system when headless:
+- Pass a `bool headless` parameter through the constructor chain (Game1 → screen registration lambda)
+- In `CreateDrawSystem()`: only create `ScreenshotCaptureSystem` when `!headless`
+- Actually, since `Draw()` is skipped entirely in headless mode, the draw pipeline
+  never runs. So no changes needed here — the screenshot system just never fires.
+
+**Net effect:** Only `Program.cs` and `Game1.cs` need changes for headless mode.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `MonoDreams.Examples/Program.cs` | Pass `args` to `Game1` |
+| `MonoDreams.Examples/Game1.cs` | Add `_headless` field, parse `--headless`, apply minimal window + skip Draw |
+
+---
+
+## Part 3 — Log Assertion Helpers
+
+### `MonoDreams.Tests/GameTestRunner.cs` (new)
+
+A helper class that:
+1. Creates a temp directory for test output
+2. Writes an `input_replay.json` file from a provided `InputReplayPlan` object
+   (or raw JSON string)
+3. Spawns `dotnet run --project MonoDreams.Examples -- --headless` as a `Process`
+   with working directory set to the repo root
+4. Waits for exit with a configurable timeout (default 30s)
+5. Reads the log file from the temp debug dir
+6. Returns a `GameTestResult` with:
+   - `ExitCode` (int)
+   - `LogLines` (List<string>)
+   - helper methods: `AssertLogContains(substring)`,
+     `AssertLogContainsInOrder(params string[])`, `GetLogLines(LogLevel)`
+
+### Problem: debug dir location
+
+The game writes to `{AppDomain.BaseDirectory}/debug/`. When spawned via
+`dotnet run`, that's `MonoDreams.Examples/bin/Debug/net8.0/debug/`. The test
+runner knows this path and reads from it.
+
+But multiple tests running in parallel would conflict. Solution: have the test
+runner set an environment variable `MONODREAMS_DEBUG_DIR` to a unique temp path,
+and have `Game1.Initialize()` prefer that over the default.
+
+### Changes to Game1
+
+In `Game1.Initialize()`:
+```csharp
+var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+    ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+```
+
+### Files
+
+| File | Change |
+|------|--------|
+| `MonoDreams.Examples/Game1.cs` | Read `MONODREAMS_DEBUG_DIR` env var |
+| `MonoDreams.Tests/GameTestRunner.cs` | **New** — process launcher + log reader |
+| `MonoDreams.Tests/MonoDreams.Tests.csproj` | Add reference to MonoDreams (already there), no Examples ref needed |
+
+---
+
+## Part 4 — Example xunit Tests
+
+### `MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs` (new)
+
+```csharp
+public class BlenderLevelTests
+{
+    [Fact]
+    public async Task PlayerReachesDialogueZone()
+    {
+        var result = await GameTestRunner.RunAsync(new InputReplayPlan
+        {
+            StartLevel = "Blender_Level",
+            Description = "Move player to dialogue trigger zone",
+            Commands = new List<InputReplayCommand>
+            {
+                new() { Action = "Right", Type = "press",   Time = 1.0f },
+                new() { Action = "Up",    Type = "press",   Time = 1.0f },
+                new() { Action = "Right", Type = "release", Time = 1.25f },
+                new() { Action = "Up",    Type = "release", Time = 1.45f },
+                new() { Action = "Exit",  Type = "press",   Time = 5.0f },
+                new() { Action = "Exit",  Type = "release", Time = 5.1f },
+            }
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        result.AssertLogContains("Loading Blender level: Blender_Level");
+        result.AssertLogContains("Created 12 entities from Blender level");
+        // Dialogue system would log when triggered — verify it fires
+    }
+
+    [Fact]
+    public async Task BlenderLevelLoadsSuccessfully()
+    {
+        var result = await GameTestRunner.RunAsync(new InputReplayPlan
+        {
+            StartLevel = "Blender_Level",
+            Description = "Just load and exit",
+            Commands = new List<InputReplayCommand>
+            {
+                new() { Action = "Exit", Type = "press",   Time = 1.0f },
+                new() { Action = "Exit", Type = "release", Time = 1.1f },
+            }
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        result.AssertLogContains("Loaded 13 objects from Blender level");
+        result.AssertLogContains("Created 12 entities from Blender level");
+    }
+}
+```
+
+---
+
+## Files Changed Summary
+
+| File | Action |
+|------|--------|
+| `.claude/CLAUDE.md` | Add debug infrastructure + testing sections |
+| `MonoDreams.Examples/Program.cs` | Pass `args` to `Game1` |
+| `MonoDreams.Examples/Game1.cs` | `--headless` flag, `MONODREAMS_DEBUG_DIR` env var |
+| `MonoDreams.Tests/GameTestRunner.cs` | **New** — subprocess launcher + log assertions |
+| `MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs` | **New** — example integration tests |
+| `MonoDreams.Tests/UnitTest1.cs` | Delete (placeholder) |
+| `MonoDreams.Tests/MonoDreams.Tests.csproj` | Add ProjectReference to MonoDreams (for InputReplayPlan) if not already present |
+
+## Implementation Order
+
+1. **Headless mode** — modify Program.cs + Game1.cs, build + manual test
+2. **CLAUDE.md** — add documentation sections
+3. **GameTestRunner** — create helper, add env var support to Game1
+4. **Example tests** — write and run BlenderLevelTests
+5. **Verify** — `dotnet test MonoDreams.Tests/`
+
+## Verification
+
+1. `dotnet run --project MonoDreams.Examples -- --headless` with an
+   `input_replay.json` — game runs and exits quickly, no visible window,
+   log file appears in `debug/`
+2. `dotnet test MonoDreams.Tests/` — integration tests pass
+3. Normal `dotnet run --project MonoDreams.Examples` — game still works
+   normally with visible window and keyboard input
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Delete branch main, fetch origin, checkout main (that has all the commits of this branch already), then checkout on a new branch, git add ., commit, push and open a pull request
