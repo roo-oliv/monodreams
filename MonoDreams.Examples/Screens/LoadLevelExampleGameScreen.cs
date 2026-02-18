@@ -7,20 +7,24 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Cursor;
-using MonoDreams.Examples.Component.Draw;
-using MonoDreams.Examples.Level;
+using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.Message.Level;
+using MonoDreams.Message;
 using MonoDreams.Examples.System;
-using MonoDreams.Examples.System.Camera;
-using MonoDreams.Examples.System.Collision;
-using MonoDreams.Examples.System.Cursor;
-using MonoDreams.Examples.System.Debug;
+using MonoDreams.System;
+using MonoDreams.System.Camera;
+using MonoDreams.System.EntitySpawn;
+using MonoDreams.Examples.EntityFactory;
+using MonoDreams.System.Physics;
+using MonoDreams.System.Collision;
+using MonoDreams.System.Cursor;
+using MonoDreams.System.Debug;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System.Dialogue;
-using MonoDreams.Examples.System.Draw;
-using MonoDreams.Examples.System.Level;
+using MonoDreams.System.Draw;
+using MonoDreams.System.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -38,7 +42,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
-    private readonly LevelLoader _levelLoader;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
@@ -61,7 +64,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         camera.Position = new Vector2(0, 0);
         
         _world = new World();
-        // _levelLoader = new LevelLoader(_world, graphicsDevice, _content, _spriteBatch, _renderTargets);
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
     }
@@ -94,7 +96,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         // Create dialogue trigger zone near the right Tower
         var triggerZone = _world.CreateEntity();
-        triggerZone.Set(new EntityInfo(EntityType.Zone));
+        triggerZone.Set(new EntityInfo(nameof(EntityType.Zone)));
         triggerZone.Set(new Transform(new Vector2(25, 5)));
         triggerZone.Set(new BoxCollider(new Rectangle(-4, -4, 8, 8), passive: true));
         triggerZone.Set(new DialogueZoneComponent("HelloWorld", oneTimeOnly: true));
@@ -107,12 +109,21 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new InputMappingSystem(_world)
         );
         
+        var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
+        blenderParser.RegisterCollectionHandler("Player", entity => entity.Set(new PlayerState()));
+
+        var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
+        entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory());
+        entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content));
+        entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content));
+        entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content));
+
         var levelLoadSystems = new SequentialSystem<GameState>(
             new LevelLoadRequestSystem(_world, _content),
-            new BlenderLevelParserSystem(_world, _content, _camera),
+            blenderParser,
             new LDtkTileParserSystem(_world, _content),
             new LDtkEntityParserSystem(_world),
-            new EntitySpawnSystem(_world, _content, _renderTargets));
+            entitySpawnSystem);
         
         // Collision pipeline must run sequentially (movement → velocity → detect → resolve → commit)
         // Individual systems keep their internal _parallelRunner for entity-level parallelism

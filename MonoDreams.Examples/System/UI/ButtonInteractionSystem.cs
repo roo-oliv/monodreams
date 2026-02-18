@@ -2,12 +2,12 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Cursor;
+using MonoDreams.Component.Cursor;
 using MonoDreams.Examples.Component.UI;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Screens;
 using MonoDreams.State;
-using DynamicText = MonoDreams.Examples.Component.Draw.DynamicText;
+using DynamicText = MonoDreams.Component.Draw.DynamicText;
 
 namespace MonoDreams.Examples.System.UI;
 

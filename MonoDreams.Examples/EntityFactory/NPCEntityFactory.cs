@@ -6,8 +6,9 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Draw;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.Component.Draw;
+using MonoDreams.EntityFactory;
+using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -23,7 +24,7 @@ public class NPCEntityFactory(ContentManager content) : IEntityFactory
         var entity = world.CreateEntity();
 
         // Add core components
-        entity.Set(new EntityInfo(EntityType.Enemy));
+        entity.Set(new EntityInfo(nameof(EntityType.Enemy)));
         entity.Set(new Transform(request.Position));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new RigidBody());

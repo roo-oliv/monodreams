@@ -2,7 +2,7 @@
 using System;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Layout;
 
 namespace MonoDreams.Examples.Component.Layout;

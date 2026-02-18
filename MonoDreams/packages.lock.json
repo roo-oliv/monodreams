@@ -20,12 +20,6 @@
         "resolved": "1.5.0-pre1",
         "contentHash": "vrQlEHwofzmocQT4Dp70xAXoPvqC0a4AGjKlvXLflMyDl75UxNHQ/98be4pHcqXEB+pgUBMjA2iTldZTD7F22A=="
       },
-      "Iguina": {
-        "type": "Direct",
-        "requested": "[1.1.2, )",
-        "resolved": "1.1.2",
-        "contentHash": "bbm9nK9GUeg/MX4H0hQidwWHzWRLTWbuP2ts0rN0wsWhKyZPmGPL6scrrBDlmtCAGmG1t5gDi1fE63/mPgSHPw=="
-      },
       "LDtkMonogame": {
         "type": "Direct",
         "requested": "[1.8.0, )",
@@ -115,54 +109,6 @@
           "NVorbis": "0.10.4"
         }
       },
-      "MonoGame.ImGuiNet": {
-        "type": "Direct",
-        "requested": "[1.0.5, )",
-        "resolved": "1.0.5",
-        "contentHash": "/hDxFze2vqufg/SMFhxN23dsJqAfuc+aYfRRHikHFFU4SzgrfngfeAPmDGB6C5m5HHgrDEev8i6pFA4fx2GITQ==",
-        "dependencies": {
-          "ImGui.NET": "1.89.7.1"
-        }
-      },
-      "SpriteFontPlus": {
-        "type": "Direct",
-        "requested": "[0.9.2, )",
-        "resolved": "0.9.2",
-        "contentHash": "k47yAu14Pd5tMP4Cs/c8HfBnjze0pqqoANwkyqlBT2EOJb2kVZUOeld9Gwus4v5kUDjPnxMoTnqD3tsHLPh/dA==",
-        "dependencies": {
-          "Cyotek.Drawing.BitmapFont": "2.0.1",
-          "StbImageSharp": "2.22.4",
-          "StbTrueTypeSharp": "1.24.7"
-        }
-      },
-      "YarnSpinner": {
-        "type": "Direct",
-        "requested": "[3.0.2, )",
-        "resolved": "3.0.2",
-        "contentHash": "OMvMezo6cq98LsJXbesFNMVgj1cXCMh0o54rXtESEmxL4NT8ehqottwfULK511ubjqnn3w+UC0tSoJlORs9MYg==",
-        "dependencies": {
-          "Google.Protobuf": "3.25.2"
-        }
-      },
-      "YarnSpinner.Compiler": {
-        "type": "Direct",
-        "requested": "[3.0.2, )",
-        "resolved": "3.0.2",
-        "contentHash": "972etYyp8hCyYEwRQ5533ttKyV9fNIzdvCk7hLxum4HV+WGIAyupClZl+x5qJi2iAJfIvPfw9M33zdPggCNx7g==",
-        "dependencies": {
-          "Antlr4.Runtime.Standard": "4.13.1",
-          "CsvHelper": "12.2.2",
-          "Google.Protobuf": "3.25.2",
-          "Microsoft.Extensions.FileSystemGlobbing": "8.0.0",
-          "System.Text.Json": "8.0.5",
-          "YarnSpinner": "3.0.2"
-        }
-      },
-      "Antlr4.Runtime.Standard": {
-        "type": "Transitive",
-        "resolved": "4.13.1",
-        "contentHash": "Da5+i4kFHUseJRZGcBG5fmZGpA/Ns180ibrQMxgZzjpQOnENVvSL5gi5HZ8Ncz8/AR2WsKbOg2lMBzjz0HUQcA=="
-      },
       "AssimpNetter": {
         "type": "Transitive",
         "resolved": "5.4.3.3",
@@ -181,31 +127,6 @@
           "Microsoft.Toolkit.HighPerformance": "7.0.2"
         }
       },
-      "CsvHelper": {
-        "type": "Transitive",
-        "resolved": "31.0.4",
-        "contentHash": "m4ikjUAn4XOD1tShxxk4ui42sHxjHdX52P7fPQ9K7tzJkPTEwiCbvEz3k73mTGSSaPTUCOp9VziQC757IqKLew=="
-      },
-      "Cyotek.Drawing.BitmapFont": {
-        "type": "Transitive",
-        "resolved": "2.0.1",
-        "contentHash": "8C8Vdvf8p6RIOBNFE99ZNPWFxwV/ZT1wk11cajuL3+6/e5DBGPHe+ZjxLu2efTWQ1YvfLh4KpP2epUZ9z/WcFQ=="
-      },
-      "Google.Protobuf": {
-        "type": "Transitive",
-        "resolved": "3.25.2",
-        "contentHash": "g/xIIeLhR77bl4ajGGbPYRmZf5acJlCRaSBqUnU8+2aQYREnZnv+UccRNndHof4mWO1ORS0b5i6on40VOjBpsg=="
-      },
-      "ImGui.NET": {
-        "type": "Transitive",
-        "resolved": "1.89.7.1",
-        "contentHash": "e7hAn3Jq4uoiAeQMmxAu9jkdSJnGR74qO1HNVF7wwIq7g6H9tBIDWke72sHbwGOXpZtL1/S678dR5j7VbDzt9A==",
-        "dependencies": {
-          "System.Buffers": "4.4.0",
-          "System.Numerics.Vectors": "4.4.0",
-          "System.Runtime.CompilerServices.Unsafe": "4.4.0"
-        }
-      },
       "LibKTX": {
         "type": "Transitive",
         "resolved": "0.9.2",
@@ -215,11 +136,6 @@
         "type": "Transitive",
         "resolved": "8.0.0",
         "contentHash": "bZKfSIKJRXLTuSzLudMFte/8CempWjVamNUR5eHJizsy+iuOuO/k2gnh7W0dHJmYY0tBf+gUErfluCv5mySAOQ=="
-      },
-      "Microsoft.Extensions.FileSystemGlobbing": {
-        "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "OK+670i7esqlQrPjdIKRbsyMCe9g5kSLpRRQGSr4Q58AOYEe/hCnfLZprh7viNisSUUQZmMrbbuDaIrP+V1ebQ=="
       },
       "Microsoft.NETCore.App": {
         "type": "Transitive",
@@ -347,57 +263,15 @@
           "SharpDX": "4.0.1"
         }
       },
-      "StbImageSharp": {
-        "type": "Transitive",
-        "resolved": "2.22.4",
-        "contentHash": "0dOXIj3OM8oGxtfqZHZdLJRnV7FjP4VToeCprpyVXbWpct6DplgWq6YKVFA5hAYVs8hzvGekA97Qg8C3exeVYg=="
-      },
-      "StbTrueTypeSharp": {
-        "type": "Transitive",
-        "resolved": "1.24.7",
-        "contentHash": "4hmKw+Fq22Fs8GI8o1U7SUGw7iNTYVNc476o/rxmDVgIsQgQX0nNvlG1hUEhvC0ouNmoJq32yclQko+n67bc7A=="
-      },
-      "System.Buffers": {
-        "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "AwarXzzoDwX6BgrhjoJsk6tUezZEozOT5Y9QKF94Gl4JK91I4PIIBkBco9068Y9/Dra8Dkbie99kXB8+1BaYKw=="
-      },
       "System.Memory": {
         "type": "Transitive",
         "resolved": "4.5.3",
         "contentHash": "3oDzvc/zzetpTKWMShs1AADwZjQ/36HnsufHRPcOjyRAAMLDlu2iD33MBI2opxnezcVUtXyqDXXjoFMOU9c7SA=="
       },
-      "System.Numerics.Vectors": {
-        "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ=="
-      },
-      "System.Runtime.CompilerServices.Unsafe": {
-        "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "9dLLuBxr5GNmOfl2jSMcsHuteEg32BEfUotmmUkmZjpR3RpVHE8YQwt0ow3p6prwA1ME8WqDVZqrr8z6H8G+Kw=="
-      },
-      "System.Text.Json": {
-        "type": "Transitive",
-        "resolved": "8.0.5",
-        "contentHash": "0f1B50Ss7rqxXiaBJyzUu9bWFOO2/zSlifZ/UNMdiIpDYe4cY4LQQicP4nirK1OS31I43rn062UIJ1Q9bpmHpg=="
-      },
       "System.ValueTuple": {
         "type": "Transitive",
         "resolved": "4.5.0",
         "contentHash": "okurQJO6NRE/apDIP23ajJ0hpiNmJ+f0BwOlB/cSqTLQlw5upkf+5+96+iG2Jw40G1fCVCyPz/FhIABUjMR+RQ=="
-      },
-      "monodreams.yarnspinner": {
-        "type": "Project",
-        "dependencies": {
-          "CsvHelper": "[31.0.4, )",
-          "MonoGame.Content.Builder.Task": "[3.8.4, )",
-          "MonoGame.Extended": "[4.1.0, )",
-          "MonoGame.Extended.Content.Pipeline": "[4.1.0, )",
-          "MonoGame.Framework.Content.Pipeline": "[3.8.4, )",
-          "YarnSpinner": "[3.0.2, )",
-          "YarnSpinner.Compiler": "[3.0.2, )"
-        }
       }
     }
   }

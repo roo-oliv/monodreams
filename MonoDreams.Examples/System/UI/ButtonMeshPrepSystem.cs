@@ -3,7 +3,7 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Component.UI;
 using MonoDreams.State;
 

@@ -1,52 +1,40 @@
 ﻿using DefaultEcs;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Examples.Component;
-using MonoDreams.Examples.Component.Draw;
-using MonoDreams.Examples.Message.Level;
+using MonoDreams.Component.Draw;
+using MonoDreams.EntityFactory;
+using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
 
-public class TileEntityFactory(ContentManager content) : IEntityFactory
+public class TileEntityFactory : IEntityFactory
 {
-    private readonly Texture2D _tilemap = content.Load<Texture2D>("Atlas/Tilemap");
-
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
         var entity = world.CreateEntity();
 
-        entity.Set(new EntityInfo(EntityType.Tile));
+        entity.Set(new EntityInfo(nameof(EntityType.Tile)));
         entity.Set(new Transform(request.Position));
 
-        // // DrawComponent com múltiples sprites (se necessário)
-        // var drawComponent = new DrawComponent();
-        
-        // // Sprite principal do tile
-        // var mainSprite = new DrawElement
-        // {
-        //     Type = DrawElementType.Sprite,
-        //     Target = RenderTargetID.Main,
-        //     Texture = _tilemap,
-        //     Position = request.Position,
-        //     SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), new Point(request.Layer._GridSize, request.Layer._GridSize)),
-        //     Color = Color.White * request.Layer._Opacity,
-        //     Size = request.Size,
-        //     LayerDepth = 1f,
-        // };
-        // drawComponent.Drawables.Add(mainSprite);
-        
-        entity.Set(new SpriteInfo
+        // Extract from custom fields (same pattern as WallEntityFactory)
+        var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : 0.09f;
+        var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
+
+        if (tilesetTexture != null)
         {
-            SpriteSheet = _tilemap,
-            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
-                (int)request.Size.X, (int)request.Size.Y),
-            Size = request.Size,
-            Color = Color.White * request.Layer._Opacity,
-            Target = RenderTargetID.Main,
-            LayerDepth = 1f,
-        });
+            entity.Set(new SpriteInfo
+            {
+                SpriteSheet = tilesetTexture,
+                Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
+                    (int)request.Size.X, (int)request.Size.Y),
+                Size = request.Size,
+                Color = Color.White * request.Layer._Opacity,
+                Target = RenderTargetID.Main,
+                LayerDepth = layerDepth,
+            });
+        }
         entity.Set(new DrawComponent
         {
             Type = DrawElementType.Sprite,

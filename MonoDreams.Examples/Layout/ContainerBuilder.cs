@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component.Draw;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Component.Layout;
 
 namespace MonoDreams.Examples.Layout;
