@@ -1,0 +1,360 @@
+Implement the following plan:
+
+# Infinite Runner Refactoring — Treadmill Physics + Visuals + Spawning
+
+## Context
+
+The runner's first implementation was validated end-to-end (all 5 tests pass, screenshots
+confirmed working). Now we refactor the core mechanics: fixed camera, cosmetic treadmill
+with full belt loop, physics-based treadmill drag via invisible collider, better jump
+feel, and a single animated spawn point. These changes make the game more visually
+polished and mechanically interesting.
+
+---
+
+## Summary of Changes
+
+1. **Fixed camera** — remove CameraFollowSystem, set static zoom + position
+2. **Cosmetic treadmill** — visual-only segments in a full belt loop (top left, bottom
+   right), single invisible rectangular collider for physics
+3. **Grounded treadmill drag** — leftward speed only when touching the treadmill; airborne
+   = full movement speed, no drag
+4. **Better jump feel** — variable gravity: hold jump = full height, release = fast fall;
+   falling always uses higher gravity for snappy descent
+5. **Single animated spawn point** — visible dark grey circle to the right of the
+   treadmill, oscillates Y rapidly but smoothly; all charms and obstacles originate from it
+6. **Obstacles at any height** — spawned at spawn point's current Y, not fixed to ground
+7. **Cleanup at treadmill edge** — entities despawn at the treadmill's left end
+
+---
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `InfiniteRunnerScreen.cs` | Remove CameraFollowTarget from player, remove CameraFollowSystem from pipeline, set fixed camera zoom+position, refactor `CreateTreadmill()` to create cosmetic segments + invisible collider, add `CreateSpawnPoint()` |
+| `RunnerMovementSystem.cs` | Conditional drag (grounded only), variable gravity factor per frame, add `RigidBody` to `[With]` filter |
+| `TreadmillScrollSystem.cs` | Support bidirectional scrolling via `IsTopRow` field |
+| `TreadmillSegment.cs` | Add `bool IsTopRow` field (no longer empty struct) |
+| `RunnerSpawnerSystem.cs` | Query spawn point entity, drive Y oscillation, unified charm/obstacle spawning from spawn point position |
+| `OffScreenCleanupSystem.cs` | Change cleanup threshold to treadmill left edge |
+| `RunnerConstants.cs` | New constants for gravity multipliers, spawn point, bottom row; update boundaries |
+| `GameOverSystem.cs` | Update `LeftBoundary` to match treadmill left edge; reset spawn point on restart |
+
+## New File
+
+| File | Purpose |
+|------|---------|
+| `Component/Runner/SpawnPoint.cs` | Empty tag struct for the spawn point entity |
+
+---
+
+## Phase 1: Fixed Camera
+
+**`InfiniteRunnerScreen.cs`** — constructor:
+- Replace `camera.Position = Vector2.Zero` with `camera.Zoom = 2.0f` and
+  `camera.Position = new Vector2(375, 50)` (centers the treadmill + spawn point area)
+- At zoom 2.0 on a 1920×1080 virtual resolution, visible area = 960×540 world units,
+  centered on (375, 50) → shows X: −105..855, Y: −220..320
+
+**`InfiniteRunnerScreen.cs`** — `CreatePlayer()`:
+- Remove the `CameraFollowTarget` component (lines 125-132)
+
+**`InfiniteRunnerScreen.cs`** — `CreateUpdateSystem()`:
+- Remove `cameraFollowSystem` variable (line 242) and its inclusion in the final
+  `SequentialSystem` (line 248)
+- Remove `using MonoDreams.System.Camera;` if now unused
+
+**`RunnerConstants.cs`**:
+- Replace `CameraOffsetX`/`CameraOffsetY` with `CameraZoom = 2.0f` and
+  `CameraPosition = new Vector2(375f, 50f)`
+
+**Build + test**: camera frames the treadmill statically, player visible.
+
+---
+
+## Phase 2: Cosmetic Treadmill + Invisible Collider
+
+### Treadmill Component
+
+**`TreadmillSegment.cs`** — add direction field:
+```csharp
+public struct TreadmillSegment
+{
+    public bool IsTopRow;
+}
+```
+
+### Invisible Collider
+
+**`InfiniteRunnerScreen.cs`** — add to `CreateTreadmill()`:
+- Create a single invisible entity:
+  - `EntityInfo("Wall")`, `Transform(0, TreadmillY)`
+  - `BoxCollider(Rectangle(0, 0, TreadmillTotalWidth, TreadmillSegmentHeight), passive: true)`
+  - `RigidBody(isKinematic: true, gravityActive: false)`
+  - No DrawComponent, no Visible, no TreadmillSegment tag
+
+This entity provides the physical surface. The player collides with it just as it did
+with individual segments. `CollisionType.Physics` resolution zeros Y velocity on landing.
+
+### Cosmetic Segments — Full Belt Loop
+
+**`InfiniteRunnerScreen.cs`** — refactor `CreateTreadmill()`:
+- **Top row** (N segments): same visual as before but **without** `BoxCollider` and
+  `RigidBody`. Set `TreadmillSegment { IsTopRow = true }`. Color: `TreadmillColor`
+  (100, 100, 100).
+- **Bottom row** (N segments): identical structure, positioned at
+  `Y = TreadmillY + TreadmillSegmentHeight + BottomRowGap`. Set
+  `TreadmillSegment { IsTopRow = false }`. Color: `TreadmillBottomColor` (60, 60, 60)
+  — slightly darker for visual depth.
+
+### Bidirectional Scroll
+
+**`TreadmillScrollSystem.cs`**:
+- Read `IsTopRow` from the `TreadmillSegment` component
+- Top row: move left at `TreadmillScrollSpeed`, wrap to right when past left edge
+  (same as current)
+- Bottom row: move right at `TreadmillScrollSpeed`, wrap to left when past right edge
+  (mirror logic)
+
+```
+// Pseudocode:
+if (segment.IsTopRow)
+    translateX(-speed * dt)
+    if (x < -stride) x += totalWidth    // wrap right
+else
+    translateX(+speed * dt)
+    if (x > totalWidth) x -= totalWidth  // wrap left
+```
+
+**`RunnerConstants.cs`** — add:
+- `BottomRowGap = 4f`
+- `TreadmillBottomColor = new Color(60, 60, 60)`
+
+**Build + test**: two rows of segments scrolling in opposite directions, player lands on
+invisible surface.
+
+---
+
+## Phase 3: Conditional Drag + Variable Jump Gravity
+
+### Movement
+
+**`RunnerMovementSystem.cs`**:
+- Add `RigidBody` to the `[With]` attribute (player entity already has it)
+- **Conditional drag**: replace the always-on `velocity.Current.X = -TreadmillDragSpeed`
+  with:
+  ```
+  velocity.Current.X = runnerState.IsGrounded ? -TreadmillDragSpeed : 0f;
+  ```
+  Airborne: no drag, Right key gives full `PlayerRunSpeed` (180 px/s net).
+  Grounded: drag = −120, Right adds +180, net = 60 px/s rightward.
+
+### Variable Jump Gravity
+
+**`RunnerMovementSystem.cs`** — after the jump logic, before the method returns:
+```
+var rigidBody = entity.Get<RigidBody>();
+if (velocity.Current.Y < 0f)  // ascending
+    rigidBody.Gravity = (true, jumpPressed
+        ? 1.0f                              // holding jump → full height
+        : RunnerConstants.JumpCutGravityMultiplier);  // released → cut short
+else if (velocity.Current.Y > 0f)  // falling
+    rigidBody.Gravity = (true, RunnerConstants.FallGravityMultiplier);
+else  // grounded
+    rigidBody.Gravity = (true, 1.0f);
+```
+
+This works because `RunnerMovementSystem` runs **before** `GravitySystem` in the
+pipeline (line 227 vs 228 in `InfiniteRunnerScreen.cs`), so the gravity factor is set
+before `GravitySystem` reads it.
+
+**`RunnerConstants.cs`** — add:
+- `FallGravityMultiplier = 2.0f` — snappy descent, not floaty
+- `JumpCutGravityMultiplier = 2.5f` — sharp deceleration on early release
+- Update `MaxFallVelocity = 800f` (from 600) to match higher effective gravity
+
+**Build + test**: hold Right on ground = slow rightward drift; jump + hold = full height;
+tap jump = short hop; airborne movement is much faster; falling feels snappy.
+
+---
+
+## Phase 4: Spawn Point + Unified Spawning
+
+### New Component
+
+**`Component/Runner/SpawnPoint.cs`**:
+```csharp
+public struct SpawnPoint { }
+```
+Empty tag struct following project convention.
+
+### Spawn Point Entity
+
+**`InfiniteRunnerScreen.cs`** — add `CreateSpawnPoint()`:
+- Create entity with:
+  - `EntityInfo("Interface")` — not a game object
+  - `Transform(SpawnPointX, SpawnPointBaseY)` — to the right of the treadmill
+  - `DrawComponent` with `CircleMeshGenerator(radius: SpawnPointRadius, color:
+    SpawnPointColor)` on `RenderTargetID.Main`
+  - `SpawnPoint` tag
+  - `Visible`
+- Call from `Load()` alongside other creation methods
+
+### Spawner Refactoring
+
+**`RunnerSpawnerSystem.cs`** — major rewrite:
+1. In constructor, create an `EntitySet` query for `SpawnPoint + Transform` entities
+2. Each frame:
+   - Query the spawn point entity, get its `Transform`
+   - **Oscillate Y**: `transform.SetPositionY(SpawnPointBaseY + SpawnPointAmplitude *
+     sin(SpawnPointFrequency * totalTime))`
+   - Use a **single spawn timer** (`SpawnInterval`). On trigger:
+     - Spawn position = spawn point's current Transform.Position
+     - Alternate or randomly choose between "Charm" and "Obstacle"
+     - Publish `EntitySpawnRequest` at that position
+3. Remove separate `_charmTimer` / `_obstacleTimer`
+4. Remove old `SpawnX`, `CharmMinY`, `CharmMaxY`, `CharmSineAmplitude` references
+
+**`RunnerConstants.cs`** — replace spawning constants:
+- Remove: `CharmSpawnInterval`, `ObstacleSpawnInterval`, `SpawnX`, `CharmMinY`,
+  `CharmMaxY`, `CharmSineAmplitude`
+- Add:
+  - `SpawnPointX = TreadmillTotalWidth + 50f` (to the right of the treadmill)
+  - `SpawnPointBaseY = TreadmillY - 50f` (vertical midpoint of play area)
+  - `SpawnPointRadius = 8f`
+  - `SpawnPointAmplitude = 50f`
+  - `SpawnPointFrequency = 6.0f` (rapid oscillation, ~1 cycle/sec)
+  - `SpawnPointColor = new Color(80, 80, 80)` (dark grey)
+  - `SpawnInterval = 1.5f` (single unified timer)
+  - `ObstacleSpawnChance = 0.3f` (30% obstacle, 70% charm)
+
+### Cleanup
+
+**`OffScreenCleanupSystem.cs`**:
+- Change threshold from `RunnerConstants.CleanupX` to
+  `-RunnerConstants.TreadmillSegmentWidth` (one segment width past the left edge of the
+  treadmill at X=0)
+
+**`RunnerConstants.cs`**:
+- Update `CleanupX = -TreadmillSegmentWidth` (or just `-20f`)
+- Update `LeftBoundary = -30f` (just past treadmill left edge, game over trigger)
+
+**Build + test**: dark grey circle oscillates to the right of treadmill, charms and
+obstacles emerge from it at varying heights, disappear at treadmill left edge.
+
+---
+
+## Phase 5: Game Over + Restart Updates
+
+**`GameOverSystem.cs`**:
+- `LeftBoundary` is now closer to X=0 (updated constant)
+- On restart, reset the spawn point entity's Y position to base (query for `SpawnPoint`
+  tag and reset transform)
+- Existing restart logic (reset RunnerState, position, velocity, dispose
+  collectibles/obstacles) remains unchanged
+
+**`RunnerConstants.cs`**:
+- `LeftBoundary = -30f` (from -200)
+- `FallDeathY` stays at 300 (well below the bottom belt row)
+
+---
+
+## Phase 6: Tests + Verification
+
+**`InfiniteRunnerTests.cs`**:
+- Existing tests should still pass (log messages unchanged):
+  - `InfiniteRunnerLoadsAndIdles` — loads and runs without crash
+  - `PlayerFallsOffLeftEdge` — player drifts left and triggers "Fell off left edge!"
+    (LeftBoundary is now closer but the drift is the same speed, so timing may need
+    adjustment in the replay plan)
+  - `PlayerCollectsCharm` — charm still spawns and collides with player
+- May need to adjust replay timing if the closer LeftBoundary triggers faster
+- Run `dotnet test MonoDreams.Tests/` to verify
+
+**Manual verification**:
+1. `dotnet build` — full solution compiles
+2. `dotnet run --project MonoDreams.Examples` — play Level 3
+3. Verify: fixed camera frames the scene, treadmill belt loops visually, player drags
+   left only when grounded, airborne movement is fast, jump hold = high / tap = short,
+   falling is snappy, spawn point oscillates and emits charms + obstacles, entities
+   despawn at treadmill edge
+
+---
+
+## System Pipeline (unchanged order, one system removed)
+
+```
+Update:
+  1. InputMappingSystem (or InputReplaySystem)
+  2. EntitySpawnSystem
+  3. RunnerMovementSystem (conditional drag, variable gravity factor)
+  4. GravitySystem (reads gravity factor set by step 3)
+  5. TreadmillScrollSystem (bidirectional cosmetic scroll)
+  6. RunnerSpawnerSystem (oscillate spawn point, unified spawning)
+  7. TransformVelocitySystem
+  8. TransformCollisionDetectionSystem
+  9. TransformPhysicalCollisionResolutionSystem
+  10. RunnerCollisionHandlerSystem
+  11. TransformCommitSystem
+  12. GameOverSystem
+  13. OffScreenCleanupSystem
+  14. ScoreDisplaySystem
+  15. TransformHierarchySystem
+  (CameraFollowSystem removed)
+
+Draw: (unchanged)
+```
+
+---
+
+## Constants Reference (final values)
+
+```
+// Player
+PlayerRadius = 12f
+PlayerRunSpeed = 180f
+TreadmillDragSpeed = 120f
+PlayerJumpSpeed = -350f
+WorldGravity = 800f
+MaxFallVelocity = 800f  (was 600)
+PlayerRollSpeed = 5f
+FallGravityMultiplier = 2.0f  (new)
+JumpCutGravityMultiplier = 2.5f  (new)
+
+// Camera
+CameraZoom = 2.0f  (new, replaces CameraOffsetX/Y)
+CameraPosition = (375, 50)  (new)
+
+// Treadmill
+TreadmillSegmentCount = 30
+TreadmillSegmentWidth = 20f
+TreadmillSegmentHeight = 6f
+TreadmillSegmentGap = 2f
+TreadmillY = 100f
+TreadmillScrollSpeed = 120f
+BottomRowGap = 4f  (new)
+TreadmillBottomColor = (60, 60, 60)  (new)
+
+// Spawn Point (replaces old spawn constants)
+SpawnPointX = TreadmillTotalWidth + 50
+SpawnPointBaseY = TreadmillY - 50
+SpawnPointRadius = 8f
+SpawnPointAmplitude = 50f
+SpawnPointFrequency = 6.0f
+SpawnPointColor = (80, 80, 80)
+SpawnInterval = 1.5f
+ObstacleSpawnChance = 0.3f
+
+// Boundaries (updated)
+LeftBoundary = -30f  (was -200)
+CleanupX = -20f  (was -250)
+FallDeathY = 300f
+```
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+git add ., then commit, then push
