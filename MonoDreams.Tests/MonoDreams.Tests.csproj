@@ -26,4 +26,8 @@
     <ProjectReference Include="..\MonoDreams\MonoDreams.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

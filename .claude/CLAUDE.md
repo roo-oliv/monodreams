@@ -7,7 +7,7 @@ components and systems: add a `Transform` and `RigidBody` to an entity, include
 MonoDreams is still in alpha. The core library (`MonoDreams/`) is the
 authoritative source for all engine infrastructure — rendering, camera, cursor,
 collision, physics, entity spawning, level loading, and screen management.
-`MonoDreams.Examples/` contains game-specific logic only. Your starting point to
+`MonoDreams.Examples/` contains game-specdific logic only. Your starting point to
 understand how to wire up a game screen is
 `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`.
 

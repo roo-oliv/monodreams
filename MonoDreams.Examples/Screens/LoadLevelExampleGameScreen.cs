@@ -14,6 +14,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message;
 using MonoDreams.Message.Level;
 using MonoDreams.Message;
+using MonoDreams.Examples.Collision;
 using MonoDreams.Examples.System;
 using MonoDreams.System;
 using MonoDreams.System.Camera;
@@ -156,7 +157,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new MovementSystem(_world, _parallelRunner),
             new OrbSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CollisionMessage.Create),
+            new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, GameCollisionHelper.Create),
             new TransformPhysicalCollisionResolutionSystem(_world),
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only

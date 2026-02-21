@@ -1,6 +1,5 @@
 using DefaultEcs;
 using Microsoft.Xna.Framework;
-using MonoDreams.Component;
 
 namespace MonoDreams.Message;
 
@@ -21,21 +20,7 @@ public readonly record struct CollisionMessage(
         float contactTime,
         int layer)
     {
-        CollisionType collisionType = DetermineCollisionType(entity, target);
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, collisionType);
-    }
-
-    private static CollisionType DetermineCollisionType(Entity entity, Entity target)
-    {
-        var entityType = entity.Get<EntityInfo>().Type;
-        var targetType = target.Get<EntityInfo>().Type;
-        return entityType switch
-        {
-            "Player" when targetType == "Collectible" => CollisionType.Collectible,
-            "Player" when targetType == "Projectile" => CollisionType.Damage,
-            "Player" when targetType == "Zone" => CollisionType.Dialogue,
-            _ => CollisionType.Physics
-        };
+        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, CollisionType.Physics);
     }
 }
 

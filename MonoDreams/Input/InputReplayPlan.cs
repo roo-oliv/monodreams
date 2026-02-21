@@ -14,6 +14,9 @@ public class InputReplayPlan
     [JsonPropertyName("startLevel")]
     public string StartLevel { get; set; }
 
+    [JsonPropertyName("startScreen")]
+    public string StartScreen { get; set; }
+
     [JsonPropertyName("commands")]
     public List<InputReplayCommand> Commands { get; set; }
 

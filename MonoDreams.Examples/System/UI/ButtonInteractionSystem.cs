@@ -64,10 +64,13 @@ public class ButtonInteractionSystem(World world) : AEntitySetSystem<GameState>(
             }
         }
 
-        // Handle click - request screen transition to game with level
+        // Handle click - request screen transition to target screen (or Game by default) with level
         if (levelSelector.IsHovered && cursor.LeftButtonReleased)
         {
-            World.Publish(new ScreenTransitionRequest(ScreenName.Game, levelSelector.LevelName));
+            var targetScreen = string.IsNullOrEmpty(levelSelector.TargetScreen)
+                ? ScreenName.Game
+                : levelSelector.TargetScreen;
+            World.Publish(new ScreenTransitionRequest(targetScreen, levelSelector.LevelName));
         }
     }
 }

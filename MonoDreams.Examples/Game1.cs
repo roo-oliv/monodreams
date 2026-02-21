@@ -107,10 +107,16 @@ public class Game1 : Game
 
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
-        // If a replay plan specifies a start level, skip menus and jump straight to the game screen
+        // If a replay plan specifies a start screen or level, skip menus
         var replayPlan = InputReplayPlan.TryLoad(debugDir);
-        if (replayPlan?.StartLevel != null)
+        if (replayPlan?.StartScreen != null)
+        {
+            Logger.Info($"Replay plan detected. Skipping to screen '{replayPlan.StartScreen}'.");
+            _screenController.LoadScreen(replayPlan.StartScreen);
+        }
+        else if (replayPlan?.StartLevel != null)
         {
             Logger.Info($"Replay plan detected. Skipping to level '{replayPlan.StartLevel}'.");
             Services.AddService(new RequestedLevelComponent(replayPlan.StartLevel));
