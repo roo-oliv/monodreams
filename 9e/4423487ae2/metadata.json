@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "9e4423487ae2",
+  "strategy": "manual-commit",
+  "branch": "ro/infinite-runner",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Collision/GameCollisionHelper.cs",
+    "MonoDreams.Examples/Component/Runner/RunnerState.cs",
+    "MonoDreams.Examples/Component/Runner/ScoreDisplay.cs",
+    "MonoDreams.Examples/Component/Runner/TreadmillSegment.cs",
+    "MonoDreams.Examples/Component/UI/LevelSelector.cs",
+    "MonoDreams.Examples/EntityFactory/CharmFactory.cs",
+    "MonoDreams.Examples/EntityFactory/ObstacleFactory.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Runner/RunnerConstants.cs",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/Screens/ScreenName.cs",
+    "MonoDreams.Examples/System/Runner/GameOverSystem.cs",
+    "MonoDreams.Examples/System/Runner/OffScreenCleanupSystem.cs",
+    "MonoDreams.Examples/System/Runner/RunnerCollisionHandlerSystem.cs",
+    "MonoDreams.Examples/System/Runner/RunnerMovementSystem.cs",
+    "MonoDreams.Examples/System/Runner/RunnerSpawnerSystem.cs",
+    "MonoDreams.Examples/System/Runner/ScoreDisplaySystem.cs",
+    "MonoDreams.Examples/System/Runner/TreadmillScrollSystem.cs",
+    "MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs",
+    "MonoDreams.Examples/bin/Debug/net8.0/debug/input_replay.json",
+    "MonoDreams.Tests/IntegrationTests/InfiniteRunnerTests.cs",
+    "MonoDreams.Tests/MonoDreams.Tests.csproj",
+    "MonoDreams.Tests/xunit.runner.json",
+    "MonoDreams/Input/InputReplayPlan.cs",
+    "MonoDreams/Message/CollisionMessage.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9e/4423487ae2/0/metadata.json",
+      "transcript": "/9e/4423487ae2/0/full.jsonl",
+      "context": "/9e/4423487ae2/0/context.md",
+      "content_hash": "/9e/4423487ae2/0/content_hash.txt",
+      "prompt": "/9e/4423487ae2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 185,
+    "cache_creation_tokens": 363611,
+    "cache_read_tokens": 16753401,
+    "output_tokens": 27247,
+    "api_call_count": 173
+  }
+}

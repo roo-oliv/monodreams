@@ -1,0 +1,588 @@
+Implement the following plan:
+
+# Infinite Runner Game — Level 3
+
+## Context
+
+The MonoDreams core library claims to be a general-purpose 2D game engine. To validate
+this, we're building an infinite 2D runner as Level 3 — a genre completely different
+from the existing level-based platformer. This exercises the core mesh rendering pipeline
+(no sprites), runtime entity spawning, physics, collision, and camera systems. Any gaps
+discovered will inform future core refactoring.
+
+---
+
+## Game Design Summary
+
+- **Player**: white circle rolling on a treadmill
+- **Treadmill**: chain of small rectangles scrolling left
+- **Mechanic**: player run speed > treadmill speed; hold Right to run, release to drift
+  back. Fall off either end = game over.
+- **Collectibles**: diamond shapes (rotated squares) spawning at varying heights via sine
+  function, moving left with the treadmill
+- **Obstacles**: red squares on the treadmill belt, must be jumped over
+- **Score**: displayed on HUD, increments per charm collected
+- **Visuals**: mesh-only (circle, rectangles, rotated squares) — no sprites
+
+---
+
+## Architecture
+
+### New Screen: `InfiniteRunnerScreen`
+
+A new `IGameScreen` implementation — the runner has no LDtk levels, no Blender parsing,
+and a fundamentally different lifecycle (procedural, continuous). Following the existing
+pattern where each game mode gets its own screen.
+
+### Core Systems Reused (zero modifications to these)
+
+| System | Role |
+|--------|------|
+| `GravitySystem` | Player falls, jumps have arc |
+| `TransformVelocitySystem` | Applies velocity to position each frame |
+| `TransformCollisionDetectionSystem<CollisionMessage>` | AABB swept collision |
+| `TransformCollisionResolutionSystem` | Physics resolution (land on treadmill) |
+| `TransformCommitSystem` | End-of-frame position commit |
+| `EntitySpawnSystem` | Message-based factory dispatch for charms/obstacles |
+| `CameraFollowSystem` | Smooth camera tracking |
+| `MeshPrepSystem` | Applies world matrix to mesh DrawComponents |
+| `MasterRenderSystem` | Renders meshes + text |
+| `FinalDrawSystem` | Composites render targets |
+| `TextPrepSystem` / `TextUpdateSystem` | Score HUD text |
+| `TransformHierarchySystem` | Transform propagation |
+
+### New Game-Specific Code (all in `MonoDreams.Examples/`)
+
+**Components** (3 files):
+- `RunnerState` — score, isGameOver, isGrounded, gameTime
+- `TreadmillSegment` — empty tag for belt segments
+- `ScoreDisplay` — empty tag for HUD score entity
+
+**Systems** (6 files in `System/Runner/`):
+- `RunnerMovementSystem` — input → velocity (run, jump), visual rolling rotation
+- `TreadmillScrollSystem` — moves segments left, wraps to right end
+- `RunnerSpawnerSystem` — timer-based charm/obstacle spawning via `EntitySpawnRequest`
+- `RunnerCollisionHandlerSystem` — subscribes to `CollisionMessage`, handles
+  collectible scoring and obstacle game-over
+- `GameOverSystem` — boundary detection (fell off treadmill), shows "Game Over" text,
+  press any key to restart the runner in-place (no menu transition)
+- `OffScreenCleanupSystem` — despawns entities that scrolled past left edge
+
+**Entity Factories** (3 files in `EntityFactory/`):
+- `RunnerPlayerFactory` — circle mesh + physics + camera follow
+- `CharmFactory` — rotated square mesh + leftward velocity
+- `ObstacleFactory` — red square mesh + leftward velocity
+
+**Constants** (1 file):
+- `RunnerConstants` — all tuning values (speeds, sizes, intervals, boundaries)
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `ScreenName.cs` | Add `InfiniteRunner` constant |
+| `Game1.cs` | Register `InfiniteRunnerScreen`; extend replay routing with `startScreen` |
+| `LevelSelectionScreen.cs` | Enable Level 3 button, route to InfiniteRunner screen |
+| `LevelSelector.cs` | Add optional `TargetScreen` field |
+| `ButtonInteractionSystem.cs` | Use `TargetScreen` if set, else default to Game |
+| `InputReplayPlan.cs` | Add `StartScreen` property for test support |
+| `CollisionMessage.cs` (core) | Remove game-specific `DetermineCollisionType`; `Create` defaults to `Physics` |
+| `LoadLevelExampleGameScreen.cs` | Use new `GameCollisionHelper.Create` delegate instead of `CollisionMessage.Create` |
+
+---
+
+## Key Design Decisions
+
+### Refactor: Move Collision Type Logic Out of Core
+
+The core `CollisionMessage.DetermineCollisionType` has game-specific strings ("Player",
+"Collectible", "Projectile", "Zone"). We refactor this as part of this PR:
+
+1. **Core `CollisionMessage.Create`** — remove `DetermineCollisionType`, default to
+   `CollisionType.Physics` (pure data factory, no game logic)
+2. **New `GameCollisionHelper.cs`** in Examples — static `Create` method with the
+   existing platformer collision logic (Player+Collectible, Player+Projectile, etc.)
+3. **`LoadLevelExampleGameScreen`** — passes `GameCollisionHelper.Create` as delegate
+   instead of `CollisionMessage.Create`
+4. **`InfiniteRunnerScreen`** — provides its own delegate with runner-specific logic:
+
+```csharp
+// Runner: Player+Collectible → Collectible, Player+Obstacle → Damage, else → Physics
+static CollisionMessage CreateRunnerCollision(Entity entity, Entity target, ...)
+```
+
+`TransformPhysicalCollisionResolutionSystem` already filters for `Physics` only — so
+treadmill collisions resolve physically while collectible/obstacle collisions are handled
+by `RunnerCollisionHandlerSystem`.
+
+### Treadmill Physics Model
+
+- Belt segments are **passive kinematic** colliders moved directly by `TreadmillScrollSystem`
+- Player has a constant **leftward drag** (`-TreadmillDragSpeed`) simulating belt friction
+- Pressing Right adds `+PlayerRunSpeed` (slightly more than drag) — net rightward drift
+- Releasing Right → net leftward drift from the belt
+- This integrates cleanly with `TransformVelocitySystem` + `TransformCollisionDetectionSystem`
+
+### Grounded Detection
+
+No core "grounded" system exists (by design — framework, not engine). We check
+`velocity.Current.Y == 0` at the start of `RunnerMovementSystem` — collision resolution
+zeros Y velocity when landing, so this is 0 only when on a surface.
+
+### Visibility (Mesh-Only Entities)
+
+`CullingSystem` only handles entities with `SpriteInfo`. For this game, all mesh entities
+get `Visible` set at creation. Off-screen entities are cleaned up by
+`OffScreenCleanupSystem` instead. **Flag for core**: extend `CullingSystem` to support
+mesh entities via bounding box.
+
+---
+
+## System Pipeline Order
+
+```
+Update:
+  1. InputMappingSystem (or InputReplaySystem in headless)
+  2. EntitySpawnSystem (processes spawn messages)
+  3. RunnerMovementSystem (input → velocity, jump, rotation)
+  4. GravitySystem (adds gravity to Y velocity)
+  5. TreadmillScrollSystem (move/wrap belt segments)
+  6. RunnerSpawnerSystem (timer-based spawn requests)
+  7. TransformVelocitySystem (velocity → position)
+  8. TransformCollisionDetectionSystem (detect + publish)
+  9. TransformPhysicalCollisionResolutionSystem (resolve physics)
+  10. RunnerCollisionHandlerSystem (scoring, obstacle hits)
+  11. TransformCommitSystem (commit positions)
+  12. GameOverSystem (boundary checks)
+  13. OffScreenCleanupSystem (despawn off-screen)
+  14. ScoreDisplaySystem (update HUD text)
+  15. TransformHierarchySystem
+  16. CameraFollowSystem
+
+Draw:
+  1. MeshPrepSystem (world matrices)
+  2. TextPrepSystem (score text)
+  3. MasterRenderSystem (render to targets)
+  4. FinalDrawSystem (composite to screen)
+  5. ScreenshotCaptureSystem (optional, for testing)
+```
+
+---
+
+## Entity Component Stacks
+
+**Player** (circle):
+`EntityInfo("Player")` + `Transform` + `BoxCollider` + `RigidBody(gravity)` +
+`Velocity` + `CameraFollowTarget` + `DrawComponent(Mesh/Circle)` + `Visible` +
+`RunnerState`
+
+**Treadmill Segment** (~30 rectangles):
+`EntityInfo("Wall")` + `Transform` + `BoxCollider(passive)` +
+`RigidBody(kinematic)` + `DrawComponent(Mesh/FilledRect)` + `Visible` +
+`TreadmillSegment`
+
+**Charm** (diamond):
+`EntityInfo("Collectible")` + `Transform(rotation=45deg)` + `BoxCollider(passive)` +
+`Velocity(-TreadmillSpeed, 0)` + `DrawComponent(Mesh/FilledRect)` + `Visible`
+
+**Obstacle** (red square):
+`EntityInfo("Obstacle")` + `Transform` + `BoxCollider(passive)` +
+`Velocity(-TreadmillSpeed, 0)` + `DrawComponent(Mesh/FilledRect)` + `Visible`
+
+**Score HUD**:
+`EntityInfo("Interface")` + `Transform` + `DynamicText(Target=HUD)` + `Visible` +
+`ScoreDisplay`
+
+---
+
+## Implementation Phases
+
+### Phase 1: Infrastructure + Core Collision Refactor
+- Refactor `CollisionMessage`: remove `DetermineCollisionType`, simplify `Create`
+- Create `GameCollisionHelper.cs` in Examples with existing platformer collision logic
+- Update `LoadLevelExampleGameScreen` to use `GameCollisionHelper.Create`
+- Create `RunnerConstants.cs`, component files, `ScreenName.InfiniteRunner`
+- Create empty `InfiniteRunnerScreen` skeleton implementing `IGameScreen`
+- Register in `Game1.cs`
+- **Build check** (existing game must still work with refactored collision)
+
+### Phase 2: Treadmill + Player
+- Create treadmill entities directly in screen's `Load()` method
+- Create player entity (via factory or directly)
+- Implement `TreadmillScrollSystem`, `RunnerMovementSystem`
+- Wire update + draw pipelines with core systems
+- **Build + run**: player rolls on treadmill, gravity works, can jump
+
+### Phase 3: Spawning + Scoring
+- Implement `CharmFactory`, `ObstacleFactory`
+- Implement `RunnerSpawnerSystem`, `RunnerCollisionHandlerSystem`
+- Implement `OffScreenCleanupSystem`
+- Create score HUD entity + `ScoreDisplaySystem`
+- **Build + run**: charms spawn/collect, obstacles spawn/kill
+
+### Phase 4: Game Over + Level Selection Integration
+- Implement `GameOverSystem` (boundary detection, "Game Over" overlay, press-any-key
+  to restart in-place by resetting world state)
+- Update `LevelSelector` with `TargetScreen`, update `ButtonInteractionSystem`
+- Enable Level 3 button in `LevelSelectionScreen`
+- Tune constants (speeds, intervals, sizes)
+- **Build + play full loop**: menu → Level 3 → play → game over → menu
+
+### Phase 5: Test Infrastructure + Tests
+- Add `StartScreen` to `InputReplayPlan`
+- Update `Game1.Initialize()` routing
+- Write integration tests: load-and-idle, fall-off-left, collect-charm
+- **Run `dotnet test`**
+
+---
+
+## Core Issues to Flag (for future refactoring)
+
+1. **`CollisionMessage.DetermineCollisionType` in core** — **refactored in this PR**.
+   Game-specific type logic moved to Examples; core `Create` becomes a pure data factory.
+
+2. **`CullingSystem` only handles SpriteInfo entities** — mesh-only entities aren't
+   culled. Should support mesh bounding boxes.
+
+3. **`EntitySpawnRequest` has LDtk-specific fields** (`LayerInstance`, `InstanceIid`,
+   `TilesetPosition`). Needs a simpler constructor for procedural spawning.
+
+---
+
+## Verification
+
+1. `dotnet build` — full solution compiles
+2. `dotnet run --project MonoDreams.Examples` — launch, select Level 3, play the runner
+3. `dotnet test MonoDreams.Tests/` — integration tests pass
+4. Manual test: hold Right → player stays on treadmill; release → drifts left off edge;
+   collect charms → score increases; hit obstacle → game over; jump over obstacle → survive
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Run a test session on Level 3. There are a few bugs to fix, like jump not working as expected.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Initial Request**: The user provided a detailed implementation plan for an "Infinite Runner Game — Level 3" to be built on the MonoDreams 2D game engine. This was a comprehensive plan with architecture, components, systems, entity factories, and implementation phases.
+
+2. **Phase 1: Infrastructure + Core Collision Refactor**
+   - Explored codebase extensively to understand existing patterns
+   - Refactored `CollisionMessage.cs` in core - removed `DetermineCollisionType` and game-specific logic
+   - Created `GameCollisionHelper.cs` in Examples with the extracted platformer collision logic
+   - Updated `LoadLevelExampleGameScreen.cs` to use `GameCollisionHelper.Create`
+   - Added `ScreenName.InfiniteRunner`
+   - Created `RunnerConstants.cs`, component files (RunnerState, TreadmillSegment, ScoreDisplay)
+   - Created `InfiniteRunnerScreen.cs` skeleton
+   - Registered screen in `Game1.cs`
+   - Created all runner systems and entity factories
+   - Build errors: namespace conflict `System.Collections` in GameOverSystem (fixed with `global::System.Collections.Generic.List`), missing `using MonoDreams.Examples.System` in InfiniteRunnerScreen (added)
+
+3. **Phase 2-3**: Were implemented as part of Phase 1 since the screen skeleton required all systems to compile.
+
+4. **Phase 4: Game Over + Level Selection Integration**
+   - Added `TargetScreen` field to `LevelSelector` component
+   - Updated `ButtonInteractionSystem` to use `TargetScreen` if set
+   - Enabled Level 3 button in `LevelSelectionScreen` with `ScreenName.InfiniteRunner`
+   - Updated `CreateButtonEntity` to accept optional `targetScreen` parameter
+   - Fixed `GameOverSystem` to accept `BitmapFont` parameter
+   - Stored `_font` and `_content` in `InfiniteRunnerScreen`
+
+5. **Phase 5: Test Infrastructure + Tests**
+   - Added `StartScreen` property to `InputReplayPlan`
+   - Updated `Game1.Initialize()` to support `startScreen` routing
+   - Created `InfiniteRunnerTests.cs` with 3 integration tests
+   - Added `xunit.runner.json` for sequential test execution (parallel caused flaky failures)
+   - Updated `MonoDreams.Tests.csproj` to copy xunit.runner.json
+
+6. **User's second message**: "Run a test session on Level 3. There are a few bugs to fix, like jump not working as expected."
+
+7. **Bug Investigation and Fixes**:
+   - Ran test session with screenshots enabled
+   - Analyzed logs and screenshots
+   - Found bugs:
+     a. **Jump not working**: `AInputState.JustPressed()` with default buffer=0 never returns true for detecting press events. The existing game only uses `Pressed()`. Fixed by using `Pressed()` with manual edge detection via `JumpHeld` flag in `RunnerState`.
+     b. **"Hit obstacle! Game over." spammed every frame**: Obstacle wasn't disposed on hit, causing repeated collisions. Fixed by disposing obstacle in `HandleObstacleHit` and adding `IsGameOver` guard.
+     c. **GameOverSystem restart also used `JustPressed`**: Same issue, fixed with `_restartKeyHeld` flag and `Pressed()`.
+   
+   - After fixes, ran test session again - jump works (2 successful jumps logged), no obstacle spam, score display works correctly
+   - Screenshots confirmed: player on treadmill with score, player jumping over obstacles, charms and obstacles visible at varying heights
+
+The conversation was cut off after viewing the final 3 screenshots showing the fixed game working correctly. The user hasn't provided additional feedback after the bug fixes.
+
+Key files created/modified:
+- Core: `CollisionMessage.cs`, `InputReplayPlan.cs`
+- Examples: `GameCollisionHelper.cs`, `InfiniteRunnerScreen.cs`, `RunnerConstants.cs`, `RunnerState.cs`, `TreadmillSegment.cs`, `ScoreDisplay.cs`, `RunnerMovementSystem.cs`, `TreadmillScrollSystem.cs`, `RunnerSpawnerSystem.cs`, `RunnerCollisionHandlerSystem.cs`, `GameOverSystem.cs`, `OffScreenCleanupSystem.cs`, `ScoreDisplaySystem.cs`, `CharmFactory.cs`, `ObstacleFactory.cs`, `ScreenName.cs`, `Game1.cs`, `LevelSelectionScreen.cs`, `LoadLevelExampleGameScreen.cs`, `LevelSelector.cs`, `ButtonInteractionSystem.cs`
+- Tests: `InfiniteRunnerTests.cs`, `xunit.runner.json`, `MonoDreams.Tests.csproj`
+
+Summary:
+1. Primary Request and Intent:
+   The user asked to implement a detailed plan for an "Infinite Runner Game — Level 3" in the MonoDreams 2D game engine. The plan specified: a white circle player rolling on a treadmill, mesh-only rendering (no sprites), charms (gold diamonds) and obstacles (red squares), score HUD, game over with restart, level selection integration, and integration tests. The implementation was organized into 5 phases. After initial implementation, the user asked to "Run a test session on Level 3" and noted "There are a few bugs to fix, like jump not working as expected."
+
+2. Key Technical Concepts:
+   - MonoDreams ECS architecture (DefaultEcs framework + MonoGame rendering)
+   - `IGameScreen` pattern for screen lifecycle
+   - `CollisionMessage` delegate pattern via `CreateCollisionMessageDelegate<T>` for game-specific collision type determination
+   - `AInputState` input system with buffer-based press detection — `JustPressed()` with buffer=0 never fires; existing game uses `Pressed()` only
+   - Mesh rendering pipeline: `CircleMeshGenerator`, `FilledRectangleMeshGenerator` → `DrawComponent` with `DrawElementType.Mesh` → `MeshPrepSystem` → `MasterRenderSystem`
+   - Entity factory pattern: `IEntityFactory` → `EntitySpawnSystem` dispatches by string identifier
+   - `EntitySpawnRequest` has LDtk-specific fields (noted as core issue for future refactoring)
+   - `Visible` tag component required for rendering (set at creation for mesh entities since `CullingSystem` only handles `SpriteInfo`)
+   - Headless replay testing via `InputReplayPlan` + `GameTestRunner`
+   - `StartScreen` property added to `InputReplayPlan` for routing directly to non-game screens
+   - Sequential xunit test execution needed (parallel game process launches cause resource contention)
+   - Branch: `ro/infinite-runner`
+
+3. Files and Code Sections:
+
+   - **`MonoDreams/Message/CollisionMessage.cs`** (modified)
+     - Removed game-specific `DetermineCollisionType` and `using MonoDreams.Component`. `Create` now defaults to `CollisionType.Physics`.
+     ```csharp
+     public static CollisionMessage Create(Entity entity, Entity target,
+         Vector2 contactPoint, Vector2 contactNormal, float contactTime, int layer)
+     {
+         return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, CollisionType.Physics);
+     }
+     ```
+
+   - **`MonoDreams/Input/InputReplayPlan.cs`** (modified)
+     - Added `StartScreen` property for routing to non-game screens in replay mode
+     ```csharp
+     [JsonPropertyName("startScreen")]
+     public string StartScreen { get; set; }
+     ```
+
+   - **`MonoDreams.Examples/Collision/GameCollisionHelper.cs`** (new)
+     - Extracted platformer-specific collision type logic from core `CollisionMessage`
+     ```csharp
+     public static class GameCollisionHelper
+     {
+         public static CollisionMessage Create(Entity entity, Entity target,
+             Vector2 contactPoint, Vector2 contactNormal, float contactTime, int layer)
+         {
+             var collisionType = DetermineCollisionType(entity, target);
+             return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, collisionType);
+         }
+         private static CollisionType DetermineCollisionType(Entity entity, Entity target)
+         {
+             var entityType = entity.Get<EntityInfo>().Type;
+             var targetType = target.Get<EntityInfo>().Type;
+             return entityType switch
+             {
+                 "Player" when targetType == "Collectible" => CollisionType.Collectible,
+                 "Player" when targetType == "Projectile" => CollisionType.Damage,
+                 "Player" when targetType == "Zone" => CollisionType.Dialogue,
+                 _ => CollisionType.Physics
+             };
+         }
+     }
+     ```
+
+   - **`MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`** (modified)
+     - Added `using MonoDreams.Examples.Collision;`, changed `CollisionMessage.Create` to `GameCollisionHelper.Create`
+
+   - **`MonoDreams.Examples/Screens/ScreenName.cs`** (modified)
+     - Added `public const string InfiniteRunner = "InfiniteRunner";`
+
+   - **`MonoDreams.Examples/Runner/RunnerConstants.cs`** (new)
+     - All tuning constants: PlayerRadius=12f, PlayerRunSpeed=180f, TreadmillDragSpeed=120f, PlayerJumpSpeed=-350f, WorldGravity=800f, MaxFallVelocity=600f, TreadmillSegmentCount=30, TreadmillScrollSpeed=120f, CharmSpawnInterval=2.0f, ObstacleSpawnInterval=3.5f, SpawnX=350f, LeftBoundary=-200f, CleanupX=-250f, FallDeathY=300f, etc.
+
+   - **`MonoDreams.Examples/Component/Runner/RunnerState.cs`** (new)
+     ```csharp
+     public class RunnerState
+     {
+         public int Score;
+         public bool IsGameOver;
+         public bool IsGrounded;
+         public bool JumpHeld;
+         public float GameTime;
+     }
+     ```
+
+   - **`MonoDreams.Examples/Component/Runner/TreadmillSegment.cs`** (new) — empty tag struct
+   - **`MonoDreams.Examples/Component/Runner/ScoreDisplay.cs`** (new) — empty tag struct
+
+   - **`MonoDreams.Examples/System/Runner/RunnerMovementSystem.cs`** (new, then fixed)
+     - Key fix: changed from `JustPressed` to `Pressed()` with manual edge detection for jump
+     ```csharp
+     [With(typeof(RunnerState), typeof(Velocity), typeof(Transform))]
+     public class RunnerMovementSystem(World world) : AEntitySetSystem<GameState>(world)
+     {
+         protected override void Update(GameState state, in Entity entity)
+         {
+             var runnerState = entity.Get<RunnerState>();
+             if (runnerState.IsGameOver) return;
+             var velocity = entity.Get<Velocity>();
+             ref var transform = ref entity.Get<Transform>();
+             runnerState.IsGrounded = velocity.Current.Y == 0 && velocity.Last.Y >= 0;
+             velocity.Current.X = -RunnerConstants.TreadmillDragSpeed;
+             if (InputState.Right.Pressed(state))
+                 velocity.Current.X += RunnerConstants.PlayerRunSpeed;
+             bool jumpPressed = InputState.Jump.Pressed(state);
+             if (jumpPressed && !runnerState.JumpHeld && runnerState.IsGrounded)
+             {
+                 velocity.Current.Y = RunnerConstants.PlayerJumpSpeed;
+                 Logger.Info("Player jumped!");
+             }
+             runnerState.JumpHeld = jumpPressed;
+             transform.Rotate(velocity.Current.X * state.Time * RunnerConstants.PlayerRollSpeed / RunnerConstants.PlayerRadius);
+             runnerState.GameTime += state.Time;
+         }
+     }
+     ```
+
+   - **`MonoDreams.Examples/System/Runner/TreadmillScrollSystem.cs`** (new)
+     - Moves segments left by `TreadmillScrollSpeed * dt`, wraps to right when past left edge
+
+   - **`MonoDreams.Examples/System/Runner/RunnerSpawnerSystem.cs`** (new)
+     - Timer-based spawning: publishes `EntitySpawnRequest` for "Charm" and "Obstacle" at intervals
+     - Uses sine function for charm Y position variation
+
+   - **`MonoDreams.Examples/System/Runner/RunnerCollisionHandlerSystem.cs`** (new, then fixed)
+     - Key fix: disposes obstacle on hit to prevent spam, added `IsAlive` and `IsGameOver` guards
+     ```csharp
+     private void HandleObstacleHit(in CollisionMessage message)
+     {
+         if (message.CollidingEntity.IsAlive)
+             message.CollidingEntity.Dispose();
+         var playerEntity = message.BaseEntity;
+         if (playerEntity.IsAlive && playerEntity.Has<RunnerState>())
+         {
+             var runnerState = playerEntity.Get<RunnerState>();
+             if (!runnerState.IsGameOver)
+             {
+                 runnerState.IsGameOver = true;
+                 Logger.Info("Hit obstacle! Game over.");
+             }
+         }
+     }
+     ```
+
+   - **`MonoDreams.Examples/System/Runner/GameOverSystem.cs`** (new, then fixed)
+     - Accepts `BitmapFont font` parameter for game over text rendering
+     - Key fix: changed restart from `JustPressed` to `Pressed()` with `_restartKeyHeld` edge detection
+     - Manages boundary detection (FallDeathY, LeftBoundary), game over text creation, restart (resets RunnerState, position, velocity, cleans up collectibles/obstacles)
+
+   - **`MonoDreams.Examples/System/Runner/OffScreenCleanupSystem.cs`** (new)
+     - Disposes "Collectible" and "Obstacle" entities past `CleanupX`
+
+   - **`MonoDreams.Examples/System/Runner/ScoreDisplaySystem.cs`** (new)
+     - Updates `DynamicText.TextContent` on `ScoreDisplay` entities from `RunnerState.Score`
+
+   - **`MonoDreams.Examples/EntityFactory/CharmFactory.cs`** (new)
+     - Creates "Collectible" entity with rotated (45°) gold filled rectangle mesh, passive BoxCollider, leftward Velocity
+
+   - **`MonoDreams.Examples/EntityFactory/ObstacleFactory.cs`** (new)
+     - Creates "Obstacle" entity with red filled rectangle mesh, passive BoxCollider, leftward Velocity
+
+   - **`MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs`** (new)
+     - Full `IGameScreen` implementation with:
+       - `CreateTreadmill()`: 30 segments with BoxCollider(passive), RigidBody(kinematic), FilledRectangleMeshGenerator
+       - `CreatePlayer()`: circle mesh, BoxCollider, RigidBody, Velocity, CameraFollowTarget, RunnerState
+       - `CreateScoreHUD()`: DynamicText on HUD render target
+       - `CreateRunnerCollision()`: static delegate — Player+Collectible→Collectible, Player+Obstacle→Damage, else→Physics
+       - Update pipeline: input → entitySpawn → runnerMovement → gravity → treadmillScroll → spawner → velocity → collisionDetect → collisionResolve → runnerCollisionHandler → transformCommit → gameOver → offScreenCleanup → scoreDisplay → transformHierarchy → cameraFollow
+       - Draw pipeline: meshPrep → textPrep → masterRender → finalDraw → screenshot
+
+   - **`MonoDreams.Examples/Game1.cs`** (modified)
+     - Added InfiniteRunner screen registration
+     - Added `startScreen` routing: if `replayPlan.StartScreen != null`, loads that screen directly
+
+   - **`MonoDreams.Examples/Screens/LevelSelectionScreen.cs`** (modified)
+     - Level 3 button: `CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner)`
+     - Added `targetScreen` optional parameter to `CreateButtonEntity`
+
+   - **`MonoDreams.Examples/Component/UI/LevelSelector.cs`** (modified)
+     - Added `public string TargetScreen { get; set; }`
+
+   - **`MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`** (modified)
+     - Uses `levelSelector.TargetScreen` if set, else defaults to `ScreenName.Game`
+
+   - **`MonoDreams.Tests/IntegrationTests/InfiniteRunnerTests.cs`** (new)
+     - 3 tests: `InfiniteRunnerLoadsAndIdles`, `PlayerFallsOffLeftEdge`, `PlayerCollectsCharm`
+
+   - **`MonoDreams.Tests/xunit.runner.json`** (new)
+     - `"parallelizeTestCollections": false` to prevent resource contention
+
+   - **`MonoDreams.Tests/MonoDreams.Tests.csproj`** (modified)
+     - Added `<Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />`
+
+4. Errors and Fixes:
+   - **Build error: `System.Collections` namespace conflict** in `GameOverSystem.cs` — the `MonoDreams.Examples.System` namespace shadowed `System.Collections`. Fixed with `global::System.Collections.Generic.List<Entity>()`.
+   - **Build error: Missing `InputMappingSystem`** in `InfiniteRunnerScreen.cs` — needed `using MonoDreams.Examples.System;`.
+   - **Test flakiness when run in parallel** — multiple game processes competing for resources. Fixed by adding `xunit.runner.json` with `parallelizeTestCollections: false`.
+   - **Jump not working (Bug #1)**: `AInputState.JustPressed()` with default buffer=0 never returns true. The method's internal tracking has reversed semantics (`_lastReleaseTime` is set on press, `_lastPressTime` on release) and `WithinBuffer(delta)` with buffer=0 requires `delta == 0`. Fixed by using `Pressed()` with manual edge detection via `JumpHeld` flag in `RunnerState`.
+   - **"Hit obstacle! Game over." spammed every frame (Bug #2)**: Obstacle entity wasn't disposed after collision, causing repeated collision messages. Fixed by disposing obstacle in `HandleObstacleHit` and adding `!runnerState.IsGameOver` guard.
+   - **GameOverSystem restart also broken by `JustPressed`**: Same root cause as jump. Fixed with `_restartKeyHeld` flag and `Pressed()`.
+   - **GameOverSystem `Font = null`**: Game over text entity had null font. Fixed by accepting `BitmapFont font` constructor parameter, storing `_font` in InfiniteRunnerScreen and passing it through.
+
+5. Problem Solving:
+   - Successfully refactored game-specific collision logic out of core `CollisionMessage` into Examples `GameCollisionHelper`
+   - Discovered and documented `AInputState.JustPressed()` doesn't work with buffer=0 — fundamental input system limitation
+   - All 5 integration tests pass with sequential execution
+   - All 3 bug fixes verified via replay test session with screenshots showing: player jumping, score incrementing, charms/obstacles visible, no log spam
+
+6. All user messages:
+   - "Implement the following plan: [detailed Infinite Runner Level 3 plan with 5 implementation phases, architecture, system pipeline, entity component stacks, key design decisions, and verification steps]"
+   - "Run a test session on Level 3. There are a few bugs to fix, like jump not working as expected."
+
+7. Pending Tasks:
+   - The bug fixes are implemented and verified but no git commit has been made yet
+   - The user hasn't explicitly confirmed the fixes are satisfactory — the last screenshots were viewed but no user response followed
+   - The `input_replay.json` debug file is still in the build output directory
+
+8. Current Work:
+   After the user asked to "Run a test session on Level 3" and noted bugs including "jump not working as expected", three bugs were identified and fixed:
+   1. Jump not firing (JustPressed with buffer=0 → Pressed with manual edge detection)
+   2. Obstacle collision spam (dispose obstacle on hit + IsGameOver guard)
+   3. GameOver restart not working (same JustPressed fix)
+   
+   A verification test session was run with the replay plan:
+   ```json
+   {
+     "startScreen": "InfiniteRunner",
+     "description": "Debug jump: run right, then jump",
+     "screenshots": true,
+     "commands": [
+       { "action": "Right", "type": "press", "time": 0.5 },
+       { "action": "Jump", "type": "press", "time": 2.0 },
+       { "action": "Jump", "type": "release", "time": 2.2 },
+       { "action": "Jump", "type": "press", "time": 3.5 },
+       { "action": "Jump", "type": "release", "time": 3.7 },
+       { "action": "Right", "type": "release", "time": 5.0 },
+       { "action": "Exit", "type": "press", "time": 6.0 },
+       { "action": "Exit", "type": "release", "time": 6.1 }
+     ]
+   }
+   ```
+   
+   Logs confirmed both jumps fired ("Player jumped!" at GT 2.00 and GT 3.50), charm collected (Score: 1 at GT 2.33), no obstacle spam. Three screenshots were viewed showing the game working correctly: player on treadmill with score, player mid-jump with obstacles and charms visible, player back on treadmill with multiple charms and obstacle scrolling.
+
+   The last action was viewing the third screenshot (GT 6.0) which showed the game state after Right was released — player drifting back, multiple charms visible at varying heights, obstacle on the belt, score still showing 1.
+
+9. Optional Next Step:
+   The user asked to "Run a test session on Level 3" and fix bugs. The bugs have been fixed and verified. The natural next step would be to present the findings and fixes to the user and await their feedback, or run the full test suite to ensure nothing is broken. No explicit next task was requested beyond fixing the bugs.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+Please continue the conversation from where we left it off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+Refactorings to Infinite Threadmill Runner:
+ - Change to a fixed and still camera
+ - The threadmill tiles should be costmetic and to the full loop of the treadmill
+ - To simulate threadmill speed, a small speed to the left should be applied to the player when it's touching the treadmill (a rectangular invisible collider can simulate the threadmill and a logic to check if they're colliding should be used to determine if the player is touching the threadmill or jumping). Moving right should result in a speed slightly to the right, rendering the player speed greater then the treadmill speed but only by a little. When airborne, without the threadmill negative speed, the player should move faster. The player retains full jump and walk speed control while airborne (remember satisfactory jumps in video games present much control to the player and get height for longer but once released they fall faster/sharper, there are tutorials on this.
+ - The charms and obstacles spaw point should be ahead of the thread mill, to the right. A visible dark grey circle should represent visually the spawn point. The spawn point moves from up to down, rapidly but not teleporting. This single spawn point originates charms and obstacles.
+ - Obstacles can be spawned at any height.
+ - Since the threadmill and camrea are still, obstacles and charms that move to the left and disapear once past beyond the end of the treadmill.
+
+---
+
+[Request interrupted by user for tool use]
