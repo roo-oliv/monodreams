@@ -126,7 +126,7 @@ public class LevelSelectionScreen : IGameScreen
         var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, DrawLayerDepth.GetLayerDepth(DrawLayer.Title));
         var button1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
         var button2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
-        var button3 = CreateButtonEntity("Level 3", _font, 2, "Level_0", false, buttonStyle);
+        var button3 = CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner);
 
         // Create UI using auto layout with slots
         var layout = new AutoLayoutBuilder(_world, _viewportManager);
@@ -177,7 +177,8 @@ public class LevelSelectionScreen : IGameScreen
         int levelIndex,
         string levelName,
         bool isClickable,
-        ButtonStyle style)
+        ButtonStyle style,
+        string targetScreen = null)
     {
         // Measure text to determine button size
         var textSize = font.MeasureString(text) * style.TextScale;
@@ -223,6 +224,7 @@ public class LevelSelectionScreen : IGameScreen
         {
             LevelIndex = levelIndex,
             LevelName = levelName,
+            TargetScreen = targetScreen,
             IsClickable = isClickable,
             IsHovered = false,
             DefaultColor = style.DefaultColor,

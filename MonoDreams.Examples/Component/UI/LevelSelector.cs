@@ -10,6 +10,7 @@ public struct LevelSelector : IComponent
 {
     public int LevelIndex { get; set; }
     public string LevelName { get; set; }
+    public string TargetScreen { get; set; }
     public bool IsClickable { get; set; }
     public bool IsHovered { get; set; }
     public Color DefaultColor { get; set; }
