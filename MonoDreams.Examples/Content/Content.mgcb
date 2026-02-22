@@ -1547,6 +1547,11 @@
 /processor:YarnSpinnerProcessor
 /build:./Dialogues/hello_world.yarn
 
+#begin ./Dialogues/boldo.yarn
+/importer:YarnSpinnerImporter
+/processor:YarnSpinnerProcessor
+/build:./Dialogues/boldo.yarn
+
 #begin ./YarnScripts/test.yarn
 /importer:YarnSpinnerImporter
 /processor:YarnSpinnerProcessor
@@ -12994,3 +12999,51 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:./GreasePencil/Suzanne_001.png
+
+#begin ./GreasePencil/store.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/store.png
+
+#begin ./GreasePencil/Boldo.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/Boldo.png
+
+#begin ./GreasePencil/Pete.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/Pete.png
+
+#begin ./GreasePencil/Floor.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/Floor.png

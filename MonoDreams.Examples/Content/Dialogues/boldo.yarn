@@ -1,0 +1,14 @@
+title: Boldo
+---
+Boldo: Hey there, stranger! The name's Boldo.
+-> Nice to meet you, Boldo!
+    Boldo: Likewise! Always good to see a new face around here.
+-> What are you doing here?
+    Boldo: Oh, you know, just hanging around.
+    Boldo: Someone's gotta keep an eye on things!
+-> I'm in a hurry, gotta go.
+    Boldo: No worries! Come back anytime.
+    <<stop>>
+Boldo: This dream world is full of surprises, trust me.
+Boldo: See you around!
+===

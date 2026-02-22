@@ -2,14 +2,16 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Draw;
 using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
 
-public class TileEntityFactory : IEntityFactory
+public class TileEntityFactory(DrawLayerMap layers) : IEntityFactory
 {
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -19,7 +21,7 @@ public class TileEntityFactory : IEntityFactory
         entity.Set(new Transform(request.Position));
 
         // Extract from custom fields (same pattern as WallEntityFactory)
-        var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : 0.09f;
+        var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : layers.GetDepth(GameDrawLayer.Tiles);
         var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
 
         if (tilesetTexture != null)

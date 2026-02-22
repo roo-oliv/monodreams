@@ -13,7 +13,7 @@ namespace MonoDreams.System.Draw;
 public class CullingSystem(World world, MonoDreams.Component.Camera camera) : AEntitySetSystem<GameState>(world)
 {
     public bool IsEnabled { get; set; } = true;
-    public bool DebugEnabled { get; set; } = true;
+    public bool DebugEnabled { get; set; } = false;
     public int DebugMargin { get; set; } = 50;
 
     private Entity? _debugEntity;

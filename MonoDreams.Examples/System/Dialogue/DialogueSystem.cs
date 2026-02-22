@@ -1,11 +1,15 @@
+using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Draw;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Component.Dialogue;
+using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Input;
@@ -27,6 +31,7 @@ public class DialogueSystem : ISystem<GameState>
     private readonly DialogueState _dialogueState;
     private readonly BitmapFont _font;
     private readonly Transform _rootTransform;
+    private readonly DrawLayerMap _layers;
 
     // Yarn runtime
     private readonly Yarn.Dialogue _yarnDialogue;
@@ -35,9 +40,10 @@ public class DialogueSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
-    public DialogueSystem(World world, ContentManager content, GraphicsDevice graphicsDevice, int virtualWidth, int virtualHeight)
+    public DialogueSystem(World world, ContentManager content, GraphicsDevice graphicsDevice, int virtualWidth, int virtualHeight, DrawLayerMap layers, IEnumerable<string> dialogueContentPaths = null)
     {
         _world = world;
+        _layers = layers ?? throw new ArgumentNullException(nameof(layers));
         world.Subscribe(this);
 
         // Load assets
@@ -72,7 +78,7 @@ public class DialogueSystem : ISystem<GameState>
             Size = new Vector2(boxWidth, boxHeight),
             Color = Color.White,
             Target = RenderTargetID.UI,
-            LayerDepth = 0.05f,
+            LayerDepth = _layers.GetDepth(GameDrawLayer.DialogueUI),
             NinePatchData = new NinePatchInfo(
                 23,
                 new Rectangle(0, 0, 23, 23),
@@ -98,7 +104,7 @@ public class DialogueSystem : ISystem<GameState>
         _dialogueState.TextEntity.Set(new DynamicText
         {
             Target = RenderTargetID.UI,
-            LayerDepth = 0.1f,
+            LayerDepth = _layers.GetDepth(GameDrawLayer.DialogueUI, +0.01f),
             Font = _font,
             Color = Color.SaddleBrown,
             Scale = 0.5f,
@@ -125,7 +131,7 @@ public class DialogueSystem : ISystem<GameState>
             Size = new Vector2(16, 16),
             Color = Color.White,
             Target = RenderTargetID.UI,
-            LayerDepth = 0.1f
+            LayerDepth = _layers.GetDepth(GameDrawLayer.DialogueUI, +0.01f)
         });
         _dialogueState.IndicatorEntity.Set(new DrawComponent
         {
@@ -134,11 +140,8 @@ public class DialogueSystem : ISystem<GameState>
         });
 
         // Set up Yarn runtime
-        var yarnProgram = content.Load<YarnProgram>("Dialogues/hello_world");
-
+        var paths = dialogueContentPaths ?? new[] { "Dialogues/hello_world" };
         _dialogueRunner = new DialogueRunner();
-        _dialogueRunner.AddStringTable(yarnProgram);
-
         _variableStorage = new InMemoryVariableStorage();
         _yarnDialogue = new Yarn.Dialogue(_variableStorage)
         {
@@ -151,7 +154,24 @@ public class DialogueSystem : ISystem<GameState>
             NodeCompleteHandler = OnYarnNodeComplete,
             DialogueCompleteHandler = OnYarnDialogueComplete,
         };
-        _yarnDialogue.SetProgram(yarnProgram.GetProgram());
+
+        // Load all yarn programs and combine via protobuf merge
+        Yarn.Program combinedProgram = null;
+        foreach (var path in paths)
+        {
+            var yarnProgram = content.Load<YarnProgram>(path);
+            _dialogueRunner.AddStringTable(yarnProgram);
+            var program = yarnProgram.GetProgram();
+            if (combinedProgram == null)
+            {
+                combinedProgram = program;
+            }
+            else
+            {
+                combinedProgram.MergeFrom(program);
+            }
+        }
+        _yarnDialogue.SetProgram(combinedProgram);
     }
 
     // --- Yarn callbacks (fire synchronously during Continue()) ---
@@ -229,6 +249,15 @@ public class DialogueSystem : ISystem<GameState>
     {
         _dialogueState.CurrentPhase = DialoguePhase.Complete;
         DeactivateDialogue();
+    }
+
+    // --- Dialogue start trigger (from NPCInteractionSystem) ---
+
+    [Subscribe]
+    private void OnDialogueStart(in DialogueStartMessage message)
+    {
+        if (_dialogueState.IsActive) return;
+        StartYarnDialogue(message.StartNode);
     }
 
     // --- Collision trigger ---
@@ -374,7 +403,7 @@ public class DialogueSystem : ISystem<GameState>
             optionEntity.Set(new DynamicText
             {
                 Target = RenderTargetID.UI,
-                LayerDepth = 0.1f,
+                LayerDepth = _layers.GetDepth(GameDrawLayer.DialogueUI, +0.01f),
                 Font = _font,
                 Color = i == _dialogueState.SelectedOptionIndex ? Color.White : Color.SaddleBrown,
                 Scale = 0.5f,
@@ -430,6 +459,7 @@ public class DialogueSystem : ISystem<GameState>
     private void DeactivateDialogue()
     {
         _dialogueState.IsActive = false;
+        _dialogueState.WasTriggered = false;
         _dialogueState.CurrentPhase = DialoguePhase.None;
         _dialogueState.WaitingForInput = false;
         _dialogueState.CurrentSpeaker = null;

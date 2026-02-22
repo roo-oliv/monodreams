@@ -20,6 +20,7 @@ using MonoDreams.Examples.System.Layout;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.Renderer;
 using MonoDreams.Draw;
+using MonoDreams.Examples.Draw;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
@@ -45,6 +46,7 @@ public class LevelSelectionScreen : IGameScreen
     private readonly World _world;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly BitmapFont _font;
+    private readonly DrawLayerMap _layers;
 
     public LevelSelectionScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -68,6 +70,7 @@ public class LevelSelectionScreen : IGameScreen
 
         camera.Position = Vector2.Zero;
 
+        _layers = DrawLayerMap.FromEnum<DrawLayer>();
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
@@ -123,7 +126,7 @@ public class LevelSelectionScreen : IGameScreen
         var buttonStyle = ButtonStyle.WithColors(darkBrown, terracotta, mutedBrown);
 
         // Create entities first
-        var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, DrawLayerDepth.GetLayerDepth(DrawLayer.Title));
+        var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, _layers.GetDepth(DrawLayer.Title));
         var button1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
         var button2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
         var button3 = CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner);
@@ -199,7 +202,7 @@ public class LevelSelectionScreen : IGameScreen
         buttonTextEntity.Set(new DynamicText
         {
             Target = RenderTargetID.Main,
-            LayerDepth = DrawLayerDepth.GetLayerDepth(DrawLayer.ButtonText),
+            LayerDepth = _layers.GetDepth(DrawLayer.ButtonText),
             TextContent = text,
             Font = font,
             Color = isClickable ? style.DefaultColor : style.DisabledColor,
