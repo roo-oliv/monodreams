@@ -1,0 +1,182 @@
+Implement the following plan:
+
+# Plan: Clean Up and Enhance Claude Code Permissions
+
+## Context
+
+The current permission setup has accumulated 74+ session-specific entries in `settings.local.json` (38K+ tokens) — mostly one-off approvals for specific git commit messages and file creation commands. The global settings only have a handful of basic rules. This plan replaces everything with a clean, well-organized permission configuration that matches your stated preferences.
+
+## Strategy
+
+**Global settings** (`~/.claude/settings.json`) — all rules go here since they're general-purpose, not monodreams-specific. This applies to all future projects too.
+
+**Project settings** (`.claude/settings.json`) — keep hooks and existing deny rule unchanged.
+
+**Project local settings** (`.claude/settings.local.json`) — clear the accumulated 74+ entries. The global rules make them redundant.
+
+## Changes
+
+### 1. Rewrite `~/.claude/settings.json`
+
+The permission model uses **deny > ask > allow** precedence: broad `allow` rules auto-approve common operations, while narrower `ask` rules override for sensitive actions.
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "osascript -e 'display notification \"Claude Code needs your attention\" with title \"Claude Code\" sound name \"Glass\"'"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "WebSearch",
+      "WebFetch",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(touch *)",
+      "Bash(mkdir *)",
+      "Bash(mkdir -p *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(file *)",
+      "Bash(tree *)",
+      "Bash(du *)",
+      "Bash(df *)",
+      "Bash(env)",
+      "Bash(printenv *)",
+      "Bash(diff *)",
+      "Bash(sort *)",
+      "Bash(uniq *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(realpath *)",
+      "Bash(dirname *)",
+      "Bash(basename *)",
+      "Bash(xargs *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(dotnet *)",
+      "Bash(DOTNET_ROOT=*)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(node *)",
+      "Bash(git *)"
+    ],
+    "deny": [],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git rebase *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git merge *)",
+      "Bash(git reset *)",
+      "Bash(git checkout -b *)",
+      "Bash(git switch -c *)",
+      "Bash(git branch -d *)",
+      "Bash(git branch -D *)",
+      "Bash(git branch -m *)",
+      "Bash(git branch -M *)",
+      "Bash(git clean *)",
+      "Bash(git stash drop *)",
+      "Bash(git am *)",
+      "Bash(gh *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet tool install *)",
+      "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(yarn add *)",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(brew install *)",
+      "Bash(curl * -d *)",
+      "Bash(curl * --data *)",
+      "Bash(curl * -X POST *)",
+      "Bash(curl * -X PUT *)",
+      "Bash(curl * -X PATCH *)",
+      "Bash(curl * -X DELETE *)",
+      "Bash(curl * --json *)"
+    ],
+    "defaultMode": "plan"
+  },
+  "alwaysThinkingEnabled": true
+}
+```
+
+**How the rules map to your requirements:**
+
+| Requirement | Rule |
+|---|---|
+| Read-only actions everywhere | `Read` (covers Glob, Grep too) |
+| Web search/fetch/download | `WebSearch`, `WebFetch`, `Bash(curl *)`, `Bash(wget *)` |
+| Non-destructive terminal tools | `Bash(ls *)`, `Bash(cat *)`, `Bash(head *)`, `Bash(touch *)`, `Bash(mkdir *)`, etc. |
+| Git read + fetch/pull/add | `Bash(git *)` in allow (broad), sensitive overridden in ask |
+| File CRUD in project | `Edit`, `Write` in allow |
+| Sensitive git (commit, push, rebase, etc.) | Specific patterns in `ask` — takes precedence over `Bash(git *)` |
+| Modify files outside project | Claude naturally works in-project; will still prompt if unusual |
+| Install dependencies | `Bash(dotnet add *)`, `Bash(npm install *)`, etc. in ask |
+| Post to web | `Bash(curl * -d *)`, `Bash(curl * --json *)`, etc. in ask; `Bash(gh *)` in ask |
+
+### 2. Keep `.claude/settings.json` (project) as-is
+
+No changes — hooks and `Read(./.entire/metadata/**)` deny rule stay.
+
+### 3. Clear `.claude/settings.local.json`
+
+Replace the 74+ accumulated entries with a clean empty structure:
+
+```json
+{
+  "permissions": {
+    "allow": [],
+    "deny": [],
+    "ask": []
+  }
+}
+```
+
+## Notes
+
+- **`Edit`/`Write` without path scoping**: These allow edits anywhere, not just the project. Claude Code already constrains itself to the project directory in practice. If you want strict scoping, we can use `Edit(./**)` / `Write(./**)` patterns in project-level settings instead.
+- **`Bash(curl *)` caveat**: The docs warn that Bash argument patterns are fragile — `curl -d data url` vs `curl url -d data` could bypass rules. For critical security, use `WebFetch` instead.
+- **`DOTNET_ROOT=*`**: Covers the env-prefixed dotnet commands from your machine-specific dotnet-install setup.
+- **`rm`, `cp`, `mv` in allow**: Auto-approved as requested. Claude constrains these to in-project operations.
+
+## Verification
+
+1. Start a new Claude Code session after changes
+2. Verify read-only actions auto-approve: read files, glob, grep, web search
+3. Verify terminal tools auto-approve: ls, cat, mkdir, etc.
+4. Verify git read commands auto-approve: git status, git diff, git log, git fetch
+5. Verify sensitive git commands prompt: git commit, git push, git rebase
+6. Verify package installs prompt: dotnet add, npm install
+7. Verify web posts prompt: curl -d, gh pr create
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Can you update yourself?
+
+---
+
+yes, run both
