@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "80bb02923174",
+  "strategy": "manual-commit",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Debug/ComponentIntrospector.cs",
+    "MonoDreams.Examples/Debug/DebugInspector.cs",
+    "MonoDreams.Examples/Debug/EntitySnapshot.cs",
+    "MonoDreams.Examples/Debug/WatcherState.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Inspector/ComponentIntrospector.cs",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
+    "MonoDreams.Examples/Inspector/EntitySnapshot.cs",
+    "MonoDreams.Examples/Inspector/WatcherState.cs",
+    "MonoDreams.Examples/MonoDreams.Examples.csproj",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Screen/GameScreen.cs",
+    "MonoDreams/Screen/ScreenController.cs",
+    "MonoDreams/System/Input/AbstractInputHandlingSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/80/bb02923174/0/metadata.json",
+      "transcript": "/80/bb02923174/0/full.jsonl",
+      "context": "/80/bb02923174/0/context.md",
+      "content_hash": "/80/bb02923174/0/content_hash.txt",
+      "prompt": "/80/bb02923174/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 161,
+    "cache_creation_tokens": 375810,
+    "cache_read_tokens": 13449917,
+    "output_tokens": 7963,
+    "api_call_count": 151
+  }
+}

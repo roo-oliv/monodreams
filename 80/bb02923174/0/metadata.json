@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "80bb02923174",
+  "session_id": "680a01ce-f972-4576-aa74-f918dca79e91",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T13:49:46.085266Z",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Debug/ComponentIntrospector.cs",
+    "MonoDreams.Examples/Debug/DebugInspector.cs",
+    "MonoDreams.Examples/Debug/EntitySnapshot.cs",
+    "MonoDreams.Examples/Debug/WatcherState.cs",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Inspector/ComponentIntrospector.cs",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
+    "MonoDreams.Examples/Inspector/EntitySnapshot.cs",
+    "MonoDreams.Examples/Inspector/WatcherState.cs",
+    "MonoDreams.Examples/MonoDreams.Examples.csproj",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Screen/GameScreen.cs",
+    "MonoDreams/Screen/ScreenController.cs",
+    "MonoDreams/System/Input/AbstractInputHandlingSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 161,
+    "cache_creation_tokens": 375810,
+    "cache_read_tokens": 13449917,
+    "output_tokens": 7963,
+    "api_call_count": 151
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T13:49:45.815172Z",
+    "agent_lines": 533,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 533,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/680a01ce-f972-4576-aa74-f918dca79e91.jsonl"
+}

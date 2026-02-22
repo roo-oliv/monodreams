@@ -1,0 +1,167 @@
+Implement the following plan:
+
+# ImGui.NET ECS Debug Inspector
+
+## Context
+
+MonoDreams needs a runtime debug inspector for examining entity/component state during gameplay. The goal is a JetBrains-style variable watcher: a **World Hierarchy panel** showing the full ECS tree (World → Entities → Components → Fields) with tri-state checkboxes to pin items, and a **Watchers panel** that displays only the pinned items with live-updating values.
+
+ImGui.NET (1.89.7.1) and MonoGame.ImGuiNet (1.0.5) are already installed in `MonoDreams.Examples.csproj` but unused. DefaultEcs provides `Entity.ReadAllComponents(IComponentReader)` for introspection.
+
+## Architecture
+
+ImGui renders directly to the backbuffer **after** `FinalDrawSystem` composites all game render targets. This gives native-resolution UI on top of everything, no extra render target needed.
+
+```
+Game1.Draw():
+  _screenController.Draw(gameTime)   // game renders to backbuffer
+  _imGuiRenderer.BeginLayout(gameTime)
+  _debugInspector.Draw(world)        // ImGui draws on top
+  _imGuiRenderer.EndLayout()
+```
+
+Four new files in `MonoDreams.Examples/Debug/`:
+- **DebugInspector** — orchestrator: toggle (F1), panels, entity scanning
+- **ComponentIntrospector** — `IComponentReader` impl with reflection caching
+- **WatcherState** — path-based tri-state checkbox state
+- **EntitySnapshot / ComponentSnapshot** — per-frame data structures
+
+## Implementation Phases
+
+### Phase 1: Plumbing — World access + ImGui lifecycle
+
+**Expose World from screens:**
+
+`MonoDreams/Screen/GameScreen.cs` — add to `IGameScreen`:
+```csharp
+World World { get; }
+```
+
+All three screens already have `private readonly World _world` — just add `public World World => _world;` to each:
+- `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+- `MonoDreams.Examples/Screens/LevelSelectionScreen.cs`
+- `MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs`
+
+`MonoDreams/Screen/ScreenController.cs` — add:
+```csharp
+public World CurrentWorld => _screen.current?.World;
+```
+
+**ImGui lifecycle in Game1:**
+
+`MonoDreams.Examples/Game1.cs`:
+- Add fields: `ImGuiRenderer _imGuiRenderer`, `DebugInspector _debugInspector`
+- `Initialize()`: create both (skip if headless)
+- `Draw()`: after `_screenController.Draw()`, call `BeginLayout/EndLayout` with `_debugInspector.Draw()` between them (only when visible)
+- `Update()`: call `_debugInspector.HandleInput()` for F1 toggle
+
+**Build checkpoint:** pressing F1 shows/hides an empty ImGui window on top of the game.
+
+### Phase 2: Entity enumeration + component introspection
+
+**New file `MonoDreams.Examples/Debug/ComponentIntrospector.cs`:**
+- Implements `DefaultEcs.Serialization.IComponentReader`
+- `OnRead<T>(in T component, in Entity entity)` boxes the component, caches `FieldInfo[]`/`PropertyInfo[]` per Type
+- `ReadEntity(Entity) → List<ComponentSnapshot>` clears accumulator, calls `entity.ReadAllComponents(this)`
+
+**New file `MonoDreams.Examples/Debug/EntitySnapshot.cs`:**
+```
+EntitySnapshot { Entity, DisplayName, List<ComponentSnapshot> }
+ComponentSnapshot { TypeName, Type, object BoxedValue, FieldInfo[], PropertyInfo[] }
+```
+
+**In `DebugInspector.RefreshEntitySnapshots(World)`:**
+- Iterate `world.GetEntities().AsEnumerable()`
+- Build display name from `EntityInfo.Type` if present, else `Entity #hashcode`
+- Only call `ReadAllComponents` for entities visible in tree or in watchers (optimization for later; initially read all)
+
+### Phase 3: World Hierarchy panel
+
+**`DebugInspector.DrawWorldHierarchyPanel()`:**
+- Entity count header
+- For each entity: `ImGui.TreeNodeEx(displayName)` → for each component: `ImGui.TreeNode(typeName)` → for each field/property: formatted value display
+- Special formatters for common types: `Vector2` as `(x, y)`, `Rectangle` as `[x, y, w×h]`, `Color` with color swatch via `ImGui.ColorButton`, `bool`, primitives, enums, strings
+- Complex/nested types: show `ToString()` representation
+
+### Phase 4: Tri-state checkboxes + WatcherState
+
+**New file `MonoDreams.Examples/Debug/WatcherState.cs`:**
+- Path-based: `HashSet<string> _checkedPaths` for leaf nodes
+- Paths like `"Entity:Player#A1B2C3/Transform/Position"`
+- `ToggleLeaf(path)` — add or remove single leaf
+- `TogglePrefix(prefix, allLeafPaths)` — if any children checked → uncheck all, else check all
+- `GetPrefixState(prefix, allLeafPaths) → bool?` — `null` = none, `true` = all, `false` = some (intermediate)
+
+**Tri-state checkbox rendering:**
+- ImGui has no native tri-state checkbox, so for intermediate state: render a normal checkbox unchecked, then draw a horizontal line (dash) over it using `ImGui.GetWindowDrawList().AddLine()`
+- Each checkbox has `##path` as its ImGui ID for uniqueness
+
+### Phase 5: Watchers panel
+
+**`DebugInspector.DrawWatchersPanel()`:**
+- Filters `_entitySnapshots` to only show entities/components/fields that have checked paths
+- Same tree structure as hierarchy but only checked items
+- Unchecking from watchers panel works identically (same `WatcherState`)
+- Empty state: grayed text "No items watched."
+
+### Phase 6: Input suppression + polish
+
+**Input suppression approach — predicate on AKeyboardInputHandlingSystem:**
+
+`MonoDreams/System/Input/AbstractInputHandlingSystem.cs` — add:
+```csharp
+public Func<bool> ShouldSuppressInput { get; set; }
+```
+Check it in `Update()` alongside `SkipHardwareRead`. This keeps core clean (no ImGui dependency).
+
+Wire in `Game1.Update()`: set the predicate on `InputMappingSystem` to check `DebugInspector.WantsKeyboard`.
+
+**Polish:**
+- Detect world change (screen transition) and clear watcher state
+- Skip in headless mode
+- Throttle full entity scan to ~4x/sec (every 15 frames); watched entities refresh every frame
+
+## Files Summary
+
+| File | Change |
+|------|--------|
+| `MonoDreams/Screen/GameScreen.cs` | Add `World World { get; }` to `IGameScreen` |
+| `MonoDreams/Screen/ScreenController.cs` | Add `CurrentWorld` property |
+| `MonoDreams/System/Input/AbstractInputHandlingSystem.cs` | Add `ShouldSuppressInput` predicate |
+| `MonoDreams.Examples/Game1.cs` | ImGuiRenderer lifecycle, DebugInspector integration |
+| `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` | Add `World` property |
+| `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` | Add `World` property |
+| `MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs` | Add `World` property |
+| `MonoDreams.Examples/Debug/DebugInspector.cs` | **New** — orchestrator, panels, toggle |
+| `MonoDreams.Examples/Debug/EntitySnapshot.cs` | **New** — snapshot data structures |
+| `MonoDreams.Examples/Debug/ComponentIntrospector.cs` | **New** — IComponentReader + reflection |
+| `MonoDreams.Examples/Debug/WatcherState.cs` | **New** — tri-state checkbox state |
+
+## Verification
+
+1. **Build:** `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` after each phase
+2. **Toggle:** Press F1 → ImGui overlay appears/disappears
+3. **Hierarchy:** World tree shows all entities with their components and field values
+4. **Checkboxes:** Click leaf checkbox → appears in watchers. Click component checkbox → all fields toggle. Intermediate state renders as dash.
+5. **Watchers:** Live-updating values. Uncheck from watchers removes item.
+6. **Input:** Game input suppressed when typing/clicking in ImGui windows
+7. **Screen transitions:** Watcher state resets on screen change, no crashes
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+How do I enable/disable the debugger?
+
+---
+
+Does this implementation uses reflection? If yes, we have to ensure there is a way to disable this so it works with AOT for console builds or find a way to avoid reflection entirely.
+
+---
+
+Would it be reasonable to reimplement this avoiding reflection at all by requiring that all components derive from a base class or interface so we get some sort of control?
+
+---
+
+[Request interrupted by user for tool use]
