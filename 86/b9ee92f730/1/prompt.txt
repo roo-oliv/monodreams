@@ -1,0 +1,116 @@
+Implement the following plan:
+
+# Address PR #19 Review Comments
+
+## Context
+PR #19 ("Y-sorting and debugging infrastructure") received an approving review with 6 suggestions. All are minor — none are blockers. This plan addresses each one.
+
+---
+
+## 1. Remove dead code in `EntityHierarchy.RootCount`
+**File:** `MonoDreams/State/EntityHierarchy.cs:55-56`
+
+The second LINQ term `_parentMap.Keys.Count(k => false)` always returns 0. Since `RootCount` is unused anywhere in the codebase (the inspector computes `_rootCount` itself), remove the property entirely.
+
+**Change:** Delete the `RootCount` property and its doc comment (lines 52-56).
+
+---
+
+## 2. Migrate DialogueSystem and layout builders to `SetParent()`
+Uses `EntityHierarchyExtensions.SetParent()` from `MonoDreams/Extension/EntityHierarchyExtensions.cs`.
+
+### 2a. DialogueSystem (`MonoDreams.Examples/System/Dialogue/DialogueSystem.cs`)
+Lines 73, 103, 126, 402 use `new Transform(...) { Parent = _rootTransform }`.
+
+**Change:** Create transforms without Parent, then call `entity.SetParent(_rootEntity)`:
+```csharp
+// Before (line 73):
+_dialogueState.BoxEntity.Set(new Transform { Parent = _rootTransform });
+// After:
+_dialogueState.BoxEntity.Set(new Transform());
+_dialogueState.BoxEntity.SetParent(_rootEntity);
+```
+Same pattern for TextEntity (line 103), IndicatorEntity (line 126), and option entities (line 402). Add `using MonoDreams.Extension;` import.
+
+### 2b. SlotBuilder (`MonoDreams.Examples/Layout/SlotBuilder.cs`)
+Lines 111, 151 set `Transform.Parent` directly. The `Build()` method takes `Transform?` but needs the parent Entity too.
+
+**Change:** Update `Build` signature to accept parent Entity:
+```csharp
+internal (Entity slotEntity, LayoutSlot slot) Build(Entity? parentEntity)
+```
+- Line 111: Replace `slotTransform.Parent = parentTransform` with `slotEntity.SetParent(parentEntity.Value)` (after setting transform on entity)
+- Line 151: Replace `contentTransform.Parent = slotTransform` with `_contentEntity.Value.SetParent(slotEntity)`
+- Add `using MonoDreams.Extension;`
+
+### 2c. ContainerBuilder (`MonoDreams.Examples/Layout/ContainerBuilder.cs`)
+Lines 215, 236 set `Transform.Parent` directly. Parent entities are available.
+
+**Change:**
+- Line 215 (in `AddContainer`): Replace `childBuilder._transform.Parent = _transform` with `childBuilder._entity.Value.SetParent(_entity.Value)`
+- Line 236 (in `Build`): Replace `_transform.Parent = _parentBuilder._transform` with moving SetParent call after `_entity.Value.Set(_transform)`: `_entity.Value.SetParent(_parentBuilder._entity.Value)`
+- Update `AddSlot()` (line 182) to pass `_entity` instead of `_transform` to `slotBuilder.Build()`
+- Add `using MonoDreams.Extension;`
+
+---
+
+## 3. Replace bare `try-catch` with `world.Has<T>()` check
+**File:** `MonoDreams.Examples/Inspector/DebugInspector.cs:101-102`
+
+DefaultEcs `World.Has<T>()` exists and returns bool. Replace:
+```csharp
+EntityHierarchy hierarchy = null;
+try { hierarchy = world.Get<EntityHierarchy>(); } catch { /* no hierarchy yet */ }
+```
+With:
+```csharp
+var hierarchy = world.Has<EntityHierarchy>() ? world.Get<EntityHierarchy>() : null;
+```
+
+---
+
+## 4. Drop `readonly` from `ref readonly` in YSortSystem
+**File:** `MonoDreams/System/Draw/YSortSystem.cs:40`
+
+Change `ref readonly var drawComponent` to `ref var drawComponent` since the intent is to mutate `LayerDepth`. Leave the other two `ref readonly` declarations (spriteInfo, transform) as-is since those are genuinely read-only.
+
+---
+
+## 5. Pool lists in `PropagateDirtyFlags` to reduce GC pressure
+**File:** `MonoDreams/System/HierarchySystem.cs:105-122`
+
+Instead of clearing the dictionary (which discards all List instances) and allocating new lists each frame, reuse existing lists by clearing their contents.
+
+**Change:** Replace `_parentToChildren.Clear()` with a loop that clears each list's contents, then after the frame's work, remove any keys that weren't populated. Alternatively, use a simpler approach: keep the dictionary across frames, clear list contents (not the dictionary), and only add new lists when a new parent appears.
+
+Simplest approach:
+```csharp
+// Clear list contents but keep the lists allocated
+foreach (var list in _parentToChildren.Values)
+    list.Clear();
+```
+Then after building, the unused lists just have Count=0 (harmless). This avoids all per-frame List allocations after the first frame.
+
+---
+
+## 6. Fix inspector tree node ID collisions
+**File:** `MonoDreams.Examples/Inspector/DebugInspector.cs:179`
+
+Replace `index * 1000 + i` with an incrementing counter passed by ref through the recursive calls, guaranteeing unique IDs regardless of tree shape.
+
+**Change:** Add a `_nextNodeId` field, reset it to 0 at the start of `DrawWorldHierarchyPanel`, and increment it for each node drawn.
+
+---
+
+## Verification
+1. `dotnet build` — ensure no compilation errors
+2. Run the game in DEBUG mode, open inspector (F1), verify hierarchy displays correctly
+3. Load Level 2 — verify Y-sorting still works
+4. Start a dialogue — verify dialogue entities appear in inspector hierarchy tree
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+commit & push

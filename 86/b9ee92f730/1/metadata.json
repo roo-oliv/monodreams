@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "86b9ee92f730",
+  "session_id": "4cf4749f-d3a0-488b-994f-a1fc6e872023",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T16:17:21.557445Z",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
+    "MonoDreams.Examples/Layout/ContainerBuilder.cs",
+    "MonoDreams.Examples/Layout/SlotBuilder.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams/State/EntityHierarchy.cs",
+    "MonoDreams/System/Draw/YSortSystem.cs",
+    "MonoDreams/System/HierarchySystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 47752,
+    "cache_read_tokens": 2900635,
+    "output_tokens": 1872,
+    "api_call_count": 54
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T16:17:21.434641Z",
+    "agent_lines": 38,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 38,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/4cf4749f-d3a0-488b-994f-a1fc6e872023.jsonl"
+}

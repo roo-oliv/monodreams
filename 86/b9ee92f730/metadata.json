@@ -3,9 +3,16 @@
   "checkpoint_id": "86b9ee92f730",
   "strategy": "manual-commit",
   "branch": "ro/y-sorting-and-debugging",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
-    ".claude/settings.local.json"
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
+    "MonoDreams.Examples/Layout/ContainerBuilder.cs",
+    "MonoDreams.Examples/Layout/SlotBuilder.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams/State/EntityHierarchy.cs",
+    "MonoDreams/System/Draw/YSortSystem.cs",
+    "MonoDreams/System/HierarchySystem.cs"
   ],
   "sessions": [
     {
@@ -14,13 +21,20 @@
       "context": "/86/b9ee92f730/0/context.md",
       "content_hash": "/86/b9ee92f730/0/content_hash.txt",
       "prompt": "/86/b9ee92f730/0/prompt.txt"
+    },
+    {
+      "metadata": "/86/b9ee92f730/1/metadata.json",
+      "transcript": "/86/b9ee92f730/1/full.jsonl",
+      "context": "/86/b9ee92f730/1/context.md",
+      "content_hash": "/86/b9ee92f730/1/content_hash.txt",
+      "prompt": "/86/b9ee92f730/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6,
-    "cache_creation_tokens": 8498,
-    "cache_read_tokens": 107465,
-    "output_tokens": 3227,
-    "api_call_count": 4
+    "input_tokens": 64,
+    "cache_creation_tokens": 56250,
+    "cache_read_tokens": 3008100,
+    "output_tokens": 5099,
+    "api_call_count": 58
   }
 }
