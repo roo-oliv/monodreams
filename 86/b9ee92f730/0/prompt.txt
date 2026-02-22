@@ -1,0 +1,146 @@
+Implement the following plan:
+
+# PR #19 Review: Y-Sorting and Debugging Infrastructure
+
+## Overview
+
+**PR:** #19 — `ro/y-sorting-and-debugging` → `main`
+**Scope:** +1093 / -135 across 33 files (5 commits)
+**Features:** Y-sorting system, entity hierarchy (`ChildOf` + `HierarchySystem`), debug inspector (ImGui), `EntityInfo.Name`, `DrawLayerMap` aliases
+
+---
+
+## Verdict: Approve with suggestions
+
+Overall this is solid, well-structured work. The architecture is clean, conventions are followed, `#if DEBUG` guards are thorough, and the old `TransformHierarchySystem` is fully superseded. The issues below are minor—none are blockers.
+
+---
+
+## Issues
+
+### 1. Dead code in `EntityHierarchy.RootCount` (bug)
+
+**File:** `MonoDreams/State/EntityHierarchy.cs:55-56`
+
+```csharp
+public int RootCount => _childrenMap.Keys.Count(k => !_parentMap.ContainsKey(k))
+                        + _parentMap.Keys.Count(k => false); // just count non-parented
+```
+
+The second term `_parentMap.Keys.Count(k => false)` is always 0. The comment says "just count non-parented" but the predicate `k => false` never matches anything. This is dead code.
+
+**Fix:** Remove the dead term:
+```csharp
+public int RootCount => _childrenMap.Keys.Count(k => !_parentMap.ContainsKey(k));
+```
+
+**Note:** `RootCount` appears unused in the codebase (the inspector computes `_rootCount` itself), so this is cosmetic. Consider removing the property entirely if nothing will use it.
+
+---
+
+### 2. Inconsistent hierarchy pattern: `DialogueSystem` still uses `Transform.Parent` directly
+
+**File:** `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs:73, 103, 126, 402`
+
+The PR migrated game-object hierarchies (player orbs, NPC zones, button text) to `SetParent()` + `ChildOf`, but the dialogue system's child entities (`BoxEntity`, `TextEntity`, `IndicatorEntity`, option entities) still use the old `new Transform { Parent = _rootTransform }` pattern without `ChildOf`.
+
+This means:
+- These entities won't appear nested in the debug inspector's hierarchy tree
+- They won't cascade-dispose if the root entity is destroyed
+- Two different parenting patterns now coexist
+
+**Likely intentional?** The distinction in `ChildOf`'s doc is "structural ownership → ChildOf; temporary spatial → Transform.Parent". Dialogue UI entities are ownership children of the root, so they'd semantically fit `ChildOf`. But this could also be a deliberate choice to keep dialogue lifecycle management explicit (the system already manually disposes option entities in `HideOptions()`).
+
+**Suggestion:** Either migrate dialogue to `SetParent()` for consistency, or add a brief comment explaining why dialogue uses the direct pattern.
+
+The same applies to the layout builders (`SlotBuilder`, `ContainerBuilder`) which also still use `Transform.Parent` directly.
+
+---
+
+### 3. Bare `try-catch` for hierarchy resource access in inspector
+
+**File:** `MonoDreams.Examples/Inspector/DebugInspector.cs:102`
+
+```csharp
+EntityHierarchy hierarchy = null;
+try { hierarchy = world.Get<EntityHierarchy>(); } catch { /* no hierarchy yet */ }
+```
+
+Swallowing all exceptions could mask unrelated bugs. DefaultEcs throws a specific exception when a resource isn't set.
+
+**Suggestion:** Catch the specific exception type, or use a pattern that checks existence first if DefaultEcs supports it.
+
+---
+
+### 4. `DrawComponent.LayerDepth` mutation through `ref readonly`
+
+**File:** `MonoDreams/System/Draw/YSortSystem.cs:48-49`
+
+```csharp
+ref readonly var drawComponent = ref entity.Get<DrawComponent>();
+// ...
+drawComponent.LayerDepth = minDepth + t * (maxDepth - minDepth);
+```
+
+`drawComponent` is declared `ref readonly` but a field is being mutated through it. This works because `DrawComponent` is a class (reference type), not a struct—the `readonly` constrains the reference, not the object. It's not a bug, but the `readonly` is misleading since the intent is clearly to mutate.
+
+**Suggestion:** Drop the `readonly`:
+```csharp
+ref var drawComponent = ref entity.Get<DrawComponent>();
+```
+
+---
+
+### 5. `PropagateDirtyFlags` allocates `new List<Entity>()` per parent every frame
+
+**File:** `MonoDreams/System/HierarchySystem.cs:115-119`
+
+```csharp
+if (!_parentToChildren.TryGetValue(transform.Parent, out var children))
+{
+    children = new List<Entity>();
+    _parentToChildren[transform.Parent] = children;
+}
+```
+
+This allocates a new `List<Entity>` for every parent transform every frame. For a small number of parents this is fine, but it generates GC pressure proportional to hierarchy size.
+
+**Suggestion (non-blocking):** Consider pooling these lists or reusing them across frames (clear contents instead of recreating). The old `TransformHierarchySystem` had the same pattern, so this isn't a regression—just an optimization opportunity.
+
+---
+
+### 6. Inspector tree node ID collision for deep hierarchies
+
+**File:** `MonoDreams.Examples/Inspector/DebugInspector.cs:179`
+
+```csharp
+DrawEntityNode(snapshot.Children[i], index * 1000 + i);
+```
+
+The index formula `index * 1000 + i` will collide when a root entity has more than 1000 children, or with nesting deeper than 2 levels (e.g., root 1, child 999, grandchild 0 = `1 * 1000 + 999 = 1999` vs root 1, child 1, grandchild 999 = `(1*1000+1)*1000 + 999 = 1001999`—actually fine). In practice this won't happen with game entities, but the approach is fragile.
+
+**Suggestion (non-blocking):** Use `entity.GetHashCode()` or an incrementing counter instead of arithmetic indexing for ImGui IDs.
+
+---
+
+## Design Observations (not issues)
+
+**Cascade disposal semantics are well-chosen.** Orphan auto-disposal via `HierarchySystem` is the right default for ownership hierarchies. The code correctly collects orphans before disposing to avoid iterator invalidation.
+
+**Y-sort range calculation is clean.** The `margin` inset in `TryGetYSortRange` prevents z-fighting at layer boundaries. The system correctly runs after `SpritePrepSystem` and only overwrites depth for participating layers.
+
+**`WithAlias` solves the Blender collection name mismatch elegantly.** Rather than forcing naming conventions in Blender, aliases let the engine map arbitrary strings to existing layers.
+
+**`IGameScreen.World` addition to the interface is the right call.** It's needed for the inspector but is also useful beyond debugging (e.g., screen-level queries, testing).
+
+---
+
+## Review Actions
+
+Post this review as a GitHub PR comment covering:
+1. The 6 issues above (with file/line references and suggested fixes)
+2. Overall approval verdict
+3. Tone: constructive, acknowledges good design choices
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
