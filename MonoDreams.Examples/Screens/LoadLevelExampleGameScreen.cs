@@ -73,7 +73,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         
         camera.Position = new Vector2(0, 0);
 
-        _layers = DrawLayerMap.FromEnum<GameDrawLayer>();
+        _layers = DrawLayerMap.FromEnum<GameDrawLayer>()
+            .WithYSort(GameDrawLayer.Characters);
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
@@ -261,6 +262,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // new ClearDrawComponentSystem(_world),
             new CullingSystem(_world, _camera),
             new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
+            new YSortSystem(_world, _camera, _layers),
             new TextPrepSystem(_world, pixelPerfectRendering),
             new MeshPrepSystem(_world)
             // new SpriteDebugSystem(_world)  // Debug visualization for sprite bounds and origins

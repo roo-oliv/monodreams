@@ -12,10 +12,13 @@ namespace MonoDreams.Draw;
 public sealed class DrawLayerMap
 {
     private readonly Dictionary<string, float> _layers;
+    private readonly float _step;
+    private readonly HashSet<float> _ySortedDepths = new();
 
-    private DrawLayerMap(Dictionary<string, float> layers)
+    private DrawLayerMap(Dictionary<string, float> layers, float step)
     {
         _layers = layers;
+        _step = step;
     }
 
     /// <summary>
@@ -27,13 +30,15 @@ public sealed class DrawLayerMap
         var length = values.Length;
         var layers = new Dictionary<string, float>(length, StringComparer.OrdinalIgnoreCase);
 
+        float step = length <= 1 ? 1f : 1f / (length - 1);
+
         for (int i = 0; i < length; i++)
         {
             float depth = length == 1 ? 0.5f : (length - 1 - i) / (float)(length - 1);
             layers[values[i].ToString()] = depth;
         }
 
-        return new DrawLayerMap(layers);
+        return new DrawLayerMap(layers, step);
     }
 
     /// <summary>
@@ -75,5 +80,35 @@ public sealed class DrawLayerMap
     public bool TryGetDepth(string layerName, out float depth)
     {
         return _layers.TryGetValue(layerName, out depth);
+    }
+
+    /// <summary>
+    /// Marks a layer as Y-sorted. Entities on this layer will have their depth dynamically
+    /// adjusted based on Y position (lower on screen = rendered in front).
+    /// </summary>
+    public DrawLayerMap WithYSort<TEnum>(TEnum layer) where TEnum : struct, Enum
+    {
+        _ySortedDepths.Add(_layers[layer.ToString()]);
+        return this;
+    }
+
+    /// <summary>
+    /// Returns the Y-sort interpolation range for a depth value, if it belongs to a Y-sorted layer.
+    /// The range is slightly inset from the full layer range to prevent overlap with adjacent layers.
+    /// </summary>
+    public bool TryGetYSortRange(float depth, out float minDepth, out float maxDepth)
+    {
+        if (_ySortedDepths.Contains(depth))
+        {
+            const float margin = 0.001f;
+            float halfStep = _step / 2f;
+            minDepth = depth - halfStep + margin;
+            maxDepth = depth + halfStep - margin;
+            return true;
+        }
+
+        minDepth = 0f;
+        maxDepth = 0f;
+        return false;
     }
 }
