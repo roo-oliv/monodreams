@@ -83,6 +83,19 @@ public sealed class DrawLayerMap
     }
 
     /// <summary>
+    /// Registers an alias that maps to the same depth as an existing enum layer.
+    /// All string-based lookups (TryGetDepth, GetDepth) work transparently with aliases.
+    /// </summary>
+    public DrawLayerMap WithAlias<TEnum>(string alias, TEnum layer) where TEnum : struct, Enum
+    {
+        var layerName = layer.ToString();
+        if (!_layers.TryGetValue(layerName, out var depth))
+            throw new ArgumentException($"Layer '{layerName}' not found in map.", nameof(layer));
+        _layers[alias] = depth;
+        return this;
+    }
+
+    /// <summary>
     /// Marks a layer as Y-sorted. Entities on this layer will have their depth dynamically
     /// adjusted based on Y position (lower on screen = rendered in front).
     /// </summary>

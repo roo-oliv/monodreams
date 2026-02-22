@@ -81,7 +81,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         camera.Position = new Vector2(0, 0);
 
         _layers = DrawLayerMap.FromEnum<GameDrawLayer>()
-            .WithYSort(GameDrawLayer.Characters);
+            .WithYSort(GameDrawLayer.Characters)
+            .WithAlias("Player", GameDrawLayer.Characters)
+            .WithAlias("NPC", GameDrawLayer.Characters);
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
