@@ -13,7 +13,7 @@ namespace MonoDreams.Examples.System.Layout;
 /// <summary>
 /// System that calculates auto-layout for UI elements
 /// and applies the computed positions to Transform components.
-/// Must run AFTER IntrinsicSizingSystem and BEFORE TransformHierarchySystem.
+/// Must run AFTER IntrinsicSizingSystem and BEFORE HierarchySystem.
 /// </summary>
 public class AutoLayoutSystem : ISystem<GameState>
 {

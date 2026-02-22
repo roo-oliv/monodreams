@@ -27,8 +27,8 @@
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": -0.9386,
-        "y": 0.8111
+        "x": 0.4828,
+        "y": 0.0367
       },
       "customProperties": {},
       "uvMapping": {
@@ -180,8 +180,8 @@
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 1.0253,
-        "y": 0.689
+        "x": 0.4587,
+        "y": 0.0792
       },
       "customProperties": {},
       "uvMapping": {
@@ -222,12 +222,14 @@
         "Collision"
       ],
       "collectionProperties": {
-        "Collision": {}
+        "Collision": {
+          "prop": 1.0
+        }
       },
       "meshType": "plane",
       "position": {
-        "x": -40.1994,
-        "y": -30.0908
+        "x": -117.3866,
+        "y": -30.8531
       },
       "dimensions": {
         "x": 90.6142,
@@ -239,8 +241,8 @@
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 1.3055,
-        "y": 0.0693
+        "x": 0.3863,
+        "y": 0.009
       },
       "customProperties": {},
       "uvMapping": {

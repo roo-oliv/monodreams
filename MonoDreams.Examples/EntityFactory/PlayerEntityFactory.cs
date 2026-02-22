@@ -10,6 +10,7 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
+using MonoDreams.Extension;
 using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
@@ -66,8 +67,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         ProcessCustomFields(entity, request.CustomFields);
 
         // Create orbiting orbs
-        var playerTransform = entity.Get<Transform>();
-        CreateBlueOrb(world, playerTransform);
+        CreateBlueOrb(world, entity);
 
         return entity;
     }
@@ -97,18 +97,18 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         }
     }
 
-    private void CreateBlueOrb(World world, Transform parentTransform)
+    private void CreateBlueOrb(World world, Entity parentEntity)
     {
         var orbEntity = world.CreateEntity();
+        orbEntity.Set(new EntityInfo(nameof(EntityType.Orb), "BlueOrb"));
 
         // Create transform parented to player
-        var orbTransform = new Transform(
+        orbEntity.Set(new Transform(
             position: new Vector2(50, 0),
             rotation: 0f,
             scale: Vector2.One
-        );
-        orbTransform.Parent = parentTransform;
-        orbEntity.Set(orbTransform);
+        ));
+        orbEntity.SetParent(parentEntity);
 
         // Add orbital motion component
         orbEntity.Set(new OrbitalMotion
@@ -139,24 +139,24 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         orbEntity.Set(new Visible());
 
         // Create 3 red child orbs evenly spaced (0°, 120°, 240°)
-        CreateRedOrb(world, orbTransform, 0f);
-        CreateRedOrb(world, orbTransform, MathF.PI * 2f / 3f);      // 120°
-        CreateRedOrb(world, orbTransform, MathF.PI * 4f / 3f);      // 240°
+        CreateRedOrb(world, orbEntity, 0f);
+        CreateRedOrb(world, orbEntity, MathF.PI * 2f / 3f);      // 120°
+        CreateRedOrb(world, orbEntity, MathF.PI * 4f / 3f);      // 240°
     }
 
-    private void CreateRedOrb(World world, Transform parentTransform, float startAngle)
+    private void CreateRedOrb(World world, Entity parentEntity, float startAngle)
     {
         var orbEntity = world.CreateEntity();
+        orbEntity.Set(new EntityInfo(nameof(EntityType.Orb), "RedOrb"));
         var rnd = new Random();
 
         // Create transform parented to blue orb
-        var orbTransform = new Transform(
+        orbEntity.Set(new Transform(
             position: new Vector2(20, 0),
             rotation: 0f,
             scale: Vector2.One
-        );
-        orbTransform.Parent = parentTransform;
-        orbEntity.Set(orbTransform);
+        ));
+        orbEntity.SetParent(parentEntity);
 
         // Add orbital motion component with starting angle offset
         orbEntity.Set(new OrbitalMotion

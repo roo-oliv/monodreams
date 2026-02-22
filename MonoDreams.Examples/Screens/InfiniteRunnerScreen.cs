@@ -5,6 +5,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+#if DEBUG
+using MonoDreams.Examples.Inspector;
+#endif
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Component.Physics;
@@ -41,6 +44,9 @@ public class InfiniteRunnerScreen : IGameScreen
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly MonoGame.Extended.BitmapFonts.BitmapFont _font;
     private readonly DrawLayerMap _layers;
+#if DEBUG
+    private InputMappingSystem _inputMappingSystem;
+#endif
 
     public InfiniteRunnerScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -71,9 +77,19 @@ public class InfiniteRunnerScreen : IGameScreen
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public World World => _world;
 
     public void Load(ScreenController screenController, ContentManager content)
     {
+#if DEBUG
+        // Wire debug inspector input suppression
+        var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
+        if (debugInspector != null)
+        {
+            _inputMappingSystem.ShouldSuppressInput = () => debugInspector.WantsKeyboard;
+        }
+#endif
+
         Logger.Info("Loading InfiniteRunner screen.");
         CreateTreadmill();
         CreatePlayer();
@@ -225,6 +241,9 @@ public class InfiniteRunnerScreen : IGameScreen
         var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
+#if DEBUG
+        _inputMappingSystem = inputMappingSystem;
+#endif
         var actionMap = new Dictionary<string, AInputState>
         {
             ["Up"] = InputState.Up, ["Down"] = InputState.Down,
@@ -275,12 +294,12 @@ public class InfiniteRunnerScreen : IGameScreen
             scoreDisplay
         );
 
-        var transformHierarchySystem = new TransformHierarchySystem(_world);
+        var hierarchySystem = new HierarchySystem(_world);
 
         return new SequentialSystem<GameState>(
             inputSystems,
             logicSystems,
-            transformHierarchySystem
+            hierarchySystem
         );
     }
 

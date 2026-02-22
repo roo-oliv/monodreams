@@ -3,6 +3,9 @@ using DefaultEcs.System;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
+#if DEBUG
+using MonoDreams.Examples.Inspector;
+#endif
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
@@ -20,6 +23,7 @@ using MonoDreams.System;
 using MonoDreams.System.Camera;
 using MonoDreams.System.EntitySpawn;
 using MonoDreams.Examples.EntityFactory;
+using MonoDreams.Extension;
 using MonoDreams.System.Physics;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Cursor;
@@ -51,6 +55,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
+#if DEBUG
+    private InputMappingSystem _inputMappingSystem;
+#endif
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly DrawLayerMap _layers;
 
@@ -73,7 +80,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         
         camera.Position = new Vector2(0, 0);
 
-        _layers = DrawLayerMap.FromEnum<GameDrawLayer>();
+        _layers = DrawLayerMap.FromEnum<GameDrawLayer>()
+            .WithYSort(GameDrawLayer.Characters)
+            .WithAlias("Player", GameDrawLayer.Characters)
+            .WithAlias("NPC", GameDrawLayer.Characters);
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
@@ -81,8 +91,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public World World => _world;
     public void Load(ScreenController screenController, ContentManager content)
     {
+#if DEBUG
+        // Wire debug inspector input suppression
+        var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
+        if (debugInspector != null)
+        {
+            _inputMappingSystem.ShouldSuppressInput = () => debugInspector.WantsKeyboard;
+        }
+#endif
+
         var cursorTextures = new Dictionary<CursorType, Texture2D>
         {
             [CursorType.Default] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1"),
@@ -112,6 +132,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
+#if DEBUG
+        _inputMappingSystem = inputMappingSystem;
+#endif
         var actionMap = new Dictionary<string, AInputState>
         {
             ["Up"] = InputState.Up, ["Down"] = InputState.Down,
@@ -144,7 +167,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
             var npcName = blenderObj.Name;
-            entity.Set(new EntityInfo("NPC"));
+            entity.Set(new EntityInfo("NPC", npcName));
 
             var npcTransform = entity.Get<Transform>();
             var npcSprite = entity.Get<SpriteInfo>();
@@ -155,7 +178,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Create interaction zone entity (wider than the NPC for approach detection)
             var zoneEntity = _world.CreateEntity();
             zoneEntity.Set(new EntityInfo("NPCZone"));
-            zoneEntity.Set(new Transform { Parent = npcTransform });
+            zoneEntity.Set(new Transform());
+            zoneEntity.SetParent(entity);
 
             var zoneWidth = (int)(npcDimensions.X * 2.5f);
             var zoneHeight = (int)(npcDimensions.Y * 1.5f);
@@ -165,14 +189,15 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
             // Create floating icon entity (above the NPC sprite)
             var iconEntity = _world.CreateEntity();
-            iconEntity.Set(new EntityInfo("InteractionIcon"));
+            iconEntity.Set(new EntityInfo("InteractionIcon", $"{npcName}Icon"));
 
             // Compute icon position above NPC visual top
             var originOffsetY = blenderObj.OriginOffset?.Y ?? 0.5f;
             var visualTop = -npcDimensions.Y * (1 - originOffsetY);
             var iconOffset = new Vector2(0, visualTop - 6f);
 
-            iconEntity.Set(new Transform(iconOffset) { Parent = npcTransform });
+            iconEntity.Set(new Transform(iconOffset));
+            iconEntity.SetParent(entity);
             iconEntity.Set(new DynamicText
             {
                 Target = RenderTargetID.Main,
@@ -225,9 +250,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // ... other game logic systems
         );
         
-        // Transform hierarchy system must run AFTER logic systems modify transforms
+        // Hierarchy system must run AFTER logic systems modify transforms
         // but BEFORE any systems read world transforms (camera, rendering, etc.)
-        var transformHierarchySystem = new TransformHierarchySystem(_world);
+        var hierarchySystem = new HierarchySystem(_world);
 
         var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
 
@@ -243,7 +268,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             inputSystems,
             levelLoadSystems,
             logicSystems,
-            transformHierarchySystem, // Propagate transform hierarchy dirty flags
+            hierarchySystem, // Entity hierarchy + transform dirty flag propagation
             cameraFollowSystem,
             cursorLateUpdateSystem,          // Cursor position updates after camera
             new CursorDrawPrepSystem(_world) // Draw prep after position is finalized
@@ -261,6 +286,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // new ClearDrawComponentSystem(_world),
             new CullingSystem(_world, _camera),
             new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
+            new YSortSystem(_world, _camera, _layers),
             new TextPrepSystem(_world, pixelPerfectRendering),
             new MeshPrepSystem(_world)
             // new SpriteDebugSystem(_world)  // Debug visualization for sprite bounds and origins

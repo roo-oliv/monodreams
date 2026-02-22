@@ -15,6 +15,7 @@ using MonoDreams.Examples.Dialogue;
 using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Message;
 using MonoDreams.Message;
+using MonoDreams.Extension;
 using MonoDreams.State;
 using MonoDreams.Util;
 using MonoDreams.YarnSpinner;
@@ -62,15 +63,16 @@ public class DialogueSystem : ISystem<GameState>
         // Create root entity
         _rootTransform = new Transform(rootPosition);
         _rootEntity = world.CreateEntity();
-        _rootEntity.Set(new EntityInfo(nameof(EntityType.Interface)));
+        _rootEntity.Set(new EntityInfo(nameof(EntityType.Interface), "DialogueRoot"));
         _rootEntity.Set(_rootTransform);
         _dialogueState = new DialogueState();
         _rootEntity.Set(_dialogueState);
 
         // Create box child entity
         _dialogueState.BoxEntity = world.CreateEntity();
-        _dialogueState.BoxEntity.Set(new EntityInfo(nameof(EntityType.Interface)));
-        _dialogueState.BoxEntity.Set(new Transform { Parent = _rootTransform });
+        _dialogueState.BoxEntity.Set(new EntityInfo(nameof(EntityType.Interface), "DialogueBox"));
+        _dialogueState.BoxEntity.Set(new Transform());
+        _dialogueState.BoxEntity.SetParent(_rootEntity);
         _dialogueState.BoxEntity.Set(new SpriteInfo
         {
             SpriteSheet = dialogBoxTexture,
@@ -99,8 +101,9 @@ public class DialogueSystem : ISystem<GameState>
 
         // Create text child entity
         _dialogueState.TextEntity = world.CreateEntity();
-        _dialogueState.TextEntity.Set(new EntityInfo(nameof(EntityType.Interface)));
-        _dialogueState.TextEntity.Set(new Transform(textOffset) { Parent = _rootTransform });
+        _dialogueState.TextEntity.Set(new EntityInfo(nameof(EntityType.Interface), "DialogueText"));
+        _dialogueState.TextEntity.Set(new Transform(textOffset));
+        _dialogueState.TextEntity.SetParent(_rootEntity);
         _dialogueState.TextEntity.Set(new DynamicText
         {
             Target = RenderTargetID.UI,
@@ -122,8 +125,9 @@ public class DialogueSystem : ISystem<GameState>
 
         // Create indicator child entity
         _dialogueState.IndicatorEntity = world.CreateEntity();
-        _dialogueState.IndicatorEntity.Set(new EntityInfo(nameof(EntityType.Interface)));
-        _dialogueState.IndicatorEntity.Set(new Transform(indicatorOffset) { Parent = _rootTransform });
+        _dialogueState.IndicatorEntity.Set(new EntityInfo(nameof(EntityType.Interface), "DialogueIndicator"));
+        _dialogueState.IndicatorEntity.Set(new Transform(indicatorOffset));
+        _dialogueState.IndicatorEntity.SetParent(_rootEntity);
         _dialogueState.IndicatorEntity.Set(new SpriteInfo
         {
             SpriteSheet = indicatorTexture,
@@ -398,8 +402,9 @@ public class DialogueSystem : ISystem<GameState>
             var fullText = prefix + _dialogueState.CurrentOptions[i];
 
             var optionEntity = _world.CreateEntity();
-            optionEntity.Set(new EntityInfo(nameof(EntityType.Interface)));
-            optionEntity.Set(new Transform(new Vector2(16, startY + i * optionSpacing)) { Parent = _rootTransform });
+            optionEntity.Set(new EntityInfo(nameof(EntityType.Interface), $"DialogueOption{i}"));
+            optionEntity.Set(new Transform(new Vector2(16, startY + i * optionSpacing)));
+            optionEntity.SetParent(_rootEntity);
             optionEntity.Set(new DynamicText
             {
                 Target = RenderTargetID.UI,

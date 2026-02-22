@@ -26,7 +26,8 @@ public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEn
         var entity = world.CreateEntity();
 
         // Add core components
-        entity.Set(new EntityInfo(nameof(EntityType.Enemy)));
+        var name = request.CustomFields.TryGetValue("name", out var n) ? n as string : null;
+        entity.Set(new EntityInfo(nameof(EntityType.NPC), name));
         entity.Set(new Transform(request.Position));
         entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new RigidBody());

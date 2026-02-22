@@ -12,10 +12,12 @@ public abstract class AKeyboardInputHandlingSystem : ISystem<GameState>
     public abstract List<(AInputState inputState, Keys)> InputMapping { get; }
 
     public bool SkipHardwareRead { get; set; }
+    public Func<bool> ShouldSuppressInput { get; set; }
 
     public virtual void Update(GameState state)
     {
         if (SkipHardwareRead) return;
+        if (ShouldSuppressInput?.Invoke() == true) return;
 
         foreach (var (inputState, key) in InputMapping)
         {

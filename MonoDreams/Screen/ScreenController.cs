@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DefaultEcs;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
@@ -28,6 +29,8 @@ public class ScreenController(
 
     private (IGameScreen current, IGameScreen next) _screen;
     private GameState _state = new(new GameTime());
+
+    public World CurrentWorld => _screen.current?.World;
 
     private readonly Dictionary<string, Func<IGameScreen>> _screenCreators = new();
 
