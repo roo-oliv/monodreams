@@ -1,0 +1,105 @@
+Implement the following plan:
+
+# Entity Hierarchy: `ChildOf` Component
+
+## Context
+
+The debug inspector shows all entities as a flat list. Entities that logically belong to others (NPC's dialogue zone, NPC's interaction icon, Player's orbs) should display as a tree. Additionally, destroying a parent entity should cascade to its children. Currently, `Transform.Parent` establishes spatial hierarchy at the Transform level but is invisible at the entity level — there's no way to query "children of entity X" or build entity trees without scanning all transforms.
+
+## Design
+
+- **`ChildOf`** struct component on child entities — holds `Entity Parent`
+- **`EntityHierarchy`** world resource — system-maintained lookup for `GetChildren(entity)`, `GetParent(entity)`, `GetRoots()`
+- **`HierarchySystem`** replaces `TransformHierarchySystem` — maintains EntityHierarchy, syncs `Transform.Parent` from `ChildOf`, propagates dirty flags, cascade-destroys orphaned children
+- **`Entity.SetParent()` / `Entity.RemoveParent()`** extension methods — set `ChildOf` + eagerly sync `Transform.Parent`
+- **Inspector** — hierarchical tree view using EntityHierarchy
+
+**What ChildOf is for**: ownership/structural hierarchy (NPC → zone, Player → orbs). Permanent, lifecycle-coupled, inspector-nested.
+
+**What ChildOf is NOT for**: temporary spatial attachment (platform riding → use `Transform.Parent` directly) or behavioral references (camera follow → game-specific components).
+
+## Implementation
+
+### Phase 1: Core Infrastructure
+
+**New: `MonoDreams/Component/ChildOf.cs`**
+```csharp
+public struct ChildOf
+{
+    public Entity Parent;
+    public ChildOf(Entity parent) { Parent = parent; }
+}
+```
+
+**New: `MonoDreams/State/EntityHierarchy.cs`**
+- `Dictionary<Entity, List<Entity>>` children map + `Dictionary<Entity, Entity>` parent map
+- Public query methods: `GetChildren(Entity)`, `GetParent(Entity)`, `HasChildren(Entity)`, `GetRoots(IEnumerable<Entity>)` (entities without ChildOf)
+- Internal `Rebuild(EntitySet)` method called by HierarchySystem each scan
+
+**New: `MonoDreams/Extension/EntityHierarchyExtensions.cs`**
+- `entity.SetParent(parentEntity)` — sets `ChildOf`, eagerly syncs `Transform.Parent` if both have Transform
+- `entity.RemoveParent()` — snapshots world position, clears `Transform.Parent`, removes `ChildOf`
+
+### Phase 2: Hierarchy System
+
+**New: `MonoDreams/System/HierarchySystem.cs`** (replaces `TransformHierarchySystem`)
+- Queries entities with `ChildOf` to build `EntityHierarchy` resource each frame
+- Detects orphans (ChildOf.Parent not alive) → disposes them (cascade destruction)
+- Syncs `Transform.Parent` from `ChildOf` for entities that have both
+- Propagates dirty flags from parent to children (same logic as current TransformHierarchySystem)
+
+**Delete: `MonoDreams/System/TransformHierarchySystem.cs`**
+
+### Phase 3: Migrate Entity Factories
+
+**Modify: `MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs`**
+- `CreateBlueOrb(World, Transform)` → `CreateBlueOrb(World, Entity)` — uses `orbEntity.SetParent(parentEntity)` instead of `orbTransform.Parent = parentTransform`
+- Same for `CreateRedOrb`
+
+**Modify: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`**
+- NPC zone + icon creation: replace `new Transform { Parent = npcTransform }` with `zoneEntity.SetParent(entity)` / `iconEntity.SetParent(entity)`
+- Swap `TransformHierarchySystem` → `HierarchySystem`
+
+**Modify: `MonoDreams.Examples/Screens/LevelSelectionScreen.cs`**
+- Button text parent assignment: use `SetParent`
+- Swap `TransformHierarchySystem` → `HierarchySystem`
+
+**Modify: `MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs`**
+- Swap `TransformHierarchySystem` → `HierarchySystem`
+
+### Phase 4: Inspector Hierarchy View
+
+**Modify: `MonoDreams.Examples/Inspector/DebugInspector.cs`**
+- `RefreshEntitySnapshots`: read `EntityHierarchy` from world, build tree of snapshots (root entities at top, children nested)
+- `DrawWorldHierarchyPanel`: recursive entity rendering — root entities shown at top level, children indented under their parent's tree node
+- Entity count shows "Entities: 42 (12 roots)" for context
+- Filter still works — if a child matches, show it (and its parent chain for context)
+
+## Files Summary
+
+| Action | File |
+|--------|------|
+| Create | `MonoDreams/Component/ChildOf.cs` |
+| Create | `MonoDreams/State/EntityHierarchy.cs` |
+| Create | `MonoDreams/Extension/EntityHierarchyExtensions.cs` |
+| Create | `MonoDreams/System/HierarchySystem.cs` |
+| Delete | `MonoDreams/System/TransformHierarchySystem.cs` |
+| Modify | `MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs` |
+| Modify | `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` |
+| Modify | `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` |
+| Modify | `MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs` |
+| Modify | `MonoDreams.Examples/Inspector/DebugInspector.cs` |
+
+## Verification
+
+1. `dotnet build` — all projects compile
+2. Run the game → open inspector (F1) → verify NPC children (zone, icon) appear nested under NPC, Player orbs appear nested under Player
+3. Run headless replay test: `dotnet test MonoDreams.Tests/` — existing tests pass
+4. Verify destroying an entity cascades to children (can test by adding a log line when orphan disposal happens)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+commit this
