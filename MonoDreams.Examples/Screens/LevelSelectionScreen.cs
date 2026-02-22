@@ -13,6 +13,7 @@ using MonoDreams.Examples.Layout;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System;
+using MonoDreams.Extension;
 using MonoDreams.System;
 using MonoDreams.System.Cursor;
 using MonoDreams.System.Draw;
@@ -197,9 +198,8 @@ public class LevelSelectionScreen : IGameScreen
 
         // Create button text entity with its own transform, offset by padding to center text
         var buttonTextEntity = _world.CreateEntity();
-        var textTransform = new Transform(new Vector2(style.Padding, style.Padding));
-        textTransform.Parent = buttonTransform;  // Child of button container transform
-        buttonTextEntity.Set(textTransform);
+        buttonTextEntity.Set(new Transform(new Vector2(style.Padding, style.Padding)));
+        buttonTextEntity.SetParent(buttonContainerEntity);
         buttonTextEntity.Set(new DynamicText
         {
             Target = RenderTargetID.Main,
@@ -265,9 +265,9 @@ public class LevelSelectionScreen : IGameScreen
             new ButtonMeshPrepSystem(_world)
         );
 
-        // Transform hierarchy system must run AFTER any systems that modify transforms
+        // Hierarchy system must run AFTER any systems that modify transforms
         // but BEFORE any systems read world transforms (rendering, etc.)
-        var transformHierarchySystem = new TransformHierarchySystem(_world);
+        var hierarchySystem = new HierarchySystem(_world);
 
         // Cursor position must update after layout/UI to use current camera state
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
@@ -276,7 +276,7 @@ public class LevelSelectionScreen : IGameScreen
             inputSystems,
             layoutSystems,  // Layout before UI interaction
             uiSystems,
-            transformHierarchySystem,         // Propagate transform hierarchy dirty flags
+            hierarchySystem,                  // Entity hierarchy + transform dirty flag propagation
             cursorLateUpdateSystem,           // Cursor position updates after camera
             new CursorDrawPrepSystem(_world)  // Draw prep after position is finalized
         );

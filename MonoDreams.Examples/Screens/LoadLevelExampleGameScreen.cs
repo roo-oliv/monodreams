@@ -23,6 +23,7 @@ using MonoDreams.System;
 using MonoDreams.System.Camera;
 using MonoDreams.System.EntitySpawn;
 using MonoDreams.Examples.EntityFactory;
+using MonoDreams.Extension;
 using MonoDreams.System.Physics;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Cursor;
@@ -175,7 +176,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Create interaction zone entity (wider than the NPC for approach detection)
             var zoneEntity = _world.CreateEntity();
             zoneEntity.Set(new EntityInfo("NPCZone"));
-            zoneEntity.Set(new Transform { Parent = npcTransform });
+            zoneEntity.Set(new Transform());
+            zoneEntity.SetParent(entity);
 
             var zoneWidth = (int)(npcDimensions.X * 2.5f);
             var zoneHeight = (int)(npcDimensions.Y * 1.5f);
@@ -192,7 +194,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             var visualTop = -npcDimensions.Y * (1 - originOffsetY);
             var iconOffset = new Vector2(0, visualTop - 6f);
 
-            iconEntity.Set(new Transform(iconOffset) { Parent = npcTransform });
+            iconEntity.Set(new Transform(iconOffset));
+            iconEntity.SetParent(entity);
             iconEntity.Set(new DynamicText
             {
                 Target = RenderTargetID.Main,
@@ -245,9 +248,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // ... other game logic systems
         );
         
-        // Transform hierarchy system must run AFTER logic systems modify transforms
+        // Hierarchy system must run AFTER logic systems modify transforms
         // but BEFORE any systems read world transforms (camera, rendering, etc.)
-        var transformHierarchySystem = new TransformHierarchySystem(_world);
+        var hierarchySystem = new HierarchySystem(_world);
 
         var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
 
@@ -263,7 +266,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             inputSystems,
             levelLoadSystems,
             logicSystems,
-            transformHierarchySystem, // Propagate transform hierarchy dirty flags
+            hierarchySystem, // Entity hierarchy + transform dirty flag propagation
             cameraFollowSystem,
             cursorLateUpdateSystem,          // Cursor position updates after camera
             new CursorDrawPrepSystem(_world) // Draw prep after position is finalized

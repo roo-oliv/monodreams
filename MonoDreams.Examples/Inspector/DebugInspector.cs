@@ -4,6 +4,7 @@ using DefaultEcs;
 using ImGuiNET;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.State;
 using XnaColor = Microsoft.Xna.Framework.Color;
 using XnaVector2 = Microsoft.Xna.Framework.Vector2;
 using XnaVector3 = Microsoft.Xna.Framework.Vector3;
@@ -16,7 +17,10 @@ public class DebugInspector
     private bool _visible;
     private KeyboardState _previousKeyboardState;
     private readonly ComponentIntrospector _introspector = new();
-    private List<EntitySnapshot> _snapshots = new();
+    private List<EntitySnapshot> _rootSnapshots = new();
+    private Dictionary<Entity, EntitySnapshot> _allSnapshots = new();
+    private int _totalEntityCount;
+    private int _rootCount;
     private readonly WatcherState _watcherState = new();
     private World _lastWorld;
     private int _frameCounter;
@@ -43,7 +47,8 @@ public class DebugInspector
         // Detect world change (screen transition)
         if (world != _lastWorld)
         {
-            _snapshots.Clear();
+            _rootSnapshots.Clear();
+            _allSnapshots.Clear();
             _watcherState.Clear();
             _lastWorld = world;
             _frameCounter = 0;
@@ -61,64 +66,126 @@ public class DebugInspector
 
     private void RefreshEntitySnapshots(World world)
     {
-        _snapshots.Clear();
+        _allSnapshots.Clear();
+        _rootSnapshots.Clear();
+        _totalEntityCount = 0;
+
+        // Build snapshot for every entity
         foreach (var entity in world.GetEntities().AsEnumerable())
         {
             if (!entity.IsAlive) continue;
+            _totalEntityCount++;
 
             var displayName = entity.Has<EntityInfo>()
                 ? $"{entity.Get<EntityInfo>().Type} #{entity.GetHashCode():X}"
                 : $"Entity #{entity.GetHashCode():X}";
 
-            _snapshots.Add(new EntitySnapshot
+            _allSnapshots[entity] = new EntitySnapshot
             {
                 Entity = entity,
                 DisplayName = displayName,
                 Components = _introspector.ReadEntity(entity)
-            });
+            };
         }
+
+        // Read hierarchy from world resource (set by HierarchySystem)
+        EntityHierarchy hierarchy = null;
+        try { hierarchy = world.Get<EntityHierarchy>(); } catch { /* no hierarchy yet */ }
+
+        if (hierarchy != null)
+        {
+            // Wire up parent-child snapshot tree
+            foreach (var (entity, snapshot) in _allSnapshots)
+            {
+                var parent = hierarchy.GetParent(entity);
+                if (parent.HasValue && _allSnapshots.TryGetValue(parent.Value, out var parentSnapshot))
+                {
+                    parentSnapshot.Children.Add(snapshot);
+                }
+                else
+                {
+                    _rootSnapshots.Add(snapshot);
+                }
+            }
+        }
+        else
+        {
+            // No hierarchy available — flat list
+            _rootSnapshots.AddRange(_allSnapshots.Values);
+        }
+
+        _rootCount = _rootSnapshots.Count;
     }
 
     private void DrawWorldHierarchyPanel()
     {
         ImGui.Begin("World Hierarchy");
-        ImGui.Text($"Entities: {_snapshots.Count}");
+        ImGui.Text($"Entities: {_totalEntityCount} ({_rootCount} roots)");
         ImGui.InputTextWithHint("##filter", "Filter...", ref _filterText, 256);
         ImGui.Separator();
 
-        for (var i = 0; i < _snapshots.Count; i++)
+        for (var i = 0; i < _rootSnapshots.Count; i++)
         {
-            var snapshot = _snapshots[i];
-
-            // Apply filter
-            if (_filterText.Length > 0 &&
-                !snapshot.DisplayName.Contains(_filterText, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var entityPath = $"Entity:{snapshot.DisplayName}";
-            DrawTriStateCheckbox(entityPath, snapshot);
-            ImGui.SameLine();
-
-            if (ImGui.TreeNode($"{snapshot.DisplayName}##e{i}"))
-            {
-                for (var c = 0; c < snapshot.Components.Count; c++)
-                {
-                    var comp = snapshot.Components[c];
-                    var compPath = $"{entityPath}/{comp.TypeName}";
-                    DrawTriStateCheckbox(compPath, snapshot, comp);
-                    ImGui.SameLine();
-
-                    if (ImGui.TreeNode($"{comp.TypeName}##e{i}c{c}"))
-                    {
-                        DrawComponentFields(comp, compPath);
-                        ImGui.TreePop();
-                    }
-                }
-                ImGui.TreePop();
-            }
+            DrawEntityNode(_rootSnapshots[i], i);
         }
 
         ImGui.End();
+    }
+
+    private void DrawEntityNode(EntitySnapshot snapshot, int index)
+    {
+        var hasFilter = _filterText.Length > 0;
+
+        // When filtering, check if this entity or any descendant matches
+        if (hasFilter && !MatchesFilter(snapshot))
+            return;
+
+        var entityPath = $"Entity:{snapshot.DisplayName}";
+        var hasChildren = snapshot.Children.Count > 0;
+
+        DrawTriStateCheckbox(entityPath, snapshot);
+        ImGui.SameLine();
+
+        var flags = hasChildren ? ImGuiTreeNodeFlags.None : ImGuiTreeNodeFlags.Leaf;
+        if (ImGui.TreeNodeEx($"{snapshot.DisplayName}##e{index}", flags))
+        {
+            // Draw components
+            for (var c = 0; c < snapshot.Components.Count; c++)
+            {
+                var comp = snapshot.Components[c];
+                var compPath = $"{entityPath}/{comp.TypeName}";
+                DrawTriStateCheckbox(compPath, snapshot, comp);
+                ImGui.SameLine();
+
+                if (ImGui.TreeNode($"{comp.TypeName}##e{index}c{c}"))
+                {
+                    DrawComponentFields(comp, compPath);
+                    ImGui.TreePop();
+                }
+            }
+
+            // Draw children recursively
+            for (var i = 0; i < snapshot.Children.Count; i++)
+            {
+                DrawEntityNode(snapshot.Children[i], index * 1000 + i);
+            }
+
+            ImGui.TreePop();
+        }
+    }
+
+    private bool MatchesFilter(EntitySnapshot snapshot)
+    {
+        if (snapshot.DisplayName.Contains(_filterText, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        foreach (var child in snapshot.Children)
+        {
+            if (MatchesFilter(child))
+                return true;
+        }
+
+        return false;
     }
 
     private void DrawComponentFields(ComponentSnapshot comp, string compPath)
@@ -256,15 +323,18 @@ public class DebugInspector
             return;
         }
 
-        for (var i = 0; i < _snapshots.Count; i++)
+        var i = 0;
+        foreach (var snapshot in _allSnapshots.Values)
         {
-            var snapshot = _snapshots[i];
             var entityPath = $"Entity:{snapshot.DisplayName}";
             var entityLeafPaths = GetLeafPaths(entityPath, snapshot, null);
 
             // Skip entities with no checked leaves
             if (!_watcherState.HasAnyCheckedUnder(entityPath, entityLeafPaths))
+            {
+                i++;
                 continue;
+            }
 
             DrawTriStateCheckbox(entityPath, snapshot);
             ImGui.SameLine();
@@ -291,6 +361,7 @@ public class DebugInspector
                 }
                 ImGui.TreePop();
             }
+            i++;
         }
 
         ImGui.End();

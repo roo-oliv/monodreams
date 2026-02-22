@@ -294,12 +294,12 @@ public class InfiniteRunnerScreen : IGameScreen
             scoreDisplay
         );
 
-        var transformHierarchySystem = new TransformHierarchySystem(_world);
+        var hierarchySystem = new HierarchySystem(_world);
 
         return new SequentialSystem<GameState>(
             inputSystems,
             logicSystems,
-            transformHierarchySystem
+            hierarchySystem
         );
     }
 

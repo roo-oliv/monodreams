@@ -9,6 +9,7 @@ public class EntitySnapshot
     public Entity Entity;
     public string DisplayName;
     public List<ComponentSnapshot> Components;
+    public List<EntitySnapshot> Children = new();
 }
 
 public class ComponentSnapshot
