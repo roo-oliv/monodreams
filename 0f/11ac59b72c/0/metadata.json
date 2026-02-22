@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "0f11ac59b72c",
+  "session_id": "10c2f028-2696-45b2-80a7-bdeb0ed296c7",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T01:30:04.705628Z",
+  "branch": "ro/fine-improvements",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Collision/GameCollisionHelper.cs",
+    "MonoDreams.Examples/Component/DialogueZoneComponent.cs",
+    "MonoDreams.Examples/Component/EntityType.cs",
+    "MonoDreams.Examples/Component/NPCInteractionIcon.cs",
+    "MonoDreams.Examples/Content/Content.mgcb",
+    "MonoDreams.Examples/Content/Dialogues/boldo.yarn",
+    "MonoDreams.Examples/Content/GreasePencil/Boldo.png",
+    "MonoDreams.Examples/Content/GreasePencil/Floor.png",
+    "MonoDreams.Examples/Content/GreasePencil/Pete.png",
+    "MonoDreams.Examples/Content/GreasePencil/store.png",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/NPCInteractionSystem.cs",
+    "MonoDreams/Message/CollisionMessage.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 51,
+    "cache_creation_tokens": 80817,
+    "cache_read_tokens": 3157311,
+    "output_tokens": 3393,
+    "api_call_count": 49
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T01:30:04.423057Z",
+    "agent_lines": 304,
+    "human_added": 43,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 347,
+    "agent_percentage": 87.60806916426513
+  }
+}

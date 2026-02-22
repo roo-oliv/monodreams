@@ -1,0 +1,190 @@
+Implement the following plan:
+
+# NPC Interaction System with Floating Icon and Dialogue Trigger
+
+## Context
+The dialogue system currently uses an auto-trigger zone: when the player walks into a passive collider, dialogue starts immediately. We want to evolve this into a proper NPC interaction system where NPCs are imported from Blender, the player sees a floating "[E]" prompt when near an NPC, and presses E to initiate dialogue. Boldo is the first NPC, already defined in `blender_level.json` with an `"NPC"` collection.
+
+## Key Design Challenge
+`TransformCollisionDetectionSystem` (line 56) skips collisions where `contactNormal == Vector2.Zero`, which happens when the player stands still inside a passive collider. So we cannot rely on collision messages for continuous overlap detection. A new `NPCInteractionSystem` will do its own per-frame AABB overlap check.
+
+---
+
+## Phase 1: Core Changes
+
+### 1a. Extend `RegisterCollectionHandler` signature
+**File**: `MonoDreams/System/Level/BlenderLevelParserSystem.cs`
+
+Change handler type from `Action<Entity>` to `Action<Entity, BlenderObject>` to pass Blender metadata (name, dimensions) to game-specific handlers. `BlenderObject` is already public in `MonoDreams.Level`.
+
+- Line 35: `Dictionary<string, Action<Entity, BlenderObject>>`
+- Line 52: `RegisterCollectionHandler(string, Action<Entity, BlenderObject>)`
+- Lines 396-400: Pass `meshObj` to handlers: `handler(entity, meshObj)`
+
+Update existing Player handler in `LoadLevelExampleGameScreen.cs:139`:
+```csharp
+blenderParser.RegisterCollectionHandler("Player", (entity, _) => entity.Set(new PlayerState()));
+```
+
+### 1b. Add `CollisionType.NPCInteraction`
+**File**: `MonoDreams/Message/CollisionMessage.cs`
+
+Add `NPCInteraction` to the enum. `TransformPhysicalCollisionResolutionSystem` only processes `Physics` type (confirmed at line 16), so NPCInteraction collisions are ignored by physics resolution.
+
+---
+
+## Phase 2: New Components
+
+### 2a. Extend `DialogueZoneComponent`
+**File**: `MonoDreams.Examples/Component/DialogueZoneComponent.cs`
+
+Add `NpcName` field (for display/debug). No other changes needed — `AutoStart` already exists and will be used to differentiate auto-trigger zones from interact-to-trigger zones.
+
+### 2b. New `NPCInteractionIcon` component
+**New file**: `MonoDreams.Examples/Component/NPCInteractionIcon.cs`
+
+Links a zone entity to its floating icon entity:
+```csharp
+public class NPCInteractionIcon { public Entity IconEntity; }
+```
+
+### 2c. Add to `EntityType` enum
+**File**: `MonoDreams.Examples/Component/EntityType.cs`
+
+Add `NPC` and `NPCZone`.
+
+---
+
+## Phase 3: NPC Collection Handler + Entity Creation
+
+### 3a. Register NPC collection handler
+**File**: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+In `CreateUpdateSystem()`, register handler for `"NPC"` collection. The handler:
+1. Sets `EntityInfo("NPC")` on the NPC entity
+2. Creates an **interaction zone entity** (child of NPC):
+   - `EntityInfo("NPCZone")`
+   - `Transform { Parent = npcTransform }` (same position as NPC)
+   - `BoxCollider` — passive, ~2.5x wider and ~1.5x taller than NPC dims (centered)
+   - `DialogueZoneComponent(npcName, oneTimeOnly: false, autoStart: false)`
+   - `NPCInteractionIcon` — ref to icon entity
+3. Creates a **floating icon entity** (child of NPC):
+   - `EntityInfo("InteractionIcon")`
+   - `Transform(iconOffset) { Parent = npcTransform }` — offset above NPC sprite top
+   - `DynamicText { Target = Main, Font = PPMondwest, TextContent = "E", Color = White, Scale = 0.4f, LayerDepth = 0.55f, IsRevealed = true }` (instant, no typewriter)
+   - `DrawComponent { Type = Text, Target = Main }`
+   - NO `Visible` initially — managed by `NPCInteractionSystem`
+
+**Icon offset calculation**: Compute visual top from NPC's `SpriteInfo` (offset, origin, size) and place icon ~4 world units above.
+
+**CullingSystem compatibility**: Icon uses `DynamicText` (no `SpriteInfo`), so `CullingSystem` won't touch its `Visible` tag. The system manages it exclusively.
+
+### 3b. Update `GameCollisionHelper`
+**File**: `MonoDreams.Examples/Collision/GameCollisionHelper.cs`
+
+Add mapping: `"Player" when targetType == "NPCZone" => CollisionType.NPCInteraction`
+
+---
+
+## Phase 4: NPCInteractionSystem
+
+**New file**: `MonoDreams.Examples/System/NPCInteractionSystem.cs`
+
+Per-frame system that:
+1. Queries player entity (`PlayerState + Transform + BoxCollider`)
+2. Queries all NPC zone entities (`DialogueZoneComponent + Transform + BoxCollider + NPCInteractionIcon`)
+3. Each frame, checks AABB overlap using `CollisionRect.FromBounds()` + `Intersects()` (reuse from `MonoDreams.Extensions.Monogame.CollisionRect`)
+4. If overlapping: shows icon (`iconEntity.Set<Visible>()`), on `InputState.Interact.Pressed()` publishes `DialogueStartMessage(zone, yarnNodeName)`
+5. If not overlapping: hides icon (`iconEntity.Remove<Visible>()`)
+6. Subscribes to `DialogueActiveMessage` — hides all icons and skips interaction checks while dialogue is active
+7. Edge-triggers Interact input (inputConsumed flag) to prevent re-triggering while held
+
+**Pipeline position**: In `logicSystems`, after `TransformCommitSystem` and before `DialogueSystem`:
+```
+...TransformCommitSystem → TextUpdateSystem → NPCInteractionSystem → DialogueSystem
+```
+
+---
+
+## Phase 5: DialogueSystem Changes
+
+**File**: `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs`
+
+### 5a. Subscribe to `DialogueStartMessage`
+Add `[Subscribe]` method that calls `StartYarnDialogue(msg.StartNode)` (auto-discovered by existing `world.Subscribe(this)` in constructor).
+
+### 5b. Reset `WasTriggered` on dialogue end
+In `DeactivateDialogue()`: add `_dialogueState.WasTriggered = false;` to allow re-triggering.
+
+### 5c. Support multiple YarnPrograms
+Change constructor to accept `IEnumerable<string> dialogueContentPaths` instead of hardcoding `"Dialogues/hello_world"`. Load each YarnProgram, add string tables, combine programs using `Yarn.Program.Combine()` or sequential `AddProgram()`.
+
+---
+
+## Phase 6: Boldo Dialogue
+
+### 6a. New Yarn file
+**New file**: `MonoDreams.Examples/Content/Dialogues/boldo.yarn`
+
+Simple re-triggerable dialogue for Boldo with a couple of dialogue choices.
+
+### 6b. Content pipeline entry
+**File**: `MonoDreams.Examples/Content/Content.mgcb`
+
+Add after the existing `hello_world.yarn` entry:
+```
+#begin ./Dialogues/boldo.yarn
+/importer:YarnSpinnerImporter
+/processor:YarnSpinnerProcessor
+/build:./Dialogues/boldo.yarn
+```
+
+---
+
+## Phase 7: Wire Everything in LoadLevelExampleGameScreen
+
+**File**: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+1. Load `promptFont` for the icon text
+2. Register NPC collection handler (Phase 3a)
+3. Add `NPCInteractionSystem` to logic pipeline (Phase 4)
+4. Pass multiple yarn paths to `DialogueSystem` constructor: `["Dialogues/hello_world", "Dialogues/boldo"]`
+5. Remove the old manual trigger zone (lines 101-106 in `Load()`) — the NPC interaction replaces it
+
+---
+
+## Summary of Changes
+
+| File | Type | Description |
+|------|------|-------------|
+| `MonoDreams/System/Level/BlenderLevelParserSystem.cs` | Modify | Handler signature: `Action<Entity, BlenderObject>` |
+| `MonoDreams/Message/CollisionMessage.cs` | Modify | Add `NPCInteraction` to enum |
+| `MonoDreams.Examples/Component/DialogueZoneComponent.cs` | Modify | Add `NpcName` field |
+| `MonoDreams.Examples/Component/EntityType.cs` | Modify | Add `NPC`, `NPCZone` |
+| `MonoDreams.Examples/Component/NPCInteractionIcon.cs` | **New** | Zone → icon entity link |
+| `MonoDreams.Examples/System/NPCInteractionSystem.cs` | **New** | Per-frame AABB overlap, icon toggle, E-key dialogue |
+| `MonoDreams.Examples/Collision/GameCollisionHelper.cs` | Modify | Map NPCZone → NPCInteraction |
+| `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs` | Modify | Subscribe to DialogueStartMessage, multiple yarn programs, reset WasTriggered |
+| `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` | Modify | NPC handler, NPCInteractionSystem in pipeline, yarn paths |
+| `MonoDreams.Examples/Content/Dialogues/boldo.yarn` | **New** | Boldo's dialogue |
+| `MonoDreams.Examples/Content/Content.mgcb` | Modify | Add boldo.yarn entry |
+
+**New components**: 1 (`NPCInteractionIcon`)
+**New systems**: 1 (`NPCInteractionSystem`)
+**New files**: 3 (component, system, yarn)
+
+---
+
+## Verification
+
+1. `dotnet build` — confirm everything compiles
+2. Run the game, select Blender level (Level 2)
+3. Verify Boldo renders at his position with no interaction icon visible
+4. Walk player toward Boldo — "[E]" text should appear above Boldo when entering the interaction zone
+5. Walk away — "[E]" should disappear
+6. Walk back in, press E — Boldo's dialogue should start
+7. Complete dialogue, press E again — dialogue should re-trigger (not one-time)
+8. `dotnet test MonoDreams.Tests/` — existing tests pass
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
