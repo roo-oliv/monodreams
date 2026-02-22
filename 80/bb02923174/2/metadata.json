@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "80bb02923174",
+  "session_id": "dc38d1ca-817e-4f3e-a728-babd176dd2db",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T13:49:56.319373Z",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Game1.cs",
+    "MonoDreams.Examples/Inspector/ComponentIntrospector.cs",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
+    "MonoDreams.Examples/Inspector/EntitySnapshot.cs",
+    "MonoDreams.Examples/Inspector/WatcherState.cs",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 128745,
+    "cache_read_tokens": 2159282,
+    "output_tokens": 1978,
+    "api_call_count": 42
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T13:49:56.188717Z",
+    "agent_lines": 521,
+    "human_added": 12,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 533,
+    "agent_percentage": 97.74859287054409
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/dc38d1ca-817e-4f3e-a728-babd176dd2db.jsonl"
+}

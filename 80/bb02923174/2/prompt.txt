@@ -1,0 +1,58 @@
+Implement the following plan:
+
+# Guard Debug Inspector with `#if DEBUG`
+
+## Context
+
+The debug inspector uses `System.Reflection` (`GetFields`, `GetProperties`, `FieldInfo.GetValue`, `PropertyInfo.GetValue`) in `ComponentIntrospector` and `DebugInspector` to introspect ECS components at runtime. This is incompatible with AOT compilation needed for console builds.
+
+Since the inspector is a development-only tool, the simplest AOT-safe solution is to strip all inspector code from Release builds using `#if DEBUG` guards. This avoids reflection in production entirely with zero boilerplate — components stay pure data containers.
+
+## Changes
+
+### 1. Inspector files — wrap entire file bodies in `#if DEBUG`
+
+All 4 files in `MonoDreams.Examples/Inspector/`:
+- `DebugInspector.cs` — wrap class in `#if DEBUG`
+- `ComponentIntrospector.cs` — wrap class in `#if DEBUG`
+- `EntitySnapshot.cs` — wrap both classes in `#if DEBUG`
+- `WatcherState.cs` — wrap class in `#if DEBUG`
+
+### 2. `MonoDreams.Examples/Game1.cs` — guard all inspector references
+
+- Fields: wrap `_imGuiRenderer` and `_debugInspector` declarations in `#if DEBUG`
+- `using` statements: wrap `using MonoGame.ImGuiNet` and `using MonoDreams.Examples.Inspector` in `#if DEBUG`
+- `Initialize()`: wrap the ImGui/inspector creation block in `#if DEBUG`
+- `Update()`: wrap `_debugInspector?.HandleInput()` in `#if DEBUG`
+- `Draw()`: wrap the `BeforeLayout`/`AfterLayout` block in `#if DEBUG`
+- `Dispose()`: wrap `(_imGuiRenderer as IDisposable)?.Dispose()` in `#if DEBUG`
+
+### 3. Screen files — guard input suppression wiring
+
+`MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`:
+- Wrap `using MonoDreams.Examples.Inspector` in `#if DEBUG`
+- Wrap `_inputMappingSystem` field in `#if DEBUG`, make `inputMappingSystem` a local again for non-debug path
+- Wrap the `DebugInspector` service lookup + `ShouldSuppressInput` wiring in `Load()` in `#if DEBUG`
+
+`MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs`:
+- Same pattern as above
+
+### 4. Core files — no changes needed
+
+`AbstractInputHandlingSystem.cs` — the `ShouldSuppressInput` property stays unconditional. It's a generic `Func<bool>` with no ImGui dependency. It simply won't be set in Release builds (remains `null`, which the null-conditional already handles).
+
+`GameScreen.cs`, `ScreenController.cs` — `World` property is useful beyond the inspector, keep unconditional.
+
+## Verification
+
+1. **Debug build:** `dotnet build MonoDreams.Examples/ -c Debug` — compiles with inspector, all tests pass
+2. **Release build:** `dotnet build MonoDreams.Examples/ -c Release` — compiles without inspector, no reflection references
+3. **Runtime:** F1 toggle works in Debug; inspector code absent in Release
+4. **Tests:** `dotnet test MonoDreams.Tests/` — all pass in both configurations
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+commit everything currently uncommited
