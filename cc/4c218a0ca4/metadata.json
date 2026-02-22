@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "cc4c218a0ca4",
+  "strategy": "manual-commit",
+  "branch": "ro/fine-improvements",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Draw/GameDrawLayer.cs",
+    "MonoDreams.Examples/EntityFactory/CharmFactory.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/ObstacleFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/TileEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams/Draw/DrawLayerDepth.cs",
+    "MonoDreams/Draw/DrawLayerMap.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cc/4c218a0ca4/0/metadata.json",
+      "transcript": "/cc/4c218a0ca4/0/full.jsonl",
+      "context": "/cc/4c218a0ca4/0/context.md",
+      "content_hash": "/cc/4c218a0ca4/0/content_hash.txt",
+      "prompt": "/cc/4c218a0ca4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 92,
+    "cache_creation_tokens": 175150,
+    "cache_read_tokens": 6893631,
+    "output_tokens": 9201,
+    "api_call_count": 88
+  }
+}

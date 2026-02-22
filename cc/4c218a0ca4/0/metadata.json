@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "cc4c218a0ca4",
+  "session_id": "454c706a-d82d-4642-9787-321af76af7a3",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T02:02:10.064398Z",
+  "branch": "ro/fine-improvements",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Draw/GameDrawLayer.cs",
+    "MonoDreams.Examples/EntityFactory/CharmFactory.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/ObstacleFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/TileEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams/Draw/DrawLayerDepth.cs",
+    "MonoDreams/Draw/DrawLayerMap.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 92,
+    "cache_creation_tokens": 175150,
+    "cache_read_tokens": 6893631,
+    "output_tokens": 9201,
+    "api_call_count": 88
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T02:02:09.863706Z",
+    "agent_lines": 223,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 223,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/454c706a-d82d-4642-9787-321af76af7a3.jsonl"
+}

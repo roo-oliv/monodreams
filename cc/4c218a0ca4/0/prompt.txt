@@ -1,0 +1,152 @@
+Implement the following plan:
+
+# Draw Layer Configuration System
+
+## Context
+
+Layer depths are hardcoded magic numbers scattered across 6+ entity factories (0.1f for player, 0.09f for tiles, 0.991f for orbs, etc.) and the `BlenderLevelParserSystem` uses a single constant (0.5f) for everything. There's no centralized place to see or manage the depth ordering for a game. The existing `DrawLayerDepth` utility (which auto-maps any enum to evenly-spaced floats) is elegant but only used in one place (`LevelSelectionScreen`).
+
+**Goal:** Provide a core-level abstraction that makes depth layer configuration easy, centralized, and manageable for gamedevs.
+
+## Approach Evaluation
+
+### Option A: Enum Convention (enhance existing `DrawLayerDepth`)
+Game defines an enum, factories call `DrawLayerDepth.GetLayerDepth(DrawLayer.Player)`.
+
+- **Pro:** Already exists, no new types, type-safe
+- **Con:** Static utility with no instance injection; core systems (Blender parser) can't reference game enums; no way to pass layer config to core code by string
+
+### Option B: `DrawLayerMap` Instance Class (Recommended)
+Core provides `DrawLayerMap`, game creates one from their enum and passes it around.
+
+- **Pro:** Injectable into core systems, supports string-based lookup (for Blender parser), testable, each screen can have its own
+- **Pro:** Natural extension point for future features (sub-layer offsets, depth ranges for Y-sorting)
+- **Con:** Factory constructors need updating to accept it
+
+### Option C: Interface/Abstract Class Contract
+Core defines `IDrawLayerConfig`, game implements it.
+
+- **Con:** Over-engineered; this is fundamentally a `name -> float` mapping, not a behavior contract
+- **Con:** Goes against project philosophy of avoiding component/type sprawl
+
+### Recommendation: **Option B** with enum convenience
+
+`DrawLayerMap` is a lightweight instance class that wraps an enum-to-float mapping. The gamedev defines a front-to-back enum, creates a `DrawLayerMap.FromEnum<T>()`, and passes it to factories and systems. Core systems (Blender parser) use it via string-based lookup.
+
+## Design
+
+### New class: `MonoDreams/Draw/DrawLayerMap.cs`
+
+```csharp
+public sealed class DrawLayerMap
+{
+    // Created from any enum: DrawLayerMap.FromEnum<GameDrawLayer>()
+    // First enum member = 1.0 (front), last = 0.0 (back), evenly spaced
+
+    public float GetDepth<TEnum>(TEnum layer);                          // Type-safe, for game code
+    public float GetDepth(string layerName);                             // String-based, for core code
+    public float GetDepth<TEnum>(TEnum layer, float subLayerOffset);    // With sub-layer offset
+    public float GetDepth(string layerName, float subLayerOffset);      // String + offset
+    public bool TryGetDepth(string layerName, out float depth);         // For conditional lookup
+}
+```
+
+### Existing `DrawLayerDepth` -> replaced by `DrawLayerMap`
+
+Since the project is in alpha and `DrawLayerDepth` is only used in one place (`LevelSelectionScreen`), replace it entirely with `DrawLayerMap`. No deprecation shim needed.
+
+### Example game enum: `MonoDreams.Examples/Draw/GameDrawLayer.cs`
+
+```csharp
+public enum GameDrawLayer
+{
+    Debug,        // 1.0  - Debug overlays
+    Cursor,       // 0.9  - Cursor on top
+    UI,           // 0.8  - HUD, game over text
+    Effects,      // 0.7  - Orbs, particles
+    Characters,   // 0.6  - Player, NPCs
+    Foreground,   // 0.5  - Foreground decoration
+    Environment,  // 0.4  - Walls, platforms
+    Tiles,        // 0.3  - Tile layers
+    DialogueUI,   // 0.2  - Dialogue box
+    Background,   // 0.1  - Background art
+    FarBackground, // 0.0 - Furthest back
+}
+```
+
+### Usage in factories
+
+```csharp
+// Before (magic number):
+LayerDepth = 0.1f,
+
+// After:
+LayerDepth = _layers.GetDepth(GameDrawLayer.Characters),
+
+// Sub-layers for orbs:
+LayerDepth = _layers.GetDepth(GameDrawLayer.Effects, +0.001f),
+```
+
+### Blender parser integration
+
+`BlenderLevelParserSystem` gets a `SetDrawLayerMap(DrawLayerMap)` method. When set, it resolves depth by:
+1. Check object's `"drawLayer"` custom property (string matching enum member name)
+2. Try each Blender collection name against `TryGetDepth()`
+3. Fall back to `DEFAULT_LAYER_DEPTH`
+
+Collection handlers can still override depth afterward.
+
+### Future: Y-sorting within a layer
+
+`DrawLayerMap` can later expose `GetDepthRange(layer)` returning the min/max float range for a layer. A future `YSortSystem` would interpolate within that range based on entity Y-position. No structural changes needed for this extension.
+
+## Implementation Phases
+
+### Phase 1: Core - Add `DrawLayerMap` and update `BlenderLevelParserSystem`
+Files:
+- Create `MonoDreams/Draw/DrawLayerMap.cs`
+- Edit `MonoDreams/System/Level/BlenderLevelParserSystem.cs` (add `SetDrawLayerMap`, update `ProcessMesh` depth resolution)
+- Delete `MonoDreams/Draw/DrawLayerDepth.cs` (replaced)
+- Build `MonoDreams/MonoDreams.csproj`
+
+### Phase 2: Game enum + `LoadLevelExampleGameScreen` wiring
+Files:
+- Create `MonoDreams.Examples/Draw/GameDrawLayer.cs`
+- Edit `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (create `DrawLayerMap`, pass to parser and factories)
+- Edit `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` (migrate from `DrawLayerDepth` to `DrawLayerMap`)
+- Build to verify
+
+### Phase 3: Migrate LDtk entity factories
+Files:
+- Edit `MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs`
+- Edit `MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs`
+- Edit `MonoDreams.Examples/EntityFactory/TileEntityFactory.cs`
+- Edit `MonoDreams.Examples/EntityFactory/WallEntityFactory.cs`
+- Edit `MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs`
+- Build to verify
+
+### Phase 4: Migrate `InfiniteRunnerScreen` and its factories
+Files:
+- Edit `MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs` (define `RunnerDrawLayer` enum nested in screen class, create `DrawLayerMap`)
+- Edit `MonoDreams.Examples/EntityFactory/CharmFactory.cs`
+- Edit `MonoDreams.Examples/EntityFactory/ObstacleFactory.cs`
+- Build to verify
+
+### Phase 5: Migrate remaining systems
+Files:
+- Edit `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs`
+- Audit other hardcoded depths (game over, debug overlays — debug systems keep their hardcoded values since they always want to be on top regardless of game config)
+- Build + run tests: `dotnet test MonoDreams.Tests/`
+
+## Verification
+- `dotnet build` — full solution builds cleanly
+- `dotnet test MonoDreams.Tests/` — all tests pass
+- Run game manually, verify all entities render in correct order (player above floor, orbs above player, cursor above everything)
+- Check both screens: level selection and the platformer level
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+git add ., commit, push and open a pull request
