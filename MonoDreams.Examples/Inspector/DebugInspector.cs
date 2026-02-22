@@ -76,9 +76,18 @@ public class DebugInspector
             if (!entity.IsAlive) continue;
             _totalEntityCount++;
 
-            var displayName = entity.Has<EntityInfo>()
-                ? $"{entity.Get<EntityInfo>().Type} #{entity.GetHashCode():X}"
-                : $"Entity #{entity.GetHashCode():X}";
+            string displayName;
+            if (entity.Has<EntityInfo>())
+            {
+                var info = entity.Get<EntityInfo>();
+                displayName = info.Name != null
+                    ? $"{info.Name} ({info.Type}) #{entity.GetHashCode():X}"
+                    : $"{info.Type} #{entity.GetHashCode():X}";
+            }
+            else
+            {
+                displayName = $"Entity #{entity.GetHashCode():X}";
+            }
 
             _allSnapshots[entity] = new EntitySnapshot
             {

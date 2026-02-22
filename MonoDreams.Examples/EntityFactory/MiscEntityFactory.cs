@@ -33,7 +33,7 @@ public class MiscEntityFactory : IEntityFactory
         var entity = world.CreateEntity();
 
         // Core components for misc entities
-        entity.Set(new EntityInfo(nameof(EntityType.Tile)));
+        entity.Set(new EntityInfo(nameof(EntityType.Misc)));
         entity.Set(new Transform(request.Position));
 
         // // Create DrawComponent with a single DrawElement

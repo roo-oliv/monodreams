@@ -381,8 +381,8 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Collision collection
         if (meshObj.Collections.Contains("Collision"))
         {
-            entity.Set(new EntityInfo("Collision"));
-                
+            entity.Set(new EntityInfo("Collision", meshObj.Name));
+
             // Get collision layer from collection properties (default to -1 for all layers)
             int layer = -1;
             bool passive = false;
@@ -403,7 +403,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Player collection
         if (meshObj.Collections.Contains("Player"))
         {
-            entity.Set(new EntityInfo("Player"));
+            entity.Set(new EntityInfo("Player", meshObj.Name));
             entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
             entity.Set(new RigidBody());
             entity.Set(new Velocity());
@@ -423,7 +423,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Check for Enemy collection
         if (meshObj.Collections.Contains("Enemy"))
         {
-            entity.Set(new EntityInfo("Enemy"));
+            entity.Set(new EntityInfo("Enemy", meshObj.Name));
             Logger.Debug($"Set Enemy for '{meshObj.Name}'");
         }
 
@@ -435,7 +435,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 var bounds = new Rectangle(boundsOffset, boundsSize);
                 entity.Set(new BoxCollider(bounds, passive: true));
             }
-            entity.Set(new EntityInfo("Trigger"));
+            entity.Set(new EntityInfo("Trigger", meshObj.Name));
             Logger.Debug($"Set as Trigger zone for '{meshObj.Name}'");
         }
 

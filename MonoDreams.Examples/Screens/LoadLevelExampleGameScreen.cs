@@ -165,7 +165,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
             var npcName = blenderObj.Name;
-            entity.Set(new EntityInfo("NPC"));
+            entity.Set(new EntityInfo("NPC", npcName));
 
             var npcTransform = entity.Get<Transform>();
             var npcSprite = entity.Get<SpriteInfo>();
@@ -187,7 +187,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
             // Create floating icon entity (above the NPC sprite)
             var iconEntity = _world.CreateEntity();
-            iconEntity.Set(new EntityInfo("InteractionIcon"));
+            iconEntity.Set(new EntityInfo("InteractionIcon", $"{npcName}Icon"));
 
             // Compute icon position above NPC visual top
             var originOffsetY = blenderObj.OriginOffset?.Y ?? 0.5f;

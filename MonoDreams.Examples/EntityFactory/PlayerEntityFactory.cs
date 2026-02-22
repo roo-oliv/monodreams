@@ -100,6 +100,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
     private void CreateBlueOrb(World world, Entity parentEntity)
     {
         var orbEntity = world.CreateEntity();
+        orbEntity.Set(new EntityInfo(nameof(EntityType.Orb), "BlueOrb"));
 
         // Create transform parented to player
         orbEntity.Set(new Transform(
@@ -146,6 +147,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
     private void CreateRedOrb(World world, Entity parentEntity, float startAngle)
     {
         var orbEntity = world.CreateEntity();
+        orbEntity.Set(new EntityInfo(nameof(EntityType.Orb), "RedOrb"));
         var rnd = new Random();
 
         // Create transform parented to blue orb
