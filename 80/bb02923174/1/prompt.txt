@@ -1,0 +1,108 @@
+Implement the following plan:
+
+# Y-Sorting Implementation Plan
+
+## Context
+
+The engine currently assigns a **fixed depth** per draw layer (e.g., Characters = 0.6). All entities on the same layer render at the same depth, with creation order as the tiebreaker. This breaks down in top-down or isometric-style games where entities lower on screen should render in front of entities higher on screen. Y-sorting solves this by dynamically adjusting entity depth within a layer based on Y position.
+
+The chosen approach is **layer-level configuration**: mark entire layers as Y-sorted via `DrawLayerMap`, and all entities on that layer automatically participate. Zero per-entity setup.
+
+## Design
+
+### Key insight: no changes to SpriteInfo or existing systems
+
+`SpriteInfo.LayerDepth` always stays at the base layer value (e.g., 0.6 for Characters). `SpritePrepSystem` copies it to `DrawComponent.LayerDepth` every frame as before. A new `YSortSystem` runs **after** `SpritePrepSystem` and overwrites `DrawComponent.LayerDepth` with the Y-interpolated value for entities on Y-sorted layers.
+
+This means:
+- `SpriteInfo.LayerDepth` is the stable "layer identity" (never modified by Y-sorting)
+- `DrawComponent.LayerDepth` is the frame-specific render depth (overwritten each frame)
+- No new components needed
+
+### Entity matching: exact depth equality
+
+Entities are identified as belonging to a Y-sorted layer by checking if `SpriteInfo.LayerDepth` **exactly equals** the layer's center depth. This gives a clean semantic:
+- `GetDepth(GameDrawLayer.Characters)` → entity participates in Y-sorting
+- `GetDepth(GameDrawLayer.Characters, +0.001f)` → entity has a fixed sub-layer position, excluded from Y-sort
+
+This is safe because all depths come from the same `DrawLayerMap` dictionary lookup (same float bits).
+
+### Y normalization: camera bounds
+
+Uses `camera.VirtualScreenBounds` to normalize entity Y position to [0, 1], then interpolates within the layer's depth range. Higher Y (lower on screen) → higher depth → rendered in front.
+
+Entities outside camera bounds are already culled by `CullingSystem` (no `Visible` tag), so all Y-sorted entities have Y values within the camera's visible range.
+
+## Changes
+
+### 1. Extend `DrawLayerMap` — `/MonoDreams/Draw/DrawLayerMap.cs`
+
+Add:
+- `float _step` field — stored during `FromEnum`, the distance between adjacent layers
+- `HashSet<float> _ySortedDepths` — set of center depths that are Y-sorted
+- `WithYSort<TEnum>(TEnum layer)` — fluent method to mark a layer as Y-sorted, returns `this`
+- `TryGetYSortRange(float depth, out float minDepth, out float maxDepth)` — if `depth` is in `_ySortedDepths`, returns the interpolation range [center - step/2 + margin, center + step/2 - margin]. Small margin (0.001f) prevents overlap with adjacent layers.
+- `IsYSorted(float depth)` — convenience check
+
+### 2. New `YSortSystem` — `/MonoDreams/System/Draw/YSortSystem.cs`
+
+```
+[With(typeof(DrawComponent), typeof(SpriteInfo), typeof(Transform), typeof(Visible))]
+public class YSortSystem(World world, Camera camera, DrawLayerMap drawLayerMap)
+    : AEntitySetSystem<GameState>(world)
+```
+
+- Caches camera bounds in `PreUpdate` (like CullingSystem does)
+- In `Update`, for each entity:
+  1. Read `SpriteInfo.LayerDepth`
+  2. Call `drawLayerMap.TryGetYSortRange(layerDepth, out min, out max)`
+  3. If Y-sorted: normalize `transform.WorldPosition.Y` within camera bounds, interpolate to [min, max], write to `DrawComponent.LayerDepth`
+  4. If not Y-sorted: skip (SpritePrepSystem already set the correct depth)
+
+### 3. Pipeline integration — game screens
+
+In the draw system pipeline, add `YSortSystem` after `SpritePrepSystem`:
+
+```csharp
+var prepDrawSystems = new SequentialSystem<GameState>(
+    cullingSystem,
+    spritePrepSystem,
+    ySortSystem,        // NEW — after sprite prep, before render
+    textPrepSystem,
+    meshPrepSystem
+);
+```
+
+### 4. Usage example — `LoadLevelExampleGameScreen.cs`
+
+```csharp
+_layers = DrawLayerMap.FromEnum<GameDrawLayer>()
+    .WithYSort(GameDrawLayer.Characters);
+```
+
+That's it. All entities using `GetDepth(GameDrawLayer.Characters)` automatically Y-sort.
+
+## Files to modify
+
+| File | Change |
+|------|--------|
+| `MonoDreams/Draw/DrawLayerMap.cs` | Add Y-sort tracking, depth range calculation, fluent config API |
+| `MonoDreams/System/Draw/YSortSystem.cs` | **New file** — Y-sort system |
+| `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` | Add YSortSystem to draw pipeline, enable Y-sort on Characters layer |
+
+## Verification
+
+1. Build: `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Visual check: Run the Examples game, observe that entities on the Characters layer sort correctly by Y position (lower on screen = in front)
+3. Edge case: entities with sub-layer offsets (`GetDepth(layer, offset)`) should maintain fixed depth and not participate in Y-sorting
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+I want to be able to debug in-game the Y-sorting of each entity. Can you think of a way to accomplish this?
+
+---
+
+[Request interrupted by user for tool use]

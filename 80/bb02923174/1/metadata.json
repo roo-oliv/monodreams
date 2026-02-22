@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "80bb02923174",
+  "session_id": "9bc88265-1c46-4d82-bd44-9aaf286144f1",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T13:49:48.03077Z",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Draw/DrawLayerMap.cs",
+    "MonoDreams/System/Draw/YSortSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 180763,
+    "cache_read_tokens": 2550265,
+    "output_tokens": 4891,
+    "api_call_count": 46
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T13:49:47.677425Z",
+    "agent_lines": 109,
+    "human_added": 525,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 634,
+    "agent_percentage": 17.19242902208202
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/9bc88265-1c46-4d82-bd44-9aaf286144f1.jsonl"
+}
