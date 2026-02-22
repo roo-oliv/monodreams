@@ -3,6 +3,9 @@ using DefaultEcs.System;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
+#if DEBUG
+using MonoDreams.Examples.Inspector;
+#endif
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
@@ -51,6 +54,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly DefaultParallelRunner _parallelRunner;
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
+#if DEBUG
+    private InputMappingSystem _inputMappingSystem;
+#endif
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly DrawLayerMap _layers;
 
@@ -82,8 +88,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public World World => _world;
     public void Load(ScreenController screenController, ContentManager content)
     {
+#if DEBUG
+        // Wire debug inspector input suppression
+        var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
+        if (debugInspector != null)
+        {
+            _inputMappingSystem.ShouldSuppressInput = () => debugInspector.WantsKeyboard;
+        }
+#endif
+
         var cursorTextures = new Dictionary<CursorType, Texture2D>
         {
             [CursorType.Default] = content.Load<Texture2D>("Mouse sprites/Triangle Mouse icon 1"),
@@ -113,6 +129,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
+#if DEBUG
+        _inputMappingSystem = inputMappingSystem;
+#endif
         var actionMap = new Dictionary<string, AInputState>
         {
             ["Up"] = InputState.Up, ["Down"] = InputState.Down,

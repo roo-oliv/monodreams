@@ -80,6 +80,7 @@ public class LevelSelectionScreen : IGameScreen
 
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
+    public World World => _world;
 
     public void Load(ScreenController screenController, ContentManager content)
     {

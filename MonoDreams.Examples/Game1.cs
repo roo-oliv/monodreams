@@ -2,6 +2,10 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+#if DEBUG
+using MonoGame.ImGuiNet;
+using MonoDreams.Examples.Inspector;
+#endif
 using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Screens;
@@ -24,6 +28,10 @@ public class Game1 : Game
     private ScreenController _screenController;
     private GameSettings _settings;
     private readonly bool _headless;
+#if DEBUG
+    private ImGuiRenderer _imGuiRenderer;
+    private DebugInspector _debugInspector;
+#endif
 
     public Game1(string[] args = null)
     {
@@ -105,6 +113,16 @@ public class Game1 : Game
         _camera.Zoom = _settings.CameraZoom;
         _camera.Position = Vector2.Zero;
 
+#if DEBUG
+        if (!_headless)
+        {
+            _imGuiRenderer = new ImGuiRenderer(this);
+            _imGuiRenderer.RebuildFontAtlas();
+            _debugInspector = new DebugInspector();
+            Services.AddService(_debugInspector);
+        }
+#endif
+
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
@@ -126,17 +144,20 @@ public class Game1 : Game
         {
             _screenController.LoadScreen(ScreenName.LevelSelection);
         }
-        
+
         base.Initialize();
     }
 
     protected override void Update(GameTime gameTime)
     {
+#if DEBUG
+        _debugInspector?.HandleInput();
+#endif
+
         if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed ||
             Keyboard.GetState().IsKeyDown(Keys.Escape))
             Exit();
 
-        // GraphicsDevice.Clear(Color.OldLace);
         _screenController.Update(gameTime);
     }
     
@@ -144,6 +165,12 @@ public class Game1 : Game
     {
         if (_headless) return;
         _screenController.Draw(gameTime);
+
+#if DEBUG
+        _imGuiRenderer?.BeforeLayout(gameTime);
+        _debugInspector?.Draw(_screenController.CurrentWorld);
+        _imGuiRenderer?.AfterLayout();
+#endif
     }
 
     /// <summary>
@@ -165,6 +192,9 @@ public class Game1 : Game
         _runner.Dispose();
         _spriteBatch.Dispose();
         _graphics.Dispose();
+#if DEBUG
+        (_imGuiRenderer as IDisposable)?.Dispose();
+#endif
         base.Dispose(disposing);
     }
 }
