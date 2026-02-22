@@ -1,0 +1,127 @@
+Implement the following plan:
+
+# Improve Entity Naming in Debug Inspector
+
+## Context
+
+Entities in the debug inspector are poorly named, making it hard to identify what's what during debugging. Walls, tiles, and misc entities all show as "Tile #HASH". NPCs show as "Enemy #HASH" instead of their actual name (e.g., "Boldo"). Child entities like orbs and dialogue UI elements are also indistinguishable. The goal is to make every entity identifiable at a glance.
+
+## Changes
+
+### 1. Add `Name` field to `EntityInfo` (core)
+
+**File:** `MonoDreams/Component/EntityInfo.cs`
+
+Add an optional `Name` parameter alongside the existing `Type`:
+
+```csharp
+public class EntityInfo(string type, string name = null)
+{
+    public string Type { get; } = type;
+    public string Name { get; } = name;
+}
+```
+
+This is backwards-compatible — all existing `new EntityInfo("SomeType")` calls continue to work.
+
+### 2. Update inspector display format
+
+**File:** `MonoDreams.Examples/Inspector/DebugInspector.cs` (lines 79-81)
+
+Change the display name logic to show name + type when both are present:
+
+```
+Name present:  "Boldo (NPC) #ABC123"
+Name absent:   "Wall #ABC123"
+No EntityInfo: "Entity #ABC123"
+```
+
+### 3. Fix entity types in factories (Examples)
+
+| Factory | Current `EntityInfo` | New `EntityInfo` |
+|---|---|---|
+| `WallEntityFactory` | `"Tile"` | `"Wall"` |
+| `NPCEntityFactory` | `"Enemy"` | `"NPC"` + name from custom fields |
+| `MiscEntityFactory` | `"Tile"` | `"Misc"` (not registered anywhere, consistency fix) |
+
+**Files:**
+- `MonoDreams.Examples/EntityFactory/WallEntityFactory.cs` (line 37)
+- `MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs` (line 29) — also read `name` from `request.CustomFields` if present
+- `MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs` (line 36)
+
+**Safety check:** No system matches on `"Tile"` or `"Enemy"` strings for behavior. `GameCollisionHelper` only matches: Player, Collectible, Projectile, Zone, NPCZone, Obstacle. The runner collision helper matches: Player, Collectible, Obstacle. So these renames are safe.
+
+### 4. Update `EntityType` enum
+
+**File:** `MonoDreams.Examples/Component/EntityType.cs`
+
+- Add `Wall`
+- Add `Misc`
+- Remove `Enemy` (unused after NPCEntityFactory switches to `NPC`, which already exists in the enum)
+
+### 5. Name entities in Blender parser (core)
+
+**File:** `MonoDreams/System/Level/BlenderLevelParserSystem.cs` (lines 384, 406, 426, 438)
+
+Pass `meshObj.Name` as the entity name for all EntityInfo constructors:
+- `new EntityInfo("Collision", meshObj.Name)`
+- `new EntityInfo("Player", meshObj.Name)`
+- `new EntityInfo("Enemy", meshObj.Name)` — stays "Enemy" in core, game handler overrides to "NPC"
+- `new EntityInfo("Trigger", meshObj.Name)`
+
+### 6. Name NPC entities in Blender handler (Examples)
+
+**File:** `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (line 168)
+
+The handler already has `blenderObj.Name`:
+```csharp
+entity.Set(new EntityInfo("NPC", npcName));
+```
+
+### 7. Name child entities in PlayerEntityFactory (Examples)
+
+**File:** `MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs`
+
+- Blue orb (line ~102): `orbEntity.Set(new EntityInfo("Orb", "BlueOrb"));`
+- Red orbs (line ~148): `orbEntity.Set(new EntityInfo("Orb", "RedOrb"));`
+
+Add `Orb` to `EntityType` enum.
+
+### 8. Name dialogue entities (Examples)
+
+**File:** `MonoDreams.Examples/System/Dialogue/DialogueSystem.cs`
+
+Give each dialogue entity a descriptive name:
+- Root entity (line 65): `new EntityInfo(nameof(EntityType.Interface), "DialogueRoot")`
+- Box entity (line 72): `new EntityInfo(nameof(EntityType.Interface), "DialogueBox")`
+- Text entity (line 102): `new EntityInfo(nameof(EntityType.Interface), "DialogueText")`
+- Indicator entity (line 125): `new EntityInfo(nameof(EntityType.Interface), "DialogueIndicator")`
+- Option entities (line 401): `new EntityInfo(nameof(EntityType.Interface), $"DialogueOption{i}")`
+
+### 9. Name interaction icon entity (Examples)
+
+**File:** `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (line 190)
+
+The interaction icon entity already has `EntityInfo("InteractionIcon")`. Could improve with NPC name context:
+```csharp
+iconEntity.Set(new EntityInfo("InteractionIcon", $"{npcName}Icon"));
+```
+
+## Verification
+
+1. `dotnet build` — ensure all projects compile
+2. Run the game, press F1 to open inspector
+3. Verify entity names are descriptive:
+   - Walls show as "Wall #..." not "Tile #..."
+   - NPCs show as "Boldo (NPC) #..."
+   - Orbs show as "BlueOrb (Orb) #..." under Player
+   - Dialogue entities show as "DialogueBox (Interface) #..." etc.
+   - Tiles still show as "Tile #..."
+4. `dotnet test MonoDreams.Tests/` — ensure tests pass
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+commit this

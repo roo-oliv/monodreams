@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "bc36762b7f1d",
+  "strategy": "manual-commit",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Component/EntityType.cs",
+    "MonoDreams.Examples/EntityFactory/MiscEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/NPCEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/PlayerEntityFactory.cs",
+    "MonoDreams.Examples/EntityFactory/WallEntityFactory.cs",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams/Component/EntityInfo.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bc/36762b7f1d/0/metadata.json",
+      "transcript": "/bc/36762b7f1d/0/full.jsonl",
+      "context": "/bc/36762b7f1d/0/context.md",
+      "content_hash": "/bc/36762b7f1d/0/content_hash.txt",
+      "prompt": "/bc/36762b7f1d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 47704,
+    "cache_read_tokens": 620841,
+    "output_tokens": 79,
+    "api_call_count": 11
+  }
+}
