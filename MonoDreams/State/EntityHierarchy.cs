@@ -50,12 +50,6 @@ public class EntityHierarchy
     }
 
     /// <summary>
-    /// Returns the number of root entities (entities without parents) from the tracked set.
-    /// </summary>
-    public int RootCount => _childrenMap.Keys.Count(k => !_parentMap.ContainsKey(k))
-                            + _parentMap.Keys.Count(k => false); // just count non-parented
-
-    /// <summary>
     /// Rebuilds the hierarchy from the given entity set. Called by HierarchySystem each frame.
     /// </summary>
     internal void Rebuild(ReadOnlySpan<Entity> entities)

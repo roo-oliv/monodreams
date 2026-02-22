@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Component.Layout;
+using MonoDreams.Extension;
 
 namespace MonoDreams.Examples.Layout;
 
@@ -101,17 +102,16 @@ public class SlotBuilder
     /// Builds the slot entity with LayoutSlot and Transform components.
     /// If a content entity was attached, sets its Transform.Parent to the slot's transform.
     /// </summary>
-    internal (Entity slotEntity, LayoutSlot slot) Build(Transform? parentTransform)
+    internal (Entity slotEntity, LayoutSlot slot) Build(Entity? parentEntity)
     {
         var slotEntity = _world.CreateEntity();
         var slotTransform = new Transform(Vector2.Zero);
-
-        if (parentTransform != null)
-        {
-            slotTransform.Parent = parentTransform;
-        }
-
         slotEntity.Set(slotTransform);
+
+        if (parentEntity.HasValue)
+        {
+            slotEntity.SetParent(parentEntity.Value);
+        }
 
         var slot = new LayoutSlot
         {
@@ -144,12 +144,8 @@ public class SlotBuilder
             slot.Content = _contentEntity;
             slot.SizeMeasurer = _sizeMeasurer;
 
-            // Set content's transform parent to slot
-            if (_contentEntity.Value.Has<Transform>())
-            {
-                ref var contentTransform = ref _contentEntity.Value.Get<Transform>();
-                contentTransform.Parent = slotTransform;
-            }
+            // Set content entity as child of slot
+            _contentEntity.Value.SetParent(slotEntity);
         }
 
         slotEntity.Set(slot);

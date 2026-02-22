@@ -104,8 +104,9 @@ public class HierarchySystem : ISystem<GameState>
 
     private void PropagateDirtyFlags()
     {
-        // Rebuild parent-to-children transform mapping
-        _parentToChildren.Clear();
+        // Clear list contents but keep the lists allocated to reduce GC pressure
+        foreach (var list in _parentToChildren.Values)
+            list.Clear();
 
         foreach (var entity in _transformSet.GetEntities())
         {

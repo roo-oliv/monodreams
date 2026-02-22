@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Component.Layout;
+using MonoDreams.Extension;
 
 namespace MonoDreams.Examples.Layout;
 
@@ -179,7 +180,7 @@ public class ContainerBuilder
             var slotBuilder = new SlotBuilder(_world, _renderTarget);
             configure(slotBuilder);
 
-            var (slotEntity, slot) = slotBuilder.Build(_transform);
+            var (slotEntity, slot) = slotBuilder.Build(_entity);
 
             // Add to layout hierarchy
             _layoutSlot?.Node.AddChild(slot.Node);
@@ -209,10 +210,10 @@ public class ContainerBuilder
                 _layoutSlot.Node.AddChild(childBuilder._layoutSlot.Node);
             }
 
-            // Set transform parent
-            if (_transform != null && childBuilder._transform != null)
+            // Set parent-child relationship
+            if (_entity.HasValue && childBuilder._entity.HasValue)
             {
-                childBuilder._transform.Parent = _transform;
+                childBuilder._entity.Value.SetParent(_entity.Value);
             }
         });
         return this;
@@ -229,14 +230,13 @@ public class ContainerBuilder
 
         // Transform for positioning
         _transform = new Transform(Vector2.Zero);
+        _entity.Value.Set(_transform);
 
         // Set parent reference if this is not a root
-        if (_parentBuilder?._transform != null)
+        if (_parentBuilder?._entity != null)
         {
-            _transform.Parent = _parentBuilder._transform;
+            _entity.Value.SetParent(_parentBuilder._entity.Value);
         }
-
-        _entity.Value.Set(_transform);
 
         // Create and configure the layout slot
         _layoutSlot = new LayoutSlot

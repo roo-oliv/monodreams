@@ -26,6 +26,7 @@ public class DebugInspector
     private int _frameCounter;
     private string _filterText = "";
     private const int ScanInterval = 15; // ~4x/sec at 60fps
+    private int _nextNodeId;
 
     public bool WantsKeyboard => _visible && ImGui.GetIO().WantCaptureKeyboard;
     public bool WantsMouse => _visible && ImGui.GetIO().WantCaptureMouse;
@@ -98,8 +99,7 @@ public class DebugInspector
         }
 
         // Read hierarchy from world resource (set by HierarchySystem)
-        EntityHierarchy hierarchy = null;
-        try { hierarchy = world.Get<EntityHierarchy>(); } catch { /* no hierarchy yet */ }
+        var hierarchy = world.Has<EntityHierarchy>() ? world.Get<EntityHierarchy>() : null;
 
         if (hierarchy != null)
         {
@@ -133,16 +133,19 @@ public class DebugInspector
         ImGui.InputTextWithHint("##filter", "Filter...", ref _filterText, 256);
         ImGui.Separator();
 
+        _nextNodeId = 0;
         for (var i = 0; i < _rootSnapshots.Count; i++)
         {
-            DrawEntityNode(_rootSnapshots[i], i);
+            DrawEntityNode(_rootSnapshots[i]);
         }
 
         ImGui.End();
     }
 
-    private void DrawEntityNode(EntitySnapshot snapshot, int index)
+    private void DrawEntityNode(EntitySnapshot snapshot)
     {
+        var nodeId = _nextNodeId++;
+
         var hasFilter = _filterText.Length > 0;
 
         // When filtering, check if this entity or any descendant matches
@@ -156,7 +159,7 @@ public class DebugInspector
         ImGui.SameLine();
 
         var flags = hasChildren ? ImGuiTreeNodeFlags.None : ImGuiTreeNodeFlags.Leaf;
-        if (ImGui.TreeNodeEx($"{snapshot.DisplayName}##e{index}", flags))
+        if (ImGui.TreeNodeEx($"{snapshot.DisplayName}##e{nodeId}", flags))
         {
             // Draw components
             for (var c = 0; c < snapshot.Components.Count; c++)
@@ -166,7 +169,7 @@ public class DebugInspector
                 DrawTriStateCheckbox(compPath, snapshot, comp);
                 ImGui.SameLine();
 
-                if (ImGui.TreeNode($"{comp.TypeName}##e{index}c{c}"))
+                if (ImGui.TreeNode($"{comp.TypeName}##e{nodeId}c{c}"))
                 {
                     DrawComponentFields(comp, compPath);
                     ImGui.TreePop();
@@ -176,7 +179,7 @@ public class DebugInspector
             // Draw children recursively
             for (var i = 0; i < snapshot.Children.Count; i++)
             {
-                DrawEntityNode(snapshot.Children[i], index * 1000 + i);
+                DrawEntityNode(snapshot.Children[i]);
             }
 
             ImGui.TreePop();

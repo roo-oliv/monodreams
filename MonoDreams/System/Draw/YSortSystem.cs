@@ -37,7 +37,7 @@ public class YSortSystem(World world, MonoDreams.Component.Camera camera, DrawLa
             return;
 
         ref readonly var transform = ref entity.Get<Transform>();
-        ref readonly var drawComponent = ref entity.Get<DrawComponent>();
+        ref var drawComponent = ref entity.Get<DrawComponent>();
 
         // Normalize Y within camera bounds: 0 = top, 1 = bottom
         float t = _boundsHeight > 0
