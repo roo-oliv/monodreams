@@ -30,5 +30,6 @@ public enum CollisionType
     Physics,
     Collectible,
     Damage,
-    Dialogue
+    Dialogue,
+    NPCInteraction
 }

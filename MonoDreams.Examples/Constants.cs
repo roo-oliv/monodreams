@@ -8,7 +8,7 @@ public static class Constants
     public static float JumpGravityFactor = 0.78f;
     public static int JumpVelocity = -400;
     public static int JumpHVelocity = 300;
-    public static int MaxWalkVelocity = 21;
+    public static int MaxWalkVelocity = 50;
     public static int MaxFallVelocity = 700;
     public static int SlidingVelocity = 120;
     

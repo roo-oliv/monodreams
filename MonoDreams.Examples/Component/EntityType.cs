@@ -9,4 +9,6 @@ public enum EntityType
     Projectile,
     Zone,
     Interface,
+    NPC,
+    NPCZone,
 }

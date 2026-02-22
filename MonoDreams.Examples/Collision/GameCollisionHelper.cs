@@ -32,6 +32,7 @@ public static class GameCollisionHelper
             "Player" when targetType == "Collectible" => CollisionType.Collectible,
             "Player" when targetType == "Projectile" => CollisionType.Damage,
             "Player" when targetType == "Zone" => CollisionType.Dialogue,
+            "Player" when targetType == "NPCZone" => CollisionType.NPCInteraction,
             _ => CollisionType.Physics
         };
     }

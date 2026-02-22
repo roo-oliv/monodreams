@@ -6,7 +6,7 @@ public static class RunnerConstants
 {
     // Player
     public const float PlayerRadius = 12f;
-    public const float PlayerRunSpeed = 180f;
+    public const float PlayerRunSpeed = 350f;
     public const float TreadmillDragSpeed = 120f;
     public const float PlayerJumpSpeed = -350f;
     public const float WorldGravity = 800f;

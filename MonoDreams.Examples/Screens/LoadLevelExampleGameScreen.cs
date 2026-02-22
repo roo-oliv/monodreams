@@ -29,10 +29,13 @@ using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.System.Draw;
 using MonoDreams.System.Input;
 using MonoDreams.System.Level;
+using MonoDreams.Level;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
+using MonoGame.Extended.BitmapFonts;
 using Camera = MonoDreams.Component.Camera;
+using DynamicText = MonoDreams.Component.Draw.DynamicText;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -98,12 +101,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
             screenController.Game.Services.RemoveService(typeof(RequestedLevelComponent));
         }
 
-        // Create dialogue trigger zone near the right Tower
-        var triggerZone = _world.CreateEntity();
-        triggerZone.Set(new EntityInfo(nameof(EntityType.Zone)));
-        triggerZone.Set(new Transform(new Vector2(25, 5)));
-        triggerZone.Set(new BoxCollider(new Rectangle(-4, -4, 8, 8), passive: true));
-        triggerZone.Set(new DialogueZoneComponent("HelloWorld", oneTimeOnly: true));
     }
     
     private SequentialSystem<GameState> CreateUpdateSystem()
@@ -135,8 +132,64 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 new CursorInputSystem(_world), inputMappingSystem);
         }
         
+        var promptFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
-        blenderParser.RegisterCollectionHandler("Player", entity => entity.Set(new PlayerState()));
+        blenderParser.RegisterCollectionHandler("Player", (entity, _) => entity.Set(new PlayerState()));
+        blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
+        {
+            var npcName = blenderObj.Name;
+            entity.Set(new EntityInfo("NPC"));
+
+            var npcTransform = entity.Get<Transform>();
+            var npcSprite = entity.Get<SpriteInfo>();
+            var npcDimensions = new Vector2(
+                blenderObj.Dimensions?.X ?? npcSprite.Size.X,
+                blenderObj.Dimensions?.Y ?? npcSprite.Size.Y);
+
+            // Create interaction zone entity (wider than the NPC for approach detection)
+            var zoneEntity = _world.CreateEntity();
+            zoneEntity.Set(new EntityInfo("NPCZone"));
+            zoneEntity.Set(new Transform { Parent = npcTransform });
+
+            var zoneWidth = (int)(npcDimensions.X * 2.5f);
+            var zoneHeight = (int)(npcDimensions.Y * 1.5f);
+            var zoneBounds = new Rectangle(-zoneWidth / 2, -zoneHeight / 2, zoneWidth, zoneHeight);
+            zoneEntity.Set(new BoxCollider(zoneBounds, passive: true));
+            zoneEntity.Set(new DialogueZoneComponent(npcName, oneTimeOnly: false, autoStart: false, npcName: npcName));
+
+            // Create floating icon entity (above the NPC sprite)
+            var iconEntity = _world.CreateEntity();
+            iconEntity.Set(new EntityInfo("InteractionIcon"));
+
+            // Compute icon position above NPC visual top
+            var originOffsetY = blenderObj.OriginOffset?.Y ?? 0.5f;
+            var visualTop = -npcDimensions.Y * (1 - originOffsetY);
+            var iconOffset = new Vector2(0, visualTop - 6f);
+
+            iconEntity.Set(new Transform(iconOffset) { Parent = npcTransform });
+            iconEntity.Set(new DynamicText
+            {
+                Target = RenderTargetID.Main,
+                Font = promptFont,
+                TextContent = "E",
+                Color = Color.White,
+                Scale = 0.4f,
+                LayerDepth = 0.55f,
+                IsRevealed = true,
+                VisibleCharacterCount = 1,
+                RevealingSpeed = 0,
+                RevealStartTime = 0
+            });
+            iconEntity.Set(new DrawComponent
+            {
+                Type = DrawElementType.Text,
+                Target = RenderTargetID.Main
+            });
+            // No Visible initially — managed by NPCInteractionSystem
+
+            zoneEntity.Set(new NPCInteractionIcon { IconEntity = iconEntity });
+        });
 
         var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
         entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory());
@@ -161,7 +214,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new TransformPhysicalCollisionResolutionSystem(_world),
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
-            new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight)
+            new NPCInteractionSystem(_world),
+            new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight,
+                new[] { "Dialogues/hello_world", "Dialogues/boldo" })
             // ... other game logic systems
         );
         
