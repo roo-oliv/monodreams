@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "907b919043f8",
+  "strategy": "manual-commit",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Draw/DrawLayerMap.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/90/7b919043f8/0/metadata.json",
+      "transcript": "/90/7b919043f8/0/full.jsonl",
+      "context": "/90/7b919043f8/0/context.md",
+      "content_hash": "/90/7b919043f8/0/content_hash.txt",
+      "prompt": "/90/7b919043f8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 16322,
+    "cache_read_tokens": 373544,
+    "output_tokens": 725,
+    "api_call_count": 11
+  }
+}

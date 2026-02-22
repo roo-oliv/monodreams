@@ -1,0 +1,55 @@
+Implement the following plan:
+
+# Fix: Player and NPC not Y-sorted in Blender Level
+
+## Context
+
+When loading Level 2 (Blender level), Player ("Pete") and NPC ("Boldo") are not Y-sorted with each other. The root cause is a name mismatch: `BlenderLevelParserSystem.ResolveLayerDepth()` tries to match Blender collection names against `DrawLayerMap`, but "Player" and "NPC" don't match any `GameDrawLayer` enum value — the correct one is "Characters". Both entities fall through to `DEFAULT_LAYER_DEPTH = 0.5f`, which `YSortSystem` doesn't recognize as a Y-sorted layer.
+
+## Approach: Add alias support to DrawLayerMap
+
+Add a `WithAlias<TEnum>(string alias, TEnum layer)` method to `DrawLayerMap`. Aliases are stored directly in the existing `_layers` dictionary, so all string-based lookups (`TryGetDepth`, `GetDepth`) work transparently with zero changes to any other system.
+
+This is the cleanest fix because:
+- Solves the problem at the right abstraction — `DrawLayerMap` is the single source of truth for name-to-depth mapping
+- General-purpose — works for any system using string lookup, not just Blender
+- Zero changes to `BlenderLevelParserSystem`, `YSortSystem`, or any other core system
+- Follows the framework philosophy of extending existing mechanisms
+
+## Changes
+
+### 1. `MonoDreams/Draw/DrawLayerMap.cs` — Add `WithAlias` method
+
+Add a fluent method that inserts an alias key into `_layers` pointing to the same depth as the given enum layer:
+
+```csharp
+public DrawLayerMap WithAlias<TEnum>(string alias, TEnum layer) where TEnum : struct, Enum
+{
+    var layerName = layer.ToString();
+    if (!_layers.TryGetValue(layerName, out var depth))
+        throw new ArgumentException($"Layer '{layerName}' not found in map.", nameof(layer));
+    _layers[alias] = depth;
+    return this;
+}
+```
+
+### 2. `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` — Wire up aliases
+
+```csharp
+_layers = DrawLayerMap.FromEnum<GameDrawLayer>()
+    .WithYSort(GameDrawLayer.Characters)
+    .WithAlias("Player", GameDrawLayer.Characters)
+    .WithAlias("NPC", GameDrawLayer.Characters);
+```
+
+## Verification
+
+1. Build: `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run the game, load Level 2 (Blender level), and verify Player and NPC Y-sort correctly (entity lower on screen renders in front)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+commit this

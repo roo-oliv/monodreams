@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "907b919043f8",
+  "session_id": "b80c5b8c-397e-4e17-8a83-5e8139d6ef96",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-22T15:54:14.419095Z",
+  "branch": "ro/y-sorting-and-debugging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Draw/DrawLayerMap.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 16322,
+    "cache_read_tokens": 373544,
+    "output_tokens": 725,
+    "api_call_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-22T15:54:14.378641Z",
+    "agent_lines": 16,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 16,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/b80c5b8c-397e-4e17-8a83-5e8139d6ef96.jsonl"
+}
