@@ -7,11 +7,12 @@ using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Examples.Runner;
+using MonoDreams.Examples.Screens;
 using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
 
-public class CharmFactory : IEntityFactory
+public class CharmFactory(DrawLayerMap layers) : IEntityFactory
 {
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -35,7 +36,7 @@ public class CharmFactory : IEntityFactory
             Vertices = mesh.Vertices,
             Indices = mesh.Indices,
             PrimitiveType = mesh.PrimitiveType,
-            LayerDepth = 0.8f
+            LayerDepth = layers.GetDepth(InfiniteRunnerScreen.RunnerDrawLayer.Collectible)
         });
         entity.Set(new Visible());
 

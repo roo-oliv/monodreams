@@ -5,7 +5,9 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
+using MonoDreams.Draw;
 using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Message;
@@ -15,7 +17,7 @@ namespace MonoDreams.Examples.EntityFactory;
 /// <summary>
 /// Factory for creating NPC entities
 /// </summary>
-public class NPCEntityFactory(ContentManager content) : IEntityFactory
+public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEntityFactory
 {
     private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Characters");
 
@@ -39,7 +41,7 @@ public class NPCEntityFactory(ContentManager content) : IEntityFactory
             Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize),
             Color = Color.White * request.Layer._Opacity,
             Target = RenderTargetID.Main,
-            LayerDepth = 0.1f
+            LayerDepth = layers.GetDepth(GameDrawLayer.Characters)
         });
         entity.Set(new DrawComponent
         {

@@ -14,6 +14,7 @@ using MonoDreams.Component.Physics;
 using MonoDreams.Component.Draw;
 using MonoDreams.Level;
 using MonoDreams.Message.Level;
+using MonoDreams.Draw;
 using MonoDreams.State;
 using Logger = MonoDreams.State.Logger;
 
@@ -33,6 +34,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
     private readonly Dictionary<string, Texture2D> _loadedTextures = new();
     private readonly HashSet<Entity> _blenderEntities = new();
     private readonly Dictionary<string, Action<Entity, BlenderObject>> _collectionHandlers = new();
+    private DrawLayerMap _drawLayerMap;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -52,6 +54,17 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
     public void RegisterCollectionHandler(string collectionName, Action<Entity, BlenderObject> handler)
     {
         _collectionHandlers[collectionName] = handler ?? throw new ArgumentNullException(nameof(handler));
+    }
+
+    /// <summary>
+    /// Sets the draw layer map used for depth resolution. When set, mesh depth is resolved by:
+    /// 1. Object's "drawLayer" custom property (string matching a layer name)
+    /// 2. Blender collection names matched against layer names
+    /// 3. Falls back to DEFAULT_LAYER_DEPTH
+    /// </summary>
+    public void SetDrawLayerMap(DrawLayerMap drawLayerMap)
+    {
+        _drawLayerMap = drawLayerMap ?? throw new ArgumentNullException(nameof(drawLayerMap));
     }
 
     [Subscribe]
@@ -228,7 +241,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             Size = size,
             Color = Color.White,
             Target = RenderTargetID.Main,
-            LayerDepth = DEFAULT_LAYER_DEPTH,
+            LayerDepth = ResolveLayerDepth(meshObj),
             Origin = origin
         });
 
@@ -246,6 +259,40 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         ProcessCollections(entity, meshObj, size);
 
         Logger.Debug($"Created entity for mesh '{meshObj.Name}' at ({position.X}, {position.Y}) with size ({size.X}, {size.Y}), origin ({origin.X}, {origin.Y}), and source rect ({sourceRect.X}, {sourceRect.Y}, {sourceRect.Width}, {sourceRect.Height})");
+    }
+
+    /// <summary>
+    /// Resolves the layer depth for a mesh object using the DrawLayerMap (if set).
+    /// Priority: object "drawLayer" custom property > collection name match > DEFAULT_LAYER_DEPTH.
+    /// </summary>
+    private float ResolveLayerDepth(BlenderObject meshObj)
+    {
+        if (_drawLayerMap == null)
+            return DEFAULT_LAYER_DEPTH;
+
+        // 1. Check object's "drawLayer" custom property
+        if (meshObj.CustomProperties?.TryGetValue("drawLayer", out var drawLayerValue) == true)
+        {
+            var layerName = drawLayerValue is JsonElement jsonEl
+                ? jsonEl.GetString()
+                : drawLayerValue?.ToString();
+
+            if (layerName != null && _drawLayerMap.TryGetDepth(layerName, out var depth))
+                return depth;
+        }
+
+        // 2. Try each Blender collection name against the layer map
+        if (meshObj.Collections != null)
+        {
+            foreach (var collection in meshObj.Collections)
+            {
+                if (_drawLayerMap.TryGetDepth(collection, out var depth))
+                    return depth;
+            }
+        }
+
+        // 3. Fall back to default
+        return DEFAULT_LAYER_DEPTH;
     }
 
     /// <summary>

@@ -30,6 +30,8 @@ using MonoDreams.System.Draw;
 using MonoDreams.System.Input;
 using MonoDreams.System.Level;
 using MonoDreams.Level;
+using MonoDreams.Draw;
+using MonoDreams.Examples.Draw;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -50,7 +52,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly SpriteBatch _spriteBatch;
     private readonly World _world;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
-    
+    private readonly DrawLayerMap _layers;
+
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
     {
@@ -69,7 +72,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         };
         
         camera.Position = new Vector2(0, 0);
-        
+
+        _layers = DrawLayerMap.FromEnum<GameDrawLayer>();
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
@@ -135,6 +139,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var promptFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
 
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
+        blenderParser.SetDrawLayerMap(_layers);
         blenderParser.RegisterCollectionHandler("Player", (entity, _) => entity.Set(new PlayerState()));
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
@@ -175,7 +180,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 TextContent = "E",
                 Color = Color.White,
                 Scale = 0.4f,
-                LayerDepth = 0.55f,
+                LayerDepth = _layers.GetDepth(GameDrawLayer.Characters, -0.01f),
                 IsRevealed = true,
                 VisibleCharacterCount = 1,
                 RevealingSpeed = 0,
@@ -192,10 +197,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         });
 
         var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
-        entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory());
-        entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content));
-        entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content));
-        entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content));
+        entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory(_layers));
+        entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content, _layers));
+        entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content, _layers));
+        entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content, _layers));
 
         var levelLoadSystems = new SequentialSystem<GameState>(
             new LevelLoadRequestSystem(_world, _content),
@@ -215,7 +220,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
             new NPCInteractionSystem(_world),
-            new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight,
+            new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight, _layers,
                 new[] { "Dialogues/hello_world", "Dialogues/boldo" })
             // ... other game logic systems
         );

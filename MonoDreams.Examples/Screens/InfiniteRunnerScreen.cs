@@ -40,6 +40,7 @@ public class InfiniteRunnerScreen : IGameScreen
     private readonly World _world;
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly MonoGame.Extended.BitmapFonts.BitmapFont _font;
+    private readonly DrawLayerMap _layers;
 
     public InfiniteRunnerScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -62,6 +63,7 @@ public class InfiniteRunnerScreen : IGameScreen
         camera.Zoom = RunnerConstants.CameraZoom;
         camera.Position = RunnerConstants.CameraPosition;
 
+        _layers = DrawLayerMap.FromEnum<RunnerDrawLayer>();
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
@@ -122,7 +124,7 @@ public class InfiniteRunnerScreen : IGameScreen
             Vertices = mesh.Vertices,
             Indices = mesh.Indices,
             PrimitiveType = mesh.PrimitiveType,
-            LayerDepth = 0.5f
+            LayerDepth = _layers.GetDepth(RunnerDrawLayer.Treadmill)
         });
         entity.Set(new Visible());
         entity.Set(new TreadmillSegment { IsTopRow = isTopRow });
@@ -147,7 +149,7 @@ public class InfiniteRunnerScreen : IGameScreen
             Vertices = circleMesh.Vertices,
             Indices = circleMesh.Indices,
             PrimitiveType = circleMesh.PrimitiveType,
-            LayerDepth = 0.4f
+            LayerDepth = _layers.GetDepth(RunnerDrawLayer.SpawnPoint)
         });
         entity.Set(new Visible());
     }
@@ -179,7 +181,7 @@ public class InfiniteRunnerScreen : IGameScreen
             Vertices = circleMesh.Vertices,
             Indices = circleMesh.Indices,
             PrimitiveType = circleMesh.PrimitiveType,
-            LayerDepth = 0.9f
+            LayerDepth = _layers.GetDepth(RunnerDrawLayer.Player)
         });
         entity.Set(new Visible());
     }
@@ -192,7 +194,7 @@ public class InfiniteRunnerScreen : IGameScreen
         entity.Set(new DynamicText
         {
             Target = RenderTargetID.HUD,
-            LayerDepth = 0.9f,
+            LayerDepth = _layers.GetDepth(RunnerDrawLayer.HUD),
             TextContent = "Score: 0",
             Font = _font,
             Color = RunnerConstants.ScoreColor,
@@ -254,8 +256,8 @@ public class InfiniteRunnerScreen : IGameScreen
         var scoreDisplay = new MonoDreams.Examples.System.Runner.ScoreDisplaySystem(_world);
 
         var entitySpawnSystem = new MonoDreams.System.EntitySpawn.EntitySpawnSystem(_world, null, _renderTargets);
-        entitySpawnSystem.RegisterEntityFactory("Charm", new MonoDreams.Examples.EntityFactory.CharmFactory());
-        entitySpawnSystem.RegisterEntityFactory("Obstacle", new MonoDreams.Examples.EntityFactory.ObstacleFactory());
+        entitySpawnSystem.RegisterEntityFactory("Charm", new MonoDreams.Examples.EntityFactory.CharmFactory(_layers));
+        entitySpawnSystem.RegisterEntityFactory("Obstacle", new MonoDreams.Examples.EntityFactory.ObstacleFactory(_layers));
 
         var logicSystems = new SequentialSystem<GameState>(
             entitySpawnSystem,
@@ -327,5 +329,15 @@ public class InfiniteRunnerScreen : IGameScreen
         }
         _world.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    public enum RunnerDrawLayer
+    {
+        HUD,         // front - score display
+        Player,      // player circle
+        Collectible, // charms
+        Obstacle,    // obstacles
+        Treadmill,   // treadmill segments
+        SpawnPoint,  // spawn point indicator (back)
     }
 }

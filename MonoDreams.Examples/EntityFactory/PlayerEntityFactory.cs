@@ -7,6 +7,7 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
 using MonoDreams.Examples.Component;
+using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Message;
@@ -16,7 +17,7 @@ namespace MonoDreams.Examples.EntityFactory;
 /// <summary>
 /// Factory for creating player entities with all necessary components
 /// </summary>
-public class PlayerEntityFactory(ContentManager content) : IEntityFactory
+public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : IEntityFactory
 {
     private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Atlas/TX Player");
 
@@ -52,7 +53,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
             Size = request.Size,
             Color = Color.White * request.Layer._Opacity,
             Target = RenderTargetID.Main,
-            LayerDepth = 0.1f,
+            LayerDepth = layers.GetDepth(GameDrawLayer.Characters),
             Offset = Constants.PlayerSpriteOffset,
         });
         entity.Set(new DrawComponent
@@ -133,7 +134,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
             Vertices = circleMesh.Vertices,
             Indices = circleMesh.Indices,
             PrimitiveType = circleMesh.PrimitiveType,
-            LayerDepth = 0.991f
+            LayerDepth = layers.GetDepth(GameDrawLayer.Effects, +0.001f)
         });
         orbEntity.Set(new Visible());
 
@@ -181,7 +182,7 @@ public class PlayerEntityFactory(ContentManager content) : IEntityFactory
             Vertices = circleMesh.Vertices,
             Indices = circleMesh.Indices,
             PrimitiveType = circleMesh.PrimitiveType,
-            LayerDepth = 0.992f
+            LayerDepth = layers.GetDepth(GameDrawLayer.Effects, +0.002f)
         });
         orbEntity.Set(new Visible());
     }
