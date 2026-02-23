@@ -1,0 +1,56 @@
+Implement the following plan:
+
+# Fix: Y-sort parent-child gap still allows entities to slip between parent and child
+
+## Context
+
+The PostUpdate pass in `YSortSystem` (added in the previous iteration) correctly derives the
+child's depth from the parent's final depth. However, **it still uses the original
+`YSortDepthBias` value (-0.0005f) as the offset**, creating a gap of 0.0005 in depth space.
+
+### Why the gap is too large
+
+The Characters Y-sort range spans 0.098 (from `DrawLayerMap`: 11 enum members, step=0.1,
+halfStep=0.05, margin=0.001 → range width = 0.098). A bias of -0.0005 in this range
+corresponds to roughly 1 world unit of Y at typical camera zoom:
+
+    gap_in_world_units = 0.0005 × boundsHeight / 0.098
+
+At boundsHeight ≈ 200 → gap ≈ 1.02 world units. Pete can easily be within 1 world unit
+of the elephant's effective sort Y, landing in the gap between parent and child depths.
+
+## Fix: Use minimal epsilon in PostUpdate instead of full YSortDepthBias
+
+**File**: `MonoDreams/System/Draw/YSortSystem.cs` (lines 83-86, PostUpdate)
+
+**Current code** (produces gap of 0.0005):
+```csharp
+childDraw.LayerDepth = Math.Clamp(
+    parentDraw.LayerDepth + childSprite.YSortDepthBias,
+    minDepth, maxDepth);
+```
+
+**Fixed code** (produces gap of 1e-6 — ~0.002 world units, sub-pixel):
+```csharp
+// Preserve bias direction but use a minimal epsilon so no external
+// entity's depth can occupy the gap between parent and child
+float minimalBias = Math.Sign(childSprite.YSortDepthBias) * 1e-6f;
+childDraw.LayerDepth = Math.Clamp(
+    parentDraw.LayerDepth + minimalBias,
+    minDepth, maxDepth);
+```
+
+### Why 1e-6 is safe
+- At depth ~0.65, float precision is ~6e-8 (1 ULP). A delta of 1e-6 is ~16 ULPs —
+  reliably distinguishable by SpriteBatch's float comparison.
+- Gap in world units: 1e-6 × 200 / 0.098 ≈ 0.002 — sub-pixel, impossible to hit in gameplay.
+- The sign of the original bias is preserved: negative = behind parent, positive = in front.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run game, walk Pete to the exact Y level of the elephant-kid NPC — the silhouette should
+   always render directly behind the NPC, never with Pete in between
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl

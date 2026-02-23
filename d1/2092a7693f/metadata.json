@@ -3,7 +3,7 @@
   "checkpoint_id": "d12092a7693f",
   "strategy": "manual-commit",
   "branch": "ro/convex-collider-sat",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     ".claude/settings.local.json",
     "MonoDreams.Examples/Component/StopMotionEffect.cs",
@@ -46,13 +46,20 @@
       "context": "/d1/2092a7693f/3/context.md",
       "content_hash": "/d1/2092a7693f/3/content_hash.txt",
       "prompt": "/d1/2092a7693f/3/prompt.txt"
+    },
+    {
+      "metadata": "/d1/2092a7693f/4/metadata.json",
+      "transcript": "/d1/2092a7693f/4/full.jsonl",
+      "context": "/d1/2092a7693f/4/context.md",
+      "content_hash": "/d1/2092a7693f/4/content_hash.txt",
+      "prompt": "/d1/2092a7693f/4/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 78,
-    "cache_creation_tokens": 207957,
-    "cache_read_tokens": 2709039,
-    "output_tokens": 3342,
-    "api_call_count": 61
+    "input_tokens": 85,
+    "cache_creation_tokens": 219165,
+    "cache_read_tokens": 2841431,
+    "output_tokens": 3421,
+    "api_call_count": 66
   }
 }
