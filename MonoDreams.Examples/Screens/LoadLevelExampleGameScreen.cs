@@ -81,9 +81,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         camera.Position = new Vector2(0, 0);
 
         _layers = DrawLayerMap.FromEnum<GameDrawLayer>()
-            .WithYSort(GameDrawLayer.Characters)
-            .WithAlias("Player", GameDrawLayer.Characters)
-            .WithAlias("NPC", GameDrawLayer.Characters);
+            .WithYSort(GameDrawLayer.Characters);
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
@@ -168,6 +166,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             var npcName = blenderObj.Name;
             entity.Set(new EntityInfo("NPC", npcName));
+
+            // EMPTY objects (parent empties in hierarchy) don't have sprites — skip visual setup
+            if (!entity.Has<SpriteInfo>()) return;
 
             var npcTransform = entity.Get<Transform>();
             var npcSprite = entity.Get<SpriteInfo>();

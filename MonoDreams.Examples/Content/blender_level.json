@@ -2,10 +2,18 @@
   "version": "1.0",
   "exportedFrom": "Blender 5.0.0",
   "scaleFactor": 16.0,
+  "collectionHierarchy": {
+    "Collision": null,
+    "Background": null,
+    "Characters": null,
+    "NPC": "Characters",
+    "Player": "Characters"
+  },
   "objects": [
     {
       "name": "Boldo",
       "type": "GREASEPENCIL",
+      "parent": null,
       "collections": [
         "NPC"
       ],
@@ -65,6 +73,7 @@
     {
       "name": "Camera",
       "type": "CAMERA",
+      "parent": null,
       "collections": [
         "Background"
       ],
@@ -98,6 +107,7 @@
     {
       "name": "Floor",
       "type": "GREASEPENCIL",
+      "parent": null,
       "collections": [
         "Background"
       ],
@@ -159,6 +169,7 @@
     {
       "name": "Pete",
       "type": "GREASEPENCIL",
+      "parent": null,
       "collections": [
         "Player"
       ],
@@ -216,8 +227,129 @@
       }
     },
     {
+      "name": "elephant-kid",
+      "type": "MESH",
+      "parent": null,
+      "collections": [
+        "NPC"
+      ],
+      "collectionProperties": {
+        "NPC": {}
+      },
+      "meshType": "plane",
+      "position": {
+        "x": 43.2,
+        "y": -0.0
+      },
+      "dimensions": {
+        "x": 23.3796,
+        "y": 23.3796
+      },
+      "scale": {
+        "x": 1.4612,
+        "y": 1.4612
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/elephant-kid.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "elephant-kid-shilhouette",
+      "type": "MESH",
+      "parent": "elephant-kid",
+      "collections": [
+        "NPC"
+      ],
+      "collectionProperties": {
+        "NPC": {}
+      },
+      "meshType": "plane",
+      "position": {
+        "x": -0.0,
+        "y": 0.0021
+      },
+      "dimensions": {
+        "x": 23.3796,
+        "y": 23.3796
+      },
+      "scale": {
+        "x": 1.4612,
+        "y": 1.4612
+      },
+      "rotation": 0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "uvMapping": {
+        "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/elephant-kid-shilhouette.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "store",
       "type": "GREASEPENCIL",
+      "parent": null,
       "collections": [
         "Collision"
       ],

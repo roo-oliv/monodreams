@@ -15,6 +15,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Level;
 using MonoDreams.Message.Level;
 using MonoDreams.Draw;
+using MonoDreams.Extension;
 using MonoDreams.State;
 using Logger = MonoDreams.State.Logger;
 
@@ -33,6 +34,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
     private readonly MonoDreams.Component.Camera _camera;
     private readonly Dictionary<string, Texture2D> _loadedTextures = new();
     private readonly HashSet<Entity> _blenderEntities = new();
+    private readonly Dictionary<string, Entity> _nameToEntity = new();
     private readonly Dictionary<string, Action<Entity, BlenderObject>> _collectionHandlers = new();
     private DrawLayerMap _drawLayerMap;
 
@@ -104,6 +106,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
             Logger.Info($"Loaded {levelData.Objects.Count} objects from Blender level.");
 
+            // Pass 1: Create all entities
             foreach (var obj in levelData.Objects)
             {
                 switch (obj.Type)
@@ -113,18 +116,35 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                         break;
                     case "MESH":
                     case "GREASEPENCIL":
-                        // GREASEPENCIL objects are rendered to PNG and exported as planes
-                        // They are processed the same way as MESH objects
-                        ProcessMesh(obj);
+                        ProcessMesh(obj, levelData);
                         break;
                     case "EMPTY":
-                        // Could be used for spawn points, triggers, etc.
-                        Logger.Debug($"Empty object: {obj.Name} at ({obj.Position?.X}, {obj.Position?.Y})");
+                        ProcessEmpty(obj);
                         break;
                     default:
                         Logger.Warning($"Skipping unknown object type: {obj.Type}");
                         break;
                 }
+            }
+
+            // Pass 2: Set up parent-child relationships
+            foreach (var obj in levelData.Objects)
+            {
+                if (string.IsNullOrEmpty(obj.Parent)) continue;
+
+                if (!_nameToEntity.TryGetValue(obj.Name, out var childEntity))
+                {
+                    Logger.Warning($"Parent linkage: child '{obj.Name}' not found in entity map.");
+                    continue;
+                }
+                if (!_nameToEntity.TryGetValue(obj.Parent, out var parentEntity))
+                {
+                    Logger.Warning($"Parent linkage: parent '{obj.Parent}' not found for child '{obj.Name}'.");
+                    continue;
+                }
+
+                childEntity.SetParent(parentEntity);
+                Logger.Debug($"Set parent of '{obj.Name}' to '{obj.Parent}'.");
             }
 
             Logger.Info($"Created {_blenderEntities.Count} entities from Blender level.");
@@ -161,7 +181,37 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         Logger.Debug($"Set camera position to ({cameraPosition.X}, {cameraPosition.Y})");
     }
 
-    private void ProcessMesh(BlenderObject meshObj)
+    private void ProcessEmpty(BlenderObject emptyObj)
+    {
+        var entity = _world.CreateEntity();
+        _blenderEntities.Add(entity);
+
+        var position = new Vector2(
+            emptyObj.Position?.X ?? 0,
+            emptyObj.Position?.Y ?? 0
+        );
+
+        entity.Set(new Transform(position));
+        entity.Set(new EntityInfo("Empty", emptyObj.Name));
+
+        _nameToEntity[emptyObj.Name] = entity;
+
+        // Invoke registered game-specific collection handlers
+        if (emptyObj.Collections != null)
+        {
+            foreach (var collection in emptyObj.Collections)
+            {
+                if (_collectionHandlers.TryGetValue(collection, out var handler))
+                {
+                    handler(entity, emptyObj);
+                }
+            }
+        }
+
+        Logger.Debug($"Created empty entity '{emptyObj.Name}' at ({position.X}, {position.Y})");
+    }
+
+    private void ProcessMesh(BlenderObject meshObj, BlenderLevelData levelData)
     {
         if (meshObj.UvMapping == null)
         {
@@ -208,6 +258,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         // Create entity
         var entity = _world.CreateEntity();
         _blenderEntities.Add(entity);
+        _nameToEntity[meshObj.Name] = entity;
 
         // Position from Blender
         var position = new Vector2(
@@ -241,7 +292,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             Size = size,
             Color = Color.White,
             Target = RenderTargetID.Main,
-            LayerDepth = ResolveLayerDepth(meshObj),
+            LayerDepth = ResolveLayerDepth(meshObj, levelData),
             Origin = origin
         });
 
@@ -263,9 +314,9 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
     /// <summary>
     /// Resolves the layer depth for a mesh object using the DrawLayerMap (if set).
-    /// Priority: object "drawLayer" custom property > collection name match > DEFAULT_LAYER_DEPTH.
+    /// Priority: object "drawLayer" custom property > collection name match (with hierarchy walk) > DEFAULT_LAYER_DEPTH.
     /// </summary>
-    private float ResolveLayerDepth(BlenderObject meshObj)
+    private float ResolveLayerDepth(BlenderObject meshObj, BlenderLevelData levelData)
     {
         if (_drawLayerMap == null)
             return DEFAULT_LAYER_DEPTH;
@@ -281,13 +332,22 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 return depth;
         }
 
-        // 2. Try each Blender collection name against the layer map
+        // 2. Try each Blender collection name, then walk up the collection hierarchy
         if (meshObj.Collections != null)
         {
             foreach (var collection in meshObj.Collections)
             {
-                if (_drawLayerMap.TryGetDepth(collection, out var depth))
-                    return depth;
+                var current = collection;
+                while (current != null)
+                {
+                    if (_drawLayerMap.TryGetDepth(current, out var depth))
+                        return depth;
+
+                    // Walk up the hierarchy if available
+                    if (levelData.CollectionHierarchy == null ||
+                        !levelData.CollectionHierarchy.TryGetValue(current, out current))
+                        break;
+                }
             }
         }
 
@@ -508,6 +568,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             }
         }
         _blenderEntities.Clear();
+        _nameToEntity.Clear();
     }
 
     public void Update(GameState state)

@@ -4,7 +4,7 @@
 bl_info = {
     "name": "MonoDreams Level Exporter",
     "author": "MonoDreams Team",
-    "version": (1, 6, 0),
+    "version": (1, 7, 0),
     "blender": (5, 0, 0),
     "location": "File > Export > MonoDreams Level (.json)",
     "description": "Export level objects to JSON for MonoDreams game engine",
@@ -401,14 +401,14 @@ def get_gp_object_data(obj, scale_factor, texture_path):
     - Blender X -> Game X
     - Blender Z -> Game Y (Z-up to Y-down)
     """
-    # Get world-space location
-    location = obj.matrix_world.to_translation()
+    # Get local-space location (equals world for root objects)
+    location = obj.matrix_local.to_translation()
 
     # Get scale from object
     scale = obj.scale
 
     # Get rotation in Euler angles
-    rotation = obj.matrix_world.to_euler('XYZ')
+    rotation = obj.matrix_local.to_euler('XYZ')
 
     # Get bounding box dimensions
     bounds = get_gp_bounds(obj)
@@ -473,6 +473,7 @@ def get_gp_object_data(obj, scale_factor, texture_path):
     return {
         "name": obj.name,
         "type": "GREASEPENCIL",
+        "parent": obj.parent.name if obj.parent else None,
         "collections": collections,
         "collectionProperties": collection_properties,
         "meshType": "plane",
@@ -564,14 +565,14 @@ def get_object_data(obj, scale_factor):
     - Blender Z -> Game Y (Z-up to Y-down)
     - Blender Y is discarded (depth in 3D, not used in 2D)
     """
-    # Get world-space location
-    location = obj.matrix_world.to_translation()
+    # Get local-space location (equals world for root objects)
+    location = obj.matrix_local.to_translation()
 
     # Get scale from object (not matrix, to preserve negative scales correctly)
     scale = obj.scale
 
     # Get rotation in Euler angles
-    rotation = obj.matrix_world.to_euler('XYZ')
+    rotation = obj.matrix_local.to_euler('XYZ')
 
     # Map coordinates: X stays X, Z becomes Y
     position = {
@@ -627,6 +628,7 @@ def get_object_data(obj, scale_factor):
     result = {
         "name": obj.name,
         "type": obj_type,
+        "parent": obj.parent.name if obj.parent else None,
         "collections": collections,
         "collectionProperties": collection_properties,
         "meshType": mesh_type,
@@ -643,6 +645,23 @@ def get_object_data(obj, scale_factor):
         result["uvMapping"] = uv_data
 
     return result
+
+
+def get_collection_hierarchy(scene):
+    """
+    Walk the scene collection tree and build a flat map of collection parents.
+    Root collections (direct children of Scene Collection) have None parent.
+    Returns: { "NPC": "Characters", "Player": "Characters", "Characters": None }
+    """
+    hierarchy = {}
+
+    def walk(collection, parent_name):
+        for child in collection.children:
+            hierarchy[child.name] = parent_name
+            walk(child, child.name)
+
+    walk(scene.collection, None)
+    return hierarchy
 
 
 class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
@@ -738,11 +757,15 @@ class EXPORT_OT_monodreams_level(bpy.types.Operator, ExportHelper):
         gp_objects = [obj for obj in objects_to_export if obj.type == 'GREASEPENCIL']
         regular_objects = [obj for obj in objects_to_export if obj.type != 'GREASEPENCIL']
 
+        # Build collection hierarchy for the scene
+        collection_hierarchy = get_collection_hierarchy(context.scene)
+
         # Build export data
         export_data = {
             "version": "1.0",
             "exportedFrom": f"Blender {bpy.app.version_string}",
             "scaleFactor": self.scale_factor,
+            "collectionHierarchy": collection_hierarchy,
             "objects": []
         }
 
