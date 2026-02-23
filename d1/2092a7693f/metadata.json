@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d12092a7693f",
+  "strategy": "manual-commit",
+  "branch": "ro/convex-collider-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Tests/Collision/SATCollisionTests.cs",
+    "MonoDreams/Component/Collision/ColliderTag.cs",
+    "MonoDreams/Component/Collision/ConvexCollider.cs",
+    "MonoDreams/Extensions/Monogame/SATCollision.cs",
+    "Tools/blender_level_export.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/2092a7693f/0/metadata.json",
+      "transcript": "/d1/2092a7693f/0/full.jsonl",
+      "context": "/d1/2092a7693f/0/context.md",
+      "content_hash": "/d1/2092a7693f/0/content_hash.txt",
+      "prompt": "/d1/2092a7693f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 22635,
+    "cache_read_tokens": 206249,
+    "output_tokens": 19,
+    "api_call_count": 6
+  }
+}

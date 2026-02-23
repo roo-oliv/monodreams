@@ -1,0 +1,75 @@
+Implement the following plan:
+
+# Plan: Fix XY-plane collider mesh export in Blender exporter
+
+## Context
+The `elephant-kid-collider` mesh is authored on the XY plane in Blender. The exporter's `get_mesh_vertices()` always maps `(X, -Z)` to game coords, so Z=0 for all vertices → all game Y=0 → degenerate collider. The exporter should transparently handle meshes on either XY or XZ plane, producing the same result the artist sees from the camera/top view.
+
+**Evidence from exported data:**
+- `elephant-kid-collider`: `rotation: -0.0`, `dimensions: {x: 13.66, y: 8.26}` (Y extent exists), but all 32 vertices have `y: 0.0` because Z=0 in local space
+- `Boldo-collider`: same `rotation: -0.0`, but vertices have Y variation (14.87–19.14) because its mesh is on XZ plane
+
+## Fix: Auto-detect mesh plane in `get_mesh_vertices()`
+
+**File: `Tools/blender_level_export.py`, function `get_mesh_vertices()` (line 44)**
+
+After transforming all vertices with `matrix_local`, compare the Y extent vs Z extent in parent-local 3D space to detect the dominant plane:
+
+- **Z extent >= Y extent** → mesh is on XZ plane → use standard `(X, -Z)` mapping
+- **Y extent > Z extent** → mesh is on XY plane → use `(X, -Y)` fallback mapping
+
+Both projections are valid camera-view projections (front view uses Z for height, top view uses Y for height), and both negate the second axis because game Y is down.
+
+```python
+def get_mesh_vertices(obj, scale_factor):
+    # ... existing checks ...
+
+    # Transform all vertices to parent-local 3D space first
+    transformed = []
+    for v in mesh.vertices:
+        transformed.append(obj.matrix_local @ v.co)
+
+    # Detect dominant plane: compare Y vs Z extent after transform
+    ys = [v.y for v in transformed]
+    zs = [v.z for v in transformed]
+    range_y = max(ys) - min(ys)
+    range_z = max(zs) - min(zs)
+
+    # XY plane mesh (thin in Z): use Y for game height
+    # XZ plane mesh (thin in Y): use Z for game height (standard)
+    use_y_axis = range_y > range_z
+
+    # Map to 2D game coords
+    seen = set()
+    verts_2d = []
+    for world_v in transformed:
+        gx = round(world_v.x * scale_factor, 2)
+        gy = round((-world_v.y if use_y_axis else -world_v.z) * scale_factor, 2)
+        key = (gx, gy)
+        if key not in seen:
+            seen.add(key)
+            verts_2d.append({"x": gx, "y": gy})
+
+    # ... rest unchanged (dedup check, angle sort) ...
+```
+
+**Why this is safe for existing colliders:**
+- Boldo, Pete, store colliders have meshes on XZ plane → `range_z > range_y` → standard `(X, -Z)` path, no behavior change
+- Rotated meshes: `matrix_local` applies rotation before extent check, so the detection works regardless of how the artist positioned the mesh
+
+## Files Modified
+| File | Change |
+|------|--------|
+| `Tools/blender_level_export.py` | Auto-detect XY vs XZ plane in `get_mesh_vertices()` |
+
+## After implementation
+The user needs to re-export from Blender to regenerate `blender_level.json` with correct vertices. The existing degenerate-vertex guard in the parser (already implemented) stays as defense-in-depth.
+
+## Verification
+1. Read through the changed function to ensure correctness
+2. Verify the script is syntactically valid Python
+3. The user re-exports from Blender and verifies `elephant-kid-collider` vertices now have Y variation
+4. Run the game → elephant-kid gets a ConvexCollider applied (no "degenerate shape" warning)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
