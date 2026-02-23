@@ -161,7 +161,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
         blenderParser.SetDrawLayerMap(_layers);
-        blenderParser.RegisterCollectionHandler("Player", (entity, _) => entity.Set(new PlayerState()));
+        blenderParser.RegisterCollectionHandler("Player", (entity, _) =>
+        {
+            entity.Set(new PlayerState());
+            entity.Set(new StopMotionEffect { OffsetRadians = MathHelper.ToRadians(2f) });
+        });
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
             var npcName = blenderObj.Name;
@@ -169,6 +173,21 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
             // EMPTY objects (parent empties in hierarchy) don't have sprites — skip visual setup
             if (!entity.Has<SpriteInfo>()) return;
+
+            var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
+
+            // Silhouette entities rotate counterclockwise; compensate for parent's +2° with -4° local
+            var offset = isSilhouette
+                ? MathHelper.ToRadians(-4f)
+                : MathHelper.ToRadians(2f);
+            entity.Set(new StopMotionEffect { OffsetRadians = offset });
+
+            // Silhouette renders behind parent: negative bias = lower depth = further back
+            if (isSilhouette)
+            {
+                ref var sprite = ref entity.Get<SpriteInfo>();
+                sprite.YSortDepthBias = -0.0005f;
+            }
 
             var npcTransform = entity.Get<Transform>();
             var npcSprite = entity.Get<SpriteInfo>();
@@ -240,6 +259,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var logicSystems = new SequentialSystem<GameState>(
             new MovementSystem(_world, _parallelRunner),
             new OrbSystem(_world),
+            new StopMotionEffectSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
             new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, GameCollisionHelper.Create),
             new TransformPhysicalCollisionResolutionSystem(_world),

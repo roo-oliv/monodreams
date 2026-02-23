@@ -16,6 +16,7 @@ public struct SpriteInfo() : IComponent
     public float LayerDepth = 0; // Or use LayerDepth directly
     public NinePatchInfo? NinePatchData = null; // Optional
     public Vector2 Origin = Vector2.Zero; // Origin point in sprite coordinates (pixels from top-left)
+    public float YSortDepthBias = 0f; // Applied after Y-sort interpolation for deterministic front/back ordering
 
     public void Dispose()
     {
