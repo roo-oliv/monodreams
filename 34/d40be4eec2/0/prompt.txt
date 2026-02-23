@@ -1,0 +1,37 @@
+Implement the following plan:
+
+# Plan: Review PR #21
+
+## Context
+PR #21 ("Add rotation wobble and Y-sort depth bias") introduces two features:
+1. A `RotationWobble` component + system that snaps entity rotation between two states on a global timer
+2. A `YSortDepthBias` field on `SpriteInfo` for deterministic front/back ordering of entities at the same Y
+
+The user wants a review comment posted via `gh` (comment only, no approve/request-changes).
+
+## Review findings
+
+### Positive
+- Component/system placement follows conventions (class in Examples, `AEntitySetSystem<GameState>`)
+- System ordering correct: `RotationWobbleSystem` -> `HierarchySystem` -> `YSortSystem`
+- Dirty flag optimization avoids unnecessary transform propagation
+- `YSortDepthBias` defaults to 0 (backward-compatible)
+- Global timer sync ensures coordinated wobble across entities
+
+### Items to flag
+
+1. **YSortDepthBias can escape the Y-sort range** — The bias is added unconditionally after interpolation in `YSortSystem:48`. With 11 layers, the Characters Y-sort range is ~0.098 with a 0.001 margin to adjacent layers. The -0.0005 bias eats half that margin. Safe now, but fragile for future use. Suggest clamping or documenting the safe range.
+
+2. **"Wobble" naming vs snap behavior** — The component name and `AmplitudeRadians` field suggest smooth sinusoidal motion, but the implementation does discrete snapping between two states. The doc comment is accurate ("snap between a base rotation and a rotated state") but the naming creates a mismatch. Worth considering whether smooth sine interpolation (`MathF.Sin`) would better match the intent, or renaming to `RotationToggle`/`RotationSnap`.
+
+3. **Duplicate `EndsWith("shilhouette")` check** — `LoadLevelExampleGameScreen.cs:178` and `:184` both check `blenderObj.Name.EndsWith("shilhouette")`. Could be consolidated into a single conditional block.
+
+## Action
+
+Post a single review comment via:
+```bash
+gh pr review 21 --comment --body "<review text>"
+```
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
