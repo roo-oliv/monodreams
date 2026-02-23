@@ -106,9 +106,28 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
             Logger.Info($"Loaded {levelData.Objects.Count} objects from Blender level.");
 
-            // Pass 1: Create all entities
+            // Pre-scan: identify collider children (names ending with "-collider" that have a parent)
+            var colliderChildMap = new Dictionary<string, BlenderObject>();   // parent name → collider data
+            var colliderChildNames = new HashSet<string>();
             foreach (var obj in levelData.Objects)
             {
+                if (obj.Name.EndsWith("-collider") && !string.IsNullOrEmpty(obj.Parent))
+                {
+                    colliderChildMap[obj.Parent] = obj;
+                    colliderChildNames.Add(obj.Name);
+                    Logger.Debug($"Found collider child '{obj.Name}' for parent '{obj.Parent}'.");
+                }
+            }
+
+            // Pass 1: Create all entities (skip collider children)
+            foreach (var obj in levelData.Objects)
+            {
+                if (colliderChildNames.Contains(obj.Name))
+                {
+                    Logger.Debug($"Skipping collider child '{obj.Name}' (will be applied to parent).");
+                    continue;
+                }
+
                 switch (obj.Type)
                 {
                     case "CAMERA":
@@ -127,10 +146,17 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 }
             }
 
+            // Post-Pass 1: Apply collider children to parent entities
+            foreach (var (parentName, colliderObj) in colliderChildMap)
+            {
+                ApplyColliderChild(parentName, colliderObj);
+            }
+
             // Pass 2: Set up parent-child relationships
             foreach (var obj in levelData.Objects)
             {
                 if (string.IsNullOrEmpty(obj.Parent)) continue;
+                if (colliderChildNames.Contains(obj.Name)) continue;
 
                 if (!_nameToEntity.TryGetValue(obj.Name, out var childEntity))
                 {
@@ -145,6 +171,27 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
                 childEntity.SetParent(parentEntity);
                 Logger.Debug($"Set parent of '{obj.Name}' to '{obj.Parent}'.");
+            }
+
+            // Post-Pass 2: Propagate YSortOffset from parents to sprite children
+            foreach (var obj in levelData.Objects)
+            {
+                if (string.IsNullOrEmpty(obj.Parent)) continue;
+                if (colliderChildNames.Contains(obj.Name)) continue;
+
+                if (!_nameToEntity.TryGetValue(obj.Name, out var childEntity)) continue;
+                if (!_nameToEntity.TryGetValue(obj.Parent, out var parentEntity)) continue;
+
+                if (childEntity.Has<SpriteInfo>() && parentEntity.Has<SpriteInfo>())
+                {
+                    ref readonly var parentSprite = ref parentEntity.Get<SpriteInfo>();
+                    if (parentSprite.YSortOffset != 0f)
+                    {
+                        ref var childSprite = ref childEntity.Get<SpriteInfo>();
+                        childSprite.YSortOffset = parentSprite.YSortOffset;
+                        Logger.Debug($"Propagated YSortOffset={parentSprite.YSortOffset} from '{obj.Parent}' to '{obj.Name}'.");
+                    }
+                }
             }
 
             Logger.Info($"Created {_blenderEntities.Count} entities from Blender level.");
@@ -507,6 +554,93 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 handler(entity, meshObj);
             }
         }
+    }
+
+    /// <summary>
+    /// Applies a collider child's mesh vertices as a ConvexCollider on the parent entity.
+    /// Replaces any existing BoxCollider (preserving its layer/passive settings).
+    /// Sets YSortOffset on the parent's SpriteInfo and adds ColliderTag.
+    /// </summary>
+    private void ApplyColliderChild(string parentName, BlenderObject colliderObj)
+    {
+        if (!_nameToEntity.TryGetValue(parentName, out var parentEntity))
+        {
+            Logger.Warning($"Collider child '{colliderObj.Name}': parent entity '{parentName}' not found.");
+            return;
+        }
+
+        if (colliderObj.Vertices == null || colliderObj.Vertices.Count < 3)
+        {
+            Logger.Warning($"Collider child '{colliderObj.Name}': needs at least 3 vertices, got {colliderObj.Vertices?.Count ?? 0}.");
+            return;
+        }
+
+        // Build model vertices from exported data
+        var modelVertices = new Vector2[colliderObj.Vertices.Count];
+        for (var i = 0; i < colliderObj.Vertices.Count; i++)
+        {
+            modelVertices[i] = new Vector2(colliderObj.Vertices[i].X, colliderObj.Vertices[i].Y);
+        }
+
+        // Guard against degenerate shapes (e.g. all vertices collinear or on the same axis)
+        float minX = float.MaxValue, maxX = float.MinValue;
+        float minY = float.MaxValue, maxY = float.MinValue;
+        foreach (var v in modelVertices)
+        {
+            if (v.X < minX) minX = v.X;
+            if (v.X > maxX) maxX = v.X;
+            if (v.Y < minY) minY = v.Y;
+            if (v.Y > maxY) maxY = v.Y;
+        }
+        if (maxX - minX < 0.01f || maxY - minY < 0.01f)
+        {
+            Logger.Warning($"Collider child '{colliderObj.Name}': degenerate shape (width={maxX - minX}, height={maxY - minY}), skipping.");
+            return;
+        }
+
+        // Determine collision layer and passive flag
+        HashSet<int> activeLayers = null;
+        bool passive = false;
+
+        // If parent already has a BoxCollider (from ProcessCollections), inherit its settings and remove it
+        if (parentEntity.Has<BoxCollider>())
+        {
+            ref readonly var existingBox = ref parentEntity.Get<BoxCollider>();
+            activeLayers = existingBox.ActiveLayers;
+            passive = existingBox.Passive;
+            parentEntity.Remove<BoxCollider>();
+            Logger.Debug($"Replaced BoxCollider on '{parentName}' with ConvexCollider from '{colliderObj.Name}'.");
+        }
+        else
+        {
+            // Check collider child's own collection properties for collision settings
+            if (colliderObj.CollectionProperties != null)
+            {
+                foreach (var (_, props) in colliderObj.CollectionProperties)
+                {
+                    var layer = GetIntProperty(props, "layer", -1);
+                    passive = GetBoolProperty(props, "passive", false);
+                    activeLayers = new HashSet<int> { layer };
+                    break;
+                }
+            }
+        }
+
+        // Create ConvexCollider with rotation ignored (baked into model vertices)
+        parentEntity.Set(new ConvexCollider(modelVertices, activeLayers, passive, ignoreTransformRotation: true));
+
+        // Set YSortOffset = max Y of model vertices (bottom of collider in Y-down coords)
+        // maxY was already computed in the degenerate-shape guard above
+        if (parentEntity.Has<SpriteInfo>())
+        {
+            ref var spriteInfo = ref parentEntity.Get<SpriteInfo>();
+            spriteInfo.YSortOffset = maxY;
+        }
+
+        // Add ColliderTag
+        parentEntity.Set(new ColliderTag());
+
+        Logger.Debug($"Applied ConvexCollider from '{colliderObj.Name}' to '{parentName}' ({modelVertices.Length} vertices, YSortOffset={maxY}).");
     }
 
     /// <summary>

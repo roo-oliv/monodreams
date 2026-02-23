@@ -4,7 +4,7 @@
 bl_info = {
     "name": "MonoDreams Level Exporter",
     "author": "MonoDreams Team",
-    "version": (1, 7, 0),
+    "version": (1, 8, 1),
     "blender": (5, 0, 0),
     "location": "File > Export > MonoDreams Level (.json)",
     "description": "Export level objects to JSON for MonoDreams game engine",
@@ -39,6 +39,62 @@ def get_mesh_type(obj):
 
     # Return the mesh data name for custom meshes
     return mesh.name
+
+
+def get_mesh_vertices(obj, scale_factor):
+    """
+    Export mesh vertices transformed to parent-local 2D game coordinates.
+
+    Uses obj.matrix_local to transform each vertex to parent-local 3D space
+    (handles rotation, scale, and position offset all at once), then auto-detects
+    the mesh plane by comparing Y vs Z extent:
+    - XZ plane (standard): game_y = -Z  (top-down view, Z is height)
+    - XY plane (fallback):  game_y = -Y  (front view, Y is height)
+
+    Deduplicates by rounded (x, y) and sorts by angle from centroid for
+    consistent perimeter ordering. Returns None if fewer than 3 unique 2D vertices.
+    """
+    if obj.type != 'MESH':
+        return None
+
+    mesh = obj.data
+    if len(mesh.vertices) < 3:
+        return None
+
+    # Transform all vertices to parent-local 3D space first
+    transformed = []
+    for v in mesh.vertices:
+        transformed.append(obj.matrix_local @ v.co)
+
+    # Detect dominant plane: compare Y vs Z extent after transform
+    # XY plane mesh (thin in Z): artist sees Y as height → use -Y for game Y
+    # XZ plane mesh (thin in Y): artist sees Z as height → use -Z for game Y
+    ys = [v.y for v in transformed]
+    zs = [v.z for v in transformed]
+    range_y = max(ys) - min(ys)
+    range_z = max(zs) - min(zs)
+    use_y_axis = range_y > range_z
+
+    # Map to 2D game coords
+    seen = set()
+    verts_2d = []
+    for world_v in transformed:
+        gx = round(world_v.x * scale_factor, 2)
+        gy = round((-world_v.y if use_y_axis else -world_v.z) * scale_factor, 2)
+        key = (gx, gy)
+        if key not in seen:
+            seen.add(key)
+            verts_2d.append({"x": gx, "y": gy})
+
+    if len(verts_2d) < 3:
+        return None
+
+    # Sort by angle from centroid for consistent perimeter ordering
+    cx = sum(v["x"] for v in verts_2d) / len(verts_2d)
+    cy = sum(v["y"] for v in verts_2d) / len(verts_2d)
+    verts_2d.sort(key=lambda v: math.atan2(v["y"] - cy, v["x"] - cx))
+
+    return verts_2d
 
 
 def get_texture_image_path(obj):
@@ -625,6 +681,9 @@ def get_object_data(obj, scale_factor):
         if col.name != "Scene Collection":
             collection_properties[col.name] = get_collection_properties(col)
 
+    # Get mesh vertices for collider shapes
+    vertices = get_mesh_vertices(obj, scale_factor) if obj.type == 'MESH' else None
+
     result = {
         "name": obj.name,
         "type": obj_type,
@@ -637,7 +696,8 @@ def get_object_data(obj, scale_factor):
         "scale": scale_data,
         "rotation": rotation_degrees,
         "originOffset": origin_offset,
-        "customProperties": custom_props
+        "customProperties": custom_props,
+        "vertices": vertices
     }
 
     # Only include uvMapping if the mesh has UV data

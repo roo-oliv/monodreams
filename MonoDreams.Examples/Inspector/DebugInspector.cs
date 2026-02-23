@@ -260,8 +260,26 @@ public class DebugInspector
             double d => d.ToString("F2"),
             Enum e => e.ToString(),
             string s => $"\"{s}\"",
+            global::System.Collections.IEnumerable enumerable => FormatEnumerable(enumerable),
             _ => value.ToString() ?? "null"
         };
+    }
+
+    private static string FormatEnumerable(global::System.Collections.IEnumerable enumerable)
+    {
+        const int maxItems = 8;
+        var items = new List<string>();
+        var count = 0;
+        foreach (var item in enumerable)
+        {
+            if (count < maxItems)
+                items.Add(FormatValue(item));
+            count++;
+        }
+        var result = string.Join(", ", items);
+        if (count > maxItems)
+            result += ", ...";
+        return $"[{result}]";
     }
 
     private void DrawTriStateCheckbox(string prefix, EntitySnapshot snapshot, ComponentSnapshot comp = null)

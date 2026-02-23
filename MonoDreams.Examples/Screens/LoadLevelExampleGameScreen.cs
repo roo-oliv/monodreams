@@ -280,9 +280,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Cursor position must update AFTER camera has moved to avoid 1-frame lag
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
-        var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new ColliderDebugSystem(_world, _graphicsDevice)
-        );
+        // var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
+        //     new ColliderDebugSystem(_world, _graphicsDevice)
+        // );
 
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed

@@ -11,16 +11,16 @@ using MonoDreams.State;
 namespace MonoDreams.System.Debug;
 
 /// <summary>
-/// Debug system that renders collision boxes for entities with BoxCollider components.
+/// Debug system that renders collision shapes for entities with BoxCollider or ConvexCollider components.
 /// Shows green lines for passive colliders and red lines for active colliders.
-/// Only adds debug lines when a BoxCollider is added to an entity.
+/// Only adds debug visuals when a collider is added to an entity.
 /// </summary>
 public sealed class ColliderDebugSystem : ISystem<GameState>
 {
     private readonly World _world;
     private readonly Texture2D _pixelTexture;
     private const float DEBUG_LINE_DEPTH = 1f; // Render on top of all elements
-    
+
     public bool IsEnabled { get; set; } = true;
 
     public ColliderDebugSystem(World world, GraphicsDevice graphicsDevice)
@@ -30,22 +30,18 @@ public sealed class ColliderDebugSystem : ISystem<GameState>
         _pixelTexture = new Texture2D(graphicsDevice, 2, 1);
         _pixelTexture.SetData([Color.White, Color.Transparent]);
 
-
         _world.SubscribeEntityComponentAdded<BoxCollider>(AddDebugLinesToEntity);
+        _world.SubscribeEntityComponentAdded<ConvexCollider>(AddDebugLinesToConvexEntity);
     }
 
     private void AddDebugLinesToEntity(in Entity entity, in BoxCollider boxCollider)
     {
+        var size = boxCollider.Bounds.Dimension();
+        if (size.X <= 0 || size.Y <= 0)
+            return;
+
         ref readonly var transform = ref entity.Get<Transform>();
-        Color lineColor;
-        if (boxCollider.Enabled)
-        {
-            lineColor = boxCollider.Passive ? Color.Green : Color.Red;
-        }
-        else
-        {
-            lineColor = Color.Gray;
-        }
+        var lineColor = GetDebugColor(boxCollider);
         var r = new Rectangle(0, 0, 1, 1);
         var c = new Rectangle(1, 0, 1, 1);
         var spriteInfo = new SpriteInfo{
@@ -63,14 +59,41 @@ public sealed class ColliderDebugSystem : ISystem<GameState>
         debugEntity.Set(transform);
         debugEntity.Set(spriteInfo);
         debugEntity.Set(new DrawComponent());
+    }
 
-        // var worldBounds = boxCollider.Bounds.AtPosition(position.Current);
+    private void AddDebugLinesToConvexEntity(in Entity entity, in ConvexCollider convexCollider)
+    {
+        // Use the broad-phase AABB as a debug outline for convex colliders
+        var aabb = SATCollision.ComputeAABB(convexCollider.ModelVertices);
+        if (aabb.Size.X <= 0 || aabb.Size.Y <= 0)
+            return;
 
-        // Add debug draw elements for the four sides of the rectangle
-        // AddDebugLine(drawComponent, worldBounds.Left, worldBounds.Top, worldBounds.Right, worldBounds.Top, lineColor); // Top
-        // AddDebugLine(drawComponent, worldBounds.Right - 1, worldBounds.Top, worldBounds.Right - 1, worldBounds.Bottom, lineColor); // Right
-        // AddDebugLine(drawComponent, worldBounds.Left, worldBounds.Bottom - 1, worldBounds.Right, worldBounds.Bottom - 1, lineColor); // Bottom
-        // AddDebugLine(drawComponent, worldBounds.Left, worldBounds.Top, worldBounds.Left, worldBounds.Bottom, lineColor); // Left
+        ref readonly var transform = ref entity.Get<Transform>();
+        var lineColor = GetDebugColor(convexCollider);
+
+        var r = new Rectangle(0, 0, 1, 1);
+        var c = new Rectangle(1, 0, 1, 1);
+        var spriteInfo = new SpriteInfo{
+            SpriteSheet = _pixelTexture,
+            Source = new Rectangle(0, 0, 1, 1),
+            Size = aabb.Size,
+            Color = lineColor,
+            Target = RenderTargetID.Main,
+            LayerDepth = DEBUG_LINE_DEPTH,
+            NinePatchData = new NinePatchInfo(0, r, r, r, r, c, r, r, r, r),
+            Offset = aabb.Position,
+        };
+
+        var debugEntity = _world.CreateEntity();
+        debugEntity.Set(transform);
+        debugEntity.Set(spriteInfo);
+        debugEntity.Set(new DrawComponent());
+    }
+
+    private static Color GetDebugColor(ICollider collider)
+    {
+        if (!collider.Enabled) return Color.Gray;
+        return collider.Passive ? Color.Green : Color.Red;
     }
 
     private void AddDebugLine(DrawComponent drawComponent, int x1, int y1, int x2, int y2, Color color)

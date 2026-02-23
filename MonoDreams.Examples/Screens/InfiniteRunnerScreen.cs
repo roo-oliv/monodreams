@@ -223,7 +223,7 @@ public class InfiniteRunnerScreen : IGameScreen
     }
 
     private static CollisionMessage CreateRunnerCollision(
-        Entity entity, Entity target, Vector2 contactPoint, Vector2 contactNormal, float contactTime, int layer)
+        Entity entity, Entity target, Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
     {
         var entityType = entity.Get<EntityInfo>().Type;
         var targetType = target.Get<EntityInfo>().Type;
@@ -233,7 +233,7 @@ public class InfiniteRunnerScreen : IGameScreen
             ("Player", "Obstacle") => CollisionType.Damage,
             _ => CollisionType.Physics
         };
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, type);
+        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()

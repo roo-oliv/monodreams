@@ -10,5 +10,6 @@ public interface ICollisionMessage
         public Vector2 ContactPoint { get; }
         public Vector2 ContactNormal { get; }
         public float ContactTime { get; }
+        public float PenetrationDepth { get; }
         public int Layer { get; }
 }
