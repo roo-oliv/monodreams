@@ -161,7 +161,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
         blenderParser.SetDrawLayerMap(_layers);
-        blenderParser.RegisterCollectionHandler("Player", (entity, _) => entity.Set(new PlayerState()));
+        blenderParser.RegisterCollectionHandler("Player", (entity, _) =>
+        {
+            entity.Set(new PlayerState());
+            entity.Set(new RotationWobble { AmplitudeRadians = MathHelper.ToRadians(2f) });
+        });
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
             var npcName = blenderObj.Name;
@@ -169,6 +173,19 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
             // EMPTY objects (parent empties in hierarchy) don't have sprites — skip visual setup
             if (!entity.Has<SpriteInfo>()) return;
+
+            // Shilhouette entities rotate counterclockwise; compensate for parent's +2° with -4° local
+            var amplitude = blenderObj.Name.EndsWith("shilhouette")
+                ? MathHelper.ToRadians(-4f)
+                : MathHelper.ToRadians(2f);
+            entity.Set(new RotationWobble { AmplitudeRadians = amplitude });
+
+            // Shilhouette renders behind parent: negative bias = lower depth = further back
+            if (blenderObj.Name.EndsWith("shilhouette"))
+            {
+                ref var sprite = ref entity.Get<SpriteInfo>();
+                sprite.YSortDepthBias = -0.0005f;
+            }
 
             var npcTransform = entity.Get<Transform>();
             var npcSprite = entity.Get<SpriteInfo>();
@@ -240,6 +257,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var logicSystems = new SequentialSystem<GameState>(
             new MovementSystem(_world, _parallelRunner),
             new OrbSystem(_world),
+            new RotationWobbleSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
             new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, GameCollisionHelper.Create),
             new TransformPhysicalCollisionResolutionSystem(_world),
