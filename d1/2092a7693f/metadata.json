@@ -3,10 +3,11 @@
   "checkpoint_id": "d12092a7693f",
   "strategy": "manual-commit",
   "branch": "ro/convex-collider-sat",
-  "checkpoints_count": 5,
+  "checkpoints_count": 6,
   "files_touched": [
     ".claude/settings.local.json",
     "MonoDreams.Examples/Component/StopMotionEffect.cs",
+    "MonoDreams.Examples/Inspector/DebugInspector.cs",
     "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
     "MonoDreams.Examples/System/StopMotionEffectSystem.cs",
     "MonoDreams.Tests/Collision/SATCollisionTests.cs",
@@ -53,13 +54,20 @@
       "context": "/d1/2092a7693f/4/context.md",
       "content_hash": "/d1/2092a7693f/4/content_hash.txt",
       "prompt": "/d1/2092a7693f/4/prompt.txt"
+    },
+    {
+      "metadata": "/d1/2092a7693f/5/metadata.json",
+      "transcript": "/d1/2092a7693f/5/full.jsonl",
+      "context": "/d1/2092a7693f/5/context.md",
+      "content_hash": "/d1/2092a7693f/5/content_hash.txt",
+      "prompt": "/d1/2092a7693f/5/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 85,
-    "cache_creation_tokens": 219165,
-    "cache_read_tokens": 2841431,
-    "output_tokens": 3421,
-    "api_call_count": 66
+    "input_tokens": 115,
+    "cache_creation_tokens": 280208,
+    "cache_read_tokens": 4064188,
+    "output_tokens": 17098,
+    "api_call_count": 90
   }
 }

@@ -1,0 +1,59 @@
+Implement the following plan:
+
+# Fix: Y-sort parent-child grouping + Inspector array display
+
+## Context
+
+Two issues remain after the YSortOffset propagation fix:
+
+1. **Y-sort corner case**: When the player (Pete) is at the exact Y where sorting flips, the player can render *between* the NPC (`elephant-kid`) and its silhouette (`elephant-kid-shilhouette`). This happens because the silhouette has `YSortDepthBias = -0.0005f` (set in the NPC collection handler), creating a tiny depth gap between parent and child. The player's depth can land in that gap.
+
+2. **Inspector array display**: `ConvexCollider.ModelVertices` and `WorldVertices` (type `Vector2[]`) show as `Microsoft.Xna.Framework.Vector2[]` in the Watchers panel. The `FormatValue` method in `DebugInspector` has no case for arrays/collections — they fall through to the default `value.ToString()`.
+
+## Fix 1: Y-sort parent-child grouping in YSortSystem
+
+**Root cause**: Parent and child are Y-sorted independently. Even though they compute the same base depth (same WorldPosition.Y + same YSortOffset), the child's `YSortDepthBias = -0.0005f` shifts its depth down, creating a gap where external entities can slip between them.
+
+**Fix**: Add a `PostUpdate` pass to `YSortSystem` that overrides children's Y-sort depth with `parent.LayerDepth + child.YSortDepthBias`. This guarantees parent-child pairs always sort as a group — no external entity can render between them.
+
+**File**: `MonoDreams/System/Draw/YSortSystem.cs`
+
+Changes:
+- Add `using MonoDreams.State;` import
+- Add a `List<Entity> _biasedEntities` to collect child candidates during Update
+- In `PreUpdate`: clear the list
+- In `Update`: after computing depth, if `spriteInfo.YSortDepthBias != 0f`, add entity to the list
+- Add `PostUpdate` override: for each collected entity, look up its parent via `EntityHierarchy` (world resource), and set `childDraw.LayerDepth = parentDraw.LayerDepth + childSprite.YSortDepthBias` (clamped to the Y-sort range)
+
+## Fix 2: Inspector array/collection formatting
+
+**Root cause**: `FormatValue` in `DebugInspector.cs` only handles scalar types (Vector2, float, bool, etc.). Arrays and other `IEnumerable` types hit the default `_ => value.ToString()` which produces the CLR type name.
+
+**File**: `MonoDreams.Examples/Inspector/DebugInspector.cs`
+
+Changes:
+- Add `System.Collections.IEnumerable` case in the `FormatValue` switch, **before** the `_` default but **after** the `string` case (since `string` implements `IEnumerable<char>`)
+- Add a `FormatEnumerable` helper that iterates elements, formats each with `FormatValue` (recursive), and joins them as `[elem1, elem2, ...]` with a cap of 8 elements to avoid huge strings
+- Also add a `HashSet<T>` / `ICollection` count display like `[elem1, elem2] (3 items)` — actually, keep it simple: just `[elem1, elem2, ...]`
+
+## Files to modify
+
+1. `MonoDreams/System/Draw/YSortSystem.cs` — parent-child depth propagation in PostUpdate
+2. `MonoDreams.Examples/Inspector/DebugInspector.cs` — array/collection formatting
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run game, walk the player to the exact Y level of the elephant-kid NPC — the silhouette should never appear between the player and the NPC; it should always be directly behind the NPC
+3. Open inspector (F1), watch ConvexCollider on an entity — ModelVertices and WorldVertices should display as `[(x, y), (x, y), ...]` instead of the type name
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+(/Users/rodrigooliveira/Desktop/Captura de Tela 2026-02-23 às 15.06.48.png) still happening
+
+---
+
+[Request interrupted by user for tool use]
