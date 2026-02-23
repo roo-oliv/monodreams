@@ -1,0 +1,169 @@
+Implement the following plan:
+
+# Convex Polygon Collision Detection & Resolution
+
+## Context
+
+The engine currently only supports AABB collision via `BoxCollider`. The goal is to
+add arbitrary convex polygon collision support so entities can have triangular, hexagonal,
+or any convex shape as colliders — enabling sloped surfaces, angled walls, irregular
+platforms, etc.
+
+javidx9's implementation demonstrates two approaches: SAT and Diagonals. After analysis,
+**SAT (Separating Axis Theorem)** is the clear best fit for this engine.
+
+## Algorithm Choice: SAT
+
+| Criterion | SAT | Diagonals (javidx9) | GJK/EPA |
+|---|---|---|---|
+| Contact normal quality | Excellent (directly from MTV) | Decent (perpendicular to intersected edge) | Excellent (EPA second pass) |
+| Penetration depth | Directly computed (min overlap) | Requires extra work | Computed by EPA |
+| Performance (2D convex) | Good; early-exit on separating axis | O(n*m) diagonal-edge tests | Two-phase overhead |
+| AABB as special case | Trivial (4 vertices, 2 unique normals) | Not natural | Possible but complex |
+| Implementation complexity | Moderate | Moderate | High |
+
+**SAT wins because** it directly produces the Minimum Translation Vector (MTV) — both
+the direction (`ContactNormal`) and magnitude (`PenetrationDepth`) needed for resolution.
+GJK/EPA is overkill for 2D convex shapes. The Diagonals method doesn't directly give
+penetration depth.
+
+**Swept vs discrete**: The current AABB system uses swept detection (Minkowski + raycast)
+which prevents tunneling at high speeds. SAT is inherently discrete (detects current-frame
+overlap, not time-of-impact). Strategy:
+- **Box-vs-Box**: keep existing swept AABB path unchanged (zero regression risk)
+- **Any polygon pair**: discrete SAT with broad-phase AABB rejection
+- Tunneling mitigation for polygon collisions can be added later (swept SAT or sub-stepping)
+
+## Implementation Plan
+
+### Phase 1: SAT math utility + ConvexCollider component
+
+**New file: `MonoDreams/Extensions/Monogame/SATCollision.cs`**
+
+Static helper class (same pattern as `CollisionRect`) with:
+- `PolygonVsPolygon(ReadOnlySpan<Vector2> polyA, ReadOnlySpan<Vector2> polyB, out Vector2 normal, out float depth)` — core SAT
+- `ProjectPolygon(ReadOnlySpan<Vector2>, Vector2 axis, out float min, out float max)` — vertex projection
+- `PolygonCenter(ReadOnlySpan<Vector2>)` — centroid for normal direction correction
+- `BoxToPolygon(BoxCollider, Transform)` — convert AABB to 4-vertex polygon for mixed-type tests
+
+**New file: `MonoDreams/Component/Collision/ConvexCollider.cs`**
+
+```
+class ConvexCollider : ICollider
+  Vector2[] ModelVertices    — local-space vertices (clockwise winding)
+  Vector2[] WorldVertices    — pre-allocated, updated each frame by detection system
+  CollisionRect BroadPhaseAABB — computed from WorldVertices min/max for fast rejection
+  HashSet<int> ActiveLayers, bool Passive, bool Enabled  — same as BoxCollider
+```
+
+Why a new component instead of extending `BoxCollider`: the data models are fundamentally
+different (`Rectangle` vs `Vector2[]`). A union would leave fields unused and violate the
+"pure data container" principle. Both share `ICollider` — that's the right abstraction.
+
+**Add `PenetrationDepth` to collision messages:**
+- Add `float PenetrationDepth` to `ICollisionMessage` and `CollisionMessage`
+- Defaults to 0 for swept AABB collisions (where `ContactTime` is the primary metric)
+- Carries the SAT overlap for polygon collisions
+
+### Phase 2: Unified detection system
+
+**Modify: `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`**
+
+The current system queries `With<BoxCollider>()`. DefaultEcs doesn't support OR queries,
+so we need a way to match entities with *either* collider type.
+
+**Approach: auto-tagged `ColliderTag` marker component.**
+
+New file: `MonoDreams/Component/Collision/ColliderTag.cs` — empty struct tag.
+
+In the detection system constructor, subscribe to `EntityComponentAdded<BoxCollider>` and
+`EntityComponentAdded<ConvexCollider>` to auto-set `ColliderTag`. This means zero changes
+to existing entity factories — any entity that gets a `BoxCollider` automatically gets the
+tag.
+
+Detection system refactored to:
+1. Query `With<ColliderTag>().With<Transform>()`
+2. Filter active/non-passive in `Update` (since the predicate query can't span both types)
+3. `GetCollider(entity)` helper: checks `Has<BoxCollider>` then `Has<ConvexCollider>`
+4. Dispatch collision test based on pair type:
+   - Box-vs-Box → existing `DynamicRectVsRect` (swept, unchanged)
+   - Box-vs-Polygon or Polygon-vs-Polygon → broad-phase AABB check, then `SATCollision.PolygonVsPolygon`
+   - For Box-vs-Polygon, convert the box to a 4-vertex polygon via `BoxToPolygon`
+5. For SAT results, compute `ContactPoint` as the midpoint of the deepest penetrating
+   vertices, set `ContactTime = 0`, set `PenetrationDepth` from SAT
+
+Pre-update step: transform `ConvexCollider.ModelVertices` → `WorldVertices` using entity's
+`Transform` (position, rotation, scale), then compute `BroadPhaseAABB`.
+
+### Phase 3: Generalized resolution system
+
+**Modify: `MonoDreams/System/Collision/TransformCollisionResolutionSystem.cs`**
+
+Currently hardcoded to `BoxCollider` + `DynamicRectVsRect` re-validation. Needs to handle
+both collider types.
+
+Resolution logic changes:
+- **Re-validation**: dispatch based on collider pair (same as detection). For Box-vs-Box,
+  re-run `DynamicRectVsRect` (unchanged). For polygon pairs, re-run SAT with current
+  positions.
+- **Position correction**: for polygon collisions, push by
+  `contactNormal * penetrationDepth` instead of axis-aligned snap-to-contact-point.
+- **Velocity damping**: project velocity onto collision normal and remove that component:
+  `velocity -= dot(velocity, normal) * normal` (only if moving into collision).
+- **RigidBodyTouchMessage**: derive side from `ContactNormal` direction
+  (predominant axis → Top/Bottom/Left/Right).
+
+### Phase 4: Debug rendering
+
+**Modify: `MonoDreams/System/Draw/ColliderDebugSystem.cs`** (if it exists) or add polygon
+outline rendering. For `ConvexCollider`, draw line segments between consecutive
+`WorldVertices`.
+
+### Phase 5: Tests
+
+**New file: `MonoDreams.Tests/Collision/SATCollisionTests.cs`**
+
+Unit tests:
+- Two separated squares → no collision
+- Two overlapping squares → correct MTV direction and depth
+- Triangle vs square (overlapping and separated)
+- Rotated rectangle vs axis-aligned rectangle
+- Box-to-polygon conversion matches AABB intersection result
+- Containment case (one polygon fully inside another)
+- Edge-touching (zero penetration boundary)
+
+Integration test:
+- Entity with `ConvexCollider` collides correctly with `BoxCollider` entity in game loop
+
+## Files to Create
+- `MonoDreams/Extensions/Monogame/SATCollision.cs` — SAT algorithm
+- `MonoDreams/Component/Collision/ConvexCollider.cs` — polygon collider component
+- `MonoDreams/Component/Collision/ColliderTag.cs` — auto-tag marker
+- `MonoDreams.Tests/Collision/SATCollisionTests.cs` — unit tests
+
+## Files to Modify
+- `MonoDreams/Message/ICollisionMessage.cs` — add `PenetrationDepth`
+- `MonoDreams/Message/CollisionMessage.cs` — add `PenetrationDepth`
+- `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs` — unified dispatch
+- `MonoDreams/System/Collision/TransformCollisionResolutionSystem.cs` — generalized resolution
+
+## Files Unchanged
+- `BoxCollider.cs`, `ICollider.cs`, `CollisionRect.cs` — no modifications needed
+- `TransformPhysicalCollisionResolutionSystem.cs` — inherits from base, no changes
+- `TransformVelocitySystem.cs`, `TransformCommitSystem.cs` — pipeline stays the same
+- All entity factories — `ColliderTag` auto-applied via subscription
+
+## Out of Scope (future work)
+- Blender exporter for polygon collision vertices
+- Swept SAT (time-of-impact for polygon pairs)
+- Concave shape decomposition
+- Spatial partitioning (quad-tree broad phase)
+
+## Verification
+1. `dotnet build` — ensure no compilation errors
+2. `dotnet test MonoDreams.Tests/` — SAT unit tests pass
+3. Manual test: create a triangle `ConvexCollider` entity in the example game, verify it
+   collides correctly with existing `BoxCollider` walls/platforms
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
