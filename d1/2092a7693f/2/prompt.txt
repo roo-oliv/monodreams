@@ -1,0 +1,59 @@
+Implement the following plan:
+
+# Address PR #21 Review Comments
+
+## Context
+PR #21 ("Add rotation wobble and Y-sort depth bias") received 3 review comments from the repo owner. All are small, targeted fixes — a safety clamp, a rename for clarity, and a duplicate-check consolidation.
+
+## Changes
+
+### 1. Consolidate duplicate silhouette check
+**File**: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (lines 177-188)
+
+Extract `var isShilhouette = blenderObj.Name.EndsWith("shilhouette")` and reuse it in both the amplitude ternary and the depth-bias `if` block. Pure refactor, no behavioral change.
+
+### 2. Rename RotationWobble → StopMotionEffect
+The current implementation does discrete snapping, not smooth wobble. Rename to match the actual behavior.
+
+| Old | New |
+|-----|-----|
+| `RotationWobble` (class) | `StopMotionEffect` |
+| `AmplitudeRadians` (property) | `OffsetRadians` |
+| `RotationWobbleSystem` (class) | `StopMotionEffectSystem` |
+
+**Files**:
+- `MonoDreams.Examples/Component/RotationWobble.cs` → rename file to `StopMotionEffect.cs`, rename class + property, update doc comment
+- `MonoDreams.Examples/System/RotationWobbleSystem.cs` → rename file to `StopMotionEffectSystem.cs`, rename class, update `[With]` attribute, rename local var `wobble` → `effect`, update doc comment
+- `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` → update all `RotationWobble`/`AmplitudeRadians` references and `RotationWobbleSystem` → `StopMotionEffectSystem`
+
+### 3. Clamp YSortDepthBias to layer range
+**File**: `MonoDreams/System/Draw/YSortSystem.cs` (line 48)
+
+Wrap the depth calculation in `Math.Clamp(..., minDepth, maxDepth)` so bias can never push depth into an adjacent layer. `Math.Clamp` is already used in the same method (line 44).
+
+```csharp
+// Before:
+drawComponent.LayerDepth = minDepth + t * (maxDepth - minDepth) + spriteInfo.YSortDepthBias;
+
+// After:
+drawComponent.LayerDepth = Math.Clamp(
+    minDepth + t * (maxDepth - minDepth) + spriteInfo.YSortDepthBias,
+    minDepth,
+    maxDepth);
+```
+
+## Verification
+```bash
+dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
+```
+Build covers both core and Examples, catching any missed renames via compile errors. Also verify old files (`RotationWobble.cs`, `RotationWobbleSystem.cs`) are deleted.
+
+## Commit
+Single commit addressing all 3 review comments since they're small and from the same review.
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/7503778a-694d-47e7-904a-37494a0394be.jsonl
+
+---
+
+push and update the PR
