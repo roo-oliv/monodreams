@@ -1,0 +1,210 @@
+Implement the following plan:
+
+# Plan: Import Blender `-collider` Children as ConvexColliders
+
+## Context
+Collider meshes are authored in Blender as children of visual objects (e.g., `pete-collider` parented to `Pete`). These define the collision shape independently from the visual sprite. Currently the parser skips them (null texture). We need to recognize `*-collider` children, extract their convex mesh shape, and apply it as a `ConvexCollider` on the parent entity. The collider must be invisible, unaffected by `StopMotionEffectSystem`, and Y-sorting should use the collider's bottom coordinate.
+
+## Changes
+
+### 1. Blender Exporter — export mesh vertices
+**File: `Tools/blender_level_export.py`**
+
+Add a `get_mesh_vertices(obj, scale_factor)` helper that exports vertices for MESH objects:
+- Use `obj.matrix_local @ v.co` to transform each vertex to parent-local 3D space (handles rotation, scale, position offset all at once)
+- Map to game coords: `game_x = world_v.x * scale_factor`, `game_y = -world_v.z * scale_factor` (same as position mapping — works because meshes are rotated to XZ plane)
+- Deduplicate vertices by rounded (x, y) coordinates
+- Sort by angle from centroid for consistent perimeter ordering
+- Return `null` if fewer than 3 unique 2D vertices
+
+In `get_object_data()`, call this for MESH objects and add `"vertices": [...]` to the result dict. Non-MESH objects get `"vertices": null`.
+
+### 2. BlenderLevelData — add Vertices to model
+**File: `MonoDreams/Level/BlenderLevelData.cs`**
+
+Add to `BlenderObject`:
+```csharp
+[JsonPropertyName("vertices")]
+public List<Vector2Json> Vertices { get; set; }
+```
+
+### 3. ConvexCollider — add IgnoreTransformRotation
+**File: `MonoDreams/Component/Collision/ConvexCollider.cs`**
+
+Add field:
+```csharp
+public bool IgnoreTransformRotation;
+```
+
+In `UpdateWorldVertices`, change:
+```csharp
+var rot = IgnoreTransformRotation ? 0f : transform.Rotation;
+```
+
+The Blender rotation is already baked into the model vertices via `matrix_local`, so at runtime the collider just needs to translate and scale with the parent — never rotate. This prevents `StopMotionEffectSystem` (which writes to `Transform.Rotation`) from affecting the collider.
+
+Add constructor parameter: `bool ignoreTransformRotation = false`.
+
+### 4. SpriteInfo — add YSortOffset
+**File: `MonoDreams/Component/Draw/SpriteInfo.cs`**
+
+Add field after `YSortDepthBias`:
+```csharp
+public float YSortOffset = 0f;
+```
+
+This is the Y offset added to the entity's `WorldPosition.Y` when computing Y-sort depth. Set to the collider's bottom Y (max Y of model vertices) at parse time.
+
+### 5. YSortSystem — use YSortOffset
+**File: `MonoDreams/System/Draw/YSortSystem.cs`**
+
+Change the Y calculation from:
+```csharp
+transform.WorldPosition.Y - _boundsTop
+```
+to:
+```csharp
+transform.WorldPosition.Y + spriteInfo.YSortOffset - _boundsTop
+```
+
+### 6. BlenderLevelParserSystem — collider child detection and application
+**File: `MonoDreams/System/Level/BlenderLevelParserSystem.cs`**
+
+This is the core integration. The approach:
+
+**a) Pre-scan** (before Pass 1): Scan all objects, identify names ending with `"-collider"` that have a parent. Build:
+- `colliderChildMap`: parent name → BlenderObject (collider data)
+- `colliderChildNames`: HashSet of collider child names (for skip checks)
+
+**b) Pass 1 modification**: At the top of the object loop, skip any object whose name is in `colliderChildNames`. Log it. The collider child is never created as an entity.
+
+**c) Post-Pass 1 — apply colliders**: For each entry in `colliderChildMap`:
+- Look up parent entity in `_nameToEntity`
+- Validate the collider has `Vertices` with 3+ entries
+- Build `Vector2[] modelVertices` from the vertex data
+- If parent has a `BoxCollider` (from `ProcessCollections`): copy its `ActiveLayers`/`Passive`, then remove it
+- Otherwise: check collider child's own `CollectionProperties` for collision layer/passive settings
+- Set `new ConvexCollider(modelVertices, activeLayers, passive, ignoreTransformRotation: true)` on the parent entity
+- Compute `YSortOffset = max Y of modelVertices` (collider bottom in Y-down coords)
+- Set it on the parent's `SpriteInfo.YSortOffset`
+- Add `ColliderTag` to parent entity
+
+**d) Pass 2**: No changes needed — collider children won't be in `_nameToEntity`, so parent linkage naturally skips them.
+
+### 7. Tests
+**File: `MonoDreams.Tests/Collision/SATCollisionTests.cs`**
+
+Add test for `IgnoreTransformRotation`:
+- Create ConvexCollider with `ignoreTransformRotation: true`
+- Set a non-zero `Transform.Rotation`
+- Call `UpdateWorldVertices` and verify rotation is not applied (vertices = model + position only)
+
+## Files Modified (summary)
+| File | Change |
+|------|--------|
+| `Tools/blender_level_export.py` | Add `get_mesh_vertices()`, include `"vertices"` in JSON |
+| `MonoDreams/Level/BlenderLevelData.cs` | Add `Vertices` property to `BlenderObject` |
+| `MonoDreams/Component/Collision/ConvexCollider.cs` | Add `IgnoreTransformRotation` field + constructor param |
+| `MonoDreams/Component/Draw/SpriteInfo.cs` | Add `YSortOffset` field |
+| `MonoDreams/System/Draw/YSortSystem.cs` | Use `YSortOffset` in depth calculation |
+| `MonoDreams/System/Level/BlenderLevelParserSystem.cs` | Pre-scan, skip collider children, apply ConvexCollider |
+| `MonoDreams.Tests/Collision/SATCollisionTests.cs` | Add `IgnoreTransformRotation` test |
+
+## Implementation Order
+1. Core component changes (ConvexCollider, SpriteInfo, BlenderLevelData) — backward compatible
+2. YSortSystem change — no-op when YSortOffset=0
+3. Tests for IgnoreTransformRotation
+4. Build & verify
+5. BlenderLevelParserSystem integration
+6. Blender exporter + re-export JSON
+7. End-to-end test (run game, enable ColliderDebugSystem)
+
+## Verification
+1. `dotnet build` — all projects compile
+2. `dotnet test MonoDreams.Tests/` — all tests pass including new one
+3. Re-export `blender_level.json` from Blender with updated plugin
+4. Run game: entities should have convex colliders from their `-collider` children
+5. Enable `ColliderDebugSystem` (uncomment in `LoadLevelExampleGameScreen.cs`): collider outlines visible
+6. Verify StopMotionEffect rotates visuals but collider outlines stay fixed
+7. Verify Y-sorting uses collider bottom (entities with lower colliders render in front)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+It crashed when trying to load the level: /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples
+[2026-02-23 11:19:08.715] [GT   N/A ] [ INFO] Logger initialized. Writing to /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/debug/monodreams_20260223_111908.log
+[2026-02-23 11:19:10.238] [GT   1,47] [DEBUG] No input_replay.json found at /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/debug/input_replay.json. Replay disabled.
+[2026-02-23 11:19:10.361] [GT   1,47] [ INFO] ScreenshotCaptureSystem initialized. Interval: 2s, output: /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/debug
+[2026-02-23 11:19:10.371] [GT   1,47] [ INFO] Loading Blender level: Blender_Level
+[2026-02-23 11:19:10.371] [GT   1,47] [ INFO] Cleaning up 0 Blender entities...
+[2026-02-23 11:19:10.372] [GT   1,47] [DEBUG] Loading Blender level from: /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/blender_level.json
+[2026-02-23 11:19:10.380] [GT   1,47] [ INFO] Loaded 11 objects from Blender level.
+[2026-02-23 11:19:10.380] [GT   1,47] [DEBUG] Found collider child 'Boldo-collider' for parent 'Boldo'.
+[2026-02-23 11:19:10.380] [GT   1,47] [DEBUG] Found collider child 'elephant-kid-collider' for parent 'elephant-kid'.
+[2026-02-23 11:19:10.380] [GT   1,47] [DEBUG] Found collider child 'pete-collider' for parent 'Pete'.
+[2026-02-23 11:19:10.380] [GT   1,47] [DEBUG] Found collider child 'store-collider' for parent 'store'.
+[2026-02-23 11:19:10.381] [GT   1,47] [DEBUG] Loaded texture: GreasePencil/Boldo
+[2026-02-23 11:19:10.386] [GT   1,47] [DEBUG] Created entity for mesh 'Boldo' at (79,6936, -33,1469) with size (18,5039, 35,1947), origin (86,4875, 160,30171), and source rect (0, 0, 185, 351)
+[2026-02-23 11:19:10.386] [GT   1,47] [DEBUG] Skipping collider child 'Boldo-collider' (will be applied to parent).
+[2026-02-23 11:19:10.387] [GT   1,47] [DEBUG] Set camera zoom to 7,317073170731708 (from Blender ortho_scale 16,4, scaleFactor 16)
+[2026-02-23 11:19:10.387] [GT   1,47] [DEBUG] Set camera position to (0, -0)
+[2026-02-23 11:19:10.464] [GT   1,47] [DEBUG] Loaded texture: GreasePencil/Floor
+[2026-02-23 11:19:10.464] [GT   1,47] [DEBUG] Created entity for mesh 'Floor' at (0, -0) with size (1044,6592, 694,2011), origin (5538,469, 3477,942), and source rect (0, 0, 10446, 6942)
+[2026-02-23 11:19:10.464] [GT   1,47] [DEBUG] Loaded texture: GreasePencil/Pete
+[2026-02-23 11:19:10.465] [GT   1,47] [DEBUG] Set Player for 'Pete'
+[2026-02-23 11:19:10.465] [GT   1,47] [DEBUG] Created entity for mesh 'Pete' at (0,309, -7,8609) with size (12,4455, 17,5044), origin (59,9664, 82,5475), and source rect (0, 0, 124, 175)
+[2026-02-23 11:19:10.471] [GT   1,47] [DEBUG] Loaded texture: elephant-kid
+[2026-02-23 11:19:10.472] [GT   1,47] [DEBUG] Created entity for mesh 'elephant-kid' at (43,2, -0) with size (23,3796, 23,3796), origin (960, 960), and source rect (0, 0, 1920, 1920)
+[2026-02-23 11:19:10.472] [GT   1,47] [DEBUG] Skipping collider child 'elephant-kid-collider' (will be applied to parent).
+[2026-02-23 11:19:10.478] [GT   1,47] [DEBUG] Loaded texture: elephant-kid-shilhouette
+[2026-02-23 11:19:10.478] [GT   1,47] [DEBUG] Created entity for mesh 'elephant-kid-shilhouette' at (-0, 0,0021) with size (23,3796, 23,3796), origin (960, 960), and source rect (0, 0, 1920, 1920)
+[2026-02-23 11:19:10.478] [GT   1,47] [DEBUG] Skipping collider child 'pete-collider' (will be applied to parent).
+[2026-02-23 11:19:10.479] [GT   1,47] [DEBUG] Loaded texture: GreasePencil/store
+[2026-02-23 11:19:10.479] [GT   1,47] [DEBUG] Added BoxCollider to 'store' (layer: -1, passive: False)
+[2026-02-23 11:19:10.479] [GT   1,47] [DEBUG] Created entity for mesh 'store' at (-117,3866, -30,8531) with size (90,6142, 60,023), origin (349,9878, 594,6), and source rect (0, 0, 906, 600)
+[2026-02-23 11:19:10.479] [GT   1,47] [DEBUG] Skipping collider child 'store-collider' (will be applied to parent).
+[2026-02-23 11:19:10.481] [GT   1,47] [DEBUG] Applied ConvexCollider from 'Boldo-collider' to 'Boldo' (32 vertices, YSortOffset=19,14).
+[2026-02-23 11:19:10.481] [GT   1,47] [DEBUG] Applied ConvexCollider from 'elephant-kid-collider' to 'elephant-kid' (32 vertices, YSortOffset=0).
+[2026-02-23 11:19:10.482] [GT   1,47] [DEBUG] Replaced BoxCollider on 'Pete' with ConvexCollider from 'pete-collider'.
+[2026-02-23 11:19:10.482] [GT   1,47] [DEBUG] Applied ConvexCollider from 'pete-collider' to 'Pete' (32 vertices, YSortOffset=9,23).
+[2026-02-23 11:19:10.482] [GT   1,47] [DEBUG] Replaced BoxCollider on 'store' with ConvexCollider from 'store-collider'.
+[2026-02-23 11:19:10.482] [GT   1,47] [DEBUG] Applied ConvexCollider from 'store-collider' to 'store' (7 vertices, YSortOffset=-0,03).
+[2026-02-23 11:19:10.482] [GT   1,47] [DEBUG] Set parent of 'elephant-kid-shilhouette' to 'elephant-kid'.
+[2026-02-23 11:19:10.482] [GT   1,47] [ INFO] Created 6 entities from Blender level.
+[2026-02-23 11:19:10.482] [GT   1,47] [ INFO] Received request to activate level 'Blender_Level'.
+[2026-02-23 11:19:10.490] [GT   1,47] [ERROR] Error during level activation request handling for level 'Blender_Level':
+-----
+The content file was not found.
+   at Microsoft.Xna.Framework.Content.ContentManager.OpenStream(String assetName)
+   at Microsoft.Xna.Framework.Content.ContentManager.ReadAsset[T](String assetName, Action`1 recordDisposableObject)
+   at Microsoft.Xna.Framework.Content.ContentManager.Load[T](String assetName)
+   at MonoDreams.System.Level.LevelLoadRequestSystem.On(LoadLevelRequest& message) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams/System/Level/LevelLoadRequestSystem.cs:line 50
+-----
+Unhandled exception. System.ArgumentOutOfRangeException: Texture height must be greater than zero (Parameter 'height')
+   at Microsoft.Xna.Framework.Graphics.Texture2D..ctor(GraphicsDevice graphicsDevice, Int32 width, Int32 height, Boolean mipmap, SurfaceFormat format, SurfaceType type, Boolean shared, Int32 arraySize)
+   at Microsoft.Xna.Framework.Graphics.RenderTarget2D..ctor(GraphicsDevice graphicsDevice, Int32 width, Int32 height, Boolean mipMap, SurfaceFormat preferredFormat, DepthFormat preferredDepthFormat, Int32 preferredMultiSampleCount, RenderTargetUsage usage, Boolean shared, Int32 arraySize)
+   at Microsoft.Xna.Framework.Graphics.RenderTarget2D..ctor(GraphicsDevice graphicsDevice, Int32 width, Int32 height, Boolean mipMap, SurfaceFormat preferredFormat, DepthFormat preferredDepthFormat, Int32 preferredMultiSampleCount, RenderTargetUsage usage, Boolean shared)
+   at Microsoft.Xna.Framework.Graphics.RenderTarget2D..ctor(GraphicsDevice graphicsDevice, Int32 width, Int32 height, Boolean mipMap, SurfaceFormat preferredFormat, DepthFormat preferredDepthFormat, Int32 preferredMultiSampleCount, RenderTargetUsage usage)
+   at Microsoft.Xna.Framework.Graphics.RenderTarget2D..ctor(GraphicsDevice graphicsDevice, Int32 width, Int32 height, Boolean mipMap, SurfaceFormat preferredFormat, DepthFormat preferredDepthFormat)
+   at MonoDreams.System.Draw.SpritePrepSystem.CreateNinePatchTexture(SpriteInfo spriteInfo) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams/System/Draw/SpritePrepSystem.cs:line 76
+   at MonoDreams.System.Draw.SpritePrepSystem.Update(GameState state, Entity& entity) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams/System/Draw/SpritePrepSystem.cs:line 29
+   at DefaultEcs.System.AEntitySetSystem`1.Update(T state, ReadOnlySpan`1 entities)
+   at DefaultEcs.System.AEntitySetSystem`1.Update(T state)
+   at DefaultEcs.System.SequentialSystem`1.Update(T state)
+   at DefaultEcs.System.SequentialSystem`1.Update(T state)
+   at MonoDreams.Screen.ScreenController.Draw(GameTime gameTime) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams/Screen/ScreenController.cs:line 62
+   at MonoDreams.Examples.Game1.Draw(GameTime gameTime) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Game1.cs:line 167
+   at Microsoft.Xna.Framework.Game.DoDraw(GameTime gameTime)
+   at Microsoft.Xna.Framework.Game.Tick()
+   at Microsoft.Xna.Framework.SdlGamePlatform.RunLoop()
+   at Microsoft.Xna.Framework.Game.Run(GameRunBehavior runBehavior)
+   at Microsoft.Xna.Framework.Game.Run()
+   at Program.<Main>$(String[] args) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Program.cs:line 4
+
+Process finished with exit code 134.
+
+---
+
+[Request interrupted by user for tool use]

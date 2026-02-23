@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d12092a7693f",
+  "session_id": "b65846a1-d692-460b-b14c-879e7b340031",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-23T19:09:12.796121Z",
+  "branch": "ro/convex-collider-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Tests/Collision/SATCollisionTests.cs",
+    "MonoDreams/Component/Collision/ColliderTag.cs",
+    "MonoDreams/Component/Collision/ConvexCollider.cs",
+    "MonoDreams/Component/Draw/SpriteInfo.cs",
+    "MonoDreams/Extensions/Monogame/SATCollision.cs",
+    "MonoDreams/Level/BlenderLevelData.cs",
+    "MonoDreams/System/Draw/YSortSystem.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "Tools/blender_level_export.py"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 95977,
+    "cache_read_tokens": 2688671,
+    "output_tokens": 10565,
+    "api_call_count": 35
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-23T19:09:12.619705Z",
+    "agent_lines": 850,
+    "human_added": 1005,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1855,
+    "agent_percentage": 45.82210242587601
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/b65846a1-d692-460b-b14c-879e7b340031.jsonl"
+}

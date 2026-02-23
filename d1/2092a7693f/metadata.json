@@ -3,7 +3,7 @@
   "checkpoint_id": "d12092a7693f",
   "strategy": "manual-commit",
   "branch": "ro/convex-collider-sat",
-  "checkpoints_count": 6,
+  "checkpoints_count": 7,
   "files_touched": [
     ".claude/settings.local.json",
     "MonoDreams.Examples/Component/StopMotionEffect.cs",
@@ -13,7 +13,9 @@
     "MonoDreams.Tests/Collision/SATCollisionTests.cs",
     "MonoDreams/Component/Collision/ColliderTag.cs",
     "MonoDreams/Component/Collision/ConvexCollider.cs",
+    "MonoDreams/Component/Draw/SpriteInfo.cs",
     "MonoDreams/Extensions/Monogame/SATCollision.cs",
+    "MonoDreams/Level/BlenderLevelData.cs",
     "MonoDreams/System/Debug/ColliderDebugSystem.cs",
     "MonoDreams/System/Draw/YSortSystem.cs",
     "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
@@ -61,13 +63,20 @@
       "context": "/d1/2092a7693f/5/context.md",
       "content_hash": "/d1/2092a7693f/5/content_hash.txt",
       "prompt": "/d1/2092a7693f/5/prompt.txt"
+    },
+    {
+      "metadata": "/d1/2092a7693f/6/metadata.json",
+      "transcript": "/d1/2092a7693f/6/full.jsonl",
+      "context": "/d1/2092a7693f/6/context.md",
+      "content_hash": "/d1/2092a7693f/6/content_hash.txt",
+      "prompt": "/d1/2092a7693f/6/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 115,
-    "cache_creation_tokens": 280208,
-    "cache_read_tokens": 4064188,
-    "output_tokens": 17098,
-    "api_call_count": 90
+    "input_tokens": 153,
+    "cache_creation_tokens": 376185,
+    "cache_read_tokens": 6752859,
+    "output_tokens": 27663,
+    "api_call_count": 125
   }
 }
