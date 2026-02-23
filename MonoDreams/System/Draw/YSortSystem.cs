@@ -45,6 +45,9 @@ public class YSortSystem(World world, MonoDreams.Component.Camera camera, DrawLa
             : 0.5f;
 
         // Higher t (lower on screen) → higher depth → rendered in front
-        drawComponent.LayerDepth = minDepth + t * (maxDepth - minDepth) + spriteInfo.YSortDepthBias;
+        drawComponent.LayerDepth = Math.Clamp(
+            minDepth + t * (maxDepth - minDepth) + spriteInfo.YSortDepthBias,
+            minDepth,
+            maxDepth);
     }
 }

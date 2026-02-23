@@ -164,7 +164,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         blenderParser.RegisterCollectionHandler("Player", (entity, _) =>
         {
             entity.Set(new PlayerState());
-            entity.Set(new RotationWobble { AmplitudeRadians = MathHelper.ToRadians(2f) });
+            entity.Set(new StopMotionEffect { OffsetRadians = MathHelper.ToRadians(2f) });
         });
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
@@ -174,14 +174,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // EMPTY objects (parent empties in hierarchy) don't have sprites — skip visual setup
             if (!entity.Has<SpriteInfo>()) return;
 
-            // Shilhouette entities rotate counterclockwise; compensate for parent's +2° with -4° local
-            var amplitude = blenderObj.Name.EndsWith("shilhouette")
+            var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
+
+            // Silhouette entities rotate counterclockwise; compensate for parent's +2° with -4° local
+            var offset = isSilhouette
                 ? MathHelper.ToRadians(-4f)
                 : MathHelper.ToRadians(2f);
-            entity.Set(new RotationWobble { AmplitudeRadians = amplitude });
+            entity.Set(new StopMotionEffect { OffsetRadians = offset });
 
-            // Shilhouette renders behind parent: negative bias = lower depth = further back
-            if (blenderObj.Name.EndsWith("shilhouette"))
+            // Silhouette renders behind parent: negative bias = lower depth = further back
+            if (isSilhouette)
             {
                 ref var sprite = ref entity.Get<SpriteInfo>();
                 sprite.YSortDepthBias = -0.0005f;
@@ -257,7 +259,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var logicSystems = new SequentialSystem<GameState>(
             new MovementSystem(_world, _parallelRunner),
             new OrbSystem(_world),
-            new RotationWobbleSystem(_world),
+            new StopMotionEffectSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
             new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, GameCollisionHelper.Create),
             new TransformPhysicalCollisionResolutionSystem(_world),
