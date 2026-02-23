@@ -1,0 +1,113 @@
+Implement the following plan:
+
+# Plan: Blender Parent-Child Export and Collection Hierarchy
+
+## Context
+
+The Blender level exporter currently creates flat, independent entities — no parent-child
+relationships are expressed in the exported JSON. The engine already has a working hierarchy
+system (`ChildOf` + `HierarchySystem` + `Transform.Parent`), so we just need to bridge the
+gap in the export/import pipeline.
+
+Additionally, draw layer resolution currently requires manual `WithAlias("NPC", Characters)`
+calls in game code. By exporting the Blender collection tree, the importer can walk up the
+hierarchy automatically (NPC → Characters → match), eliminating these manual aliases.
+
+## Phase 1: Python Exporter Changes
+
+**File: `Tools/blender_level_export.py`**
+
+1. **Switch to local coordinates** — In `get_object_data()` and `get_gp_object_data()`,
+   change `obj.matrix_world.to_translation()` → `obj.matrix_local.to_translation()`.
+   For root objects (no parent), local == world, so no behavioral change.
+
+2. **Add `parent` field** — Add `"parent": obj.parent.name if obj.parent else None` to the
+   result dict in both `get_object_data()` and `get_gp_object_data()`.
+
+3. **Add `get_collection_hierarchy(scene)` function** — Walks `scene.collection` recursively,
+   building a flat map `{ "NPC": "Characters", "Player": "Characters", "Characters": null }`.
+   Root collections (direct children of Scene Collection) have `null` parent.
+
+4. **Add `collectionHierarchy` to export root** — In `export_level()`, include the hierarchy
+   map in the root JSON alongside `version`, `scaleFactor`, `objects`.
+
+5. **Bump addon version** to `(1, 7, 0)`.
+
+## Phase 2: C# Data Model Changes
+
+**File: `MonoDreams/Level/BlenderLevelData.cs`**
+
+1. Add `Parent` (string, nullable) to `BlenderObject` with `[JsonPropertyName("parent")]`.
+2. Add `CollectionHierarchy` (`Dictionary<string, string>`, nullable) to `BlenderLevelData`
+   with `[JsonPropertyName("collectionHierarchy")]`.
+
+Both fields are nullable, so old JSON files without them still load correctly.
+
+## Phase 3: C# Importer Changes
+
+**File: `MonoDreams/System/Level/BlenderLevelParserSystem.cs`**
+
+1. **Add `_nameToEntity` dictionary** (`Dictionary<string, Entity>`) as class field.
+
+2. **Add `ProcessEmpty()` method** — Creates entity with `Transform` + `EntityInfo("Empty", name)`.
+   Invokes registered collection handlers but skips built-in collision/physics processing
+   (EMPTYs have no visual size). Registers entity in `_nameToEntity`.
+
+3. **Refactor to two-pass entity creation**:
+   - **Pass 1**: Create all entities (CAMERA → ProcessCamera, MESH/GP → ProcessMesh,
+     EMPTY → ProcessEmpty). Each ProcessMesh/ProcessEmpty registers in `_nameToEntity`.
+   - **Pass 2**: For each object with a non-null `Parent`, look up both child and parent in
+     `_nameToEntity` and call `childEntity.SetParent(parentEntity)`. Log warnings for
+     missing references.
+
+4. **Update `ResolveLayerDepth()`** — Accept `BlenderLevelData` parameter. After trying
+   each direct collection name, walk up the hierarchy tree:
+   ```
+   current = collection_name
+   while current != null:
+     if drawLayerMap has current → return depth
+     current = collectionHierarchy[current]  // walk up
+   ```
+
+5. **Update `ProcessMesh()` signature** to accept `BlenderLevelData` (needed by
+   `ResolveLayerDepth`). Register mesh entities in `_nameToEntity`.
+
+6. **Clear `_nameToEntity` in `CleanupEntities()`**.
+
+## Phase 4: Game Code Cleanup (after re-exporting from Blender)
+
+**File: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`**
+
+Remove the `WithAlias` calls that are now handled by collection hierarchy:
+```csharp
+// Before:
+_layers = DrawLayerMap.FromEnum<GameDrawLayer>()
+    .WithYSort(GameDrawLayer.Characters)
+    .WithAlias("Player", GameDrawLayer.Characters)
+    .WithAlias("NPC", GameDrawLayer.Characters);
+
+// After:
+_layers = DrawLayerMap.FromEnum<GameDrawLayer>()
+    .WithYSort(GameDrawLayer.Characters);
+```
+
+**Important**: This step requires the Blender level to be re-exported with the new exporter
+(so `collectionHierarchy` is present in the JSON). Until then, the aliases are still needed
+as fallback. The code changes in Phase 3 are backward-compatible either way.
+
+## Verification
+
+1. `dotnet build` after each phase
+2. **Backward compat**: Load the existing `blender_level.json` (no parent/hierarchy fields) —
+   should work identically to before (nullable fields, null checks in hierarchy walking)
+3. **Re-export from Blender**: Verify JSON includes `parent` fields and `collectionHierarchy`
+4. **Visual verification**: Run game, confirm objects render at same positions, EMPTY entities
+   exist, child objects are parented, draw layers resolve through hierarchy
+5. Run existing tests: `dotnet test MonoDreams.Tests/`
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Checkout a new branch, commit, push and open a pull request

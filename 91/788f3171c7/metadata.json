@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "91788f3171c7",
+  "strategy": "manual-commit",
+  "branch": "ro/blender-parent-child-hierarchy",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Content/elephant-kid-shilhouette.png",
+    "MonoDreams.Examples/Content/elephant-kid.png",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Level/BlenderLevelData.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "Tools/blender_level_export.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/91/788f3171c7/0/metadata.json",
+      "transcript": "/91/788f3171c7/0/full.jsonl",
+      "context": "/91/788f3171c7/0/context.md",
+      "content_hash": "/91/788f3171c7/0/content_hash.txt",
+      "prompt": "/91/788f3171c7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 54,
+    "cache_creation_tokens": 72310,
+    "cache_read_tokens": 3524769,
+    "output_tokens": 4218,
+    "api_call_count": 50
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "91788f3171c7",
+  "session_id": "11d817d1-bac7-4743-a1dc-58d1170edf72",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-23T01:02:04.891582Z",
+  "branch": "ro/blender-parent-child-hierarchy",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/Content/elephant-kid-shilhouette.png",
+    "MonoDreams.Examples/Content/elephant-kid.png",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams/Level/BlenderLevelData.cs",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs",
+    "Tools/blender_level_export.py"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 54,
+    "cache_creation_tokens": 72310,
+    "cache_read_tokens": 3524769,
+    "output_tokens": 4218,
+    "api_call_count": 50
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-23T01:02:04.637944Z",
+    "agent_lines": 113,
+    "human_added": 157,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 270,
+    "agent_percentage": 41.85185185185185
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/11d817d1-bac7-4743-a1dc-58d1170edf72.jsonl"
+}
