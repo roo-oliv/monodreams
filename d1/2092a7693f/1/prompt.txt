@@ -1,0 +1,135 @@
+Implement the following plan:
+
+# Plan: Fix Crash on Blender Level Load
+
+## Context
+After implementing the `-collider` child import feature, the game crashes when loading the Blender level. Two errors appear:
+1. `LevelLoadRequestSystem` tries to load `"Blender_Level"` as an LDtk file and fails (pre-existing, caught)
+2. `SpritePrepSystem.CreateNinePatchTexture` crashes with "Texture height must be greater than zero"
+
+## Root Cause Analysis
+
+**The crash chain:**
+1. `ColliderDebugSystem` is instantiated at `LoadLevelExampleGameScreen.cs:284` even though the `debugSystems` variable is commented out of the pipeline at line 296
+2. Its constructor (`ColliderDebugSystem.cs:33-34`) subscribes to `SubscribeEntityComponentAdded<BoxCollider>` and `SubscribeEntityComponentAdded<ConvexCollider>` — these subscriptions are **always active**
+3. When `BlenderLevelParserSystem.ApplyColliderChild` sets a `ConvexCollider` on a parent entity, the subscription fires and `AddDebugLinesToConvexEntity` creates a debug entity with `NinePatchData` and `Size = aabb.Size`
+4. The `elephant-kid-collider` has **degenerate vertices** — all 32 vertices have `Y = 0.0` (the mesh is on the XY plane in Blender instead of the XZ plane). This means AABB height = 0
+5. `CullingSystem` adds `Visible` to the debug entity (it's in camera bounds)
+6. `SpritePrepSystem` tries to create a `RenderTarget2D` with height 0 → crash
+
+**The degenerate vertices issue:** The `elephant-kid-collider` mesh in Blender lies flat on the XY plane. Our exporter maps `(X, -Z)` to game coords, so Z=0 for all vertices → all game Y = 0. The mesh needs to be on the XZ plane for proper 2D projection (this is a Blender authoring issue, but the code should handle it gracefully).
+
+## Fixes
+
+### 1. Guard ColliderDebugSystem subscription
+**File: `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`**
+
+The `ColliderDebugSystem` is constructed but never used. Since its constructor subscribes to world events, it creates ghost debug entities. Wrap the construction in a conditional or move it behind the same comment gate as `debugSystems` usage:
+
+```csharp
+// Only construct debug systems when they'll actually be used
+// var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
+//     new ColliderDebugSystem(_world, _graphicsDevice)
+// );
+```
+
+Comment out the `new ColliderDebugSystem(...)` call itself, not just its inclusion in the pipeline.
+
+### 2. Add degenerate-vertex guard in ApplyColliderChild
+**File: `MonoDreams/System/Level/BlenderLevelParserSystem.cs`**
+
+After building `modelVertices` from the JSON data, compute the AABB and check that both width and height are > 0. If degenerate (all collinear or all coincident), log a warning and skip applying the collider.
+
+```csharp
+// Check for degenerate shape (all vertices collinear)
+float minX = float.MaxValue, maxX = float.MinValue;
+float minY = float.MaxValue, maxY = float.MinValue;
+foreach (var v in modelVertices) { ... }
+if (maxX - minX < 0.01f || maxY - minY < 0.01f)
+{
+    Logger.Warning($"Collider child '{colliderObj.Name}': degenerate shape (collinear vertices), skipping.");
+    return;
+}
+```
+
+### 3. Defensive guard in ColliderDebugSystem (defense-in-depth)
+**File: `MonoDreams/System/Debug/ColliderDebugSystem.cs`**
+
+In `AddDebugLinesToConvexEntity`, check that `aabb.Size` has both dimensions > 0 before creating the debug entity. Same check in `AddDebugLinesToEntity` for `boxCollider.Bounds.Dimension()`.
+
+## Files Modified
+| File | Change |
+|------|--------|
+| `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` | Comment out ColliderDebugSystem construction |
+| `MonoDreams/System/Level/BlenderLevelParserSystem.cs` | Add degenerate-vertex guard in ApplyColliderChild |
+| `MonoDreams/System/Debug/ColliderDebugSystem.cs` | Guard against zero-size AABB in debug entity creation |
+
+## Verification
+1. `dotnet build` — all projects compile
+2. `dotnet test MonoDreams.Tests/` — all tests pass
+3. Run the game — level loads without crash, colliders work for non-degenerate shapes
+4. `elephant-kid-collider` gets a warning log instead of crashing (needs fixing in Blender — rotate mesh to XZ plane)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Seems to be working fine now, except for the collider of the elephant-kid that seem not to be applied. See the logs: /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/MonoDreams.Examples
+[2026-02-23 11:44:00.382] [GT   N/A ] [ INFO] Logger initialized. Writing to /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/debug/monodreams_20260223_114400.log
+[2026-02-23 11:44:02.500] [GT   2,05] [DEBUG] No input_replay.json found at /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/debug/input_replay.json. Replay disabled.
+[2026-02-23 11:44:02.624] [GT   2,05] [ INFO] ScreenshotCaptureSystem initialized. Interval: 2s, output: /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/debug
+[2026-02-23 11:44:02.633] [GT   2,05] [ INFO] Loading Blender level: Blender_Level
+[2026-02-23 11:44:02.633] [GT   2,05] [ INFO] Cleaning up 0 Blender entities...
+[2026-02-23 11:44:02.634] [GT   2,05] [DEBUG] Loading Blender level from: /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/bin/Debug/net8.0/Content/blender_level.json
+[2026-02-23 11:44:02.639] [GT   2,05] [ INFO] Loaded 11 objects from Blender level.
+[2026-02-23 11:44:02.639] [GT   2,05] [DEBUG] Found collider child 'Boldo-collider' for parent 'Boldo'.
+[2026-02-23 11:44:02.640] [GT   2,05] [DEBUG] Found collider child 'elephant-kid-collider' for parent 'elephant-kid'.
+[2026-02-23 11:44:02.640] [GT   2,05] [DEBUG] Found collider child 'pete-collider' for parent 'Pete'.
+[2026-02-23 11:44:02.640] [GT   2,05] [DEBUG] Found collider child 'store-collider' for parent 'store'.
+[2026-02-23 11:44:02.641] [GT   2,05] [DEBUG] Loaded texture: GreasePencil/Boldo
+[2026-02-23 11:44:02.645] [GT   2,05] [DEBUG] Created entity for mesh 'Boldo' at (79,6936, -33,1469) with size (18,5039, 35,1947), origin (86,4875, 160,30171), and source rect (0, 0, 185, 351)
+[2026-02-23 11:44:02.645] [GT   2,05] [DEBUG] Skipping collider child 'Boldo-collider' (will be applied to parent).
+[2026-02-23 11:44:02.646] [GT   2,05] [DEBUG] Set camera zoom to 7,317073170731708 (from Blender ortho_scale 16,4, scaleFactor 16)
+[2026-02-23 11:44:02.646] [GT   2,05] [DEBUG] Set camera position to (0, -0)
+[2026-02-23 11:44:02.899] [GT   2,05] [DEBUG] Loaded texture: GreasePencil/Floor
+[2026-02-23 11:44:02.900] [GT   2,05] [DEBUG] Created entity for mesh 'Floor' at (0, -0) with size (1044,6592, 694,2011), origin (5538,469, 3477,942), and source rect (0, 0, 10446, 6942)
+[2026-02-23 11:44:02.901] [GT   2,05] [DEBUG] Loaded texture: GreasePencil/Pete
+[2026-02-23 11:44:02.901] [GT   2,05] [DEBUG] Set Player for 'Pete'
+[2026-02-23 11:44:02.902] [GT   2,05] [DEBUG] Created entity for mesh 'Pete' at (0,309, -7,8609) with size (12,4455, 17,5044), origin (59,9664, 82,5475), and source rect (0, 0, 124, 175)
+[2026-02-23 11:44:02.908] [GT   2,05] [DEBUG] Loaded texture: elephant-kid
+[2026-02-23 11:44:02.909] [GT   2,05] [DEBUG] Created entity for mesh 'elephant-kid' at (43,2, -0) with size (23,3796, 23,3796), origin (960, 960), and source rect (0, 0, 1920, 1920)
+[2026-02-23 11:44:02.909] [GT   2,05] [DEBUG] Skipping collider child 'elephant-kid-collider' (will be applied to parent).
+[2026-02-23 11:44:02.917] [GT   2,05] [DEBUG] Loaded texture: elephant-kid-shilhouette
+[2026-02-23 11:44:02.917] [GT   2,05] [DEBUG] Created entity for mesh 'elephant-kid-shilhouette' at (-0, 0,0021) with size (23,3796, 23,3796), origin (960, 960), and source rect (0, 0, 1920, 1920)
+[2026-02-23 11:44:02.917] [GT   2,05] [DEBUG] Skipping collider child 'pete-collider' (will be applied to parent).
+[2026-02-23 11:44:02.919] [GT   2,05] [DEBUG] Loaded texture: GreasePencil/store
+[2026-02-23 11:44:02.920] [GT   2,05] [DEBUG] Added BoxCollider to 'store' (layer: -1, passive: False)
+[2026-02-23 11:44:02.920] [GT   2,05] [DEBUG] Created entity for mesh 'store' at (-117,3866, -30,8531) with size (90,6142, 60,023), origin (349,9878, 594,6), and source rect (0, 0, 906, 600)
+[2026-02-23 11:44:02.920] [GT   2,05] [DEBUG] Skipping collider child 'store-collider' (will be applied to parent).
+[2026-02-23 11:44:02.921] [GT   2,05] [DEBUG] Applied ConvexCollider from 'Boldo-collider' to 'Boldo' (32 vertices, YSortOffset=19,14).
+[2026-02-23 11:44:02.921] [GT   2,05] [ WARN] Collider child 'elephant-kid-collider': degenerate shape (width=9,34, height=0), skipping.
+[2026-02-23 11:44:02.922] [GT   2,05] [DEBUG] Replaced BoxCollider on 'Pete' with ConvexCollider from 'pete-collider'.
+[2026-02-23 11:44:02.922] [GT   2,05] [DEBUG] Applied ConvexCollider from 'pete-collider' to 'Pete' (32 vertices, YSortOffset=9,23).
+[2026-02-23 11:44:02.922] [GT   2,05] [DEBUG] Replaced BoxCollider on 'store' with ConvexCollider from 'store-collider'.
+[2026-02-23 11:44:02.922] [GT   2,05] [DEBUG] Applied ConvexCollider from 'store-collider' to 'store' (7 vertices, YSortOffset=-0,03).
+[2026-02-23 11:44:02.922] [GT   2,05] [DEBUG] Set parent of 'elephant-kid-shilhouette' to 'elephant-kid'.
+[2026-02-23 11:44:02.922] [GT   2,05] [ INFO] Created 6 entities from Blender level.
+[2026-02-23 11:44:02.922] [GT   2,05] [ INFO] Received request to activate level 'Blender_Level'.
+[2026-02-23 11:44:02.928] [GT   2,05] [ERROR] Error during level activation request handling for level 'Blender_Level':
+-----
+The content file was not found.
+   at Microsoft.Xna.Framework.Content.ContentManager.OpenStream(String assetName)
+   at Microsoft.Xna.Framework.Content.ContentManager.ReadAsset[T](String assetName, Action`1 recordDisposableObject)
+   at Microsoft.Xna.Framework.Content.ContentManager.Load[T](String assetName)
+   at MonoDreams.System.Level.LevelLoadRequestSystem.On(LoadLevelRequest& message) in /Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams/System/Level/LevelLoadRequestSystem.cs:line 50
+-----
+[2026-02-23 11:45:17.613] [GT  77,05] [DEBUG] Disposing 0 tile entities...
+[2026-02-23 11:45:17.614] [GT  77,05] [ INFO] Cleaning up 6 Blender entities...
+[2026-02-23 11:45:17.620] [GT  77,05] [ INFO] Logger shutting down.
+
+Process finished with exit code 0.
+
+---
+
+[Request interrupted by user for tool use]
