@@ -1,0 +1,70 @@
+Implement the following plan:
+
+# Plan: Add Rotation Wobble to Character Entities
+
+## Context
+
+Add a discrete two-state rotation wobble to all entities in the Characters collection (both NPC and Player subcollections). Every 2 seconds, entities snap between a rotated state (+2° clockwise) and their base rotation. Entities ending with "shilhouette" rotate counterclockwise instead, with parent compensation since `elephant-kid-shilhouette` is a child of `elephant-kid`.
+
+**Rotation pipeline status**: Already fully implemented. `Transform.Rotation` → `WorldRotation` (parent chain) → `SpritePrepSystem` → `DrawComponent.Rotation` → `SpriteBatch.Draw()`. No changes needed to the rendering pipeline.
+
+## Changes
+
+### 1. Create `MonoDreams.Examples/Component/RotationWobble.cs` (new file)
+
+Simple data component following the `OrbitalMotion` pattern:
+- `BaseRotation` (float) — original rotation to snap back to
+- `AmplitudeRadians` (float) — local rotation delta in "rotated" state
+- `CycleDuration` (float) — seconds per state, default 2.0f
+
+### 2. Create `MonoDreams.Examples/System/RotationWobbleSystem.cs` (new file)
+
+System following the `OrbSystem` pattern (`[With(typeof(RotationWobble), typeof(Transform))]`, extends `AEntitySetSystem<GameState>`):
+- Uses `state.TotalTime % (2 * cycleDuration)` for **global synchronization** — all entities toggle on the same frame (critical for parent compensation math)
+- First half of cycle: `transform.Rotation = base + amplitude`; second half: `transform.Rotation = base`
+- Only writes when value changes to avoid unnecessary dirty flags
+
+### 3. Modify `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+**a) Expand Player handler** (line 164): Add `RotationWobble` with +2° amplitude alongside `PlayerState`
+
+**b) Insert wobble in NPC handler** (after line 171's `if (!entity.Has<SpriteInfo>()) return;`):
+- Check `blenderObj.Name.EndsWith("shilhouette")`
+- Regular NPCs: amplitude = +2° (clockwise)
+- Shilhouette entities: amplitude = **-4°** (compensates for parent's +2°, so `WorldRotation = +2 + (-4) = -2°` visually)
+
+**c) Add `RotationWobbleSystem` to logic pipeline** (line 242, after `OrbSystem`, before `TransformVelocitySystem`)
+
+No new `using` directives needed — `MonoDreams.Examples.Component`, `MonoDreams.Examples.System`, and `Microsoft.Xna.Framework` (for `MathHelper`) are already imported.
+
+## Entity Wobble Values
+
+| Entity | Collection | Parent | Amplitude | Visual Result |
+|--------|-----------|--------|-----------|---------------|
+| Pete | Player | none | +2° | Wobbles clockwise |
+| Boldo | NPC | none | +2° | Wobbles clockwise |
+| elephant-kid | NPC | none | +2° | Wobbles clockwise |
+| elephant-kid-shilhouette | NPC | elephant-kid | -4° local | -2° visual (counterclockwise) |
+
+## Note: NPC Interaction Icon
+
+The floating "E" icon is a child of the NPC entity and will inherit the wobble via `WorldRotation`. At 2° this should be negligible. If needed later, a compensating wobble can be added to the icon entity.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — ensure it compiles
+2. Run the game (`dotnet run --project MonoDreams.Examples`) and load the Blender level
+3. Verify: all NPCs and Pete snap between +2° clockwise and 0° every 2s
+4. Verify: elephant-kid-shilhouette visually rotates counterclockwise (-2°) while its parent rotates clockwise (+2°)
+5. Verify: all wobbles toggle in sync (same frame)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Also, can you think a way for the base entity always be on top of the shilhouette counterpart when it exists? But we still want those to be YSorted with the rest.
+
+---
+
+[Request interrupted by user for tool use]
