@@ -17,6 +17,9 @@ public class BlenderLevelData
     [JsonPropertyName("scaleFactor")]
     public float ScaleFactor { get; set; }
 
+    [JsonPropertyName("collectionHierarchy")]
+    public Dictionary<string, string> CollectionHierarchy { get; set; }
+
     [JsonPropertyName("objects")]
     public List<BlenderObject> Objects { get; set; }
 }
@@ -31,6 +34,9 @@ public class BlenderObject
 
     [JsonPropertyName("type")]
     public string Type { get; set; } // MESH, CAMERA, EMPTY, LIGHT, GREASEPENCIL
+
+    [JsonPropertyName("parent")]
+    public string Parent { get; set; }
 
     [JsonPropertyName("collections")]
     public List<string> Collections { get; set; }
