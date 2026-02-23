@@ -3,12 +3,14 @@
   "checkpoint_id": "946c8243ec75",
   "strategy": "manual-commit",
   "branch": "ro/rotation-wobble-and-ysort-depth-bias",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     ".claude/settings.local.json",
     "MonoDreams.Examples/Component/RotationWobble.cs",
     "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
-    "MonoDreams.Examples/System/RotationWobbleSystem.cs"
+    "MonoDreams.Examples/System/RotationWobbleSystem.cs",
+    "MonoDreams/Component/Draw/SpriteInfo.cs",
+    "MonoDreams/System/Draw/YSortSystem.cs"
   ],
   "sessions": [
     {
@@ -17,13 +19,20 @@
       "context": "/94/6c8243ec75/0/context.md",
       "content_hash": "/94/6c8243ec75/0/content_hash.txt",
       "prompt": "/94/6c8243ec75/0/prompt.txt"
+    },
+    {
+      "metadata": "/94/6c8243ec75/1/metadata.json",
+      "transcript": "/94/6c8243ec75/1/full.jsonl",
+      "context": "/94/6c8243ec75/1/context.md",
+      "content_hash": "/94/6c8243ec75/1/content_hash.txt",
+      "prompt": "/94/6c8243ec75/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 27,
-    "cache_creation_tokens": 68235,
-    "cache_read_tokens": 955924,
-    "output_tokens": 2985,
-    "api_call_count": 24
+    "input_tokens": 42,
+    "cache_creation_tokens": 83578,
+    "cache_read_tokens": 1330487,
+    "output_tokens": 4492,
+    "api_call_count": 35
   }
 }

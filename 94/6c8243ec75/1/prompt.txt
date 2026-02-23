@@ -1,0 +1,61 @@
+Implement the following plan:
+
+# Plan: Y-Sort Depth Bias for Parent/Child Rendering Order
+
+## Context
+
+Rotation wobble is already implemented. `elephant-kid` and `elephant-kid-shilhouette` share the same world Y position (child inherits parent's transform), so `YSortSystem` computes the same interpolated depth for both. The only tiebreaker is entity creation index in `MasterRenderSystem` (`.ThenBy(x => x.index)`), which depends on Blender export order — fragile and implicit.
+
+We can't use `GetDepth(Characters, subOffset)` because `TryGetYSortRange` does an **exact float match** on `SpriteInfo.LayerDepth` — any offset breaks Y-sort membership.
+
+## Approach: `YSortDepthBias` field on `SpriteInfo`
+
+A small float (default 0f) applied **after** Y-sort interpolation. The base `LayerDepth` stays at the exact Characters depth (so Y-sort lookup works), then the bias shifts the final value. This is a generally useful core feature for any entities at the same Y that need deterministic front/back ordering.
+
+## Changes
+
+### 1. `MonoDreams/Component/Draw/SpriteInfo.cs` — add field
+
+```csharp
+public float YSortDepthBias = 0f;
+```
+
+### 2. `MonoDreams/System/Draw/YSortSystem.cs` (line 48) — apply bias after interpolation
+
+```csharp
+drawComponent.LayerDepth = minDepth + t * (maxDepth - minDepth) + spriteInfo.YSortDepthBias;
+```
+
+### 3. `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` — set bias for shilhouette in NPC handler
+
+After the existing shilhouette amplitude check, set bias on SpriteInfo:
+```csharp
+if (blenderObj.Name.EndsWith("shilhouette"))
+{
+    ref var sprite = ref entity.Get<SpriteInfo>();
+    sprite.YSortDepthBias = -0.0005f;
+}
+```
+
+## Rendering math
+
+| Entity | YSortDepthBias | Result |
+|--------|---------------|--------|
+| elephant-kid | 0 (default) | Base Y-sort depth |
+| elephant-kid-shilhouette | -0.0005f | Slightly lower depth → renders behind parent |
+
+`MasterRenderSystem` sorts ascending by `LayerDepth` (lower = behind, higher = in front), so the negative bias pushes the shilhouette behind.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj` — compiles
+2. Run the game and load the Blender level
+3. Verify: elephant-kid always renders on top of elephant-kid-shilhouette
+4. Verify: both entities still Y-sort correctly relative to other characters
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Checkout to a new branch, commit, push and open a pull request
