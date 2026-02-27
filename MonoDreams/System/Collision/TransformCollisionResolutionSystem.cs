@@ -14,8 +14,7 @@ using MonoDreams.Util;
 namespace MonoDreams.System.Collision;
 
 /// <summary>
-/// Collision resolution system that works with Transform component instead of Position.
-/// Uses float-precision CollisionRect to avoid integer truncation artifacts.
+/// Collision resolution system supporting both BoxCollider (swept AABB) and ConvexCollider (SAT).
 /// </summary>
 public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<GameState>
     where TCollisionMessage : ICollisionMessage
@@ -54,11 +53,27 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
     private void ResolveCollision(TCollisionMessage collision)
     {
         var entity = collision.BaseEntity;
+        var collidingEntity = collision.CollidingEntity;
+
+        var hasBoxA = entity.Has<BoxCollider>();
+        var hasBoxB = collidingEntity.Has<BoxCollider>();
+
+        if (hasBoxA && hasBoxB)
+        {
+            ResolveBoxVsBox(collision, entity, collidingEntity);
+        }
+        else
+        {
+            ResolveSAT(collision, entity, collidingEntity, hasBoxA, hasBoxB);
+        }
+    }
+
+    private void ResolveBoxVsBox(TCollisionMessage collision, Entity entity, Entity collidingEntity)
+    {
         ref var transform = ref entity.Get<Transform>();
         var collidable = entity.Get<BoxCollider>();
         var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.Position);
 
-        var collidingEntity = collision.CollidingEntity;
         var targetTransform = collidingEntity.Get<Transform>();
         var targetRect = CollisionRect.FromBounds(collidingEntity.Get<BoxCollider>().Bounds, targetTransform.Position);
 
@@ -104,5 +119,78 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
                 _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Bottom));
             }
         }
+    }
+
+    // Reusable buffers for box-to-polygon conversion
+    private readonly Vector2[] _boxBufA = new Vector2[4];
+    private readonly Vector2[] _boxBufB = new Vector2[4];
+
+    private void ResolveSAT(TCollisionMessage collision, Entity entity, Entity collidingEntity, bool hasBoxA, bool hasBoxB)
+    {
+        ref var transform = ref entity.Get<Transform>();
+
+        // Build current polygons
+        Vector2[] polyA;
+        Vector2[] polyB;
+
+        if (hasBoxA)
+        {
+            SATCollision.BoxToPolygon(entity.Get<BoxCollider>(), transform, _boxBufA);
+            polyA = _boxBufA;
+        }
+        else
+        {
+            var convex = entity.Get<ConvexCollider>();
+            convex.UpdateWorldVertices(transform);
+            polyA = convex.WorldVertices;
+        }
+
+        if (hasBoxB)
+        {
+            SATCollision.BoxToPolygon(collidingEntity.Get<BoxCollider>(), collidingEntity.Get<Transform>(), _boxBufB);
+            polyB = _boxBufB;
+        }
+        else
+        {
+            polyB = collidingEntity.Get<ConvexCollider>().WorldVertices;
+        }
+
+        // Re-validate with current positions
+        if (!SATCollision.PolygonVsPolygon(polyA, polyB, out var contactNormal, out var penetrationDepth)) return;
+
+        // Push entity out by MTV
+        transform.Translate(-contactNormal * penetrationDepth);
+
+        // Velocity damping: remove velocity component moving into the collision
+        if (entity.Has<Velocity>())
+        {
+            ref var velocity = ref entity.Get<Velocity>();
+            var velDotNormal = Vector2.Dot(velocity.Current, contactNormal);
+            if (velDotNormal > 0)
+            {
+                velocity.Current -= velDotNormal * contactNormal;
+            }
+        }
+
+        // Derive side from contact normal direction for RigidBodyTouchMessage
+        var side = NormalToSide(contactNormal);
+        if (side.HasValue)
+        {
+            _world.Publish(new RigidBodyTouchMessage(collidingEntity, side.Value));
+        }
+    }
+
+    private static RelativeReferential? NormalToSide(Vector2 normal)
+    {
+        // Use predominant axis to determine side
+        if (Math.Abs(normal.X) > Math.Abs(normal.Y))
+        {
+            return normal.X > 0 ? RelativeReferential.Left : RelativeReferential.Right;
+        }
+        if (Math.Abs(normal.Y) > Math.Abs(normal.X))
+        {
+            return normal.Y > 0 ? RelativeReferential.Top : RelativeReferential.Bottom;
+        }
+        return null; // Diagonal — ambiguous
     }
 }

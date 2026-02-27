@@ -261,7 +261,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new OrbSystem(_world),
             new StopMotionEffectSystem(_world),
             new TransformVelocitySystem(_world, _parallelRunner),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, GameCollisionHelper.Create),
+            new TransformCollisionDetectionSystem<CollisionMessage>(_world, GameCollisionHelper.Create),
             new TransformPhysicalCollisionResolutionSystem(_world),
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
@@ -280,10 +280,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Cursor position must update AFTER camera has moved to avoid 1-frame lag
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
-        var debugSystems = new ParallelSystem<GameState>(_parallelRunner,
-            new ColliderDebugSystem(_world, _graphicsDevice)
-        );
-
         return new SequentialSystem<GameState>(
             // new DebugSystem(_world, _game, _spriteBatch), // If needed
             inputSystems,
@@ -293,7 +289,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
             cameraFollowSystem,
             cursorLateUpdateSystem,          // Cursor position updates after camera
             new CursorDrawPrepSystem(_world) // Draw prep after position is finalized
-            // debugSystems
         );
     }
     

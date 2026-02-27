@@ -17,6 +17,7 @@ public struct SpriteInfo() : IComponent
     public NinePatchInfo? NinePatchData = null; // Optional
     public Vector2 Origin = Vector2.Zero; // Origin point in sprite coordinates (pixels from top-left)
     public float YSortDepthBias = 0f; // Applied after Y-sort interpolation for deterministic front/back ordering
+    public float YSortOffset = 0f; // Y offset added to WorldPosition.Y when computing Y-sort depth (e.g. collider bottom)
 
     public void Dispose()
     {

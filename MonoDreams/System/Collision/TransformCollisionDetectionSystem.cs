@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
-using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
@@ -13,52 +12,171 @@ using MonoDreams.State;
 namespace MonoDreams.System.Collision;
 
 /// <summary>
-/// Collision detection system that works with Transform component instead of Position.
-/// Uses float-precision CollisionRect to avoid integer truncation artifacts.
+/// Collision detection system supporting both BoxCollider (swept AABB) and ConvexCollider (SAT).
+/// Uses ColliderTag marker component to query entities with either collider type.
+/// Runs single-threaded because instance-level polygon buffers (_boxPolyBufA/_boxPolyBufB)
+/// are not thread-safe.
 /// </summary>
-public class TransformCollisionDetectionSystem<TCollisionMessage>(
-    World world, IParallelRunner parallelRunner, CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
-    : AEntitySetSystem<GameState>(
-        world.GetEntities()
-            .With((in BoxCollider c) => !c.Passive && c.Enabled)
-            .With<Transform>()
-            .AsSet(),
-        parallelRunner)
+public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<GameState>
     where TCollisionMessage : ICollisionMessage
 {
-    private readonly IEnumerable<Entity> _targets = world.GetEntities().With((in BoxCollider c) => c.Enabled).AsEnumerable();
+    private readonly World _world;
+    private readonly EntitySet _activeSet;
+    private readonly IEnumerable<Entity> _targets;
+    private readonly CreateCollisionMessageDelegate<TCollisionMessage> _createCollisionMessage;
 
-    protected override void Update(GameState state, in Entity entity)
+    public bool IsEnabled { get; set; } = true;
+
+    public TransformCollisionDetectionSystem(
+        World world,
+        CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
     {
-        var collidable = entity.Get<BoxCollider>();
-        var transform = entity.Get<Transform>();
-        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.Position);
-        var displacement = transform.Delta;
+        _world = world;
+        _createCollisionMessage = createCollisionMessage;
 
+        // Auto-tag entities when they get a collider component
+        world.SubscribeEntityComponentAdded<BoxCollider>(OnBoxColliderAdded);
+        world.SubscribeEntityComponentAdded<ConvexCollider>(OnConvexColliderAdded);
+
+        // ColliderTag unifies BoxCollider and ConvexCollider into a single query, but each
+        // type has its own passive/enabled semantics — those are checked at runtime in the
+        // collision loop via GetCollider() rather than at query level.
+        _activeSet = world.GetEntities()
+            .With<ColliderTag>()
+            .With<Transform>()
+            .AsSet();
+
+        // All enabled collider entities are potential targets
+        _targets = world.GetEntities()
+            .With<ColliderTag>()
+            .With<Transform>()
+            .AsEnumerable();
+    }
+
+    private static void OnBoxColliderAdded(in Entity entity, in BoxCollider _)
+    {
+        if (!entity.Has<ColliderTag>()) entity.Set<ColliderTag>();
+    }
+
+    private static void OnConvexColliderAdded(in Entity entity, in ConvexCollider _)
+    {
+        if (!entity.Has<ColliderTag>()) entity.Set<ColliderTag>();
+    }
+
+    public void Update(GameState state)
+    {
+        // Update world vertices for all ConvexCollider entities (_targets is the superset of _activeSet)
         foreach (var target in _targets)
         {
-            if (target == entity) continue;
-
-            var targetCollidable = target.Get<BoxCollider>();
-            ICollider colliderA = collidable;
-            ICollider colliderB = targetCollidable;
-            if (!colliderB.SharesLayerWith(colliderA)) continue;
-
-            var collides = DynamicRectVsRect(
-                dynamicRect,
-                displacement,
-                CollisionRect.FromBounds(targetCollidable.Bounds, target.Get<Transform>().Position),
-                out var contactPoint,
-                out var contactNormal,
-                out var contactTime);
-
-            if (!collides) continue;
-            if (contactNormal == Vector2.Zero) continue;
-
-            foreach (var layer in colliderB.SharedLayers(colliderA))
+            if (target.Has<ConvexCollider>())
             {
-                world.Publish(createCollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer));
+                ref var convex = ref target.Get<ConvexCollider>();
+                convex.UpdateWorldVertices(target.Get<Transform>());
             }
+        }
+
+        // Test collisions
+        foreach (var entity in _activeSet.GetEntities())
+        {
+            var colliderA = GetCollider(entity);
+            if (colliderA == null || colliderA.Passive || !colliderA.Enabled) continue;
+
+            foreach (var target in _targets)
+            {
+                if (target == entity) continue;
+
+                var colliderB = GetCollider(target);
+                if (colliderB == null || !colliderB.Enabled) continue;
+                if (!colliderB.SharesLayerWith(colliderA)) continue;
+
+                var hasBoxA = entity.Has<BoxCollider>();
+                var hasBoxB = target.Has<BoxCollider>();
+
+                if (hasBoxA && hasBoxB)
+                {
+                    // Box-vs-Box: existing swept AABB path (unchanged)
+                    TestBoxVsBox(entity, target, colliderA, colliderB);
+                }
+                else
+                {
+                    // Any polygon pair: SAT
+                    TestSAT(entity, target, colliderA, colliderB, hasBoxA, hasBoxB);
+                }
+            }
+        }
+    }
+
+    private void TestBoxVsBox(Entity entity, Entity target, ICollider colliderA, ICollider colliderB)
+    {
+        var boxA = entity.Get<BoxCollider>();
+        var transformA = entity.Get<Transform>();
+        var dynamicRect = CollisionRect.FromBounds(boxA.Bounds, transformA.Position);
+        var displacement = transformA.Delta;
+
+        var boxB = target.Get<BoxCollider>();
+        var transformB = target.Get<Transform>();
+        var targetRect = CollisionRect.FromBounds(boxB.Bounds, transformB.Position);
+
+        var collides = DynamicRectVsRect(
+            dynamicRect, displacement, targetRect,
+            out var contactPoint, out var contactNormal, out var contactTime);
+
+        if (!collides || contactNormal == Vector2.Zero) return;
+
+        foreach (var layer in colliderB.SharedLayers(colliderA))
+        {
+            _world.Publish(_createCollisionMessage(entity, target, contactPoint, contactNormal, contactTime, 0f, layer));
+        }
+    }
+
+    // Reusable buffers for box-to-polygon conversion (avoids stackalloc scope issues)
+    private readonly Vector2[] _boxPolyBufA = new Vector2[4];
+    private readonly Vector2[] _boxPolyBufB = new Vector2[4];
+
+    private void TestSAT(Entity entity, Entity target, ICollider colliderA, ICollider colliderB, bool hasBoxA, bool hasBoxB)
+    {
+        // Broad-phase AABB rejection first (cheap)
+        var aabbA = hasBoxA
+            ? CollisionRect.FromBounds(entity.Get<BoxCollider>().Bounds, entity.Get<Transform>().Position)
+            : entity.Get<ConvexCollider>().BroadPhaseAABB;
+        var aabbB = hasBoxB
+            ? CollisionRect.FromBounds(target.Get<BoxCollider>().Bounds, target.Get<Transform>().Position)
+            : target.Get<ConvexCollider>().BroadPhaseAABB;
+
+        if (!aabbA.Intersects(aabbB)) return;
+
+        // Get world-space polygons for both entities
+        Vector2[] polyA;
+        Vector2[] polyB;
+
+        if (hasBoxA)
+        {
+            SATCollision.BoxToPolygon(entity.Get<BoxCollider>(), entity.Get<Transform>(), _boxPolyBufA);
+            polyA = _boxPolyBufA;
+        }
+        else
+        {
+            polyA = entity.Get<ConvexCollider>().WorldVertices;
+        }
+
+        if (hasBoxB)
+        {
+            SATCollision.BoxToPolygon(target.Get<BoxCollider>(), target.Get<Transform>(), _boxPolyBufB);
+            polyB = _boxPolyBufB;
+        }
+        else
+        {
+            polyB = target.Get<ConvexCollider>().WorldVertices;
+        }
+
+        if (!SATCollision.PolygonVsPolygon(polyA, polyB, out var contactNormal, out var penetrationDepth)) return;
+
+        // Contact point: midpoint of centroids
+        var contactPoint = (SATCollision.PolygonCenter(polyA) + SATCollision.PolygonCenter(polyB)) / 2f;
+
+        foreach (var layer in colliderB.SharedLayers(colliderA))
+        {
+            _world.Publish(_createCollisionMessage(entity, target, contactPoint, contactNormal, 0f, penetrationDepth, layer));
         }
     }
 
@@ -118,5 +236,17 @@ public class TransformCollisionDetectionSystem<TCollisionMessage>(
             out contactNormal, out contactTime);
 
         return potentialCollision && contactTime < 1.0f;
+    }
+
+    private static ICollider GetCollider(Entity entity)
+    {
+        if (entity.Has<BoxCollider>()) return entity.Get<BoxCollider>();
+        if (entity.Has<ConvexCollider>()) return entity.Get<ConvexCollider>();
+        return null;
+    }
+
+    public void Dispose()
+    {
+        _activeSet?.Dispose();
     }
 }
