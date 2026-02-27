@@ -1,0 +1,50 @@
+Implement the following plan:
+
+# PR #22 Review Plan — ConvexCollider with SAT Collision and Blender Pipeline
+
+## Context
+PR #22 adds ConvexCollider with SAT collision detection, Blender pipeline integration for mesh vertices, ColliderTag marker, YSortOffset, and 19 unit tests. This plan outlines the review comments to submit via `gh pr review 22 --comment`.
+
+## Review Comments
+
+### 1. Detection system: world vertex update pass is redundant (Medium)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`, lines 66-83
+**Comment:** The first pass iterates `_activeSet` to update ConvexCollider world vertices, then a second pass iterates `_targets` doing the same thing. Since `_activeSet` and `_targets` use the same query (`With<ColliderTag>().With<Transform>()`), every entity in `_activeSet` is also in `_targets` — vertices get updated twice for active entities. Consider consolidating into a single pass over `_targets` only (which is the superset).
+
+### 2. `parallelRunner` parameter accepted but unused (Low)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`, constructor
+**Comment:** The system changed from `AEntitySetSystem<GameState>` (which uses `parallelRunner`) to `ISystem<GameState>` (sequential). The `parallelRunner` parameter is still accepted in the constructor but never used — dead parameter. Either remove it or document why parallelism was dropped (likely because the instance-level `_boxPolyBufA`/`_boxPolyBufB` buffers aren't thread-safe).
+
+### 3. `_activeSet` query lost passive/enabled filtering (Design)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`, lines 42-45
+**Comment:** The old query was `.With((in BoxCollider c) => !c.Passive && c.Enabled)`, which filtered at the ECS query level. The new query `.With<ColliderTag>().With<Transform>()` returns all entities with either collider type, and passive/enabled filtering happens at runtime (line 89). This is understandable given the two-collider-type design, but worth noting as a performance trade-off for worlds with many passive/disabled colliders.
+
+### 4. No convexity validation in Blender exporter (Medium)
+**File:** `Tools/blender_level_export.py`, `get_mesh_vertices` function
+**Comment:** The exporter sorts vertices by angle from centroid (which only produces correct perimeter ordering for convex shapes) but never validates that the result is actually convex. If an artist accidentally creates a concave `-collider` mesh, SAT will silently produce incorrect collision results. Consider adding a convexity check with a warning in Blender's console/output.
+
+### 5. Multiple `-collider` children per parent: last one silently wins (Low)
+**File:** `MonoDreams/System/Level/BlenderLevelParserSystem.cs`, line 116
+**Comment:** `colliderChildMap[obj.Parent] = obj` — if a parent has multiple `-collider` children (e.g., `entity-collider` and `entity-collider2`), only the last one in the list is used, silently. Consider logging a warning when overwriting an existing entry so artists don't get surprised.
+
+### 6. `BoxToPolygon` ignores transform rotation (Design question)
+**File:** `MonoDreams/Extensions/Monogame/SATCollision.cs`, `BoxToPolygon` method (lines 130-139)
+**Comment:** `BoxToPolygon` treats the box as axis-aligned regardless of `Transform.Rotation`. This is consistent with the existing swept-AABB model for Box-vs-Box, but means SAT between a rotated BoxCollider entity and a ConvexCollider will use the wrong shape. If rotated boxes should never participate in SAT, a brief comment documenting this assumption would help future readers.
+
+### 7. Redundant `ColliderTag` set in `ApplyColliderChild` (Nit)
+**File:** `MonoDreams/System/Level/BlenderLevelParserSystem.cs`, line 641
+**Comment:** `parentEntity.Set(new ColliderTag())` is redundant here — the `ConvexCollider` is set on line 630, which triggers `OnConvexColliderAdded` (subscribed in the detection system), which auto-adds `ColliderTag` if missing. Harmless due to the guard, but could be removed for clarity.
+
+### 8. Commented-out debug system left in game screen (Nit)
+**File:** `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`, lines 283-285
+**Comment:** The `ColliderDebugSystem` instantiation is commented out. If this was intentional for the PR (not shipping debug visuals by default), consider removing the commented block entirely rather than leaving dead code, or add a comment explaining it's intentionally disabled.
+
+## Verification
+- Run `gh pr review 22 --comment` with the body containing all comments
+- Verify the review appears on the PR
+
+## Execution
+Submit as a single PR review with all comments inline using `gh api` to post file-specific review comments.
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
