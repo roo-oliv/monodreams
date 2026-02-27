@@ -113,6 +113,10 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             {
                 if (obj.Name.EndsWith("-collider") && !string.IsNullOrEmpty(obj.Parent))
                 {
+                    if (colliderChildMap.TryGetValue(obj.Parent, out var existing))
+                    {
+                        Logger.Warning($"Duplicate collider child for parent '{obj.Parent}': replacing '{existing.Name}' with '{obj.Name}'.");
+                    }
                     colliderChildMap[obj.Parent] = obj;
                     colliderChildNames.Add(obj.Name);
                     Logger.Debug($"Found collider child '{obj.Name}' for parent '{obj.Parent}'.");
@@ -636,9 +640,6 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             ref var spriteInfo = ref parentEntity.Get<SpriteInfo>();
             spriteInfo.YSortOffset = maxY;
         }
-
-        // Add ColliderTag
-        parentEntity.Set(new ColliderTag());
 
         Logger.Debug($"Applied ConvexCollider from '{colliderObj.Name}' to '{parentName}' ({modelVertices.Length} vertices, YSortOffset={maxY}).");
     }

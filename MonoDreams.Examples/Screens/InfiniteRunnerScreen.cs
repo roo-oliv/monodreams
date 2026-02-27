@@ -285,7 +285,7 @@ public class InfiniteRunnerScreen : IGameScreen
             treadmillScroll,
             runnerSpawner,
             new TransformVelocitySystem(_world, _parallelRunner),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, _parallelRunner, CreateRunnerCollision),
+            new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateRunnerCollision),
             new TransformPhysicalCollisionResolutionSystem(_world),
             runnerCollisionHandler,
             new TransformCommitSystem(_world, _parallelRunner),

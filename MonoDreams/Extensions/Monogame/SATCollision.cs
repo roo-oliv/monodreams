@@ -127,6 +127,10 @@ public static class SATCollision
     /// Converts a BoxCollider + Transform into a 4-vertex polygon in world space,
     /// suitable for SAT testing against ConvexCollider entities.
     /// </summary>
+    /// <remarks>
+    /// Treats the box as axis-aligned regardless of <see cref="Transform.Rotation"/>,
+    /// consistent with the swept-AABB model used for Box-vs-Box collisions.
+    /// </remarks>
     public static void BoxToPolygon(BoxCollider box, Transform transform, Span<Vector2> output)
     {
         var pos = transform.Position;

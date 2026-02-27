@@ -94,6 +94,24 @@ def get_mesh_vertices(obj, scale_factor):
     cy = sum(v["y"] for v in verts_2d) / len(verts_2d)
     verts_2d.sort(key=lambda v: math.atan2(v["y"] - cy, v["x"] - cx))
 
+    # Convexity check: all cross products of consecutive edges must have the same sign
+    n = len(verts_2d)
+    sign = None
+    for i in range(n):
+        ax = verts_2d[(i + 1) % n]["x"] - verts_2d[i]["x"]
+        ay = verts_2d[(i + 1) % n]["y"] - verts_2d[i]["y"]
+        bx = verts_2d[(i + 2) % n]["x"] - verts_2d[(i + 1) % n]["x"]
+        by = verts_2d[(i + 2) % n]["y"] - verts_2d[(i + 1) % n]["y"]
+        cross = ax * by - ay * bx
+        if abs(cross) < 1e-9:
+            continue  # collinear edge, skip
+        current_sign = cross > 0
+        if sign is None:
+            sign = current_sign
+        elif current_sign != sign:
+            print(f"WARNING: mesh '{obj.name}' is not convex — SAT requires convex polygons. Skipping vertices.")
+            return None
+
     return verts_2d
 
 

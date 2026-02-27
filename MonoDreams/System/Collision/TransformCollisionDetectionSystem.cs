@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
-using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
@@ -15,6 +14,8 @@ namespace MonoDreams.System.Collision;
 /// <summary>
 /// Collision detection system supporting both BoxCollider (swept AABB) and ConvexCollider (SAT).
 /// Uses ColliderTag marker component to query entities with either collider type.
+/// Runs single-threaded because instance-level polygon buffers (_boxPolyBufA/_boxPolyBufB)
+/// are not thread-safe.
 /// </summary>
 public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<GameState>
     where TCollisionMessage : ICollisionMessage
@@ -28,7 +29,6 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
     public TransformCollisionDetectionSystem(
         World world,
-        IParallelRunner parallelRunner,
         CreateCollisionMessageDelegate<TCollisionMessage> createCollisionMessage)
     {
         _world = world;
@@ -38,7 +38,9 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
         world.SubscribeEntityComponentAdded<BoxCollider>(OnBoxColliderAdded);
         world.SubscribeEntityComponentAdded<ConvexCollider>(OnConvexColliderAdded);
 
-        // Active (non-passive, enabled) entities that can initiate collisions
+        // ColliderTag unifies BoxCollider and ConvexCollider into a single query, but each
+        // type has its own passive/enabled semantics — those are checked at runtime in the
+        // collision loop via GetCollider() rather than at query level.
         _activeSet = world.GetEntities()
             .With<ColliderTag>()
             .With<Transform>()
@@ -63,16 +65,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
     public void Update(GameState state)
     {
-        // First pass: update world vertices for all ConvexCollider entities
-        foreach (var entity in _activeSet.GetEntities())
-        {
-            if (entity.Has<ConvexCollider>())
-            {
-                ref var convex = ref entity.Get<ConvexCollider>();
-                convex.UpdateWorldVertices(entity.Get<Transform>());
-            }
-        }
-
+        // Update world vertices for all ConvexCollider entities (_targets is the superset of _activeSet)
         foreach (var target in _targets)
         {
             if (target.Has<ConvexCollider>())
@@ -82,7 +75,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
             }
         }
 
-        // Second pass: test collisions
+        // Test collisions
         foreach (var entity in _activeSet.GetEntities())
         {
             var colliderA = GetCollider(entity);
