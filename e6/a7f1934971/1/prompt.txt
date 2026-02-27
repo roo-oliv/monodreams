@@ -1,0 +1,59 @@
+Implement the following plan:
+
+# Address PR #22 Review Comments
+
+## Context
+PR #22 ("Add ConvexCollider with SAT collision and Blender pipeline") has 8 review comments from `roo-oliv`. This plan addresses each one.
+
+## Changes
+
+### 1. Redundant world-vertex update pass (Medium)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`
+
+Remove the first pass over `_activeSet` (lines 67-74) that updates ConvexCollider world vertices. Keep only the pass over `_targets` (the superset). The result is a single vertex-update loop before the collision detection loop.
+
+### 2. Remove unused `parallelRunner` parameter (Low)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`
+
+Remove `parallelRunner` from the constructor signature — it's no longer used since the system moved from `AEntitySetSystem<GameState>` to `ISystem<GameState>`. Add a brief comment on the class noting that parallelism was dropped because instance-level polygon buffers (`_boxPolyBufA`/`_boxPolyBufB`) are not thread-safe.
+
+### 3. Note on lost passive/enabled query-level filtering (Design note)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs`
+
+Add a comment on the `_activeSet` query explaining that passive/enabled filtering moved to runtime because `ColliderTag` unifies two collider types that each have their own passive/enabled semantics.
+
+### 4. Convexity validation in Blender exporter (Medium)
+**File:** `Tools/blender_level_export.py`
+
+After the angle sort in `get_mesh_vertices`, add a cross-product sign consistency check. If the polygon is not convex, print a warning to Blender's console/stdout and return `None`.
+
+### 5. Warn on duplicate `-collider` children per parent (Low)
+**File:** `MonoDreams/System/Level/BlenderLevelParserSystem.cs`
+
+Before overwriting `colliderChildMap[obj.Parent]`, check if the key already exists. If so, log a warning naming both the existing and new collider child.
+
+### 6. Document `BoxToPolygon` rotation assumption (Design question)
+**File:** `MonoDreams/Extensions/Monogame/SATCollision.cs`
+
+Add a `<remarks>` comment on `BoxToPolygon` noting that it treats the box as axis-aligned regardless of `Transform.Rotation`, consistent with the swept-AABB model for Box-vs-Box collisions.
+
+### 7. Remove redundant `ColliderTag` set (Nit)
+**File:** `MonoDreams/System/Level/BlenderLevelParserSystem.cs`
+
+Remove the `parentEntity.Set(new ColliderTag());` line — the subscription handler `OnConvexColliderAdded` already adds it when `ConvexCollider` is set.
+
+### 8. Remove commented-out debug system (Nit)
+**File:** `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+
+Remove the commented-out `debugSystems` block (lines 283-285) and the `// debugSystems` reference in the return statement (line 296).
+
+## Verification
+1. `dotnet build` — full solution builds cleanly
+2. `dotnet test MonoDreams.Tests/` — all SAT collision tests pass
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+git add ., commit and push
