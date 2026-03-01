@@ -1,0 +1,95 @@
+Implement the following plan:
+
+# Fix ConvexCollider misalignment with sprites from Blender pipeline
+
+## Context
+
+The store's ConvexCollider (red debug outline) appears tiny and offset. The previous fix attempt (origin offset) made things worse — the root cause is actually **missing parent Blender scale** on collider child vertices.
+
+### Why the origin offset theory was wrong
+
+Both the sprite and collider are anchored at the entity position (= Blender origin). `SpriteBatch.Draw` uses `SpriteInfo.Origin` to align the sprite's origin point with the entity position, while `UpdateWorldVertices` adds entity position to model vertices. No additional origin offset is needed — they're already in the same coordinate space.
+
+### The actual bug: parent Blender scale
+
+The Blender exporter computes collider child vertices via `obj.matrix_local @ v.co`, which gives coordinates in the **parent's local space** (unscaled by parent's scale). The child's own scale/rotation/position ARE baked in via `matrix_local`, but the parent's scale is NOT.
+
+Meanwhile, `SpriteInfo.Size` uses Blender `Dimensions` which ARE world-scale (include parent scale). And `Transform.Scale` is `(1, 1)` — Blender scale is not stored there.
+
+**Result**: `UpdateWorldVertices` applies `Transform.Scale = (1,1)` to model vertices, so the collider stays at the unscaled parent-local size. For the store (parent scale 3.0), the collider is ~3x too small and mispositioned.
+
+### Affected entities (confirmed from JSON)
+- **store**: parent scale (3.0082, 3.0082) — collider ~3x too small
+- **Pete**: parent scale (1.0, 1.0) — unaffected
+- **Boldo**: parent scale (1.0, 1.0) — unaffected
+
+### Numerical verification
+Store collider vertices span X: -16.61 to -2.45 = 14.16 units (parent-local). Scaled by 3.0082 = 42.6 units ≈ store sprite width (44.27). BoxCollider bounds from `ProcessCollections`: left=-51, right=-6, width=45. The scaled collider matches.
+
+## Fix
+
+### File: `MonoDreams/System/Level/BlenderLevelParserSystem.cs`
+
+**Step 1: Revert the incorrect origin offset** (~line 595-612 in ApplyColliderChild)
+
+Remove the entire `if (parentEntity.Has<SpriteInfo>())` block that offsets model vertices by `-spriteInfo.Origin * scale`. This was wrong.
+
+**Step 2: Build a name→BlenderObject lookup** (~line 110-124, pre-scan loop)
+
+Add a `nameToObj` dictionary during the pre-scan that already iterates all objects:
+
+```csharp
+var nameToObj = new Dictionary<string, BlenderObject>();
+foreach (var obj in levelData.Objects)
+{
+    nameToObj[obj.Name] = obj;
+    if (obj.Name.EndsWith("-collider") && !string.IsNullOrEmpty(obj.Parent))
+    {
+        // ... existing collider child map logic (unchanged)
+    }
+}
+```
+
+**Step 3: Pass `nameToObj` to `ApplyColliderChild`** (~line 154-157)
+
+```csharp
+ApplyColliderChild(parentName, colliderObj, nameToObj);
+```
+
+Update the method signature to accept it.
+
+**Step 4: Scale model vertices by parent's Blender scale** (in ApplyColliderChild, after building modelVertices, before degenerate guard)
+
+```csharp
+// Scale model vertices by parent's Blender scale.
+// Vertices from matrix_local are in parent-local space (unscaled by parent).
+// SpriteInfo.Size includes parent scale (from Blender Dimensions), but
+// Transform.Scale is (1,1), so we must bake parent scale into model vertices.
+if (nameToObj.TryGetValue(parentName, out var parentObj) && parentObj.Scale != null)
+{
+    var parentScaleX = parentObj.Scale.X;
+    var parentScaleY = parentObj.Scale.Y;
+    if (Math.Abs(parentScaleX - 1f) > 0.001f || Math.Abs(parentScaleY - 1f) > 0.001f)
+    {
+        for (var i = 0; i < modelVertices.Length; i++)
+        {
+            modelVertices[i] = new Vector2(
+                modelVertices[i].X * parentScaleX,
+                modelVertices[i].Y * parentScaleY);
+        }
+    }
+}
+```
+
+## Files to modify
+- `MonoDreams/System/Level/BlenderLevelParserSystem.cs` — 3 changes in ~20 net lines
+
+## Verification
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. `dotnet test MonoDreams.Tests/`
+3. Run game, press F1, enable "Collider Shapes" debug overlay
+4. Store: red ConvexCollider should now be full-size, covering the storefront area (not a tiny box)
+5. Pete, Boldo: red ellipses should remain unchanged (parent scale is 1.0)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/cdfe7470-e10d-40f2-a7e3-cc50d5275d26.jsonl
