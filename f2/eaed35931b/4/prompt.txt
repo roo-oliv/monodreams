@@ -1,0 +1,89 @@
+Implement the following plan:
+
+# Fix: Player child entities receiving movement components (2x speed bug)
+
+## Context
+When a child entity (e.g., `Pete-shilhouette`) is placed under Pete in Blender and both belong to the "Player" collection, the child gets physics/movement components it shouldn't have. `MovementSystem` moves both parent and child independently. Since the child's world position = parent position + child local position, and both positions receive the same input delta, the child moves at 2x speed.
+
+The NPC hierarchy (elephant-kid + elephant-kid-shilhouette) doesn't have this problem because the NPC collection never adds physics/movement components in `ProcessCollections`.
+
+## Changes
+
+### 1. `MonoDreams/System/Level/BlenderLevelParserSystem.cs` (lines 514-532)
+Gate the Player physics/movement components behind `string.IsNullOrEmpty(meshObj.Parent)`:
+
+```csharp
+if (meshObj.Collections.Contains("Player"))
+{
+    if (string.IsNullOrEmpty(meshObj.Parent))
+    {
+        entity.Set(new EntityInfo("Player", meshObj.Name));
+        entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
+        entity.Set(new RigidBody());
+        entity.Set(new Velocity());
+        entity.Set(new CameraFollowTarget { ... });
+        Logger.Debug($"Set Player for '{meshObj.Name}'");
+    }
+    else
+    {
+        Logger.Debug($"Skipping Player physics for child '{meshObj.Name}' (parent: '{meshObj.Parent}')");
+    }
+}
+```
+
+Only root Player entities get `EntityInfo("Player")`, `BoxCollider`, `RigidBody`, `Velocity`, `CameraFollowTarget`. Child entities skip this block entirely.
+
+### 2. `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (lines 164-168)
+Update the "Player" collection handler to mirror the NPC handler pattern — root gets `PlayerState`, children get visual effects only:
+
+```csharp
+blenderParser.RegisterCollectionHandler("Player", (entity, blenderObj) =>
+{
+    var isChild = !string.IsNullOrEmpty(blenderObj.Parent);
+
+    if (!isChild)
+    {
+        entity.Set(new PlayerState());
+        entity.Set(new StopMotionEffect { OffsetRadians = MathHelper.ToRadians(2f) });
+    }
+    else
+    {
+        // Child entities (silhouettes) get visual effects only
+        var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
+        var offset = isSilhouette
+            ? MathHelper.ToRadians(-4f)
+            : MathHelper.ToRadians(2f);
+        entity.Set(new StopMotionEffect { OffsetRadians = offset });
+
+        if (isSilhouette)
+        {
+            ref var sprite = ref entity.Get<SpriteInfo>();
+            sprite.YSortDepthBias = -0.0005f;
+        }
+    }
+});
+```
+
+## Why this approach
+- **Fixes at the source**: Prevents wrong components from being set, rather than filtering them out in every consuming system
+- **Uses data already available**: `meshObj.Parent` from the Blender JSON is accessible during Pass 1 — no dependency on `ChildOf` (set in Pass 2)
+- **Mirrors existing NPC pattern**: The NPC handler already distinguishes parent vs silhouette children
+- **No new components/systems/abstractions**: Minimal change, no over-engineering
+
+## Verification
+1. Build: `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Re-add Pete-shilhouette to Blender scene under Pete, export JSON
+3. Run game and verify silhouette moves with Pete (not at 2x speed)
+4. Verify Pete still collides correctly with walls/NPCs
+5. Verify elephant-kid + silhouette behavior is unchanged
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Can you enable or if necessary code a way to visually see the colliders in a debug mode (use different colors for active vs passive colliders)
+
+---
+
+[Request interrupted by user for tool use]
