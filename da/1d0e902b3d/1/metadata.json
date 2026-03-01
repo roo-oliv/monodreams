@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "da1d0e902b3d",
+  "session_id": "7387508f-e90f-4746-9800-358b852ea9b4",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-01T03:36:38.794763Z",
+  "branch": "ro/convex-collider-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams/Component/Collision/ConvexCollider.cs",
+    "MonoDreams/Message/ICollisionMessage.cs",
+    "MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs",
+    "MonoDreams/System/Collision/TransformCollisionResolutionSystem.cs",
+    "MonoDreams/System/Debug/ColliderDebugSystem.cs",
+    "Tools/blender_level_export.py"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 19117,
+    "cache_read_tokens": 283139,
+    "output_tokens": 2445,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-01T03:36:38.734446Z",
+    "agent_lines": 23,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 23,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/7387508f-e90f-4746-9800-358b852ea9b4.jsonl"
+}

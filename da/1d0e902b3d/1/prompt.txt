@@ -1,0 +1,52 @@
+Implement the following plan:
+
+# Plan: Address PR #22 Documentation Requests
+
+## Context
+PR #22 (ConvexCollider with SAT collision) received a code review with 10 items. The user wants to address the documentation requests — items that ask for comments, doc comments, or TODOs. Six items qualify.
+
+## Changes
+
+### 1. `UpdateWorldVertices()` — flat hierarchy constraint (High #1)
+**File:** `MonoDreams/Component/Collision/ConvexCollider.cs:50-53`
+
+Expand the existing `<summary>` to note that this method uses `transform.Position` (local), not `WorldPosition`, so it only works correctly for root-level entities. The `BlenderLevelParserSystem` enforces flat hierarchy today but this isn't validated at runtime.
+
+### 2. `NormalToSide()` — 45-degree edge case (High #2)
+**File:** `MonoDreams/System/Collision/TransformCollisionResolutionSystem.cs:183-195`
+
+Add an XML `<summary>` documenting that when X and Y components are exactly equal (45° diagonal), the method returns `null` and no `RigidBodyTouchMessage` is published. This could affect grounded-state detection on exactly 45° slopes.
+
+### 3. `ContactPoint` — approximation for SAT (High #3)
+**File:** `MonoDreams/Message/ICollisionMessage.cs:10`
+
+Add XML doc comment on `ContactPoint` noting that for SAT collisions, this is a centroid-midpoint approximation (not an exact contact point). For swept-AABB collisions it remains exact.
+
+Also add a brief inline comment at the calculation site:
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs:174-175`
+
+### 4. World vertex update — TODO for static optimization (Medium #5)
+**File:** `MonoDreams/System/Collision/TransformCollisionDetectionSystem.cs:68`
+
+Add a `// TODO` noting that static entities whose transforms never change could skip the update with a dirty-flag optimization.
+
+### 5. `ColliderDebugSystem` — not for production (Medium #6)
+**File:** `MonoDreams/System/Debug/ColliderDebugSystem.cs:14-18`
+
+Extend the existing `<summary>` to note that this system allocates per-frame (ToArray, transient entities) and is intended for development only.
+
+### 6. `-collider` naming convention in Blender exporter (Low #10)
+**File:** `Tools/blender_level_export.py:1-12`
+
+Add a section to the file header documenting the `-collider` child object naming convention — that child meshes named with a `-collider` suffix are exported with vertices and parsed by `BlenderLevelParserSystem` as `ConvexCollider` shapes on the parent entity.
+
+## Verification
+- `dotnet build` — full solution builds cleanly (comments only, no logic changes)
+- `dotnet test MonoDreams.Tests/` — all tests still pass
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+commit and push
