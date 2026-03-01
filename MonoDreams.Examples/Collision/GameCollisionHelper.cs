@@ -17,10 +17,11 @@ public static class GameCollisionHelper
         Vector2 contactPoint,
         Vector2 contactNormal,
         float contactTime,
+        float penetrationDepth,
         int layer)
     {
         var collisionType = DetermineCollisionType(entity, target);
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, layer, collisionType);
+        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, collisionType);
     }
 
     private static CollisionType DetermineCollisionType(Entity entity, Entity target)

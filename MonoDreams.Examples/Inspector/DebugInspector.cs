@@ -5,6 +5,8 @@ using ImGuiNET;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.State;
+using MonoDreams.System.Debug;
+using MonoDreams.System.Draw;
 using XnaColor = Microsoft.Xna.Framework.Color;
 using XnaVector2 = Microsoft.Xna.Framework.Vector2;
 using XnaVector3 = Microsoft.Xna.Framework.Vector3;
@@ -63,6 +65,7 @@ public class DebugInspector
 
         DrawWorldHierarchyPanel();
         DrawWatchersPanel();
+        DrawDebugOverlaysPanel();
     }
 
     private void RefreshEntitySnapshots(World world)
@@ -260,8 +263,26 @@ public class DebugInspector
             double d => d.ToString("F2"),
             Enum e => e.ToString(),
             string s => $"\"{s}\"",
+            global::System.Collections.IEnumerable enumerable => FormatEnumerable(enumerable),
             _ => value.ToString() ?? "null"
         };
+    }
+
+    private static string FormatEnumerable(global::System.Collections.IEnumerable enumerable)
+    {
+        const int maxItems = 8;
+        var items = new List<string>();
+        var count = 0;
+        foreach (var item in enumerable)
+        {
+            if (count < maxItems)
+                items.Add(FormatValue(item));
+            count++;
+        }
+        var result = string.Join(", ", items);
+        if (count > maxItems)
+            result += ", ...";
+        return $"[{result}]";
     }
 
     private void DrawTriStateCheckbox(string prefix, EntitySnapshot snapshot, ComponentSnapshot comp = null)
@@ -377,6 +398,40 @@ public class DebugInspector
         }
 
         ImGui.End();
+    }
+
+    private void DrawDebugOverlaysPanel()
+    {
+        ImGui.Begin("Debug Overlays");
+
+        var colliderEnabled = ColliderDebugSystem.Enabled;
+        if (ImGui.Checkbox("Collider Shapes", ref colliderEnabled))
+            ColliderDebugSystem.Enabled = colliderEnabled;
+        HelpMarker("Red = active, Green = passive, Gray = disabled");
+
+        var spriteEnabled = SpriteDebugSystem.Enabled;
+        if (ImGui.Checkbox("Sprite Bounds", ref spriteEnabled))
+            SpriteDebugSystem.Enabled = spriteEnabled;
+        HelpMarker("Shows sprite boundaries and origin points");
+
+        var cullingEnabled = CullingSystem.DebugEnabled;
+        if (ImGui.Checkbox("Culling Bounds", ref cullingEnabled))
+            CullingSystem.DebugEnabled = cullingEnabled;
+        HelpMarker("Lime outline showing camera culling area");
+
+        ImGui.End();
+    }
+
+    private static void HelpMarker(string description)
+    {
+        ImGui.SameLine();
+        ImGui.TextDisabled("(?)");
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.BeginTooltip();
+            ImGui.Text(description);
+            ImGui.EndTooltip();
+        }
     }
 
     private void DrawWatcherComponentFields(ComponentSnapshot comp, string compPath)

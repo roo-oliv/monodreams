@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -5,106 +6,149 @@ using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
-using MonoDreams.Extensions.Monogame;
+using MonoDreams.Draw;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Debug;
 
 /// <summary>
-/// Debug system that renders collision boxes for entities with BoxCollider components.
-/// Shows green lines for passive colliders and red lines for active colliders.
-/// Only adds debug lines when a BoxCollider is added to an entity.
+/// Per-frame debug visualization for BoxCollider and ConvexCollider shapes.
+/// Creates ephemeral mesh entities each frame that render colored outlines:
+/// red = active, green = passive, gray = disabled.
+/// Development only — allocates per-frame (ToArray, transient entities) and is not
+/// intended for production builds.
 /// </summary>
-public sealed class ColliderDebugSystem : ISystem<GameState>
+public class ColliderDebugSystem : ISystem<GameState>
 {
-    private readonly World _world;
-    private readonly Texture2D _pixelTexture;
-    private const float DEBUG_LINE_DEPTH = 1f; // Render on top of all elements
-    
-    public bool IsEnabled { get; set; } = true;
+    public static bool Enabled = false;
 
-    public ColliderDebugSystem(World world, GraphicsDevice graphicsDevice)
+    private const float DebugLayerDepth = 1f;
+    private const float LineThickness = 0.5f;
+
+    private readonly World _world;
+    private readonly EntitySet _colliderEntities;
+    private readonly List<Entity> _debugEntities = [];
+
+    public ColliderDebugSystem(World world)
     {
         _world = world;
-        // Create a 2x1 white and transparent pixels texture for drawing lines
-        _pixelTexture = new Texture2D(graphicsDevice, 2, 1);
-        _pixelTexture.SetData([Color.White, Color.Transparent]);
-
-
-        _world.SubscribeEntityComponentAdded<BoxCollider>(AddDebugLinesToEntity);
+        _colliderEntities = world.GetEntities()
+            .With<ColliderTag>()
+            .With<Transform>()
+            .AsSet();
     }
 
-    private void AddDebugLinesToEntity(in Entity entity, in BoxCollider boxCollider)
-    {
-        ref readonly var transform = ref entity.Get<Transform>();
-        Color lineColor;
-        if (boxCollider.Enabled)
-        {
-            lineColor = boxCollider.Passive ? Color.Green : Color.Red;
-        }
-        else
-        {
-            lineColor = Color.Gray;
-        }
-        var r = new Rectangle(0, 0, 1, 1);
-        var c = new Rectangle(1, 0, 1, 1);
-        var spriteInfo = new SpriteInfo{
-            SpriteSheet = _pixelTexture,
-            Source = new Rectangle(0, 0, 1, 1),
-            Size = boxCollider.Bounds.Dimension(),
-            Color = lineColor,
-            Target = RenderTargetID.Main,
-            LayerDepth = DEBUG_LINE_DEPTH,
-            NinePatchData = new NinePatchInfo(0, r, r, r, r, c, r, r, r, r),
-            Offset = boxCollider.Bounds.Origin(),
-        };
-
-        var debugEntity = _world.CreateEntity();
-        debugEntity.Set(transform);
-        debugEntity.Set(spriteInfo);
-        debugEntity.Set(new DrawComponent());
-
-        // var worldBounds = boxCollider.Bounds.AtPosition(position.Current);
-
-        // Add debug draw elements for the four sides of the rectangle
-        // AddDebugLine(drawComponent, worldBounds.Left, worldBounds.Top, worldBounds.Right, worldBounds.Top, lineColor); // Top
-        // AddDebugLine(drawComponent, worldBounds.Right - 1, worldBounds.Top, worldBounds.Right - 1, worldBounds.Bottom, lineColor); // Right
-        // AddDebugLine(drawComponent, worldBounds.Left, worldBounds.Bottom - 1, worldBounds.Right, worldBounds.Bottom - 1, lineColor); // Bottom
-        // AddDebugLine(drawComponent, worldBounds.Left, worldBounds.Top, worldBounds.Left, worldBounds.Bottom, lineColor); // Left
-    }
-
-    private void AddDebugLine(DrawComponent drawComponent, int x1, int y1, int x2, int y2, Color color)
-    {
-        // Calculate line properties
-        var start = new Vector2(x1, y1);
-        var end = new Vector2(x2, y2);
-        var direction = end - start;
-        var length = direction.Length();
-        var size = x1 == x2 ? new Vector2(1, length) : new Vector2(length, 1);
-
-        // Create a DrawElement for the line
-        var lineElement = new DrawElement
-        {
-            Type = DrawElementType.Sprite,
-            Target = RenderTargetID.Main,
-            Texture = _pixelTexture,
-            Position = start,
-            Size = size,
-            Color = color,
-            LayerDepth = DEBUG_LINE_DEPTH,
-        };
-
-        // drawComponent.Drawables.Add(lineElement);
-    }
+    public bool IsEnabled { get; set; } = true;
 
     public void Update(GameState state)
     {
-        // This system doesn't need to update every frame since it only responds to entity changes
-        // The work is done in the EntityAdded event handler
+        foreach (var entity in _debugEntities)
+        {
+            if (entity.IsAlive)
+                entity.Dispose();
+        }
+        _debugEntities.Clear();
+
+        if (!IsEnabled || !Enabled) return;
+
+        foreach (var entity in _colliderEntities.GetEntities())
+        {
+            ref readonly var transform = ref entity.Get<Transform>();
+
+            if (entity.Has<BoxCollider>())
+            {
+                ref readonly var box = ref entity.Get<BoxCollider>();
+                CreateBoxOutline(transform, box);
+            }
+
+            if (entity.Has<ConvexCollider>())
+            {
+                var convex = entity.Get<ConvexCollider>();
+                CreateConvexOutline(convex);
+            }
+        }
+    }
+
+    private void CreateBoxOutline(in Transform transform, in BoxCollider box)
+    {
+        var color = GetDebugColor(box);
+
+        var topLeft = new Vector2(
+            transform.WorldPosition.X + box.Bounds.Left,
+            transform.WorldPosition.Y + box.Bounds.Top);
+        var topRight = new Vector2(
+            transform.WorldPosition.X + box.Bounds.Right,
+            transform.WorldPosition.Y + box.Bounds.Top);
+        var bottomRight = new Vector2(
+            transform.WorldPosition.X + box.Bounds.Right,
+            transform.WorldPosition.Y + box.Bounds.Bottom);
+        var bottomLeft = new Vector2(
+            transform.WorldPosition.X + box.Bounds.Left,
+            transform.WorldPosition.Y + box.Bounds.Bottom);
+
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+        int indexOffset = 0;
+
+        LineMeshGenerator.AddLine(vertices, indices, topLeft, topRight, LineThickness, color, ref indexOffset);
+        LineMeshGenerator.AddLine(vertices, indices, topRight, bottomRight, LineThickness, color, ref indexOffset);
+        LineMeshGenerator.AddLine(vertices, indices, bottomRight, bottomLeft, LineThickness, color, ref indexOffset);
+        LineMeshGenerator.AddLine(vertices, indices, bottomLeft, topLeft, LineThickness, color, ref indexOffset);
+
+        CreateDebugEntity(vertices, indices);
+    }
+
+    private void CreateConvexOutline(ConvexCollider convex)
+    {
+        var color = GetDebugColor(convex);
+        var verts = convex.WorldVertices;
+        if (verts == null || verts.Length < 3) return;
+
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+        int indexOffset = 0;
+
+        for (int i = 0; i < verts.Length; i++)
+        {
+            var start = verts[i];
+            var end = verts[(i + 1) % verts.Length];
+            LineMeshGenerator.AddLine(vertices, indices, start, end, LineThickness, color, ref indexOffset);
+        }
+
+        CreateDebugEntity(vertices, indices);
+    }
+
+    private void CreateDebugEntity(List<VertexPositionColor> vertices, List<int> indices)
+    {
+        var entity = _world.CreateEntity();
+        _debugEntities.Add(entity);
+
+        entity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Vertices = vertices.ToArray(),
+            Indices = indices.ToArray(),
+            PrimitiveType = PrimitiveType.TriangleList,
+            Target = RenderTargetID.Main,
+            LayerDepth = DebugLayerDepth
+        });
+        entity.Set<Visible>();
+    }
+
+    private static Color GetDebugColor(ICollider collider)
+    {
+        if (!collider.Enabled) return Color.Gray;
+        return collider.Passive ? Color.Green : Color.Red;
     }
 
     public void Dispose()
     {
-        _pixelTexture?.Dispose();
+        foreach (var entity in _debugEntities)
+        {
+            if (entity.IsAlive)
+                entity.Dispose();
+        }
+        _debugEntities.Clear();
+        _colliderEntities.Dispose();
     }
 }

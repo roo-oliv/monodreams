@@ -19,7 +19,7 @@ public class SpriteDebugSystem : ISystem<GameState>
     /// <summary>
     /// Global toggle for sprite debug visualization.
     /// </summary>
-    public static bool Enabled = true;
+    public static bool Enabled = false;
 
     private const float DebugLayerDepth = 0.98f;
     private const float OriginCircleRadius = 0.2f;

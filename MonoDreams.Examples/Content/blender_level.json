@@ -35,8 +35,8 @@
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 0.4828,
-        "y": 0.0367
+        "x": 0.4675,
+        "y": 0.5433
       },
       "customProperties": {},
       "uvMapping": {
@@ -66,6 +66,175 @@
                 "v": 1.0
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Boldo-collider",
+      "type": "MESH",
+      "parent": "Boldo",
+      "collections": [
+        "NPC"
+      ],
+      "collectionProperties": {
+        "NPC": {}
+      },
+      "meshType": "Circle.002",
+      "position": {
+        "x": 0.5506,
+        "y": 17.0051
+      },
+      "dimensions": {
+        "x": 14.0167,
+        "y": 4.2732
+      },
+      "scale": {
+        "x": 0.438,
+        "y": 0.438
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "vertices": [
+        {
+          "x": -6.32,
+          "y": 16.59
+        },
+        {
+          "x": -5.92,
+          "y": 16.19
+        },
+        {
+          "x": -5.28,
+          "y": 15.82
+        },
+        {
+          "x": -4.41,
+          "y": 15.49
+        },
+        {
+          "x": -3.34,
+          "y": 15.23
+        },
+        {
+          "x": -2.13,
+          "y": 15.03
+        },
+        {
+          "x": -0.82,
+          "y": 14.91
+        },
+        {
+          "x": 0.55,
+          "y": 14.87
+        },
+        {
+          "x": 1.92,
+          "y": 14.91
+        },
+        {
+          "x": 3.23,
+          "y": 15.03
+        },
+        {
+          "x": 4.44,
+          "y": 15.23
+        },
+        {
+          "x": 5.51,
+          "y": 15.49
+        },
+        {
+          "x": 6.38,
+          "y": 15.82
+        },
+        {
+          "x": 7.03,
+          "y": 16.19
+        },
+        {
+          "x": 7.42,
+          "y": 16.59
+        },
+        {
+          "x": 7.56,
+          "y": 17.01
+        },
+        {
+          "x": 7.42,
+          "y": 17.42
+        },
+        {
+          "x": 7.03,
+          "y": 17.82
+        },
+        {
+          "x": 6.38,
+          "y": 18.19
+        },
+        {
+          "x": 5.51,
+          "y": 18.52
+        },
+        {
+          "x": 4.44,
+          "y": 18.78
+        },
+        {
+          "x": 3.23,
+          "y": 18.98
+        },
+        {
+          "x": 1.92,
+          "y": 19.1
+        },
+        {
+          "x": 0.55,
+          "y": 19.14
+        },
+        {
+          "x": -0.82,
+          "y": 19.1
+        },
+        {
+          "x": -2.13,
+          "y": 18.98
+        },
+        {
+          "x": -3.34,
+          "y": 18.78
+        },
+        {
+          "x": -4.41,
+          "y": 18.52
+        },
+        {
+          "x": -5.28,
+          "y": 18.19
+        },
+        {
+          "x": -5.92,
+          "y": 17.82
+        },
+        {
+          "x": -6.32,
+          "y": 17.42
+        },
+        {
+          "x": -6.46,
+          "y": 17.01
+        }
+      ],
+      "uvMapping": {
+        "texturePath": null,
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": []
           }
         ]
       }
@@ -102,69 +271,8 @@
       },
       "customProperties": {
         "zoom": 16.4
-      }
-    },
-    {
-      "name": "Floor",
-      "type": "GREASEPENCIL",
-      "parent": null,
-      "collections": [
-        "Background"
-      ],
-      "collectionProperties": {
-        "Background": {
-          "prop": 1.0
-        }
       },
-      "meshType": "plane",
-      "position": {
-        "x": 0.0,
-        "y": -0.0
-      },
-      "dimensions": {
-        "x": 1044.6592,
-        "y": 694.2011
-      },
-      "scale": {
-        "x": 1.0,
-        "y": 1.0
-      },
-      "rotation": -0.0,
-      "originOffset": {
-        "x": 0.5302,
-        "y": 0.499
-      },
-      "customProperties": {},
-      "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/Floor.png",
-        "uvLayers": [
-          {
-            "name": "UVMap",
-            "uvCoordinates": [
-              {
-                "vertexIndex": 0,
-                "u": 0.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 1,
-                "u": 1.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 2,
-                "u": 0.0,
-                "v": 1.0
-              },
-              {
-                "vertexIndex": 3,
-                "u": 1.0,
-                "v": 1.0
-              }
-            ]
-          }
-        ]
-      }
+      "vertices": null
     },
     {
       "name": "Pete",
@@ -178,12 +286,12 @@
       },
       "meshType": "plane",
       "position": {
-        "x": 0.0,
-        "y": -0.0
+        "x": 0.309,
+        "y": -7.8609
       },
       "dimensions": {
-        "x": 12.4455,
-        "y": 17.5044
+        "x": 14.7677,
+        "y": 21.4973
       },
       "scale": {
         "x": 1.0,
@@ -191,8 +299,8 @@
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 0.4587,
-        "y": 0.0792
+        "x": 0.4774,
+        "y": 0.5033
       },
       "customProperties": {},
       "uvMapping": {
@@ -227,6 +335,175 @@
       }
     },
     {
+      "name": "Pete-collider",
+      "type": "MESH",
+      "parent": "Pete",
+      "collections": [
+        "Player"
+      ],
+      "collectionProperties": {
+        "Player": {}
+      },
+      "meshType": "Circle",
+      "position": {
+        "x": 0.5747,
+        "y": 7.23
+      },
+      "dimensions": {
+        "x": 13.0797,
+        "y": 5.3672
+      },
+      "scale": {
+        "x": 0.4087,
+        "y": 0.4087
+      },
+      "rotation": -7.3827,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "vertices": [
+        {
+          "x": -5.55,
+          "y": 6.99
+        },
+        {
+          "x": -5.01,
+          "y": 6.45
+        },
+        {
+          "x": -4.26,
+          "y": 5.94
+        },
+        {
+          "x": -3.32,
+          "y": 5.48
+        },
+        {
+          "x": -2.23,
+          "y": 5.09
+        },
+        {
+          "x": -1.03,
+          "y": 4.78
+        },
+        {
+          "x": 0.23,
+          "y": 4.57
+        },
+        {
+          "x": 1.5,
+          "y": 4.46
+        },
+        {
+          "x": 2.74,
+          "y": 4.45
+        },
+        {
+          "x": 3.89,
+          "y": 4.55
+        },
+        {
+          "x": 4.92,
+          "y": 4.75
+        },
+        {
+          "x": 5.78,
+          "y": 5.05
+        },
+        {
+          "x": 6.43,
+          "y": 5.44
+        },
+        {
+          "x": 6.87,
+          "y": 5.89
+        },
+        {
+          "x": 7.06,
+          "y": 6.39
+        },
+        {
+          "x": 7.0,
+          "y": 6.93
+        },
+        {
+          "x": 6.7,
+          "y": 7.47
+        },
+        {
+          "x": 6.16,
+          "y": 8.01
+        },
+        {
+          "x": 5.4,
+          "y": 8.52
+        },
+        {
+          "x": 4.46,
+          "y": 8.98
+        },
+        {
+          "x": 3.38,
+          "y": 9.37
+        },
+        {
+          "x": 2.18,
+          "y": 9.68
+        },
+        {
+          "x": 0.92,
+          "y": 9.89
+        },
+        {
+          "x": -0.35,
+          "y": 10.0
+        },
+        {
+          "x": -1.59,
+          "y": 10.01
+        },
+        {
+          "x": -2.74,
+          "y": 9.91
+        },
+        {
+          "x": -3.77,
+          "y": 9.71
+        },
+        {
+          "x": -4.63,
+          "y": 9.41
+        },
+        {
+          "x": -5.29,
+          "y": 9.02
+        },
+        {
+          "x": -5.72,
+          "y": 8.57
+        },
+        {
+          "x": -5.91,
+          "y": 8.07
+        },
+        {
+          "x": -5.85,
+          "y": 7.54
+        }
+      ],
+      "uvMapping": {
+        "texturePath": null,
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": []
+          }
+        ]
+      }
+    },
+    {
       "name": "elephant-kid",
       "type": "MESH",
       "parent": null,
@@ -255,6 +532,24 @@
         "y": 0.5
       },
       "customProperties": {},
+      "vertices": [
+        {
+          "x": 31.51,
+          "y": -11.69
+        },
+        {
+          "x": 54.89,
+          "y": -11.69
+        },
+        {
+          "x": 54.89,
+          "y": 11.69
+        },
+        {
+          "x": 31.51,
+          "y": 11.69
+        }
+      ],
       "uvMapping": {
         "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/elephant-kid.png",
         "uvLayers": [
@@ -282,6 +577,175 @@
                 "v": 1.0
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "elephant-kid-collider",
+      "type": "MESH",
+      "parent": "elephant-kid",
+      "collections": [
+        "NPC"
+      ],
+      "collectionProperties": {
+        "NPC": {}
+      },
+      "meshType": "Circle.001",
+      "position": {
+        "x": -0.731,
+        "y": 0.0018
+      },
+      "dimensions": {
+        "x": 13.6588,
+        "y": 8.2638
+      },
+      "scale": {
+        "x": 0.4268,
+        "y": 0.4269
+      },
+      "rotation": -0.0,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "vertices": [
+        {
+          "x": -5.32,
+          "y": 2.25
+        },
+        {
+          "x": -5.07,
+          "y": 1.72
+        },
+        {
+          "x": -4.65,
+          "y": 1.22
+        },
+        {
+          "x": -4.07,
+          "y": 0.78
+        },
+        {
+          "x": -3.37,
+          "y": 0.42
+        },
+        {
+          "x": -2.57,
+          "y": 0.14
+        },
+        {
+          "x": -1.69,
+          "y": -0.04
+        },
+        {
+          "x": -0.78,
+          "y": -0.11
+        },
+        {
+          "x": 0.13,
+          "y": -0.07
+        },
+        {
+          "x": 1.01,
+          "y": 0.07
+        },
+        {
+          "x": 1.82,
+          "y": 0.32
+        },
+        {
+          "x": 2.54,
+          "y": 0.66
+        },
+        {
+          "x": 3.12,
+          "y": 1.07
+        },
+        {
+          "x": 3.57,
+          "y": 1.55
+        },
+        {
+          "x": 3.84,
+          "y": 2.08
+        },
+        {
+          "x": 3.94,
+          "y": 2.63
+        },
+        {
+          "x": 3.86,
+          "y": 3.18
+        },
+        {
+          "x": 3.61,
+          "y": 3.72
+        },
+        {
+          "x": 3.18,
+          "y": 4.22
+        },
+        {
+          "x": 2.61,
+          "y": 4.65
+        },
+        {
+          "x": 1.91,
+          "y": 5.02
+        },
+        {
+          "x": 1.11,
+          "y": 5.3
+        },
+        {
+          "x": 0.23,
+          "y": 5.47
+        },
+        {
+          "x": -0.68,
+          "y": 5.54
+        },
+        {
+          "x": -1.59,
+          "y": 5.51
+        },
+        {
+          "x": -2.47,
+          "y": 5.36
+        },
+        {
+          "x": -3.28,
+          "y": 5.12
+        },
+        {
+          "x": -4.0,
+          "y": 4.78
+        },
+        {
+          "x": -4.59,
+          "y": 4.36
+        },
+        {
+          "x": -5.03,
+          "y": 3.88
+        },
+        {
+          "x": -5.3,
+          "y": 3.35
+        },
+        {
+          "x": -5.4,
+          "y": 2.8
+        }
+      ],
+      "uvMapping": {
+        "texturePath": null,
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": []
           }
         ]
       }
@@ -315,6 +779,24 @@
         "y": 0.5
       },
       "customProperties": {},
+      "vertices": [
+        {
+          "x": -8.0,
+          "y": -8.0
+        },
+        {
+          "x": 8.0,
+          "y": -8.0
+        },
+        {
+          "x": 8.0,
+          "y": 8.0
+        },
+        {
+          "x": -8.0,
+          "y": 8.0
+        }
+      ],
       "uvMapping": {
         "texturePath": "/Users/rodrigooliveira/Downloads/../git/roo-oliv/monodreams/MonoDreams.Examples/Content/elephant-kid-shilhouette.png",
         "uvLayers": [
@@ -360,25 +842,105 @@
       },
       "meshType": "plane",
       "position": {
-        "x": -117.3866,
-        "y": -30.8531
+        "x": -53.2974,
+        "y": -6.4989
       },
       "dimensions": {
-        "x": 90.6142,
-        "y": 60.023
+        "x": 44.2664,
+        "y": 51.7073
       },
       "scale": {
-        "x": 1.0,
-        "y": 1.0
+        "x": 3.0082,
+        "y": 3.0082
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 0.3863,
-        "y": 0.009
+        "x": 1.1526,
+        "y": 1.0991
       },
       "customProperties": {},
       "uvMapping": {
         "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/store.png",
+        "uvLayers": [
+          {
+            "name": "UVMap",
+            "uvCoordinates": [
+              {
+                "vertexIndex": 0,
+                "u": 0.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 1,
+                "u": 1.0,
+                "v": 0.0
+              },
+              {
+                "vertexIndex": 2,
+                "u": 0.0,
+                "v": 1.0
+              },
+              {
+                "vertexIndex": 3,
+                "u": 1.0,
+                "v": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "store-collider",
+      "type": "MESH",
+      "parent": "store",
+      "collections": [
+        "Collision"
+      ],
+      "collectionProperties": {
+        "Collision": {
+          "prop": 1.0
+        }
+      },
+      "meshType": "plane",
+      "position": {
+        "x": -9.5301,
+        "y": 12.63
+      },
+      "dimensions": {
+        "x": 41.0363,
+        "y": 33.9044
+      },
+      "scale": {
+        "x": 0.4263,
+        "y": 0.4263
+      },
+      "rotation": -2.7027,
+      "originOffset": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "customProperties": {},
+      "vertices": [
+        {
+          "x": -16.61,
+          "y": 7.32
+        },
+        {
+          "x": -2.98,
+          "y": 6.68
+        },
+        {
+          "x": -2.45,
+          "y": 17.94
+        },
+        {
+          "x": -16.08,
+          "y": 18.58
+        }
+      ],
+      "uvMapping": {
+        "texturePath": null,
         "uvLayers": [
           {
             "name": "UVMap",

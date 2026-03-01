@@ -67,6 +67,9 @@ public class BlenderObject
 
     [JsonPropertyName("uvMapping")]
     public UvMapping UvMapping { get; set; }
+
+    [JsonPropertyName("vertices")]
+    public List<Vector2Json> Vertices { get; set; }
 }
 
 /// <summary>

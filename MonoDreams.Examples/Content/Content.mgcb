@@ -13071,3 +13071,15 @@
 /processorParam:MakeSquare=False
 /processorParam:TextureFormat=Color
 /build:./elephant-kid-shilhouette.png
+
+#begin ./GreasePencil/Pete-shilhouette.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255,0,255,255
+/processorParam:ColorKeyEnabled=True
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:MakeSquare=False
+/processorParam:TextureFormat=Color
+/build:./GreasePencil/Pete-shilhouette.png

@@ -9,4 +9,5 @@ public delegate TCollisionMessage CreateCollisionMessageDelegate<out TCollisionM
     Vector2 contactPoint,
     Vector2 contactNormal,
     float contactTime,
+    float penetrationDepth,
     int layer);
