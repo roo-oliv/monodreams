@@ -1,0 +1,60 @@
+Implement the following plan:
+
+# Rewrite ColliderDebugSystem for per-frame collider visualization
+
+## Context
+We need visual debug overlays for colliders (BoxCollider + ConvexCollider) to diagnose collision issues at a glance. A `ColliderDebugSystem` already exists but is non-functional: it only fires on component addition (subscription-based), creates static entities that don't follow moving entities, and doesn't set `Visible` (required for Main render target). It needs a full rewrite.
+
+## Approach
+Rewrite `ColliderDebugSystem` using the ephemeral per-frame pattern from `SpriteDebugSystem`: each frame, dispose previous debug entities, query all colliders, and create fresh mesh entities with colored outlines. Reuse the existing `LineMeshGenerator` static helpers for building mesh vertices.
+
+## Changes
+
+### 1. Rewrite `MonoDreams/System/Debug/ColliderDebugSystem.cs`
+Replace the entire subscription-based implementation with a per-frame system:
+
+- **Query**: Use `ColliderTag` + `Transform` entity set (same as collision detection system)
+- **Per frame**: Dispose all previous debug entities, then recreate
+- **BoxCollider**: Compute world-space rectangle from `transform.WorldPosition + boxCollider.Bounds.Location`, draw 4 line segments as a rectangle outline using `LineMeshGenerator.AddLine`
+- **ConvexCollider**: Draw polygon edges by iterating `WorldVertices` (already in world space, updated by collision system) — connect each vertex to the next with lines
+- **Colors**: Red = active, Green = passive, Gray = disabled (same scheme, via existing `ICollider` flags)
+- **DrawComponent**: Type = `Mesh`, Target = `Main`, LayerDepth = `1f` (on top). Set `Visible` on each debug entity so `MasterRenderSystem` picks them up
+- **Toggle**: `IsEnabled` property + static `Enabled` field (matches `SpriteDebugSystem` pattern)
+- **Line thickness**: 0.5px — thin enough to not obscure sprites but visible at game scale
+
+Remove dead code (`AddDebugLine`, `_pixelTexture`, NinePatch approach, subscriptions).
+
+### 2. Wire into `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`
+Add `ColliderDebugSystem` to `prepDrawSystems` in `CreateDrawSystem()` (after `MeshPrepSystem`, commented out by default like `SpriteDebugSystem`):
+
+```csharp
+new MeshPrepSystem(_world)
+// new ColliderDebugSystem(_world)   // Debug visualization for collider shapes
+// new SpriteDebugSystem(_world)     // Debug visualization for sprite bounds and origins
+```
+
+## Key files
+- `MonoDreams/System/Debug/ColliderDebugSystem.cs` — full rewrite
+- `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` — wire into draw pipeline
+- `MonoDreams/Draw/IMeshGenerator.cs` — reuse `LineMeshGenerator.AddLine` static helper
+- `MonoDreams/Component/Collision/ColliderTag.cs` — query marker (existing)
+- `MonoDreams/Component/Collision/ConvexCollider.cs` — `WorldVertices` for polygon edges
+
+## Verification
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Uncomment `ColliderDebugSystem` in `LoadLevelExampleGameScreen.cs`, run game
+3. Verify colored outlines appear around all colliders and track entity movement
+4. Verify red = active colliders, green = passive, gray = disabled
+5. Verify ConvexCollider polygons render as actual polygon shapes (not just AABBs)
+6. Re-comment when done testing
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Make a way to enable disable this and other debugging features via the ImGUI debugging UI that exists for tracking entities and their components and shows when you hit F1.
+
+---
+
+[Request interrupted by user for tool use]
