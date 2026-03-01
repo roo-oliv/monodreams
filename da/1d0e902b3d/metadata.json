@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "da1d0e902b3d",
+  "strategy": "manual-commit",
+  "branch": "ro/convex-collider-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/da/1d0e902b3d/0/metadata.json",
+      "transcript": "/da/1d0e902b3d/0/full.jsonl",
+      "context": "/da/1d0e902b3d/0/context.md",
+      "content_hash": "/da/1d0e902b3d/0/content_hash.txt",
+      "prompt": "/da/1d0e902b3d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4,
+    "cache_creation_tokens": 5293,
+    "cache_read_tokens": 48968,
+    "output_tokens": 1162,
+    "api_call_count": 2
+  }
+}

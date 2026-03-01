@@ -1,0 +1,33 @@
+Implement the following plan:
+
+# PR #22 Code Review Plan
+
+## Context
+PR #22 adds ConvexCollider with SAT (Separating Axis Theorem) collision detection alongside the existing BoxCollider swept-AABB path. It integrates with the Blender exporter pipeline, adds debug visualization, Y-sort offset support, and 19 unit tests.
+
+## Review Action
+Post a PR review comment via `gh pr review 22 --comment` with findings organized by severity. Cannot approve/request-changes since the author account is the same.
+
+## Review Findings
+
+### High-priority
+1. **`ConvexCollider.UpdateWorldVertices()` uses `transform.Position` (local), not `WorldPosition`** — consistent with BoxCollider but collision would be incorrect for child entities with colliders. Safe if convention is enforced (parser does enforce it), but worth documenting.
+2. **`NormalToSide()` returns null for exact 45-degree normals** — no `RigidBodyTouchMessage` for diagonal collisions, could silently break grounded-state detection on angled surfaces.
+3. **SAT contact point is centroid-midpoint approximation** (detection line 175) — reasonable but imprecise. Should document it's an approximation since game code may use `ContactPoint`.
+
+### Medium-priority
+4. **`_activeSet` naming misleading** — contains ALL collider entities, active filtering happens at runtime (line 82). Minor readability issue.
+5. **World vertex update every frame for all ConvexColliders** (detection lines 68-76) — no dirty-flag optimization. Fine for current scale, but scales O(N) per frame for static entities.
+6. **`ColliderDebugSystem` GC pressure when enabled** — creates arrays with `ToArray()` and entities every frame. Fine for debug but worth noting.
+7. **`CullingSystem.DebugEnabled` changed from instance property to static field** — subtle breaking change for external callers.
+8. **`SpriteDebugSystem.Enabled` default changed from `true` to `false`** — behavior change.
+
+### Low-priority / Nitpicks
+9. **`global::System.Collections.IEnumerable` in DebugInspector** — works but unusual, suggests namespace conflict.
+10. **Blender `-collider` naming convention undocumented in exporter script** — only in C# comments.
+
+## Verification
+- Review will be posted as a comment (not approve/request-changes) since the PR author is the same account.
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
