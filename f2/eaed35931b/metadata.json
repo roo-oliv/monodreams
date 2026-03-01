@@ -3,11 +3,12 @@
   "checkpoint_id": "f2eaed35931b",
   "strategy": "manual-commit",
   "branch": "ro/convex-collider-sat",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     ".claude/settings.local.json",
     "MonoDreams.Examples/Inspector/DebugInspector.cs",
     "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Examples/System/NPCInteractionSystem.cs",
     "MonoDreams/System/Debug/ColliderDebugSystem.cs",
     "MonoDreams/System/Debug/SpriteDebugSystem.cs",
     "MonoDreams/System/Draw/CullingSystem.cs",
@@ -27,13 +28,20 @@
       "context": "/f2/eaed35931b/1/context.md",
       "content_hash": "/f2/eaed35931b/1/content_hash.txt",
       "prompt": "/f2/eaed35931b/1/prompt.txt"
+    },
+    {
+      "metadata": "/f2/eaed35931b/2/metadata.json",
+      "transcript": "/f2/eaed35931b/2/full.jsonl",
+      "context": "/f2/eaed35931b/2/context.md",
+      "content_hash": "/f2/eaed35931b/2/content_hash.txt",
+      "prompt": "/f2/eaed35931b/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 44,
-    "cache_creation_tokens": 97266,
-    "cache_read_tokens": 1935317,
-    "output_tokens": 7222,
-    "api_call_count": 36
+    "input_tokens": 54,
+    "cache_creation_tokens": 107251,
+    "cache_read_tokens": 2164123,
+    "output_tokens": 7435,
+    "api_call_count": 44
   }
 }

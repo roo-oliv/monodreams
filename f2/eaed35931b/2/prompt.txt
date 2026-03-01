@@ -1,0 +1,68 @@
+Implement the following plan:
+
+# Fix NPCInteractionSystem to Support ConvexCollider
+
+## Context
+
+The Blender pipeline replaces `BoxCollider` with `ConvexCollider` on entities that have a collider child mesh (`*-collider`). The Player entity goes through this path, so it ends up with a `ConvexCollider` instead of a `BoxCollider`. However, `NPCInteractionSystem` hardcodes `BoxCollider` in its ECS queries — when the player has a `ConvexCollider`, it silently drops out of the query and all NPC dialogue interaction stops working.
+
+The collision system itself **does** support cross-type interactions (Box vs Convex) — the issue is entirely in `NPCInteractionSystem` doing its own proximity check with hardcoded `BoxCollider` queries.
+
+## Fix
+
+**Single file change:** `MonoDreams.Examples/System/NPCInteractionSystem.cs`
+
+Follow the established pattern from `TransformCollisionDetectionSystem`: use `ColliderTag` in ECS queries and resolve the AABB at runtime based on the actual collider type.
+
+### 1. Player query (line 33): `BoxCollider` → `ColliderTag`
+
+```csharp
+// Before
+.With<BoxCollider>()
+
+// After
+.With<ColliderTag>()
+```
+
+### 2. Zone query (line 40): `BoxCollider` → `ColliderTag`
+
+Same change for consistency and future-proofing (zones are currently always BoxCollider but this makes the code resilient).
+
+### 3. Player AABB resolution (lines 69-71): handle both collider types
+
+```csharp
+// Before
+var playerCollider = playerEntity.Get<BoxCollider>();
+var playerRect = CollisionRect.FromBounds(playerCollider.Bounds, playerTransform.WorldPosition);
+
+// After
+var playerRect = playerEntity.Has<BoxCollider>()
+    ? CollisionRect.FromBounds(playerEntity.Get<BoxCollider>().Bounds, playerTransform.WorldPosition)
+    : playerEntity.Get<ConvexCollider>().BroadPhaseAABB;
+```
+
+`ConvexCollider.BroadPhaseAABB` is already a `CollisionRect` in world space — no position offset needed.
+
+### 4. Zone AABB resolution (lines 79-81): same pattern
+
+```csharp
+// Before
+var zoneCollider = zone.Get<BoxCollider>();
+var zoneRect = CollisionRect.FromBounds(zoneCollider.Bounds, zoneTransform.WorldPosition);
+
+// After
+var zoneRect = zone.Has<BoxCollider>()
+    ? CollisionRect.FromBounds(zone.Get<BoxCollider>().Bounds, zoneTransform.WorldPosition)
+    : zone.Get<ConvexCollider>().BroadPhaseAABB;
+```
+
+No new files, no new abstractions. All imports are already present.
+
+## Verification
+
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. Run the game, walk the player near an NPC, confirm the "E" icon appears and Interact triggers dialogue
+3. `dotnet test MonoDreams.Tests/`
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/4795ecbd-edaa-43dc-9d77-12c0d447c397.jsonl

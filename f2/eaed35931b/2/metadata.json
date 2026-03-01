@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f2eaed35931b",
+  "session_id": "75f88fe4-f447-4e90-8fb5-c928894d6d2b",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-01T03:18:29.547613Z",
+  "branch": "ro/convex-collider-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams.Examples/System/NPCInteractionSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 9985,
+    "cache_read_tokens": 228806,
+    "output_tokens": 213,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-01T03:18:29.530694Z",
+    "agent_lines": 8,
+    "human_added": 415,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 423,
+    "agent_percentage": 1.8912529550827424
+  }
+}
