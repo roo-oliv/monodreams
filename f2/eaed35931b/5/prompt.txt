@@ -1,0 +1,80 @@
+Implement the following plan:
+
+# Fix ConvexCollider misalignment with sprites from Blender pipeline
+
+## Context
+When the collider debug overlay is enabled, the store's ConvexCollider (red outline) appears tiny and offset from the actual store sprite. The root cause is that `ApplyColliderChild` doesn't account for the parent sprite's origin offset when building ConvexCollider model vertices, while `ProcessCollections` correctly does this for BoxColliders.
+
+### How it works today
+
+**BoxCollider path** (`ProcessCollections`, line 475-509): Computes a visual offset from the parent's `OriginOffset` and bakes it into the collider bounds:
+```
+left = -size.X * originOffsetX
+top  = -size.Y * (1 - originOffsetY)
+```
+This compensates for SpriteBatch.Draw shifting the sprite visual from the entity position.
+
+**ConvexCollider path** (`ApplyColliderChild`, line 574-651): Takes collider child vertices exported by `obj.matrix_local @ v.co` (parent-local coordinates relative to the Blender origin) and uses them directly as model vertices — **without** the visual offset that SpriteBatch.Draw applies to the sprite.
+
+**Result**: The sprite shifts by `(-origin * scale)` from entity position, but the ConvexCollider stays at the raw Blender-origin-relative coordinates. For the store (originOffset 1.15, 1.10 — origin is outside the bounding box), this produces a dramatic misalignment.
+
+### Affected entities
+All entities with `-collider` children whose parent has a non-centered origin:
+- **store**: originOffset (1.1526, 1.0991) — severe misalignment
+- **Boldo**: originOffset (0.4675, 0.5433) — slight
+- **Pete**: originOffset (0.4774, 0.5033) — slight
+- **elephant-kid**: originOffset (0.5, 0.5) — unaffected (centered)
+
+## Fix
+
+### `MonoDreams/System/Level/BlenderLevelParserSystem.cs` — `ApplyColliderChild` (~line 588)
+
+After building `modelVertices` from the exported data and **before** the degenerate-shape guard, offset all vertices by the parent sprite's visual shift:
+
+```csharp
+// Offset model vertices to match sprite's visual position.
+// SpriteBatch.Draw renders at: position - origin * scale, shifting the visual.
+// BoxColliders account for this in ProcessCollections; ConvexColliders must too.
+if (parentEntity.Has<SpriteInfo>())
+{
+    ref readonly var spriteInfo = ref parentEntity.Get<SpriteInfo>();
+    var scaleX = spriteInfo.Source.Width > 0 ? spriteInfo.Size.X / spriteInfo.Source.Width : 1f;
+    var scaleY = spriteInfo.Source.Height > 0 ? spriteInfo.Size.Y / spriteInfo.Source.Height : 1f;
+    var offsetX = -spriteInfo.Origin.X * scaleX;
+    var offsetY = -spriteInfo.Origin.Y * scaleY;
+
+    for (var i = 0; i < modelVertices.Length; i++)
+    {
+        modelVertices[i] = new Vector2(
+            modelVertices[i].X + offsetX,
+            modelVertices[i].Y + offsetY);
+    }
+}
+```
+
+This is mathematically equivalent to the BoxCollider offset in `ProcessCollections`:
+- `offsetX = -spriteInfo.Origin.X * scaleX = -size.X * originOffsetX = left`
+- `offsetY = -spriteInfo.Origin.Y * scaleY = -size.Y * (1 - originOffsetY) = top`
+
+**Insertion point**: After the `modelVertices` array is built (line ~593), before the degenerate-shape guard (line ~596). Translation doesn't change width/height, so the guard still works. The `maxY` used for `YSortOffset` will now be in visual-aligned coordinates, which is more correct for Y-sorting.
+
+## Files to modify
+- `MonoDreams/System/Level/BlenderLevelParserSystem.cs` — add ~12 lines in `ApplyColliderChild`
+
+## Verification
+1. `dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj`
+2. `dotnet test MonoDreams.Tests/`
+3. Run game, press F1, enable "Collider Shapes" debug overlay
+4. Verify the store's red ConvexCollider outline now covers the front/bottom of the store sprite (not a tiny box offset to the upper-right)
+5. Verify Pete, Boldo, and elephant-kid collider ellipses are centered at their feet
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+
+---
+
+Now it's worse I think. Need further adjustments maybe?
+
+---
+
+[Request interrupted by user for tool use]

@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f2eaed35931b",
+  "session_id": "cdfe7470-e10d-40f2-a7e3-cc50d5275d26",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-01T03:18:30.258059Z",
+  "branch": "ro/convex-collider-sat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "MonoDreams/System/Level/BlenderLevelParserSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 52567,
+    "cache_read_tokens": 567699,
+    "output_tokens": 23143,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-01T03:18:30.115895Z",
+    "agent_lines": 45,
+    "human_added": 378,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 423,
+    "agent_percentage": 10.638297872340425
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/cdfe7470-e10d-40f2-a7e3-cc50d5275d26.jsonl"
+}
