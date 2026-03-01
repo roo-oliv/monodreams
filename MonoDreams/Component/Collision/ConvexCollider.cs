@@ -50,6 +50,9 @@ public class ConvexCollider : ICollider
     /// <summary>
     /// Transforms ModelVertices into WorldVertices using the entity's position, rotation, and scale.
     /// Recomputes BroadPhaseAABB afterward.
+    /// Uses transform.Position (local), not WorldPosition, so this only produces correct results
+    /// for root-level entities (no parent). BlenderLevelParserSystem enforces flat hierarchy today,
+    /// but there is no runtime validation.
     /// </summary>
     public void UpdateWorldVertices(Transform transform)
     {

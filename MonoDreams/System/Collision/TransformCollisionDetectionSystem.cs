@@ -66,6 +66,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
     public void Update(GameState state)
     {
         // Update world vertices for all ConvexCollider entities (_targets is the superset of _activeSet)
+        // TODO: static entities whose transforms never change could skip this with a dirty-flag optimization
         foreach (var target in _targets)
         {
             if (target.Has<ConvexCollider>())
@@ -171,7 +172,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
         if (!SATCollision.PolygonVsPolygon(polyA, polyB, out var contactNormal, out var penetrationDepth)) return;
 
-        // Contact point: midpoint of centroids
+        // Contact point: centroid-midpoint approximation (not an exact contact point for SAT)
         var contactPoint = (SATCollision.PolygonCenter(polyA) + SATCollision.PolygonCenter(polyB)) / 2f;
 
         foreach (var layer in colliderB.SharedLayers(colliderA))

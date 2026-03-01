@@ -1,5 +1,11 @@
 # MonoDreams Level Exporter for Blender 5.0.0
 # Exports scene objects to JSON format for use with MonoDreams game engine
+#
+# Collider convention:
+# Child meshes named with a "-collider" suffix (e.g. "Rock-collider") are exported
+# with their vertex data. BlenderLevelParserSystem parses these as ConvexCollider
+# shapes attached to the parent entity, enabling SAT collision detection for
+# non-rectangular objects.
 
 bl_info = {
     "name": "MonoDreams Level Exporter",

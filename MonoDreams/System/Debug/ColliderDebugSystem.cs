@@ -15,6 +15,8 @@ namespace MonoDreams.System.Debug;
 /// Per-frame debug visualization for BoxCollider and ConvexCollider shapes.
 /// Creates ephemeral mesh entities each frame that render colored outlines:
 /// red = active, green = passive, gray = disabled.
+/// Development only — allocates per-frame (ToArray, transient entities) and is not
+/// intended for production builds.
 /// </summary>
 public class ColliderDebugSystem : ISystem<GameState>
 {

@@ -180,6 +180,12 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
         }
     }
 
+    /// <summary>
+    /// Maps a contact normal to a <see cref="RelativeReferential"/> side using the predominant axis.
+    /// Returns <c>null</c> when X and Y components are exactly equal (45° diagonal), in which case
+    /// no <see cref="RigidBodyTouchMessage"/> is published. This could affect grounded-state detection
+    /// on exactly 45° slopes.
+    /// </summary>
     private static RelativeReferential? NormalToSide(Vector2 normal)
     {
         // Use predominant axis to determine side
