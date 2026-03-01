@@ -30,14 +30,14 @@ public class NPCInteractionSystem : ISystem<GameState>
         _playerSet = world.GetEntities()
             .With<PlayerState>()
             .With<Transform>()
-            .With<BoxCollider>()
+            .With<ColliderTag>()
             .AsSet();
 
         _zoneSet = world.GetEntities()
             .With<DialogueZoneComponent>()
             .With<NPCInteractionIcon>()
             .With<Transform>()
-            .With<BoxCollider>()
+            .With<ColliderTag>()
             .AsSet();
     }
 
@@ -67,8 +67,9 @@ public class NPCInteractionSystem : ISystem<GameState>
 
         var playerEntity = players[0];
         var playerTransform = playerEntity.Get<Transform>();
-        var playerCollider = playerEntity.Get<BoxCollider>();
-        var playerRect = CollisionRect.FromBounds(playerCollider.Bounds, playerTransform.WorldPosition);
+        var playerRect = playerEntity.Has<BoxCollider>()
+            ? CollisionRect.FromBounds(playerEntity.Get<BoxCollider>().Bounds, playerTransform.WorldPosition)
+            : playerEntity.Get<ConvexCollider>().BroadPhaseAABB;
 
         // Edge-trigger: release consumed flag when interact is no longer held
         if (!InputState.Interact.Pressed(state))
@@ -77,8 +78,9 @@ public class NPCInteractionSystem : ISystem<GameState>
         foreach (var zone in _zoneSet.GetEntities())
         {
             var zoneTransform = zone.Get<Transform>();
-            var zoneCollider = zone.Get<BoxCollider>();
-            var zoneRect = CollisionRect.FromBounds(zoneCollider.Bounds, zoneTransform.WorldPosition);
+            var zoneRect = zone.Has<BoxCollider>()
+                ? CollisionRect.FromBounds(zone.Get<BoxCollider>().Bounds, zoneTransform.WorldPosition)
+                : zone.Get<ConvexCollider>().BroadPhaseAABB;
 
             var icon = zone.Get<NPCInteractionIcon>();
             var iconEntity = icon.IconEntity;

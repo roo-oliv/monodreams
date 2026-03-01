@@ -161,10 +161,30 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
         blenderParser.SetDrawLayerMap(_layers);
-        blenderParser.RegisterCollectionHandler("Player", (entity, _) =>
+        blenderParser.RegisterCollectionHandler("Player", (entity, blenderObj) =>
         {
-            entity.Set(new PlayerState());
-            entity.Set(new StopMotionEffect { OffsetRadians = MathHelper.ToRadians(2f) });
+            var isChild = !string.IsNullOrEmpty(blenderObj.Parent);
+
+            if (!isChild)
+            {
+                entity.Set(new PlayerState());
+                entity.Set(new StopMotionEffect { OffsetRadians = MathHelper.ToRadians(2f) });
+            }
+            else
+            {
+                // Child entities (silhouettes) get visual effects only
+                var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
+                var offset = isSilhouette
+                    ? MathHelper.ToRadians(-4f)
+                    : MathHelper.ToRadians(2f);
+                entity.Set(new StopMotionEffect { OffsetRadians = offset });
+
+                if (isSilhouette)
+                {
+                    ref var sprite = ref entity.Get<SpriteInfo>();
+                    sprite.YSortDepthBias = -0.0005f;
+                }
+            }
         });
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
@@ -304,8 +324,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
             new YSortSystem(_world, _camera, _layers),
             new TextPrepSystem(_world, pixelPerfectRendering),
-            new MeshPrepSystem(_world)
-            // new SpriteDebugSystem(_world)  // Debug visualization for sprite bounds and origins
+            new MeshPrepSystem(_world),
+            new ColliderDebugSystem(_world),
+            new SpriteDebugSystem(_world)
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );
 

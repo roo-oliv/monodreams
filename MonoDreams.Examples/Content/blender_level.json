@@ -275,38 +275,36 @@
       "vertices": null
     },
     {
-      "name": "Floor",
+      "name": "Pete",
       "type": "GREASEPENCIL",
       "parent": null,
       "collections": [
-        "Background"
+        "Player"
       ],
       "collectionProperties": {
-        "Background": {
-          "prop": 1.0
-        }
+        "Player": {}
       },
       "meshType": "plane",
       "position": {
-        "x": 0.0,
-        "y": -0.0
+        "x": 0.309,
+        "y": -7.8609
       },
       "dimensions": {
-        "x": 545.5522,
-        "y": 362.5325
+        "x": 14.7677,
+        "y": 21.4973
       },
       "scale": {
-        "x": 0.5222,
-        "y": 0.5222
+        "x": 1.0,
+        "y": 1.0
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 0.5302,
-        "y": 0.499
+        "x": 0.4774,
+        "y": 0.5033
       },
       "customProperties": {},
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/Floor.png",
+        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/Pete.png",
         "uvLayers": [
           {
             "name": "UVMap",
@@ -337,61 +335,170 @@
       }
     },
     {
-      "name": "Pete",
-      "type": "GREASEPENCIL",
-      "parent": null,
+      "name": "Pete-collider",
+      "type": "MESH",
+      "parent": "Pete",
       "collections": [
         "Player"
       ],
       "collectionProperties": {
         "Player": {}
       },
-      "meshType": "plane",
+      "meshType": "Circle",
       "position": {
-        "x": 0.309,
-        "y": -7.8609
+        "x": 0.5747,
+        "y": 7.23
       },
       "dimensions": {
-        "x": 12.4455,
-        "y": 17.5044
+        "x": 13.0797,
+        "y": 5.3672
       },
       "scale": {
-        "x": 1.0,
-        "y": 1.0
+        "x": 0.4087,
+        "y": 0.4087
       },
-      "rotation": -0.0,
+      "rotation": -7.3827,
       "originOffset": {
-        "x": 0.4836,
-        "y": 0.5283
+        "x": 0.5,
+        "y": 0.5
       },
       "customProperties": {},
+      "vertices": [
+        {
+          "x": -5.55,
+          "y": 6.99
+        },
+        {
+          "x": -5.01,
+          "y": 6.45
+        },
+        {
+          "x": -4.26,
+          "y": 5.94
+        },
+        {
+          "x": -3.32,
+          "y": 5.48
+        },
+        {
+          "x": -2.23,
+          "y": 5.09
+        },
+        {
+          "x": -1.03,
+          "y": 4.78
+        },
+        {
+          "x": 0.23,
+          "y": 4.57
+        },
+        {
+          "x": 1.5,
+          "y": 4.46
+        },
+        {
+          "x": 2.74,
+          "y": 4.45
+        },
+        {
+          "x": 3.89,
+          "y": 4.55
+        },
+        {
+          "x": 4.92,
+          "y": 4.75
+        },
+        {
+          "x": 5.78,
+          "y": 5.05
+        },
+        {
+          "x": 6.43,
+          "y": 5.44
+        },
+        {
+          "x": 6.87,
+          "y": 5.89
+        },
+        {
+          "x": 7.06,
+          "y": 6.39
+        },
+        {
+          "x": 7.0,
+          "y": 6.93
+        },
+        {
+          "x": 6.7,
+          "y": 7.47
+        },
+        {
+          "x": 6.16,
+          "y": 8.01
+        },
+        {
+          "x": 5.4,
+          "y": 8.52
+        },
+        {
+          "x": 4.46,
+          "y": 8.98
+        },
+        {
+          "x": 3.38,
+          "y": 9.37
+        },
+        {
+          "x": 2.18,
+          "y": 9.68
+        },
+        {
+          "x": 0.92,
+          "y": 9.89
+        },
+        {
+          "x": -0.35,
+          "y": 10.0
+        },
+        {
+          "x": -1.59,
+          "y": 10.01
+        },
+        {
+          "x": -2.74,
+          "y": 9.91
+        },
+        {
+          "x": -3.77,
+          "y": 9.71
+        },
+        {
+          "x": -4.63,
+          "y": 9.41
+        },
+        {
+          "x": -5.29,
+          "y": 9.02
+        },
+        {
+          "x": -5.72,
+          "y": 8.57
+        },
+        {
+          "x": -5.91,
+          "y": 8.07
+        },
+        {
+          "x": -5.85,
+          "y": 7.54
+        }
+      ],
       "uvMapping": {
-        "texturePath": "/Users/rodrigooliveira/git/roo-oliv/monodreams/MonoDreams.Examples/Content/GreasePencil/Pete.png",
+        "texturePath": null,
         "uvLayers": [
           {
             "name": "UVMap",
-            "uvCoordinates": [
-              {
-                "vertexIndex": 0,
-                "u": 0.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 1,
-                "u": 1.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 2,
-                "u": 0.0,
-                "v": 1.0
-              },
-              {
-                "vertexIndex": 3,
-                "u": 1.0,
-                "v": 1.0
-              }
-            ]
+            "uvCoordinates": []
           }
         ]
       }
@@ -722,175 +829,6 @@
       }
     },
     {
-      "name": "pete-collider",
-      "type": "MESH",
-      "parent": "Pete",
-      "collections": [
-        "Player"
-      ],
-      "collectionProperties": {
-        "Player": {}
-      },
-      "meshType": "Circle",
-      "position": {
-        "x": 0.308,
-        "y": 7.1411
-      },
-      "dimensions": {
-        "x": 10.17,
-        "y": 4.1732
-      },
-      "scale": {
-        "x": 0.3178,
-        "y": 0.3178
-      },
-      "rotation": -0.0,
-      "originOffset": {
-        "x": 0.5,
-        "y": 0.5
-      },
-      "customProperties": {},
-      "vertices": [
-        {
-          "x": -4.78,
-          "y": 7.14
-        },
-        {
-          "x": -4.68,
-          "y": 6.73
-        },
-        {
-          "x": -4.39,
-          "y": 6.34
-        },
-        {
-          "x": -3.92,
-          "y": 5.98
-        },
-        {
-          "x": -3.29,
-          "y": 5.67
-        },
-        {
-          "x": -2.52,
-          "y": 5.41
-        },
-        {
-          "x": -1.64,
-          "y": 5.21
-        },
-        {
-          "x": -0.68,
-          "y": 5.09
-        },
-        {
-          "x": 0.31,
-          "y": 5.05
-        },
-        {
-          "x": 1.3,
-          "y": 5.09
-        },
-        {
-          "x": 2.25,
-          "y": 5.21
-        },
-        {
-          "x": 3.13,
-          "y": 5.41
-        },
-        {
-          "x": 3.9,
-          "y": 5.67
-        },
-        {
-          "x": 4.54,
-          "y": 5.98
-        },
-        {
-          "x": 5.01,
-          "y": 6.34
-        },
-        {
-          "x": 5.3,
-          "y": 6.73
-        },
-        {
-          "x": 5.39,
-          "y": 7.14
-        },
-        {
-          "x": 5.3,
-          "y": 7.55
-        },
-        {
-          "x": 5.01,
-          "y": 7.94
-        },
-        {
-          "x": 4.54,
-          "y": 8.3
-        },
-        {
-          "x": 3.9,
-          "y": 8.62
-        },
-        {
-          "x": 3.13,
-          "y": 8.88
-        },
-        {
-          "x": 2.25,
-          "y": 9.07
-        },
-        {
-          "x": 1.3,
-          "y": 9.19
-        },
-        {
-          "x": 0.31,
-          "y": 9.23
-        },
-        {
-          "x": -0.68,
-          "y": 9.19
-        },
-        {
-          "x": -1.64,
-          "y": 9.07
-        },
-        {
-          "x": -2.52,
-          "y": 8.88
-        },
-        {
-          "x": -3.29,
-          "y": 8.62
-        },
-        {
-          "x": -3.92,
-          "y": 8.3
-        },
-        {
-          "x": -4.39,
-          "y": 7.94
-        },
-        {
-          "x": -4.68,
-          "y": 7.55
-        }
-      ],
-      "uvMapping": {
-        "texturePath": null,
-        "uvLayers": [
-          {
-            "name": "UVMap",
-            "uvCoordinates": []
-          }
-        ]
-      }
-    },
-    {
       "name": "store",
       "type": "GREASEPENCIL",
       "parent": null,
@@ -904,21 +842,21 @@
       },
       "meshType": "plane",
       "position": {
-        "x": -117.3866,
-        "y": -30.8531
+        "x": -53.2974,
+        "y": -6.4989
       },
       "dimensions": {
-        "x": 90.6142,
-        "y": 60.023
+        "x": 44.2664,
+        "y": 51.7073
       },
       "scale": {
-        "x": 1.0,
-        "y": 1.0
+        "x": 3.0082,
+        "y": 3.0082
       },
       "rotation": -0.0,
       "originOffset": {
-        "x": 0.3863,
-        "y": 0.009
+        "x": 1.1526,
+        "y": 1.0991
       },
       "customProperties": {},
       "uvMapping": {
@@ -964,53 +902,41 @@
           "prop": 1.0
         }
       },
-      "meshType": "Plane",
+      "meshType": "plane",
       "position": {
-        "x": 11.8021,
-        "y": -24.6073
+        "x": -9.5301,
+        "y": 12.63
       },
       "dimensions": {
-        "x": 86.5075,
-        "y": 53.6848
+        "x": 41.0363,
+        "y": 33.9044
       },
       "scale": {
-        "x": 1.0,
-        "y": 1.0
+        "x": 0.4263,
+        "y": 0.4263
       },
-      "rotation": -0.0,
+      "rotation": -2.7027,
       "originOffset": {
-        "x": 0.5352,
-        "y": 0.4578
+        "x": 0.5,
+        "y": 0.5
       },
       "customProperties": {},
       "vertices": [
         {
-          "x": -25.05,
-          "y": -31.61
+          "x": -16.61,
+          "y": 7.32
         },
         {
-          "x": 2.97,
-          "y": -48.76
+          "x": -2.98,
+          "y": 6.68
         },
         {
-          "x": 30.22,
-          "y": -53.72
+          "x": -2.45,
+          "y": 17.94
         },
         {
-          "x": 50.12,
-          "y": -48.23
-        },
-        {
-          "x": 52.01,
-          "y": -26.12
-        },
-        {
-          "x": -0.21,
-          "y": -0.03
-        },
-        {
-          "x": -34.5,
-          "y": -6.13
+          "x": -16.08,
+          "y": 18.58
         }
       ],
       "uvMapping": {
@@ -1026,33 +952,18 @@
               },
               {
                 "vertexIndex": 1,
-                "u": 0.0,
+                "u": 1.0,
                 "v": 0.0
               },
               {
                 "vertexIndex": 2,
                 "u": 0.0,
-                "v": 0.0
+                "v": 1.0
               },
               {
                 "vertexIndex": 3,
-                "u": 0.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 4,
-                "u": 0.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 5,
-                "u": 0.0,
-                "v": 0.0
-              },
-              {
-                "vertexIndex": 6,
-                "u": 0.0,
-                "v": 0.0
+                "u": 1.0,
+                "v": 1.0
               }
             ]
           }

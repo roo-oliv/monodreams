@@ -106,11 +106,13 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
             Logger.Info($"Loaded {levelData.Objects.Count} objects from Blender level.");
 
-            // Pre-scan: identify collider children (names ending with "-collider" that have a parent)
+            // Pre-scan: build name→object lookup and identify collider children
+            var nameToObj = new Dictionary<string, BlenderObject>();
             var colliderChildMap = new Dictionary<string, BlenderObject>();   // parent name → collider data
             var colliderChildNames = new HashSet<string>();
             foreach (var obj in levelData.Objects)
             {
+                nameToObj[obj.Name] = obj;
                 if (obj.Name.EndsWith("-collider") && !string.IsNullOrEmpty(obj.Parent))
                 {
                     if (colliderChildMap.TryGetValue(obj.Parent, out var existing))
@@ -153,7 +155,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             // Post-Pass 1: Apply collider children to parent entities
             foreach (var (parentName, colliderObj) in colliderChildMap)
             {
-                ApplyColliderChild(parentName, colliderObj);
+                ApplyColliderChild(parentName, colliderObj, nameToObj);
             }
 
             // Pass 2: Set up parent-child relationships
@@ -511,24 +513,30 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             Logger.Debug($"Added BoxCollider to '{meshObj.Name}' (layer: {layer}, passive: {passive})");
         }
 
-        // Check for Player collection
+        // Check for Player collection — only root entities get physics/movement
         if (meshObj.Collections.Contains("Player"))
         {
-            entity.Set(new EntityInfo("Player", meshObj.Name));
-            entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
-            entity.Set(new RigidBody());
-            entity.Set(new Velocity());
-
-            // Add camera follow target component
-            entity.Set(new CameraFollowTarget
+            if (string.IsNullOrEmpty(meshObj.Parent))
             {
-                DampingX = 5.0f,
-                DampingY = 5.0f,
-                MaxDistanceX = 150.0f,
-                MaxDistanceY = 100.0f,
-                IsActive = true
-            });
-            Logger.Debug($"Set Player for '{meshObj.Name}'");
+                entity.Set(new EntityInfo("Player", meshObj.Name));
+                entity.Set(new BoxCollider(new Rectangle(boundsOffset, boundsSize)));
+                entity.Set(new RigidBody());
+                entity.Set(new Velocity());
+
+                entity.Set(new CameraFollowTarget
+                {
+                    DampingX = 5.0f,
+                    DampingY = 5.0f,
+                    MaxDistanceX = 150.0f,
+                    MaxDistanceY = 100.0f,
+                    IsActive = true
+                });
+                Logger.Debug($"Set Player for '{meshObj.Name}'");
+            }
+            else
+            {
+                Logger.Debug($"Skipping Player physics for child '{meshObj.Name}' (parent: '{meshObj.Parent}')");
+            }
         }
 
         // Check for Enemy collection
@@ -565,7 +573,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
     /// Replaces any existing BoxCollider (preserving its layer/passive settings).
     /// Sets YSortOffset on the parent's SpriteInfo and adds ColliderTag.
     /// </summary>
-    private void ApplyColliderChild(string parentName, BlenderObject colliderObj)
+    private void ApplyColliderChild(string parentName, BlenderObject colliderObj, Dictionary<string, BlenderObject> nameToObj)
     {
         if (!_nameToEntity.TryGetValue(parentName, out var parentEntity))
         {
@@ -584,6 +592,26 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         for (var i = 0; i < colliderObj.Vertices.Count; i++)
         {
             modelVertices[i] = new Vector2(colliderObj.Vertices[i].X, colliderObj.Vertices[i].Y);
+        }
+
+        // Scale model vertices by parent's Blender scale.
+        // Vertices from matrix_local are in parent-local space (unscaled by parent).
+        // SpriteInfo.Size includes parent scale (from Blender Dimensions), but
+        // Transform.Scale is (1,1), so we must bake parent scale into model vertices.
+        if (nameToObj.TryGetValue(parentName, out var parentObj) && parentObj.Scale != null)
+        {
+            var parentScaleX = parentObj.Scale.X;
+            var parentScaleY = parentObj.Scale.Y;
+            if (Math.Abs(parentScaleX - 1f) > 0.001f || Math.Abs(parentScaleY - 1f) > 0.001f)
+            {
+                for (var i = 0; i < modelVertices.Length; i++)
+                {
+                    modelVertices[i] = new Vector2(
+                        modelVertices[i].X * parentScaleX,
+                        modelVertices[i].Y * parentScaleY);
+                }
+                Logger.Debug($"Scaled collider vertices by parent '{parentName}' scale ({parentScaleX}, {parentScaleY}).");
+            }
         }
 
         // Guard against degenerate shapes (e.g. all vertices collinear or on the same axis)
