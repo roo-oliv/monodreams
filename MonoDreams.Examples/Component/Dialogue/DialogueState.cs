@@ -14,7 +14,12 @@ public class DialogueState
     public DialoguePhase CurrentPhase;
     public string? CurrentSpeaker;
     public bool WaitingForInput;
-    public bool InputConsumed;
+
+    // Previous-frame key state for manual edge detection. Pressed() is level-triggered
+    // and engine JustPressed requires buffer > 0, so we track edges ourselves.
+    public bool InteractHeld;
+    public bool UpHeld;
+    public bool DownHeld;
 
     // Options state
     public List<string> CurrentOptions = [];

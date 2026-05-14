@@ -290,7 +290,11 @@ public class DialogueSystem : ISystem<GameState>
     {
         _dialogueState.IsActive = true;
         _dialogueState.WasTriggered = true;
-        _dialogueState.InputConsumed = true; // Prevent immediate advance
+        // The Interact press that opened this dialogue is still held — mark it as
+        // held so the same press doesn't immediately advance the first line.
+        _dialogueState.InteractHeld = true;
+        _dialogueState.UpHeld = false;
+        _dialogueState.DownHeld = false;
 
         // Show dialogue box
         _dialogueState.BoxEntity.Set<Visible>();
@@ -308,22 +312,30 @@ public class DialogueSystem : ISystem<GameState>
     {
         if (!_dialogueState.IsActive) return;
 
-        // Edge-trigger: release the consumed flag when interact is no longer held
-        if (!InputState.Interact.Pressed(state))
-            _dialogueState.InputConsumed = false;
+        var interactNow = InputState.Interact.Pressed(state);
+        var upNow = InputState.Up.Pressed(state);
+        var downNow = InputState.Down.Pressed(state);
+
+        var interactJustPressed = interactNow && !_dialogueState.InteractHeld;
+        var upJustPressed = upNow && !_dialogueState.UpHeld;
+        var downJustPressed = downNow && !_dialogueState.DownHeld;
 
         switch (_dialogueState.CurrentPhase)
         {
             case DialoguePhase.Line:
-                UpdateLinePhase(state);
+                UpdateLinePhase(interactJustPressed);
                 break;
             case DialoguePhase.Options:
-                UpdateOptionsPhase(state);
+                UpdateOptionsPhase(upJustPressed, downJustPressed, interactJustPressed);
                 break;
         }
+
+        _dialogueState.InteractHeld = interactNow;
+        _dialogueState.UpHeld = upNow;
+        _dialogueState.DownHeld = downNow;
     }
 
-    private void UpdateLinePhase(GameState state)
+    private void UpdateLinePhase(bool interactJustPressed)
     {
         ref var dynamicText = ref _dialogueState.TextEntity.Get<DynamicText>();
 
@@ -338,48 +350,38 @@ public class DialogueSystem : ISystem<GameState>
             HideIndicator();
         }
 
-        if (InputState.Interact.Pressed(state) && !_dialogueState.InputConsumed)
-        {
-            _dialogueState.InputConsumed = true;
+        if (!interactJustPressed) return;
 
-            if (!dynamicText.IsRevealed)
-            {
-                // Skip reveal — show all text immediately
-                dynamicText.VisibleCharacterCount = dynamicText.TextContent?.Length ?? 0;
-                dynamicText.IsRevealed = true;
-            }
-            else
-            {
-                // Advance to next yarn content
-                _yarnDialogue.Continue();
-            }
+        if (!dynamicText.IsRevealed)
+        {
+            // Skip reveal — show all text immediately
+            dynamicText.VisibleCharacterCount = dynamicText.TextContent?.Length ?? 0;
+            dynamicText.IsRevealed = true;
+        }
+        else
+        {
+            // Advance to next yarn content
+            _yarnDialogue.Continue();
         }
     }
 
-    private void UpdateOptionsPhase(GameState state)
+    private void UpdateOptionsPhase(bool upJustPressed, bool downJustPressed, bool interactJustPressed)
     {
-        if (InputState.Up.Pressed(state) && !_dialogueState.InputConsumed)
+        if (upJustPressed)
         {
-            _dialogueState.InputConsumed = true;
             _dialogueState.SelectedOptionIndex =
                 Math.Max(0, _dialogueState.SelectedOptionIndex - 1);
             UpdateOptionHighlights();
         }
-        else if (InputState.Down.Pressed(state) && !_dialogueState.InputConsumed)
+        else if (downJustPressed)
         {
-            _dialogueState.InputConsumed = true;
             _dialogueState.SelectedOptionIndex =
                 Math.Min(_dialogueState.CurrentOptions.Count - 1, _dialogueState.SelectedOptionIndex + 1);
             UpdateOptionHighlights();
         }
 
-        // Release consumed flag when no navigation or interact keys are held
-        if (!InputState.Up.Pressed(state) && !InputState.Down.Pressed(state) && !InputState.Interact.Pressed(state))
-            _dialogueState.InputConsumed = false;
-
-        if (InputState.Interact.Pressed(state) && !_dialogueState.InputConsumed)
+        if (interactJustPressed)
         {
-            _dialogueState.InputConsumed = true;
             var yarnOptionID = _dialogueState.CurrentOptionIDs[_dialogueState.SelectedOptionIndex];
             HideOptions();
             _yarnDialogue.SetSelectedOption(yarnOptionID);
