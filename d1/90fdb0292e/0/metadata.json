@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d190fdb0292e",
+  "session_id": "110012e2-2c49-4d16-9e83-bf31b64a12ef",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-14T21:35:50.13394Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".claude/skills/deep-review/SKILL.md",
+    "docs/CORE_TENETS.md",
+    "docs/collision/premises.md",
+    "docs/hierarchy-transform/premises.md",
+    "docs/index.md",
+    "docs/level-loading/premises.md",
+    "docs/physics/premises.md",
+    "docs/rendering/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "b214ab7b-aaef-4041-92a8-a48f06672f45",
+  "token_usage": {
+    "input_tokens": 104,
+    "cache_creation_tokens": 266182,
+    "cache_read_tokens": 5875173,
+    "output_tokens": 110385,
+    "api_call_count": 45
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-14T21:35:49.853866Z",
+    "agent_lines": 1883,
+    "human_added": 18,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1901,
+    "agent_percentage": 99.05312993161493
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/110012e2-2c49-4d16-9e83-bf31b64a12ef.jsonl"
+}

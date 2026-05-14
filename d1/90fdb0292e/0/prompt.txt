@@ -1,0 +1,575 @@
+# Bootstrap AI-Docs and `deep-review` skill for a new repository
+
+Use this prompt to bootstrap, in a previously undocumented codebase, a documentation + review-skill stack that captures the system's **business invariants** and **technical premises** in a form future AI agents (and humans) can load as context. The end goal is for a `/deep-review` slash-command in the target repo to produce findings well above a generic review.
+
+Token spend is not a constraint here. Depth is. The output is high-leverage: one good bootstrap is read by every future session.
+
+> **Operator (the human running this):** paste this whole prompt into a fresh Claude Code session in the target repo. Confirm you'll be available to answer interview questions — the agent will block on you for things only you know. Once finished, the agent will have created `docs/CORE_TENETS.md`, `docs/index.md`, `docs/{domain}/premises.md` for each domain, `.claude/skills/deep-review/SKILL.md`, and updated `CLAUDE.md`. If the codebase owns a database schema, the agent will also create `docs/schema/index.md` and `docs/schema/{domain}.md` per domain — otherwise the schema layer is skipped. Plan for at least one full working session.
+
+---
+
+## 0. Mental model — what we're producing and why
+
+The artifacts below answer different questions for different readers. Don't merge them.
+
+| File | Reader | Question it answers |
+|---|---|---|
+| `docs/CORE_TENETS.md` | Senior engineer new to the domain | "What business rules cannot be broken?" Conceptual entities, end-to-end flow, named invariants, edge-cases the system explicitly handles. |
+| `docs/index.md` | Any reader | "Where do I find what I need?" Pure routing. No content. |
+| `docs/schema/index.md` *(only if repo owns DB code — see §1.4)* | Anyone writing SQL | "Which table belongs to which domain, and what's the naming convention?" Plus a "common wrong guesses" table. |
+| `docs/schema/{domain}.md` *(only if repo owns DB code)* | Anyone writing SQL against that domain | "What are the exact column names, types, enums, indexes, FKs in this domain?" |
+| `docs/{domain}/premises.md` | Anyone modifying code in this domain | "What technical invariants does this domain assume? What breaks if I violate them? Which test protects each premise?" |
+| `docs/{domain}/<topic>.md` | Engineers touching a specific subsystem | "How does this calculation/integration actually work, with examples?" |
+| `.claude/skills/deep-review/SKILL.md` | The `/deep-review` agent | "How do I review changes through the lens of this codebase's domain?" |
+
+**Two key distinctions to keep clean:**
+1. **Business rules (CORE_TENETS) vs. technical premises (`{domain}/premises.md`).** Business rules are facts about the world the product models ("we only transfer the regular amount; overpayment becomes store credit"). Premises are facts about the implementation that downstream code silently depends on ("entity X is never updated after creation; the audit join table requires this"). The same idea may appear in both, framed differently — that's fine.
+2. **Schema docs (`docs/schema/`) vs. domain knowledge (`docs/{domain}/`).** Schema is pure table reference and only exists when the repo owns database code. Domain knowledge is calculation/integration/lifecycle prose and exists regardless.
+
+**Conditional layer — the schema docs.** If this repo does **not** own a database schema (e.g., it's a pure-logic library, a CLI, a UI-only frontend, a thin client wrapping someone else's API, an SDK), skip the schema layer entirely. Section 4 below has an explicit gate. The CORE_TENETS / premises / deep-review skill still apply.
+
+**Why this works at all:** AI agents in undocumented repos guess. Guesses about money flow are catastrophic in fintech-shaped systems and merely embarrassing elsewhere. The premises files in particular surface invariants that are *invisible from reading code in isolation* — the kind that only emerge when you stack multiple files together or run a flow end-to-end. Once written down, a reviewer agent can check changes against them.
+
+---
+
+## 1. Reconnaissance — read before you ask
+
+Do NOT start interviewing the human until you have a working mental map. Run these in parallel where possible.
+
+### 1.1 Repo shape
+- `git ls-files | head -200` and `git ls-files | wc -l` — orient yourself on size and layout.
+- Identify the build system, languages, frameworks (read `package.json` / `pyproject.toml` / `build.gradle*` / `Cargo.toml` / `go.mod` / etc.).
+- Identify modules / packages / services (multi-module monorepo? single service? microservices?).
+- Find the README and any existing `docs/`, `ARCHITECTURE.md`, `CLAUDE.md`, `CONTRIBUTING.md`, ADRs.
+- `git log --since="1 year ago" --pretty=format:"%s" | sort | uniq -c | sort -rn | head -50` — recent commit subjects hint at active areas.
+
+### 1.2 Domain entities
+- Locate entity / model / table definitions:
+  - JVM: `@Entity`, `@Table`, `@Document`
+  - Python: SQLAlchemy `class X(Base)`, Django `class X(models.Model)`, Pydantic / dataclass models
+  - Go: structs with ORM tags
+  - TS/JS: Prisma schema, TypeORM entities, Mongoose schemas
+  - Rust: Diesel / SeaORM / sqlx models
+- For each entity, capture: package/folder, immutability hints (`updatable = false`, `@Immutable`, `readonly`, `frozen=True`), primary key strategy, status enum values, soft-delete columns vs status-based cancellation, audit-table conventions.
+- Look for **state machines** or **status transition guards**: methods named `canTransitionTo`, `validateTransition`, `transitionTo`, decorators, enums with explicit allowed-next sets. These are premise goldmines.
+
+### 1.3 Money / unit-of-value / atomicity
+For any system that moves money, accounts, points, or scarce resources, find the atomic unit. Specifically look for:
+- Money column types (`BIGINT cents` vs `DECIMAL` vs `numeric(18,2)`) — fix the convention.
+- Ledger-style tables (entries that are append-only, with debit/credit semantics).
+- "Settlement" / "transaction" / "event" / "movement" tables — anything that registers an externally caused change.
+- Idempotency keys / dedup tables / "outbox" / `unique` constraints on `(entity_id, kind)`.
+
+Stop and write a one-paragraph "money flow" note for yourself before continuing.
+
+### 1.4 Database structure — first, decide if this repo even has one
+Run a quick gate to determine whether the schema layer applies:
+
+```
+find . \( -path '*/db/migration/*' -o -path '*/migrations/*' -o \
+         -path '*/migrate/*' -o -name 'schema.sql' -o -name 'schema.prisma' -o \
+         -name 'alembic.ini' -o -name 'init.sql' \) -not -path '*/node_modules/*' \
+  -not -path '*/.git/*' 2>/dev/null | head
+```
+
+Also search broadly for ORM/entity definitions (`@Entity`, `class \w+\(Base\)`, `models.Model`, Prisma `model `, Diesel `table!`, etc.).
+
+Decision:
+- **Repo owns DB code** (migrations, schema source, or ORM entity definitions present) → the schema layer applies. Continue reading this section.
+- **Repo does NOT own DB code** (pure library, CLI, UI, SDK, thin API client) → skip this section, skip §4 (schema drafting) entirely, and proceed with CORE_TENETS + premises + deep-review only.
+- **Ambiguous case** (e.g., reads from a shared DB owned by another service, or uses an external API as its data source) → confirm with the human. Default to *not* writing schema docs the human would have to keep in sync with someone else's system; instead capture the contract in a `docs/{domain}/<external-system>.md` knowledge doc.
+
+If the schema layer applies, continue with the reconnaissance:
+- Skim the most recent ~10 migrations: those name the *current* concerns of the team. Anything you read in old migrations may have been renamed.
+- For Postgres specifically, look for: `CHECK` constraints, partial unique indexes (`WHERE`), `EXCLUDE` constraints, `ON CONFLICT` patterns, triggers. These often encode invariants the application code assumes.
+- Renames are dangerous. `git log --diff-filter=R --follow` per file and inspecting migration files that mention `RENAME` catches the most common "common gotchas" entries (e.g., a field everyone now calls `customer_id` but which used to be `company_id`).
+
+### 1.5 Services, events, and async flow
+- Find the request-handling layer (controllers, handlers, resolvers, RPC endpoints).
+- Find the async layer (queue listeners, cron jobs, schedulers, websocket handlers, webhook receivers).
+- Build an event topology: which services publish events, on which topics/queues, consumed by which listeners? Look for `convertAndSend`, `publish`, `enqueue`, `send_message`, `produce`. Cross-reference subscribers/handlers.
+- Identify **fan-out outboxes** (a single publish that drives multiple downstream listeners). These are premise-rich: each subscriber introduces an implicit "this event will be fired exactly once on commit" assumption.
+- Identify **transactional boundaries**: where do transactions start and end? Are there post-commit hooks? Is `@Transactional` used? `transaction.atomic()`? `BEGIN`/`COMMIT`?
+
+### 1.6 Tests
+- Test directory structure, test types (unit / integration / e2e), what containers/fixtures are used (testcontainers, in-memory, mocks).
+- Existing test naming conventions (these will inform how premise `**Tests:**` fields cite tests).
+- Architecture tests (ArchUnit, dependency-cruiser, custom lint) — these are premise-protectors and a model for new ones.
+
+### 1.7 What you've learned, written down
+Before going to the human, summarize **for yourself** (don't post it):
+- Top 5–10 entities and how they relate (draw it on paper / a scratch file).
+- The "happy path" of the core use case: from input to persistence to downstream effects.
+- 3–5 things that surprised you or you don't yet understand.
+- 3–5 places where the code clearly assumes something the code itself doesn't enforce (these are premise candidates).
+
+If you cannot do this after reconnaissance, you don't have enough context to interview the human productively. Do another pass.
+
+---
+
+## 2. Interview the human
+
+The human is your single best source for **why**. Code tells you what; the human tells you why this invariant exists, what broke last quarter, what's load-bearing for the business, what's an accident of history.
+
+Use the `AskUserQuestion` tool for closed-ended choices, but for open-ended questions write them as plain prose and wait for the answer. **Ask in small batches** (3–6 questions at a time) so the human can answer without getting overwhelmed. Iterate until you have what you need.
+
+The order below matters. Don't shortcut it.
+
+### Batch A — Orient on the business
+1. "In one paragraph, what does this system do for whom? Who pays whom, who owes whom, what physically or financially moves through it?"
+2. "Who are the primary actors? (customers, operators, third parties, internal teams)"
+3. "What is the **atomic unit of value** the system tracks? (a row of money, a stock unit, a credit, an event)"
+4. "Walk me through the **happy-path flow** from the moment value enters the system to the moment it leaves or terminates. Name the entities."
+
+After this, your reconnaissance map should align with the human's description. If it doesn't, ask why before moving on.
+
+### Batch B — Find the invariants
+For each major entity / flow they named, ask variants of:
+5. "What property of `<entity>` would, if violated, cause a financial/data corruption / customer-visible bug that's hard to undo?"
+6. "What's something the code assumes about `<entity>` that's not enforced in the DB?"
+7. "Are there fields that should never change after creation? Are there transitions that should never happen even if a method exists that could technically do them?"
+8. "When the team debates whether a change is safe, what do you find yourself re-explaining?"
+9. "What was the last incident that involved this domain? What was the invariant the broken code violated?"
+10. "Are there entities you'd call **insert-only** or **immutable**? How is that enforced today?"
+
+Capture answers verbatim in your scratchpad — direct quotes often become the **Why:** field of a premise.
+
+### Batch C — Edge cases the system explicitly handles
+11. "What are the **exceptional flows** the team has had to handle? (overpayment, returns, cancellations, race conditions between provider and us, partial failures, retries)"
+12. "For each: what is the rule? (e.g., 'we register the payment regardless of entity state; reconciliation happens after')"
+13. "Are there manual / admin / 'bypass' / out-of-flow operations? How are they isolated from the main flow?"
+
+### Batch D — Cross-domain assumptions
+14. "Is there a domain that **depends on** another's invariant — e.g., 'cohort math assumes settlements are write-once'? Name as many as you can."
+15. "Are there events / messages between domains that imply contracts? ('domain A publishes E; domain B assumes E fires exactly once on commit')"
+
+### Batch E — Naming and gotchas
+16. "Are there fields or tables whose names trip up new engineers? ('I'd guess X but it's Y')."
+17. "Are there renames in the recent history that are still tripping people up? Legacy fields that look used but aren't?"
+
+### Batch F — Sizing the deep-review skill
+18. "If you were reviewing a PR in this codebase, which 4–6 lenses would you wear? (e.g., 'money-flow expert', 'state-machine expert', 'adjacent-code expert who finds untouched callers that break')"
+19. "What kind of finding is the highest-value? (e.g., 'someone added a new status value but didn't update three downstream filters')"
+20. "Are there tests / architecture rules that are already protecting some of these invariants? Point me at the gold-standard test file."
+
+After the interview, restate your model of the system back to the human in 8–12 bullet points and ask "is this right?" Adjust before drafting docs.
+
+---
+
+## 3. Draft `docs/CORE_TENETS.md`
+
+Write the file in one pass, then iterate with the human.
+
+### Structure
+- A short prologue that names the system and its purpose.
+- Numbered top-level sections (`## 1. <Domain>`, `## 2. <Domain>` …). Each section corresponds to one of the major flow stages or domain clusters the human described.
+- Inside each section, prose paragraphs that **name entities**, **describe the flow they participate in**, and then call out:
+  - `### Key Invariant` — single declarative statement that must always hold (e.g., a sum equation, a uniqueness, a status-bound monotonicity).
+  - `### Key Rule` — operational rule that flows from the invariant (e.g., "we only transfer the regular amount; everything else becomes store credit").
+  - **Edge cases** as sub-sections (`### Overpayment`, `### Discount-before-date`, `### Admin correction`) — each one explains what happens in the exceptional path *because* of the rule above.
+
+### Voice
+- Conceptual, not field-by-field. Field-by-field belongs in `docs/schema/`.
+- Heavy on named entities, light on code references. A reader should be able to load this file as background context and then go read code.
+- Concrete amounts in examples when explaining a calculation (the human has a feel for what realistic numbers look like — ask).
+- Don't include implementation classes/files in normal prose; in edge-case sections where pointing to the exact class is high signal (the one place the logic lives), use ``backticks`` and a short reference. Do this sparingly.
+
+### How to draft
+1. Sketch the section titles based on the human's flow walk-through. Run them by the human before writing prose. Use `AskUserQuestion` with options when there's a sensible split (e.g., "Should `Payouts` be its own section or part of `Transfers`?").
+2. Write section by section. After each section, paste it for the human, ask "what's wrong with this?". They will catch errors that aren't in the code.
+3. After all sections exist, ask the human: "Read it once top-to-bottom. What's missing? What would surprise a smart engineer who read this and then opened the code?"
+
+### Quality bar
+A CORE_TENETS section is good if:
+- A senior engineer who never saw the code can read it and predict the names of the entities and the rough shape of the tables.
+- Every invariant is **testable in principle** — the file can later be paired with tests that would break if the invariant did.
+- Edge cases are *examples of the rule*, not exceptions to it. ("Overpayment is just the rule that we always register money, applied to the dual-instrument case.")
+
+---
+
+## 4. Draft `docs/schema/` *(skip entirely if §1.4 determined the repo does not own DB code)*
+
+**Gate**: only proceed with this section if §1.4 confirmed the repo owns migrations / schema source / ORM entity definitions. If not, jump straight to §5.
+
+### 4.1 `docs/schema/index.md`
+- Conventions: PK strategy, naming (snake_case vs camelCase, table prefixes), money column type, enum representation, audit conventions, soft-delete (or not), ID type uniformity.
+- **Common gotchas** table: `| Wrong guess | Correct column | Why |` — populate from interview batch E + reconnaissance renames.
+- **Table-to-domain mapping** — list every domain and which tables belong to it. This becomes the routing index for both humans and the `deep-review` agent.
+
+### 4.2 `docs/schema/{domain}.md` (one per domain)
+For each table:
+- Entity class name, package.
+- Columns table: `| Column | Type | Nullable | Description |`. Pull types from the migration files / schema source — don't invent.
+- For enum-typed columns, list the values explicitly (`**Status enum:** X, Y, Z`).
+- Indexes, named constraints, partial unique indexes — list them; they encode invariants.
+- Relationships: incoming and outgoing FKs in one line each.
+
+### How to draft
+- This is a long, mechanical task. Doing it for many tables is the kind of task you can split into parallel `Agent` invocations: spawn one agent per domain, give it the schema source files and the conventions doc, ask for one `docs/schema/{domain}.md` per agent. Sanity-check the output before saving.
+- Each `docs/schema/{domain}.md` doesn't need a long prose intro — a one-paragraph overview is enough. The value is in the column tables.
+- If the schema is owned outside this repo (microservice owns its DB elsewhere, or it's a managed service), say so and link out.
+
+---
+
+## 5. Draft `docs/{domain}/premises.md`
+
+This is the highest-leverage file type and the most labor-intensive. Do it after CORE_TENETS and schema, so you have the vocabulary settled.
+
+### Per-premise format
+```markdown
+## <Premise title — short, declarative, present tense>
+
+<One paragraph: what is true and must remain true. Be specific
+about which entity, which field, which method, which condition.>
+
+**Why:** <The reason — what business/technical concern motivates this.
+Often a past incident or a downstream system that relies on it.>
+**Breaks:** <What goes wrong if violated — specific downstream
+systems / specific reports / specific calculations.>
+**Tests:** <Test class or method that protects this premise.
+If you can't name one yet, write `none yet` and treat it as a debt.>
+**Depends on:** <Cross-references to premises in other domains, by their
+title, if any.>
+```
+
+### Where to find premises (each item is a separate candidate)
+
+Walk the code with these prompts:
+
+**Immutability and write-once**
+- Entities with `updatable = false` / `@Immutable` / `readonly` / triggers blocking UPDATE / DELETE.
+- Tables with no UPDATE statements anywhere in the codebase (grep proves it).
+- "X is never deleted" in interview notes.
+
+**Math equalities**
+- Sum equalities in code: `sum(children.amount) == parent.amount`, `principal + interest + fine == total`, `debits == credits`.
+- Proportional distribution: where one parent value is split into N children — look for "proportion", "ratio", "split", "allocate".
+- Anything that's `require(...)` / `assert ...` / `check(...)` in a constructor or service.
+
+**Status transitions**
+- State machines: every "X → Y transition is explicit and bounded" is a premise. Reverse transitions that exist only in a correction flow are also premises ("reverse transitions are not part of the standard state machine").
+- Filters that depend on status: `findByStatusIn(...)`, `where status != ...`, `.filter { it.status in ...}`. The set of statuses being filtered IS the premise.
+
+**Idempotency and dedup**
+- Idempotency keys, unique constraints on `(entity_id, kind, timestamp)`, "if exists return" patterns. Each is a premise that downstream consumers may not call twice.
+
+**Eventing contracts**
+- "Every X site MUST publish event Y." Especially when the event drives a fan-out outbox.
+- "Event Y fires once on AFTER_COMMIT, never inside the transaction."
+- "Consumer Z must be idempotent because retry → at-least-once."
+
+**Cross-entity invariants the DB doesn't enforce**
+- The interview will surface these ("store custom attribute must reference an attribute declared by its franchisor — the DB doesn't enforce it").
+- Search for `service-layer validation` patterns — when a service does a `findById` + check before insert, the check is a premise.
+
+**Monetary atomicity**
+- "Amount X always equals … in cents." "Amount Y is the bank amount; amount Z is the effective amount and they differ only when discount is honored."
+
+**Insert-only history**
+- Audit tables (Envers / equivalents). Anything time-travel-like. Anything that says "history is never rewritten."
+
+**Time and timezone**
+- "All timestamps are UTC at rest." "Date X is wall-clock in São Paulo for business reasons."
+- "Test suite runs in UTC."
+
+**Concurrency**
+- Pessimistic locking calls (`SELECT … FOR UPDATE` / `@Lock(PESSIMISTIC_WRITE)`) protect an invariant — the invariant is the premise.
+- Optimistic locking (`@Version`) on an entity says "concurrent writers must lose; the surviving write wins" — sometimes a premise.
+
+### How to draft, mechanically
+1. For each major domain, spawn an `Agent` (or open a deep work session) that:
+   - Has the affected source files in context.
+   - Has the interview notes for that domain.
+   - Produces a *first list* of premise candidates (one bullet each, no full bodies yet) — easily 20–40 per domain on a complex system.
+2. Run the candidate list past the human. They will:
+   - Confirm or kill each one.
+   - Add 3–10 they can think of that no agent would have spotted.
+   - Refine the **Why** for the load-bearing ones with the story behind them.
+3. Promote confirmed candidates to full premise entries with the format above.
+4. For each premise, search for an existing test that would break if the premise were violated:
+   - If found, name it in `**Tests:**`.
+   - If not, write `none yet` and add a follow-up task. **Premises with `none yet` are debt — list them at the end of the bootstrap.**
+5. Link related premises with `[[premise-title-slug]]` or by full title. Cross-domain dependencies use `**Depends on:** {domain} — "Premise title"`.
+
+### Sizing
+- A premises file with fewer than ~5 entries is suspect — push harder, you probably missed invariants.
+- A premises file approaching ~30 entries is a signal that the domain is too broad. Ask the human if it splits cleanly.
+
+---
+
+## 6. Draft per-domain knowledge docs
+
+Not every domain needs one. Create `docs/{domain}/<topic>.md` when:
+- There's a non-trivial calculation with rounding or order-of-operations subtleties → write an "examples.md" with worked examples (concrete amounts in / amounts out).
+- There's an integration with a quirky external API whose docs are bad → write the integration's idiosyncrasies down ("provider X expects field Y in centavos but the API docs say reais").
+- There's a multi-step lifecycle that's already well-covered in CORE_TENETS but worth re-stating with code references for someone deep in implementation.
+
+Skip them on V1 if the human has limited time. They're additive.
+
+---
+
+## 7. Build `.claude/skills/deep-review/SKILL.md`
+
+The deep-review skill is a *meta-prompt that spawns parallel domain agents*. You adapt the agent personas to *this codebase's* domain.
+
+### Phase structure (the skill must implement all five phases)
+
+```
+Phase 0: Input resolution.
+  Parse arguments. Determine review target:
+    - no arg → review current branch vs origin/main, including uncommitted
+    - URL with /pull/ → PR mode (extract number)
+    - numeric or #N → PR mode
+    - 7–40 hex chars → commit mode
+    - anything else → branch mode
+  Also detect a "cheaper"/"eco" flag to swap deep-thinking agents to a
+  smaller model. Then check out the target code (gh pr checkout / git
+  checkout) and capture the diff with `gh pr diff` or
+  `git diff origin/main...HEAD` / `git diff <SHA>~1 <SHA>` depending on
+  mode. Abort if the checkout fails — never let agents read the wrong
+  branch.
+
+Phase 1: Context gathering.
+  Read CORE_TENETS.md, the schema doc for each affected domain
+  (if the schema layer exists), each affected domain's premises.md,
+  and CLAUDE.md. Identify the affected-domain list from the diff.
+  Pass the full diff + all of this to every agent.
+
+Phase 2: Parallel review agents.
+  Spawn N agents (typically 4–6) in parallel. Each agent gets a
+  persona, embedded tenets, and a checklist (see "How to tailor the
+  agents" below).
+
+Phase 3: Consolidation.
+  Dedupe findings. For every Blocker / High, re-read the actual file
+  to confirm the code matches what the agent described — agents
+  hallucinate, and a single false-positive Blocker erodes trust faster
+  than five misses. Never dismiss a finding because the local file
+  "looks different" — that means you may be on the wrong branch; recheck
+  Phase 0 first. Classify each surviving finding as Blocker / High /
+  Medium / Low.
+
+Phase 4: Output.
+  Present the consolidated review. Then ask the human (via
+  AskUserQuestion) what to do: post to GitHub (PR mode only),
+  copy to clipboard (pbcopy / xclip), save to a file, or nothing.
+```
+
+### How to tailor the agents
+From interview batch F, you have the 4–6 lenses the human wants. For each, write an agent prompt section with three parts:
+
+- **Persona** — "You are the engineer who owns X. You know every path that does Y."
+- **Embedded tenets** — quote the relevant CORE_TENETS section verbatim inside the agent prompt, then list the testable consequences ("Therefore, verify that …"). The agent must not need to re-derive the tenet.
+- **Checklist** — explicit, numbered steps. Two checklists generalize across every codebase and you should include them in *every* deep-review skill regardless of domain:
+
+  1. **Adjacent-code checklist.** This is the highest-value lens and catches bugs that diff-only reviews always miss.
+     - Step 1: Extract semantic changes from the diff: new enum values, changed method signatures, new status values or transitions, changed filter/query conditions, new entity fields, changed business logic.
+     - Step 2: For each semantic change, run an exhaustive grep across the repo for callers, references, and pattern-matched uses of the changed element. Also always grep for the most central financial/business primitives of the system (e.g., the settlement-creation site, the proportion calculator) — these are the "always check these" anchors.
+     - Step 3: Open every grep hit and verify the method still handles the new behavior. If not → finding (file, line, scenario, suggested fix).
+     - Step 4: Inverse check — does the new code handle all *existing* scenarios it didn't before? (e.g., a new filter that doesn't cover all status values).
+
+  2. **State-machine / lifecycle checklist.** Pick the most critical lifecycle in the system and walk it stage by stage. For each stage: which methods are called, what the entity states are at that point, which filters/guards depend on those states, and whether any of them fail with the new changes. Always include an **execution-order check** — bugs where step N's filter runs before step M's transition, returning empty when state has already moved, are some of the most dangerous and hardest to spot.
+
+The remaining 2–4 agents are domain-specific. Examples of strong personas:
+- A "money flow" / "value propagation" agent that traces a new entity through the full downstream cascade and quantifies financial impact at each stage.
+- A "core pipeline" agent that owns the most heavily-used producer/consumer path and checks every place that produces an event of type X handles the new shape.
+- A "test coverage & premises" agent that maps each premise in the affected `premises.md` files to a test and flags premises with `Tests: none yet` or unstated premises the diff implicitly relies on.
+
+### Model routing
+Keep an optional "economy mode" that swaps deep-thought agents from Opus to Sonnet. This is helpful for routine PRs.
+
+### Consolidation
+The consolidation phase MUST verify each Blocker against the actual file — agents hallucinate, and a single false-positive Blocker in a code review erodes trust faster than five misses.
+
+### Test the skill before declaring done
+- Run `/deep-review` on a recently merged PR you know well. Compare findings to what you'd produce by hand.
+- Run it on a deliberately buggy branch (introduce a status filter that misses a new enum value) — does the adjacent-code agent catch it? If not, adjust the checklist.
+
+---
+
+## 8. Wire `CLAUDE.md`
+
+Update (or create) the top-level `CLAUDE.md` to reference the new structure. Sections to include:
+
+- **Project Overview** — language, stack, ports, modules.
+- **Key Commands** — build, run, test, format, lint.
+- **Code Conventions** — short. Things genuinely enforced (line length, naming, DI style, structured error responses).
+- **Documentation** — point at `docs/index.md` and explain the splits: CORE_TENETS vs premises vs domain knowledge (and schema, if it exists).
+- **Premises** — embed a short explanation of what premises files are (what they're for, the Why/Breaks/Tests/Depends-on format, when to update them, the workflow expectation for AI sessions: read the file before implementing, propose new premises before writing tests, fill in `**Tests:**` after writing tests). The §5 spec above is the canonical content — paraphrase it into `CLAUDE.md`.
+- **Required Skills / Rules** — list `.claude/skills/*` and `.claude/rules/*` you've created with one-line "when to load" descriptions.
+
+End the bootstrap session by re-reading `CLAUDE.md` and confirming every link resolves to a file that exists.
+
+---
+
+## 9. Acceptance criteria — what "done" looks like for V1
+
+Before declaring the bootstrap complete, verify:
+
+- [ ] `docs/CORE_TENETS.md` exists. Every section has a `### Key Invariant` or `### Key Rule`. The human has read it top-to-bottom and signed off.
+- [ ] `docs/index.md` exists and links resolve.
+- [ ] *(Only if §1.4 said the schema layer applies)* `docs/schema/index.md` has the conventions, the "common gotchas" table (≥3 rows on any non-toy codebase), and the table-to-domain mapping.
+- [ ] *(Only if applicable)* `docs/schema/{domain}.md` exists for every domain in the mapping. Each table has columns, types, enum values, named constraints, and FK relationships.
+- [ ] `docs/{domain}/premises.md` exists for every domain that has any. Each premise has Why/Breaks/Tests/Depends-on. Premises with `Tests: none yet` are listed at the end of the session as follow-up debt.
+- [ ] `.claude/skills/deep-review/SKILL.md` exists. The agent personas match the human's "4–6 lenses" answer. The adjacent-code agent and the lifecycle agent are present. A test run on a known PR produces sensible findings.
+- [ ] `CLAUDE.md` references everything and has no dead links.
+- [ ] **You ran `/deep-review` against a recently merged PR and the findings are non-trivial and accurate.** If they aren't, iterate on the skill before declaring done — the skill is the whole point of the docs.
+
+---
+
+## 10. Operating notes for the agent running this
+
+- **The human is the oracle.** When you have a choice between guessing and asking, ask. Token cost is irrelevant compared to writing a wrong premise that propagates as gospel.
+- **Iterate in small batches.** Draft one section → show the human → adjust → next section. Do not produce 800 lines of premises and ask for sign-off in one shot — the human will skim and miss errors.
+- **Save aggressively, commit nothing.** Write files into the repo so the human can read them in their editor, but don't `git commit` unless explicitly asked.
+- **Use parallel agents for parallel work.** Schema docs for 12 tables, premise-candidate generation for 6 domains — these parallelize cleanly. Spawn `Agent`s and consolidate.
+- **Don't fabricate tests.** When filling in a premise's `**Tests:**` field, only name a test you've verified exists (`grep` for the class name, read the test). If none exists, write `none yet` — that's honest and actionable.
+- **Distinguish 'the system today' from 'the system aspirationally'.** Some premises the human wants to be true but aren't enforced yet. Mark these explicitly (`**Status:** aspirational — not yet enforced; see [issue/TODO]`).
+- **Maintain a follow-up list.** At session end, hand the human:
+  - Premises with `Tests: none yet`.
+  - Aspirational premises that need enforcement.
+  - *(If schema applies)* Domains whose schema you didn't reach.
+  - Knowledge docs (`docs/{domain}/<topic>.md`) that the human said would be useful but you skipped on V1.
+- **End by running `/deep-review` against a real PR.** This is the integration test for the whole bootstrap. If it doesn't produce findings a human reviewer would respect, the docs aren't done yet.
+
+---
+
+## 11. Reference shapes (self-contained — no external repo needed)
+
+The shape and voice you should produce, captured inline so you don't need access to any reference repo.
+
+### `docs/CORE_TENETS.md` — shape
+- ~150–300 lines on a non-trivial system.
+- A short prologue: what this system does, who it serves, what it MUST preserve.
+- Numbered top-level sections (`## 1. <Domain Cluster>`, `## 2. <Domain Cluster>` …), typically 5–8 sections matching the major flow stages.
+- Each section is prose first — names the entities, describes the flow they participate in, what's exchanged, what triggers what.
+- Inside each section, distinct sub-headings:
+  - `### Key Invariant` — a single declarative statement that must always hold (a sum equation, a uniqueness, a monotonicity, an exclusion).
+  - `### Key Rule` — operational consequence of the invariant ("we always X; if Y happens, route to Z").
+  - `### <Edge case name>` — overpayment, refund, cancellation, race, retry. Each one is an *example of the rule applied to an exceptional path*, not an exception to it.
+- Heavy on named entities (each named in **bold** the first time). Light on code references — point at the canonical class only when it's the single place the logic lives.
+- When showing a calculation, include a concrete worked example with realistic numbers.
+
+### `docs/index.md` — shape
+- ~30–60 lines. Pure routing, no content of its own.
+- Tables that list `(domain) → (file) → (one-line description)`.
+- One section for CORE_TENETS, one for schema (when it exists), one for domain knowledge, one for conventions.
+
+### `docs/schema/index.md` — shape *(only if applicable)*
+- Conventions block: PK strategy, naming (snake_case vs camelCase), money column type, enum representation, audit conventions, soft-delete approach, ID type uniformity.
+- A **Common Gotchas** table: `| Wrong guess | Correct column | Why |` — 3–10 rows on any non-toy codebase.
+- A **table-to-domain mapping**: one row per domain listing every table that belongs to it. This is the routing index for SQL writers and for the `deep-review` agent.
+
+### `docs/schema/{domain}.md` — shape *(only if applicable)*
+- One-paragraph overview of the domain.
+- Per table: entity class name + package, then a `| Column | Type | Nullable | Description |` table. Pull types from migrations / schema source — never invent.
+- For enum-typed columns: list values explicitly (`**Status enum:** A, B, C`).
+- List named constraints, indexes, partial unique indexes — they encode invariants.
+- One-line relationships block: incoming and outgoing FKs.
+
+### `docs/{domain}/premises.md` — shape (the highest-leverage file)
+- 10–30 premises per non-trivial domain. Fewer than ~5 means you missed invariants; near ~30 means the domain probably splits.
+- Each premise as an `## H2` section using exactly this format:
+
+```markdown
+## <Short, declarative, present-tense title>
+
+<One paragraph: what is true and must remain true. Be specific
+about which entity, which field, which method, which condition.>
+
+**Why:** <The reason — what concern motivates this. Often a past
+incident or a downstream system that silently relies on this.>
+**Breaks:** <What goes wrong if violated — specific downstream
+systems, reports, calculations, or user-facing flows.>
+**Tests:** <Test class or method that protects this premise. If you
+can't name one yet, write `none yet` and treat it as debt.>
+**Depends on:** <Cross-references to premises in other domains (by
+title), if any. — if none.>
+```
+
+- The **Why** is where the value compounds. Make it concrete: "the audit-join table assumes settlements are write-once; rewriting them would silently corrupt the audit trail and break the X reconciliation report" beats "we don't update this entity."
+- A premise with `Tests: none yet` is incomplete. New premises introduced by current work require tests before merge; retroactively-documented premises can start with `none yet` and become follow-up debt.
+
+### `.claude/skills/deep-review/SKILL.md` — shape
+- Frontmatter with `name: deep-review` and a one-line `description:`.
+- Phase 0 input parsing (PR / branch / commit / local).
+- Phase 1 context gathering (CORE_TENETS + affected schema + affected premises + CLAUDE.md, passed to every agent).
+- Phase 2 spawns 4–6 parallel agents. Each agent prompt has: persona, embedded tenets (quoted from CORE_TENETS), a numbered checklist. Always include the adjacent-code agent and the state-machine/lifecycle agent (see §7 above).
+- Phase 3 consolidation with file re-verification for every Blocker/High.
+- Phase 4 output handling: present, then ask the human what to do with the review (post to GitHub, copy to clipboard, save to file, nothing).
+- An optional "economy mode" that swaps non-critical agents to a cheaper model.
+
+When you find yourself unsure about voice or depth at any point during the bootstrap, ask the human to read 30 lines you've just written and tell you whether the tone matches what they want — they're the calibration source, not any external reference.
+
+---
+
+1. The experience aimed is for full control via code, unlike Unity and Unreal where your code has to conform to the engine and can only be placed in restrict specific places, Monodreams aims to be the same as Spring is for web developers, you're in control but we've got you covered with most of what's common need for most games, the price is that the developer is expected to embrace ECS architecture. Today, devs wanting control only have bare MonoGame and have to do the heavy lifting themselves or use Nez or others that are more loose and don't deliver as much. This approach favors devs who like to code and those who use AI coding agents like Claude Code. Said that, since the base is MonoGame, the focus is 2D games, but I don't discard the possibility of enhancing the 3D rendering pipeline outside of MonoGame and in the future serving 3D gamedevs as well.
+
+2. Solo devs for sure and small teams as well. Monodreams should empower indie devs and small studios to push way above their size. The plan currently is to grow a userbase around this opensource engine and maybe, just maybe, create an AI-powered IDE around this to also have a commercial offering in the future (but we shouldn't talk about this in this repo and stage of the project, just caring for the repo to be friendly for AI coding agents too).
+
+3. I think primarily a System, but often a pair System + Component. Components hold data, so you only need them if there is need for new data, System operates behaviors on top of that data, so there'll probably be more systems than components. (entities are just IDs that groups components).
+
+4. If a dev wants the player to double jump, first they have to know which systems and components are already in place, lets suppose there is already a system to control gravity and components to identify which entities are subject to gravity, then there shall be a component to identify the player, a system to map input to game commands, and a system to  control the jump velocity, the airborne state may or may not be already tracked, the dev will have to keep track of this in a component and then modify the jump system to account for the conditions to allow a double jump, like being airborne and maybe having the ability unlocked in the game. Then you just have to be sure the right components are created for the player and the systems are added to the update loop and in the right order.
+
+---
+
+5. The dev will be free to create their own Transform custom component if they wish/need, what I fear most is inconsistency, the dev creates a MyTransform and start using both, Transform and MyTransform, this will lead to a complicated code, hard do debug problems, and a lot of duplication. Systems on the other hand should tend to be more agnostic, like if they were saying: if a component is in such conditions, I do this and that, no matter what. So you're isolated and, of course this can lead to bugs where the system doesn't care for another new condition and something odd happens, but this should be preventable by the AI agent or dev reviewing the pipeline of systems that operates on that component and should be relatively common to debug problems like this.
+
+6. The rendering pipeline is a little bit more delicate because it's harder to debug bugs and a more hard expectation is that systems operating this pipeline will be last in the systems pipeline.
+
+7. What is most non-obvious, and this is true for many systems, is that the collision stack depends heavily on Transform. This is not enforced and not immediatly clear when you're rapidly scanning the project. So if you switch to a custom Transform implementation, collisions won't be as plug'n play. But I think this is more an implementation flaw/gap than a constraint of the project. Ideally these modules should be relatively independant from each other and there should be a way to have the collision stack to play nicely with other implementations of Transform/Position.
+
+8. I think we later can go in depth, module by module. We should take the chance to bundle and separate things so that its clear what's dependent on what, just like you can choose to use Spring Security but this is a separate pack that can be used when using Spring, but not necessarly, and not using it won't break Spring and other modules.
+
+9. It's constant for AI agents to create custom components when in fact we should enhance or refactor a current existing component. I fear we end with a pletora of micro-components that just spams the dev with infinite non-obvious components. The problem is not exactly to go on creating components, there are cases where it's justifyable, maybe after defining clear packs/modules then we can make it easir to decide if we're going to create or edit a current module's components since they're be more contained and easier to reason about.
+
+
+
+10. When I was experimenting with  the CullingSystem and created the Visible component I then forgot to use it in another game screen and was puzzled why some entities weren't visible. But I don't know what would have made it faster to debug this problem.
+
+---
+
+11. I haven't stumbled on this problem yet, so I don't have an opinion.
+12. I don't know, as of today, all children should be disposed alongside their parent, but nothing prevents that we add support for children outliving their parents if needed.
+13. Good question, today the engine assumes one collider of the same type per entity. But this is just something that wasn't given too much thought about.
+14. I haven't experienced flickering but this is a recent implementation. I remember implementing something to resolve ties, just isn't sure what it was.
+15. I don't recall, but feel free to take a look into the code.
+16. I think that headless implementation is doomed and not well thought out. The original idea was to enable AI agents to visually test the game but I don't think it's a stable and trustworthy implementation.
+
+---
+
+17. nuance: the system just renders at Transform.WorldPosition, whatever it is. If you want HierarchySystem to run before rendering (most of the cases you do), then yes. But the rendering pipeline doesn't cares about HierarchySystem or whatever system, it's a little like functional programming, it performs an operation on an input, it doesn't assumes anything about the input. This is true for the concept of ECS, so to all Systems. Of course, a dev can code a System that heavily assumes other systems did something before but then it's their job to guarantee that happened, at least today, but I see a future, if we find a nice way to implement it, to provide some easy ways to declare these conditions or dependencies between systems.
+18. Yes, if CameraFollowSystem is enabled in the pipeline. It may verywell be the case of a game with fixed camera, or another implementation of cameras, we're the framework for any game one can think of, so we have to stay flexible. There can be implementations for 4 different cameras at once, maybe it's a local multiplayer game or CCTV system.
+19. Yes.
+20. Yes. This is a good example where it's expected that Transform.Delta is meaningful but this is not actually enforced (I think it's not enforced, don't remember if I coded some interaction methods on Transform to guarantee Delta is meaningful and consistent, if not, maybe I should.).
+21. Yes, the parser systems should be ignorant on how CurrentLevelComponent got there, it only matters that it has been added. This is true for most (or all?) systems.
+22. Yeah, I think that it should throw.
+23. I think that they might be leftovers. But do mind that this is a framework, so we expose contracts, and no necessarily use them ourselves. But a good practice from now on would be to have a test and/or example to use a contract, a message, etc. To ensure it's an actual maintained contract/API.
+24. Not that I can think of now.
+
+---
+
+25. Yes, it confuses me. The problema I was trying to solve is how to handle complex UI elements like a dialogue UI that has the background banner, the avatars on each end, the text, and the visual indication of line finished and dialogue in a state waiting on input to advance to the next dialogue line. I just wanted to handle that in a simple and elegant manner.
+26. Reorganizing is in scope, it's a little bit messy. What I want actually is to have those divided into packs/modules, just like Spring have Spring Data, Spring Security, etc.
+27. Well, yes, it can be. Or maybe we should have visibility coded as a property of DrawComponent? I don't know.
+28. Quick hack. We should find a more elegant and organized way of managing this.
+29. None that I can think of right now.
+
+---
+
+30. Let's go with all of your suggestions.
+31. "Added a super specialized component/system that solves one specific pain point right now but doesn't evolve well in the framework to deliver value for more implementations and play nice with other features in MonoDreams"
+32. No
+33. Worth it, include this option
+
+---
+
+Right
+
+---
+
+- docs/hierarchy-transform/premises.md — all good
+- docs/rendering/premises.md — all good
+- docs/collision/premises.md — all good (Tunneling at high velocity: the only prevention is keeping the velocity and collider sizes reasonable. this is a known gap/limitation.)
+- docs/physics/premises.md — all good (High-speed velocity caps: no caps exist; Gravity per-entity scaling: per-entity gravity scaling; `RigidBody.Mass`: only that one use but nothing prevents other uses)
+- docs/level-loading/premises.md — all good (Multiple levels loaded simultaneously: a future implementation, but not currently supported; Hot reload: doesn't fully work, needs attetion to work reliably; Factory re-registration: never thought about this, don't know what would happen if someone do this)

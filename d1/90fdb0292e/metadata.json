@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d190fdb0292e",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".claude/skills/deep-review/SKILL.md",
+    "docs/CORE_TENETS.md",
+    "docs/collision/premises.md",
+    "docs/hierarchy-transform/premises.md",
+    "docs/index.md",
+    "docs/level-loading/premises.md",
+    "docs/physics/premises.md",
+    "docs/rendering/premises.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/90fdb0292e/0/metadata.json",
+      "transcript": "/d1/90fdb0292e/0/full.jsonl",
+      "context": "/d1/90fdb0292e/0/context.md",
+      "content_hash": "/d1/90fdb0292e/0/content_hash.txt",
+      "prompt": "/d1/90fdb0292e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 104,
+    "cache_creation_tokens": 266182,
+    "cache_read_tokens": 5875173,
+    "output_tokens": 110385,
+    "api_call_count": 45
+  }
+}
