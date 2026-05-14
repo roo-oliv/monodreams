@@ -3,11 +3,14 @@
   "checkpoint_id": "d190fdb0292e",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 3,
+  "checkpoints_count": 4,
   "files_touched": [
     ".claude/CLAUDE.md",
     ".claude/settings.local.json",
     ".claude/skills/deep-review/SKILL.md",
+    "MonoDreams.Examples/Component/Dialogue/DialogueState.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams/System/Draw/TextPrepSystem.cs",
     "docs/CORE_TENETS.md",
     "docs/collision/premises.md",
     "docs/hierarchy-transform/premises.md",
@@ -30,13 +33,20 @@
       "context": "/d1/90fdb0292e/1/context.md",
       "content_hash": "/d1/90fdb0292e/1/content_hash.txt",
       "prompt": "/d1/90fdb0292e/1/prompt.txt"
+    },
+    {
+      "metadata": "/d1/90fdb0292e/2/metadata.json",
+      "transcript": "/d1/90fdb0292e/2/full.jsonl",
+      "context": "/d1/90fdb0292e/2/context.md",
+      "content_hash": "/d1/90fdb0292e/2/content_hash.txt",
+      "prompt": "/d1/90fdb0292e/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 229,
-    "cache_creation_tokens": 764065,
-    "cache_read_tokens": 14100499,
-    "output_tokens": 242013,
-    "api_call_count": 102
+    "input_tokens": 294,
+    "cache_creation_tokens": 1007327,
+    "cache_read_tokens": 17436676,
+    "output_tokens": 273338,
+    "api_call_count": 147
   }
 }

@@ -1,0 +1,5 @@
+I've just lauched MonoDreams.Examples, selected Level 2 and tested a dialogue interaction with "Boldo" but the dialogue ui is a bit broken as you can see in /Users/rodrigooliveira/Desktop/Captura de Tela 2026-05-14 às 18.19.19.png. The options the player can select overlap with the NPC's phrase and pressing S or W moves all the way to the first or last option, it's really hard to just move one option down, I believe it may be a bug on just checking if the key is pressed and not "just" pressed.
+
+---
+
+Commit, push and open a PR
