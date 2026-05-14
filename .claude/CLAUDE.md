@@ -109,6 +109,47 @@ understand how to wire up a game screen is
   helpers (`AssertLogContains`, `AssertLogContainsInOrder`, `GetLogLines`).
 
 # Workflow
+
+**Before any non-trivial implementation, read the docs.** The
+`docs/` layer (see the Documentation section below) captures engine
+invariants that are silently load-bearing — most "surprising" bugs in
+this repo come from violating one of them. Skipping this step is the
+single most common way an implementation lands that quietly breaks an
+engine contract.
+
+1. **Always** read [`docs/CORE_TENETS.md`](../docs/CORE_TENETS.md)
+   before any task that adds, removes, or significantly modifies a
+   component, system, message, screen, or factory.
+2. **For each domain you touch**, read the matching
+   `docs/<domain>/premises.md` before editing files in that domain.
+   Use the path-to-premises mapping below to pick the right file(s).
+3. When you spawn a subagent (Explore, Plan, general-purpose) for
+   implementation work in a domain, **pass the relevant CORE_TENETS
+   and premises file paths in the subagent's prompt** so it loads the
+   invariants too. Subagents do not auto-load CLAUDE.md; if you don't
+   pass these paths, the subagent operates without the invariants and
+   reproduces the bugs the docs exist to prevent.
+4. If your change introduces a new invariant the docs don't yet
+   name, propose the premise text as part of the work (see the
+   Premises subsection for the format).
+
+## Path-to-premises mapping
+
+Look up which `docs/<domain>/premises.md` to load based on which file
+paths your change touches.
+
+| Touched path pattern | Read this premises file |
+|---|---|
+| `MonoDreams/Component/Transform.cs`, `Component/ChildOf.cs`, `Component/LayoutNode.cs`, `System/HierarchySystem.cs`, `System/TransformCommitSystem.cs`, `System/SizeSystem.cs`, `System/LayoutSystem.cs`, `State/EntityHierarchy.cs` | [`docs/hierarchy-transform/premises.md`](../docs/hierarchy-transform/premises.md) |
+| `MonoDreams/Component/Draw/**`, `System/Draw/**`, `Renderer/**`, anything touching `DrawComponent` / `SpriteInfo` / `Visible` / `MasterRenderSystem` / `CullingSystem` / `YSortSystem` | [`docs/rendering/premises.md`](../docs/rendering/premises.md) |
+| `MonoDreams/Component/Collision/**`, `System/Collision/**`, `Extensions/Monogame/SATCollision.cs`, `Message/CollisionMessage.cs`, `Message/ICollisionMessage.cs` | [`docs/collision/premises.md`](../docs/collision/premises.md) |
+| `MonoDreams/Component/Physics/**`, `System/Physics/**` | [`docs/physics/premises.md`](../docs/physics/premises.md) |
+| `MonoDreams/Component/Level/**`, `System/Level/**`, `System/EntitySpawn/**`, `EntityFactory/**`, `Message/EntitySpawnRequest.cs`, `Message/Level/**`, `Tools/blender_level_export.py` | [`docs/level-loading/premises.md`](../docs/level-loading/premises.md) |
+| Anything under `MonoDreams.Examples/**` | Load **all five** premises files — Examples exercises every domain. |
+| Camera / Cursor / Input / Debug / Screen / Messages (V2 — no premises file yet) | Skip; read `CORE_TENETS.md` only and consider proposing a new premises file as part of the change. |
+
+## Other workflow rules
+
 - After planning but before coding, build the MonoDreams.Examples solution so
   that you know how to build and not question the build process after you
   commit your changes and test the build.
@@ -143,3 +184,60 @@ dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
 # Build everything
 dotnet build
 ```
+
+# Documentation
+
+The repo has a `docs/` layer that captures engine tenets and per-domain
+invariants. **Load these as context before non-trivial work** (see the
+Workflow section above for the exact triggers and the path-to-premises
+mapping).
+
+- [`docs/index.md`](../docs/index.md) — routing index.
+- [`docs/CORE_TENETS.md`](../docs/CORE_TENETS.md) — engine-wide
+  invariants: framework-not-library, ECS purity & composition,
+  hierarchy & transform, rendering, physics & collision, level loading,
+  the reference pipeline, debug, and the named refactor backlog. Read
+  this first for any non-trivial task.
+- [`docs/<domain>/premises.md`](../docs/index.md) — technical
+  invariants downstream code silently depends on, one file per
+  foundational domain (hierarchy-transform, rendering, collision,
+  physics, level-loading).
+
+## Premises
+
+Premises are the smallest unit of "this must hold or things break
+silently." Each entry uses the format:
+
+```
+## <Short, declarative, present-tense title>
+
+<One paragraph: what is true and must remain true.>
+
+**Why:** <The reason — usually a downstream system or past bug.>
+**Breaks:** <What goes wrong if violated.>
+**Tests:** <Test that protects this, or `none yet`.>
+**Depends on:** <Cross-references to other premises, or —.>
+```
+
+**Workflow when modifying a domain.**
+
+1. Read the domain's `premises.md` before changing code there.
+2. If the change introduces a new premise the docs don't yet name,
+   propose the premise text as part of the PR.
+3. If a premise has `Tests: none yet` and the change exercises it,
+   add a test in the same PR and update the `Tests:` field.
+4. If a premise becomes wrong (refactored away, replaced), update or
+   remove it in the same PR — stale premises are worse than missing
+   ones.
+
+# Skills
+
+`.claude/skills/` contains repo-specific Claude Code skills.
+
+- [`deep-review`](skills/deep-review/SKILL.md) — multi-agent code
+  review through six lenses calibrated for MonoDreams: adjacent-code,
+  system-ordering, component-design/framework-fit, cross-domain
+  dependency, premises/test-coverage, and ECS-purity. Invoke with
+  `/deep-review` on a PR number, URL, branch, commit SHA, or no
+  argument (reviews the current branch vs `main`, including
+  uncommitted changes). Pass `--eco` for a cheaper run.
