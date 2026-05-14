@@ -33,20 +33,17 @@ public class RunnerMovementSystem(World world) : AEntitySetSystem<GameState>(wor
             velocity.Current.X += RunnerConstants.PlayerRunSpeed;
         }
 
-        // Jump — manual edge detection since JustPressed requires buffer > 0
-        bool jumpPressed = InputState.Jump.Pressed(state);
-        if (jumpPressed && !runnerState.JumpHeld && runnerState.IsGrounded)
+        if (InputState.Jump.JustPressed() && runnerState.IsGrounded)
         {
             velocity.Current.Y = RunnerConstants.PlayerJumpSpeed;
             Logger.Info("Player jumped!");
         }
-        runnerState.JumpHeld = jumpPressed;
 
         // Variable gravity factor (applied before GravitySystem runs)
         var rigidBody = entity.Get<RigidBody>();
         if (velocity.Current.Y < 0f) // ascending
         {
-            rigidBody.Gravity = (true, jumpPressed
+            rigidBody.Gravity = (true, InputState.Jump.Pressed(state)
                 ? 1.0f
                 : RunnerConstants.JumpCutGravityMultiplier);
         }

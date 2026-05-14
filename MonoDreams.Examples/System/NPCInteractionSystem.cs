@@ -18,7 +18,6 @@ public class NPCInteractionSystem : ISystem<GameState>
     private readonly EntitySet _playerSet;
     private readonly EntitySet _zoneSet;
     private bool _dialogueActive;
-    private bool _inputConsumed;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -71,9 +70,7 @@ public class NPCInteractionSystem : ISystem<GameState>
             ? CollisionRect.FromBounds(playerEntity.Get<BoxCollider>().Bounds, playerTransform.WorldPosition)
             : playerEntity.Get<ConvexCollider>().BroadPhaseAABB;
 
-        // Edge-trigger: release consumed flag when interact is no longer held
-        if (!InputState.Interact.Pressed(state))
-            _inputConsumed = false;
+        var interactJustPressed = InputState.Interact.JustPressed();
 
         foreach (var zone in _zoneSet.GetEntities())
         {
@@ -88,26 +85,23 @@ public class NPCInteractionSystem : ISystem<GameState>
 
             if (playerRect.Intersects(zoneRect))
             {
-                // Show icon
                 if (!iconEntity.Has<Visible>())
                     iconEntity.Set<Visible>();
 
-                // Check for interact press
-                if (InputState.Interact.Pressed(state) && !_inputConsumed)
+                if (interactJustPressed)
                 {
-                    _inputConsumed = true;
-
                     var dialogueZone = zone.Get<DialogueZoneComponent>();
                     if (dialogueZone.OneTimeOnly && dialogueZone.HasBeenTriggered)
                         continue;
 
                     dialogueZone.HasBeenTriggered = true;
+                    InputState.Interact.Consume();
                     _world.Publish(new DialogueStartMessage(zone, dialogueZone.YarnNodeName));
+                    break;
                 }
             }
             else
             {
-                // Hide icon
                 if (iconEntity.Has<Visible>())
                     iconEntity.Remove<Visible>();
             }

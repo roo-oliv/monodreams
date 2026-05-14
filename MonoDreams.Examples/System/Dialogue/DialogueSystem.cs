@@ -290,11 +290,11 @@ public class DialogueSystem : ISystem<GameState>
     {
         _dialogueState.IsActive = true;
         _dialogueState.WasTriggered = true;
-        // The Interact press that opened this dialogue is still held — mark it as
-        // held so the same press doesn't immediately advance the first line.
-        _dialogueState.InteractHeld = true;
-        _dialogueState.UpHeld = false;
-        _dialogueState.DownHeld = false;
+
+        // The Interact press that opened this dialogue may still be held this same
+        // frame. Consume the edge so DialogueSystem.Update (later in this tick)
+        // doesn't read JustPressed and advance the first line on its own opening.
+        InputState.Interact.Consume();
 
         // Show dialogue box
         _dialogueState.BoxEntity.Set<Visible>();
@@ -312,27 +312,18 @@ public class DialogueSystem : ISystem<GameState>
     {
         if (!_dialogueState.IsActive) return;
 
-        var interactNow = InputState.Interact.Pressed(state);
-        var upNow = InputState.Up.Pressed(state);
-        var downNow = InputState.Down.Pressed(state);
-
-        var interactJustPressed = interactNow && !_dialogueState.InteractHeld;
-        var upJustPressed = upNow && !_dialogueState.UpHeld;
-        var downJustPressed = downNow && !_dialogueState.DownHeld;
-
         switch (_dialogueState.CurrentPhase)
         {
             case DialoguePhase.Line:
-                UpdateLinePhase(interactJustPressed);
+                UpdateLinePhase(InputState.Interact.JustPressed());
                 break;
             case DialoguePhase.Options:
-                UpdateOptionsPhase(upJustPressed, downJustPressed, interactJustPressed);
+                UpdateOptionsPhase(
+                    InputState.Up.JustPressed(),
+                    InputState.Down.JustPressed(),
+                    InputState.Interact.JustPressed());
                 break;
         }
-
-        _dialogueState.InteractHeld = interactNow;
-        _dialogueState.UpHeld = upNow;
-        _dialogueState.DownHeld = downNow;
     }
 
     private void UpdateLinePhase(bool interactJustPressed)
