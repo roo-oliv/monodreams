@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "0d0e1d06e41c",
+  "strategy": "manual-commit",
+  "branch": "ro/fix-dialogue-ui",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Examples/Component/Dialogue/DialogueState.cs",
+    "MonoDreams.Examples/Component/Runner/RunnerState.cs",
+    "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "MonoDreams.Examples/System/NPCInteractionSystem.cs",
+    "MonoDreams.Examples/System/Runner/GameOverSystem.cs",
+    "MonoDreams.Examples/System/Runner/RunnerMovementSystem.cs",
+    "MonoDreams/Input/AInputState.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0d/0e1d06e41c/0/metadata.json",
+      "transcript": "/0d/0e1d06e41c/0/full.jsonl",
+      "context": "/0d/0e1d06e41c/0/context.md",
+      "content_hash": "/0d/0e1d06e41c/0/content_hash.txt",
+      "prompt": "/0d/0e1d06e41c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 51,
+    "cache_creation_tokens": 158018,
+    "cache_read_tokens": 3232749,
+    "output_tokens": 34140,
+    "api_call_count": 31
+  }
+}
