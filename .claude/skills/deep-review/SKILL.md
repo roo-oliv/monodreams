@@ -374,32 +374,110 @@ Receive all six agent reports. Then:
      primitive instead of adding a new one.
    - **Low** — naming nits, doc updates, refactor opportunities,
      premise-text suggestions.
+4. **Assign unique IDs.** After classifying, sort findings by
+   severity (Blocker → High → Medium → Low) and assign sequential
+   IDs within each severity bucket: `B1`, `B2`, … for Blockers;
+   `H1`, `H2`, … for Highs; `M1`, `M2`, … for Mediums; `L1`, `L2`,
+   … for Lows. Each ID is a stable handle the user can reference
+   in follow-up conversation ("address B1 and H3, ignore the rest").
+   IDs must appear in the saved file, the summary table, and every
+   collapsed detail block.
 
 ---
 
-## Phase 4 — Present and route
+## Phase 4 — Save, present, and route
 
-Render the consolidated review as a single markdown block:
+### Phase 4a — Save to the canonical path (always, automatic)
 
-```
+Every run writes the review to a deterministic path so it survives
+the chat transcript and can be diffed across runs. **This save is
+the primary output of the skill — do it before showing anything to
+the user.**
+
+**Resolve the path components:**
+
+1. **`<org>/<repo>`** — parse from `git remote get-url origin`.
+   Strip the `git@github.com:` or `https://github.com/` prefix and
+   the trailing `.git`. Example:
+   `git@github.com:roo-oliv/monodreams.git` → `roo-oliv/monodreams`.
+   If no `origin` remote exists, fall back to the basename of the
+   repo root (`git rev-parse --show-toplevel`).
+2. **`<pr-or-branch>`** — depends on Phase 0 mode:
+   - PR mode → `pr-<n>` (e.g., `pr-22`).
+   - Branch mode → the branch name verbatim (slashes are fine in
+     paths; `ro/foo` becomes a nested directory and that's correct).
+   - Commit mode → `commit-<short-sha>` for the *reviewed* SHA.
+   - Local (no arg) mode → the current branch name from
+     `git rev-parse --abbrev-ref HEAD`.
+3. **`<commit-short-sha>`** — `git rev-parse --short HEAD` after the
+   Phase 0 checkout. If the working tree is dirty (any output from
+   `git status --porcelain`), append `-dirty` so re-runs against the
+   same HEAD don't overwrite each other when the diff differs.
+
+**Final path:**
+`/tmp/<org>/<repo>/deep-reviews/<pr-or-branch>/<commit-short-sha>-deep-review.md`
+
+**Write it:**
+
+1. `mkdir -p` the parent directory.
+2. Write the file with the **canonical review body** (see format
+   below). Use the `Write` tool, not `cat <<EOF`.
+3. If the file already exists, overwrite it — re-running the skill
+   against the same SHA should refresh, not append.
+
+After writing, your **first user-facing line** is exactly the saved
+path, e.g.:
+
+> Saved review to `/tmp/roo-oliv/monodreams/deep-reviews/pr-22/0924be1-deep-review.md`
+
+Do not echo the full review body into chat — the file is the
+artifact. Follow the path line with a one-line tally
+(`3 Blockers · 2 High · 5 Medium · 1 Low`) so the user knows the
+shape without opening the file, and then go straight to Phase 4b.
+
+### Canonical review body (the file's contents)
+
+```markdown
 # Deep review of <PR #N | branch <name> | commit <sha> | local changes>
 
 **Mode:** <pr/branch/commit/local>
 **Base:** <origin/main or <sha>~1>
+**Head:** <full-sha> (`<short-sha>`<, dirty if applicable>)
 **Files changed:** <count>
-**Lenses applied:** <list of 6 agents>
+**Lenses applied:** Adjacent-Code, System-Ordering, Component-Design, Cross-Domain, Premises/Test-Coverage, ECS-Purity
+
+## Summary
+
+| ID | Severity | Title | File |
+|----|----------|-------|------|
+| B1 | Blocker  | <short title> | `<path>:<line>` |
+| H1 | High     | <short title> | `<path>:<line>` |
+| M1 | Medium   | <short title> | `<path>:<line>` |
+| L1 | Low      | <short title> | `<path>:<line>` |
 
 ## Blockers
-<findings or "None.">
+
+### B1 — <title>
+
+**File:** `<path>:<line>`
+**What:** <what the change does>
+**Why it's a problem:** <which tenet/premise/contract it violates>
+**Suggested fix:** <concrete fix or "needs design discussion">
+**Caught by:** <which lens(es)>
+
+### B2 — …
 
 ## High
-<findings>
+
+### H1 — …
 
 ## Medium
-<findings>
+
+### M1 — …
 
 ## Low
-<findings>
+
+### L1 — …
 
 ## New premises proposed
 <from Agent 5 — premise-text drafts that the docs should record after the PR lands>
@@ -408,18 +486,134 @@ Render the consolidated review as a single markdown block:
 <from Agent 5 — `Tests: none yet` items the PR exercises>
 ```
 
-Then ask the user where to send it via `AskUserQuestion`:
+If a severity bucket is empty, render the heading followed by `None.`
+on its own line — don't omit the section, the IDs are easier to scan
+when the structure is uniform.
 
-- *(PR mode only)* **Post to GitHub** — `gh pr review <n> --comment
-  --body-file <tempfile>`. Confirm with the user before posting; the
-  comment is visible publicly.
-- **Copy to clipboard** — `pbcopy < <tempfile>` on macOS.
-- **Save to file** — at a path the user picks, default
-  `./deep-review-<timestamp>.md`.
-- **Nothing** — keep the review in chat only.
+### Phase 4b — Offer routing options
 
-If the user declines any action, the review still exists in the chat
-transcript for their reference.
+Once the file is written, ask the user via `AskUserQuestion` what to
+do next. Default to "nothing" — the file is the deliverable; further
+routing is opt-in.
+
+- *(PR mode only)* **Post to GitHub** — render the **GitHub-friendly
+  body** (see below) into a separate temp file under
+  `$CLAUDE_JOB_DIR` (or `/tmp` if unavailable), then
+  `gh pr review <n> --comment --body-file <tempfile>`. Confirm with
+  the user before posting; the comment is visible publicly.
+- **Copy to clipboard** — `pbcopy < <saved-path>` on macOS (copies
+  the canonical body, not the GitHub-friendly one — clipboards
+  usually feed back into editors, not back into GitHub).
+- **Open in editor** — `open <saved-path>` (macOS) for a quick read.
+- **Nothing** — the file already exists; the user can open it later.
+
+### GitHub-friendly body (only when posting)
+
+GitHub renders `<details>` blocks as native collapsibles. Use this to
+keep the posted comment scannable: the summary table is always
+visible, and each finding is one click to expand. **Do not post the
+canonical body to GitHub** — long flat reviews drown the PR thread.
+
+Structure:
+
+````markdown
+# Deep review — <PR #N> @ `<short-sha>`
+
+**Mode:** <pr/branch/commit/local> · **Base:** <base-ref> · **Files changed:** <count>
+**Tally:** <N> Blockers · <N> High · <N> Medium · <N> Low
+**Lenses:** Adjacent-Code · System-Ordering · Component-Design · Cross-Domain · Premises/Test-Coverage · ECS-Purity
+
+| ID | Severity | Title | File |
+|----|----------|-------|------|
+| B1 | 🔴 Blocker | <title> | `<path>:<line>` |
+| H1 | 🟠 High    | <title> | `<path>:<line>` |
+| M1 | 🟡 Medium  | <title> | `<path>:<line>` |
+| L1 | ⚪ Low     | <title> | `<path>:<line>` |
+
+## 🔴 Blockers
+
+<details>
+<summary><strong>B1</strong> — &lt;title&gt; · <code>&lt;path&gt;:&lt;line&gt;</code></summary>
+
+**What:** <what the change does>
+
+**Why it's a problem:** <tenet/premise/contract violated>
+
+**Suggested fix:**
+```<lang or text>
+<concrete fix snippet, or prose if no snippet fits>
+```
+
+**Caught by:** <lens(es)>
+</details>
+
+<details>
+<summary><strong>B2</strong> — …</summary>
+
+…
+</details>
+
+## 🟠 High
+
+<details>
+<summary><strong>H1</strong> — …</summary>
+
+…
+</details>
+
+## 🟡 Medium
+
+<details>
+<summary><strong>M1</strong> — …</summary>
+
+…
+</details>
+
+## ⚪ Low
+
+<details>
+<summary><strong>L1</strong> — …</summary>
+
+…
+</details>
+
+---
+
+<details>
+<summary><strong>New premises proposed</strong> (<N>)</summary>
+
+<premise drafts>
+</details>
+
+<details>
+<summary><strong>Premises now urgent</strong> (<N>)</summary>
+
+<list>
+</details>
+
+<sub>Generated by <code>/deep-review</code>. Full canonical review saved locally at <code>&lt;saved-path&gt;</code>.</sub>
+````
+
+Rules for the GitHub-friendly body:
+
+- The summary table is **never** collapsed — it's the at-a-glance
+  index the reviewer needs even before deciding what to expand.
+- Each finding is its own `<details>` block so the reader can expand
+  one at a time. Do **not** group multiple findings under one
+  collapsible — defeats the per-item reference purpose of the IDs.
+- The `<summary>` line always carries the ID (bold), the title, and
+  the file:line — enough to triage without expanding.
+- If a severity bucket is empty, **omit the entire section** (heading
+  and all). Empty sections in the canonical file aid scanning; in the
+  posted comment they're just noise.
+- Escape `<` and `>` inside `<summary>` lines as `&lt;` / `&gt;`
+  (GitHub's markdown parser inside `<summary>` is strict about
+  bare angle brackets).
+- Keep code fences inside `<details>` short (≤30 lines). If a fix is
+  longer, link to the saved canonical path instead.
+
+If the user declines any routing action, the saved file is still the
+deliverable — they can open or share it later.
 
 ---
 
