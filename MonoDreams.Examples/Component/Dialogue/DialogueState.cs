@@ -14,7 +14,6 @@ public class DialogueState
     public DialoguePhase CurrentPhase;
     public string? CurrentSpeaker;
     public bool WaitingForInput;
-    public bool InputConsumed;
 
     // Options state
     public List<string> CurrentOptions = [];

@@ -17,7 +17,6 @@ public class GameOverSystem(World world, Game game, BitmapFont font) : AEntitySe
 {
     private Entity _gameOverTextEntity;
     private bool _gameOverTextCreated;
-    private bool _restartKeyHeld;
 
     protected override void Update(GameState state, in Entity entity)
     {
@@ -53,14 +52,10 @@ public class GameOverSystem(World world, Game game, BitmapFont font) : AEntitySe
             }
         }
 
-        // Press any key to restart (manual edge detection — Pressed() with guard)
-        bool anyRestart = InputState.Jump.Pressed(state) || InputState.Right.Pressed(state) ||
-                          InputState.Interact.Pressed(state);
-        if (anyRestart && !_restartKeyHeld)
+        if (InputState.Jump.JustPressed() || InputState.Right.JustPressed() || InputState.Interact.JustPressed())
         {
             RestartRunner(entity);
         }
-        _restartKeyHeld = anyRestart;
     }
 
     private void CreateGameOverText()
@@ -90,9 +85,7 @@ public class GameOverSystem(World world, Game game, BitmapFont font) : AEntitySe
         runnerState.IsGameOver = false;
         runnerState.Score = 0;
         runnerState.IsGrounded = false;
-        runnerState.JumpHeld = false;
         runnerState.GameTime = 0;
-        _restartKeyHeld = true; // prevent re-triggering on same frame
 
         // Reset player position
         ref var transform = ref playerEntity.Get<Transform>();

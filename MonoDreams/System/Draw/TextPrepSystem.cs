@@ -29,7 +29,13 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AE
 
         if (text.VisibleCharacterCount <= 0 || string.IsNullOrEmpty(text.TextContent))
         {
-            return; // Nothing to draw
+            // Clear any stale text on the DrawComponent so MasterRenderSystem renders nothing this frame.
+            if (entity.Has<DrawComponent>())
+            {
+                var existing = entity.Get<DrawComponent>();
+                existing.Text = null;
+            }
+            return;
         }
 
         var layerDepth = text.LayerDepth;
