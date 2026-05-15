@@ -58,7 +58,8 @@ public class DialogueSystem : ISystem<GameState>
         var boxHeight = 120;
         var rootPosition = new Vector2(20, virtualHeight - boxHeight - 20);
         var textOffset = new Vector2(16, 16);
-        var indicatorOffset = new Vector2(boxWidth - 28, boxHeight - 24);
+        const int indicatorSize = 32;
+        var indicatorOffset = new Vector2(boxWidth - indicatorSize - 12, boxHeight - indicatorSize - 8);
 
         // Create root entity
         _rootTransform = new Transform(rootPosition);
@@ -132,7 +133,7 @@ public class DialogueSystem : ISystem<GameState>
         {
             SpriteSheet = indicatorTexture,
             Source = new Rectangle(0, 0, indicatorTexture.Width, indicatorTexture.Height),
-            Size = new Vector2(16, 16),
+            Size = new Vector2(indicatorSize, indicatorSize),
             Color = Color.White,
             Target = RenderTargetID.UI,
             LayerDepth = _layers.GetDepth(GameDrawLayer.DialogueUI, +0.01f)
@@ -450,6 +451,11 @@ public class DialogueSystem : ISystem<GameState>
     {
         if (_dialogueState.IndicatorEntity.Has<Visible>())
             _dialogueState.IndicatorEntity.Remove<Visible>();
+
+        // UI render target always renders regardless of Visible — clear the texture
+        // so MasterRenderSystem skips drawing the stale DrawComponent.
+        ref var indicatorDraw = ref _dialogueState.IndicatorEntity.Get<DrawComponent>();
+        indicatorDraw.Texture = null;
     }
 
     // --- Deactivation ---
