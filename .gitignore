@@ -81,3 +81,6 @@ bld/
 
 # Packages lock files (regenerated on restore)
 packages.lock.json
+
+# Worktrees
+.claude/worktrees/
