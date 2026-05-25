@@ -1,0 +1,395 @@
+I think monodreams is getting mature enough to split things and keep them organized as packages. Help me do that by defining which packages we'll provide. I've just quickly thought of having a dedicated package for 'rendering' (this would include the rendering systems, DrawComponent, Drawable, mesh vs Sprite), another for 'transform', another for 'camera', another for 'collision' (or would be two? SAT collision and AABB collision?), another for 'text' (or two? one for static text and another for dynamic revealing text?), another for basic physics? (like what we've implemented as rigidbody and gravity?) but that may conflict with collisions... but maybe not, a package can depend on another or multiple, like almost everything is dependant on 'transform' and on 'rendering' too... Another for dialogue using YarnSpinner, another for loading levels from Blender, another for loading levels from LDTk. (don't know if they should share a common base, feel free to offer your opinion). Oh, maybe one for UI? Like the buttons and layout... And another for the cursor.
+Take a good look at the project, specially the 3 levels available in MonoDreams.Examples and the docs. Discuss with me, use the AskUserQuestion tool, let's create a simple and elegant way to provide a good developer experience for one using MonoDreams to be able to quickly get their ideas live, adding a bunch of provided packages, easily writing their own custom logic, and mixing it togheter, but staying organized and productive.
+
+Notice I'm not talking about C# solutions or nuget packages, actually I want to provide an experience similar to python copier or js shadcn. Take into account this conversation for better context:
+> Rodrigo Oliveira:
+Estou pensando em fazer um framework opensource, mas a ideia é que seja bastante modular e customizável e a expectativa é que agentes de IA gerem boa parte do código por parte dos utilizadores do framework. Tradicionalmente, frameworks como Spring, fornecem pacotes com funcionalidades adicionais/modulares, como Spring Data, Spring Security, etc. Mas desta forma o pacote fica opaco, fechado, e customizações são feitas apenas através de extensões formais como base classes ou Kotlin extension functions. Existe algum padrão para um outro padrão de distribuição? Mais como se fossem git-modules, onde o utilizador herda o código-fonte. Talvez só o que exista seja a ideia de git submodules mesmo, mas queria saber o estado da arte disto e se há coisas novas surgindo neste espaço, em especial por conta de IA.
+—
+> Claude Opus 4.7:
+Sim, existe um padrão bem definido e é exatamente o que está virando estado da arte em frameworks AI-friendly: o **modelo shadcn** (também chamado de "Open Code" ou "code distribution"). Não é git submodule, é mais sofisticado.
+
+A ideia central: você não distribui pacote opaco via npm/PyPI. Distribui código-fonte que é **copiado** para o projeto do usuário via CLI. O usuário literalmente possui aquele código, modifica, versiona junto com o app. Tipo "vendoring intencional como first-class citizen".
+
+**Por que isso bate Spring-style para AI:**
+
+1. **Código visível ao agente.** Ele lê tudo no repo do usuário. Contrasta com herdar de classes base do Spring, onde o agente depende de conhecimento prévio ou tem que ler fontes externas.
+2. **Modificação direta.** Sem `extends`, `@Override`, ou extension functions só pra customizar. O agente edita o código in-place.
+3. **Sem indireção mágica.** Reflection, proxies, autoconfiguration são hostis pra LLM porque o comportamento não está visível no código.
+4. **Cada projeto vira único.** Não existe "versão do framework", existe "estado do código gerado".
+
+**Evolução importante: shadcn registry**
+
+shadcn começou só com componentes React, mas em 2024-2025 evoluiu pra um padrão genérico de distribuição. Qualquer um pode publicar uma `registry.json` (descreve arquivos, dependências, hooks de instalação) e a CLI resolve e copia. Funciona pra qualquer linguagem/framework. Arquitetura típica em três camadas:
+
+- **Core lib pequena** distribuída como package normal (primitivas, tipos, utilitários)
+- **Registry de blocks/recipes** com código copiável (handlers, integrações, padrões)
+- **CLI** que resolve dependências e copia arquivos
+
+Outros exemplos no mesmo padrão: Better Auth (TS), partes do Vercel AI SDK, Convex Components, Composio, e o ecossistema todo de "shadcn-style" registries (tremor, magicui, kibo-ui).
+
+**No mundo Python**
+
+Ainda é mais raro, mas existe:
+
+- **copier** (sucessor moderno do cookiecutter) é o que mais se aproxima. Crítico: suporta **updates** via `copier update` com merge de conflitos. É o ponto fraco do shadcn original resolvido desde a fundação.
+- **uv** tem `uv init --template` indo nessa direção.
+- FastAPI não tem oficial, mas a comunidade trabalha com repos "fastapi-best-practices" como template implícito.
+
+**O problema real do padrão (e onde IA muda o jogo)**
+
+O furo clássico: depois que copiei o código, como recebo updates upstream? Abordagens:
+
+1. Não recebe (shadcn original assumia isso, "é seu agora").
+2. Re-run da CLI com diff seletivo (shadcn moderno).
+3. Merge tooling de template (copier).
+
+IA muda isso fundamentalmente: o agente pode aplicar updates **semanticamente**, não textualmente. Você publica "migration notes" no registry ("renomeei `handleX` pra `processX`, mudou assinatura, aqui está a intenção") e o agente aplica no fork do usuário entendendo o contexto, não fazendo patch. Esse padrão ainda não tem nome consagrado mas tá sendo experimentado via Claude Code skills, Cursor rules, Continue.dev.
+
+**AI-native specifics pro teu framework**
+
+Coisas que valeria desenhar desde o início:
+
+- **AGENTS.md / llms.txt por bloco** no registry, com instruções de quando e como usar.
+- **Schemas estruturados** (JSON Schema ou similar) descrevendo o que cada módulo expõe, pro agente raciocinar sem ler todo código primeiro.
+- **MCP server oficial do framework** que expõe registry + docs + exemplos. Quando o usuário tá num agente, ele consulta na hora de gerar.
+- **Convenções fortes mas explicitamente documentadas em texto.** Rails-style, mas o "magic" tem que estar verbalizado pro agente.
+- **Decisões de design auditáveis no código gerado.** Comentários estratégicos do tipo "este handler usa X porque Y" ajudam o agente em refatorações futuras sem precisar reler docs.
+
+**Recomendação prática**
+
+Como referência arquitetural, estuda o `shadcn` CLI e o schema do `registry.json` deles (modelo é portável pra Python). Pra Python especificamente, considera usar `copier` como base e construir um CLI por cima, ou inspirar-se nele. O update story do copier resolve um problema que o shadcn ainda apanha.
+
+Se quiser, posso entrar em algum aspecto específico. O que muda bastante a recomendação é o domínio: framework web genérico, agentic AI runtime, data pipelines, etc. Cada um tem trade-offs diferentes na granularidade do que é "block".
+—
+> Rodrigo Oliveira:
+Meu framework é em C#, construído em cima de MonoGame. Qual o melhor caminho pra mim? Algo custom mesmo com instruções pros agentes de AI? Pois shadcn é mais para o ecossistema js, certo?
+—
+> Claude Opus 4.7:
+Correto, shadcn é JS-first e não tem port equivalente em C# com tração. Mas o **padrão** é portável e o C# tem peças melhores que o JS pra construir isso — só ninguém montou ainda no contexto MonoGame. Caminho recomendado:
+
+**Stack base: custom CLI por cima de `dotnet new` templates**
+
+Não reinvente o copy/diff. O template engine do .NET (`Microsoft.TemplateEngine`) é surpreendentemente capaz e subutilizado:
+
+- Parameter substitution, conditionals, file renaming
+- **Post-actions** (rodar comandos, instalar pacotes, modificar .csproj)
+- Integra com MSBuild nativamente
+- Suporta múltiplos templates num único pacote
+- Distribuído via NuGet (`dotnet new install YourFramework.Templates`)
+
+Sua CLI seria um **.NET global tool** (`dotnet tool install -g yourframework`), análogo direto ao `npx shadcn`. Wrappa o template engine pra adicionar a parte de registry/discovery que falta nele.
+
+**Arquitetura recomendada (três camadas, igual shadcn moderno):**
+
+1. **Core NuGet thin** — só o que precisa ser estável e opaco: interfaces, contratos, tipos base que não mudam (ex: `IGameSystem`, `IComponent`, abstrações de loop). Versionado normal via NuGet.
+
+2. **Registry de blocks** — código copiado. Aqui mora a carne: ECS implementations, scene managers, input handlers, dialogue systems, save systems, shader templates, content pipeline extensions. Cada block é um diretório com `block.json` (manifest) + arquivos `.cs` + opcionalmente `.mgcb` entries + shaders.
+
+3. **CLI** — resolve dependências entre blocks, copia arquivos, modifica `.csproj` e `.mgcb`, roda post-actions.
+
+**Peças C#-específicas que ajudam:**
+
+- **Roslyn source generators** pra boilerplate previsível (registro de sistemas, serialização de components). Trade-off: gera código invisível, hostil pra IA. Use com parcimônia — só pra coisas que o usuário nunca vai querer customizar.
+- **Roslyn analyzers** distribuídos com o core pra catch erros de uso comum (ex: "system X precisa ser registrado depois de Y").
+- **MSBuild `.targets`/`.props`** pra integração com content pipeline. Cada block pode injetar entries no `.mgcb` via target.
+- **C# 12+ primary constructors, records, collection expressions** deixam o código gerado mais limpo e idiomático pra IA produzir.
+
+**Especificidades MonoGame que você tem que resolver no design:**
+
+- **Content pipeline (.mgcb)** — blocks que trazem assets precisam modificar o pipeline. Decida cedo: macro no .csproj, post-action da CLI, ou MSBuild target customizado. Recomendo MSBuild target — o agente vê isso no arquivo e entende.
+- **Platform targets** (DesktopGL, WindowsDX, iOS, Android) — blocks podem ter implementações por plataforma. Use convenção de pasta (`Platforms/DesktopGL/`) com MSBuild conditional includes, em vez de #if. Mais legível pro agente.
+- **Shaders (.fx, .hlsl)** — distribua como source, com instruções de compilation no manifest do block. O conteúdo de shaders é onde IA mais erra; deixe explícito.
+- **Game loop e ordering** — explicite a ordem dos sistemas em código (lista declarativa), não em ordem de registro implícita. Agente precisa ver a ordem.
+
+**AI-native (e aqui você ganha muito porque o terreno tá vazio em game dev):**
+
+- `AGENTS.md` no root do template inicial, mais um `AGENTS.md` por block descrevendo intenção, integration points, gotchas.
+- **MCP server** em C# (existe SDK oficial Anthropic agora, e o `ModelContextProtocol` NuGet) que expõe registry, docs e exemplos. Crítico em game dev porque IA tem muito menos exposição a MonoGame que a React.
+- **Schema explícito por block** (JSON Schema) descrevendo inputs, outputs, eventos publicados/consumidos. Agente raciocina sobre composição sem ler todo código.
+- **Exemplos canônicos por block** — pelo menos um "este block aplicado a um pong" ou similar. IA aprende muito por exemplo em domínios menos representados no corpus.
+- **Comentários estratégicos no código gerado** indicando pontos de customização esperados vs. invariantes. Marque com convenção (`// CUSTOMIZE:` vs `// INVARIANT:`) — agente respeita.
+
+**Prior art relevante pra estudar:**
+
+- **Nez** e **MonoGame.Extended** — como NÃO fazer (opacos via NuGet, mas vale ler como organizam módulos)
+- **Microsoft.TemplateEngine** docs e o código do `dotnet new` em si
+- **shadcn registry schema** (a estrutura do `registry.json`) — pra portar pra C#
+- **copier** (Python) — pelo update story; vale ver como eles resolvem merge de updates upstream, porque você vai bater nesse mesmo problema
+
+**Recomendação concreta de primeiro passo:**
+
+Antes de escrever framework: monte um único block "hello-world" (ex: um ECS minimal) distribuído via `dotnet new` + um `AGENTS.md` bem escrito, e teste num projeto MonoGame com Claude Code/Cursor gerando um pequeno jogo em cima. Você vai descobrir rápido onde a IA tropeça — invariavelmente em content pipeline e platform targets — e isso vira input pra arquitetura do registry. Construir o registry/CLI antes de validar o "block experience" é o caminho clássico pra retrabalhar tudo.
+
+Quer que eu detalhe alguma dessas partes? O design do `block.json` manifest e a integração com `.mgcb` costumam ser os pontos onde decisões cedo travam o framework depois.
+
+---
+
+Setup tasks so you promote and then create the registry and the monodreams CLI dotnet tool. We'll test the whole thing in this branch.
+
+---
+
+Kick it off
+
+---
+
+[Request interrupted by user]
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   The user is building MonoDreams, an opensource 2D game engine on MonoGame + DefaultEcs ECS. They want to convert it to a **shadcn-style code distribution model** — users own copied source via a CLI rather than referencing opaque NuGet packages — to maximize AI-agent visibility/editability of the code.
+   
+   The journey:
+   1. Define the package set (15 blocks) — DONE in plan file `/Users/rodrigooliveira/.claude/plans/i-think-monodreams-is-velvet-hearth.md`
+   2. Set up tasks to: (a) promote polished Examples-side files into core, (b) create the registry of block.json manifests, (c) build the monodreams CLI dotnet global tool, (d) end-to-end test the whole thing in this branch
+   3. Execute: promotions first (Tasks 1-5), then registry (6-7), CLI (8-10), E2E test (11)
+   
+   User explicitly said: "Setup tasks so you promote and then create the registry and the monodreams CLI dotnet tool. We'll test the whole thing in this branch."
+   
+   Then: "Kick it off"
+
+2. Key Technical Concepts:
+   - **shadcn/copier-style code distribution** — CLI copies source files into user projects; users own and modify
+   - **15-block package layout**: foundation, rendering, rendering-mesh, rendering-text, text-dynamic-reveal, camera, physics, collision, level-loading, level-ldtk, level-blender, ui, cursor, dialogue, debug
+   - **MonoGame 3.8.4** content pipeline (MGCB), .NET 8.0
+   - **DefaultEcs 0.18.0-beta01** ECS framework
+   - **YarnSpinner 3.0.2** + YarnSpinner.Compiler for dialogue, CsvHelper 31.0.4 for localization
+   - **Core has no implicit usings** — explicit `using System; using System.Collections.Generic; using System.Linq;` required when moving from Examples to core
+   - **Namespace shadow** — `MonoDreams.System` shadows .NET `System`, requiring `global::System.X` qualifications
+   - **Engine layering invariant** — core MUST NOT import `MonoDreams.Examples.*`
+   - **AInputState** (core type at `MonoDreams.Input.AInputState`) provides JustPressed/Pressed/Consume API
+   - **EntityInfo** is string-typed in core; Examples has its own EntityType enum
+   - **DrawComponent** is unified render component (Type enum: Sprite/Text/NinePatch/Mesh)
+   - **dotnet global tool** properties: `<PackAsTool>true</PackAsTool>`, `<ToolCommandName>monodreams</ToolCommandName>`
+   - **System.CommandLine** chosen for CLI argument parsing
+   - **Content pipeline dynamic loading**: needs `EnableDynamicLoading`, `GenerateRuntimeConfigurationFiles`, `CopyLocalLockFileAssemblies` properties on csproj that ships importers/processors/writers
+   - **MGCB additional args** in MonoDreams.Examples.csproj reference DLLs containing content pipeline types
+
+3. Files and Code Sections:
+
+   - `/Users/rodrigooliveira/.claude/plans/i-think-monodreams-is-velvet-hearth.md`
+     - The approved plan with full 15-block definition, dependency graph, repo structure proposal, composition examples
+     - Repo structure target:
+       ```
+       MonoDreams/                  ← engine library (single source of truth)
+       registry/                    ← NEW: block manifests
+         foundation/block.json
+         rendering/block.json
+         ...
+       MonoDreams.Examples/         ← canonical demo
+       MonoDreams.Tests/
+       Tools/
+       docs/
+       ```
+     - Block.json schema fields planned: name, description, dependencies, nugetDependencies, files (source/destination pairs), mgcbEntries, postInstallNotes, agentsMd
+   
+   - `MonoDreams/MonoDreams.csproj` (modified)
+     - Added: `YarnSpinner` 3.0.2, `YarnSpinner.Compiler` 3.0.2, `CsvHelper` 31.0.4
+     - Removed: `Facebook.Yoga` 1.5.0-pre1
+     - Added properties: `<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>`, `<EnableDynamicLoading>true</EnableDynamicLoading>`, `<GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>`
+     - Already had: MonoGame.Framework.DesktopGL, LDtkMonogame, MonoGame.Extended, content pipeline NuGets
+   
+   - `MonoDreams.Examples/MonoDreams.Examples.csproj` (modified)
+     - Removed: `<ProjectReference Include="..\MonoDreams.YarnSpinner\MonoDreams.YarnSpinner.csproj" />`
+     - Removed: `Facebook.Yoga`, `YarnSpinner`, `YarnSpinner.Compiler` PackageReferences
+     - Updated MGCB args: `/reference:$(MSBuildThisFileDirectory)../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll` (was `MonoDreams.YarnSpinner.dll`)
+   
+   - `monodreams.sln` (modified)
+     - Removed `MonoDreams.YarnSpinner` project entries (FAE04EC0 declaration + F9285C13 configuration platforms)
+     - Remaining projects: MonoDreams, MonoDreams.Tests, MonoDreams.Examples
+   
+   - `MonoDreams/UI/` — 13 files moved from Examples, namespace `MonoDreams.UI`:
+     - LayoutNode.cs (was FlexLayoutNode in Examples, renamed; pure C# flexbox, no Yoga dep)
+     - AutoLayoutBuilder.cs, ContainerBuilder.cs, SlotBuilder.cs, LayoutEnums.cs, ButtonStyle.cs
+     - LayoutSlot.cs, UIElement.cs (ScreenAnchor enum), SimpleButton.cs
+     - AutoLayoutSystem.cs, IntrinsicSizingSystem.cs, LayoutDebugSystem.cs, ButtonMeshPrepSystem.cs
+   
+   - `MonoDreams/Dialogue/` — 13 files, namespace `MonoDreams.Dialogue`:
+     - DialogueRunner.cs, InMemoryVariableStorage.cs, DialogueState.cs (with DialoguePhase enum)
+     - DialogueStartMessage.cs, DialogueActiveMessage.cs (moved from Examples.Message)
+     - DialogueSystem.cs (heavily refactored — see below)
+     - YarnProgram.cs, YarnTranslation.cs, YarnSpinnerFile.cs, YarnSpinnerReader.cs, YarnSpinnerImporter.cs, YarnSpinnerProcessor.cs, YarnSpinnerWriter.cs (folded from MonoDreams.YarnSpinner project)
+   
+   - `MonoDreams/Dialogue/DialogueSystem.cs` (rewritten)
+     - New constructor signature:
+       ```cs
+       public DialogueSystem(
+           World world,
+           Texture2D dialogBoxTexture,
+           BitmapFont font,
+           Texture2D indicatorTexture,
+           int virtualWidth,
+           int virtualHeight,
+           float layerDepth,
+           AInputState interact,
+           AInputState up,
+           AInputState down,
+           YarnProgram[] yarnPrograms,
+           string entityInfoType = "Dialogue")
+       ```
+     - Removed `OnCollision` handler (replaced by Examples-side `ZoneDialogueTriggerSystem`)
+     - All `InputState.X.JustPressed()` → `_X.JustPressed()`
+     - All `_layers.GetDepth(GameDrawLayer.DialogueUI)` → `_layerDepth` (with `+0.01f` for overlay)
+     - All `nameof(EntityType.Interface)` → `_entityInfoType`
+     - All `System.Diagnostics.Debug.WriteLine` → `global::System.Diagnostics.Debug.WriteLine` (namespace shadow)
+   
+   - `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs` (new file)
+     - Replaces the removed `OnCollision` handler
+     - ```cs
+       public class ZoneDialogueTriggerSystem : ISystem<GameState>
+       {
+           [Subscribe]
+           private void OnCollision(in CollisionMessage message)
+           {
+               if (message.Type != CollisionType.Dialogue) return;
+               var zoneEntity = message.CollidingEntity;
+               if (!zoneEntity.Has<DialogueZoneComponent>()) return;
+               var zone = zoneEntity.Get<DialogueZoneComponent>();
+               if (!zone.AutoStart) return;
+               if (zone.OneTimeOnly && zone.HasBeenTriggered) return;
+               zone.HasBeenTriggered = true;
+               _world.Publish(new DialogueStartMessage(zoneEntity, zone.YarnNodeName));
+           }
+       }
+       ```
+   
+   - `MonoDreams/Cursor/Cursor.cs` (moved from Examples/Objects/, namespace `MonoDreams.Cursor`)
+     - Helper `Cursor.Create(world, cursorTextures, renderTarget, initialType)` static method
+     - Adds CursorController, CursorInput, Transform, DrawComponent, CursorTextures components
+   
+   - `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` (modified)
+     - Added `using MonoDreams.UI;`, `using MonoDreams.Dialogue;`, `using MonoDreams.Util;`
+     - Updated DialogueSystem instantiation site (lines 288-308) with new signature, loads assets before constructing
+     - Added `new ZoneDialogueTriggerSystem(_world)` to pipeline
+     - Changed `Objects.Cursor.Create` → `MonoDreams.Cursor.Cursor.Create`
+   
+   - `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` (modified)
+     - Added `using MonoDreams.UI;`, changed Objects.Cursor → MonoDreams.Cursor.Cursor
+   
+   - `MonoDreams.Examples/System/NPCInteractionSystem.cs` (modified)
+     - Added `using MonoDreams.Dialogue;` for DialogueStartMessage/DialogueActiveMessage which moved
+   
+   - `MonoDreams.Examples/System/MovementSystem.cs` (modified)
+     - Added `using MonoDreams.Dialogue;`
+   
+   - `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs` (stayed in Examples, modified imports)
+     - Added `using MonoDreams.UI;` since SimpleButton moved
+     - Couples to game-specific `LevelSelector` and `ScreenTransitionRequest` so couldn't be promoted
+   
+   - DELETED files (dead Yoga code in core):
+     - `MonoDreams/Component/LayoutNode.cs`, `MonoDreams/System/LayoutSystem.cs`, `MonoDreams/System/SizeSystem.cs`
+     - `MonoDreams/Size.cs`, `MonoDreams/Message/SizeChangeMessage.cs`
+     - `MonoDreams/Extensions/ECS/LayoutExtensions.cs` (and empty ECS dir)
+   
+   - DELETED directory: `MonoDreams.YarnSpinner/` (entire project folded into MonoDreams/Dialogue/)
+   - DELETED empty Examples dirs: Layout/, Component/Layout/, Component/UI/SimpleButton.cs (file moved), System/Layout/, Objects/
+   
+   - `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs` (new) — smoke test for LDtk Level_0, passes
+   - Existing tests: BlenderLevelTests, InfiniteRunnerTests, SAT collision tests — 26 pass
+   
+   - `MonoDreams/Draw/IMeshGenerator.cs` (NOT modified, already in core)
+     - Contains: IMeshGenerator interface, CircleMeshGenerator, LineMeshGenerator, RectangleOutlineMeshGenerator, FilledRectangleMeshGenerator, GradientPathMeshGenerator, CompositeMeshGenerator
+     - These were thought to be in Examples but were already promoted
+
+4. Errors and fixes:
+   - **Dead Yoga code conflict**: Found Yoga-based LayoutNode/LayoutSystem in core was dead. Asked user — they chose "Delete dead code, rename FlexLayoutNode → LayoutNode".
+   - **ButtonInteractionSystem coupling**: Found it hard-coupled to LevelSelector (game logic). Kept it in Examples instead of promoting; only promoted ButtonMeshPrepSystem.
+   - **DialogueSystem coupling**: Heavy coupling to Examples (EntityType, GameDrawLayer, InputState, messages, DialogueZoneComponent). Asked user — they chose "Refactor + promote (Recommended)". Refactored constructor to take pre-loaded assets and AInputState bindings.
+   - **Missing System.Collections.Generic**: ButtonMeshPrepSystem.cs, DialogueRunner.cs, DialogueState.cs, InMemoryVariableStorage.cs, Cursor.cs failed to find `List<>`/`Dictionary<,>` after move. Fixed by adding explicit `using System.Collections.Generic;` (core has no implicit usings per CLAUDE.md memory).
+   - **Missing System.IO/System.Linq**: YarnSpinnerProcessor.cs and YarnSpinnerImporter.cs needed `using System.IO;`, `using System.Linq;`, `using System;`
+   - **System namespace shadow**: `System.Diagnostics.Debug.WriteLine` resolved to `MonoDreams.System.Diagnostics` (doesn't exist). Fixed via sed: `global::System.Diagnostics.Debug.WriteLine` (5 sites in DialogueSystem.cs)
+   - **bash cwd persistence trap**: After `cd MonoDreams/UI`, next `cd MonoDreams/UI` failed because cwd was already inside it. Switched to absolute paths.
+   - **Edit-needs-Read**: After `mv` of files, Edit tool required Read first. Pattern: Read before Edit when modifying just-moved files.
+   - **Yoga ref residue**: After removing from MonoDreams.csproj, Examples csproj still had `<PackageReference Include="Facebook.Yoga" />` — removed too.
+   - **YarnSpinner content pipeline cascade**: "Failed to create importer 'YarnSpinnerImporter'" errors appeared when C# compile failed first; resolved once C# errors fixed.
+
+5. Problem Solving:
+   - Designed surgical promotion that preserves engine layering (core never imports Examples).
+   - Used `mv` + sed + Edit pattern for file moves (preserves history-like operations, respects user's permission caching preference per memory).
+   - Solved the DialogueSystem coupling without breaking levels by introducing `ZoneDialogueTriggerSystem` in Examples to publish DialogueStartMessage on collision (replacing what OnCollision did inside DialogueSystem).
+   - Validated via: full build (0 errors), test suite (26 pre-existing + 1 new = 27 tests pass), LDtkLevelTests for the previously untested level.
+
+6. All user messages:
+   - Initial: "I think monodreams is getting mature enough to split things and keep them organized as packages. Help me do that by defining which packages we'll provide..." (long initial request with shadcn/copier reference and prior conversation pasted in)
+   - "Setup tasks so you promote and then create the registry and the monodreams CLI dotnet tool. We'll test the whole thing in this branch."
+   - "Kick it off"
+   - Answers via AskUserQuestion:
+     - Foundation: "Single 'starter' block (Recommended)"
+     - Rendering: "One 'rendering' block, additive prep sub-blocks (Recommended)"
+     - Level loading: "Common base + LDtk + Blender (Recommended)"
+     - Promotions: "UI/Layout block, Dialogue block (YarnSpinner), Cursor enhancement"
+     - Dead Yoga: "Delete dead code, rename FlexLayoutNode → LayoutNode (Recommended)"
+     - DialogueSystem coupling: "Refactor + promote (Recommended)"
+   - System reminders about TaskCreate/TaskUpdate appeared throughout but were informational
+   
+   No security-relevant instructions, sensitive file restrictions, or credential rules were stated by the user during this session.
+
+7. Pending Tasks:
+   - Task #5: Verify promotions — IN PROGRESS, all verification complete (build clean, 27 tests pass, all 3 example levels covered by tests). Ready to mark complete.
+   - Task #6: Design block.json manifest schema — design fields, write JSON Schema at `registry/block.schema.json`, fully worked example with `cursor` block, document in `registry/README.md`
+   - Task #7: Author all 15 block.json manifests under `registry/<block>/block.json` + `registry/index.json` (blocked by 5, 6)
+   - Task #8: Scaffold `MonoDreams.Cli/MonoDreams.Cli.csproj` as dotnet global tool with System.CommandLine, subcommands `init`/`add`/`list`, `--registry <path>` flag for local dev
+   - Task #9: Implement `monodreams init [project-name]` — scaffold MonoGame project, add DefaultEcs, install foundation block, create stub Program.cs, write monodreams.json (blocked by 7, 8)
+   - Task #10: Implement `monodreams add <block>` — load manifest, resolve transitive deps, copy files, inject csproj/mgcb entries, record in monodreams.json. Plus `monodreams list` (blocked by 7, 8)
+   - Task #11: End-to-end test — gitignored `.sandbox/`, regenerate InfiniteRunner via CLI, verify it builds + runs headless (blocked by 9, 10)
+
+8. Current Work:
+   Immediately before this summary request, I had just completed Task #5 verification:
+   - Built clean (0 errors, 52 warnings all pre-existing)
+   - Ran full test suite: 26 tests pass
+   - Wrote `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs` to cover the previously-untested LDtk Level_0:
+     ```cs
+     public class LDtkLevelTests
+     {
+         [Fact]
+         public async Task LDtkLevelLoadsSuccessfully()
+         {
+             var result = await GameTestRunner.RunAsync(new InputReplayPlan
+             {
+                 StartLevel = "Level_0",
+                 Description = "Load LDtk Level_0 and exit",
+                 Commands = new List<InputReplayCommand>
+                 {
+                     new() { Action = "Exit", Type = "press",   Time = 1.0f },
+                     new() { Action = "Exit", Type = "release", Time = 1.1f },
+                 }
+             });
+             Assert.Equal(0, result.ExitCode);
+             result.AssertLogContainsInOrder("Replay complete. Exiting game.");
+         }
+     }
+     ```
+   - Ran `dotnet test --filter "FullyQualifiedName~LDtkLevelTests"` — 1 passed
+   - All 3 example levels now covered: Level 1 (Level_0/LDtk) by new test, Level 2 (Blender_Level) by BlenderLevelTests, Level 3 (InfiniteRunner) by InfiniteRunnerTests
+   
+   Task #5 is functionally complete — just needs `TaskUpdate` to mark `completed`. The next active task in the sequence (and the focus of the upcoming compaction-driven work) is Task #6: Design block.json manifest schema.
+
+9. Optional Next Step:
+   Mark Task #5 as completed, then start Task #6 (Design block.json manifest schema) per the user's earlier sequencing directive: "Setup tasks so you promote and then create the registry and the monodreams CLI dotnet tool. We'll test the whole thing in this branch."
+   
+   Task #6 description (verbatim from earlier setup): "Define the structure of `block.json` for a single block. Required fields: `name` (kebab-case), `description` (one line, shown by `monodreams list`), `dependencies` (list of other block names), `nugetDependencies` (PackageReference entries to inject into csproj), `files`: list of `{ source, destination }` pairs (source = path in the engine repo; destination = path relative to user project root), `mgcbEntries` (optional, for blocks that ship Content pipeline entries), `postInstallNotes` (a markdown string to print to the user after install — guides AI agents too), `agentsMd` (optional, path to a per-block AGENTS.md snippet). Write one fully-worked example (the `cursor` block — small, isolated, good showcase) and a JSON Schema (`registry/block.schema.json`) for validation. Document in `registry/README.md`."
+   
+   Concretely: (a) `TaskUpdate` task #5 to completed, (b) `TaskUpdate` task #6 to in_progress, (c) create `registry/README.md` with schema doc, (d) create `registry/block.schema.json` with JSON Schema, (e) create `registry/cursor/block.json` as worked example pointing at the recently-promoted `MonoDreams/Cursor/Cursor.cs` plus the existing `MonoDreams/Component/Cursor/*.cs` and `MonoDreams/System/Cursor/*.cs` files.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+Carry on with the planned tasks
+
+---
+
+Now, just for me to be sure about this architecture, just discuss with/explain to me: why registry's block.json stays in a separate folder from each block source code? At a first glance I fear drift: the source code start to stay out of sync with the actual files and folders in MonoDreams/, wouldn't a more explicit blocks division in the source code and accompaining block.json file make this tighter and easily organizable?
+
+---
+
+Do it now
+
+---
+
+1. Let's apply some naming conventions, systems I believe all already follow this: suffix file/class names with *System. The same for components: *Component (most components don't follow this), this way just by reading the files from some block you know at a glance which systems and components it has.
+2. Update the root README.md, or even just rewrite it, the focus should now be the end user (the gamedev), and we can have a separate .md file for those who want to contribute to the project instructing how to build it and stuff
