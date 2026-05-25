@@ -52,4 +52,4 @@ Default-constructed `DynamicTextComponent` has `VisibleCharacterCount = 0`, whic
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants for this block (BitmapFont vs SpriteFont, static-label saturation requirement, update→prep order)
-- Related blocks: `rendering` (the renderer), `text-dynamic-reveal` (reserved block for the eventual static/animated split; today the animation logic lives here), `dialogue` (uses `DynamicTextComponent` for its dialogue-line reveal)
+- Related blocks: `rendering` (the renderer; provides `DrawComponent` and the prep-system base class), `dialogue` (uses `DynamicTextComponent` for its dialogue-line reveal)

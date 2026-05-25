@@ -3,7 +3,8 @@
 > Technical invariants the engine assumes about the rendering pipeline:
 > `DrawComponent`, `SpriteInfoComponent`, `VisibleComponent`, the
 > `Camera` class, render targets, `CullingSystem`, `SpritePrepSystem`,
-> `YSortSystem`, `MasterRenderSystem`, and `FinalDrawSystem`. Read this
+> `YSortSystem`, `MasterRenderSystem`, `FinalDrawSystem`, plus the mesh
+> primitives (`IMeshGenerator`, `MeshData`, `MeshPrepSystem`). Read this
 > before changing any of those pieces or any system that produces draw
 > data downstream.
 
@@ -177,6 +178,68 @@ frame where culling, layout, and rendering disagree.
 **Tests:** none yet.
 **Depends on:** —
 
+## `IMeshGenerator.Generate()` returns a triangle list
+
+All canonical generators (`CircleMeshGenerator`, `LineMeshGenerator`,
+`RectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`,
+`GradientPathMeshGenerator`, `CompositeMeshGenerator`) return `MeshData`
+whose indices describe a triangle list — every triple of indices is one
+triangle. `MasterRenderSystem` invokes `DrawUserIndexedPrimitives` with
+`PrimitiveType.TriangleList`.
+
+**Why:** triangle lists are the lowest common denominator for the
+`BasicEffect` path. Triangle strips or fans would require per-shape
+metadata about which primitive type to use, and would multiply the
+render path's branching.
+**Breaks:** a custom generator that emits a triangle strip without
+setting `DrawComponent.PrimitiveType` correctly produces garbled
+geometry — the renderer interprets the indices as a list and draws
+random triangles between them.
+**Tests:** none yet.
+**Depends on:** —
+
+## `MeshPrepSystem` writes the world matrix once per frame
+
+`MeshPrepSystem` reads `TransformComponent.WorldMatrix` and writes it
+into `DrawComponent.WorldMatrix` for every entity with `Type = Mesh`.
+This must happen after `HierarchySystem` propagates dirty flags and
+before `MasterRenderSystem` reads the matrix to bind it to
+`BasicEffect.World`.
+
+**Why:** meshes render in world space — their vertex positions are
+the geometry's local-space layout, and the world matrix transforms
+them to where the entity is. Reading `TransformComponent.WorldMatrix`
+in `MasterRenderSystem` directly would couple the renderer to the
+transform; staging through `DrawComponent` keeps the renderer
+agnostic.
+**Breaks:** running `MeshPrepSystem` before `HierarchySystem` produces
+meshes positioned by last frame's parent transform (one-frame lag on
+parented meshes). Running it after `MasterRenderSystem` is too late —
+the renderer uses the previous frame's world matrix.
+**Tests:** none yet.
+**Depends on:** foundation — "`HierarchySystem` must run ahead of any
+system reading WorldPosition"; "Rendering systems run last in the
+pipeline" (above).
+
+## `CompositeMeshGenerator` rebases indices into the combined buffer
+
+When `CompositeMeshGenerator.Generate()` walks its sub-generators, it
+adds each sub-mesh's vertices to a combined vertex list and adds
+`indexOffset` to each sub-mesh's indices before appending to the
+combined index list. A sub-generator returning indices that already
+reference the combined buffer's range would draw the wrong triangles.
+
+**Why:** composability is the design goal — a button outline + label
+backdrop + glow can be one mesh entity. The rebase invariant is what
+makes "just add another generator" work without per-generator
+coordination.
+**Breaks:** a custom generator that returns indices unrelated to its
+own vertex buffer (e.g. via a stale cached array) corrupts the
+composite's geometry. The bug manifests as visible triangles between
+unrelated parts of the composite.
+**Tests:** none yet.
+**Depends on:** —
+
 ## Open questions
 
 - **Same-Y flicker in practice** — has this surfaced? If so, the
@@ -187,6 +250,14 @@ frame where culling, layout, and rendering disagree.
   settled convention.
 - **`DrawElement` cache invalidation** — what happens if a prep system
   mutates `SpriteInfoComponent` after the draw queue was built?
+- **Texturing meshes** — `MeshData` carries `VertexPositionColor`
+  vertices; there's no `VertexPositionTexture` path. Whether to add one
+  (and how it interacts with the SpriteBatch-based sprite path) is open.
+- **Mesh culling extents** — meshes get `VisibleComponent` from
+  `CullingSystem` based on `TransformComponent.WorldPosition` against
+  the camera bounds. A mesh's actual extents (computed from its
+  vertices) might lie outside the position's frustum, causing visible
+  pop-out at edges. No bounding-box-from-vertices logic exists today.
 
 ## Aspirational direction
 
@@ -194,6 +265,11 @@ frame where culling, layout, and rendering disagree.
   easy-to-miss tag).
 - Render targets become more configurable — custom post-processing
   passes, shader effects, multiple Main targets for split-screen.
+- A `MeshTransformBatcher` that combines static meshes sharing a layer
+  depth into a single submission, cutting `BasicEffect` draw calls.
+- Per-vertex texture-coordinate support so meshes can sample sprite
+  atlases (would let the dialogue indicator or UI nine-patches be a
+  mesh rather than a `SpriteBatch` ninepatch).
 
 ## Follow-up debt
 
@@ -209,6 +285,9 @@ The following premises currently have **Tests: none yet**:
 - Layer-depth ownership pipeline
 - Y-sort tiebreaker is parent-child bias only
 - `Camera.VirtualResolution` is immutable
+- `IMeshGenerator.Generate()` returns a triangle list
+- `MeshPrepSystem` writes the world matrix once per frame
+- `CompositeMeshGenerator` rebases indices into the combined buffer
 
 Architectural tests for ECS-purity premises (no parallel render systems,
 no game `SpriteBatch` calls, `VisibleComponent` not added outside

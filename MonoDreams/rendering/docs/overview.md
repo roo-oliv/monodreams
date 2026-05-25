@@ -1,10 +1,10 @@
 # rendering — overview
 
-The sprite-first draw stack: one `DrawComponent` per entity, three render targets (Main / UI / HUD), explicit culling and Y-sort stages, and a single renderer (`MasterRenderSystem`) that owns every `SpriteBatch` call. Install this for any game that draws anything.
+The unified draw stack: one `DrawComponent` per entity (Sprite / Text / NinePatch / Mesh), three render targets (Main / UI / HUD), explicit culling and Y-sort stages, and a single renderer (`MasterRenderSystem`) that owns every draw call. Ships both the sprite path and the procedural-mesh primitives (`IMeshGenerator`, `MeshData`, `MeshPrepSystem`). Install this for any game that draws anything.
 
 ## Purpose
 
-This block defines how things appear on screen. It owns the entire draw path — `SpriteBatch` is hidden behind `MasterRenderSystem`, batch ordering and render-target switches are centralized, and per-entity visibility is a derived tag (`VisibleComponent`) maintained by `CullingSystem`. The block also ships the `Camera` class itself, because the draw stack reads `camera.ViewMatrix` every frame — making `Camera` a hard dependency of rendering rather than an optional add-on. Without this block, nothing renders; everything else that draws (mesh shapes, text, cursor, dialogue UI) extends this stack rather than parallels it.
+This block defines how things appear on screen. It owns the entire draw path — `SpriteBatch` and `BasicEffect` are both hidden behind `MasterRenderSystem`, batch ordering and render-target switches are centralized, and per-entity visibility is a derived tag (`VisibleComponent`) maintained by `CullingSystem`. The block also ships the `Camera` class itself, because the draw stack reads `camera.ViewMatrix` every frame — making `Camera` a hard dependency of rendering rather than an optional add-on. Mesh primitives ship in this block too: `DrawComponent` carries the mesh fields (`Vertices`, `Indices`, `WorldMatrix`) directly, so procedural shapes can't be separated from rendering without circularity. Without this block, nothing renders; everything else that draws (text, cursor, dialogue UI) extends this stack rather than parallels it.
 
 ## What ships
 
@@ -20,11 +20,17 @@ This block defines how things appear on screen. It owns the entire draw path —
 ### Systems
 
 - `SpritePrepSystem` — copies `SpriteInfoComponent` + `TransformComponent` into `DrawComponent` each frame
+- `MeshPrepSystem` — invokes each mesh entity's `IMeshGenerator`, copies the resulting `MeshData` + `TransformComponent.WorldMatrix` into `DrawComponent`
 - `CullingSystem` — adds/removes `VisibleComponent` based on camera view bounds (Main target only)
 - `YSortSystem` — writes layer-depth offset for back-to-front Y-sorted layers; parent-child tiebreaker via tiny epsilon
-- `MasterRenderSystem` — the sole renderer; switches between targets, batches, layer-sorts, and draws all four `DrawElementType`s
+- `MasterRenderSystem` — the sole renderer; switches between targets, batches, layer-sorts, draws sprites/text/ninepatch via `SpriteBatch` and meshes via `BasicEffect`
 - `FinalDrawSystem` — composites the per-target render textures onto the backbuffer
-- `DrawPrepSystemBase` — base class for new prep systems (mesh, text use this)
+- `DrawPrepSystemBase` — base class for new prep systems (text uses this)
+
+### Mesh primitives
+
+- `IMeshGenerator` — interface returning `MeshData` (triangle-list `VertexPositionColor[]` + `short[]`)
+- Canonical implementations: `CircleMeshGenerator`, `LineMeshGenerator`, `RectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`, `GradientPathMeshGenerator`, `CompositeMeshGenerator` (rebases sub-mesh indices into the combined buffer)
 
 ### Non-ECS types
 
@@ -36,7 +42,7 @@ This block defines how things appear on screen. It owns the entire draw path —
 
 Each frame the draw stack runs in this order, at the tail of the screen's update pipeline:
 
-1. **Prep systems** (per draw type) populate `DrawComponent` from source data — `SpritePrepSystem` reads `SpriteInfoComponent`; `MeshPrepSystem` (from `rendering-mesh`) and `TextPrepSystem` (from `rendering-text`) follow the same pattern.
+1. **Prep systems** (per draw type) populate `DrawComponent` from source data — `SpritePrepSystem` reads `SpriteInfoComponent`; `MeshPrepSystem` invokes each entity's `IMeshGenerator`; `TextPrepSystem` (from `rendering-text`) follows the same pattern.
 2. **`CullingSystem`** adds/removes `VisibleComponent` based on camera view bounds.
 3. **`YSortSystem`** writes a depth offset so back-to-front sprites overlap correctly.
 4. **`MasterRenderSystem`** iterates render targets (Main → UI → HUD) and submits draw calls.
@@ -51,10 +57,11 @@ Entities that render need: `TransformComponent`, the type-specific source (e.g. 
 ## Extension points
 
 - **New visual types.** Extend `DrawElementType`, add a corresponding prep system following `DrawPrepSystemBase`, and teach `MasterRenderSystem` how to draw it. Do not fork a parallel `*Component` + `*RenderSystem` pair — the framework's invariant is one render component, one renderer.
+- **New mesh shape.** Implement `IMeshGenerator` — produce a `MeshData` with triangle-list `short[]` indices. `MeshPrepSystem` and `MasterRenderSystem` already know how to consume it. Use `CompositeMeshGenerator` to bundle several sub-generators into one mesh entity (e.g. button outline + glow + label backdrop).
 - **New render targets.** Add to `RenderTargetID` and update `MasterRenderSystem` and `FinalDrawSystem`. New targets default to screen-space (UI/HUD-like behavior) unless they should be culled.
 - **Custom culling.** `CullingSystem` reads `Camera.VirtualScreenBounds`; a wider bounds check (e.g. for a minimap) is a separate system that ignores `VisibleComponent` and writes to its own target.
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants for this block (one render component, sole renderer, the three-targets-two-behaviors split)
-- Related blocks: `rendering-mesh` (adds `Mesh` draws), `rendering-text` (adds `Text` draws), `camera` (adds follow behavior on top of `Camera`), `debug` (adds collider/sprite overlays via the same path)
+- [Premises](premises.md) — load-bearing invariants for this block (one render component, sole renderer, the three-targets-two-behaviors split, triangle-list mesh contract)
+- Related blocks: `rendering-text` (adds `Text` draws on top of this stack), `camera` (adds follow behavior on top of `Camera`), `ui` (uses mesh generators for button outlines), `debug` (adds collider/sprite overlays via the same path)

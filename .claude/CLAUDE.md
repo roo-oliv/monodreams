@@ -15,10 +15,10 @@ real game screens — start at
 `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`.
 
 # Project structure
-- `MonoDreams/` — engine source organized into 15 blocks (`foundation`,
-  `rendering`, `rendering-mesh`, `rendering-text`, `text-dynamic-reveal`,
-  `camera`, `physics`, `collision`, `level-loading`, `level-ldtk`,
-  `level-blender`, `ui`, `cursor`, `dialogue`, `debug`). Each block has
+- `MonoDreams/` — engine source organized into 13 blocks (`foundation`,
+  `rendering`, `rendering-text`, `camera`, `physics`, `collision`,
+  `level-loading`, `level-ldtk`, `level-blender`, `ui`, `cursor`,
+  `dialogue`, `debug`). Each block has
   `block.json`, `docs/`, and its components/systems/messages.
 - `MonoDreams.Examples/` — three reference games proving the block
   boundaries: LDtk platformer, Blender platformer, infinite runner.
@@ -160,10 +160,8 @@ the broader picture).
 | Block | What lives there |
 |---|---|
 | [`foundation`](../MonoDreams/foundation/docs/premises.md) | `TransformComponent`, `ChildOfComponent`, hierarchy, `Logger`, input/replay, `ScreenController` |
-| [`rendering`](../MonoDreams/rendering/docs/premises.md) | `DrawComponent`, `SpriteInfoComponent`, `VisibleComponent`, `MasterRenderSystem`, `CullingSystem`, `YSortSystem`, the `Camera` class |
-| [`rendering-mesh`](../MonoDreams/rendering-mesh/docs/premises.md) | `IMeshGenerator`, `MeshPrepSystem`, procedural shapes |
+| [`rendering`](../MonoDreams/rendering/docs/premises.md) | `DrawComponent`, `SpriteInfoComponent`, `VisibleComponent`, `MasterRenderSystem`, `CullingSystem`, `YSortSystem`, the `Camera` class, plus `IMeshGenerator` / `MeshData` / `MeshPrepSystem` (procedural shapes) |
 | [`rendering-text`](../MonoDreams/rendering-text/docs/premises.md) | `DynamicTextComponent`, `TextPrepSystem`, `TextUpdateSystem` (BitmapFont) |
-| [`text-dynamic-reveal`](../MonoDreams/text-dynamic-reveal/docs/premises.md) | Placeholder block — reserved for the future static/dynamic reveal split |
 | [`camera`](../MonoDreams/camera/docs/premises.md) | `CameraFollowSystem`, `CameraFollowTargetComponent` (the `Camera` class itself ships in `rendering`) |
 | [`physics`](../MonoDreams/physics/docs/premises.md) | `RigidBodyComponent`, `VelocityComponent`, `GravitySystem`, `VelocitySystem` |
 | [`collision`](../MonoDreams/collision/docs/premises.md) | `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`, detection + resolution systems, `CollisionMessage` |

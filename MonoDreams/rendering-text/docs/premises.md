@@ -103,8 +103,9 @@ system reading WorldPosition".
 ## Aspirational direction
 
 - Split the dynamic-reveal portion of `DynamicTextComponent` /
-  `TextUpdateSystem` out into the `text-dynamic-reveal` block, leaving
-  static labels in this block alone (see that block's premises).
+  `TextUpdateSystem` into a dedicated block, leaving static labels in
+  this block alone. (A `text-dynamic-reveal` block was reserved for
+  this earlier but removed — recreate when the split actually lands.)
 - Per-glyph rendering with per-character color/animation hooks.
 
 ## Follow-up debt

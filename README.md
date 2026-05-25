@@ -53,14 +53,14 @@ dotnet run
 
 `monodreams list` shows every block and preset; `--verbose` adds deps and NuGet refs.
 
-## The 15 blocks
+## The 13 blocks
 
 ```
 foundation              required base — installed by `monodreams init`
-├── rendering           sprite draw stack with culling, Y-sort, render targets
-│   ├── rendering-mesh  procedural shapes (circles, lines, gradient paths)
+├── rendering           unified draw stack: sprites + procedural meshes,
+│   │                   culling, Y-sort, render targets, Camera class
 │   ├── rendering-text  BitmapFont text + revealable typewriter
-│   ├── camera          follow-target system (the Camera class itself ships in rendering)
+│   ├── camera          follow-target system (Camera class lives in rendering)
 │   ├── cursor          textured cursor with hover types
 │   ├── debug           collider/sprite overlays, screenshot capture
 │   ├── level-ldtk      load LDtk-exported levels

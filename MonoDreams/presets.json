@@ -9,7 +9,6 @@
         "foundation",
         "rendering",
         "rendering-text",
-        "text-dynamic-reveal",
         "camera",
         "physics",
         "collision",
@@ -28,7 +27,6 @@
         "foundation",
         "rendering",
         "rendering-text",
-        "text-dynamic-reveal",
         "camera",
         "physics",
         "collision",
@@ -46,7 +44,6 @@
       "blocks": [
         "foundation",
         "rendering",
-        "rendering-mesh",
         "rendering-text",
         "physics",
         "collision",

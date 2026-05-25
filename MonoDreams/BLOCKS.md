@@ -25,20 +25,18 @@ MonoDreams/
     ...source files...    ← all files inside ARE the block
 ```
 
-The 15 blocks:
+The 13 blocks:
 
 ```
 foundation              (required base — installed by `monodreams init`)
-├── rendering
-│   ├── rendering-mesh
+├── rendering            (includes mesh primitives — IMeshGenerator, MeshData)
 │   ├── rendering-text
-│   │   └── text-dynamic-reveal
 │   ├── camera
 │   ├── cursor
 │   ├── debug              (+ collision)
 │   ├── level-ldtk         (+ level-loading)
 │   ├── level-blender      (+ level-loading)
-│   └── ui                 (+ rendering-mesh)
+│   └── ui
 │       └── dialogue       (+ rendering-text)
 ├── physics
 ├── collision              (+ physics, soft)

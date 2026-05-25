@@ -1,6 +1,6 @@
 # ui — overview
 
-Flexbox-style layout with a fluent builder API (`AutoLayoutBuilder` → `ContainerBuilder` → `SlotBuilder`), an intrinsic-sizing pass driven by callbacks, and primitives for interactive buttons (`SimpleButtonComponent` + outline rendering via `rendering-mesh`). Install for game-UI screens — menus, level-select grids, HUD chrome.
+Flexbox-style layout with a fluent builder API (`AutoLayoutBuilder` → `ContainerBuilder` → `SlotBuilder`), an intrinsic-sizing pass driven by callbacks, and primitives for interactive buttons (`SimpleButtonComponent` + outline rendering via `rendering`). Install for game-UI screens — menus, level-select grids, HUD chrome.
 
 ## Purpose
 
@@ -25,7 +25,7 @@ This block is a flexbox-ish solver for UI. The flexbox solver positions children
 
 - `IntrinsicSizingSystem` — invokes each slot's `SizeMeasurer` callback, writes results into `LayoutNodeComponent.Width/Height`. Runs first
 - `AutoLayoutSystem` — the flexbox solver: computes positions from the measured-size tree, writes to `TransformComponent`. Runs after `IntrinsicSizingSystem`
-- `ButtonMeshPrepSystem` — paints button outlines via `rendering-mesh` based on `SimpleButtonComponent` state
+- `ButtonMeshPrepSystem` — paints button outlines via `rendering` based on `SimpleButtonComponent` state
 - `LayoutDebugSystem` — optional outline visualization (toggle `LayoutDebugSystem.Enabled`)
 
 ### Other
@@ -51,7 +51,7 @@ layout.CreateRoot(ScreenAnchor.Center)
 1. **`IntrinsicSizingSystem`** — measure content via callbacks.
 2. **`AutoLayoutSystem`** — compute and apply positions.
 3. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`).
-4. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering-mesh`.
+4. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
 5. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
 
 The block ships `SimpleButtonComponent` + the mesh-prep system but **deliberately doesn't ship a `ButtonInteractionSystem`** — click dispatch is necessarily game-specific (load a screen, fire a network call, mutate game state). Copy the pattern from `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`.
@@ -59,7 +59,7 @@ The block ships `SimpleButtonComponent` + the mesh-prep system but **deliberatel
 ## Cross-block dependencies
 
 - `foundation` — slots are entities with `TransformComponent`; the builder wires `TransformComponent.Parent` for the rendered hierarchy.
-- `rendering-mesh` — `ButtonMeshPrepSystem` and `LayoutDebugSystem` draw outlines via `IMeshGenerator` shapes.
+- `rendering` — `ButtonMeshPrepSystem` and `LayoutDebugSystem` draw outlines via the `IMeshGenerator` primitives shipped by `rendering`.
 
 ## Extension points
 
@@ -71,4 +71,4 @@ The block ships `SimpleButtonComponent` + the mesh-prep system but **deliberatel
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, parallel `LayoutNodeComponent` + `TransformComponent` trees, `ButtonInteractionSystem` deliberately out of block)
-- Related blocks: `rendering-mesh` (button outlines and debug overlays draw through it), `rendering-text` (text labels in UI slots), `cursor` (provides `CursorInputComponent.WorldPosition` for hit-testing in your game's interaction system), `dialogue` (does not use this block yet — uses hand-rolled offsets; aspirational to migrate)
+- Related blocks: `rendering` (button outlines and debug overlays draw via `IMeshGenerator` shapes from this block), `rendering-text` (text labels in UI slots), `cursor` (provides `CursorInputComponent.WorldPosition` for hit-testing in your game's interaction system), `dialogue` (does not use this block yet — uses hand-rolled offsets; aspirational to migrate)

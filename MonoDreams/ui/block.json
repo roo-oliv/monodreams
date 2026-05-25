@@ -4,11 +4,11 @@
   "description": "Flexbox-style layout, builders, slots, and interactive button primitives",
   "dependencies": [
     "foundation",
-    "rendering-mesh"
+    "rendering"
   ],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],
-  "postInstallNotes": "## ui installed\n\nDeclarative flexbox-ish layout with builders. Compose UI like this:\n```csharp\nvar layout = new AutoLayoutBuilder(world, viewportManager);\nlayout.CreateRoot(ScreenAnchor.Center)\n    .Direction(LayoutDirection.Vertical)\n    .Gap(40)\n    .AddSlot(slot => slot.Attach(titleEntity).MeasureWith(MeasureText))\n    .AddSlot(slot => slot.Attach(button1).MeasureWith(_ => button1Size))\n    .Build();\n```\n\nPipeline order (UI lives in the screen's update path):\n1. `IntrinsicSizingSystem` \u2014 measure content via callbacks.\n2. `AutoLayoutSystem` \u2014 compute and apply positions.\n3. Your interaction systems (hover, click).\n4. `ButtonMeshPrepSystem` \u2014 paint button outlines through `rendering-mesh`.\n5. `LayoutDebugSystem` \u2014 optional outline visualization (toggle `LayoutDebugSystem.Enabled`).\n\n**Note:** `ButtonInteractionSystem` is **not** in this block \u2014 it's game-specific (it dispatches to your selected screen/scene). Copy the pattern from `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`.",
+  "postInstallNotes": "## ui installed\n\nDeclarative flexbox-ish layout with builders. Compose UI like this:\n```csharp\nvar layout = new AutoLayoutBuilder(world, viewportManager);\nlayout.CreateRoot(ScreenAnchor.Center)\n    .Direction(LayoutDirection.Vertical)\n    .Gap(40)\n    .AddSlot(slot => slot.Attach(titleEntity).MeasureWith(MeasureText))\n    .AddSlot(slot => slot.Attach(button1).MeasureWith(_ => button1Size))\n    .Build();\n```\n\nPipeline order (UI lives in the screen's update path):\n1. `IntrinsicSizingSystem` \u2014 measure content via callbacks.\n2. `AutoLayoutSystem` \u2014 compute and apply positions.\n3. Your interaction systems (hover, click).\n4. `ButtonMeshPrepSystem` \u2014 paint button outlines via `IMeshGenerator` (the mesh primitives ship in `rendering`).\n5. `LayoutDebugSystem` \u2014 optional outline visualization (toggle `LayoutDebugSystem.Enabled`).\n\n**Note:** `ButtonInteractionSystem` is **not** in this block \u2014 it's game-specific (it dispatches to your selected screen/scene). Copy the pattern from `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`.",
   "premisesRef": "docs/premises.md"
 }

@@ -11,7 +11,7 @@ next to each block's source.
 
 ## Per-block docs
 
-Each of the 15 blocks ships its own `docs/` subfolder colocated with the
+Each of the 13 blocks ships its own `docs/` subfolder colocated with the
 block source. Read `overview.md` for the tour (purpose, components,
 systems, wiring), `premises.md` for the load-bearing invariants.
 
@@ -19,9 +19,7 @@ systems, wiring), `premises.md` for the load-bearing invariants.
 |---|---|---|
 | `foundation` | [overview](../MonoDreams/foundation/docs/overview.md) | [premises](../MonoDreams/foundation/docs/premises.md) |
 | `rendering` | [overview](../MonoDreams/rendering/docs/overview.md) | [premises](../MonoDreams/rendering/docs/premises.md) |
-| `rendering-mesh` | [overview](../MonoDreams/rendering-mesh/docs/overview.md) | [premises](../MonoDreams/rendering-mesh/docs/premises.md) |
 | `rendering-text` | [overview](../MonoDreams/rendering-text/docs/overview.md) | [premises](../MonoDreams/rendering-text/docs/premises.md) |
-| `text-dynamic-reveal` | [overview](../MonoDreams/text-dynamic-reveal/docs/overview.md) | [premises](../MonoDreams/text-dynamic-reveal/docs/premises.md) |
 | `camera` | [overview](../MonoDreams/camera/docs/overview.md) | [premises](../MonoDreams/camera/docs/premises.md) |
 | `physics` | [overview](../MonoDreams/physics/docs/overview.md) | [premises](../MonoDreams/physics/docs/premises.md) |
 | `collision` | [overview](../MonoDreams/collision/docs/overview.md) | [premises](../MonoDreams/collision/docs/premises.md) |

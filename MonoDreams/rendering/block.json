@@ -1,13 +1,18 @@
 {
   "$schema": "../block.schema.json",
   "name": "rendering",
-  "description": "Sprite-first draw stack: DrawComponent, render targets, culling, Y-sort, MasterRenderSystem",
+  "description": "Unified draw stack: sprites, meshes, render targets, culling, Y-sort, MasterRenderSystem",
   "dependencies": [
     "foundation"
   ],
-  "nugetDependencies": [],
+  "nugetDependencies": [
+    {
+      "id": "MonoGame.Extended",
+      "version": "4.1.0"
+    }
+  ],
   "csprojProperties": {},
   "mgcbEntries": [],
-  "postInstallNotes": "## rendering installed\n\nThe draw stack runs in this order each frame:\n\n1. **Prep systems** (per draw type) populate `DrawComponent` from source data \u2014 e.g. `SpritePrepSystem` reads `SpriteInfoComponent`.\n2. **CullingSystem** adds/removes `VisibleComponent` based on camera view bounds.\n3. **YSortSystem** writes a depth offset so back-to-front sprites overlap correctly.\n4. **MasterRenderSystem** iterates render targets (Main \u2192 UI \u2192 HUD) and submits draw calls.\n5. **FinalDrawSystem** composites the targets onto the screen.\n\nEntities that render need: `TransformComponent`, the type-specific source (e.g. `SpriteInfoComponent`), `DrawComponent`, and `VisibleComponent`. `VisibleComponent` is a tag \u2014 `CullingSystem` adds/removes it.\n\n**Premises:** `docs/premises.md`",
+  "postInstallNotes": "## rendering installed\n\nThe draw stack runs in this order each frame:\n\n1. **Prep systems** (per draw type) populate `DrawComponent` from source data — e.g. `SpritePrepSystem` reads `SpriteInfoComponent`; `MeshPrepSystem` invokes each entity's `IMeshGenerator`.\n2. **CullingSystem** adds/removes `VisibleComponent` based on camera view bounds.\n3. **YSortSystem** writes a depth offset so back-to-front sprites overlap correctly.\n4. **MasterRenderSystem** iterates render targets (Main → UI → HUD) and submits draw calls (`SpriteBatch` for sprite/text/ninepatch, `BasicEffect` for meshes).\n5. **FinalDrawSystem** composites the targets onto the screen.\n\n`DrawComponent` is the unified render component: its `Type` field is one of `Sprite`, `Text`, `NinePatch`, or `Mesh`, and source data lives in the type-specific fields. **Do not create a parallel `MeshComponent`** — mesh entities use `DrawComponent` with `Type = Mesh` plus `Vertices` / `Indices` / `WorldMatrix` (populated by `MeshPrepSystem`).\n\nEntities that render need: `TransformComponent`, the type-specific source (e.g. `SpriteInfoComponent` for sprites, an `IMeshGenerator` reachable by `MeshPrepSystem` for meshes), `DrawComponent`, and `VisibleComponent` (added by `CullingSystem` on Main-target entities).\n\n**Mesh shapes.** `IMeshGenerator` ships with canonical implementations (`CircleMeshGenerator`, `LineMeshGenerator`, `RectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`, `GradientPathMeshGenerator`, `CompositeMeshGenerator`). All return triangle-list `MeshData`.\n\n**Premises:** `docs/premises.md`",
   "premisesRef": "docs/premises.md"
 }
