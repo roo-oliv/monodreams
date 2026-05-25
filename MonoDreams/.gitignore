@@ -113,7 +113,6 @@ fabric.properties
 ipch/
 obj/
 [Bb]in
-/[Dd]ebug*/
 
 #Tooling
 _ReSharper*/

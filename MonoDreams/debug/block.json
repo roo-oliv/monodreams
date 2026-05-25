@@ -1,0 +1,14 @@
+{
+  "$schema": "../block.schema.json",
+  "name": "debug",
+  "description": "Optional debug systems: collider/sprite overlays and screenshot capture",
+  "dependencies": [
+    "rendering",
+    "collision"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## debug installed\n\nAdd whichever you need to your pipeline:\n\n- `ColliderDebugSystem(world, camera)` \u2014 draws AABB / SAT outlines after rendering.\n- `SpriteDebugSystem(world, camera)` \u2014 draws sprite bounds and pivot points.\n- `ScreenshotCaptureSystem(world, graphicsDevice, debugDir)` \u2014 writes PNGs every 2s when `\"screenshots\": true` is set in `debug/input_replay.json`.\n\n**Replay testing.** `Logger` and the replay scaffold live in `foundation` because they're useful in production. This block adds the *visual* debug overlays only \u2014 they're safe to ship in dev builds and exclude in release.\n\nSee `docs/premises.md` for the block's invariants and `docs/overview.md` for the full tour.",
+  "premisesRef": "docs/premises.md"
+}

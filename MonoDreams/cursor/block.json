@@ -10,5 +10,5 @@
   "csprojProperties": {},
   "mgcbEntries": [],
   "postInstallNotes": "## cursor block installed\n\nWire the cursor into a screen:\n\n1. Load cursor textures (one per `CursorType` you use) in `Load()`.\n2. Call `MonoDreams.Cursor.Cursor.Create(world, textures, RenderTargetID.HUD)` \u2014 returns the cursor entity.\n3. Add to your update pipeline (order matters):\n   - `CursorInputSystem` early (reads mouse state)\n   - `CursorPositionSystem` AFTER camera updates (uses camera + viewport to project to world space)\n   - `CursorDrawPrepSystem` AFTER position is finalized (populates `DrawComponent`)\n\nThe cursor renders on `RenderTargetID.HUD` by default so it sits above the game world and UI.\n\nSee `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` for a working reference.",
-  "premisesRef": "docs/rendering/premises.md"
+  "premisesRef": "docs/premises.md"
 }

@@ -8,6 +8,6 @@
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],
-  "postInstallNotes": "## physics installed\n\nAdd `VelocityComponent` (and optionally `RigidBodyComponent`) to entities you want moved. Pipeline order each frame:\n\n1. Gameplay/input systems write to `VelocityComponent.Value`.\n2. `GravitySystem` accumulates gravitational acceleration.\n3. `VelocitySystem` integrates velocity into `TransformComponent.LocalPosition`.\n4. Collision systems (if installed) read positions, generate messages, and resolve overlap.\n\nUse this block standalone (without `collision`) for parallax backgrounds, falling decorations, or anything that moves but doesn't collide.\n\n**Premises:** `docs/physics/premises.md`",
-  "premisesRef": "docs/physics/premises.md"
+  "postInstallNotes": "## physics installed\n\nAdd `VelocityComponent` (and optionally `RigidBodyComponent`) to entities you want moved. Pipeline order each frame:\n\n1. Gameplay/input systems write to `VelocityComponent.Value`.\n2. `GravitySystem` accumulates gravitational acceleration.\n3. `VelocitySystem` integrates velocity into `TransformComponent.LocalPosition`.\n4. Collision systems (if installed) read positions, generate messages, and resolve overlap.\n\nUse this block standalone (without `collision`) for parallax backgrounds, falling decorations, or anything that moves but doesn't collide.\n\n**Premises:** `docs/premises.md`",
+  "premisesRef": "docs/premises.md"
 }

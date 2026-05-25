@@ -1,11 +1,11 @@
-# Build outputs
+# Build outputs (top-level Debug/Release/bin/obj). Note: the `debug` block at
+# MonoDreams/debug/ is intentionally NOT ignored — runtime debug *output*
+# lives under bin/, captured by the **/bin/**/debug/ rule further down.
 /[Bb]in/
 /[Oo]bj/
-/[Dd]ebug/
 /[Rr]elease/
 /MonoDreams/[Bb]in/
 /MonoDreams/[Oo]bj/
-/MonoDreams/[Dd]ebug/
 /MonoDreams/[Rr]elease/
 /MonoDreams.Examples/[Bb]in/
 /MonoDreams.Examples/[Oo]bj/

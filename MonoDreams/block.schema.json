@@ -84,7 +84,7 @@
     },
     "postInstallNotes": {
       "type": "string",
-      "description": "Markdown printed to the terminal after install. Use it for `Logger.Init()` calls, asset hookups, system pipeline order — anything a human or an AI agent needs to wire the block into their screen."
+      "description": "Markdown printed to the terminal after install. Use it for `Logger.Initialize(...)` calls, asset hookups, system pipeline order — anything a human or an AI agent needs to wire the block into their screen."
     },
     "agentsMd": {
       "type": "string",
@@ -92,7 +92,7 @@
     },
     "premisesRef": {
       "type": "string",
-      "description": "Optional path into `docs/` (relative to the engine repo root) pointing at the `premises.md` that constrains this block. Surfaced by `monodreams list --verbose` so users and agents know where the invariants live."
+      "description": "Path relative to the block manifest, pointing at the `premises.md` for this block. Conventionally `docs/premises.md` (each block ships its own `docs/` subfolder). Surfaced by `monodreams list --verbose` so users and agents know where the invariants live."
     }
   }
 }
