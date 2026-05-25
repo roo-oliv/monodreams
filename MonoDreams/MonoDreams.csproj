@@ -23,6 +23,9 @@
     </PropertyGroup>
     <PropertyGroup>
         <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <EnableDynamicLoading>true</EnableDynamicLoading>
+        <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     </PropertyGroup>
     <PropertyGroup>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -67,8 +70,10 @@
 
     <ItemGroup>
         <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
-        <PackageReference Include="Facebook.Yoga" Version="1.5.0-pre1" />
         <PackageReference Include="LDtkMonogame" Version="1.8.0" />
+        <PackageReference Include="YarnSpinner" Version="3.0.2" />
+        <PackageReference Include="YarnSpinner.Compiler" Version="3.0.2" />
+        <PackageReference Include="CsvHelper" Version="31.0.4" />
         <PackageReference Include="LDtkMonogame.ContentPipeline" Version="1.8.0" />
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
         <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.4" />

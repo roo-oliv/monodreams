@@ -1,0 +1,14 @@
+{
+  "$schema": "../block.schema.json",
+  "name": "level-blender",
+  "description": "Load levels exported from Blender scenes; ships the exporter plugin under Tools/",
+  "dependencies": [
+    "level-loading",
+    "rendering"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## level-blender installed\n\n**Exporter plugin:** Install `Tools/blender_level_export.py` into Blender (Edit \u2192 Preferences \u2192 Add-ons \u2192 Install from Disk). The plugin adds a `File \u2192 Export \u2192 MonoDreams Level (.json)` menu item.\n\n**Workflow:**\n1. Design the level in Blender. Use mesh names matching your `IEntityFactory` registrations (`Player`, `Wall`, `Pickup`, ...).\n2. Export to `Content/Levels/<name>.json`. The file contains positions, sizes, and any custom properties.\n3. Add the JSON to your MGCB as a `CopyContent` entry (no special importer needed):\n```\n#begin Levels/<name>.json\n/copy:Levels/<name>.json\n```\n4. At runtime, add `BlenderLevelParserSystem(world, content)` to your pipeline AFTER `LevelLoadRequestSystem`.\n\n**Premises:** `docs/level-loading/premises.md`",
+  "premisesRef": "docs/level-loading/premises.md"
+}

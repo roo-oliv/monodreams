@@ -14,7 +14,6 @@ using MonoDreams.Renderer;
 using MonoDreams.Input;
 using MonoDreams.Screen;
 using MonoDreams.State;
-using ButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
 namespace MonoDreams.Examples;
 

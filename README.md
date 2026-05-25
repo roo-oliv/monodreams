@@ -7,96 +7,125 @@ MonoDreams
   <br>
 </p>
 <p align="center">
-A code-first and data-driven opensource 2D game engine powered by MonoGame
+A code-first 2D game engine for MonoGame, distributed as readable source you own — not an opaque NuGet.
 </p>
 
-![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams%2F)
+![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams.Cli?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams.Cli%2F)
 ![MIT License](https://img.shields.io/crates/l/mit?link=https%3A%2F%2Fgithub.com%2Froo-oliv%2Fmonodreams%2Fblob%2Fmain%2FLICENSE)
 
-## Prerequisites
+## Why MonoDreams
 
-- .NET 8.0 SDK or newer (project uses RollForward to support .NET 9+)
+- **You own the engine source.** Every system, every component lives inside your project. Tweak the camera follow, the collision resolution, the dialogue UI — it's yours to read and change.
+- **Composable from day one.** The engine ships as 15 small blocks (foundation, rendering, physics, collision, level-loading, dialogue, …). Install only what you need.
+- **ECS-pure.** Built on [DefaultEcs](https://github.com/Doraku/DefaultEcs). Components hold data, systems hold logic — no god-objects, no inheritance gymnastics.
+- **AI-agent friendly.** Source lives where agents can read it. Each block ships with a `block.json` manifest and the repo's `docs/` directory captures engine invariants per domain.
 
-## Setup & Build
+## Quickstart
 
-### macOS (Intel & Apple Silicon)
-
-```bash
-# Install .NET 8 SDK via Homebrew (recommended for Apple Silicon)
-brew install dotnet@8 freeimage
-
-# Add to your ~/.zshrc or ~/.bash_profile:
-export PATH="/opt/homebrew/opt/dotnet@8/bin:$PATH"
-export DOTNET_ROOT="/opt/homebrew/opt/dotnet@8/libexec"
-
-# For Apple Silicon Macs, copy FreeImage to MGCB tools (one-time setup after first restore)
-cp /opt/homebrew/lib/libfreeimage.dylib ~/.nuget/packages/dotnet-mgcb/3.8.4/tools/net8.0/any/libFreeImage.dylib
-```
-
-#### Alternative: Manual .NET Installation
-
-If you installed .NET manually to `~/.dotnet`:
+Install the CLI as a .NET global tool:
 
 ```bash
-# Add to your ~/.zshrc or ~/.bash_profile:
-export DOTNET_ROOT="$HOME/.dotnet"
-export PATH="$DOTNET_ROOT:$PATH"
+dotnet tool install -g MonoDreams.Cli
 ```
 
-### Windows
-
-```powershell
-# Install .NET 8 SDK from https://dotnet.microsoft.com/download/dotnet/8.0
-```
-
-### Build & Run (All Platforms)
+Scaffold a new project (this also installs the `foundation` block):
 
 ```bash
-# Clone and navigate to project
-git clone https://github.com/roo-oliv/monodreams.git
-cd monodreams
-
-# Restore tools and packages
-dotnet tool restore
-dotnet restore
-
-# Build the solution
-dotnet build
-
-# Run the examples
-dotnet run --project MonoDreams.Examples/MonoDreams.Examples.csproj
+monodreams init MyGame
+cd MyGame
 ```
 
-### Building Individual Projects
+Add the blocks you need:
 
 ```bash
-# Build core engine only
-dotnet build MonoDreams/MonoDreams.csproj
+# A complete preset — procedural shape-driven runner
+monodreams add --preset infinite-runner
 
-# Build examples
-dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
-
-# Build YarnSpinner integration
-dotnet build MonoDreams.YarnSpinner/MonoDreams.YarnSpinner.csproj
-
-# Build and run tests
-dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
-dotnet test
+# Or pick specific blocks
+monodreams add rendering camera physics collision
 ```
 
-## About
+Build and run:
 
-This is a hobby project of mine.
+```bash
+dotnet run
+```
 
-With no roadmap commitment, this project's goal is to create an opensource 2D game engine on top of Monogame and DefaultECS loaded with common systems for 2D games such as input handling, HUD, dialogue system, camera movement, sprite renderer, level importer, gravity and jumping logics, AABB collision detection and resolution, and more.
-MonoDreams is designed to be a code-first and data-driven engine, with a focus on ease of use and flexibility.
+`monodreams list` shows every block and preset; `--verbose` adds deps and NuGet refs.
 
-[You can follow my tentative roadmap here.](https://github.com/users/roo-oliv/projects/1/views/1)
+## The 15 blocks
 
-# Special Thanks
-This project is intended to support and enable the gamedev community and I hope one day it will be a good starting point for many people to create their own games.
+```
+foundation              required base — installed by `monodreams init`
+├── rendering           sprite draw stack with culling, Y-sort, render targets
+│   ├── rendering-mesh  procedural shapes (circles, lines, gradient paths)
+│   ├── rendering-text  BitmapFont text + revealable typewriter
+│   ├── camera          follow-target system (the Camera class itself ships in rendering)
+│   ├── cursor          textured cursor with hover types
+│   ├── debug           collider/sprite overlays, screenshot capture
+│   ├── level-ldtk      load LDtk-exported levels
+│   ├── level-blender   load Blender-exported levels (+ exporter plugin)
+│   └── ui              flexbox layout, builders, button primitives
+│       └── dialogue    YarnSpinner integration
+├── physics             velocity + gravity, decoupled from collision
+├── collision           AABB + SAT detection, message-based responses
+└── level-loading       LoadLevelRequest, EntitySpawnRequest plumbing
+```
 
-But this is also a way to give back to this vibrant community. So I would like to thank the following people for their open contributions and for inspiring me to create this project:
+## Project layout after `init` + `add`
+
+```
+MyGame/
+  MyGame.csproj
+  Program.cs              ← your game entry (scaffolded by `init`)
+  monodreams.json         ← records installed blocks
+  MonoDreams/
+    foundation/           ← copied from the engine
+      Screen/, State/, Component/, System/, Input/, Util/, ...
+    rendering/
+    physics/
+    ...
+```
+
+Everything under `MonoDreams/` is yours. The CLI never reaches back into your code — `monodreams add <new-block>` only adds new files; modifications are always explicit.
+
+## Naming conventions
+
+Browsing a block's source tells you what it contains at a glance:
+
+- **Components** end in `Component` (e.g. `TransformComponent`, `VelocityComponent`, `DialogueStateComponent`).
+- **Systems** end in `System` (e.g. `HierarchySystem`, `GravitySystem`, `MasterRenderSystem`).
+- **Messages** are publish-subscribe events flowing through the ECS world (e.g. `CollisionMessage`, `LoadLevelRequest`).
+
+## Three reference games
+
+The repo's `MonoDreams.Examples/` directory contains three games, each a clean subset of the block graph:
+
+- **LDtk platformer** — full stack with dialogue, UI, cursor (`monodreams add --preset ldtk-platformer`)
+- **Blender platformer** — same minus LDtk, plus Blender level export (`--preset blender-platformer`)
+- **Infinite runner** — procedural shapes, no level files, no UI, just physics + collision (`--preset infinite-runner`)
+
+They're the proof that the block boundaries are correct: each example is exactly the union of its preset's blocks.
+
+## Docs
+
+- [`MonoDreams/BLOCKS.md`](./MonoDreams/BLOCKS.md) — block manifest schema and authoring guide
+- [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.md) — engine-wide invariants
+- [`docs/<domain>/premises.md`](./docs/) — per-domain technical invariants (rendering, hierarchy-transform, collision, physics, level-loading)
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — building the engine from source, adding new blocks, running the test suite
+
+## Status
+
+MonoDreams is alpha. Block boundaries and APIs may shift between minor versions — but because you own the source, the changes are diffs against your own code, not surprise breaking changes in a binary you can't see.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
+
+## Special Thanks
+
+This project is intended to support and enable the gamedev community, and to give back. Thanks to:
+
  - [@MonoGame](https://github.com/MonoGame) (MonoGame Team) for their awesome work on [MonoGame](https://github.com/MonoGame/MonoGame)
  - [@craftworkgames](https://github.com/craftworkgames) (Craftwork Games) for their awesome work on [Monogame.Extended](https://github.com/craftworkgames/MonoGame.Extended)
  - [@prime31](https://github.com/prime31) (Prime31) for their awesome work on [Nez](https://github.com/prime31/Nez)

@@ -1,0 +1,13 @@
+{
+  "$schema": "../block.schema.json",
+  "name": "rendering-mesh",
+  "description": "Procedural shape rendering: circles, lines, filled rects, gradient paths, composites",
+  "dependencies": [
+    "rendering"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## rendering-mesh installed\n\nShape rendering through `IMeshGenerator`. The interface and canonical implementations (`CircleMeshGenerator`, `LineMeshGenerator`, `RectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`, `GradientPathMeshGenerator`, `CompositeMeshGenerator`) all ship in `MonoDreams/Draw/IMeshGenerator.cs`.\n\nUsage:\n1. Set `DrawComponent.Type = DrawElementType.Mesh` and assign an `IMeshGenerator` (e.g. on a `MeshInfo` field your code drives).\n2. Add `MeshPrepSystem` to your update pipeline before `MasterRenderSystem`.\n\nMesh generators output triangle lists; `MasterRenderSystem` submits them via the same SpriteBatch path.\n\n**Premises:** `docs/rendering/premises.md`",
+  "premisesRef": "docs/rendering/premises.md"
+}

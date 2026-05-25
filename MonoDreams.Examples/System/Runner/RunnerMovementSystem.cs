@@ -6,11 +6,10 @@ using MonoDreams.Examples.Component.Runner;
 using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Runner;
 using MonoDreams.State;
-using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.Examples.System.Runner;
 
-[With(typeof(RunnerState), typeof(Velocity), typeof(Transform), typeof(RigidBody))]
+[With(typeof(RunnerState), typeof(VelocityComponent), typeof(TransformComponent), typeof(RigidBodyComponent))]
 public class RunnerMovementSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     protected override void Update(GameState state, in Entity entity)
@@ -18,8 +17,8 @@ public class RunnerMovementSystem(World world) : AEntitySetSystem<GameState>(wor
         var runnerState = entity.Get<RunnerState>();
         if (runnerState.IsGameOver) return;
 
-        var velocity = entity.Get<Velocity>();
-        ref var transform = ref entity.Get<Transform>();
+        var velocity = entity.Get<VelocityComponent>();
+        ref var transform = ref entity.Get<TransformComponent>();
 
         // Grounded check: collision resolution zeros Y velocity when landing
         runnerState.IsGrounded = velocity.Current.Y == 0 && velocity.Last.Y >= 0;
@@ -40,7 +39,7 @@ public class RunnerMovementSystem(World world) : AEntitySetSystem<GameState>(wor
         }
 
         // Variable gravity factor (applied before GravitySystem runs)
-        var rigidBody = entity.Get<RigidBody>();
+        var rigidBody = entity.Get<RigidBodyComponent>();
         if (velocity.Current.Y < 0f) // ascending
         {
             rigidBody.Gravity = (true, InputState.Jump.Pressed(state)

@@ -2,9 +2,9 @@ using DefaultEcs;
 using DefaultEcs.System;
 using DefaultEcs.Threading;
 using MonoDreams.Component;
+using MonoDreams.Dialogue;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Input;
-using MonoDreams.Examples.Message;
 using MonoDreams.State;
 
 namespace MonoDreams.Examples.System;
@@ -14,7 +14,7 @@ public class MovementSystem : AEntitySetSystem<GameState>
     private bool _dialogueActive;
 
     public MovementSystem(World world, IParallelRunner parallelRunner)
-        : base(world.GetEntities().With<Transform>().With<PlayerState>().AsSet(), parallelRunner)
+        : base(world.GetEntities().With<TransformComponent>().With<PlayerState>().AsSet(), parallelRunner)
     {
         world.Subscribe((in DialogueActiveMessage msg) => _dialogueActive = msg.IsActive);
     }
@@ -23,7 +23,7 @@ public class MovementSystem : AEntitySetSystem<GameState>
     {
         if (_dialogueActive) return;
 
-        ref var transform = ref entity.Get<Transform>();
+        ref var transform = ref entity.Get<TransformComponent>();
 
         if (InputState.Left.Pressed(state))
             transform.TranslateX(-Constants.MaxWalkVelocity * state.Time);

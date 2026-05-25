@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MonoDreams.Cli</RootNamespace>
+    <AssemblyName>monodreams</AssemblyName>
+
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>monodreams</ToolCommandName>
+    <PackageId>MonoDreams.Cli</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>Rodrigo Oliveira</Authors>
+    <Description>Code-first installer for the MonoDreams game engine. Copies engine source blocks into your project, shadcn-style.</Description>
+    <PackageTags>monodreams; monogame; cli; tool; game-engine</PackageTags>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)nupkg</PackageOutputPath>
+
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+  </ItemGroup>
+</Project>

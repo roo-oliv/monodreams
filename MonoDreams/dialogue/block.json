@@ -1,0 +1,34 @@
+{
+  "$schema": "../block.schema.json",
+  "name": "dialogue",
+  "description": "YarnSpinner dialogue with content pipeline importer, runner, and HUD UI",
+  "dependencies": [
+    "rendering-text",
+    "ui"
+  ],
+  "nugetDependencies": [
+    {
+      "id": "YarnSpinner",
+      "version": "3.0.2"
+    },
+    {
+      "id": "YarnSpinner.Compiler",
+      "version": "3.0.2"
+    },
+    {
+      "id": "CsvHelper",
+      "version": "31.0.4"
+    }
+  ],
+  "csprojProperties": {
+    "CopyLocalLockFileAssemblies": "true",
+    "EnableDynamicLoading": "true",
+    "GenerateRuntimeConfigurationFiles": "true"
+  },
+  "mgcbEntries": [
+    "/importer:YarnSpinnerImporter",
+    "/processor:YarnSpinnerProcessor"
+  ],
+  "postInstallNotes": "## dialogue installed\n\n**Content pipeline.** Your project DLL must be referenced by MGCB so it can load the YarnSpinner importer/processor. Add to your csproj:\n```xml\n<PropertyGroup>\n  <MonoGameMGCBAdditionalArguments>$(MonoGameMGCBAdditionalArguments) /reference:$(MSBuildThisFileDirectory)bin/$(Configuration)/net8.0/$(AssemblyName).dll</MonoGameMGCBAdditionalArguments>\n</PropertyGroup>\n```\nThe `CopyLocalLockFileAssemblies`, `EnableDynamicLoading`, and `GenerateRuntimeConfigurationFiles` properties are required for the importer to load YarnSpinner's transitive dependencies \u2014 this block adds them automatically.\n\n**Yarn assets.** Author `.yarn` files in `Content/Dialogues/`, then in your `.mgcb`:\n```\n#begin Dialogues/intro.yarn\n/importer:YarnSpinnerImporter\n/processor:YarnSpinnerProcessor\n/build:Dialogues/intro.yarn\n```\n\n**Runtime wiring.** Load yarn programs via `content.Load<YarnProgram>(...)`, then construct `DialogueSystem` with the runner, font, dialog-box texture, indicator texture, and input bindings (see the constructor signature). Add it to your update pipeline AFTER input, BEFORE rendering.\n\n**Triggering dialogue.** This block is game-agnostic \u2014 it does not own the *when* a dialogue starts. Implement a small game-side system that publishes `DialogueStartMessage` in response to your trigger (collision zone, NPC interaction, scripted event). See `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs` for the canonical collision-zone pattern.",
+  "premisesRef": "docs/rendering/premises.md"
+}

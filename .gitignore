@@ -84,3 +84,4 @@ packages.lock.json
 
 # Worktrees
 .claude/worktrees/
+.sandbox/

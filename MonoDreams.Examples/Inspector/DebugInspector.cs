@@ -81,9 +81,9 @@ public class DebugInspector
             _totalEntityCount++;
 
             string displayName;
-            if (entity.Has<EntityInfo>())
+            if (entity.Has<EntityInfoComponent>())
             {
-                var info = entity.Get<EntityInfo>();
+                var info = entity.Get<EntityInfoComponent>();
                 displayName = info.Name != null
                     ? $"{info.Name} ({info.Type}) #{entity.GetHashCode():X}"
                     : $"{info.Type} #{entity.GetHashCode():X}";

@@ -28,9 +28,11 @@ using MonoDreams.System.Physics;
 using MonoDreams.System.Collision;
 using MonoDreams.System.Cursor;
 using MonoDreams.System.Debug;
+using MonoDreams.Dialogue;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System.Dialogue;
 using MonoDreams.System.Draw;
+using MonoDreams.Util;
 using MonoDreams.System.Input;
 using MonoDreams.System.Level;
 using MonoDreams.Level;
@@ -40,8 +42,6 @@ using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
-using Camera = MonoDreams.Component.Camera;
-using DynamicText = MonoDreams.Component.Draw.DynamicText;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -110,7 +110,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
+        MonoDreams.Cursor.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
 
         // Check if a level was requested from the level selection screen
         var requestedLevel = screenController.Game.Services.GetService(typeof(RequestedLevelComponent)) as RequestedLevelComponent;
@@ -181,7 +181,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
                 if (isSilhouette)
                 {
-                    ref var sprite = ref entity.Get<SpriteInfo>();
+                    ref var sprite = ref entity.Get<SpriteInfoComponent>();
                     sprite.YSortDepthBias = -0.0005f;
                 }
             }
@@ -189,10 +189,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
         {
             var npcName = blenderObj.Name;
-            entity.Set(new EntityInfo("NPC", npcName));
+            entity.Set(new EntityInfoComponent("NPC", npcName));
 
             // EMPTY objects (parent empties in hierarchy) don't have sprites — skip visual setup
-            if (!entity.Has<SpriteInfo>()) return;
+            if (!entity.Has<SpriteInfoComponent>()) return;
 
             var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
 
@@ -205,40 +205,40 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Silhouette renders behind parent: negative bias = lower depth = further back
             if (isSilhouette)
             {
-                ref var sprite = ref entity.Get<SpriteInfo>();
+                ref var sprite = ref entity.Get<SpriteInfoComponent>();
                 sprite.YSortDepthBias = -0.0005f;
             }
 
-            var npcTransform = entity.Get<Transform>();
-            var npcSprite = entity.Get<SpriteInfo>();
+            var npcTransform = entity.Get<TransformComponent>();
+            var npcSprite = entity.Get<SpriteInfoComponent>();
             var npcDimensions = new Vector2(
                 blenderObj.Dimensions?.X ?? npcSprite.Size.X,
                 blenderObj.Dimensions?.Y ?? npcSprite.Size.Y);
 
             // Create interaction zone entity (wider than the NPC for approach detection)
             var zoneEntity = _world.CreateEntity();
-            zoneEntity.Set(new EntityInfo("NPCZone"));
-            zoneEntity.Set(new Transform());
+            zoneEntity.Set(new EntityInfoComponent("NPCZone"));
+            zoneEntity.Set(new TransformComponent());
             zoneEntity.SetParent(entity);
 
             var zoneWidth = (int)(npcDimensions.X * 2.5f);
             var zoneHeight = (int)(npcDimensions.Y * 1.5f);
             var zoneBounds = new Rectangle(-zoneWidth / 2, -zoneHeight / 2, zoneWidth, zoneHeight);
-            zoneEntity.Set(new BoxCollider(zoneBounds, passive: true));
+            zoneEntity.Set(new BoxColliderComponent(zoneBounds, passive: true));
             zoneEntity.Set(new DialogueZoneComponent(npcName, oneTimeOnly: false, autoStart: false, npcName: npcName));
 
             // Create floating icon entity (above the NPC sprite)
             var iconEntity = _world.CreateEntity();
-            iconEntity.Set(new EntityInfo("InteractionIcon", $"{npcName}Icon"));
+            iconEntity.Set(new EntityInfoComponent("InteractionIcon", $"{npcName}Icon"));
 
             // Compute icon position above NPC visual top
             var originOffsetY = blenderObj.OriginOffset?.Y ?? 0.5f;
             var visualTop = -npcDimensions.Y * (1 - originOffsetY);
             var iconOffset = new Vector2(0, visualTop - 6f);
 
-            iconEntity.Set(new Transform(iconOffset));
+            iconEntity.Set(new TransformComponent(iconOffset));
             iconEntity.SetParent(entity);
-            iconEntity.Set(new DynamicText
+            iconEntity.Set(new DynamicTextComponent
             {
                 Target = RenderTargetID.Main,
                 Font = promptFont,
@@ -256,7 +256,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 Type = DrawElementType.Text,
                 Target = RenderTargetID.Main
             });
-            // No Visible initially — managed by NPCInteractionSystem
+            // No VisibleComponent initially — managed by NPCInteractionSystem
 
             zoneEntity.Set(new NPCInteractionIcon { IconEntity = iconEntity });
         });
@@ -286,8 +286,25 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new TransformCommitSystem(_world, _parallelRunner),
             new TextUpdateSystem(_world), // Logic only
             new NPCInteractionSystem(_world),
-            new DialogueSystem(_world, _content, _graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight, _layers,
-                new[] { "Dialogues/hello_world", "Dialogues/boldo" })
+            new ZoneDialogueTriggerSystem(_world),
+            new DialogueSystem(
+                _world,
+                _content.Load<Texture2D>("Dialouge UI/dialog box medium"),
+                _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt"),
+                _content.Load<Texture2D>("Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet")
+                    .Crop(new Rectangle(96, 0, 16, 16), _graphicsDevice),
+                _viewportManager.VirtualWidth,
+                _viewportManager.VirtualHeight,
+                _layers.GetDepth(GameDrawLayer.DialogueUI),
+                InputState.Interact,
+                InputState.Up,
+                InputState.Down,
+                new[]
+                {
+                    _content.Load<YarnProgram>("Dialogues/hello_world"),
+                    _content.Load<YarnProgram>("Dialogues/boldo")
+                },
+                nameof(EntityType.Interface))
             // ... other game logic systems
         );
         

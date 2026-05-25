@@ -17,8 +17,8 @@ public class TileEntityFactory(DrawLayerMap layers) : IEntityFactory
     {
         var entity = world.CreateEntity();
 
-        entity.Set(new EntityInfo(nameof(EntityType.Tile)));
-        entity.Set(new Transform(request.Position));
+        entity.Set(new EntityInfoComponent(nameof(EntityType.Tile)));
+        entity.Set(new TransformComponent(request.Position));
 
         // Extract from custom fields (same pattern as WallEntityFactory)
         var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : layers.GetDepth(GameDrawLayer.Tiles);
@@ -26,7 +26,7 @@ public class TileEntityFactory(DrawLayerMap layers) : IEntityFactory
 
         if (tilesetTexture != null)
         {
-            entity.Set(new SpriteInfo
+            entity.Set(new SpriteInfoComponent
             {
                 SpriteSheet = tilesetTexture,
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,

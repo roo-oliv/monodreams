@@ -10,13 +10,13 @@ namespace MonoDreams.Examples.System;
 /// System that snaps entities between base rotation and an offset state on a global timer.
 /// All entities toggle on the same frame for a synchronized stop-motion effect.
 /// </summary>
-[With(typeof(StopMotionEffect), typeof(Transform))]
+[With(typeof(StopMotionEffect), typeof(TransformComponent))]
 public class StopMotionEffectSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     protected override void Update(GameState state, in Entity entity)
     {
         ref var effect = ref entity.Get<StopMotionEffect>();
-        ref var transform = ref entity.Get<Transform>();
+        ref var transform = ref entity.Get<TransformComponent>();
 
         var phase = state.TotalTime % (2 * effect.CycleDuration);
         var rotated = phase < effect.CycleDuration;

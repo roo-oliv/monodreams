@@ -1,0 +1,13 @@
+{
+  "$schema": "../block.schema.json",
+  "name": "text-dynamic-reveal",
+  "description": "Reserved: typewriter/reveal text effect (today bundled into rendering-text)",
+  "dependencies": [
+    "rendering-text"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## text-dynamic-reveal installed (no-op today)\n\nThis block is a placeholder. The `DynamicTextComponent` component and `TextUpdateSystem` that drive the typewriter effect currently ship inside `rendering-text`, which this block depends on, so installing it has no additional files.\n\n**Usage of the reveal effect:**\n```csharp\nentity.Set(new DynamicTextComponent {\n    TextContent = \"Hello world\",\n    RevealingSpeed = 30f,        // characters per second\n    RevealStartTime = 0f,         // set to GameState.Total when starting\n    IsRevealed = false,\n    VisibleCharacterCount = 0,\n    // ... font, color, scale, etc.\n});\n```\n\n`TextUpdateSystem` advances `VisibleCharacterCount` based on `(GameState.Total - RevealStartTime) * RevealingSpeed` and flips `IsRevealed = true` when complete.\n\nWhen the static/dynamic split is performed inside `MonoDreams/System/Draw/`, this block will own the reveal portion and `rendering-text` will keep only the static path. Until then, this block is reserved.",
+  "premisesRef": "docs/rendering/premises.md"
+}

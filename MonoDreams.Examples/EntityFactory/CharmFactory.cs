@@ -17,14 +17,14 @@ public class CharmFactory(DrawLayerMap layers) : IEntityFactory
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
         var entity = world.CreateEntity();
-        entity.Set(new EntityInfo("Collectible"));
+        entity.Set(new EntityInfoComponent("Collectible"));
 
         var size = (int)RunnerConstants.CharmSize;
-        entity.Set(new Transform(request.Position, rotation: MathHelper.PiOver4));
-        entity.Set(new BoxCollider(
+        entity.Set(new TransformComponent(request.Position, rotation: MathHelper.PiOver4));
+        entity.Set(new BoxColliderComponent(
             new Rectangle(-size / 2, -size / 2, size, size),
             passive: true));
-        entity.Set(new Velocity(new Vector2(-RunnerConstants.TreadmillScrollSpeed, 0)));
+        entity.Set(new VelocityComponent(new Vector2(-RunnerConstants.TreadmillScrollSpeed, 0)));
 
         var mesh = new FilledRectangleMeshGenerator(
             new Rectangle(-size / 2, -size / 2, size, size),
@@ -38,7 +38,7 @@ public class CharmFactory(DrawLayerMap layers) : IEntityFactory
             PrimitiveType = mesh.PrimitiveType,
             LayerDepth = layers.GetDepth(InfiniteRunnerScreen.RunnerDrawLayer.Collectible)
         });
-        entity.Set(new Visible());
+        entity.Set(new VisibleComponent());
 
         return entity;
     }

@@ -15,7 +15,7 @@ namespace MonoDreams.Examples.EntityFactory;
 
 /// <summary>
 /// Factory for creating miscellaneous entities like tiles and decorative elements.
-/// Creates entities with EntityInfo, Position, and DrawComponent.
+/// Creates entities with EntityInfoComponent, Position, and DrawComponent.
 /// </summary>
 public class MiscEntityFactory : IEntityFactory
 {
@@ -33,8 +33,8 @@ public class MiscEntityFactory : IEntityFactory
         var entity = world.CreateEntity();
 
         // Core components for misc entities
-        entity.Set(new EntityInfo(nameof(EntityType.Misc)));
-        entity.Set(new Transform(request.Position));
+        entity.Set(new EntityInfoComponent(nameof(EntityType.Misc)));
+        entity.Set(new TransformComponent(request.Position));
 
         // // Create DrawComponent with a single DrawElement
         // var drawComponent = new DrawComponent();
@@ -64,7 +64,7 @@ public class MiscEntityFactory : IEntityFactory
         
         if (tilesetTexture != null)
         {
-            entity.Set(new SpriteInfo
+            entity.Set(new SpriteInfoComponent
             {
                 SpriteSheet = tilesetTexture,
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
