@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "e34673825877",
+  "session_id": "469e58d2-a1b1-4eb8-b65f-b02fefb8bb77",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T14:56:00.693395Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Demos/Game1.cs",
+    "MonoDreams.Demos/Screens/DemoLauncherScreen.cs",
+    "MonoDreams.Demos/Screens/DemoScreens.cs",
+    "MonoDreams/physics/demo/PhysicsDemoScreen.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "1f608e54-b1a0-4bd7-9d82-10034d3c1760",
+  "checkpoint_transcript_start": 4205,
+  "transcript_lines_at_start": 4205,
+  "token_usage": {
+    "input_tokens": 88,
+    "cache_creation_tokens": 345077,
+    "cache_read_tokens": 9767195,
+    "output_tokens": 45378,
+    "api_call_count": 73
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T14:55:58.668208Z",
+    "agent_lines": 682,
+    "human_added": 101,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 786,
+    "agent_percentage": 86.76844783715013
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/469e58d2-a1b1-4eb8-b65f-b02fefb8bb77.jsonl"
+}

@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "e34673825877",
+  "strategy": "manual-commit",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Demos/Game1.cs",
+    "MonoDreams.Demos/Screens/DemoLauncherScreen.cs",
+    "MonoDreams.Demos/Screens/DemoScreens.cs",
+    "MonoDreams/physics/demo/PhysicsDemoScreen.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e3/4673825877/0/metadata.json",
+      "transcript": "/e3/4673825877/0/full.jsonl",
+      "context": "/e3/4673825877/0/context.md",
+      "content_hash": "/e3/4673825877/0/content_hash.txt",
+      "prompt": "/e3/4673825877/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 88,
+    "cache_creation_tokens": 345077,
+    "cache_read_tokens": 9767195,
+    "output_tokens": 45378,
+    "api_call_count": 73
+  }
+}
