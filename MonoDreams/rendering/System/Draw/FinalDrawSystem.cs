@@ -22,7 +22,9 @@ public sealed class FinalDrawSystem : ISystem<GameState>
          RenderTargetID.HUD,   // Front (cursor, always on top)
      ];
      private readonly MonoDreams.Component.Camera _camera;
-     private static readonly Color ClearColor = new(245, 235, 220); // Warm, cozy lofi background
+     /// Background color used to clear the final back buffer. Settable so the
+     /// game shell can pick a project-wide palette (e.g., dark navy demo theme).
+     public static Color ClearColor = new(245, 235, 220); // Warm, cozy lofi default
 
      public bool IsEnabled { get; set; } = true;
 

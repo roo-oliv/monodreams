@@ -9,5 +9,10 @@
   "csprojProperties": {},
   "mgcbEntries": [],
   "postInstallNotes": "## camera installed\n\nThe `Camera` class itself ships in the `rendering` block (it's a hard dependency of the draw stack \u2014 `MasterRenderSystem` reads its position and zoom each frame). This block adds the optional follow behavior:\n\n1. Add `CameraFollowTargetComponent` to the entity you want to follow (typically the player).\n2. Add `CameraFollowSystem(world, camera)` to your update pipeline. It runs AFTER any system that moves the followed entity and BEFORE rendering.\n\nFor manual camera control (cutscenes, fixed-camera screens) just write to the `Camera` directly \u2014 don't install this block.\n\n**Premises:** `docs/premises.md` (camera-pipeline section)",
-  "premisesRef": "docs/premises.md"
+  "premisesRef": "docs/premises.md",
+  "demo": {
+    "entry": "MonoDreams.Demo.Camera.CameraDemoScreen",
+    "description": "Move a red circle (WASD / arrows) inside a boundary rectangle; toggle between fixed camera and follow camera with on-screen buttons.",
+    "dependencies": ["rendering-text", "ui", "cursor"]
+  }
 }

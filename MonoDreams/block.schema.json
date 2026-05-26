@@ -93,6 +93,29 @@
     "premisesRef": {
       "type": "string",
       "description": "Path relative to the block manifest, pointing at the `premises.md` for this block. Conventionally `docs/premises.md` (each block ships its own `docs/` subfolder). Surfaced by `monodreams list --verbose` so users and agents know where the invariants live."
+    },
+    "demo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "description"],
+      "description": "Optional working demonstration of the block. Files live under `<block>/demo/` and only ship when the user installs with `--with-demo`. The MonoDreams.Demos host project compiles these directly so they can reference shared menu UI.",
+      "properties": {
+        "entry": {
+          "type": "string",
+          "description": "Fully-qualified class name of the IGameScreen the demo exposes (e.g. `MonoDreams.Demo.Camera.CameraDemoScreen`)."
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line summary of what the demo shows. Surfaced in the launcher screen and by `monodreams list --verbose`."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Additional blocks the demo needs beyond the owning block's `dependencies` (e.g. `ui`, `cursor`, `rendering-text` for menu chrome). Installed only when the user passes `--with-demo`."
+        }
+      }
     }
   }
 }

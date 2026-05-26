@@ -19,6 +19,10 @@
 /MonoDreams.YarnSpinner/[Oo]bj/
 /MonoDreams.YarnSpinner/[Dd]ebug/
 /MonoDreams.YarnSpinner/[Rr]elease/
+/MonoDreams.Demos/[Bb]in/
+/MonoDreams.Demos/[Oo]bj/
+/MonoDreams.Demos/[Dd]ebug/
+/MonoDreams.Demos/[Rr]elease/
 
 # Debug output (screenshots, logs, replay files) — inside build output directories only
 **/bin/**/debug/

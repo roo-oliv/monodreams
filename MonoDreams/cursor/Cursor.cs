@@ -29,7 +29,7 @@ public static class Cursor
             SourceRectangle = new Rectangle(0, 0, cursorTextures[initialType].Width, cursorTextures[initialType].Height),
             Color = Color.White,
             Position = Vector2.Zero,
-            Size = new Vector2(64),
+            Size = new Vector2(16),
             LayerDepth = 1.0f, // Highest layer for cursor
         });
         entity.Set(new CursorTexturesComponent { Textures = cursorTextures });

@@ -91,6 +91,74 @@ slot, but rendering uses the wrong parent transform.
 **Depends on:** foundation — "`ChildOfComponent` and
 `TransformComponent.Parent` are two intentional links".
 
+## `ButtonMeshPrepSystem` bakes world coords and must run AFTER `MeshPrepSystem` whenever both are in the pipeline
+
+`ButtonMeshPrepSystem` writes the four sides of the outline rectangle with
+`transform.WorldPosition` already baked into the vertex positions, then sets
+`DrawComponent.WorldMatrix = Matrix.Identity` so `MasterRenderSystem` uses the
+vertices as-is. Other meshes (procedural shapes via `IMeshGenerator`) take
+the opposite contract: their vertices are in local space and `MeshPrepSystem`
+writes `transform.WorldMatrix` for the renderer to apply. When a screen runs
+both — e.g. a demo screen with mesh art *and* clickable buttons — order the
+draw pipeline as `... MeshPrepSystem -> ButtonMeshPrepSystem -> MasterRenderSystem`
+so the button system's identity matrix overrides MeshPrepSystem's earlier
+write.
+
+**Why:** button outlines compose with the layout solver via
+`SimpleButtonComponent.Size`, so it's natural to bake the final on-screen
+quad once in world space. Procedural shapes go the other way: they're authored
+at the origin and reused at many transforms. Mixing the two contracts in one
+screen is fine as long as the screen orders the systems correctly.
+**Breaks:** if `MeshPrepSystem` runs *after* `ButtonMeshPrepSystem`, the
+button outline gets `transform.WorldMatrix` applied on top of already-world
+vertices, doubling its offset — the outline drifts away from its text label
+by the layout-computed top-left.
+**Tests:** none yet.
+**Depends on:** rendering — "MeshPrepSystem writes the world matrix once per
+frame".
+
+## Image-backed buttons reuse `SimpleButtonComponent` with a transparent outline
+
+For sprite-backed buttons (icon caps, image tiles), do *not* introduce a parallel
+component. Use `SimpleButtonComponent` with `LineThickness = 0` and
+`Color = Color.Transparent` so `ButtonMeshPrepSystem` produces a degenerate mesh
+that doesn't draw, while the same hit-test/interaction path still works. The
+sprite background is a sibling entity that shares the button's
+`TransformComponent`, carrying its own `SpriteInfoComponent` + `DrawComponent`.
+Hover and active visuals come from a game-side recolor system that drives the
+sprite's source rect or tint.
+
+**Why:** SimpleButton's data (Size, TextEntity, Target) is already the right
+shape for any button regardless of visual style. A second component would
+duplicate the hit-test contract and force every interaction system to handle
+two cases. Reusing it keeps `ButtonInteractionSystem` (and demos' equivalents)
+single-path.
+**Breaks:** treating image buttons as a separate component duplicates the
+button query in every screen and forces a fork in the interaction logic.
+**Tests:** none yet.
+**Depends on:** rendering — `DrawComponent` Sprite/Mesh subtypes are
+mutually exclusive on a single entity, which is why the sprite background
+lives on a sibling.
+
+## `ToggleSwitchComponent` drives a sprite's source rectangle from a bool
+
+`ToggleSwitchComponent` pairs a bool state with two source rectangles
+(`OffSource`, `OnSource`) and an `Entity SpriteEntity`. Each frame
+`ToggleSwitchSystem` writes the matching rectangle onto the sprite's
+`SpriteInfoComponent.Source`. Game code only flips the bool; the visual stays
+in sync without extra wiring.
+
+**Why:** two-state toggle artwork (off / on) ships as adjacent cells in a
+sheet. Carrying both rectangles on the component lets the game store the bool
+where it makes sense (often alongside its own state) without scattering
+texture coordinates across the codebase.
+**Breaks:** mutating `SpriteInfoComponent.Source` from elsewhere fights the
+toggle system and races the value each frame. If a button is BOTH a toggle
+and has hover-driven source swaps, gate them with a single system.
+**Tests:** none yet.
+**Depends on:** rendering — `SpritePrepSystem` reads `SpriteInfoComponent.Source`
+to populate the draw call.
+
 ## `ButtonInteractionSystem` is deliberately NOT in this block
 
 The interactive behavior of a button — hover detection, click
@@ -141,6 +209,9 @@ The following premises currently have **Tests: none yet**:
 
 - `IntrinsicSizingSystem` runs before `AutoLayoutSystem`
 - Intrinsic sizing is via callback, not via reading the content entity
+- `ButtonMeshPrepSystem` bakes world coords and must run AFTER `MeshPrepSystem`
+- Image-backed buttons reuse `SimpleButtonComponent` with a transparent outline
+- `ToggleSwitchComponent` drives a sprite's source rectangle from a bool
 - `AutoLayoutBuilder` is the canonical entry point
 - `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
 - `ButtonInteractionSystem` is deliberately NOT in this block

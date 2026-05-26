@@ -35,13 +35,37 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
         var bottomRight = position + outline.Size;
         var bottomLeft = new Vector2(position.X, position.Y + outline.Size.Y);
 
-        // Create thick lines for the four sides of the rectangle
-        AddThickLine(vertices, indices, topLeft, topRight, outline.LineThickness, outline.Color, ref indexOffset);
-        AddThickLine(vertices, indices, topRight, bottomRight, outline.LineThickness, outline.Color, ref indexOffset);
-        AddThickLine(vertices, indices, bottomRight, bottomLeft, outline.LineThickness, outline.Color, ref indexOffset);
-        AddThickLine(vertices, indices, bottomLeft, topLeft, outline.LineThickness, outline.Color, ref indexOffset);
+        // Optional solid fill behind the outline.
+        if (outline.FillColor.A > 0)
+        {
+            var fill = outline.FillColor;
+            vertices.Add(new VertexPositionColor(new Vector3(topLeft, 0), fill));
+            vertices.Add(new VertexPositionColor(new Vector3(topRight, 0), fill));
+            vertices.Add(new VertexPositionColor(new Vector3(bottomRight, 0), fill));
+            vertices.Add(new VertexPositionColor(new Vector3(bottomLeft, 0), fill));
+            indices.Add(indexOffset);
+            indices.Add(indexOffset + 1);
+            indices.Add(indexOffset + 2);
+            indices.Add(indexOffset);
+            indices.Add(indexOffset + 2);
+            indices.Add(indexOffset + 3);
+            indexOffset += 4;
+        }
 
-        // Set or update the DrawComponent
+        // Create thick lines for the four sides of the rectangle (skip if thickness is zero).
+        if (outline.LineThickness > 0f)
+        {
+            AddThickLine(vertices, indices, topLeft, topRight, outline.LineThickness, outline.Color, ref indexOffset);
+            AddThickLine(vertices, indices, topRight, bottomRight, outline.LineThickness, outline.Color, ref indexOffset);
+            AddThickLine(vertices, indices, bottomRight, bottomLeft, outline.LineThickness, outline.Color, ref indexOffset);
+            AddThickLine(vertices, indices, bottomLeft, topLeft, outline.LineThickness, outline.Color, ref indexOffset);
+        }
+
+        // Set or update the DrawComponent.
+        // Vertices above are baked in world coordinates, so WorldMatrix must be
+        // identity (or null). When the screen also runs MeshPrepSystem (which would
+        // otherwise write transform.WorldMatrix here) place this system AFTER
+        // MeshPrepSystem in the draw pipeline so this assignment wins.
         if (!entity.Has<DrawComponent>())
         {
             entity.Set(new DrawComponent
@@ -51,7 +75,8 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
                 Indices = indices.ToArray(),
                 PrimitiveType = PrimitiveType.TriangleList,
                 Target = outline.Target,
-                LayerDepth = 0.95f
+                LayerDepth = 0.95f,
+                WorldMatrix = Matrix.Identity,
             });
         }
         else
@@ -62,6 +87,7 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
             drawComponent.Indices = indices.ToArray();
             drawComponent.PrimitiveType = PrimitiveType.TriangleList;
             drawComponent.Target = outline.Target;
+            drawComponent.WorldMatrix = Matrix.Identity;
         }
     }
 

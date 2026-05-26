@@ -64,6 +64,7 @@ ships as part of the block.
 | `postInstallNotes` | no | Markdown printed after install — for both humans and AI agents. |
 | `agentsMd` | no | Path to an AGENTS.md snippet appended to the user's `AGENTS.md`. |
 | `premisesRef` | no | Pointer into `docs/` so users can find the invariants this block obeys. |
+| `demo` | no | Optional working demonstration. Files under `<block>/demo/` only ship with `--with-demo`. See "Block demos" below. |
 
 ### File copy convention
 
@@ -81,6 +82,29 @@ non-foundation block, depending on only `foundation` and `rendering`.
 The block dir contains 7 source files; the manifest only carries the
 metadata. Drift is impossible by construction: adding a file to the
 directory makes it part of the block automatically.
+
+## Block demos
+
+A block can ship a runnable demonstration under `<block>/demo/`.
+[`camera/demo/CameraDemoScreen.cs`](./camera/demo/CameraDemoScreen.cs)
+is the reference. Conventions:
+
+- Demo source lives in `<block>/demo/`. It is **excluded** from the
+  core engine library (`MonoDreams.csproj` removes `**/demo/**` from
+  its compile glob) and from `monodreams add <block>` by default.
+- The host project [`MonoDreams.Demos`](../MonoDreams.Demos/) compiles
+  every block's demo directly (`<Compile Include="..\MonoDreams\**\demo\**\*.cs">`)
+  and exposes a launcher screen. Run with
+  `dotnet run --project MonoDreams.Demos`.
+- The demo's entry class implements `IGameScreen`. Reuse
+  `MonoDreams.Demos.UI.DemoUI` for menu chrome and
+  `DemoButtonComponent` / `DemoButtonInteractionSystem` for clickable
+  buttons that dispatch by id.
+- Declare the demo in `block.json` via the `demo` field
+  (`entry`, `description`, `dependencies`). The extra `dependencies`
+  list captures blocks the demo needs over and above what the block
+  itself requires (e.g. the `camera` demo declares `ui`, `cursor`,
+  `rendering-text` for its menu chrome).
 
 ## Authoring a block
 

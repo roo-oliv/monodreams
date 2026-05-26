@@ -25,6 +25,7 @@ public class CursorPositionSystem(World world, MonoDreams.Component.Camera camer
         if (virtualPosition.HasValue)
         {
             // Always calculate world position for systems that need it (e.g., ButtonInteractionSystem)
+            input.VirtualPosition = virtualPosition.Value;
             input.WorldPosition = camera.VirtualScreenToWorld(virtualPosition.Value);
 
             // Set transform.Position based on render target:

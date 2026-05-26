@@ -5,6 +5,10 @@ namespace MonoDreams.Component.Cursor;
 public struct CursorInputComponent
 {
     public Vector2 ScreenPosition { get; set; }
+    /// Cursor position in the virtual-resolution coordinate system (after letterbox scaling,
+    /// before the camera transform). Use this for hit-testing HUD-target elements so the
+    /// camera moving does not desync the cursor from on-screen UI.
+    public Vector2 VirtualPosition { get; set; }
     public Vector2 WorldPosition { get; set; }
     public Vector2 PreviousScreenPosition { get; set; }
     public Vector2 PreviousWorldPosition { get; set; }

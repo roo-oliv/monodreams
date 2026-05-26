@@ -12,6 +12,8 @@ public struct SimpleButtonComponent
     public Vector2 Size { get; set; }
     public float LineThickness { get; set; }
     public Color Color { get; set; }
+    /// Optional solid fill behind the outline. Transparent (alpha 0) disables the fill.
+    public Color FillColor { get; set; }
     public Entity? TextEntity { get; set; }
     public RenderTargetID Target { get; set; }
 }

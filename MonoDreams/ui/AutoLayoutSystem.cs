@@ -3,6 +3,7 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Draw;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
@@ -81,7 +82,11 @@ public class AutoLayoutSystem : ISystem<GameState>
     /// <summary>
     /// Calculates the screen offset based on the anchor position.
     /// Layout uses top-left origin with Y increasing downward.
-    /// MonoDreams uses center origin (0,0 at screen center).
+    /// For Main/UI targets, MonoDreams uses center-origin world coordinates
+    /// (the camera transform shifts them to screen coordinates at draw time).
+    /// For HUD targets, no camera transform is applied — entities render with
+    /// the same top-left-origin screen coordinates that the cursor uses, so we
+    /// translate the layout offset accordingly.
     /// </summary>
     private Vector2 GetScreenAnchorOffset(ScreenAnchor anchor, Entity rootEntity)
     {
@@ -95,7 +100,7 @@ public class AutoLayoutSystem : ISystem<GameState>
 
         // Calculate offset based on anchor
         // The offset converts from layout coordinates (top-left: 0,0) to MonoDreams coordinates (center: 0,0)
-        return anchor switch
+        var centerOriginOffset = anchor switch
         {
             // Top row
             ScreenAnchor.TopLeft => new Vector2(-halfWidth, -halfHeight),
@@ -117,6 +122,12 @@ public class AutoLayoutSystem : ISystem<GameState>
 
             _ => Vector2.Zero
         };
+
+        // HUD slots render without the camera transform, so the layout output
+        // must be in top-left-origin screen coordinates (the same space cursor.VirtualPosition lives in).
+        return slot.Target == RenderTargetID.HUD
+            ? centerOriginOffset + new Vector2(halfWidth, halfHeight)
+            : centerOriginOffset;
     }
 
     /// <summary>
