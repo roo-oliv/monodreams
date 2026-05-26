@@ -84,6 +84,9 @@ public class DemoLauncherScreen : IGameScreen
             case "camera":
                 _screenController.LoadScreen(DemoScreens.Camera);
                 break;
+            case "physics":
+                _screenController.LoadScreen(DemoScreens.Physics);
+                break;
             case DemoHeader.ExitId:
                 _screenController.Game.Exit();
                 break;
@@ -115,14 +118,23 @@ public class DemoLauncherScreen : IGameScreen
             textLayerDepth: 0.6f,
             activeColor: SproutPalette.TextSelected);
 
+        var physicsBtn = DemoUI.CreateButton(_world,
+            id: "physics",
+            label: "physics",
+            _font, style,
+            textLayerDepth: 0.6f,
+            activeColor: SproutPalette.TextSelected);
+
         new AutoLayoutBuilder(_world, _viewportManager)
             .CreateRoot(ScreenAnchor.Center)
             .Direction(LayoutDirection.Vertical)
-            .Gap(36)
+            .Gap(20)
             .AlignCross(CrossAxisAlignment.Center)
             .AddSlot(slot => slot.Attach(title).MeasureWith(DemoUI.MeasureText))
             .AddSlot(slot => slot.Attach(subtitle).MeasureWith(DemoUI.MeasureText))
+            .AddSlot(slot => slot.Attach(_world.CreateEntity()).MeasureWith(_ => new Vector2(0, 16)))
             .AddSlot(slot => slot.Attach(cameraBtn.container).MeasureWith(_ => cameraBtn.size))
+            .AddSlot(slot => slot.Attach(physicsBtn.container).MeasureWith(_ => physicsBtn.size))
             .Build();
 
         // Single exit chrome button (top-right) styled as a Q-key chip so it

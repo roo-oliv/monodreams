@@ -69,6 +69,8 @@ public class Game1 : Game
             () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
         _screenController.RegisterScreen(DemoScreens.Camera,
             () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+        _screenController.RegisterScreen(DemoScreens.Physics,
+            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner));
 
         _screenController.LoadScreen(DemoScreens.Launcher);
 
