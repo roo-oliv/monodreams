@@ -34,5 +34,5 @@ public static class SproutSettings
     /// Pill with knob on RIGHT, olive body — typical "on" state.
     /// Source rect aligns to the green body's left edge; previous value started
     /// past the body and only captured the knob.
-    public static readonly Rectangle ToggleOn  = new(68, 150, 30, 18);
+    public static readonly Rectangle ToggleOn  = new(66, 150, 32, 18);
 }

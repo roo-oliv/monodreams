@@ -59,7 +59,7 @@ public class CameraDemoScreen : IGameScreen
     private Entity _cameraAnchor;
     private Entity _lerpToggle;
     private Entity _targetCross;
-    private Mode _mode = Mode.FixedCenter;
+    private Mode _mode = Mode.Follow;
     private bool _lerpSmooth = true;
 
     private readonly Dictionary<Mode, Entity> _sidebarButtons = new();
@@ -365,7 +365,9 @@ public class CameraDemoScreen : IGameScreen
     {
         _targetCross = _world.CreateEntity();
         _targetCross.Set(new TransformComponent(Vector2.Zero));
-        var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.6f };
+        // 0.98 puts the cross above the ball (0.97) so the target marker is
+        // never occluded when it sits on the ball in follow mode.
+        var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.98f };
         draw.SetMeshData(CrossMesh(armPixels: 16, thicknessPixels: 3, color: Color.Black));
         _targetCross.Set(draw);
         _targetCross.Set<VisibleComponent>();
@@ -448,7 +450,7 @@ public class CameraDemoScreen : IGameScreen
             _world.CreateKeyRow(id, key, label, _font, capStyle, rowStyle, layerDepth: 0.96f);
 
         // Order: 0 follow, 1 TL, 2 TR, 3 BR, 4 BL, 5 center.
-        var follow = Row("mode.follow", "0", "follow ball");
+        var follow = Row("mode.follow", "0", "follow red dot");
         var tl     = Row("mode.tl",     "1", "top-left");
         var tr     = Row("mode.tr",     "2", "top-right");
         var br     = Row("mode.br",     "3", "bottom-right");

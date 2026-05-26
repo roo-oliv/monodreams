@@ -8,7 +8,8 @@ using MonoDreams.State;
 
 namespace MonoDreams.System.Cursor;
 
-// TODO: Render target is hardcoded here, Size too, LayerDepth is hardcoded, Opacity is hardcoded, these should all be configurable
+// TODO: Render target is hardcoded here, LayerDepth is hardcoded, Opacity is hardcoded — these should all be configurable.
+// Size IS now per-entity: whatever DrawComponent.Size was set to in Cursor.Create wins (zero falls back to DefaultSize).
 public class CursorDrawPrepSystem(World world)
     : AEntitySetSystem<GameState>(world.GetEntities()
         .With<CursorControllerComponent>()
@@ -17,7 +18,9 @@ public class CursorDrawPrepSystem(World world)
         .With<TransformComponent>()
         .AsSet())
 {
-    private readonly Vector2 _size = new(64);
+    /// Fallback used only when the cursor's DrawComponent.Size is unset.
+    /// Per-entity size lives on the DrawComponent — set it in Cursor.Create.
+    private static readonly Vector2 DefaultSize = new(32);
 
     protected override void Update(GameState state, in Entity entity)
     {
@@ -32,6 +35,6 @@ public class CursorDrawPrepSystem(World world)
 
         drawComponent.Texture = value;
         drawComponent.Position = transform.Position;
-        drawComponent.Size = _size;
+        if (drawComponent.Size == Vector2.Zero) drawComponent.Size = DefaultSize;
     }
 }
