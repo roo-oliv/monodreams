@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "df4dbad52c2c",
+  "session_id": "469e58d2-a1b1-4eb8-b65f-b02fefb8bb77",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T09:48:01.932157Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Demos/UI/SproutButtons.cs",
+    "MonoDreams/camera/demo/CameraDemoScreen.cs",
+    "MonoDreams/cursor/Cursor.cs",
+    "MonoDreams/cursor/System/CursorDrawPrepSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "0039786e-9098-4d7b-9756-eb97814e0628",
+  "checkpoint_transcript_start": 4075,
+  "transcript_lines_at_start": 4075,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 163595,
+    "cache_read_tokens": 1583924,
+    "output_tokens": 11149,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T09:48:00.506408Z",
+    "agent_lines": 10,
+    "human_added": 101,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 114,
+    "agent_percentage": 8.771929824561402
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/469e58d2-a1b1-4eb8-b65f-b02fefb8bb77.jsonl"
+}

@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "df4dbad52c2c",
+  "strategy": "manual-commit",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Demos/UI/SproutButtons.cs",
+    "MonoDreams/camera/demo/CameraDemoScreen.cs",
+    "MonoDreams/cursor/Cursor.cs",
+    "MonoDreams/cursor/System/CursorDrawPrepSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/df/4dbad52c2c/0/metadata.json",
+      "transcript": "/df/4dbad52c2c/0/full.jsonl",
+      "context": "/df/4dbad52c2c/0/context.md",
+      "content_hash": "/df/4dbad52c2c/0/content_hash.txt",
+      "prompt": "/df/4dbad52c2c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 163595,
+    "cache_read_tokens": 1583924,
+    "output_tokens": 11149,
+    "api_call_count": 20
+  }
+}
