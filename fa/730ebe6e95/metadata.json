@@ -3,7 +3,7 @@
   "checkpoint_id": "fa730ebe6e95",
   "strategy": "manual-commit",
   "branch": "feat/packages",
-  "checkpoints_count": 14,
+  "checkpoints_count": 15,
   "files_touched": [
     ".claude/CLAUDE.md",
     ".gitignore",
@@ -79,6 +79,7 @@
     "MonoDreams/cursor/System/CursorDrawPrepSystem.cs",
     "MonoDreams/cursor/System/CursorPositionSystem.cs",
     "MonoDreams/debug/block.json",
+    "MonoDreams/debug/docs/premises.md",
     "MonoDreams/dialogue/DialogueCommandMessage.cs",
     "MonoDreams/dialogue/DialogueSystem.cs",
     "MonoDreams/dialogue/demo/DialogueDemoScreen.cs",
@@ -176,13 +177,20 @@
       "context": "/fa/730ebe6e95/5/context.md",
       "content_hash": "/fa/730ebe6e95/5/content_hash.txt",
       "prompt": "/fa/730ebe6e95/5/prompt.txt"
+    },
+    {
+      "metadata": "/fa/730ebe6e95/6/metadata.json",
+      "transcript": "/fa/730ebe6e95/6/full.jsonl",
+      "context": "/fa/730ebe6e95/6/context.md",
+      "content_hash": "/fa/730ebe6e95/6/content_hash.txt",
+      "prompt": "/fa/730ebe6e95/6/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 123795,
-    "cache_creation_tokens": 2349815,
-    "cache_read_tokens": 93068010,
-    "output_tokens": 853676,
-    "api_call_count": 482
+    "input_tokens": 129084,
+    "cache_creation_tokens": 2639425,
+    "cache_read_tokens": 100372728,
+    "output_tokens": 915824,
+    "api_call_count": 550
   }
 }

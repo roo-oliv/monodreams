@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "fa730ebe6e95",
+  "session_id": "f1c9e1d3-0428-4236-876b-bc7bd32a7b37",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-15T02:27:15.137356Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    "MonoDreams/debug/docs/premises.md",
+    "docs/CORE_TENETS.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "da06ce6a-1f90-4fe5-b7f1-3655be794d2d",
+  "token_usage": {
+    "input_tokens": 5289,
+    "cache_creation_tokens": 289610,
+    "cache_read_tokens": 7304718,
+    "output_tokens": 62148,
+    "api_call_count": 68
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-15T02:27:14.991857Z",
+    "agent_lines": 76,
+    "human_added": 3050,
+    "human_modified": 40,
+    "human_removed": 0,
+    "total_committed": 3166,
+    "agent_percentage": 2.4005053695514844
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/f1c9e1d3-0428-4236-876b-bc7bd32a7b37.jsonl"
+}

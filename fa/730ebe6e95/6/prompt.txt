@@ -1,0 +1,17 @@
+Let's implement issue 28
+
+---
+
+Continue
+
+---
+
+Post the demo screenshot and data as evidence to the GitHub issue and close the issue
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+No, don't need to switch branches. Keep working on this branch and GitHub accepts comments with rich media, no need to host them in git itself.
