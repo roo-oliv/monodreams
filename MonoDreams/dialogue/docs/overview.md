@@ -4,7 +4,7 @@ YarnSpinner-based dialogue: author `.yarn` files in Blender or VSCode, load them
 
 ## Purpose
 
-YarnSpinner is the de-facto open-source dialogue runtime for indie games; this block makes it work cleanly with MonoGame and the MonoDreams ECS. Two threads of integration: (1) a content-pipeline importer/processor loads `.yarn` files as `YarnProgram` content assets at build time; (2) a `DialogueSystem` constructs its own three-entity UI hierarchy (box, text, indicator), drives a `DialogueRunner` per system instance, and reveals lines character-by-character using `DynamicTextComponent` from `rendering-text`. The block is deliberately game-agnostic about *when* a dialogue starts — game code publishes `DialogueStartMessage` from its own trigger system (proximity, scene-load, scripted event). The canonical trigger pattern is in `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs`.
+YarnSpinner is the de-facto open-source dialogue runtime for indie games; this module makes it work cleanly with MonoGame and the MonoDreams ECS. Two threads of integration: (1) a content-pipeline importer/processor loads `.yarn` files as `YarnProgram` content assets at build time; (2) a `DialogueSystem` constructs its own three-entity UI hierarchy (box, text, indicator), drives a `DialogueRunner` per system instance, and reveals lines character-by-character using `DynamicTextComponent` from `rendering-text`. The module is deliberately game-agnostic about *when* a dialogue starts — game code publishes `DialogueStartMessage` from its own trigger system (proximity, scene-load, scripted event). The canonical trigger pattern is in `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs`.
 
 ## What ships
 
@@ -35,7 +35,7 @@ YarnSpinner is the de-facto open-source dialogue runtime for indie games; this b
 
 ## Pipeline wiring
 
-**Content pipeline.** YarnSpinner's importer needs the project DLL plus dynamic-loading enabled for MGCB to load YarnSpinner's transitive dependencies. The block manifest sets these automatically when installed:
+**Content pipeline.** YarnSpinner's importer needs the project DLL plus dynamic-loading enabled for MGCB to load YarnSpinner's transitive dependencies. The module manifest sets these automatically when installed:
 
 ```xml
 <PropertyGroup>
@@ -60,11 +60,11 @@ Without these three properties the YarnSpinner transitive dependencies aren't co
 1. Load yarn programs: `var program = content.Load<YarnProgram>("Dialogues/intro");`
 2. Construct `DialogueSystem` with the loaded programs, font, dialog-box texture, indicator texture, and input bindings.
 3. Add it to your update pipeline **after input** and **before rendering**.
-4. **Trigger dialogues from a game-side system.** This block does not own *when* a conversation starts. Write a system that publishes `DialogueStartMessage { TargetNode = "..." }` in response to your trigger (collision zone, NPC interaction, scripted event). See `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs` for the canonical collision-zone pattern.
+4. **Trigger dialogues from a game-side system.** This module does not own *when* a conversation starts. Write a system that publishes `DialogueStartMessage { TargetNode = "..." }` in response to your trigger (collision zone, NPC interaction, scripted event). See `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs` for the canonical collision-zone pattern.
 
 The dialogue UI lives on `RenderTargetID.UI` (between Main and HUD) and is owned by the system — don't try to manipulate the entities directly.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `rendering-text` — dialogue lines render via `DynamicTextComponent`; the reveal animation drives the typewriter effect.
 - `ui` — declared dependency for the UI render-target conventions; the dialogue currently uses hand-rolled positioning rather than `AutoLayoutBuilder` (aspirational migration — see premises).
@@ -74,9 +74,9 @@ The dialogue UI lives on `RenderTargetID.UI` (between Main and HUD) and is owned
 - **Multiple dialogue contexts.** Construct multiple `DialogueSystem` instances (e.g. one for "speak" interactions, one for "examine" interactions). Each owns its own runner, UI, and Yarn-program set. Filter `DialogueStartMessage` consumers if both should not react.
 - **Localization.** `DialogueRunner.AddStringTable` and `GetLocalizedTextForLine` are exposed; the locale-switching workflow is open (see premises).
 - **Custom Yarn commands and functions.** Hook into the underlying YarnSpinner `Dialogue` exposed by `DialogueRunner` to register your own `<<commands>>` and `Function`s for game-side script integration.
-- **Custom dialogue UI.** The block owns its UI hierarchy today; replacing it means building a parallel system or refactoring `DialogueSystem` to take a UI-builder callback (aspirational direction).
+- **Custom dialogue UI.** The module owns its UI hierarchy today; replacing it means building a parallel system or refactoring `DialogueSystem` to take a UI-builder callback (aspirational direction).
 
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants (`DialogueStartMessage` as trigger seam, content-pipeline csproj property requirements, UI hierarchy ownership, render target placement, per-system runner)
-- Related blocks: `rendering-text` (lines reveal via `DynamicTextComponent`), `ui` (dialogue is on UI render target; aspirational to use `AutoLayoutBuilder`), `foundation` (input bindings flow through the input handler for advance/choice keys)
+- Related modules: `rendering-text` (lines reveal via `DynamicTextComponent`), `ui` (dialogue is on UI render target; aspirational to use `AutoLayoutBuilder`), `foundation` (input bindings flow through the input handler for advance/choice keys)

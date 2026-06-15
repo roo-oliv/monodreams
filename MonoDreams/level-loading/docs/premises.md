@@ -4,7 +4,7 @@
 > plumbing: `LoadLevelRequest`, `CurrentLevelComponent`,
 > `LevelLoadRequestSystem`, `EntitySpawnRequest`, `EntitySpawnSystem`,
 > and `IEntityFactory`. Parser-specific invariants live in the
-> `level-ldtk` and `level-blender` blocks; this file covers the
+> `level-ldtk` and `level-blender` modules; this file covers the
 > contract every parser ships into.
 
 ## `LoadLevelRequest` triggers `LevelLoadRequestSystem`, which adds `CurrentLevelComponent`
@@ -70,7 +70,7 @@ message bypasses it.
 
 ## `Blender_` identifier prefix dispatches to the Blender parser
 
-The Blender parser (`level-blender` block) subscribes directly to
+The Blender parser (`level-blender` module) subscribes directly to
 `LoadLevelRequest` and processes it only when `request.LevelIdentifier`
 starts with the string `Blender_`; `LevelLoadRequestSystem` also
 subscribes and unconditionally attempts to load the same identifier as

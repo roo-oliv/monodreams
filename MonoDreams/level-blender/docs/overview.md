@@ -20,7 +20,7 @@ Blender as a level editor is appealing for games where geometry and arrangement 
 
 ### Tools
 
-- `Tools/blender_level_export.py` — the Blender plugin (Edit → Preferences → Add-ons → Install from Disk). Adds File → Export → MonoDreams Level (.json). **Part of this block** — the exporter and parser are two halves of one schema contract; update them together
+- `Tools/blender_level_export.py` — the Blender plugin (Edit → Preferences → Add-ons → Install from Disk). Adds File → Export → MonoDreams Level (.json). **Part of this module** — the exporter and parser are two halves of one schema contract; update them together
 
 ## Pipeline wiring
 
@@ -40,7 +40,7 @@ new BlenderLevelParserSystem(world, content)
 ```
 Trigger a load by publishing `LoadLevelRequest("Blender_World1")` — the `Blender_` prefix is the parser's opt-in hook.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `level-loading` — uses `LoadLevelRequest` and emits `EntitySpawnRequest`s the way every parser must.
 - `rendering` — Blender meshes become sprite entities (the `IEntityFactory`s registered against the identifiers wire the actual `SpriteInfoComponent` / `DrawComponent` / collider shapes).
@@ -55,4 +55,4 @@ Trigger a load by publishing `LoadLevelRequest("Blender_World1")` — the `Blend
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants (`Blender_` prefix as the parser's opt-in hook, message-driven asymmetry vs LDtk, JSON-schema contract between exporter and parser, `-collider` suffix convention)
-- Related blocks: `level-loading` (the plumbing), `level-ldtk` (the component-driven alternative — the asymmetry between the two parsers is acknowledged and intentional pending refactor), `collision` (consumes the `ConvexColliderComponent`s produced by the `-collider` convention)
+- Related modules: `level-loading` (the plumbing), `level-ldtk` (the component-driven alternative — the asymmetry between the two parsers is acknowledged and intentional pending refactor), `collision` (consumes the `ConvexColliderComponent`s produced by the `-collider` convention)

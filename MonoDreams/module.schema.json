@@ -1,20 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://monodreams.dev/registry/block.schema.json",
-  "title": "MonoDreams block manifest",
-  "description": "A block is a self-contained, copyable slice of the MonoDreams engine. Manifests describe the files, dependencies, NuGet packages, csproj/.mgcb edits, and post-install guidance the CLI applies when a user runs `monodreams add <block>`.",
+  "$id": "https://monodreams.dev/registry/module.schema.json",
+  "title": "MonoDreams module manifest",
+  "description": "A module is a self-contained, copyable slice of the MonoDreams engine. Manifests describe the files, dependencies, NuGet packages, csproj/.mgcb edits, and post-install guidance the CLI applies when a user runs `monodreams add <module>`.",
   "type": "object",
   "required": ["name", "description"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "Pointer to this schema. Conventionally `../block.schema.json` relative to the manifest."
+      "description": "Pointer to this schema. Conventionally `../module.schema.json` relative to the manifest."
     },
     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "Block identifier, kebab-case. Must match the directory name under `registry/`."
+      "description": "Module identifier, kebab-case. Must match the directory name under `registry/`."
     },
     "description": {
       "type": "string",
@@ -26,7 +26,7 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
       "uniqueItems": true,
       "default": [],
-      "description": "Other blocks this block requires. Resolved transitively at install time."
+      "description": "Other modules this module requires. Resolved transitively at install time."
     },
     "nugetDependencies": {
       "type": "array",
@@ -74,7 +74,7 @@
           }
         }
       },
-      "description": "Optional override of the implicit file list. By default the CLI copies every file inside `MonoDreams/<block-name>/` (except `block.json` itself); use this only when a block needs to ship a file from outside its own directory."
+      "description": "Optional override of the implicit file list. By default the CLI copies every file inside `MonoDreams/<module-name>/` (except `module.json` itself); use this only when a module needs to ship a file from outside its own directory."
     },
     "mgcbEntries": {
       "type": "array",
@@ -84,21 +84,21 @@
     },
     "postInstallNotes": {
       "type": "string",
-      "description": "Markdown printed to the terminal after install. Use it for `Logger.Initialize(...)` calls, asset hookups, system pipeline order — anything a human or an AI agent needs to wire the block into their screen."
+      "description": "Markdown printed to the terminal after install. Use it for `Logger.Initialize(...)` calls, asset hookups, system pipeline order — anything a human or an AI agent needs to wire the module into their screen."
     },
     "agentsMd": {
       "type": "string",
-      "description": "Optional path (relative to the manifest) to an AGENTS.md snippet. When present, the CLI appends it to the user's project-root AGENTS.md so AI agents inherit the block's invariants."
+      "description": "Optional path (relative to the manifest) to an AGENTS.md snippet. When present, the CLI appends it to the user's project-root AGENTS.md so AI agents inherit the module's invariants."
     },
     "premisesRef": {
       "type": "string",
-      "description": "Path relative to the block manifest, pointing at the `premises.md` for this block. Conventionally `docs/premises.md` (each block ships its own `docs/` subfolder). Surfaced by `monodreams list --verbose` so users and agents know where the invariants live."
+      "description": "Path relative to the module manifest, pointing at the `premises.md` for this module. Conventionally `docs/premises.md` (each module ships its own `docs/` subfolder). Surfaced by `monodreams list --verbose` so users and agents know where the invariants live."
     },
     "demo": {
       "type": "object",
       "additionalProperties": false,
       "required": ["entry", "description"],
-      "description": "Optional working demonstration of the block. Files live under `<block>/demo/` and only ship when the user installs with `--with-demo`. The MonoDreams.Demos host project compiles these directly so they can reference shared menu UI.",
+      "description": "Optional working demonstration of the module. Files live under `<module>/demo/` and only ship when the user installs with `--with-demo`. The MonoDreams.Demos host project compiles these directly so they can reference shared menu UI.",
       "properties": {
         "entry": {
           "type": "string",
@@ -113,7 +113,7 @@
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
           "uniqueItems": true,
           "default": [],
-          "description": "Additional blocks the demo needs beyond the owning block's `dependencies` (e.g. `ui`, `cursor`, `rendering-text` for menu chrome). Installed only when the user passes `--with-demo`."
+          "description": "Additional modules the demo needs beyond the owning module's `dependencies` (e.g. `ui`, `cursor`, `rendering-text` for menu chrome). Installed only when the user passes `--with-demo`."
         }
       }
     }

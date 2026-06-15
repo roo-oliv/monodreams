@@ -109,7 +109,7 @@
     </ItemGroup>
     <ItemGroup>
       <Compile Remove="Core\**" />
-      <!-- Per-block demos live in <block>/demo/ and depend on the MonoDreams.Demos host project; -->
+      <!-- Per-module demos live in <module>/demo/ and depend on the MonoDreams.Demos host project; -->
       <!-- they must not be compiled into the core engine library. The Demos project picks them up explicitly. -->
       <Compile Remove="**\demo\**" />
       <None Remove="**\demo\**" />

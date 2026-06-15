@@ -1,10 +1,10 @@
 # collision — overview
 
-AABB and SAT collision: tag entities with `BoxColliderComponent` or `ConvexColliderComponent`, install the detection system, and pairs of overlapping colliders publish `CollisionMessage` for resolution and game systems to consume. Soft-couples to `physics` — works standalone for triggers, gains impulse resolution when both blocks are installed.
+AABB and SAT collision: tag entities with `BoxColliderComponent` or `ConvexColliderComponent`, install the detection system, and pairs of overlapping colliders publish `CollisionMessage` for resolution and game systems to consume. Soft-couples to `physics` — works standalone for triggers, gains impulse resolution when both modules are installed.
 
 ## Purpose
 
-This block adds spatial collision detection and resolution to entities. Two collider types share the same query target (`ColliderTagComponent`) so detection can broadphase-filter both polymorphically; the narrowphase dispatches to AABB-vs-AABB, SAT, or AABB-vs-SAT as needed. Detection emits `CollisionMessage`, and two resolution systems consume them: one for kinematic (move-and-stop) responses and one for physical (mass + velocity) responses. Game systems also subscribe to `CollisionMessage` for trigger logic — pickups, doorways, dialogue zones — so the same detection serves both physical and trigger collision without forking the pipeline.
+This module adds spatial collision detection and resolution to entities. Two collider types share the same query target (`ColliderTagComponent`) so detection can broadphase-filter both polymorphically; the narrowphase dispatches to AABB-vs-AABB, SAT, or AABB-vs-SAT as needed. Detection emits `CollisionMessage`, and two resolution systems consume them: one for kinematic (move-and-stop) responses and one for physical (mass + velocity) responses. Game systems also subscribe to `CollisionMessage` for trigger logic — pickups, doorways, dialogue zones — so the same detection serves both physical and trigger collision without forking the pipeline.
 
 ## What ships
 
@@ -45,7 +45,7 @@ The reference pipeline order is **Movement → Velocity → Detection → Resolu
 
 Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderComponent.ActiveLayers` is the coarse first cut — two colliders with non-overlapping layer sets are never tested against each other.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `foundation` — reads `TransformComponent.Position` for AABB world bounds and `Transform.Delta` for swept (CCD-style) tests.
 - Soft-couples to `physics` — `TransformPhysicalCollisionResolutionSystem` reads `RigidBodyComponent` + `VelocityComponent` for impulse math. Without `physics`, install only the kinematic resolution.
@@ -59,5 +59,5 @@ Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderCo
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants for this block (`ColliderTagComponent` canonical query, swept-collision `Delta` dependency, single-threaded detection, the reference pipeline order)
-- Related blocks: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging), `level-blender` (the `-collider` suffix convention spawns `ConvexColliderComponent`s)
+- [Premises](premises.md) — load-bearing invariants for this module (`ColliderTagComponent` canonical query, swept-collision `Delta` dependency, single-threaded detection, the reference pipeline order)
+- Related modules: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging), `level-blender` (the `-collider` suffix convention spawns `ConvexColliderComponent`s)

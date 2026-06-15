@@ -24,7 +24,7 @@ internal static class DependencyResolver
         }
 
         path.Push(name);
-        var manifest = registry.GetBlock(name);
+        var manifest = registry.GetModule(name);
         foreach (var dep in manifest.Dependencies)
             Visit(dep, registry, seen, visiting, ordered, path);
         path.Pop();

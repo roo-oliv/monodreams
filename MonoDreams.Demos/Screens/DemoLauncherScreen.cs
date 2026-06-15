@@ -18,7 +18,7 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Demos.Screens;
 
-/// Menu screen listing every available block demo. Click a button to switch
+/// Menu screen listing every available module demo. Click a button to switch
 /// into the demo screen.
 public class DemoLauncherScreen : IGameScreen
 {
@@ -109,9 +109,9 @@ public class DemoLauncherScreen : IGameScreen
             TextScale = 0.22f,
         };
 
-        var title = DemoUI.CreateText(_world, "MonoDreams Block Demos", _font,
+        var title = DemoUI.CreateText(_world, "MonoDreams Module Demos", _font,
             SproutPalette.TextLight, scale: 0.40f, layerDepth: 0.5f);
-        var subtitle = DemoUI.CreateText(_world, "Pick a block below to open its working demonstration.", _font,
+        var subtitle = DemoUI.CreateText(_world, "Pick a module below to open its working demonstration.", _font,
             SproutPalette.TextHover, scale: 0.20f, layerDepth: 0.5f);
 
         var cameraBtn = DemoUI.CreateButton(_world,

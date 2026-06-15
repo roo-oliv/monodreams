@@ -8,7 +8,7 @@ internal static class Program
     internal static async Task<int> Main(string[] args)
     {
         var root = new RootCommand(
-            "MonoDreams CLI — copies engine source blocks into your project.");
+            "MonoDreams CLI — copies engine source modules into your project.");
 
         var registryOption = new Option<string?>(
             name: "--registry",

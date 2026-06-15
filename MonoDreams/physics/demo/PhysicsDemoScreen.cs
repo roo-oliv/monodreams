@@ -29,7 +29,7 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Demo.Physics;
 
-/// Physics block demo. 10 balls bounce inside a closed boundary under gravity. The
+/// Physics module demo. 10 balls bounce inside a closed boundary under gravity. The
 /// floor adds extra upward speed on contact so balls keep oscillating (the demo
 /// is self-sustaining, not damped). 7 red balls collide with walls AND each other;
 /// 3 blue balls only collide with walls (layer-isolated from reds; blue↔blue is

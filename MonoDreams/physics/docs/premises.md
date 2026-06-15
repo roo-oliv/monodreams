@@ -1,6 +1,6 @@
 # physics — premises
 
-> Technical invariants the engine assumes about the physics block:
+> Technical invariants the engine assumes about the physics module:
 > `RigidBodyComponent`, `VelocityComponent`, `GravitySystem`, and
 > `VelocitySystem`. Read this before changing any of those pieces or any
 > system that writes velocity / reads `Transform.Delta` for movement.

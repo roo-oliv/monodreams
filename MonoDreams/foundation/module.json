@@ -1,5 +1,5 @@
 {
-  "$schema": "../block.schema.json",
+  "$schema": "../module.schema.json",
   "name": "foundation",
   "description": "Required base: ECS world, screen controller, hierarchy/transform, input, replay, logger",
   "dependencies": [],

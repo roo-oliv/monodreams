@@ -1,10 +1,10 @@
 # debug — overview
 
-Optional, opt-in visual debug overlays: collider outlines, sprite bounds, periodic backbuffer screenshots. Every system in this block respects a flag so it can be muted without removing it from the pipeline. The structured `Logger` and input-replay scaffold live in `foundation` (production-useful); this block adds only the *visual* overlays and screenshot capture. Safe to install in any game — registering none of its systems incurs zero cost.
+Optional, opt-in visual debug overlays: collider outlines, sprite bounds, periodic backbuffer screenshots. Every system in this module respects a flag so it can be muted without removing it from the pipeline. The structured `Logger` and input-replay scaffold live in `foundation` (production-useful); this module adds only the *visual* overlays and screenshot capture. Safe to install in any game — registering none of its systems incurs zero cost.
 
 ## Purpose
 
-When debugging an ECS game, the visible bug ("the player passes through walls") rarely tells you where in the pipeline the cause lives. Visual overlays — collider outlines, sprite bounds, pivot points — turn "why doesn't this collide" into "the collider is offset two pixels from the sprite." Combined with `input_replay.json`-driven runs and periodic screenshots, this block makes integration tests reproducible by visual diff. The block is fully opt-in: a game that doesn't need debug overlays simply doesn't register the systems, and the block adds no runtime cost. Production and release builds typically omit the registrations entirely (or leave `IsEnabled = false` flags).
+When debugging an ECS game, the visible bug ("the player passes through walls") rarely tells you where in the pipeline the cause lives. Visual overlays — collider outlines, sprite bounds, pivot points — turn "why doesn't this collide" into "the collider is offset two pixels from the sprite." Combined with `input_replay.json`-driven runs and periodic screenshots, this module makes integration tests reproducible by visual diff. The module is fully opt-in: a game that doesn't need debug overlays simply doesn't register the systems, and the module adds no runtime cost. Production and release builds typically omit the registrations entirely (or leave `IsEnabled = false` flags).
 
 ## What ships
 
@@ -18,18 +18,18 @@ Both overlay systems draw through the standard `DrawComponent` path (transient `
 
 ## Pipeline wiring
 
-This block is **safe to install and register nothing**. No mandatory wiring; every consumer is opt-in.
+This module is **safe to install and register nothing**. No mandatory wiring; every consumer is opt-in.
 
 When you do want overlays:
 
-1. **`ColliderDebugSystem`** and **`SpriteDebugSystem`** — register inside the prep block, after `SpritePrepSystem` (so sprite bounds reflect the current frame's `DrawComponent` data) and before `MasterRenderSystem` (so the transient mesh entities they create exist when the renderer iterates).
+1. **`ColliderDebugSystem`** and **`SpriteDebugSystem`** — register inside the prep stage, after `SpritePrepSystem` (so sprite bounds reflect the current frame's `DrawComponent` data) and before `MasterRenderSystem` (so the transient mesh entities they create exist when the renderer iterates).
 2. **`ScreenshotCaptureSystem`** — register anywhere in the screen pipeline (typically at the tail). Set `screenshotSystem.IsEnabled = replayPlan?.Screenshots ?? false` after constructing it to honor the replay-file opt-in.
 
 **Replay testing workflow.** Write `debug/input_replay.json` with `"screenshots": true`, run the game (or `dotnet run -- --headless`), check `debug/` for the resulting screenshots + log. The `MONODREAMS_DEBUG_DIR` env var redirects all debug output to a custom path — `GameTestRunner` uses this for parallel test isolation.
 
 See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` for the canonical replay-and-screenshot workflow.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer.
 - `collision` — `ColliderDebugSystem` reads `BoxColliderComponent` and `ConvexColliderComponent` to know what to outline.
@@ -43,4 +43,4 @@ See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadL
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `MONODREAMS_DEBUG_DIR` env-var override)
-- Related blocks: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `foundation` (provides `Logger` and the replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
+- Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `foundation` (provides `Logger` and the replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)

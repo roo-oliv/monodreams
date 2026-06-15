@@ -4,7 +4,7 @@ Load levels authored in LDtk (Level Designer Toolkit): both tile layers and enti
 
 ## Purpose
 
-LDtk is one of the two level-authoring tools MonoDreams ships first-class support for (Blender is the other). This block ships the parser systems plus the content-pipeline integration that lets MGCB read `.ldtk` files. It splits parsing into two independent systems — tiles and entities — so a game can opt into both, only one, or neither by which systems it registers. The block uses the engine-wide component-driven dispatch pattern: parsers subscribe to `CurrentLevelComponent` being added, which makes tests and tooling able to trigger parsing without faking a `LoadLevelRequest` message.
+LDtk is one of the two level-authoring tools MonoDreams ships first-class support for (Blender is the other). This module ships the parser systems plus the content-pipeline integration that lets MGCB read `.ldtk` files. It splits parsing into two independent systems — tiles and entities — so a game can opt into both, only one, or neither by which systems it registers. The module uses the engine-wide component-driven dispatch pattern: parsers subscribe to `CurrentLevelComponent` being added, which makes tests and tooling able to trigger parsing without faking a `LoadLevelRequest` message.
 
 ## What ships
 
@@ -13,7 +13,7 @@ LDtk is one of the two level-authoring tools MonoDreams ships first-class suppor
 - `LDtkTileParserSystem` — subscribes to `CurrentLevelComponent` added; walks `LayerInstances` of type `Tile` and `AutoLayer`, publishes one `EntitySpawnRequest` per tile. Honors LDtk's per-layer `Visible` flag (parse-time filter; distinct from the engine's `VisibleComponent`)
 - `LDtkEntityParserSystem` — subscribes to `CurrentLevelComponent` added; walks all layers' `EntityInstances`, publishes one `EntitySpawnRequest` per entity. Parses LDtk custom fields into `EntitySpawnRequest.CustomFields`
 
-No components or messages — this block consumes/emits the contracts defined in `level-loading`.
+No components or messages — this module consumes/emits the contracts defined in `level-loading`.
 
 ## Pipeline wiring
 
@@ -42,7 +42,7 @@ Register only the parsers you need — entities-only games can omit `LDtkTilePar
 
 Trigger a load by publishing `LoadLevelRequest` from game code. Note: do not name LDtk levels with the `Blender_` prefix — that prefix routes to the Blender parser (and the LDtk path explicitly removes `CurrentLevelComponent` for those identifiers).
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `level-loading` — uses `LoadLevelRequest`, `CurrentLevelComponent`, and emits `EntitySpawnRequest` into `EntitySpawnSystem`.
 - `rendering` — tile entities are sprites; the spawned entities need a renderable component stack (the `IEntityFactory`s registered against the spawn identifiers wire the actual `SpriteInfoComponent` / `DrawComponent`).
@@ -55,5 +55,5 @@ Trigger a load by publishing `LoadLevelRequest` from game code. Note: do not nam
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (component-driven dispatch, tile/entity parser independence, LDtk's `layer.Visible` ≠ engine `VisibleComponent`, the content-pipeline DLL reference quirk, `Blender_` prefix routing around this block)
-- Related blocks: `level-loading` (the plumbing this block plugs into), `level-blender` (the alternative parser; uses message-driven pattern — note the asymmetry), `rendering` (consumes the sprite entities spawned by tile parsing)
+- [Premises](premises.md) — load-bearing invariants (component-driven dispatch, tile/entity parser independence, LDtk's `layer.Visible` ≠ engine `VisibleComponent`, the content-pipeline DLL reference quirk, `Blender_` prefix routing around this module)
+- Related modules: `level-loading` (the plumbing this module plugs into), `level-blender` (the alternative parser; uses message-driven pattern — note the asymmetry), `rendering` (consumes the sprite entities spawned by tile parsing)

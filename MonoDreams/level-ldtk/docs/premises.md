@@ -1,7 +1,7 @@
 # level-ldtk — premises
 
 > Technical invariants the engine assumes about the LDtk level-loader
-> block: `LDtkTileParserSystem` and `LDtkEntityParserSystem`. Read this
+> module: `LDtkTileParserSystem` and `LDtkEntityParserSystem`. Read this
 > before changing either parser or wiring an LDtk-exported level into a
 > screen.
 
@@ -79,11 +79,11 @@ desired.
 **Depends on:** rendering — "`VisibleComponent` is owned exclusively by
 `CullingSystem`".
 
-## Block requires the LDtkMonogame content-pipeline DLL referenced in csproj
+## Module requires the LDtkMonogame content-pipeline DLL referenced in csproj
 
 The LDtk file format is loaded via `_content.Load<LDtkFile>(...)` and
 `_content.Load<LDtkLevel>(...)`, which require the `LDtkImporter` and
-`LDtkProcessor` to be present at content-build time. The block's
+`LDtkProcessor` to be present at content-build time. The module's
 manifest adds `nugetDependencies: ["LDtkMonogame",
 "LDtkMonogame.ContentPipeline"]` and the post-install notes instruct
 the consumer to add
@@ -95,7 +95,7 @@ reference, MGCB can't find the importer at content-build time.
 and doesn't inherit its NuGet references; explicit
 `/reference:` arguments to MGCB are the supported way to surface
 content-pipeline DLLs. The same pattern applies to `dialogue` (Yarn)
-and any future content-pipeline-using block.
+and any future content-pipeline-using module.
 **Breaks:** MGCB fails with `Importer LDtkImporter not found` at
 content-build time. The fix is non-obvious because the csproj appears
 to reference the NuGet correctly — the issue is the MGCB-specific
@@ -104,23 +104,23 @@ to reference the NuGet correctly — the issue is the MGCB-specific
 is its own protection).
 **Depends on:** —
 
-## `Blender_` prefix routes around this block
+## `Blender_` prefix routes around this module
 
 Levels whose `LoadLevelRequest.LevelIdentifier` starts with `Blender_`
 are intercepted by `BlenderLevelParserSystem` (in `level-blender`),
 which subscribes to the message directly. `LevelLoadRequestSystem`
 also fires for those identifiers but fails to load them as LDtk and
 explicitly removes `CurrentLevelComponent` — so the LDtk parsers in
-this block do not fire for Blender-prefixed identifiers. This is the
-dispatch hack between the two parser blocks; restated here from this
-block's viewpoint so a consumer reading the LDtk premises knows why
+this module do not fire for Blender-prefixed identifiers. This is the
+dispatch hack between the two parser modules; restated here from this
+module's viewpoint so a consumer reading the LDtk premises knows why
 some loads don't reach them.
 
 **Why:** the prefix-based dispatch is a quick hack documented in
 `level-loading`'s premises. Naming an LDtk level with a `Blender_`
 prefix accidentally routes it to the wrong parser.
 **Breaks:** a developer renames an LDtk level to `Blender_World1`,
-expecting the LDtk parser to handle it. Nothing in this block fires;
+expecting the LDtk parser to handle it. Nothing in this module fires;
 instead the Blender parser logs "no file found" and the level loads
 empty.
 **Tests:** none yet.
@@ -145,7 +145,7 @@ dispatches to the Blender parser".
 - Add streaming support for large LDtk worlds (multi-level
   concurrency from `level-loading`'s aspirational direction).
 - A content-driven format dispatch (level data declares its format)
-  that replaces the `Blender_` prefix hack so this block doesn't
+  that replaces the `Blender_` prefix hack so this module doesn't
   need the prefix-routing premise at all.
 
 ## Follow-up debt
@@ -158,6 +158,6 @@ The following premises currently have **Tests: none yet**:
 - Tile parser and entity parser are independent systems both
   subscribing to the same component
 - LDtk's `layer.Visible` is not the engine's `VisibleComponent`
-- Block requires the LDtkMonogame content-pipeline DLL referenced in
+- Module requires the LDtkMonogame content-pipeline DLL referenced in
   csproj
-- `Blender_` prefix routes around this block
+- `Blender_` prefix routes around this module

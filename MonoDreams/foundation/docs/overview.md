@@ -4,7 +4,7 @@ The required base every MonoDreams game stands on: ECS world plumbing, a screen 
 
 ## Purpose
 
-Install this block first; every other block depends on it directly or transitively. It defines the spatial primitive (`TransformComponent`) every system in the engine reads, the hierarchy semantics (`ChildOfComponent` for lifecycle, `Parent` for matrix cascade), the per-frame heartbeat (`GameState` and the screen controller), the input scaffold (an abstract input handler with replay-from-JSON support), and the lock-protected `Logger` that every other block writes to. Without it there is no world, no transforms, no input, no log — every other block reaches into this one.
+Install this module first; every other module depends on it directly or transitively. It defines the spatial primitive (`TransformComponent`) every system in the engine reads, the hierarchy semantics (`ChildOfComponent` for lifecycle, `Parent` for matrix cascade), the per-frame heartbeat (`GameState` and the screen controller), the input scaffold (an abstract input handler with replay-from-JSON support), and the lock-protected `Logger` that every other module writes to. Without it there is no world, no transforms, no input, no log — every other module reaches into this one.
 
 ## What ships
 
@@ -42,9 +42,9 @@ Install this block first; every other block depends on it directly or transitive
    - **`TransformCommitSystem` runs at end of frame** to flip the current position into the previous-position buffer — the next frame's `Delta` reads it.
 4. Logger lifecycle: call `Logger.Shutdown()` before process exit to flush the buffered writer.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
-This block has no dependencies — it is the root of the dependency graph. Everything else depends on it.
+This module has no dependencies — it is the root of the dependency graph. Everything else depends on it.
 
 ## Extension points
 
@@ -54,5 +54,5 @@ This block has no dependencies — it is the root of the dependency graph. Every
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants for this block (transforms, hierarchy, logger lifecycle)
-- Related blocks: `rendering` (consumes `TransformComponent`), `collision` (consumes `Transform.Delta`), `physics` (writes to `Transform.LocalPosition` via velocity)
+- [Premises](premises.md) — load-bearing invariants for this module (transforms, hierarchy, logger lifecycle)
+- Related modules: `rendering` (consumes `TransformComponent`), `collision` (consumes `Transform.Delta`), `physics` (writes to `Transform.LocalPosition` via velocity)

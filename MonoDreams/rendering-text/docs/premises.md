@@ -8,7 +8,7 @@
 ## Text uses `BitmapFont`, not `SpriteFont`
 
 `DynamicTextComponent.Font` is a `MonoGame.Extended.BitmapFonts.BitmapFont`,
-not a `Microsoft.Xna.Framework.Graphics.SpriteFont`. The block depends on
+not a `Microsoft.Xna.Framework.Graphics.SpriteFont`. The module depends on
 MonoGame.Extended for its bitmap-font implementation
 (angle-bracket-fnt or BMFont), and `TextPrepSystem` calls
 `font.MeasureString` and submits glyphs via the bitmap-font draw path.
@@ -123,7 +123,7 @@ multi-line text (not used today).
   visible substring as one draw call (one `DrawComponent.Text`). A
   per-glyph path would let per-character color, animation, or
   outline effects work, but isn't implemented today.
-- **Word wrap** — there is no wrapping logic in this block. Text
+- **Word wrap** — there is no wrapping logic in this module. Text
   longer than its container clips at the right edge of the bitmap
   font's rendering. UI layouts that need wrapping have to
   pre-wrap the string and insert `\n` themselves (e.g. `DialogueSystem.WrapText`);
@@ -133,8 +133,8 @@ multi-line text (not used today).
 ## Aspirational direction
 
 - Split the dynamic-reveal portion of `DynamicTextComponent` /
-  `TextUpdateSystem` into a dedicated block, leaving static labels in
-  this block alone. (A `text-dynamic-reveal` block was reserved for
+  `TextUpdateSystem` into a dedicated module, leaving static labels in
+  this module alone. (A `text-dynamic-reveal` module was reserved for
   this earlier but removed — recreate when the split actually lands.)
 - Per-glyph rendering with per-character color/animation hooks.
 

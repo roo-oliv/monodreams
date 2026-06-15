@@ -1,11 +1,11 @@
 {
-  "$schema": "./block.schema.json",
+  "$schema": "./module.schema.json",
   "version": 1,
   "presets": [
     {
       "name": "ldtk-platformer",
       "description": "Full LDtk-driven platformer with dialogue, UI, cursor, and debug overlays (Level 1)",
-      "blocks": [
+      "modules": [
         "foundation",
         "rendering",
         "rendering-text",
@@ -23,7 +23,7 @@
     {
       "name": "blender-platformer",
       "description": "Same as ldtk-platformer but loading Blender-exported levels (Level 2)",
-      "blocks": [
+      "modules": [
         "foundation",
         "rendering",
         "rendering-text",
@@ -41,7 +41,7 @@
     {
       "name": "infinite-runner",
       "description": "Procedural shape-driven runner with no level files, no UI, no dialogue (Level 3)",
-      "blocks": [
+      "modules": [
         "foundation",
         "rendering",
         "rendering-text",

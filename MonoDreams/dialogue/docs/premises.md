@@ -1,15 +1,15 @@
 # dialogue — premises
 
 > Technical invariants the engine assumes about the YarnSpinner dialogue
-> block: `DialogueSystem`, `DialogueStateComponent`,
+> module: `DialogueSystem`, `DialogueStateComponent`,
 > `DialogueRunner`, the Yarn content pipeline
 > (`YarnSpinnerImporter`/`Processor`/`YarnProgram`), and the
 > `DialogueStartMessage` / `DialogueActiveMessage` contracts. Read this
 > before changing any of those pieces or wiring a dialogue trigger.
 
-## Dialogue is started by `DialogueStartMessage`, not by the block itself
+## Dialogue is started by `DialogueStartMessage`, not by the module itself
 
-The dialogue block does not own the *trigger* for a conversation.
+The dialogue module does not own the *trigger* for a conversation.
 `DialogueSystem` subscribes to `DialogueStartMessage` (carrying a
 target node name) and reacts; it does not inspect collision zones, NPC
 proximity, or scripted triggers. Game code is responsible for
@@ -18,10 +18,10 @@ is (collision zone, NPC interaction, scripted event).
 
 **Why:** triggers are game-specific — a platformer fires dialogues on
 proximity, a visual novel fires them on scene load, a roguelike fires
-them on random encounter. Embedding any of those in the block would
+them on random encounter. Embedding any of those in the module would
 foreclose the others. The message-passing seam is the engine's
 extension point.
-**Breaks:** installing this block without writing a trigger system
+**Breaks:** installing this module without writing a trigger system
 results in a dialogue runner that never starts. The dev sees
 no error — just a silent runtime where their `.yarn` files are loaded
 but never advance. The canonical pattern is
@@ -39,7 +39,7 @@ dynamically — without `CopyLocalLockFileAssemblies=true` and
 `EnableDynamicLoading=true` set on the consuming project, the
 YarnSpinner transitive dependencies aren't copied next to the importer
 DLL and MGCB fails with `Could not load file or assembly` at build
-time. The block's manifest adds both properties automatically; a
+time. The module's manifest adds both properties automatically; a
 hand-edited csproj that loses them breaks the content build.
 
 **Why:** YarnSpinner has its own transitive dependency chain
@@ -205,16 +205,16 @@ Passing both `sideInset` and a balloon expecting both to apply: only the balloon
   `AutoLayoutBuilder` so dialogue benefits from flexbox-driven
   positioning (especially for option lists).
 - Standard set of `DialogueAdvanceMessage` / `DialogueChoiceMessage` /
-  `DialogueEndMessage` in the block so games don't have to redefine
+  `DialogueEndMessage` in the module so games don't have to redefine
   the input bindings — these exist in
   `MonoDreams.Examples/Message/` today but should probably move into
-  the block.
+  the module.
 
 ## Follow-up debt
 
 The following premises currently have **Tests: none yet**:
 
-- Dialogue is started by `DialogueStartMessage`, not by the block itself
+- Dialogue is started by `DialogueStartMessage`, not by the module itself
 - Yarn content pipeline needs `CopyLocalLockFileAssemblies` +
   `EnableDynamicLoading`
 - `DialogueSystem` constructs its own UI entity hierarchy

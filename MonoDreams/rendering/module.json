@@ -1,5 +1,5 @@
 {
-  "$schema": "../block.schema.json",
+  "$schema": "../module.schema.json",
   "name": "rendering",
   "description": "Unified draw stack: sprites, meshes, render targets, culling, Y-sort, MasterRenderSystem",
   "dependencies": [

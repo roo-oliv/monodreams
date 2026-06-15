@@ -4,7 +4,7 @@ namespace MonoDreams.Cli.Manifest;
 
 internal sealed class RegistryIndex
 {
-    [JsonPropertyName("blocks")] public List<RegistryEntry> Blocks { get; set; } = new();
+    [JsonPropertyName("modules")] public List<RegistryEntry> Modules { get; set; } = new();
     [JsonPropertyName("presets")] public List<RegistryPreset> Presets { get; set; } = new();
 }
 
@@ -18,5 +18,5 @@ internal sealed class RegistryPreset
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
-    [JsonPropertyName("blocks")] public List<string> Blocks { get; set; } = new();
+    [JsonPropertyName("modules")] public List<string> Modules { get; set; } = new();
 }

@@ -1,6 +1,6 @@
 # Contributing to MonoDreams
 
-Thanks for considering a contribution! MonoDreams is alpha and there's plenty of room to shape it. This doc covers what you need to build the engine, run the tests, and add a new block.
+Thanks for considering a contribution! MonoDreams is alpha and there's plenty of room to shape it. This doc covers what you need to build the engine, run the tests, and add a new module.
 
 If you only want to *use* the engine for your own game, you don't need this file — see the project [README](./README.md) and the [`monodreams` CLI](./MonoDreams.Cli/).
 
@@ -57,7 +57,7 @@ dotnet run --project MonoDreams.Cli -- list
 ### Individual projects
 
 ```bash
-dotnet build MonoDreams/MonoDreams.csproj            # core engine (all blocks)
+dotnet build MonoDreams/MonoDreams.csproj            # core engine (all modules)
 dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
 dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
 dotnet build MonoDreams.Cli/MonoDreams.Cli.csproj
@@ -74,14 +74,14 @@ The integration tests use the **headless replay** harness in `MonoDreams.Tests/I
 ## Repo layout
 
 ```
-MonoDreams/                  ← the engine (15 blocks + project files)
-  block.schema.json          ← JSON Schema for every block.json
-  presets.json               ← named block combinations
-  BLOCKS.md                  ← block authoring guide
-  MonoDreams.csproj          ← the engine library (compiles every block together)
-  <block>/                   ← e.g. foundation/, rendering/, cursor/
-    block.json               ← block manifest
-    ...source files...       ← every file inside is part of the block
+MonoDreams/                  ← the engine (13 modules + project files)
+  module.schema.json          ← JSON Schema for every module.json
+  presets.json               ← named module combinations
+  MODULES.md                  ← module authoring guide
+  MonoDreams.csproj          ← the engine library (compiles every module together)
+  <module>/                   ← e.g. foundation/, rendering/, cursor/
+    module.json               ← module manifest
+    ...source files...       ← every file inside is part of the module
 MonoDreams.Examples/         ← reference games (LDtk, Blender, infinite-runner)
 MonoDreams.Cli/              ← the `monodreams` global tool (init / add / list)
 MonoDreams.Tests/            ← integration + unit tests
@@ -89,27 +89,27 @@ docs/                        ← engine tenets and per-domain premises
 .claude/                     ← Claude Code skills (e.g. /deep-review)
 ```
 
-## Adding or modifying blocks
+## Adding or modifying modules
 
-The repo is the registry. To add a new block:
+The repo is the registry. To add a new module:
 
-1. Create `MonoDreams/<name>/` and drop your source files there. The block dir defines its own contents — anything inside (except `block.json`) is shipped.
-2. Write `MonoDreams/<name>/block.json`. Required fields are `name` and `description`; declare every cross-block dependency in `dependencies`. See [`MonoDreams/BLOCKS.md`](./MonoDreams/BLOCKS.md) for the full schema and [`MonoDreams/cursor/block.json`](./MonoDreams/cursor/block.json) for a small worked example.
-3. List any new NuGet packages your source `using`s under `nugetDependencies` so the CLI injects them when users install your block.
+1. Create `MonoDreams/<name>/` and drop your source files there. The module dir defines its own contents — anything inside (except `module.json`) is shipped.
+2. Write `MonoDreams/<name>/module.json`. Required fields are `name` and `description`; declare every cross-module dependency in `dependencies`. See [`MonoDreams/MODULES.md`](./MonoDreams/MODULES.md) for the full schema and [`MonoDreams/cursor/module.json`](./MonoDreams/cursor/module.json) for a small worked example.
+3. List any new NuGet packages your source `using`s under `nugetDependencies` so the CLI injects them when users install your module.
 4. Add `postInstallNotes` with the *wiring* — system pipeline order, asset hooks, anything not derivable from reading the files. Both humans and AI agents read these.
-5. If the block touches an existing engine domain that has a `docs/<domain>/premises.md`, read the premises first (see [CLAUDE.md's workflow section](./.claude/CLAUDE.md#workflow)) and propose new premise text if your change introduces an invariant the docs don't yet name.
+5. If the module touches an existing engine domain that has a `docs/<domain>/premises.md`, read the premises first (see [CLAUDE.md's workflow section](./.claude/CLAUDE.md#workflow)) and propose new premise text if your change introduces an invariant the docs don't yet name.
 
 Validate the manifest:
 
 ```bash
 # With ajv-cli
-npx ajv-cli validate -s MonoDreams/block.schema.json -d 'MonoDreams/*/block.json'
+npx ajv-cli validate -s MonoDreams/module.schema.json -d 'MonoDreams/*/module.json'
 
 # Or with the bundled Python helper (uses uv + jsonschema)
 uv run --with jsonschema python3 -c "
 import json, glob, jsonschema
-schema = json.load(open('MonoDreams/block.schema.json'))
-for p in sorted(glob.glob('MonoDreams/*/block.json')):
+schema = json.load(open('MonoDreams/module.schema.json'))
+for p in sorted(glob.glob('MonoDreams/*/module.json')):
     jsonschema.validate(json.load(open(p)), schema)
 print('all manifests valid')
 "
@@ -130,7 +130,7 @@ dotnet build .sandbox/Sandbox/Sandbox.csproj
 - **Components** end in `Component` (e.g. `TransformComponent`, `VelocityComponent`). They are pure data — no logic, no methods beyond simple constructors/helpers.
 - **Systems** end in `System` (e.g. `HierarchySystem`, `GravitySystem`). All behavior lives in systems.
 - **Messages** flow through the ECS world via publish-subscribe (e.g. `CollisionMessage`, `LoadLevelRequest`).
-- **Namespaces are file-path independent.** A file at `MonoDreams/cursor/Component/CursorControllerComponent.cs` still declares `namespace MonoDreams.Component.Cursor`. This lets us reorganize files into block directories without breaking downstream code.
+- **Namespaces are file-path independent.** A file at `MonoDreams/cursor/Component/CursorControllerComponent.cs` still declares `namespace MonoDreams.Component.Cursor`. This lets us reorganize files into module directories without breaking downstream code.
 - **Core has no implicit `using`s.** When moving files in, add explicit `using System;`, `using System.Collections.Generic;`, `using System.Linq;` where needed.
 
 ## Engine invariants
@@ -139,7 +139,7 @@ Before any non-trivial change, read [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.m
 
 ## Coding style
 
-Follow the existing code in the block you're editing — formatting, naming, comment density. The repo doesn't ship an `.editorconfig`-enforced style; the codebase's own consistency is the style guide.
+Follow the existing code in the module you're editing — formatting, naming, comment density. The repo doesn't ship an `.editorconfig`-enforced style; the codebase's own consistency is the style guide.
 
 ## Skills
 
@@ -149,8 +149,8 @@ The repo's `.claude/skills/` directory contains Claude Code skills that help dur
 
 ## Filing issues and PRs
 
-- **Bugs** — include the reproduction, the expected vs actual behavior, and which blocks are installed in your `monodreams.json`.
-- **PRs** — make them focused; one block or one premise per PR is ideal. Update tests, premises, and `postInstallNotes` in the same PR that changes behavior.
+- **Bugs** — include the reproduction, the expected vs actual behavior, and which modules are installed in your `monodreams.json`.
+- **PRs** — make them focused; one module or one premise per PR is ideal. Update tests, premises, and `postInstallNotes` in the same PR that changes behavior.
 
 ## License
 

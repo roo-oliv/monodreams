@@ -23,7 +23,7 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Demo.Camera;
 
-/// Camera block demo. Move a red circle inside a boundary rectangle with WASD/arrows;
+/// Camera module demo. Move a red circle inside a boundary rectangle with WASD/arrows;
 /// switch between five fixed camera targets (numbered 1–5, each shown as a hoverable
 /// region in the world) and a follow mode (key 0). The "smooth lerp" toggle controls
 /// the damping on <see cref="CameraFollowTargetComponent"/>: when on, the camera eases

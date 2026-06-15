@@ -4,7 +4,7 @@ A textured, hover-aware cursor pipeline: poll mouse input, convert screen coords
 
 ## Purpose
 
-The hardware cursor is a single global mouse state, but a game often wants a custom-textured cursor that changes appearance based on context (idle vs hovering a clickable vs dragging) and whose world position is needed by game systems for hit-testing. This block wraps that into three small systems: `CursorInputSystem` reads raw mouse state, `CursorPositionSystem` projects screen → virtual → world (driven by the camera), and `CursorDrawPrepSystem` paints the right texture into `DrawComponent`. The `Cursor.Create` factory composes a cursor entity from four components in one call; game systems read `CursorInputComponent.WorldPosition` for hit-tests without caring what render target the cursor draws on.
+The hardware cursor is a single global mouse state, but a game often wants a custom-textured cursor that changes appearance based on context (idle vs hovering a clickable vs dragging) and whose world position is needed by game systems for hit-testing. This module wraps that into three small systems: `CursorInputSystem` reads raw mouse state, `CursorPositionSystem` projects screen → virtual → world (driven by the camera), and `CursorDrawPrepSystem` paints the right texture into `DrawComponent`. The `Cursor.Create` factory composes a cursor entity from four components in one call; game systems read `CursorInputComponent.WorldPosition` for hit-tests without caring what render target the cursor draws on.
 
 ## What ships
 
@@ -40,7 +40,7 @@ The hardware cursor is a single global mouse state, but a game often wants a cus
 
 `MonoDreams.Examples/Screens/LevelSelectionScreen.cs` is the canonical reference.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `foundation` — uses `TransformComponent` to position the cursor entity.
 - `rendering` — the cursor renders through the standard `DrawComponent` path; the `Camera` (in `rendering`) is consulted to project screen coordinates to world.
@@ -54,4 +54,4 @@ The hardware cursor is a single global mouse state, but a game often wants a cus
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants (three-stage pipeline order, camera-must-update-first, HUD render-target default, target-dependent transform position semantics, factory as canonical entry)
-- Related blocks: `rendering` (cursor draws through it; provides `Camera`), `camera` (must update before `CursorPositionSystem` for accurate world coords during camera motion), `ui` (game-side interaction systems combine cursor world-position with UI bounds for hit-tests)
+- Related modules: `rendering` (cursor draws through it; provides `Camera`), `camera` (must update before `CursorPositionSystem` for accurate world coords during camera motion), `ui` (game-side interaction systems combine cursor world-position with UI bounds for hit-tests)

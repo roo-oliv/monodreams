@@ -5,7 +5,7 @@ namespace MonoDreams.Cli.Installer;
 
 internal static class CsprojEditor
 {
-    public static void ApplyBlock(string csprojPath, BlockManifest manifest)
+    public static void ApplyModule(string csprojPath, ModuleManifest manifest)
     {
         var doc = XDocument.Load(csprojPath);
         var project = doc.Root ?? throw new InvalidDataException($"'{csprojPath}' has no root element.");

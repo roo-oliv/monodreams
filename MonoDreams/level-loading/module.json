@@ -1,0 +1,13 @@
+{
+  "$schema": "../module.schema.json",
+  "name": "level-loading",
+  "description": "Shared level/spawn plumbing: LoadLevelRequest, EntitySpawnRequest, parser pipeline",
+  "dependencies": [
+    "foundation"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## level-loading installed\n\nThis is the shared plumbing both parsers (`level-ldtk`, `level-blender`) ride on. By itself it can't load anything \u2014 you need a parser module.\n\nFlow:\n1. Publish `LoadLevelRequest { LevelIdentifier = \"...\" }`.\n2. `LevelLoadRequestSystem` dispatches to a parser system (LDtk or Blender).\n3. The parser publishes one `EntitySpawnRequest` per entity in the level.\n4. `EntitySpawnSystem` routes each request to the registered `IEntityFactory` (registered by string identifier).\n\nRegister factories at startup with `EntitySpawnSystem.RegisterFactory(\"Player\", new PlayerFactory());`.\n\n**Premises:** `docs/premises.md`",
+  "premisesRef": "docs/premises.md"
+}

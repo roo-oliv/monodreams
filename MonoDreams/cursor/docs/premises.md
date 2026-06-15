@@ -1,6 +1,6 @@
 # cursor — premises
 
-> Technical invariants the engine assumes about the cursor block:
+> Technical invariants the engine assumes about the cursor module:
 > `CursorControllerComponent`, `CursorInputComponent`,
 > `CursorTexturesComponent`, the `Cursor.Create` factory, and the
 > three cursor systems. Read this before changing any of those pieces
@@ -35,7 +35,7 @@ frame's raw mouse position.
 `CursorPositionSystem` calls `camera.VirtualScreenToWorld(...)` to
 compute the cursor's world position. That call depends on the camera
 having its final position for the frame. Any system that moves the
-camera (`CameraFollowSystem` from the `camera` block, or game-specific
+camera (`CameraFollowSystem` from the `camera` module, or game-specific
 camera control) must run before `CursorPositionSystem`.
 
 **Why:** the camera's view transform is the projection that turns

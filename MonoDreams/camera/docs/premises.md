@@ -1,6 +1,6 @@
 # camera — premises
 
-> Technical invariants the engine assumes about the camera-follow block:
+> Technical invariants the engine assumes about the camera-follow module:
 > `CameraFollowTargetComponent` and `CameraFollowSystem`. Read this
 > before changing either piece or any code that expects the camera to
 > auto-track an entity.
@@ -11,7 +11,7 @@ Fixed-camera, local multiplayer (multiple cameras at once), and
 CCTV-style setups are explicitly in scope. A screen owns whether and
 how its camera updates; `CullingSystem` and `MasterRenderSystem` read
 whatever the `Camera` reports each frame regardless of who wrote to it.
-Installing this block adds the option to register `CameraFollowSystem`;
+Installing this module adds the option to register `CameraFollowSystem`;
 a screen that wants manual camera control simply omits the registration
 and writes to `camera.Position` / `camera.Zoom` directly.
 
@@ -26,24 +26,24 @@ wins per frame).
 **Tests:** none yet.
 **Depends on:** —
 
-## The `Camera` class itself ships in the `rendering` block
+## The `Camera` class itself ships in the `rendering` module
 
 `Camera` is a hard dependency of the draw stack — `MasterRenderSystem`
 needs its view matrix every frame — so it lives at
-`MonoDreams/rendering/Camera.cs`, not in this block. This block adds
+`MonoDreams/rendering/Camera.cs`, not in this module. This module adds
 **only** the optional follow behavior (`CameraFollowTargetComponent`
 plus `CameraFollowSystem`). Game code can use `Camera` without ever
 installing `camera`.
 
-**Why:** decoupling who-owns-the-position (this block) from
-what-the-camera-is (the `rendering` block) lets fixed-camera games skip
-this block entirely without losing rendering. The split is the
+**Why:** decoupling who-owns-the-position (this module) from
+what-the-camera-is (the `rendering` module) lets fixed-camera games skip
+this module entirely without losing rendering. The split is the
 cleanest expression of the underlying invariant: rendering depends on
 *a* `Camera`, not on *how* the `Camera` is updated.
-**Breaks:** if a future refactor moves `Camera` into this block, every
+**Breaks:** if a future refactor moves `Camera` into this module, every
 game that wants rendering will be forced to also install camera-follow
-plumbing it doesn't use, and the `rendering` block will gain a
-mandatory dependency on a behavior block — both bad smells.
+plumbing it doesn't use, and the `rendering` module will gain a
+mandatory dependency on a behavior module — both bad smells.
 **Tests:** none yet.
 **Depends on:** rendering — "`Camera.VirtualResolution` is immutable".
 
@@ -68,8 +68,8 @@ reload with no obvious cause.
 ## Follow runs after movement, before rendering
 
 The reference pipeline places `CameraFollowSystem` after the physics /
-movement block (so the target's `TransformComponent.Position` is the
-final position this frame) and before the prep / cull / render block
+movement module (so the target's `TransformComponent.Position` is the
+final position this frame) and before the prep / cull / render stage
 (so culling and view-matrix consumers see the new camera position).
 Following before movement makes the camera lag the target by one
 frame; following after culling makes the cull frustum reflect last
@@ -100,7 +100,7 @@ follows freely.
 
 **Why:** games want the camera to stop at level edges without each screen
 re-implementing a clamp (which would mean a second writer to `camera.Position`
-— the tug-of-war this block's first premise warns against). Clamping the
+— the tug-of-war this module's first premise warns against). Clamping the
 *target* keeps a single owner of the camera position *and* a single smooth
 easing path to an in-bounds goal.
 **Breaks:** if a future change clamps the *resolved* position after smoothing
@@ -134,6 +134,6 @@ that's the caller's choice, not a bug.
 The following premises currently have **Tests: none yet**:
 
 - `CameraFollowSystem` is optional, not required
-- The `Camera` class itself ships in the `rendering` block
+- The `Camera` class itself ships in the `rendering` module
 - `CameraFollowSystem` picks the first `IsActive` target each frame
 - Follow runs after movement, before rendering

@@ -12,7 +12,7 @@
     <PackageId>MonoDreams.Cli</PackageId>
     <Version>0.1.0-alpha</Version>
     <Authors>Rodrigo Oliveira</Authors>
-    <Description>Code-first installer for the MonoDreams game engine. Copies engine source blocks into your project, shadcn-style.</Description>
+    <Description>Code-first installer for the MonoDreams game engine. Copies engine source modules into your project, shadcn-style.</Description>
     <PackageTags>monodreams; monogame; cli; tool; game-engine</PackageTags>
     <PackageOutputPath>$(MSBuildThisFileDirectory)nupkg</PackageOutputPath>
 

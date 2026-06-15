@@ -1,33 +1,33 @@
 # About this project
 This is **MonoDreams**, a code-first and ECS-purist 2D game engine built on
-MonoGame (rendering) and DefaultEcs (ECS framework). The engine ships as **15
-self-contained blocks** under `MonoDreams/<block>/`, distributed shadcn-style
-via the `monodreams` CLI: users own the source they install. The core concept
+MonoGame (rendering) and DefaultEcs (ECS framework). The engine ships as **13
+self-contained source modules** under `MonoDreams/<module>/`, distributed
+shadcn-style via the `monodreams` CLI: users own the source they install. The core concept
 is plug'n play components and systems: add a `TransformComponent` and
 `RigidBodyComponent` to an entity, include `GravitySystem` in your pipeline,
 and gravity just works.
 
-MonoDreams is still in alpha. Each block's source is colocated with its
-manifest (`MonoDreams/<block>/block.json`) and its docs
-(`MonoDreams/<block>/docs/overview.md` + `premises.md`). The
-`MonoDreams.Examples/` project demonstrates how to wire up blocks into
+MonoDreams is still in alpha. Each module's source is colocated with its
+manifest (`MonoDreams/<module>/module.json`) and its docs
+(`MonoDreams/<module>/docs/overview.md` + `premises.md`). The
+`MonoDreams.Examples/` project demonstrates how to wire up modules into
 real game screens — start at
 `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`.
 
 # Project structure
-- `MonoDreams/` — engine source organized into 13 blocks (`foundation`,
+- `MonoDreams/` — engine source organized into 13 modules (`foundation`,
   `rendering`, `rendering-text`, `camera`, `physics`, `collision`,
   `level-loading`, `level-ldtk`, `level-blender`, `ui`, `cursor`,
-  `dialogue`, `debug`). Each block has
-  `block.json`, `docs/`, and its components/systems/messages.
-- `MonoDreams.Examples/` — three reference games proving the block
+  `dialogue`, `debug`). Each module has
+  `module.json`, `docs/`, and its components/systems/messages.
+- `MonoDreams.Examples/` — three reference games proving the module
   boundaries: LDtk platformer, Blender platformer, infinite runner.
   Game-specific logic only (screens, input mapping, entity factories,
   settings, `ButtonInteractionSystem`).
 - `MonoDreams.Cli/` — the `monodreams` global tool (init / add / list).
 - `MonoDreams.Tests/` — unit + integration tests via `GameTestRunner`.
 - `Tools/` — Blender exporter plugin (shipped by the `level-blender`
-  block).
+  module).
 
 # Key conventions
 
@@ -43,7 +43,7 @@ real game screens — start at
   Game code can define its own enum for convenience.
 - `TransformComponent` is the single spatial component — there is no
   separate Position component.
-- `CameraFollowTargetComponent` lives in the `camera` block; the `Camera`
+- `CameraFollowTargetComponent` lives in the `camera` module; the `Camera`
   class itself lives in `rendering` (it's a hard dep of the draw stack).
 - `DrawComponent` (class) is the unified rendering component — it supports
   Sprite, Text, NinePatch, and Mesh via the `DrawElementType` enum. **Do not
@@ -66,7 +66,7 @@ real game screens — start at
   `DrawComponent`, `VisibleComponent`.
 
 ## Rendering pipeline
-- All rendering infrastructure lives in the `rendering` block
+- All rendering infrastructure lives in the `rendering` module
   (`MonoDreams/rendering/`).
 - Three render targets defined by `RenderTargetID`: Main (game world,
   camera transform applied), UI, HUD.
@@ -81,7 +81,7 @@ real game screens — start at
 ## Collision and physics
 - `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`,
   `RigidBodyComponent`, `VelocityComponent` — physics and collision are
-  separate blocks (`physics`, `collision`); the `collision` block soft-couples
+  separate modules (`physics`, `collision`); the `collision` module soft-couples
   to `physics` for impulse-style resolution.
 - Transform-based collision detection and resolution in
   `MonoDreams/collision/System/`.
@@ -94,10 +94,10 @@ real game screens — start at
 - LDtk parsers are component-driven (subscribe to `CurrentLevelComponent`
   added). The Blender parser is message-driven (subscribes to
   `LoadLevelRequest` directly). This asymmetry is documented in both
-  blocks' premises — a future cleanup will unify them.
+  modules' premises — a future cleanup will unify them.
 
 ## Debug infrastructure
-- **Logger** — `MonoDreams.State.Logger` (`foundation` block). Replaces
+- **Logger** — `MonoDreams.State.Logger` (`foundation` module). Replaces
   `Console.WriteLine`. Writes to `debug/monodreams_*.log` with `[wallclock]
   [GT gametime] [LEVEL] message` format. Call `Logger.Initialize(dir)` once
   at startup, then `Logger.Info(msg)`, `.Debug()`, `.Warning()`, `.Error()`.
@@ -148,13 +148,13 @@ engine contract.
 1. **Always** read [`docs/CORE_TENETS.md`](../docs/CORE_TENETS.md)
    before any task that adds, removes, or significantly modifies a
    component, system, message, screen, or factory.
-2. **For each block you touch**, read its
-   `MonoDreams/<block>/docs/premises.md` (load-bearing invariants) and
+2. **For each module you touch**, read its
+   `MonoDreams/<module>/docs/premises.md` (load-bearing invariants) and
    optionally `docs/overview.md` (purpose + wiring tour). The
-   block-to-premises mapping below tells you which.
+   module-to-premises mapping below tells you which.
 3. When you spawn a subagent (Explore, Plan, general-purpose) for
-   implementation work in a block, **pass `docs/CORE_TENETS.md` and the
-   relevant per-block `docs/premises.md` paths in the subagent's prompt**
+   implementation work in a module, **pass `docs/CORE_TENETS.md` and the
+   relevant per-module `docs/premises.md` paths in the subagent's prompt**
    so it loads the invariants too. Subagents do not auto-load CLAUDE.md;
    if you don't pass these paths, the subagent operates without the
    invariants and reproduces the bugs the docs exist to prevent.
@@ -162,13 +162,13 @@ engine contract.
    propose the premise text as part of the work (see the Premises
    subsection below for the format).
 
-## Block-to-premises mapping
+## Module-to-premises mapping
 
-The convention is one-to-one: for any file under `MonoDreams/<block>/`,
-read `MonoDreams/<block>/docs/premises.md` (and `docs/overview.md` for
+The convention is one-to-one: for any file under `MonoDreams/<module>/`,
+read `MonoDreams/<module>/docs/premises.md` (and `docs/overview.md` for
 the broader picture).
 
-| Block | What lives there |
+| Module | What lives there |
 |---|---|
 | [`foundation`](../MonoDreams/foundation/docs/premises.md) | `TransformComponent`, `ChildOfComponent`, hierarchy, `Logger`, input/replay, `ScreenController` |
 | [`rendering`](../MonoDreams/rendering/docs/premises.md) | `DrawComponent`, `SpriteInfoComponent`, `VisibleComponent`, `MasterRenderSystem`, `CullingSystem`, `YSortSystem`, the `Camera` class, plus `IMeshGenerator` / `MeshData` / `MeshPrepSystem` (procedural shapes) |
@@ -184,9 +184,9 @@ the broader picture).
 | [`dialogue`](../MonoDreams/dialogue/docs/premises.md) | `DialogueRunner`, `DialogueStateComponent`, `DialogueSystem`, YarnSpinner integration |
 | [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem` |
 
-For files under `MonoDreams.Examples/`, identify which block(s) the
-change exercises and load the relevant per-block premises — Examples
-exercises every block, so pick what's load-bearing for your change
+For files under `MonoDreams.Examples/`, identify which module(s) the
+change exercises and load the relevant per-module premises — Examples
+exercises every module, so pick what's load-bearing for your change
 rather than loading all 15.
 
 ## Other workflow rules
@@ -197,7 +197,7 @@ rather than loading all 15.
   with UI + cursor) or `LoadLevelExampleGameScreen` (the full physics +
   level loading stack) as a starting point for your own work, or creating
   a new screen.
-- When adding new functionality, first check `MonoDreams/<block>/` for
+- When adding new functionality, first check `MonoDreams/<module>/` for
   existing components and systems that can be extended. Prefer adding
   fields to existing components over creating new component types.
 - This project behaves as a framework, so avoid having multiple ways to
@@ -211,7 +211,7 @@ Before making changes, ensure the project builds successfully.
 
 ## Build Commands
 ```bash
-# Build core engine (compiles all 15 blocks together)
+# Build core engine (compiles all 13 modules together)
 dotnet build MonoDreams/MonoDreams.csproj
 
 # Build examples (includes MonoDreams)
@@ -229,9 +229,9 @@ dotnet build
 
 # Documentation
 
-The repo's docs layer captures engine tenets and per-block invariants.
+The repo's docs layer captures engine tenets and per-module invariants.
 **Load these as context before non-trivial work** (see the Workflow
-section above for triggers and the block-to-premises mapping).
+section above for triggers and the module-to-premises mapping).
 
 - [`docs/CORE_TENETS.md`](../docs/CORE_TENETS.md) — engine-wide
   invariants: framework-not-library, ECS purity & composition,
@@ -239,15 +239,15 @@ section above for triggers and the block-to-premises mapping).
   the reference pipeline, debug, and the named refactor backlog. Read
   this first for any non-trivial task.
 - [`docs/index.md`](../docs/index.md) — routing index pointing to the
-  per-block docs.
-- `MonoDreams/<block>/docs/overview.md` — per-block tour: purpose,
+  per-module docs.
+- `MonoDreams/<module>/docs/overview.md` — per-module tour: purpose,
   components/systems/messages, wiring, extension points.
-- `MonoDreams/<block>/docs/premises.md` — per-block invariants in
+- `MonoDreams/<module>/docs/premises.md` — per-module invariants in
   Why/Breaks/Tests/Depends on format.
-- [`MonoDreams/BLOCKS.md`](../MonoDreams/BLOCKS.md) — block manifest
+- [`MonoDreams/MODULES.md`](../MonoDreams/MODULES.md) — module manifest
   schema and authoring guide.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor setup, build,
-  test workflow, adding new blocks.
+  test workflow, adding new modules.
 
 ## Premises
 
@@ -264,13 +264,13 @@ should be able to understand.>
 **Why:** <The reason — usually a downstream system or past bug.>
 **Breaks:** <What goes wrong if violated.>
 **Tests:** <Test that protects this, or `none yet`.>
-**Depends on:** <Cross-references to other blocks' premises (use the form
-`<block> — "Premise title"`), or —.>
+**Depends on:** <Cross-references to other modules' premises (use the form
+`<module> — "Premise title"`), or —.>
 ```
 
-**Workflow when modifying a block.**
+**Workflow when modifying a module.**
 
-1. Read the block's `docs/premises.md` before changing code there.
+1. Read the module's `docs/premises.md` before changing code there.
 2. If the change introduces a new premise the docs don't yet name,
    propose the premise text as part of the PR.
 3. If a premise has `Tests: none yet` and the change exercises it,

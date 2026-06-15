@@ -11,9 +11,9 @@
 
     <ItemGroup>
         <ProjectReference Include="..\MonoDreams\MonoDreams.csproj" />
-        <!-- Each block ships its demo screen under <block>/demo/. The Demos host -->
+        <!-- Each module ships its demo screen under <module>/demo/. The Demos host -->
         <!-- compiles them in directly so they can reference DemoButton, DemoUI, etc. -->
-        <Compile Include="..\MonoDreams\**\demo\**\*.cs" LinkBase="BlockDemos" />
+        <Compile Include="..\MonoDreams\**\demo\**\*.cs" LinkBase="ModuleDemos" />
     </ItemGroup>
 
     <ItemGroup>

@@ -6,11 +6,11 @@ internal static class ListCommand
 {
     public static Command Build(Option<string?> registryOption)
     {
-        var cmd = new Command("list", "List available blocks and presets from the registry.");
+        var cmd = new Command("list", "List available modules and presets from the registry.");
 
         var verboseOption = new Option<bool>(
             aliases: new[] { "--verbose", "-v" },
-            description: "Include block dependencies, NuGet refs, and premises references.");
+            description: "Include module dependencies, NuGet refs, and premises references.");
         cmd.AddOption(verboseOption);
 
         cmd.SetHandler((verbose, registry) =>

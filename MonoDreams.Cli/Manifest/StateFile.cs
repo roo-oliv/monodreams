@@ -9,7 +9,7 @@ internal sealed class StateFile
 
     [JsonPropertyName("schema")] public string Schema { get; set; } = "https://monodreams.dev/state.schema.json";
     [JsonPropertyName("version")] public int Version { get; set; } = 1;
-    [JsonPropertyName("blocks")] public List<string> Blocks { get; set; } = new();
+    [JsonPropertyName("modules")] public List<string> Modules { get; set; } = new();
     [JsonPropertyName("createdAt")] public string? CreatedAt { get; set; }
     [JsonPropertyName("updatedAt")] public string? UpdatedAt { get; set; }
 

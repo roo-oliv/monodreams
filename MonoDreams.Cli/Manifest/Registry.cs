@@ -5,34 +5,34 @@ namespace MonoDreams.Cli.Manifest;
 internal sealed class Registry
 {
     public string EngineRoot { get; }
-    public string BlocksDir { get; }
+    public string ModulesDir { get; }
     public RegistryIndex Index { get; }
 
-    private readonly Dictionary<string, BlockManifest> _manifests = new();
+    private readonly Dictionary<string, ModuleManifest> _manifests = new();
 
     private Registry(string engineRoot, RegistryIndex index)
     {
         EngineRoot = engineRoot;
-        BlocksDir = Path.Combine(engineRoot, "MonoDreams");
+        ModulesDir = Path.Combine(engineRoot, "MonoDreams");
         Index = index;
     }
 
     public static Registry Load(string? explicitEngineRoot)
     {
         var engineRoot = Locate(explicitEngineRoot);
-        var blocksDir = Path.Combine(engineRoot, "MonoDreams");
+        var modulesDir = Path.Combine(engineRoot, "MonoDreams");
 
         var index = new RegistryIndex();
-        foreach (var blockDir in Directory.EnumerateDirectories(blocksDir).OrderBy(d => d))
+        foreach (var moduleDir in Directory.EnumerateDirectories(modulesDir).OrderBy(d => d))
         {
-            var manifestPath = Path.Combine(blockDir, "block.json");
+            var manifestPath = Path.Combine(moduleDir, "module.json");
             if (!File.Exists(manifestPath)) continue;
-            var m = JsonSerializer.Deserialize<BlockManifest>(File.ReadAllText(manifestPath), JsonOpts.Default)
+            var m = JsonSerializer.Deserialize<ModuleManifest>(File.ReadAllText(manifestPath), JsonOpts.Default)
                     ?? throw new InvalidDataException($"Failed to parse '{manifestPath}'.");
-            index.Blocks.Add(new RegistryEntry { Name = m.Name, Description = m.Description });
+            index.Modules.Add(new RegistryEntry { Name = m.Name, Description = m.Description });
         }
 
-        var presetsPath = Path.Combine(blocksDir, "presets.json");
+        var presetsPath = Path.Combine(modulesDir, "presets.json");
         if (File.Exists(presetsPath))
         {
             var presets = JsonSerializer.Deserialize<PresetsFile>(File.ReadAllText(presetsPath), JsonOpts.Default);
@@ -42,19 +42,19 @@ internal sealed class Registry
         return new Registry(engineRoot, index);
     }
 
-    public BlockManifest GetBlock(string name)
+    public ModuleManifest GetModule(string name)
     {
         if (_manifests.TryGetValue(name, out var cached)) return cached;
-        var path = Path.Combine(BlocksDir, name, "block.json");
+        var path = Path.Combine(ModulesDir, name, "module.json");
         if (!File.Exists(path))
-            throw new FileNotFoundException($"Block '{name}' not found (expected '{path}').");
-        var manifest = JsonSerializer.Deserialize<BlockManifest>(File.ReadAllText(path), JsonOpts.Default)
+            throw new FileNotFoundException($"Module '{name}' not found (expected '{path}').");
+        var manifest = JsonSerializer.Deserialize<ModuleManifest>(File.ReadAllText(path), JsonOpts.Default)
                        ?? throw new InvalidDataException($"Failed to parse '{path}'.");
         _manifests[name] = manifest;
         return manifest;
     }
 
-    public string GetBlockDir(string name) => Path.Combine(BlocksDir, name);
+    public string GetModuleDir(string name) => Path.Combine(ModulesDir, name);
 
     public RegistryPreset? GetPreset(string name) =>
         Index.Presets.FirstOrDefault(p => p.Name == name);
@@ -70,20 +70,20 @@ internal sealed class Registry
         }
 
         var cwd = Directory.GetCurrentDirectory();
-        if (HasBlocks(cwd)) return cwd;
+        if (HasModules(cwd)) return cwd;
 
         var asmDir = Path.GetDirectoryName(typeof(Registry).Assembly.Location) ?? "";
-        if (HasBlocks(asmDir)) return asmDir;
+        if (HasModules(asmDir)) return asmDir;
 
         throw new DirectoryNotFoundException(
             "Could not locate the MonoDreams engine source. Pass --registry <path-to-repo-root>, run from the MonoDreams repo root, or install the tool with bundled engine source.");
     }
 
-    private static bool HasBlocks(string dir)
+    private static bool HasModules(string dir)
     {
-        var blocksDir = Path.Combine(dir, "MonoDreams");
-        if (!Directory.Exists(blocksDir)) return false;
-        return Directory.EnumerateFiles(blocksDir, "block.json", SearchOption.AllDirectories).Any();
+        var modulesDir = Path.Combine(dir, "MonoDreams");
+        if (!Directory.Exists(modulesDir)) return false;
+        return Directory.EnumerateFiles(modulesDir, "module.json", SearchOption.AllDirectories).Any();
     }
 }
 

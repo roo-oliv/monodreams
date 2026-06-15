@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace MonoDreams.Cli.Manifest;
 
-internal sealed class BlockManifest
+internal sealed class ModuleManifest
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("description")] public string Description { get; set; } = "";

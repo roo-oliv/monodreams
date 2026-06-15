@@ -15,7 +15,7 @@ internal sealed class Installer
         _dryRun = dryRun;
     }
 
-    public void Apply(BlockManifest manifest)
+    public void Apply(ModuleManifest manifest)
     {
         var prefix = _dryRun ? "would " : "";
         Console.WriteLine($"  {prefix}install {manifest.Name} — {manifest.Description}");
@@ -25,7 +25,7 @@ internal sealed class Installer
             var src = Path.Combine(_registry.EngineRoot, file.Source);
             var dst = Path.Combine(_projectDir, file.Destination);
             if (!File.Exists(src))
-                throw new FileNotFoundException($"Block '{manifest.Name}': source file '{src}' not found.");
+                throw new FileNotFoundException($"Module '{manifest.Name}': source file '{src}' not found.");
 
             Console.WriteLine($"    {prefix}copy {file.Source} -> {file.Destination}");
             if (_dryRun) continue;
@@ -38,29 +38,29 @@ internal sealed class Installer
         {
             var csproj = FindCsproj();
             Console.WriteLine($"    {prefix}edit {Path.GetFileName(csproj)} (+{manifest.NugetDependencies.Count} nuget, +{manifest.CsprojProperties.Count} props)");
-            if (!_dryRun) CsprojEditor.ApplyBlock(csproj, manifest);
+            if (!_dryRun) CsprojEditor.ApplyModule(csproj, manifest);
         }
 
         if (manifest.MgcbEntries.Count > 0)
         {
             Console.WriteLine($"    {prefix}append {manifest.MgcbEntries.Count} mgcb entr{(manifest.MgcbEntries.Count == 1 ? "y" : "ies")} to Content/Content.mgcb");
-            if (!_dryRun) MgcbEditor.ApplyBlock(_projectDir, manifest);
+            if (!_dryRun) MgcbEditor.ApplyModule(_projectDir, manifest);
         }
     }
 
-    private IEnumerable<FileEntry> EnumerateFiles(BlockManifest manifest)
+    private IEnumerable<FileEntry> EnumerateFiles(ModuleManifest manifest)
     {
         if (manifest.Files.Count > 0)
             return manifest.Files;
 
-        var blockDir = _registry.GetBlockDir(manifest.Name);
-        if (!Directory.Exists(blockDir)) return Array.Empty<FileEntry>();
+        var moduleDir = _registry.GetModuleDir(manifest.Name);
+        if (!Directory.Exists(moduleDir)) return Array.Empty<FileEntry>();
 
         var result = new List<FileEntry>();
-        foreach (var path in Directory.EnumerateFiles(blockDir, "*", SearchOption.AllDirectories).OrderBy(p => p))
+        foreach (var path in Directory.EnumerateFiles(moduleDir, "*", SearchOption.AllDirectories).OrderBy(p => p))
         {
             var fileName = Path.GetFileName(path);
-            if (fileName == "block.json") continue;
+            if (fileName == "module.json") continue;
             var relFromEngine = Path.GetRelativePath(_registry.EngineRoot, path).Replace('\\', '/');
             result.Add(new FileEntry
             {

@@ -6,7 +6,7 @@ internal static class InitCommand
 {
     public static Command Build(Option<string?> registryOption)
     {
-        var cmd = new Command("init", "Scaffold a new MonoGame project and install the foundation block.");
+        var cmd = new Command("init", "Scaffold a new MonoGame project and install the foundation module.");
 
         var nameArg = new Argument<string>(
             name: "name",

@@ -41,7 +41,7 @@ public class Game1 : Game
         // the window is just hidden off-screen and never relied on for presentation.
         // The render path (and its memory behaviour) is exercised exactly as in a
         // visible run, which is the whole point: a 1×1 window would make the captured
-        // frame meaningless. See issue #28 and the debug-block premises.
+        // frame meaningless. See issue #28 and the debug-module premises.
         _graphics.PreferredBackBufferWidth = VirtualWidth;
         _graphics.PreferredBackBufferHeight = VirtualHeight;
         if (_headless.Enabled)

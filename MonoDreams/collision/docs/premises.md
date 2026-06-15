@@ -1,6 +1,6 @@
 # collision — premises
 
-> Technical invariants the engine assumes about the collision block:
+> Technical invariants the engine assumes about the collision module:
 > `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`,
 > `IColliderComponent`, `CollisionMessage`, `TransformCollisionDetectionSystem`,
 > and the two resolution systems. Read this before changing any of those
@@ -80,7 +80,7 @@ the frame so next frame's `Delta` is meaningful.
 **Breaks:** skip Commit → next frame's swept collision tunnels. Move
 Resolution before Detection → resolution corrects against a stale
 contact set. Mix gameplay position-writes with `VelocitySystem` → see
-"`VelocitySystem` is the primary mover" in the physics block.
+"`VelocitySystem` is the primary mover" in the physics module.
 **Tests:** none yet (the integration tests exercise this order
 implicitly —
 `MonoDreams.Tests/IntegrationTests/InfiniteRunnerTests.cs::PlayerFallsOffLeftEdge`

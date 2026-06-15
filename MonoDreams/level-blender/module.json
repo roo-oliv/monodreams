@@ -1,5 +1,5 @@
 {
-  "$schema": "../block.schema.json",
+  "$schema": "../module.schema.json",
   "name": "level-blender",
   "description": "Load levels exported from Blender scenes; ships the exporter plugin under Tools/",
   "dependencies": [

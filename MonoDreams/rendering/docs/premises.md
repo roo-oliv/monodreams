@@ -234,15 +234,15 @@ render passes).
 
 ## Rendering systems run last in the pipeline
 
-In any screen's pipeline assembly, the prep / cull / sort / render block
+In any screen's pipeline assembly, the prep / cull / sort / render stage
 goes at the tail. Logic that mutates renderable state (positions, sprite
 source rects, text contents, layer depths) must complete before the prep
-block reads it.
+module reads it.
 
-**Why:** the prep block freezes the state of `DrawComponent`s into the
+**Why:** the prep stage freezes the state of `DrawComponent`s into the
 draw queue; mutations after the queue is built are silently lost until
 next frame.
-**Breaks:** a game system that updates text mid-render-block sees the
+**Breaks:** a game system that updates text mid-render-module sees the
 old text on screen. A movement system after `CullingSystem` updates
 positions without re-culling — entities pop in or out by one frame.
 **Tests:** none yet.

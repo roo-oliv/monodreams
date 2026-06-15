@@ -1,30 +1,30 @@
 # debug — premises
 
 > Technical invariants the engine assumes about the debug overlays
-> block: `ColliderDebugSystem`, `SpriteDebugSystem`, and
+> module: `ColliderDebugSystem`, `SpriteDebugSystem`, and
 > `ScreenshotCaptureSystem`. (The `Logger` and the input-replay
 > scaffold live in `foundation` because they're useful in production;
-> this block adds the *visual* debug overlays and screenshot capture
+> this module adds the *visual* debug overlays and screenshot capture
 > only.) Read this before changing any of those pieces or relying on
 > the screenshot output for testing — including the headless Demos
 > observe-and-self-verify path (`MonoDreams.Demos/Game1.cs`,
 > `HeadlessOptions.cs`), which builds on `ScreenshotCaptureSystem`.
 
-## This block is opt-in; nothing requires it
+## This module is opt-in; nothing requires it
 
 A screen's pipeline assembly never *needs* a debug system. Each system
-in this block is registered only if the screen explicitly wants it,
+in this module is registered only if the screen explicitly wants it,
 and each respects a static `Enabled` flag plus an instance `IsEnabled`
 flag so a registered system can be muted without removing it from the
 pipeline. Tests and production-bound builds simply omit the
 registrations.
 
 **Why:** the framework-not-library tenet says required behavior lives
-in `foundation`, optional behavior in its own block. Debug overlays
+in `foundation`, optional behavior in its own module. Debug overlays
 allocate per-frame (transient mesh entities), so making them mandatory
 would impose a cost on every screen.
 **Breaks:** if a future refactor moves any of these systems into a
-required block, every game pays for debug rendering whether they
+required module, every game pays for debug rendering whether they
 asked for it or not. The static `Enabled` toggles also become global
 state that's harder to keep off across compositions.
 **Tests:** none yet.
@@ -54,7 +54,7 @@ rendering-mesh — "Mesh entities use the same `DrawComponent` slot".
 ## Debug overlays must be prep'd before `MasterRenderSystem` runs
 
 `ColliderDebugSystem` and `SpriteDebugSystem` register inside the
-prep block (between `SpritePrepSystem` and `MasterRenderSystem` in the
+prep stage (between `SpritePrepSystem` and `MasterRenderSystem` in the
 reference pipeline at
 `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`). They
 must run before `MasterRenderSystem` so the transient mesh entities
@@ -200,7 +200,7 @@ write".
 ## Aspirational direction
 
 - Debug HUD overlay (FPS, entity count, draw call count) as another
-  opt-in system in this block, sharing the same transient-entity
+  opt-in system in this module, sharing the same transient-entity
   pattern.
 - A `--capture-on-exit` mode for `ScreenshotCaptureSystem` that
   guarantees one final PNG at game shutdown, useful for replay
@@ -210,7 +210,7 @@ write".
 
 The following premises currently have **Tests: none yet**:
 
-- This block is opt-in; nothing requires it
+- This module is opt-in; nothing requires it
 - Debug overlays draw via the same `DrawComponent` path as everything else
 - Debug overlays must be prep'd before `MasterRenderSystem` runs
 - `ScreenshotCaptureSystem` is gated by `IsEnabled` set from `input_replay.json`

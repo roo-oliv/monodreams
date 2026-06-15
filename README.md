@@ -16,9 +16,9 @@ A code-first 2D game engine for MonoGame, distributed as readable source you own
 ## Why MonoDreams
 
 - **You own the engine source.** Every system, every component lives inside your project. Tweak the camera follow, the collision resolution, the dialogue UI — it's yours to read and change.
-- **Composable from day one.** The engine ships as 15 small blocks (foundation, rendering, physics, collision, level-loading, dialogue, …). Install only what you need.
+- **Composable from day one.** The engine ships as 13 small source modules (foundation, rendering, physics, collision, level-loading, dialogue, …). Install only what you need.
 - **ECS-pure.** Built on [DefaultEcs](https://github.com/Doraku/DefaultEcs). Components hold data, systems hold logic — no god-objects, no inheritance gymnastics.
-- **AI-agent friendly.** Source lives where agents can read it. Each block ships with a `block.json` manifest and the repo's `docs/` directory captures engine invariants per domain.
+- **AI-agent friendly.** Source lives where agents can read it. Each module ships with a `module.json` manifest and the repo's `docs/` directory captures engine invariants per domain.
 
 ## Quickstart
 
@@ -28,20 +28,20 @@ Install the CLI as a .NET global tool:
 dotnet tool install -g MonoDreams.Cli
 ```
 
-Scaffold a new project (this also installs the `foundation` block):
+Scaffold a new project (this also installs the `foundation` module):
 
 ```bash
 monodreams init MyGame
 cd MyGame
 ```
 
-Add the blocks you need:
+Add the modules you need:
 
 ```bash
 # A complete preset — procedural shape-driven runner
 monodreams add --preset infinite-runner
 
-# Or pick specific blocks
+# Or pick specific modules
 monodreams add rendering camera physics collision
 ```
 
@@ -51,9 +51,9 @@ Build and run:
 dotnet run
 ```
 
-`monodreams list` shows every block and preset; `--verbose` adds deps and NuGet refs.
+`monodreams list` shows every module and preset; `--verbose` adds deps and NuGet refs.
 
-## The 13 blocks
+## The 13 modules
 
 ```
 foundation              required base — installed by `monodreams init`
@@ -78,7 +78,7 @@ foundation              required base — installed by `monodreams init`
 MyGame/
   MyGame.csproj
   Program.cs              ← your game entry (scaffolded by `init`)
-  monodreams.json         ← records installed blocks
+  monodreams.json         ← records installed modules
   MonoDreams/
     foundation/           ← copied from the engine
       Screen/, State/, Component/, System/, Input/, Util/, ...
@@ -87,11 +87,11 @@ MyGame/
     ...
 ```
 
-Everything under `MonoDreams/` is yours. The CLI never reaches back into your code — `monodreams add <new-block>` only adds new files; modifications are always explicit.
+Everything under `MonoDreams/` is yours. The CLI never reaches back into your code — `monodreams add <new-module>` only adds new files; modifications are always explicit.
 
 ## Naming conventions
 
-Browsing a block's source tells you what it contains at a glance:
+Browsing a module's source tells you what it contains at a glance:
 
 - **Components** end in `Component` (e.g. `TransformComponent`, `VelocityComponent`, `DialogueStateComponent`).
 - **Systems** end in `System` (e.g. `HierarchySystem`, `GravitySystem`, `MasterRenderSystem`).
@@ -99,24 +99,24 @@ Browsing a block's source tells you what it contains at a glance:
 
 ## Three reference games
 
-The repo's `MonoDreams.Examples/` directory contains three games, each a clean subset of the block graph:
+The repo's `MonoDreams.Examples/` directory contains three games, each a clean subset of the module graph:
 
 - **LDtk platformer** — full stack with dialogue, UI, cursor (`monodreams add --preset ldtk-platformer`)
 - **Blender platformer** — same minus LDtk, plus Blender level export (`--preset blender-platformer`)
 - **Infinite runner** — procedural shapes, no level files, no UI, just physics + collision (`--preset infinite-runner`)
 
-They're the proof that the block boundaries are correct: each example is exactly the union of its preset's blocks.
+They're the proof that the module boundaries are correct: each example is exactly the union of its preset's modules.
 
 ## Docs
 
-- [`MonoDreams/BLOCKS.md`](./MonoDreams/BLOCKS.md) — block manifest schema and authoring guide
+- [`MonoDreams/MODULES.md`](./MonoDreams/MODULES.md) — module manifest schema and authoring guide
 - [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.md) — engine-wide invariants
 - [`docs/<domain>/premises.md`](./docs/) — per-domain technical invariants (rendering, hierarchy-transform, collision, physics, level-loading)
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — building the engine from source, adding new blocks, running the test suite
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — building the engine from source, adding new modules, running the test suite
 
 ## Status
 
-MonoDreams is alpha. Block boundaries and APIs may shift between minor versions — but because you own the source, the changes are diffs against your own code, not surprise breaking changes in a binary you can't see.
+MonoDreams is alpha. Module boundaries and APIs may shift between minor versions — but because you own the source, the changes are diffs against your own code, not surprise breaking changes in a binary you can't see.
 
 ## License
 

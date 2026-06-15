@@ -32,14 +32,14 @@ using Yarn.Compiler;
 
 namespace MonoDreams.Demo.Dialogue;
 
-/// Dialogue block demo. A very basic top-down Sprout Lands scene: walk the player around
+/// Dialogue module demo. A very basic top-down Sprout Lands scene: walk the player around
 /// a grass field with WASD, approach the cow NPC at the top-left, and press E to start a
 /// Yarn conversation. The line text wraps and reveals character-by-character; pick a reply
 /// with the up/down arrows and E. Yarn <c>&lt;&lt;emote who kind&gt;&gt;</c> commands show
 /// the speaker's framed portrait inside the box (left = NPC, right = player) and
 /// <c>&lt;&lt;react who mark&gt;&gt;</c> pops a reaction mark above a character's head.
 ///
-/// Showcases the dialogue block (<see cref="DialogueSystem"/> + Yarn runtime, fed an
+/// Showcases the dialogue module (<see cref="DialogueSystem"/> + Yarn runtime, fed an
 /// in-memory-compiled program so the demo ships no .yarn asset), the rendering-text reveal,
 /// and sprite rendering on the Main target.
 public class DialogueDemoScreen : IGameScreen

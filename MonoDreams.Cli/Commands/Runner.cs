@@ -30,13 +30,13 @@ internal static class Runner
         Console.WriteLine($"-> scaffolding {name} at {projectDir}");
         ProjectScaffolder.Scaffold(projectDir, name);
 
-        Console.WriteLine($"-> installing foundation block");
+        Console.WriteLine($"-> installing foundation module");
         var installer = new Installer.Installer(registry, projectDir, dryRun: false);
-        var foundation = registry.GetBlock("foundation");
+        var foundation = registry.GetModule("foundation");
         installer.Apply(foundation);
 
         var state = StateFile.LoadOrCreate(projectDir);
-        state.Blocks.Add("foundation");
+        state.Modules.Add("foundation");
         state.Save(projectDir);
 
         var copiedCount = Directory.GetFiles(Path.Combine(projectDir, "MonoDreams", "foundation"), "*", SearchOption.AllDirectories).Length;
@@ -50,13 +50,13 @@ internal static class Runner
         Console.WriteLine();
         Console.WriteLine($"Next steps:");
         Console.WriteLine($"  cd {Path.GetRelativePath(Directory.GetCurrentDirectory(), projectDir)}");
-        Console.WriteLine($"  monodreams add rendering camera  # or whichever blocks you need");
+        Console.WriteLine($"  monodreams add rendering camera  # or whichever modules you need");
         Console.WriteLine($"  dotnet run");
 
         return Task.CompletedTask;
     }
 
-    public static Task RunAddAsync(string[] blocks, string? presetName, string? projectPath, bool dryRun, string? registryPath)
+    public static Task RunAddAsync(string[] modules, string? presetName, string? projectPath, bool dryRun, string? registryPath)
     {
         var projectDir = Path.GetFullPath(projectPath ?? Directory.GetCurrentDirectory());
 
@@ -66,7 +66,7 @@ internal static class Runner
 
         var state = StateFile.LoadOrCreate(projectDir);
 
-        var requested = new List<string>(blocks);
+        var requested = new List<string>(modules);
         if (!string.IsNullOrEmpty(presetName))
         {
             var preset = registry.GetPreset(presetName);
@@ -76,12 +76,12 @@ internal static class Runner
                 Environment.ExitCode = 2;
                 return Task.CompletedTask;
             }
-            requested.AddRange(preset.Blocks);
+            requested.AddRange(preset.Modules);
         }
 
         if (requested.Count == 0)
         {
-            Console.Error.WriteLine("error: nothing to add. Pass block names or `--preset <name>`.");
+            Console.Error.WriteLine("error: nothing to add. Pass module names or `--preset <name>`.");
             Environment.ExitCode = 2;
             return Task.CompletedTask;
         }
@@ -89,7 +89,7 @@ internal static class Runner
         List<string> resolved;
         try
         {
-            resolved = DependencyResolver.Resolve(registry, requested, state.Blocks);
+            resolved = DependencyResolver.Resolve(registry, requested, state.Modules);
         }
         catch (Exception ex)
         {
@@ -100,24 +100,24 @@ internal static class Runner
 
         if (resolved.Count == 0)
         {
-            Console.WriteLine("All requested blocks (and their dependencies) are already installed. Nothing to do.");
+            Console.WriteLine("All requested modules (and their dependencies) are already installed. Nothing to do.");
             return Task.CompletedTask;
         }
 
         Console.WriteLine($"Plan ({(dryRun ? "dry-run, no changes" : "applying")}):");
         Console.WriteLine($"  project: {projectDir}");
-        Console.WriteLine($"  already installed: {(state.Blocks.Count == 0 ? "<none>" : string.Join(", ", state.Blocks))}");
+        Console.WriteLine($"  already installed: {(state.Modules.Count == 0 ? "<none>" : string.Join(", ", state.Modules))}");
         Console.WriteLine($"  to install: {string.Join(", ", resolved)}");
         Console.WriteLine();
 
         var installer = new Installer.Installer(registry, projectDir, dryRun);
-        var notes = new List<(string Block, string Notes)>();
+        var notes = new List<(string Module, string Notes)>();
 
         try
         {
             foreach (var name in resolved)
             {
-                var manifest = registry.GetBlock(name);
+                var manifest = registry.GetModule(name);
                 installer.Apply(manifest);
                 if (!string.IsNullOrWhiteSpace(manifest.PostInstallNotes))
                     notes.Add((name, manifest.PostInstallNotes));
@@ -132,7 +132,7 @@ internal static class Runner
 
         if (!dryRun)
         {
-            foreach (var name in resolved) state.Blocks.Add(name);
+            foreach (var name in resolved) state.Modules.Add(name);
             state.Save(projectDir);
         }
 
@@ -141,9 +141,9 @@ internal static class Runner
             Console.WriteLine();
             Console.WriteLine("Post-install notes:");
             Console.WriteLine();
-            foreach (var (block, body) in notes)
+            foreach (var (module, body) in notes)
             {
-                Console.WriteLine($"==== {block} ====");
+                Console.WriteLine($"==== {module} ====");
                 Console.WriteLine(body);
                 Console.WriteLine();
             }
@@ -158,14 +158,14 @@ internal static class Runner
         try { registry = Registry.Load(registryPath); }
         catch (Exception ex) { Console.Error.WriteLine($"error: {ex.Message}"); Environment.ExitCode = 2; return; }
 
-        Console.WriteLine($"Available blocks ({registry.Index.Blocks.Count}):");
-        var nameWidth = registry.Index.Blocks.Max(b => b.Name.Length);
-        foreach (var entry in registry.Index.Blocks)
+        Console.WriteLine($"Available modules ({registry.Index.Modules.Count}):");
+        var nameWidth = registry.Index.Modules.Max(b => b.Name.Length);
+        foreach (var entry in registry.Index.Modules)
         {
             Console.WriteLine($"  {entry.Name.PadRight(nameWidth)}  {entry.Description}");
             if (verbose)
             {
-                var manifest = registry.GetBlock(entry.Name);
+                var manifest = registry.GetModule(entry.Name);
                 if (manifest.Dependencies.Count > 0)
                     Console.WriteLine($"  {new string(' ', nameWidth)}  deps: {string.Join(", ", manifest.Dependencies)}");
                 if (manifest.NugetDependencies.Count > 0)
@@ -184,7 +184,7 @@ internal static class Runner
             {
                 Console.WriteLine($"  {preset.Name.PadRight(presetWidth)}  {preset.Description}");
                 if (verbose)
-                    Console.WriteLine($"  {new string(' ', presetWidth)}  blocks: {string.Join(", ", preset.Blocks)}");
+                    Console.WriteLine($"  {new string(' ', presetWidth)}  modules: {string.Join(", ", preset.Modules)}");
             }
         }
     }

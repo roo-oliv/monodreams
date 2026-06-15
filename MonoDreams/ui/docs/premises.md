@@ -1,6 +1,6 @@
 # ui — premises
 
-> Technical invariants the engine assumes about the UI block:
+> Technical invariants the engine assumes about the UI module:
 > `LayoutNodeComponent`, `LayoutSlotComponent`, `UIElementComponent`,
 > `SimpleButtonComponent`, the `AutoLayoutBuilder` / `ContainerBuilder` /
 > `SlotBuilder` builder chain, `IntrinsicSizingSystem`, `AutoLayoutSystem`,
@@ -37,8 +37,8 @@ components (e.g. reading `DynamicTextComponent.Font.MeasureString`)
 itself.
 
 **Why:** decoupling lets a slot measure any content — text, sprite,
-nested layout, mesh — without the UI block knowing what those
-components look like. A future block can add a new measurable type by
+nested layout, mesh — without the UI module knowing what those
+components look like. A future module can add a new measurable type by
 providing its own callback; nothing in `ui` needs to change.
 **Breaks:** a slot without a `SizeMeasurer` keeps its initial size
 (zero unless explicitly set), so its content collapses. The footgun
@@ -159,12 +159,12 @@ and has hover-driven source swaps, gate them with a single system.
 **Depends on:** rendering — `SpritePrepSystem` reads `SpriteInfoComponent.Source`
 to populate the draw call.
 
-## `ButtonInteractionSystem` is deliberately NOT in this block
+## `ButtonInteractionSystem` is deliberately NOT in this module
 
 The interactive behavior of a button — hover detection, click
 dispatching, screen transitions — is game-specific and lives in
 `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`. The `ui`
-block ships only the *visuals* and *layout*
+module ships only the *visuals* and *layout*
 (`SimpleButtonComponent` + `ButtonMeshPrepSystem`) plus the hooks
 (`UIElementComponent`, the builder). Each game writes its own
 interaction system that consumes those.
@@ -172,11 +172,11 @@ interaction system that consumes those.
 **Why:** click dispatching needs to know what the click does — load
 the next screen, fire a network call, mutate game state. That's
 necessarily game-specific. Forcing a game-agnostic
-`ButtonInteractionSystem` into the block would either be useless (no
+`ButtonInteractionSystem` into the module would either be useless (no
 default action) or coupling (assume some screen-transition message
 the framework doesn't own).
 **Breaks:** if a future refactor pulls `ButtonInteractionSystem` into
-the block, every game has to either accept the bundled dispatch or
+the module, every game has to either accept the bundled dispatch or
 suppress it — the framework loses the "buttons compose with my own
 interaction system" property.
 **Tests:** none yet.
@@ -214,4 +214,4 @@ The following premises currently have **Tests: none yet**:
 - `ToggleSwitchComponent` drives a sprite's source rectangle from a bool
 - `AutoLayoutBuilder` is the canonical entry point
 - `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
-- `ButtonInteractionSystem` is deliberately NOT in this block
+- `ButtonInteractionSystem` is deliberately NOT in this module

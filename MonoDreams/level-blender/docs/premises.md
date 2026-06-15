@@ -1,7 +1,7 @@
 # level-blender — premises
 
 > Technical invariants the engine assumes about the Blender level-loader
-> block: `BlenderLevelParserSystem`, the `BlenderLevelData` /
+> module: `BlenderLevelParserSystem`, the `BlenderLevelData` /
 > `BlenderObject` JSON schema, and the
 > `Tools/blender_level_export.py` exporter plugin. Read this before
 > changing the parser, the JSON schema, or the exporter plugin.
@@ -10,10 +10,10 @@
 
 `BlenderLevelParserSystem` subscribes to `LoadLevelRequest` and
 processes the message only if `request.LevelIdentifier` starts with
-the string `Blender_`. Any other identifier is ignored by this block.
+the string `Blender_`. Any other identifier is ignored by this module.
 That prefix is also what causes `LevelLoadRequestSystem` (in
 `level-loading`) to fail the LDtk load path and remove
-`CurrentLevelComponent`, leaving this block as the sole effective
+`CurrentLevelComponent`, leaving this module as the sole effective
 loader for Blender levels. *Status: refactor candidate — this is a
 quick hack.*
 
@@ -89,9 +89,9 @@ against a checked-in JSON file, but the schema-version invariant is
 not exercised.
 **Depends on:** —
 
-## The exporter plugin is part of the block
+## The exporter plugin is part of the module
 
-`Tools/blender_level_export.py` ships in this block at
+`Tools/blender_level_export.py` ships in this module at
 `MonoDreams/level-blender/Tools/blender_level_export.py`. It is the
 Blender-side companion to `BlenderLevelParserSystem`. Updates to the
 parser's expected JSON schema *must* be accompanied by matching updates
@@ -101,7 +101,7 @@ intended version signal.
 
 **Why:** the plugin and parser are versioned together; a level
 exported with plugin v1.7 may not parse correctly under a parser
-expecting v1.8 schema fields. Treating the plugin as in-block (not as
+expecting v1.8 schema fields. Treating the plugin as in-module (not as
 external tooling) is what makes "update both at once" feel natural.
 **Breaks:** a parser change that adds a required field without
 updating the plugin produces JSON files missing that field; the parser
@@ -173,6 +173,6 @@ The following premises currently have **Tests: none yet**:
   exercised by `BlenderLevelTests.BlenderLevelLoadsSuccessfully`)
 - Parser is message-driven, unlike the LDtk parsers
 - Parser depends on the JSON schema produced by the exporter plugin
-- The exporter plugin is part of the block
+- The exporter plugin is part of the module
 - Collider-child convention: `-collider` suffix attaches a
   ConvexCollider to the parent

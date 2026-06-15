@@ -155,8 +155,8 @@ code should call `SpriteBatch` outside the prep-then-master path. A
 parallel render system is a framework violation — flagged by review.
 
 **Key rule — rendering systems run last.** In any pipeline assembly,
-the prep-cull-sort-render block goes at the end. The recommended order
-inside the block, from the reference assembly
+the prep-cull-sort-render module goes at the end. The recommended order
+inside the module, from the reference assembly
 (`LoadLevelExampleGameScreen.cs:277–331`), is:
 `CullingSystem` → `SpritePrepSystem` → `YSortSystem` → `TextPrepSystem`
 → `MeshPrepSystem` → `MasterRenderSystem`.
@@ -273,7 +273,7 @@ entities.
    to `CurrentLevelComponent` being added** and parse on add.
    `BlenderLevelParserSystem`, in contrast, parses directly from the
    message — an asymmetry that's a known wart (see "Aspirational
-   direction" below and the per-block premises).
+   direction" below and the per-module premises).
 4. Parsers emit `EntitySpawnRequest`s.
 5. `EntitySpawnSystem` consumes each spawn request and dispatches to an
    `IEntityFactory` registered for the request's string identifier.
@@ -316,7 +316,7 @@ overall order, end-to-end:
 2. **Game logic** — game-specific systems that read input and entity
    state to update gameplay components (movement intent, AI decisions,
    dialogue state).
-3. **Physics block** — `MovementSystem` → `VelocitySystem` →
+3. **Physics module** — `MovementSystem` → `VelocitySystem` →
    `TransformCollisionDetectionSystem` →
    `TransformCollisionResolutionSystem` (or `…PhysicalCollisionResolutionSystem`) →
    `TransformCommitSystem`.
@@ -324,13 +324,13 @@ overall order, end-to-end:
    children moved independently), `SizeSystem`, `LayoutSystem`.
 5. **Camera** — `CameraFollowSystem` (optional).
 6. **Cursor** — `CursorInputSystem`, `CursorPositionSystem`.
-7. **Render block** — `CullingSystem` → `SpritePrepSystem` →
+7. **Render module** — `CullingSystem` → `SpritePrepSystem` →
    `YSortSystem` → `TextPrepSystem` → `MeshPrepSystem` →
    `MasterRenderSystem` → debug overlays.
 
 Each game's screen owns its own pipeline. The reference assembly is a
 recommendation — fixed-camera games omit `CameraFollowSystem`,
-non-physics screens skip the physics block, UI-only screens may have
+non-physics screens skip the physics module, UI-only screens may have
 no game logic at all. What does not change is the *shape* of the order:
 input first, render last, with physics ahead of hierarchy and hierarchy
 ahead of culling.
@@ -383,7 +383,7 @@ paths and they do *not* do the same thing:
   dumps non-blank PNGs to `MONODREAMS_DEBUG_DIR`, logs periodic live-heap
   samples, and self-terminates after `<N>` frames. This is the supported
   way for an agent to verify its own work on the demo host without a human.
-  See the `debug` block premises ("Headless Demos renders every frame";
+  See the `debug` module premises ("Headless Demos renders every frame";
   "Headless heap samples measure the live set") and
   `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
 

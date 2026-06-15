@@ -1,4 +1,4 @@
-# Build outputs (top-level Debug/Release/bin/obj). Note: the `debug` block at
+# Build outputs (top-level Debug/Release/bin/obj). Note: the `debug` module at
 # MonoDreams/debug/ is intentionally NOT ignored — runtime debug *output*
 # lives under bin/, captured by the **/bin/**/debug/ rule further down.
 /[Bb]in/
@@ -23,6 +23,12 @@
 /MonoDreams.Demos/[Oo]bj/
 /MonoDreams.Demos/[Dd]ebug/
 /MonoDreams.Demos/[Rr]elease/
+
+# Catch-all for any project's build dirs (e.g. MonoDreams.Cli) so newly
+# added projects never re-track obj/bin. The debug *source* module lives at
+# MonoDreams/debug/ (not under obj/bin) and is unaffected.
+**/[Bb]in/
+**/[Oo]bj/
 
 # Debug output (screenshots, logs, replay files) — inside build output directories only
 **/bin/**/debug/

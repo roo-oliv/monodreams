@@ -6,19 +6,19 @@ internal static class AddCommand
 {
     public static Command Build(Option<string?> registryOption)
     {
-        var cmd = new Command("add", "Install one or more blocks into the current project.");
+        var cmd = new Command("add", "Install one or more modules into the current project.");
 
-        var blocksArg = new Argument<string[]>(
-            name: "blocks",
-            description: "Block names to install (e.g. `monodreams add rendering camera collision`).")
+        var modulesArg = new Argument<string[]>(
+            name: "modules",
+            description: "Module names to install (e.g. `monodreams add rendering camera collision`).")
         {
             Arity = ArgumentArity.ZeroOrMore
         };
-        cmd.AddArgument(blocksArg);
+        cmd.AddArgument(modulesArg);
 
         var presetOption = new Option<string?>(
             name: "--preset",
-            description: "Install all blocks in a preset (see `monodreams list` for available presets).");
+            description: "Install all modules in a preset (see `monodreams list` for available presets).");
         cmd.AddOption(presetOption);
 
         var projectOption = new Option<string?>(
@@ -31,10 +31,10 @@ internal static class AddCommand
             description: "Resolve and print the install plan without copying any files.");
         cmd.AddOption(dryRunOption);
 
-        cmd.SetHandler(async (blocks, preset, project, dryRun, registry) =>
+        cmd.SetHandler(async (modules, preset, project, dryRun, registry) =>
         {
-            await Runner.RunAddAsync(blocks, preset, project, dryRun, registry);
-        }, blocksArg, presetOption, projectOption, dryRunOption, registryOption);
+            await Runner.RunAddAsync(modules, preset, project, dryRun, registry);
+        }, modulesArg, presetOption, projectOption, dryRunOption, registryOption);
 
         return cmd;
     }

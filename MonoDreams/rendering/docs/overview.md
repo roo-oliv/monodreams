@@ -4,7 +4,7 @@ The unified draw stack: one `DrawComponent` per entity (Sprite / Text / NinePatc
 
 ## Purpose
 
-This block defines how things appear on screen. It owns the entire draw path — `SpriteBatch` and `BasicEffect` are both hidden behind `MasterRenderSystem`, batch ordering and render-target switches are centralized, and per-entity visibility is a derived tag (`VisibleComponent`) maintained by `CullingSystem`. The block also ships the `Camera` class itself, because the draw stack reads `camera.ViewMatrix` every frame — making `Camera` a hard dependency of rendering rather than an optional add-on. Mesh primitives ship in this block too: `DrawComponent` carries the mesh fields (`Vertices`, `Indices`, `WorldMatrix`) directly, so procedural shapes can't be separated from rendering without circularity. Without this block, nothing renders; everything else that draws (text, cursor, dialogue UI) extends this stack rather than parallels it.
+This module defines how things appear on screen. It owns the entire draw path — `SpriteBatch` and `BasicEffect` are both hidden behind `MasterRenderSystem`, batch ordering and render-target switches are centralized, and per-entity visibility is a derived tag (`VisibleComponent`) maintained by `CullingSystem`. The module also ships the `Camera` class itself, because the draw stack reads `camera.ViewMatrix` every frame — making `Camera` a hard dependency of rendering rather than an optional add-on. Mesh primitives ship in this module too: `DrawComponent` carries the mesh fields (`Vertices`, `Indices`, `WorldMatrix`) directly, so procedural shapes can't be separated from rendering without circularity. Without this module, nothing renders; everything else that draws (text, cursor, dialogue UI) extends this stack rather than parallels it.
 
 ## What ships
 
@@ -34,7 +34,7 @@ This block defines how things appear on screen. It owns the entire draw path —
 
 ### Non-ECS types
 
-- `Camera` (class, in this block) — view matrix, virtual resolution, zoom, position, rotation
+- `Camera` (class, in this module) — view matrix, virtual resolution, zoom, position, rotation
 - `ViewportManager` — handles letterbox/pillarbox between virtual and screen coords
 - `DrawLayerMap` — utility for ordering layers
 
@@ -50,7 +50,7 @@ Each frame the draw stack runs in this order, at the tail of the screen's update
 
 Entities that render need: `TransformComponent`, the type-specific source (e.g. `SpriteInfoComponent`), `DrawComponent`, and `VisibleComponent`. `VisibleComponent` is a tag — for Main entities, `CullingSystem` manages it; for UI/HUD, you set it yourself once.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `foundation` — `TransformComponent.WorldPosition` is the spatial input to every prep system; `HierarchySystem` must run before any prep stage.
 
@@ -63,5 +63,5 @@ Entities that render need: `TransformComponent`, the type-specific source (e.g. 
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants for this block (one render component, sole renderer, the three-targets-two-behaviors split, triangle-list mesh contract)
-- Related blocks: `rendering-text` (adds `Text` draws on top of this stack), `camera` (adds follow behavior on top of `Camera`), `ui` (uses mesh generators for button outlines), `debug` (adds collider/sprite overlays via the same path)
+- [Premises](premises.md) — load-bearing invariants for this module (one render component, sole renderer, the three-targets-two-behaviors split, triangle-list mesh contract)
+- Related modules: `rendering-text` (adds `Text` draws on top of this stack), `camera` (adds follow behavior on top of `Camera`), `ui` (uses mesh generators for button outlines), `debug` (adds collider/sprite overlays via the same path)

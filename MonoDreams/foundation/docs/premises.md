@@ -1,6 +1,6 @@
 # foundation — premises
 
-> Technical invariants the engine assumes about the foundation block:
+> Technical invariants the engine assumes about the foundation module:
 > `TransformComponent`, `ChildOfComponent`, `HierarchySystem`,
 > `TransformCommitSystem`, the `EntityHierarchy` resource, the input/replay
 > scaffold, and the `Logger`. Read this before changing any of those pieces

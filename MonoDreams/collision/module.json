@@ -1,0 +1,13 @@
+{
+  "$schema": "../module.schema.json",
+  "name": "collision",
+  "description": "AABB + SAT collision detection, resolution, messaging; soft-couples to physics",
+  "dependencies": [
+    "foundation"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## collision installed\n\nAttach `BoxColliderComponent` (AABB) or `ConvexColliderComponent` (SAT) plus the `ColliderTagComponent` marker to entities you want to collide. Both collider types feed the same detection system polymorphically.\n\nPipeline:\n1. `TransformCollisionDetectionSystem` queries `ColliderTagComponent` entities, computes overlaps, publishes `CollisionMessage` per pair.\n2. `TransformCollisionResolutionSystem` applies trigger-style responses (no impulse \u2014 message-only).\n3. `TransformPhysicalCollisionResolutionSystem` applies impulse separation \u2014 **only useful when the `physics` module is also installed** (it reads `RigidBodyComponent` and `VelocityComponent`).\n\nSubscribe to `CollisionMessage` in your game systems for trigger logic (pickups, doorways, dialogue zones).\n\n**Premises:** `docs/premises.md`",
+  "premisesRef": "docs/premises.md"
+}

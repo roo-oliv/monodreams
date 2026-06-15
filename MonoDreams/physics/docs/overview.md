@@ -4,7 +4,7 @@ Velocity-driven motion with optional gravity, decoupled from collision. Add a `V
 
 ## Purpose
 
-This block is the engine's source of motion. Gameplay systems express intent as writes to `VelocityComponent.Current`; `VelocitySystem` is the single system that converts intent into position changes; `GravitySystem` adds the universal downward acceleration to anything tagged with `RigidBodyComponent`. The split lets a game use physics *without* collision (parallax backgrounds, particle drift, falling decorative leaves) and lets collision use physics' freeze flags (`FreezePositionX/Y`, `FreezeRotation`) as the single source of truth for "this axis doesn't move." Without this block, every system that wants to move an entity has to write `TransformComponent.LocalPosition` directly and lose the `Delta` swept-collision input.
+This module is the engine's source of motion. Gameplay systems express intent as writes to `VelocityComponent.Current`; `VelocitySystem` is the single system that converts intent into position changes; `GravitySystem` adds the universal downward acceleration to anything tagged with `RigidBodyComponent`. The split lets a game use physics *without* collision (parallax backgrounds, particle drift, falling decorative leaves) and lets collision use physics' freeze flags (`FreezePositionX/Y`, `FreezeRotation`) as the single source of truth for "this axis doesn't move." Without this module, every system that wants to move an entity has to write `TransformComponent.LocalPosition` directly and lose the `Delta` swept-collision input.
 
 ## What ships
 
@@ -29,9 +29,9 @@ Each frame, in order:
 5. **`HierarchySystem`** (from `foundation`) propagates dirty flags for any moved entity.
 6. **`TransformCommitSystem`** (from `foundation`) closes the frame so next frame's `Transform.Delta` is meaningful.
 
-For motion *without* collision: install only this block. `VelocitySystem` writes positions; no collision message is generated.
+For motion *without* collision: install only this module. `VelocitySystem` writes positions; no collision message is generated.
 
-## Cross-block dependencies
+## Cross-module dependencies
 
 - `foundation` — writes to `TransformComponent.LocalPosition`; relies on `HierarchySystem` and `TransformCommitSystem` to close the frame correctly.
 
@@ -43,5 +43,5 @@ For motion *without* collision: install only this block. `VelocitySystem` writes
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants for this block (`VelocitySystem` is the primary mover, `Delta` semantics, freeze flag authority)
-- Related blocks: `collision` (consumes `Transform.Delta` for swept tests; reads `RigidBodyComponent` for impulse resolution), `foundation` (provides `Transform` and the commit/hierarchy systems physics integrates with)
+- [Premises](premises.md) — load-bearing invariants for this module (`VelocitySystem` is the primary mover, `Delta` semantics, freeze flag authority)
+- Related modules: `collision` (consumes `Transform.Delta` for swept tests; reads `RigidBodyComponent` for impulse resolution), `foundation` (provides `Transform` and the commit/hierarchy systems physics integrates with)

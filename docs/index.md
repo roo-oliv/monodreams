@@ -1,7 +1,7 @@
 # MonoDreams docs
 
-Routing index. Engine-wide tenets live here; per-block invariants live
-next to each block's source.
+Routing index. Engine-wide tenets live here; per-module invariants live
+next to each module's source.
 
 ## Engine-wide
 
@@ -9,13 +9,13 @@ next to each block's source.
 |---|---|
 | [`CORE_TENETS.md`](CORE_TENETS.md) | Engine-wide invariants: framework-not-library, ECS purity, hierarchy, rendering, physics, level loading, reference pipeline, debug, refactor backlog. **Load this first** for any non-trivial task. |
 
-## Per-block docs
+## Per-module docs
 
-Each of the 13 blocks ships its own `docs/` subfolder colocated with the
-block source. Read `overview.md` for the tour (purpose, components,
+Each of the 13 modules ships its own `docs/` subfolder colocated with the
+module source. Read `overview.md` for the tour (purpose, components,
 systems, wiring), `premises.md` for the load-bearing invariants.
 
-| Block | Overview | Premises |
+| Module | Overview | Premises |
 |---|---|---|
 | `foundation` | [overview](../MonoDreams/foundation/docs/overview.md) | [premises](../MonoDreams/foundation/docs/premises.md) |
 | `rendering` | [overview](../MonoDreams/rendering/docs/overview.md) | [premises](../MonoDreams/rendering/docs/premises.md) |
@@ -40,8 +40,8 @@ for the full convention.
 
 | Doc | What's in it |
 |---|---|
-| [`../README.md`](../README.md) | Project README — for end users (game devs). Quickstart with the CLI, block tree, naming conventions. |
-| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Contributor setup: prereqs by OS, build commands, adding a new block, manifest validation, test workflow. |
-| [`../MonoDreams/BLOCKS.md`](../MonoDreams/BLOCKS.md) | Block manifest schema and authoring guide. |
-| [`../.claude/CLAUDE.md`](../.claude/CLAUDE.md) | Coding conventions, block-to-premises mapping, workflow rules. Loaded automatically by Claude Code; humans should also read it. |
+| [`../README.md`](../README.md) | Project README — for end users (game devs). Quickstart with the CLI, module tree, naming conventions. |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Contributor setup: prereqs by OS, build commands, adding a new module, manifest validation, test workflow. |
+| [`../MonoDreams/MODULES.md`](../MonoDreams/MODULES.md) | Module manifest schema and authoring guide. |
+| [`../.claude/CLAUDE.md`](../.claude/CLAUDE.md) | Coding conventions, module-to-premises mapping, workflow rules. Loaded automatically by Claude Code; humans should also read it. |
 | [`../.claude/skills/deep-review/SKILL.md`](../.claude/skills/deep-review/SKILL.md) | Multi-agent review skill. Run `/deep-review` on a PR, branch, or commit. |
