@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "fa730ebe6e95",
+  "session_id": "e6fcffa5-eb50-44f0-a1a5-a22916f24d12",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-15T02:27:10.451386Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "MonoDreams.Demos/Screens/DemoLauncherScreen.cs",
+    "MonoDreams.Examples/Screens/InfiniteRunnerScreen.cs",
+    "MonoDreams.Examples/Screens/LevelSelectionScreen.cs",
+    "MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Tests/Camera/CameraFollowBoundsTests.cs",
+    "MonoDreams/camera/Component/CameraFollowTargetComponent.cs",
+    "MonoDreams/camera/System/CameraFollowSystem.cs",
+    "MonoDreams/camera/demo/CameraDemoScreen.cs",
+    "MonoDreams/camera/docs/premises.md",
+    "MonoDreams/dialogue/demo/DialogueDemoScreen.cs",
+    "MonoDreams/physics/demo/PhysicsDemoScreen.cs",
+    "MonoDreams/rendering/System/Draw/FinalDrawSystem.cs",
+    "MonoDreams/rendering/System/Draw/MasterRenderSystem.cs",
+    "MonoDreams/rendering/docs/overview.md",
+    "MonoDreams/rendering/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "49781986-336a-4694-a664-f9b7f1449f92",
+  "token_usage": {
+    "input_tokens": 6316,
+    "cache_creation_tokens": 451371,
+    "cache_read_tokens": 21759266,
+    "output_tokens": 156289,
+    "api_call_count": 130
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-15T02:27:10.228014Z",
+    "agent_lines": 2193,
+    "human_added": 1013,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3206,
+    "agent_percentage": 68.40299438552714
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/e6fcffa5-eb50-44f0-a1a5-a22916f24d12.jsonl"
+}

@@ -1,0 +1,17 @@
+Let's enhance the Camera block demo. Let's add a new behavior when the camera target is the red dot: when the red dot center enters one of the four corners square region, the camera targets a fixed point a little further in the Y and X axis than the boundary region (a new additional light-blue crosshair should appear on this point to indicate that the camera will prioritize it instead of the regular target). The red dot's center leaving the corner region, the camera goes back into following it.
+
+---
+
+A few adjustments:
+ 1. When the camera goes back to following the red dot it doesn't lerps smoothly to where it should be, because I believe the logic that restrains the camera movement to the inner rectangle doesn't alter the target but actually hard caps the X and Y range, this needs fixing. (this can also be observed when switching targets back to the red dot and the red dot is further than the inner rectangle boundaries)
+ 2. The blue targets beyond the boundaries can be a little bit further away then they currently are.
+ 3. The zoom adjustment should still be present and should be proportional to the distance between the blue target and the corner's center.
+ 4. The headline text shouldn't mention the behavior of getting the red dot to a corner, let's keep it short.
+
+---
+
+Let's add a new feature: a minimap on the right bottom of the screen that is rendered to the HUD render target and is essentially a second camera fixed at the center of the region.
+
+---
+
+Instead can't we allow instancing a second MasterRenderSystem? Think of developing this game engine: this would allow greater flexibility, we could have N renderers going on, it would support other scenarios other than minimaps: multiple minimaps, splitscreen, CCTV multi cameras, see-through in-game portals, etc.
