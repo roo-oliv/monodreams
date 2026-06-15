@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "fa730ebe6e95",
+  "session_id": "cca3976b-ebd7-4e8a-88dc-eda5d6a4df3e",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-15T02:27:08.010596Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/rendering/System/Draw/MasterRenderSystem.cs",
+    "MonoDreams/rendering/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "3d862a28-370f-4086-8f68-5f44d6eddaeb",
+  "token_usage": {
+    "input_tokens": 3350,
+    "cache_creation_tokens": 111396,
+    "cache_read_tokens": 864492,
+    "output_tokens": 11243,
+    "api_call_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-15T02:27:07.93383Z",
+    "agent_lines": 247,
+    "human_added": 2959,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3206,
+    "agent_percentage": 7.704304429195259
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/cca3976b-ebd7-4e8a-88dc-eda5d6a4df3e.jsonl"
+}

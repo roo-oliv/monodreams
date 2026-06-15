@@ -3,7 +3,7 @@
   "checkpoint_id": "fa730ebe6e95",
   "strategy": "manual-commit",
   "branch": "feat/packages",
-  "checkpoints_count": 8,
+  "checkpoints_count": 9,
   "files_touched": [
     ".claude/CLAUDE.md",
     ".gitignore",
@@ -149,13 +149,20 @@
       "context": "/fa/730ebe6e95/2/context.md",
       "content_hash": "/fa/730ebe6e95/2/content_hash.txt",
       "prompt": "/fa/730ebe6e95/2/prompt.txt"
+    },
+    {
+      "metadata": "/fa/730ebe6e95/3/metadata.json",
+      "transcript": "/fa/730ebe6e95/3/full.jsonl",
+      "context": "/fa/730ebe6e95/3/context.md",
+      "content_hash": "/fa/730ebe6e95/3/content_hash.txt",
+      "prompt": "/fa/730ebe6e95/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 109856,
-    "cache_creation_tokens": 1702687,
-    "cache_read_tokens": 67865104,
-    "output_tokens": 662398,
-    "api_call_count": 299
+    "input_tokens": 113206,
+    "cache_creation_tokens": 1814083,
+    "cache_read_tokens": 68729596,
+    "output_tokens": 673641,
+    "api_call_count": 315
   }
 }

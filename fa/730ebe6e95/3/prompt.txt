@@ -1,0 +1,114 @@
+Context:
+# MonoDreams — Dialogue Demo Handoff (for a fresh Claude Code session)
+
+## Context
+**MonoDreams** is a code-first, ECS-purist 2D engine (MonoGame + DefaultEcs), shipped shadcn-style
+as self-contained blocks under `MonoDreams/<block>/`. Standing work on branch **`feat/packages`**
+(worktree `/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages`): authoring
+**block demos** compiled into the `MonoDreams.Demos` host. The active one is the **dialogue demo**
+at `MonoDreams/dialogue/demo/DialogueDemoScreen.cs` — a top-down Sprout Lands scene: walk a player
+(WASD) to a cow NPC, press E to start a Yarn conversation, pick replies with up/down + E.
+
+**READ FIRST before changing code:** `.claude/CLAUDE.md`, `docs/CORE_TENETS.md`, and the per-block
+`MonoDreams/<block>/docs/premises.md` for any block you touch (dialogue, rendering, rendering-text).
+
+## ⚠️ Commit status
+Rounds 1–4 of polish are **ALL UNCOMMITTED** (only `*/obj` artifacts otherwise). The user has NOT
+asked to commit. **Do NOT commit/push unless explicitly asked.**
+
+## What Round 4 just did (the last batch — 5 issues, all DONE, build green)
+1. **Cow head crop reframed** so the whole face is shown (was cut): `CowHeadSource` `(13,2,18,18)`→`(14,12,16,16)`.
+2. **Default line leading → 1.15** engine-wide.
+3. **Sprites integer-scaled** (crisp under PointClamp): cow `CowRenderSize 66→96` (3× of 32px source),
+   player `PlayerRenderSize 72→96` (2× of 48px). `InteractRange 140→170`.
+4. **Sidebar:** removed the "W walk around" row; "E" row relabeled **"Interact"**.
+5. **Dialogue box redesigned** to the Sprout Lands UI pack: a **two-layer box** (darker-tan
+   background panel + lighter cream inner talk balloon) with a **single dark-wood ornate emote
+   frame** in the left gutter showing whoever speaks.
+
+## Engine changes (all OPTIONAL params / new const — Examples & other demos compile unchanged)
+- `MonoDreams/rendering-text/Component/Draw/DynamicTextComponent.cs`: added
+  `public const float DefaultLineSpacing = 1.15f` (single source of truth for default leading).
+- `TextPrepSystem` + `MasterRenderSystem` resolve unset (`≤0`) `LineSpacing` to that const;
+  `DrawComponent.LineSpacing` field default = that const.
+- `MonoDreams/dialogue/DialogueSystem.cs` — **balloon mode** + leading fix:
+  - New optional ctor params: `talkBalloonTexture`, `talkBalloonNinePatch`, `portraitGutter`,
+    `balloonPadding`, `boxHeight`, `boxNinePatch` (all default → legacy behavior).
+  - When `talkBalloonTexture != null`: creates a 4th child (inner nine-patch balloon at
+    `_layerDepth+0.005`), lays text/options/indicator INSIDE the balloon (inset `balloonPadding`),
+    reserves a left `portraitGutter`, and **ignores `sideInset`**. Exposes
+    `public Rectangle PortraitGutterBounds { get; }` so game code places its emote frame against the
+    real layout. The balloon needs `VisibleComponent` toggled with the box (SpritePrep gates on it
+    even on UI — see SpritePrepSystem `[With(... VisibleComponent)]`).
+  - `ShowOptions` multiplies its stacking `lineHeight` by `DefaultLineSpacing` (else multi-line
+    options overlap).
+
+## Demo changes — `MonoDreams/dialogue/demo/DialogueDemoScreen.cs`
+- Imported UI pack: copied `~/Downloads/Sprout Lands - UI Pack - Basic pack/Sprite sheets/Sprite
+  sheet for Basic Pack.png` → `MonoDreams.Demos/Content/SproutLands/UI/basic_pack.png` (896×240),
+  registered in `MonoDreams.Demos/Content/Content.mgcb`.
+- Source rects (all from basic_pack), nine-patch via a `Panel9(Rectangle, corner)` helper (corner=8,
+  corners 1:1, 1px edge/center strips stretched):
+  - Emote frame: `(153,105,30,30)` (dark-wood, scaled 4×→120px sprite; NOT nine-patched).
+  - Box background panel: `(259,180,90,25)` (tan).
+  - Talk balloon panel: `(163,178,90,27)` (cream).
+- `DialoguePortraitSystem` consolidated from two slots (left NPC / right player) to ONE slot in the
+  gutter; the wood frame is now a static SPRITE (was a `FilledRectangleMeshGenerator` mesh);
+  `ShowFace` swaps only the face (cow head for npc / emote cell for player). Frame source scaled
+  4×→120px; `FaceRenderSize=56` centred.
+- Constants added: `DialogueBoxHeight=150`, `DialoguePortraitGutter=140`, `DialogueBalloonPadding=14`,
+  `FrameRenderSize=120`, `FaceRenderSize=56`, `BoxPanelSource`, `BalloonPanelSource`, `FrameSource`.
+  Removed: `PortraitSize`, `PortraitFace`, `DialogueSideInset`, the old `CreatePortraits`.
+
+## KEY FACTS a fresh session needs
+- **Virtual resolution = 1280×720** (`MonoDreams.Demos/Game1.cs`). Dialogue box is on the **UI**
+  target, full width. The 760×440 green field is only the **world** boundary (Main target, camera-
+  centred at screen centre; world(0,0)→(640,360)). UI/HUD composite OVER Main.
+- **Color fact:** `dialog box medium` + the beige panels are all `(232,207,166)`; the ONLY distinct
+  warm tone is the tan panel `(220,185,138)`. So the "lighter cream inner on beige bg" look needs
+  tan OUTER + cream INNER (hence `boxNinePatch`). Contrast is subtle — the panels' brown borders do
+  the delineation.
+- **Cow** (`Free Cow Sprites` 96×64, 32px frames) faces RIGHT; head is in the lower-right of frame
+  (0,0). **Indicator** = `SproutLands/Dialogue/indicator` crop `(96,0,16,16)`.
+- Nine-patch is built at runtime by `SpritePrepSystem.CreateNinePatchTexture` (cached). On UI,
+  SpritePrep/MeshPrep REQUIRE `VisibleComponent` to refill the drawable.
+- Yarn is compiled in-memory (`CompileYarn` in the demo); the conversation is the `YarnSource` const.
+  `<<emote who kind>>`/`<<react who mark>>` arrive as `DialogueCommandMessage`; an inline command is
+  flowed past via a deferred `_pendingContinue` on the next Update.
+
+## Build / run / verify
+- Build everything: `dotnet build` (run from the worktree root). Full solution = **0 errors** as of
+  this handoff (Examples + Tests included).
+- Run the demo: `dotnet run --project MonoDreams.Demos` → pick the Dialogue demo.
+- **Cannot verify pixels headlessly** — the Demos host has no headless/screenshot path. A PIL
+  composite mock (real assets at the real computed geometry) was used to sanity-check; the user runs
+  the real thing. (Throwaway headless Yarn checks ARE possible via a temp xUnit test that reuses the
+  demo's CompileYarn path — see Round-3 notes — but the YarnSource is unchanged, so none was needed.)
+
+## Likely visual tuning spots (all 1-line swaps; await the user's run)
+- tan-vs-cream contrast is subtle → swap balloon/box source rects if more separation wanted.
+- `FaceRenderSize` (56) — how much the cow/emote fills the frame window.
+- Frame row `(153,105,...)` — dark-purple interior shows at portrait corners; rows at y9/y57 are
+  lighter wood with warmer (brown/mauve) interiors.
+- `DialoguePortraitGutter` (140) / `DialogueBoxHeight` (150).
+
+## Premises updated this round (keep in sync if you change behavior)
+- `MonoDreams/dialogue/docs/premises.md` — new "Balloon mode" premise; flagged `sideInset` vs
+  `portraitGutter` overlap as follow-up debt (a future cleanup should unify into one asymmetric inset).
+- `MonoDreams/rendering-text/docs/premises.md` — multi-line premise now documents the 1.15 default +
+  the hand-rolled-stacking sync requirement.
+
+## Standing direction / next steps
+- Keep polishing the dialogue demo per the user's next batch of run feedback.
+- Background goal: build demos for blocks that still lack one (foundation, rendering, rendering-text,
+  collision, level-loading, level-ldtk, level-blender, ui, cursor, debug). Pattern docs: the user's
+  memory `block-demo-pattern` + `dialogue-demo-notes` (in their auto-memory).
+- Round-4 plan file: `/Users/rodrigooliveira/.claude/plans/i-think-monodreams-is-velvet-hearth.md`.
+
+
+---
+What to do now: this is not related with our changes, but let's take in the opportunity to investigate some memory leaks. Just by playing the camera demo or the physics demo I noticed the memory keeps growings despite we're not adding new entities or assets during the game.
+
+---
+
+Create two new github issues to monodreams repo, one to cut that churn, and another to empower AI agents to better verify their work on monodreams, removing barriers like this that you can't observe and depends on the user to confirm.
