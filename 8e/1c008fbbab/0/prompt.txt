@@ -1,0 +1,5 @@
+There is a lot that has been done locally, commit everything and git push
+
+---
+
+Yes, remove those from git and add a gitignore rule
