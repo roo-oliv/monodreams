@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "814df868a0ed",
+  "strategy": "manual-commit",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    "CONTRIBUTING.md",
+    "MonoDreams.Cli/Manifest/BlockManifest.cs",
+    "MonoDreams/BLOCKS.md",
+    "MonoDreams/MODULES.md",
+    "MonoDreams/block.schema.json",
+    "MonoDreams/camera/block.json",
+    "MonoDreams/collision/block.json",
+    "MonoDreams/cursor/block.json",
+    "MonoDreams/debug/block.json",
+    "MonoDreams/dialogue/block.json",
+    "MonoDreams/dialogue/demo/DialogueDemoScreen.cs",
+    "MonoDreams/foundation/block.json",
+    "MonoDreams/level-blender/block.json",
+    "MonoDreams/level-ldtk/block.json",
+    "MonoDreams/level-loading/block.json",
+    "MonoDreams/physics/block.json",
+    "MonoDreams/rendering-text/block.json",
+    "MonoDreams/rendering/block.json",
+    "MonoDreams/ui/block.json",
+    "README.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/81/4df868a0ed/0/metadata.json",
+      "transcript": "/81/4df868a0ed/0/full.jsonl",
+      "context": "/81/4df868a0ed/0/context.md",
+      "content_hash": "/81/4df868a0ed/0/content_hash.txt",
+      "prompt": "/81/4df868a0ed/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4997,
+    "cache_creation_tokens": 130763,
+    "cache_read_tokens": 4671722,
+    "output_tokens": 69029,
+    "api_call_count": 51
+  }
+}
