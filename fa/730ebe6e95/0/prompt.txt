@@ -1,0 +1,9 @@
+Let's add a feature to the Camera block demo: when the camera's target is the red dot and the red dot enters the center square region (5) the camera applies a rapid but small screen shake on top of the following behavior, to simulate for situations like the player taking a hit.
+
+---
+
+That's great but we need to change one thing, leave the center square alone and place two hollowed little red squares, one to the right and another to the left of the center square, but still within the inner camera-restricting dashed rectangle. Those will now have this camera shake behavior, the one on the right will have this discrete shake and the one on the left will have a discrete rotate. Make the hollowed red squares briefly blink yellow when hit.
+
+---
+
+Let's remove the follow-mode gating.
