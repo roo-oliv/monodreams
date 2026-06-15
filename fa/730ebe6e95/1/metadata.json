@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "fa730ebe6e95",
+  "session_id": "3ecfc2a5-f791-498c-aa7a-3aa0defd935c",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-15T02:26:58.981093Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/camera/demo/CameraDemoScreen.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "26cf32e9-6535-46fc-b0f3-a04b3171124c",
+  "token_usage": {
+    "input_tokens": 3701,
+    "cache_creation_tokens": 50388,
+    "cache_read_tokens": 374399,
+    "output_tokens": 11021,
+    "api_call_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-15T02:26:58.92941Z",
+    "agent_lines": 595,
+    "human_added": 2611,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3206,
+    "agent_percentage": 18.5589519650655
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/3ecfc2a5-f791-498c-aa7a-3aa0defd935c.jsonl"
+}
