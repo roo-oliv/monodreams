@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "fa730ebe6e95",
+  "session_id": "f14547f3-ec2c-47d2-a32a-9b3a06c26df5",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-15T02:27:12.898423Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Demos/UI/SproutPalette.cs",
+    "MonoDreams.Tests/Camera/CameraFollowBoundsTests.cs",
+    "MonoDreams/camera/Component/CameraFollowTargetComponent.cs",
+    "MonoDreams/camera/System/CameraFollowSystem.cs",
+    "MonoDreams/camera/demo/CameraDemoScreen.cs",
+    "MonoDreams/camera/docs/overview.md",
+    "MonoDreams/camera/docs/premises.md",
+    "MonoDreams/rendering/Draw/IMeshGenerator.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "11f7744a-b645-4a30-af8a-9e86ab70130b",
+  "token_usage": {
+    "input_tokens": 4273,
+    "cache_creation_tokens": 84361,
+    "cache_read_tokens": 2579148,
+    "output_tokens": 23746,
+    "api_call_count": 37
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-15T02:27:12.818879Z",
+    "agent_lines": 831,
+    "human_added": 2375,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3206,
+    "agent_percentage": 25.92014971927636
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/f14547f3-ec2c-47d2-a32a-9b3a06c26df5.jsonl"
+}

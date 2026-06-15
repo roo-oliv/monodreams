@@ -1,0 +1,10 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+Let's enhance the Camera block demo: when the red dot is selected, a little smaller boundary rect should appear:
+ 1. Appearance: soft-yellow color, dashed line (think on how to best achieve a dashed line), only visible when the red dot is the camera target. 
+ 2. Behavior: Constrains the camera movement within the rectangle bounds, so the camera follows the red dot but doesn't go beyond this smaller rect's boundaries.
+
