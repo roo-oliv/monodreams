@@ -112,9 +112,20 @@ real game screens — start at
 - **Running a test session** — write `input_replay.json`, run
   `dotnet run --project MonoDreams.Examples`, check `debug/` for log +
   screenshots.
-- **Headless mode** — `dotnet run --project MonoDreams.Examples -- --headless`
-  skips rendering, runs at max speed (no VSync, no fixed timestep), for
-  automated testing. The game window is created at 1×1 off-screen.
+- **Headless mode (Examples — logic only)** — `dotnet run --project
+  MonoDreams.Examples -- --headless` skips rendering (its `Draw`
+  early-returns), runs at max speed (no VSync, no fixed timestep), for
+  logic/replay testing. The game window is created at 1×1 off-screen — it
+  renders nothing, so it cannot observe visual or render-path behaviour.
+- **Headless mode (Demos — observe & self-verify)** — `dotnet run
+  --project MonoDreams.Demos -- --headless --screen <camera|physics|dialogue>
+  --frames <N> --exit` renders every frame on a hidden full-res backbuffer,
+  dumps non-blank PNGs to `MONODREAMS_DEBUG_DIR`, logs periodic live-heap
+  samples, and self-terminates after `<N>` frames (exit 0). This is the
+  path for verifying your own work without a human (issue #28). Optional:
+  `--capture-every K`, `--sample-every M`. From tests:
+  `GameTestRunner.RunDemosAsync(...)` plus `AssertScreenshotNonBlank` /
+  `AssertHeapFlat` (see `HeadlessDemoTests`).
 - **Debug directory override** — set `MONODREAMS_DEBUG_DIR` env var to
   redirect all debug output (logs, replay input, screenshots) to a custom
   path. Used by the test runner for parallel test isolation.

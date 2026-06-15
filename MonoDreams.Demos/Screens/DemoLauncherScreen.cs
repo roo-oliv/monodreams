@@ -87,6 +87,9 @@ public class DemoLauncherScreen : IGameScreen
             case "physics":
                 _screenController.LoadScreen(DemoScreens.Physics);
                 break;
+            case "dialogue":
+                _screenController.LoadScreen(DemoScreens.Dialogue);
+                break;
             case DemoHeader.ExitId:
                 _screenController.Game.Exit();
                 break;
@@ -125,6 +128,13 @@ public class DemoLauncherScreen : IGameScreen
             textLayerDepth: 0.6f,
             activeColor: SproutPalette.TextSelected);
 
+        var dialogueBtn = DemoUI.CreateButton(_world,
+            id: "dialogue",
+            label: "dialogue",
+            _font, style,
+            textLayerDepth: 0.6f,
+            activeColor: SproutPalette.TextSelected);
+
         new AutoLayoutBuilder(_world, _viewportManager)
             .CreateRoot(ScreenAnchor.Center)
             .Direction(LayoutDirection.Vertical)
@@ -135,6 +145,7 @@ public class DemoLauncherScreen : IGameScreen
             .AddSlot(slot => slot.Attach(_world.CreateEntity()).MeasureWith(_ => new Vector2(0, 16)))
             .AddSlot(slot => slot.Attach(cameraBtn.container).MeasureWith(_ => cameraBtn.size))
             .AddSlot(slot => slot.Attach(physicsBtn.container).MeasureWith(_ => physicsBtn.size))
+            .AddSlot(slot => slot.Attach(dialogueBtn.container).MeasureWith(_ => dialogueBtn.size))
             .Build();
 
         // Single exit chrome button (top-right) styled as a Q-key chip so it
@@ -198,8 +209,18 @@ public class DemoLauncherScreen : IGameScreen
             // ButtonMeshPrepSystem must run AFTER MeshPrepSystem: button outlines are
             // baked in world coords and clear WorldMatrix to identity.
             new ButtonMeshPrepSystem(_world),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _camera, _renderTargets, _world),
-            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets));
+            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+                RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera),
+            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+                RenderTargetID.UI, _renderTargets[RenderTargetID.UI]),
+            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+                RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]),
+            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+            {
+                RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+                RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+                RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+            }));
     }
 
     public void Dispose()

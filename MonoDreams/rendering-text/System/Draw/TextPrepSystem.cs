@@ -56,7 +56,8 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AE
              Color = text.Color,
              LayerDepth = layerDepth,
              Size = text.Font.MeasureString(visibleText), // Store measured size if needed elsewhere
-             Scale = transform.WorldScale * new Vector2(text.Scale > 0 ? text.Scale : 0.5f) // Combine world scale with DynamicTextComponent scale
+             Scale = transform.WorldScale * new Vector2(text.Scale > 0 ? text.Scale : 0.5f), // Combine world scale with DynamicTextComponent scale
+             LineSpacing = text.LineSpacing > 0 ? text.LineSpacing : DynamicTextComponent.DefaultLineSpacing // Multi-line leading multiplier (engine lays out '\n' lines, not the font backend)
              // Add Origin(for alignment), Effects if needed
         });
 

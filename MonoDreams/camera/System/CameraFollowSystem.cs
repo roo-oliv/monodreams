@@ -44,8 +44,18 @@ public class CameraFollowSystem : ISystem<GameState>
         var followComponent = target.Get<CameraFollowTargetComponent>();
         var targetTransform = target.Get<TransformComponent>();
 
-        // Calculate desired camera position (target position)
+        // Calculate desired camera position (target position). Clamp the *target*
+        // to the optional follow bounds here, before smoothing, so the camera always
+        // eases toward an in-bounds goal — including easing smoothly back inside when
+        // it starts outside the bounds (e.g. control handed back from an unbounded
+        // target). Clamping the resolved position after smoothing instead would
+        // hard-cap X/Y each frame and snap the camera to the edge in that case.
         var desiredPosition = targetTransform.Position;
+        if (followComponent.Bounds is { } bounds)
+        {
+            desiredPosition.X = MathHelper.Clamp(desiredPosition.X, bounds.Left, bounds.Right);
+            desiredPosition.Y = MathHelper.Clamp(desiredPosition.Y, bounds.Top, bounds.Bottom);
+        }
         var currentCameraPosition = _camera.Position;
         
         // Calculate the distance between camera and target

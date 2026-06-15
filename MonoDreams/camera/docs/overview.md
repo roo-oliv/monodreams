@@ -10,7 +10,7 @@ This block is the small, optional layer on top of the `Camera` class that handle
 
 ### Components
 
-- `CameraFollowTargetComponent` — tag with an `IsActive` flag; place on the entity (typically the player) the camera should follow
+- `CameraFollowTargetComponent` — tag with an `IsActive` flag; place on the entity (typically the player) the camera should follow. An optional `Bounds` rectangle clamps the resolved camera position so the view never scrolls past those edges (e.g. to keep the camera inside the level) — leave it null to follow freely
 
 ### Systems
 
@@ -35,7 +35,7 @@ To swap the followed entity at runtime, toggle `IsActive` on the old and new tar
 
 ## Extension points
 
-- **Camera shake / look-ahead / dead-zones.** Compose new systems that read `CameraFollowTargetComponent` (or another marker of your own) and write to the same `Camera`. Run them in order; the framework supports last-write-wins per frame.
+- **Camera shake / look-ahead / dead-zones.** Compose new systems that read `CameraFollowTargetComponent` (or another marker of your own) and write to the same `Camera`. Run them in order; the framework supports last-write-wins per frame. This block's demo (`MonoDreams/camera/demo/CameraDemoScreen.cs`) demonstrates it: `CameraHitSystem` runs last and layers a small, decaying jolt on top of the camera transform when the dot enters one of two flanking "hit" squares — a positional shake (`Camera.Position`) from the right square, a rotational wobble (`Camera.Rotation`) from the left — reconstructing the clean base each frame (subtracting its own prior offset/rotation) so the jolt never bleeds into the follow smoothing.
 - **Multiple cameras.** Construct multiple `Camera` instances and one `CameraFollowSystem` per camera. Split-screen hasn't been exercised but should work — the system is constructed with a specific `Camera` reference.
 - **Priority for multiple active targets.** Today's first-active-wins iteration is the framework's current limit; a priority field is on the aspirational direction list (see premises).
 

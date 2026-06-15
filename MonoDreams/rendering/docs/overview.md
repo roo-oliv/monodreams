@@ -23,8 +23,8 @@ This block defines how things appear on screen. It owns the entire draw path —
 - `MeshPrepSystem` — invokes each mesh entity's `IMeshGenerator`, copies the resulting `MeshData` + `TransformComponent.WorldMatrix` into `DrawComponent`
 - `CullingSystem` — adds/removes `VisibleComponent` based on camera view bounds (Main target only)
 - `YSortSystem` — writes layer-depth offset for back-to-front Y-sorted layers; parent-child tiebreaker via tiny epsilon
-- `MasterRenderSystem` — the sole renderer; switches between targets, batches, layer-sorts, draws sprites/text/ninepatch via `SpriteBatch` and meshes via `BasicEffect`
-- `FinalDrawSystem` — composites the per-target render textures onto the backbuffer
+- `MasterRenderSystem` — the sole render *implementation*; **one instance = one pass** (entities of a `source` target, through an optional `camera`, into a `destination` render target). Layer-sorts and draws sprites/text/ninepatch via `SpriteBatch`, meshes via `BasicEffect`. Register one per view: world + UI + HUD, plus extra instances for minimaps / splitscreen / CCTV / portals
+- `FinalDrawSystem` — composites the render targets onto the backbuffer from an explicit, ordered `RenderLayer` list (`Main`/`UI`/`HUD` full-frame factories, `Overlay` for a sub-rectangle like a minimap)
 - `DrawPrepSystemBase` — base class for new prep systems (text uses this)
 
 ### Mesh primitives
@@ -45,8 +45,8 @@ Each frame the draw stack runs in this order, at the tail of the screen's update
 1. **Prep systems** (per draw type) populate `DrawComponent` from source data — `SpritePrepSystem` reads `SpriteInfoComponent`; `MeshPrepSystem` invokes each entity's `IMeshGenerator`; `TextPrepSystem` (from `rendering-text`) follows the same pattern.
 2. **`CullingSystem`** adds/removes `VisibleComponent` based on camera view bounds.
 3. **`YSortSystem`** writes a depth offset so back-to-front sprites overlap correctly.
-4. **`MasterRenderSystem`** iterates render targets (Main → UI → HUD) and submits draw calls.
-5. **`FinalDrawSystem`** composites the targets onto the screen.
+4. **`MasterRenderSystem`** — one instance per pass; the screen registers the world pass (Main, main camera), the UI and HUD screen-space passes, and any extra views (e.g. a minimap: Main entities through a second camera into a minimap target).
+5. **`FinalDrawSystem`** composites the targets onto the screen in the screen's `RenderLayer` order.
 
 Entities that render need: `TransformComponent`, the type-specific source (e.g. `SpriteInfoComponent`), `DrawComponent`, and `VisibleComponent`. `VisibleComponent` is a tag — for Main entities, `CullingSystem` manages it; for UI/HUD, you set it yourself once.
 
@@ -56,10 +56,10 @@ Entities that render need: `TransformComponent`, the type-specific source (e.g. 
 
 ## Extension points
 
-- **New visual types.** Extend `DrawElementType`, add a corresponding prep system following `DrawPrepSystemBase`, and teach `MasterRenderSystem` how to draw it. Do not fork a parallel `*Component` + `*RenderSystem` pair — the framework's invariant is one render component, one renderer.
+- **New visual types.** Extend `DrawElementType`, add a corresponding prep system following `DrawPrepSystemBase`, and teach `MasterRenderSystem` how to draw it. Do not fork a parallel `*Component` + `*RenderSystem` pair — the framework's invariant is one render component, one render implementation.
 - **New mesh shape.** Implement `IMeshGenerator` — produce a `MeshData` with triangle-list `short[]` indices. `MeshPrepSystem` and `MasterRenderSystem` already know how to consume it. Use `CompositeMeshGenerator` to bundle several sub-generators into one mesh entity (e.g. button outline + glow + label backdrop).
-- **New render targets.** Add to `RenderTargetID` and update `MasterRenderSystem` and `FinalDrawSystem`. New targets default to screen-space (UI/HUD-like behavior) unless they should be culled.
-- **Custom culling.** `CullingSystem` reads `Camera.VirtualScreenBounds`; a wider bounds check (e.g. for a minimap) is a separate system that ignores `VisibleComponent` and writes to its own target.
+- **Extra camera views (minimap / splitscreen / CCTV / portals).** Register another `MasterRenderSystem` instance with the same `source` (usually `Main`), a second `Camera`, and its own `destination` render target — then add a `RenderLayer` for it to `FinalDrawSystem` (`Overlay` for a minimap box; tiled `Main`-style layers for splitscreen). For a portal, sample the portal target as a sprite texture in the world instead of compositing it. The camera demo wires a minimap this way. Caveat: a pass with `source = Main` inherits `VisibleComponent`, so under an active `CullingSystem` it shows only main-camera-visible entities; a cull-independent set per view is future work.
+- **New render targets.** Add to `RenderTargetID`, register a `MasterRenderSystem` pass for it, and add a `RenderLayer` to `FinalDrawSystem`. New targets default to screen-space; only `source == Main` is culled.
 
 ## See also
 

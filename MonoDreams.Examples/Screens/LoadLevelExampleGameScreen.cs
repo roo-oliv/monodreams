@@ -347,17 +347,22 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // ... other systems preparing DrawElements (UI, particles, etc.)
         );
 
-        // The single system that handles all rendering (strictly sequential)
-        var renderSystem = new MasterRenderSystem(
-            _spriteBatch,
-            _graphicsDevice,
-            _camera,
-            _renderTargets, // Pass the dictionary/collection of RTs
-            _world
-        );
-    
-        // Final system to draw RenderTargets to backbuffer (if needed)
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
+        // One render pass per view: the world (Main) through the camera, plus screen-space
+        // UI and HUD. Compose more instances for minimaps / splitscreen / CCTV / portals.
+        var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
+        var uiPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]);
+        var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
+
+        // Final system composites the render targets onto the back buffer.
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        });
 
         var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
@@ -369,7 +374,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         return new SequentialSystem<GameState>(
             prepDrawSystems,
-            renderSystem,
+            mainPass,
+            uiPass,
+            hudPass,
             finalDrawToScreenSystem, // Draw RTs to screen
             screenshotSystem
         );

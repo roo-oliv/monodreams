@@ -367,15 +367,29 @@ auto-exits when the replay finishes.
 the debug directory. Off by default; enable by setting `"screenshots":
 true` in `input_replay.json`.
 
-**Headless mode.** `dotnet run --project MonoDreams.Examples -- --headless`
-creates a 1×1 off-screen window, disables VSync, removes the fixed
-timestep, and runs at maximum speed. **This is experimental and not
-load-bearing.** It is convenient for fast integration tests via
-`GameTestRunner` and was originally intended to let AI agents
-"visually" test gameplay, but the implementation is not currently
-trusted as a stable testing contract — flakes and missing edge cases
-should be expected. Tests that need rendering correctness should not
-rely on it.
+**Headless mode — two hosts, two contracts.** There are two headless
+paths and they do *not* do the same thing:
+
+- **Examples** (`dotnet run --project MonoDreams.Examples -- --headless`)
+  creates a 1×1 off-screen window and **early-returns from `Draw`** — it
+  runs Update-side logic at max speed but renders **nothing**. It is
+  convenient for fast logic/replay integration tests via `GameTestRunner`
+  but cannot observe any visual or render-path behaviour. Treat it as the
+  logic-only path; don't rely on it for rendering correctness.
+- **Demos** (`dotnet run --project MonoDreams.Demos -- --headless --screen
+  <name> --frames <N> --exit`) is the **observe-and-self-verify** path
+  (issue #28). It keeps a real `GraphicsDevice` on a hidden, full-virtual-
+  resolution backbuffer, **renders every frame** (`Draw` is not a no-op),
+  dumps non-blank PNGs to `MONODREAMS_DEBUG_DIR`, logs periodic live-heap
+  samples, and self-terminates after `<N>` frames. This is the supported
+  way for an agent to verify its own work on the demo host without a human.
+  See the `debug` block premises ("Headless Demos renders every frame";
+  "Headless heap samples measure the live set") and
+  `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+
+A literal zero-window mode / null `GraphicsDevice` is **not** possible on
+MonoGame DesktopGL 3.8.4 (the window hosts the GL context); a hidden
+window that never presents is the achievable form of "headless render".
 
 **Testing.** `MonoDreams.Tests/` uses xUnit + the custom
 `GameTestRunner`, which spawns the game in headless mode with a temp
@@ -419,9 +433,12 @@ code".
   inconsistency). Intended end-state is **modular packs** (Spring Data
   / Spring Security analog) — `MonoDreams.Rendering`,
   `MonoDreams.Physics`, etc. — that can be adopted independently.
-- **Headless mode is experimental** (§8). Original intent was AI-agent
-  visual testing; current implementation is not stable enough to be
-  load-bearing.
+- **Examples headless mode is logic-only** (§8). Its `Draw` early-returns,
+  so it renders nothing — fine for replay/logic tests, useless for visual
+  observation. The Demos headless path (issue #28) is the load-bearing
+  observe-and-self-verify route and *does* render; the remaining debt is
+  that the Examples mode is still named "headless" despite not rendering,
+  and the two paths could eventually share one host abstraction.
 - **No architectural tests** (§8). Most premises lack programmatic
   protection; review and discipline are the only enforcement today.
 - **Declarative system dependencies** (§2, §7). A future API would let

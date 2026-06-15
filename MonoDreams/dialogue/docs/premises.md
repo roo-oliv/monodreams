@@ -55,10 +55,11 @@ plugin DLL itself is present, just not its dependencies).
 ## `DialogueSystem` constructs its own UI entity hierarchy
 
 `DialogueSystem`'s constructor creates a root entity plus three child
-entities (box, text, indicator) wired via `SetParent`. Game code does
-not — and should not — create these entities; the constructor returns
-a system that already owns its UI. Toggling the dialogue on/off swaps
-the children's `VisibleComponent` and clears their textures, but the
+entities (box, text, indicator) — and, in balloon mode, a fourth (the
+inner talk balloon) — wired via `SetParent`. Game code does not — and
+should not — create these entities; the constructor returns a system
+that already owns its UI. Toggling the dialogue on/off swaps the
+children's `VisibleComponent` and clears their textures, but the
 entities persist for the system's lifetime.
 
 **Why:** the dialogue UI has cross-cutting state (the indicator's
@@ -78,8 +79,8 @@ by hand-rolled offsets).
 
 ## Dialogue UI renders on the UI render target
 
-All four entities (root, box, text, indicator) target
-`RenderTargetID.UI`. They live in screen-space at fixed coordinates
+All of the dialogue entities (root, box, text, indicator, and the
+optional inner balloon) target `RenderTargetID.UI`. They live in screen-space at fixed coordinates
 relative to the virtual resolution, are not subject to culling, and
 sit between world (Main) and cursor (HUD) in z-order.
 
@@ -111,6 +112,81 @@ passed to the constructor results in a YarnSpinner runtime error
 (unknown node), not a framework error.
 **Tests:** none yet.
 **Depends on:** —
+
+## Yarn commands are surfaced as `DialogueCommandMessage` and auto-advance
+
+When the running Yarn script reaches a `<<command>>`, `DialogueSystem`'s
+`OnYarnCommand` publishes a `DialogueCommandMessage` carrying the raw
+command text, then sets an internal `_pendingContinue` flag. The next
+`Update` clears the flag and calls `_yarnDialogue.Continue()` once —
+*outside* the Yarn handler — so the conversation flows past the command
+to the next line on the following frame. Game code reacts to the message
+(emotes, SFX, flags) without owning any dialogue advancement.
+
+**Why:** Yarn's `CommandHandler` fires synchronously inside `Continue()`;
+calling `Continue()` again from within it would re-enter the Yarn VM. The
+deferred single-frame continue keeps inline commands (e.g.
+`<<emote npc happy>>` between lines) transparent — the player never has
+to press advance to clear a command.
+**Breaks:** if `_pendingContinue` is dropped, every `<<command>>` leaves
+the conversation showing the *previous* line again and the player must
+press the advance key an extra time to proceed. If `Continue()` is
+instead called re-entrantly inside `OnYarnCommand`, the Yarn dialogue VM
+can fault. The canonical consumer is
+`MonoDreams/dialogue/demo/DialogueDemoScreen.cs` (emotes).
+**Tests:** none yet.
+**Depends on:** —
+
+## Line + option text wrap to the box width; `sideInset` reserves side room
+
+`DialogueSystem` word-wraps both the spoken line and each option to the box's inner width
+before display (greedy wrap measured with the `BitmapFont` at the configured `textScale`,
+inserting `\n`). The reveal animation slices the already-wrapped string, so embedded
+newlines just advance instantly. The wrap width is `boxWidth − 2·textOffset.X − 2·sideInset`:
+the optional `sideInset` constructor arg reserves symmetric horizontal zones on each side of
+the text so a game can draw a speaker portrait there without the text colliding with it (the
+continue indicator is likewise inset past the right zone). `textScale` and `indicatorSize`
+are constructor args too (sensible small defaults) rather than hardcoded.
+
+**Why:** at the previous hardcoded `0.5` scale with no wrapping, lines overflowed the box and
+the screen, and fixed-pixel option spacing made options overlap. Wrapping + scale-aware
+option stacking fixes both; `sideInset` is what lets the dialogue demo place its left/right
+emote portraits inside the box.
+**Breaks:** if `WrapText` is bypassed, long lines overflow again. If option stacking ignores
+each option's wrapped line count, multi-line options overlap. If a portrait is drawn without
+passing a matching `sideInset`, text renders on top of it. (In balloon mode — see the next
+premise — `sideInset` is ignored; the wrap width comes from the balloon interior instead.)
+**Tests:** none yet.
+**Depends on:** rendering-text — "Use `DynamicTextComponent` for any text".
+
+## Balloon mode: an inner talk balloon + a left portrait gutter (optional)
+
+Passing a `talkBalloonTexture` (and usually a `talkBalloonNinePatch`) switches `DialogueSystem`
+into *balloon mode*: it creates a fourth child entity — an inner nine-patch panel drawn at
+`layerDepth + 0.005` (between the box and the text) — and lays the line text, options, and
+continue indicator out **inside that balloon's interior** (inset by `balloonPadding`), not on
+the box. A `portraitGutter` width reserves the box's left region for a game-drawn emote frame;
+the balloon starts at `boxX + portraitGutter`. The system exposes that reserved region as
+`PortraitGutterBounds` (a UI-space `Rectangle`) so game code places its frame against the real
+layout instead of re-deriving box geometry. `boxHeight` and `boxNinePatch` are likewise
+constructor args, so the box can be a different size and back onto a different panel texture
+than the default 128×48 "dialog box medium" art. With `talkBalloonTexture == null` the system
+stays in legacy mode (text on the box, symmetric `sideInset`, no balloon) and none of these
+apply — the two modes are mutually exclusive.
+
+**Why:** the text/options/indicator are engine-owned, so the panel that visually wraps them and
+the inset that positions them must be owned in the same place — otherwise game code has to
+duplicate the box/inset math (which the wrap premise warns desyncs). Balloon mode keeps the
+single source of truth while letting a game render the two-layer "framed emote beside a talk
+balloon" look (the dialogue demo's Sprout Lands box). `PortraitGutterBounds` is the seam.
+**Breaks:** placing the emote frame from hand-computed box geometry instead of
+`PortraitGutterBounds` drifts out of alignment when `boxHeight`/`portraitGutter`/margins change.
+Forgetting that the balloon entity needs `VisibleComponent` toggled in tandem with the box (it
+gates `SpritePrepSystem`, which fills the nine-patch texture) leaves the balloon invisible.
+Passing both `sideInset` and a balloon expecting both to apply: only the balloon does.
+**Tests:** none yet.
+**Depends on:** rendering — "Three render targets, two behaviors" (SpritePrep requires
+`VisibleComponent` even on UI to refill the nine-patch texture).
 
 ## Open questions
 
@@ -144,3 +220,10 @@ The following premises currently have **Tests: none yet**:
 - `DialogueSystem` constructs its own UI entity hierarchy
 - Dialogue UI renders on the UI render target
 - `DialogueRunner` is per-system, not per-screen
+- Yarn commands are surfaced as `DialogueCommandMessage` and auto-advance
+- Line + option text wrap to the box width; `sideInset` reserves side room
+- Balloon mode: an inner talk balloon + a left portrait gutter
+
+`sideInset` (legacy symmetric reserve) and `portraitGutter` (balloon-mode left reserve) are
+overlapping ways to make room for a portrait. They coexist for now to avoid touching the
+Examples call sites; a future cleanup should unify them into one asymmetric-inset concept.

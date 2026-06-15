@@ -31,6 +31,7 @@ public class DrawComponent
     // Text specific
     public BitmapFont? Font;
     public string? Text;
+    public float LineSpacing = DynamicTextComponent.DefaultLineSpacing; // Multiplier on Font.LineHeight when laying out '\n'-separated lines (see MasterRenderSystem).
 
     // NinePatch specific
     public NinePatchInfo? NinePatchData;

@@ -6,7 +6,9 @@
 > scaffold live in `foundation` because they're useful in production;
 > this block adds the *visual* debug overlays and screenshot capture
 > only.) Read this before changing any of those pieces or relying on
-> the screenshot output for testing.
+> the screenshot output for testing — including the headless Demos
+> observe-and-self-verify path (`MonoDreams.Demos/Game1.cs`,
+> `HeadlessOptions.cs`), which builds on `ScreenshotCaptureSystem`.
 
 ## This block is opt-in; nothing requires it
 
@@ -93,6 +95,76 @@ but no test asserts that `IsEnabled = false` produces no PNG output).
 write" (screenshots respect `MONODREAMS_DEBUG_DIR` the same way logs
 do — both default to `debug/` next to the executable, and both honor
 the env-var override).
+
+## `ScreenshotCaptureSystem.CaptureNow` is the synchronous, deterministic capture path
+
+Alongside the time-interval async `Update`, `ScreenshotCaptureSystem`
+exposes `CaptureNow(float gameTime)`: it reads the backbuffer, encodes a
+PNG, **writes the file synchronously before returning**, logs a
+`nonBlank=…`/`distinctColors=…` metric, and returns whether the frame is
+non-blank. `CaptureNow` bypasses both `IsEnabled` and the interval gate —
+the caller decides exactly which frame to capture. The headless Demos
+host calls it on chosen frames so a captured frame is guaranteed flushed
+to disk before the process exits.
+
+**Why:** the async `Update` path can drop its final save when the process
+exits immediately after (the `Task.Run` write never lands), and its
+time-interval gate is non-deterministic under a variable headless frame
+rate. A frame-driven, synchronous capture is what makes
+"`--frames N --exit` always produces a PNG" hold.
+**Breaks:** routing the headless capture through the async/interval path
+reintroduces dropped final frames and timing-dependent flakes — the test
+that asserts a non-blank PNG exists fails intermittently.
+**Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`
+(asserts a non-blank screenshot from a headless run).
+**Depends on:** "Headless Demos renders every frame; capture reads the
+backbuffer".
+
+## Headless Demos renders every frame; capture reads the backbuffer
+
+The Demos host's `Draw` must **not** early-return in headless mode
+(unlike the Examples host, whose headless `Draw` is a no-op). Headless
+Demos keeps a real `GraphicsDevice` backed by a full-virtual-resolution
+backbuffer (the window is hidden off-screen at `(-2000, -2000)`, never
+relied on for presentation), and runs the full prep→`MasterRenderSystem`
+→`FinalDrawSystem` pipeline every frame. `ScreenshotCaptureSystem` then
+reads that composited backbuffer. The backbuffer must stay at the virtual
+resolution (not 1×1) or the read-back is meaningless.
+
+**Why:** the entire point of the headless observe path (issue #28) is to
+let an agent verify visual/runtime claims without a human. A no-op `Draw`
+or a 1×1 backbuffer renders nothing to read back — exactly the gap in the
+Examples headless mode. MonoGame DesktopGL 3.8.4 has no null graphics
+device, so a hidden full-res window is the achievable form of "headless
+render".
+**Breaks:** early-returning `Draw`, or shrinking the headless backbuffer
+to 1×1, makes every captured PNG blank and hides render-path memory
+behaviour — the leak class #27 documents becomes unobservable again.
+**Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+**Depends on:** rendering — "`MasterRenderSystem` is the sole renderer";
+"Rendering systems run last in the pipeline".
+
+## Headless heap samples measure the live set, not transient churn
+
+The Demos headless host samples managed memory with
+`GC.GetTotalMemory(forceFullCollection: true)` every K frames and logs it
+as `Heap sample: frame=… gt=… bytes=…`. The forced collection makes each
+sample the *retained* (live) heap, so a static scene yields a flat series
+and a retained-object leak (e.g. the per-frame `EntitySet` leak from #27)
+still shows growth. Tests assert flatness via
+`GameTestResult.AssertHeapFlat`, dropping the first sample as warmup.
+
+**Why:** `GC.GetTotalMemory(false)` returns currently-allocated memory
+including uncollected per-frame garbage, which sawtooths upward over a
+short run and is not assertable as "flat". Sampling the live set isolates
+leaks (retained) from churn (collected), which is the signal the leak
+class needs.
+**Breaks:** switching the sample to `forceFullCollection: false` (or
+removing the GC) makes `AssertHeapFlat` flake on ordinary churn and
+stops distinguishing a real leak from normal allocation.
+**Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+**Depends on:** rendering — "Per-target draw sets are built once, not per
+frame" (the leak this sampling makes observable).
 
 ## Debug output respects `MONODREAMS_DEBUG_DIR`
 

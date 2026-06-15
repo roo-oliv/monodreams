@@ -41,18 +41,93 @@ double-rendering).
 **Tests:** none yet.
 **Depends on:** —
 
-## `MasterRenderSystem` is the sole renderer
+## `MasterRenderSystem` is the sole render *implementation*
 
-All `SpriteBatch.Begin` / `Draw` / `End` calls happen inside
-`MasterRenderSystem`. Game code must not call `SpriteBatch` directly, and
-no parallel render system should exist.
+All `SpriteBatch` / `BasicEffect` draw calls happen inside
+`MasterRenderSystem` (back-buffer composition is `FinalDrawSystem`'s job).
+Game code must not call `SpriteBatch` directly and must not write a second
+render system. This is about a single *implementation*, not a single
+*instance*: a screen registers as many `MasterRenderSystem` instances as it
+has views (see "One `MasterRenderSystem` instance is one render pass").
 
-**Why:** centralizing the draw call lets one place own the render-target
-switches, the batch settings, the sort, and the layer-depth contract. A
-second renderer fragments all four.
-**Breaks:** parallel renderers fight over the active `SpriteBatch`,
-producing flickering frames, dropped draws, or driver-level errors.
+**Why:** centralizing the draw call lets one well-understood class own the
+render-target switch, the batch settings, the sort, and the layer-depth
+contract. A bespoke second renderer fragments all four; N instances of the
+*same* renderer do not.
+**Breaks:** a parallel hand-rolled renderer fights over the active
+`SpriteBatch`, producing flickering frames, dropped draws, or driver-level
+errors, and bypasses the sort/layer-depth contract.
 **Tests:** none yet.
+**Depends on:** —
+
+## One `MasterRenderSystem` instance is one render pass
+
+A `MasterRenderSystem` instance renders exactly one pass: every entity
+whose `DrawComponent.Target` equals its `source` id, through its optional
+`camera` (null ⇒ screen-space, identity transform), into its `destination`
+render target, which it clears to transparent first. The `source == Main`
+pass additionally filters on `VisibleComponent` (culling); screen-space
+passes always render. Multiple cameras, minimaps, splitscreen, CCTV, and
+portal textures are all just additional instances — a minimap is a second
+instance with `source = Main`, a second camera, and its own target.
+`FinalDrawSystem` then composites the targets onto the screen.
+
+**Why:** decoupling *what* to draw (`source`), *how* (`camera`), and
+*where* (`destination`) makes a second view a second instance, not a new
+code path — the framework's general-over-specialized rule. It also removes
+the old "the camera only applies to the Main-keyed target" coupling.
+**Breaks:** two instances writing the *same* destination clear each
+other's work (each clears on entry) — give every pass its own target and
+let `FinalDrawSystem` overlap them. Expecting a non-Main source to honor
+culling: only `source == Main` consults `VisibleComponent`.
+**Tests:** none yet (the multi-pass + minimap path is exercised by the
+camera demo, `MonoDreams/camera/demo/CameraDemoScreen.cs`).
+**Depends on:** "A render pass's camera virtual resolution matches its
+destination".
+
+## A render pass's camera virtual resolution matches its destination
+
+A `MasterRenderSystem` pass derives its mesh `BasicEffect` projection from
+the *destination* render target's pixel size
+(`CreateOrthographicOffCenter(0, dest.Width, dest.Height, 0, …)`), and the
+camera's view transform centers the view at the camera's virtual
+resolution. For the two to agree, a pass's `camera.VirtualWidth/Height`
+must equal its destination render target's size. The minimap obeys this by
+giving its second camera the same virtual resolution as the main camera and
+a full-virtual-resolution target, then letting `FinalDrawSystem` shrink
+that target into the on-screen box.
+
+**Why:** projection maps destination pixels → NDC; the camera centers world
+content at `(VirtualWidth/2, VirtualHeight/2)`. A mismatch puts the centered
+content somewhere other than the target's middle and scales meshes wrongly.
+Deriving projection from the destination (not the camera) is what lets
+screen-space passes carry no camera at all.
+**Breaks:** a camera whose virtual resolution differs from its destination
+renders off-center and mis-scaled in that pass.
+**Tests:** none yet.
+**Depends on:** "`Camera.VirtualResolution` is immutable".
+
+## `FinalDrawSystem` composites an explicit, ordered layer list
+
+`FinalDrawSystem` takes an ordered `RenderLayer` list and draws each
+target onto the back buffer in order (later = on top). `RenderLayer.Main`
+/ `UI` / `HUD` are factories for the standard full-frame layers (carrying
+the viewport-mode-aware destination rect + sampler); `RenderLayer.Overlay`
+places a target in a sub-rectangle given in HUD virtual coordinates,
+mapped to the screen the same way the HUD layer is — so an overlay aligns
+with HUD chrome drawn at those coordinates. The screen owns the list, so it
+decides which targets exist, their order, and where each lands.
+
+**Why:** the compositor is the natural seam for screen layout — overlays
+(minimap, CCTV), and eventually tiled splitscreen — without touching the
+renderer. Driving it from an explicit list (rather than a hardcoded
+Main→UI→HUD sequence) makes those layouts data, not code forks.
+**Breaks:** omitting a layer silently drops that target from the screen
+(its render pass still ran and cleared its target — wasted work, blank
+result). An overlay rect given in screen pixels instead of HUD virtual
+coords misaligns with HUD chrome under non-1:1 scaling.
+**Tests:** none yet (exercised by every demo/example screen and the minimap
+overlay in the camera demo).
 **Depends on:** —
 
 ## Renderable entity stack on the Main target
@@ -109,6 +184,52 @@ camera transforms — the entity renders at its world coordinates,
 unscaled by zoom. The reverse (UI on Main) gets culled away when the
 camera moves.
 **Tests:** none yet.
+**Depends on:** —
+
+## `MasterRenderSystem` samples per draw type: sprites/meshes PointClamp, text LinearClamp
+
+`MasterRenderSystem` opens a separate `SpriteBatch` for sprites and for text so each gets
+its own `SamplerState`. Sprites (and the mesh path) default to `PointClamp` — crisp
+nearest-neighbour scaling for pixel art; text defaults to `LinearClamp` — smooth filtering
+for bitmap fonts drawn at fractional scale. Both defaults are overridable via the
+`spriteSampler` / `textSampler` constructor parameters. Because Sprite and Text are now
+distinct batch types, the interleaved renderer flushes + reopens the batch when switching
+between them; painter's order is preserved because the draw list is already depth-sorted.
+
+**Why:** a single global `LinearClamp` blurred up-scaled pixel sprites (e.g. a 16×16
+indicator drawn at 48×48); a single global `PointClamp` aliases down-scaled bitmap text.
+Per-type samplers give each its correct filtering. The mesh path already forced `PointClamp`
+(`ResetGraphicsStateForMeshRendering`), so sprites now match it.
+**Breaks:** collapsing the Sprite/Text batch split (one sampler for both) forces a single
+filter and reintroduces either blurry sprites or aliased text. Passing a non-clamp address
+mode would wrap/tile sprites at their edges.
+**Tests:** none yet.
+**Depends on:** —
+
+## The draw set is built once per instance, not per frame
+
+A `MasterRenderSystem` instance builds its `EntitySet` (for its `source`)
+lazily once and reuses it for the instance's lifetime; it is disposed in
+`Dispose`. It must never call `world.GetEntities()...AsSet()` inside the
+per-frame `Update`.
+
+**Why:** DefaultEcs's `AsSet()` registers component/entity lifecycle
+subscriptions on the `World`, and the World holds those subscription
+delegates — which reference the `EntitySet` — alive forever. A set
+created per frame is therefore never garbage-collected. An earlier version
+built a fresh set every frame, leaking `EntitySet`s every frame, each
+retaining its matched-entity array. This is the standing ECS-wide rule
+(every other `AsSet()` in the engine is cached in a field) applied to the
+renderer. Note that composing N render passes means N cached sets — fine,
+because each is built once; two passes with the same `source` (e.g. the
+main world pass and a minimap pass) hold two equivalent sets, a negligible
+constant cost, not a per-frame leak.
+**Breaks:** process memory climbs steadily even on a fully static scene
+(no entities or assets added), as observed in the camera and physics
+demos. Eventually OOM on a long-running session.
+**Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`
+asserts a flat live heap across 600 frames of the camera demo (now four
+render passes).
 **Depends on:** —
 
 ## Rendering systems run last in the pipeline
@@ -263,8 +384,14 @@ unrelated parts of the composite.
 
 - `VisibleComponent` becomes a property of `DrawComponent` (removes the
   easy-to-miss tag).
+- Multi-view (minimap / splitscreen / CCTV / portals) is now possible by
+  composing `MasterRenderSystem` instances + `RenderLayer`s (the camera
+  demo ships a minimap). What's still missing is **per-view culling**: a
+  `source = Main` pass inherits the main camera's `VisibleComponent`, so a
+  second camera can't yet cull to *its own* frustum. A per-camera cull set
+  (or a cull-independent draw set option) is the next step.
 - Render targets become more configurable — custom post-processing
-  passes, shader effects, multiple Main targets for split-screen.
+  passes, shader effects.
 - A `MeshTransformBatcher` that combines static meshes sharing a layer
   depth into a single submission, cutting `BasicEffect` draw calls.
 - Per-vertex texture-coordinate support so meshes can sample sprite
@@ -277,10 +404,14 @@ The following premises currently have **Tests: none yet**:
 
 - `DrawComponent.Type` is mutually exclusive
 - `DrawComponent` is the only render component
-- `MasterRenderSystem` is the sole renderer
+- `MasterRenderSystem` is the sole render *implementation*
+- One `MasterRenderSystem` instance is one render pass
+- A render pass's camera virtual resolution matches its destination
+- `FinalDrawSystem` composites an explicit, ordered layer list
 - Renderable entity stack on the Main target
 - `VisibleComponent` is owned exclusively by `CullingSystem`
 - Three render targets, two behaviors
+- `MasterRenderSystem` samples per draw type: sprites/meshes PointClamp, text LinearClamp
 - Rendering systems run last in the pipeline
 - Layer-depth ownership pipeline
 - Y-sort tiebreaker is parent-child bias only

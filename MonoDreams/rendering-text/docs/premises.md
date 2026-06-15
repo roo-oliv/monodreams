@@ -89,6 +89,34 @@ flags) makes the text render at a stale position for the frame.
 **Depends on:** foundation — "`HierarchySystem` must run ahead of any
 system reading WorldPosition".
 
+## Multi-line text is laid out by the engine, not the font backend; `LineSpacing` sets leading
+
+`MasterRenderSystem` renders `'\n'`-separated text as one `DrawString` per line,
+advancing the baseline by `Font.LineHeight * Scale.Y * LineSpacing`. It does **not** pass
+the whole multi-line string to the bitmap font's own newline handling.
+`DynamicTextComponent.LineSpacing` (a multiplier, default-treated as
+`DynamicTextComponent.DefaultLineSpacing` — currently **1.15** — when `≤ 0`, carried onto
+`DrawComponent.LineSpacing` by `TextPrepSystem`) configures the leading; the reveal animation
+slices the wrapped string transparently, so embedded `\n` just advance instantly. The single
+`DefaultLineSpacing` constant is the one place the engine-wide default lives — both
+`TextPrepSystem` and `MasterRenderSystem` resolve `≤ 0` to it.
+
+**Why:** MonoGame.Extended's `BitmapFont.DrawString` advances newlines by the font's raw
+`LineHeight` and ignores the per-draw `scale` — so scaled-down multi-line text collided
+(lines drew on top of each other). Laying lines out ourselves makes leading scale-correct
+and configurable, and a default of 1.15 gives wrapped dialogue/labels comfortable breathing
+room. Any code that stacks text by hand (e.g. `DialogueSystem.ShowOptions`) must multiply its
+line height by `DefaultLineSpacing` so its stacking advance equals the per-line render advance
+(`Font.LineHeight * scale * leading`).
+**Breaks:** bypassing the per-line loop (reverting to a single `DrawString` of the whole
+string) reintroduces the overlap at non-unity scale. Setting `LineSpacing` on the text but
+not mirroring it in any hand-rolled vertical stacking (e.g. dialogue options) — including the
+implicit default — desynchronises the two (options overlap or gap). Rotation is applied per
+line in unrotated offset space — fine for axis-aligned text, approximate for rotated
+multi-line text (not used today).
+**Tests:** none yet.
+**Depends on:** rendering — "Three render targets, two behaviors".
+
 ## Open questions
 
 - **Per-glyph layout** — `TextPrepSystem` currently submits the whole
@@ -98,7 +126,9 @@ system reading WorldPosition".
 - **Word wrap** — there is no wrapping logic in this block. Text
   longer than its container clips at the right edge of the bitmap
   font's rendering. UI layouts that need wrapping have to
-  pre-wrap the string and insert `\n` themselves.
+  pre-wrap the string and insert `\n` themselves (e.g. `DialogueSystem.WrapText`);
+  the engine then lays the resulting lines out with correct leading (see the
+  multi-line premise above).
 
 ## Aspirational direction
 
@@ -116,3 +146,4 @@ The following premises currently have **Tests: none yet**:
 - Static labels need `IsRevealed = true` and `VisibleCharacterCount` saturated
 - Text pipeline order: `TextUpdateSystem` → `TextPrepSystem` → `MasterRenderSystem`
 - `TextPrepSystem` writes the world-transformed position
+- Multi-line text is laid out by the engine, not the font backend; `LineSpacing` sets leading

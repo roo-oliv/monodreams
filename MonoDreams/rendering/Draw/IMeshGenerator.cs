@@ -182,6 +182,81 @@ public class RectangleOutlineMeshGenerator : IMeshGenerator
 }
 
 /// <summary>
+/// Generates a dashed rectangle outline. Each edge is broken into evenly spaced
+/// dashes of <see cref="DashLength"/> separated by gaps of <see cref="GapLength"/>,
+/// drawn with <see cref="Thickness"/> using <see cref="LineMeshGenerator"/> segments.
+/// Dash spacing is fitted per-edge so every edge begins and ends on a dash — no
+/// half-dash bleeds past a corner.
+/// </summary>
+public class DashedRectangleOutlineMeshGenerator : IMeshGenerator
+{
+    public Rectangle Bounds { get; set; }
+    public float Thickness { get; set; }
+    public Color Color { get; set; }
+    public float DashLength { get; set; }
+    public float GapLength { get; set; }
+
+    public DashedRectangleOutlineMeshGenerator(
+        Rectangle bounds, float thickness, Color color, float dashLength = 12f, float gapLength = 8f)
+    {
+        Bounds = bounds;
+        Thickness = thickness;
+        Color = color;
+        DashLength = dashLength;
+        GapLength = gapLength;
+    }
+
+    public MeshData Generate()
+    {
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+        int indexOffset = 0;
+
+        var topLeft = new Vector2(Bounds.Left, Bounds.Top);
+        var topRight = new Vector2(Bounds.Right, Bounds.Top);
+        var bottomRight = new Vector2(Bounds.Right, Bounds.Bottom);
+        var bottomLeft = new Vector2(Bounds.Left, Bounds.Bottom);
+
+        AddDashedEdge(vertices, indices, topLeft, topRight, ref indexOffset);
+        AddDashedEdge(vertices, indices, topRight, bottomRight, ref indexOffset);
+        AddDashedEdge(vertices, indices, bottomRight, bottomLeft, ref indexOffset);
+        AddDashedEdge(vertices, indices, bottomLeft, topLeft, ref indexOffset);
+
+        return new MeshData(vertices.ToArray(), indices.ToArray());
+    }
+
+    private void AddDashedEdge(
+        List<VertexPositionColor> vertices, List<int> indices,
+        Vector2 start, Vector2 end, ref int indexOffset)
+    {
+        float length = Vector2.Distance(start, end);
+        if (length <= 0f) return;
+        Vector2 dir = (end - start) / length;
+
+        // An edge too short for a single dash just gets one solid segment.
+        if (length <= DashLength)
+        {
+            LineMeshGenerator.AddLine(vertices, indices, start, end, Thickness, Color, ref indexOffset);
+            return;
+        }
+
+        // Fit a whole number of dash+gap periods so the final dash lands exactly on
+        // the corner. periods+1 dashes are drawn; the last starts at (length - DashLength).
+        float period = DashLength + GapLength;
+        int periods = Math.Max(1, (int)MathF.Round((length - DashLength) / period));
+        float spacing = (length - DashLength) / periods;
+
+        for (int i = 0; i <= periods; i++)
+        {
+            float dashStart = i * spacing;
+            float dashEnd = Math.Min(dashStart + DashLength, length);
+            LineMeshGenerator.AddLine(
+                vertices, indices, start + dir * dashStart, start + dir * dashEnd, Thickness, Color, ref indexOffset);
+        }
+    }
+}
+
+/// <summary>
 /// Generates a filled rectangle mesh.
 /// </summary>
 public class FilledRectangleMeshGenerator : IMeshGenerator

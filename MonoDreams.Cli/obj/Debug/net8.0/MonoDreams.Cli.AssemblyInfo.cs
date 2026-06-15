@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Code-first installer for the MonoDreams game engine. Copies engine source blocks " +
     "into your project, shadcn-style.")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0-alpha+308c55626f1a7f8452622b6a1a719cbcf2cad388")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0-alpha+2c4864893f3f5efe9f3c62b3d799228ca6914fac")]
 [assembly: System.Reflection.AssemblyProductAttribute("monodreams")]
 [assembly: System.Reflection.AssemblyTitleAttribute("monodreams")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

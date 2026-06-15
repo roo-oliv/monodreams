@@ -311,15 +311,19 @@ public class InfiniteRunnerScreen : IGameScreen
             new TextPrepSystem(_world, pixelPerfectRendering)
         );
 
-        var renderSystem = new MasterRenderSystem(
-            _spriteBatch,
-            _graphicsDevice,
-            _camera,
-            _renderTargets,
-            _world
-        );
+        var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
+        var uiPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]);
+        var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        });
 
         var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
@@ -331,7 +335,9 @@ public class InfiniteRunnerScreen : IGameScreen
 
         return new SequentialSystem<GameState>(
             prepDrawSystems,
-            renderSystem,
+            mainPass,
+            uiPass,
+            hudPass,
             finalDrawToScreenSystem,
             screenshotSystem
         );

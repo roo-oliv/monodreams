@@ -13,22 +13,70 @@ namespace MonoDreams.System.Draw;
 
 /// <summary>
 /// Unified rendering system that handles all draw types: sprites, text, nine-patch, and mesh.
-/// This system is game-agnostic - it only renders what's in DrawComponent without any
+/// This system is game-agnostic — it only renders what's in DrawComponent without any
 /// specialized component handling.
+/// <para>
+/// One instance renders a single pass: every entity whose <see cref="DrawComponent.Target"/>
+/// equals <paramref name="source"/>, through the optional <paramref name="camera"/> view
+/// transform (null ⇒ screen-space, no transform), into <paramref name="destination"/>.
+/// Compose multiple instances for multiple views — e.g. the world (Main) through the main
+/// camera, plus UI and HUD screen-space passes, plus a minimap (Main through a second camera
+/// into its own target), splitscreen, CCTV, or portal textures. The instances are independent
+/// render passes; <see cref="FinalDrawSystem"/> arranges their targets onto the screen.
+/// </para>
 /// </summary>
 public class MasterRenderSystem(
     SpriteBatch spriteBatch,
     GraphicsDevice graphicsDevice,
-    MonoDreams.Component.Camera camera,
-    IReadOnlyDictionary<RenderTargetID, RenderTarget2D> renderTargets,
-    World world) : ISystem<GameState>
+    World world,
+    RenderTargetID source,
+    RenderTarget2D destination,
+    MonoDreams.Component.Camera? camera = null,
+    SamplerState? spriteSampler = null,
+    SamplerState? textSampler = null) : ISystem<GameState>
 {
     private BasicEffect? _basicEffect;
 
-    private enum BatchType { None, Sprite, Mesh }
+    // The draw set for this pass, built once and reused for the system's lifetime.
+    // AsSet() registers subscriptions the World keeps alive forever — building a fresh
+    // set every frame leaks an EntitySet + its subscriptions per frame, so memory climbs
+    // even on a static scene. See premise "Per-target draw sets are built once, not per frame".
+    private EntitySet? _drawSet;
 
-    private static BatchType GetBatchType(DrawElementType type) =>
-        type == DrawElementType.Mesh ? BatchType.Mesh : BatchType.Sprite;
+    private EntitySet DrawSet => _drawSet ??= BuildDrawSet();
+
+    private EntitySet BuildDrawSet()
+    {
+        var queryBuilder = world.GetEntities()
+            .With((in DrawComponent e) => e.Target == source);
+
+        // The world (Main) respects CullingSystem visibility; screen-space passes always render.
+        if (source == RenderTargetID.Main)
+            queryBuilder = queryBuilder.With<VisibleComponent>();
+
+        return queryBuilder.AsSet();
+    }
+
+    // Pixel art wants nearest-neighbour for sprites (and meshes); downscaled bitmap fonts
+    // read better with linear filtering — so each draw type gets its own sampler. Both are
+    // overridable per game; the defaults suit this engine's pixel-art content.
+    private SamplerState SpriteSamplerState => spriteSampler ?? SamplerState.PointClamp;
+    private SamplerState TextSamplerState => textSampler ?? SamplerState.LinearClamp;
+
+    private enum BatchType { None, Sprite, Text, Mesh }
+
+    private static BatchType GetBatchType(DrawElementType type) => type switch
+    {
+        DrawElementType.Mesh => BatchType.Mesh,
+        DrawElementType.Text => BatchType.Text,
+        _ => BatchType.Sprite,
+    };
+
+    // The mesh ortho projection maps this destination's pixel space to NDC. Derived from the
+    // destination size (not the camera) so screen-space passes need no camera; the camera's
+    // virtual resolution must match the destination size (it centers the view there).
+    private Matrix Projection() =>
+        Matrix.CreateOrthographicOffCenter(0, destination.Width, destination.Height, 0, 0, 1);
 
     private void EnsureBasicEffect()
     {
@@ -36,16 +84,16 @@ public class MasterRenderSystem(
         {
             VertexColorEnabled = true,
             View = Matrix.Identity,
-            Projection = Matrix.CreateOrthographicOffCenter(0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1)
+            Projection = Projection(),
         };
     }
 
-    private void BeginSpriteBatch(Matrix transformMatrix)
+    private void BeginSpriteBatch(Matrix transformMatrix, SamplerState samplerState)
     {
         spriteBatch.Begin(
             sortMode: SpriteSortMode.Deferred, // We pre-sort, so no need for FrontToBack
             blendState: BlendState.AlphaBlend,
-            samplerState: SamplerState.LinearClamp,
+            samplerState: samplerState,
             depthStencilState: DepthStencilState.None,
             rasterizerState: RasterizerState.CullNone,
             effect: null,
@@ -67,40 +115,22 @@ public class MasterRenderSystem(
     {
         EnsureBasicEffect();
 
-        foreach (var renderTarget in renderTargets)
-        {
-            var queryBuilder = world.GetEntities()
-                .With((in DrawComponent e) => e.Target == renderTarget.Key);
+        graphicsDevice.SetRenderTarget(destination);
+        graphicsDevice.Clear(Color.Transparent);
 
-            // Main target: respect CullingSystem visibility. HUD/UI: always render.
-            if (renderTarget.Key == RenderTargetID.Main)
-                queryBuilder.With<VisibleComponent>();
+        var transformMatrix = camera?.GetViewTransformationMatrix() ?? Matrix.Identity;
 
-            var drawList = queryBuilder.AsSet();
+        // Sort ALL entities by LayerDepth (stable sort preserves order for same depth)
+        var entities = DrawSet.GetEntities().ToArray();
+        var sortedEntities = entities
+            .Select((entity, index) => (entity, index, dc: entity.Get<DrawComponent>()))
+            .Where(x => x.dc.Type != DrawElementType.Mesh || x.dc.HasValidMesh)
+            .OrderBy(x => x.dc.LayerDepth)
+            .ThenBy(x => x.index) // Stable sort
+            .ToList();
 
-            graphicsDevice.SetRenderTarget(renderTarget.Value);
-            graphicsDevice.Clear(Color.Transparent);
-
-            var transformMatrix = Matrix.Identity;
-            if (renderTarget.Key == RenderTargetID.Main)
-            {
-                transformMatrix = camera.GetViewTransformationMatrix();
-            }
-
-            // Sort ALL entities by LayerDepth (stable sort preserves order for same depth)
-            var entities = drawList.GetEntities().ToArray();
-            var sortedEntities = entities
-                .Select((entity, index) => (entity, index, dc: entity.Get<DrawComponent>()))
-                .Where(x => x.dc.Type != DrawElementType.Mesh || x.dc.HasValidMesh)
-                .OrderBy(x => x.dc.LayerDepth)
-                .ThenBy(x => x.index) // Stable sort
-                .ToList();
-
-            if (sortedEntities.Count > 0)
-            {
-                RenderInterleaved(sortedEntities, transformMatrix);
-            }
-        }
+        if (sortedEntities.Count > 0)
+            RenderInterleaved(sortedEntities, transformMatrix);
     }
 
     private void RenderInterleaved(
@@ -113,16 +143,20 @@ public class MasterRenderSystem(
         {
             var requiredBatch = GetBatchType(dc.Type);
 
-            // Batch type changed - switch context
+            // Batch type changed - switch context. Sprite and Text both use the SpriteBatch
+            // but with different samplers, so switching between them flushes + reopens it.
+            // Painter's order is preserved because the list is already depth-sorted.
             if (requiredBatch != currentBatch)
             {
                 // End previous batch
-                if (currentBatch == BatchType.Sprite)
+                if (currentBatch is BatchType.Sprite or BatchType.Text)
                     EndSpriteBatch();
 
                 // Start new batch
                 if (requiredBatch == BatchType.Sprite)
-                    BeginSpriteBatch(transformMatrix);
+                    BeginSpriteBatch(transformMatrix, SpriteSamplerState);
+                else if (requiredBatch == BatchType.Text)
+                    BeginSpriteBatch(transformMatrix, TextSamplerState);
                 else if (requiredBatch == BatchType.Mesh)
                     ResetGraphicsStateForMeshRendering();
 
@@ -130,14 +164,14 @@ public class MasterRenderSystem(
             }
 
             // Draw the element
-            if (requiredBatch == BatchType.Sprite)
-                DrawElement(dc);
-            else
+            if (requiredBatch == BatchType.Mesh)
                 DrawSingleMesh(dc, transformMatrix);
+            else
+                DrawElement(dc); // Sprite or Text
         }
 
-        // End final batch if sprites
-        if (currentBatch == BatchType.Sprite)
+        // End final batch if it was a SpriteBatch one
+        if (currentBatch is BatchType.Sprite or BatchType.Text)
             EndSpriteBatch();
     }
 
@@ -145,8 +179,7 @@ public class MasterRenderSystem(
     {
         if (!dc.HasValidMesh) return;
 
-        _basicEffect!.Projection = Matrix.CreateOrthographicOffCenter(
-            0, camera.VirtualWidth, camera.VirtualHeight, 0, 0, 1);
+        _basicEffect!.Projection = Projection();
         _basicEffect.World = (dc.WorldMatrix ?? Matrix.Identity) * transformMatrix;
 
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
@@ -198,16 +231,26 @@ public class MasterRenderSystem(
             case DrawElementType.Text:
                 if (element.Font == null || element.Text == null) return;
 
-                spriteBatch.DrawString(
-                    element.Font,
-                    element.Text,
-                    element.Position,
-                    element.Color,
-                    element.Rotation,
-                    element.Origin,
-                    element.Scale,
-                    SpriteEffects.None,
-                    element.LayerDepth);
+                // Lay out multi-line text ourselves: one DrawString per '\n'-separated line,
+                // advancing by the (scaled) font line height × LineSpacing. This gives a
+                // configurable, scale-correct leading instead of relying on the font backend's
+                // internal newline advance (which ignores the draw scale and overlaps lines).
+                var lineSpacing = element.LineSpacing > 0 ? element.LineSpacing : DynamicTextComponent.DefaultLineSpacing;
+                var lineAdvance = element.Font.LineHeight * element.Scale.Y * lineSpacing;
+                var lines = element.Text.Split('\n');
+                for (var i = 0; i < lines.Length; i++)
+                {
+                    spriteBatch.DrawString(
+                        element.Font,
+                        lines[i],
+                        element.Position + new Vector2(0f, i * lineAdvance),
+                        element.Color,
+                        element.Rotation,
+                        element.Origin,
+                        element.Scale,
+                        SpriteEffects.None,
+                        element.LayerDepth);
+                }
                 break;
 
             case DrawElementType.NinePatch:
@@ -223,6 +266,7 @@ public class MasterRenderSystem(
     public void Dispose()
     {
         _basicEffect?.Dispose();
+        _drawSet?.Dispose();
     }
 
     public bool IsEnabled { get; set; } = true;

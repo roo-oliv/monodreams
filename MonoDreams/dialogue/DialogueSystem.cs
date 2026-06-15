@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DefaultEcs;
@@ -26,6 +27,27 @@ public class DialogueSystem : ISystem<GameState>
     private readonly AInputState _up;
     private readonly AInputState _down;
 
+    // Set when a Yarn <<command>> fires mid-conversation. The post-command Continue() is
+    // deferred to the next Update (see Update) rather than called re-entrantly inside the
+    // Yarn command handler, which would risk faulting the VM.
+    private bool _pendingContinue;
+
+    // Text layout (computed in the constructor, used by line + option rendering).
+    private readonly float _textScale;
+    private readonly Vector2 _textLocalPos; // UI-local top-left where the line text + options start
+    private readonly float _textAreaWidth;
+    private readonly float _overlayDepth;
+
+    // Balloon mode (optional): an inner "talk balloon" panel that wraps the text, with a left
+    // gutter reserved for a game-drawn emote/portrait frame. When off, the legacy box + symmetric
+    // sideInset layout is used. Activated by passing a talkBalloonTexture (see the constructor).
+    private readonly bool _balloonMode;
+    private readonly Entity _balloonEntity;
+
+    /// UI-space rectangle of the left portrait gutter — the box's left region reserved for a
+    /// game-drawn emote frame — when balloon mode is active; <see cref="Rectangle.Empty"/> otherwise.
+    public Rectangle PortraitGutterBounds { get; }
+
     // Yarn runtime
     private readonly Yarn.Dialogue _yarnDialogue;
     private readonly DialogueRunner _dialogueRunner;
@@ -45,7 +67,16 @@ public class DialogueSystem : ISystem<GameState>
         AInputState up,
         AInputState down,
         YarnProgram[] yarnPrograms,
-        string entityInfoType = "Dialogue")
+        string entityInfoType = "Dialogue",
+        float textScale = 0.32f,
+        float sideInset = 0f,
+        float indicatorSize = 44f,
+        Texture2D? talkBalloonTexture = null,
+        NinePatchInfo? talkBalloonNinePatch = null,
+        float portraitGutter = 0f,
+        float balloonPadding = 12f,
+        float boxHeight = 120f,
+        NinePatchInfo? boxNinePatch = null)
     {
         _world = world;
         _font = font;
@@ -54,17 +85,55 @@ public class DialogueSystem : ISystem<GameState>
         _interact = interact;
         _up = up;
         _down = down;
+        _textScale = textScale;
         world.Subscribe(this);
 
         var overlayDepth = layerDepth + 0.01f;
+        _overlayDepth = overlayDepth;
 
-        // Layout constants (UI coordinates, virtual resolution)
-        var boxWidth = virtualWidth - 40;
-        var boxHeight = 120;
-        var rootPosition = new Vector2(20, virtualHeight - boxHeight - 20);
-        var textOffset = new Vector2(16, 16);
-        const int indicatorSize = 32;
-        var indicatorOffset = new Vector2(boxWidth - indicatorSize - 12, boxHeight - indicatorSize - 8);
+        // Layout constants (UI coordinates, virtual resolution). The box fills the screen width
+        // minus a margin and sits at the bottom.
+        const float boxMargin = 20f;
+        var boxWidth = virtualWidth - 2f * boxMargin;
+        var rootPosition = new Vector2(boxMargin, virtualHeight - boxHeight - boxMargin);
+
+        _balloonMode = talkBalloonTexture != null;
+
+        // Where the line text + options start, the text wrap width, and the continue indicator,
+        // differ between balloon mode (text lives inside an inner panel, left gutter reserved for
+        // a game-drawn emote frame) and legacy mode (text on the box, symmetric sideInset).
+        Vector2 textLocal;
+        Vector2 indicatorOffset;
+        float balloonX = 0f, balloonY = 0f, balloonW = 0f, balloonH = 0f;
+        if (_balloonMode)
+        {
+            const float vMargin = 10f;   // balloon inset from the box top/bottom
+            const float rightMargin = 16f; // balloon inset from the box right edge
+            balloonX = portraitGutter;
+            balloonY = vMargin;
+            balloonW = boxWidth - portraitGutter - rightMargin;
+            balloonH = boxHeight - 2f * vMargin;
+            textLocal = new Vector2(balloonX + balloonPadding, balloonY + balloonPadding);
+            _textAreaWidth = balloonW - 2f * balloonPadding;
+            indicatorOffset = new Vector2(
+                balloonX + balloonW - indicatorSize - 10f,
+                balloonY + balloonH - indicatorSize - 8f);
+            // UI-space rect of the left gutter, for the demo to place its emote frame.
+            PortraitGutterBounds = new Rectangle(
+                (int)rootPosition.X, (int)rootPosition.Y, (int)portraitGutter, (int)boxHeight);
+        }
+        else
+        {
+            var textOffset = new Vector2(16, 16);
+            // Line + option text wrap within the box minus symmetric side insets — the insets
+            // reserve room on each side for a game-drawn portrait (see sideInset).
+            textLocal = new Vector2(textOffset.X + sideInset, textOffset.Y);
+            _textAreaWidth = boxWidth - 2f * textOffset.X - 2f * sideInset;
+            // Continue marker sits at the bottom-right of the TEXT area (inset past any portrait).
+            indicatorOffset = new Vector2(boxWidth - sideInset - indicatorSize - 12, boxHeight - indicatorSize - 8);
+            PortraitGutterBounds = Rectangle.Empty;
+        }
+        _textLocalPos = textLocal;
 
         // Create root entity
         _rootTransform = new TransformComponent(rootPosition);
@@ -87,7 +156,9 @@ public class DialogueSystem : ISystem<GameState>
             Color = Color.White,
             Target = RenderTargetID.UI,
             LayerDepth = _layerDepth,
-            NinePatchData = new NinePatchInfo(
+            // Default nine-patch suits the 128×48 "dialog box medium" art; pass boxNinePatch to
+            // back the box with a different panel texture.
+            NinePatchData = boxNinePatch ?? new NinePatchInfo(
                 23,
                 new Rectangle(0, 0, 23, 23),
                 new Rectangle(23, 0, 1, 23),
@@ -105,10 +176,35 @@ public class DialogueSystem : ISystem<GameState>
             Target = RenderTargetID.UI
         });
 
+        // Create inner talk-balloon child (balloon mode only): a nine-patch panel that holds the
+        // text/options/indicator, drawn just above the box and beside the left portrait gutter.
+        if (_balloonMode)
+        {
+            _balloonEntity = world.CreateEntity();
+            _balloonEntity.Set(new EntityInfoComponent(_entityInfoType, "DialogueBalloon"));
+            _balloonEntity.Set(new TransformComponent(new Vector2(balloonX, balloonY)));
+            _balloonEntity.SetParent(_rootEntity);
+            _balloonEntity.Set(new SpriteInfoComponent
+            {
+                SpriteSheet = talkBalloonTexture,
+                Source = new Rectangle(0, 0, talkBalloonTexture!.Width, talkBalloonTexture.Height),
+                Size = new Vector2(balloonW, balloonH),
+                Color = Color.White,
+                Target = RenderTargetID.UI,
+                LayerDepth = _layerDepth + 0.005f, // between the box and the text/options
+                NinePatchData = talkBalloonNinePatch,
+            });
+            _balloonEntity.Set(new DrawComponent
+            {
+                Type = DrawElementType.Sprite,
+                Target = RenderTargetID.UI
+            });
+        }
+
         // Create text child entity
         _dialogueState.TextEntity = world.CreateEntity();
         _dialogueState.TextEntity.Set(new EntityInfoComponent(_entityInfoType, "DialogueText"));
-        _dialogueState.TextEntity.Set(new TransformComponent(textOffset));
+        _dialogueState.TextEntity.Set(new TransformComponent(_textLocalPos));
         _dialogueState.TextEntity.SetParent(_rootEntity);
         _dialogueState.TextEntity.Set(new DynamicTextComponent
         {
@@ -116,7 +212,7 @@ public class DialogueSystem : ISystem<GameState>
             LayerDepth = overlayDepth,
             Font = _font,
             Color = Color.SaddleBrown,
-            Scale = 0.5f,
+            Scale = textScale,
             RevealingSpeed = 20,
             RevealStartTime = float.NaN,
             IsRevealed = false,
@@ -198,6 +294,10 @@ public class DialogueSystem : ISystem<GameState>
             displayText = text[(colonIndex + 1)..].Trim();
         }
 
+        // Wrap so long lines break onto new lines instead of overflowing the box. The reveal
+        // animation slices the wrapped string, so embedded newlines just advance instantly.
+        displayText = WrapText(displayText, _textAreaWidth);
+
         _dialogueState.CurrentPhase = DialoguePhase.Line;
         _dialogueState.CurrentSpeaker = speaker;
         _dialogueState.WaitingForInput = false;
@@ -241,6 +341,10 @@ public class DialogueSystem : ISystem<GameState>
     private void OnYarnCommand(Command command)
     {
         global::System.Diagnostics.Debug.WriteLine($"[Yarn Command] {command.Text}");
+        // Surface the command so game code can react (emotes, SFX, flags), then flag the
+        // conversation to flow past it on the next Update — see _pendingContinue.
+        _world.Publish(new DialogueCommandMessage(command.Text));
+        _pendingContinue = true;
     }
 
     private void OnYarnNodeStart(string nodeName)
@@ -278,8 +382,10 @@ public class DialogueSystem : ISystem<GameState>
         // doesn't read JustPressed and advance the first line on its own opening.
         _interact.Consume();
 
-        // Show dialogue box
+        // Show dialogue box (and inner balloon, if any). VisibleComponent gates SpritePrepSystem,
+        // which fills the nine-patch texture, so both panels need it set to render.
         _dialogueState.BoxEntity.Set<VisibleComponent>();
+        if (_balloonMode) _balloonEntity.Set<VisibleComponent>();
 
         _world.Publish(new DialogueActiveMessage(true));
 
@@ -293,6 +399,15 @@ public class DialogueSystem : ISystem<GameState>
     public void Update(GameState state)
     {
         if (!_dialogueState.IsActive) return;
+
+        // A <<command>> fired during the previous Continue(). Advance past it now, outside
+        // the Yarn handler, so an inline command (e.g. <<emote ...>>) doesn't stall the line.
+        if (_pendingContinue)
+        {
+            _pendingContinue = false;
+            _yarnDialogue.Continue();
+            if (!_dialogueState.IsActive) return; // command was the last thing before ===
+        }
 
         switch (_dialogueState.CurrentPhase)
         {
@@ -368,26 +483,28 @@ public class DialogueSystem : ISystem<GameState>
     {
         HideOptions();
 
-        const float startY = 16f;
-        const float optionSpacing = 24f;
-        var overlayDepth = _layerDepth + 0.01f;
+        // Match the multi-line render advance (Font.LineHeight * scale * leading) so wrapped
+        // options stack without overlap — see DynamicTextComponent.DefaultLineSpacing.
+        var lineHeight = _font.LineHeight * _textScale * DynamicTextComponent.DefaultLineSpacing;
+        var gap = lineHeight * 0.4f;
+        var x = _textLocalPos.X;
+        var y = _textLocalPos.Y;
 
         for (var i = 0; i < _dialogueState.CurrentOptions.Count; i++)
         {
-            var prefix = i == _dialogueState.SelectedOptionIndex ? "> " : "  ";
-            var fullText = prefix + _dialogueState.CurrentOptions[i];
+            var fullText = OptionDisplay(i);
 
             var optionEntity = _world.CreateEntity();
             optionEntity.Set(new EntityInfoComponent(_entityInfoType, $"DialogueOption{i}"));
-            optionEntity.Set(new TransformComponent(new Vector2(16, startY + i * optionSpacing)));
+            optionEntity.Set(new TransformComponent(new Vector2(x, y)));
             optionEntity.SetParent(_rootEntity);
             optionEntity.Set(new DynamicTextComponent
             {
                 Target = RenderTargetID.UI,
-                LayerDepth = overlayDepth,
+                LayerDepth = _overlayDepth,
                 Font = _font,
                 Color = i == _dialogueState.SelectedOptionIndex ? Color.White : Color.SaddleBrown,
-                Scale = 0.5f,
+                Scale = _textScale,
                 RevealingSpeed = 0, // Instant reveal
                 RevealStartTime = 0,
                 IsRevealed = true,
@@ -402,6 +519,10 @@ public class DialogueSystem : ISystem<GameState>
             optionEntity.Set<VisibleComponent>();
 
             _dialogueState.OptionEntities.Add(optionEntity);
+
+            // Advance by this option's wrapped height so multi-line options never overlap.
+            var lines = CountLines(fullText);
+            y += lines * lineHeight + gap;
         }
     }
 
@@ -413,11 +534,62 @@ public class DialogueSystem : ISystem<GameState>
             if (!entity.IsAlive) continue;
 
             ref var dt = ref entity.Get<DynamicTextComponent>();
-            var prefix = i == _dialogueState.SelectedOptionIndex ? "> " : "  ";
-            dt.TextContent = prefix + _dialogueState.CurrentOptions[i];
+            // The font is monospace and the "> "/"  " prefix is a fixed width, so re-wrapping
+            // here can't change line count — option positions stay put across selection moves.
+            dt.TextContent = OptionDisplay(i);
             dt.VisibleCharacterCount = dt.TextContent.Length;
             dt.Color = i == _dialogueState.SelectedOptionIndex ? Color.White : Color.SaddleBrown;
         }
+    }
+
+    /// The selection-prefixed, wrapped text for option <paramref name="i"/>.
+    private string OptionDisplay(int i)
+    {
+        var prefix = i == _dialogueState.SelectedOptionIndex ? "> " : "  ";
+        var prefixWidth = _font.MeasureString(prefix).Width * _textScale;
+        var wrapped = WrapText(_dialogueState.CurrentOptions[i], _textAreaWidth - prefixWidth);
+        return prefix + wrapped;
+    }
+
+    private static int CountLines(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 1;
+        var n = 1;
+        foreach (var c in text) if (c == '\n') n++;
+        return n;
+    }
+
+    /// Greedy word-wrap to <paramref name="maxWidth"/> rendered pixels (font measured at
+    /// <see cref="_textScale"/>), inserting newlines. A single word wider than maxWidth is
+    /// left on its own line rather than split.
+    private string WrapText(string text, float maxWidth)
+    {
+        if (string.IsNullOrEmpty(text) || maxWidth <= 0) return text;
+
+        var result = new StringBuilder();
+        var line = new StringBuilder();
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = line.Length == 0 ? word : line + " " + word;
+            if (line.Length > 0 && _font.MeasureString(candidate).Width * _textScale > maxWidth)
+            {
+                if (result.Length > 0) result.Append('\n');
+                result.Append(line);
+                line.Clear();
+                line.Append(word);
+            }
+            else
+            {
+                if (line.Length > 0) line.Append(' ');
+                line.Append(word);
+            }
+        }
+        if (line.Length > 0)
+        {
+            if (result.Length > 0) result.Append('\n');
+            result.Append(line);
+        }
+        return result.ToString();
     }
 
     private void HideOptions()
@@ -444,6 +616,9 @@ public class DialogueSystem : ISystem<GameState>
 
     private void DeactivateDialogue()
     {
+        // Drop any pending command-continue so a command that coincides with the end of a
+        // conversation (e.g. <<stop>>) can't leak a stray Continue() into the next dialogue.
+        _pendingContinue = false;
         _dialogueState.IsActive = false;
         _dialogueState.WasTriggered = false;
         _dialogueState.CurrentPhase = DialoguePhase.None;
@@ -452,12 +627,19 @@ public class DialogueSystem : ISystem<GameState>
 
         HideOptions();
 
-        // Hide box
+        // Hide box (and inner balloon)
         if (_dialogueState.BoxEntity.Has<VisibleComponent>())
             _dialogueState.BoxEntity.Remove<VisibleComponent>();
 
         var boxDraw = _dialogueState.BoxEntity.Get<DrawComponent>();
         boxDraw.Texture = null;
+
+        if (_balloonMode)
+        {
+            if (_balloonEntity.Has<VisibleComponent>())
+                _balloonEntity.Remove<VisibleComponent>();
+            _balloonEntity.Get<DrawComponent>().Texture = null;
+        }
 
         // Clear text
         ref var dynamicText = ref _dialogueState.TextEntity.Get<DynamicTextComponent>();

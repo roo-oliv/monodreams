@@ -436,8 +436,18 @@ public class PhysicsDemoScreen : IGameScreen
             new TextPrepSystem(_world, pixelPerfectRendering: false),
             new MeshPrepSystem(_world),
             new ButtonMeshPrepSystem(_world),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _camera, _renderTargets, _world),
-            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets));
+            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+                RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera),
+            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+                RenderTargetID.UI, _renderTargets[RenderTargetID.UI]),
+            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+                RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]),
+            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+            {
+                RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+                RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+                RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+            }));
     }
 
     public void Dispose()

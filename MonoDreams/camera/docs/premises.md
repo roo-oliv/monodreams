@@ -86,6 +86,32 @@ check uses last frame's bounds.
 **Tests:** none yet.
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
+## Follow bounds clamp the target before smoothing
+
+`CameraFollowTargetComponent.Bounds` is an optional world-space `Rectangle?`.
+When set, `CameraFollowSystem` clamps the *desired target position* to that
+rectangle *before* the smoothing/snap step, then eases the camera toward that
+clamped point. The camera tracks the target but never aims past the rectangle's
+edges (the standard "keep the camera inside the level" behavior) — and because
+it is the target that is clamped, a camera that is currently *outside* the
+bounds (e.g. control was just handed back from an unbounded target) eases
+smoothly back inside rather than snapping to the edge. When null the camera
+follows freely.
+
+**Why:** games want the camera to stop at level edges without each screen
+re-implementing a clamp (which would mean a second writer to `camera.Position`
+— the tug-of-war this block's first premise warns against). Clamping the
+*target* keeps a single owner of the camera position *and* a single smooth
+easing path to an in-bounds goal.
+**Breaks:** if a future change clamps the *resolved* position after smoothing
+instead, it hard-caps X/Y each frame — so handing control back to a bounded
+target from outside the bounds (switching targets, or a target sitting beyond
+the bounds) snaps the camera to the edge in one frame instead of easing in.
+Bounds smaller than the viewport are legal but mean the camera barely moves —
+that's the caller's choice, not a bug.
+**Tests:** `MonoDreams.Tests/Camera/CameraFollowBoundsTests.cs`.
+**Depends on:** —
+
 ## Open questions
 
 - **Multi-camera support** — `Camera` instances are not registered

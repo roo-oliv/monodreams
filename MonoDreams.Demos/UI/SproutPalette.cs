@@ -19,6 +19,8 @@ public static class SproutPalette
     public static readonly Color TextHover       = new(0xFF, 0xEE, 0xC9);
     /// Selected/highlighted text — gold.
     public static readonly Color TextSelected    = new(0xFA, 0xDA, 0x93);
+    /// Soft yellow — used for guide overlays such as the camera-bounds dashed rect.
+    public static readonly Color SoftYellow      = new(0xF2, 0xE2, 0x7A);
 
     // ─── legacy cream/brown (still used by sprite assets, accent reds, etc.) ───
     public static readonly Color Cream      = new(245, 232, 207);   // (legacy) window/background
