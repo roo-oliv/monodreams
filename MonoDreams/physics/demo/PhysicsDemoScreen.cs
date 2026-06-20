@@ -29,11 +29,16 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Demo.Physics;
 
-/// Physics module demo. 10 balls bounce inside a closed boundary under gravity. The
-/// floor adds extra upward speed on contact so balls keep oscillating (the demo
-/// is self-sustaining, not damped). 7 red balls collide with walls AND each other;
-/// 3 blue balls only collide with walls (layer-isolated from reds; blue↔blue is
-/// filtered in the bounce system).
+/// Physics module demo. 10 balls launch in random directions and bounce inside a
+/// closed boundary under gravity. The floor adds extra upward speed on contact so
+/// balls keep oscillating (the demo is self-sustaining, not damped). Solid red balls
+/// collide with walls AND each other; hollow (outline-only) blue balls only collide
+/// with walls (layer-isolated from reds; blue↔blue is filtered in the bounce system).
+///
+/// Visual feedback (FlashComponent + FlashSystem): a wall hit blinks the ball's own
+/// vivid tint; two balls colliding pop a brighter flash on BOTH balls regardless of
+/// speed. The floor is a thick line — cream when the boost is off, green when on —
+/// and blinks bright green when a ball lands on it while the boost is on.
 public class PhysicsDemoScreen : IGameScreen
 {
     private const float BoundaryHalfWidth  = 380f;
@@ -41,30 +46,40 @@ public class PhysicsDemoScreen : IGameScreen
     private const float WallThickness      = 20f;
 
     private const float Gravity      = 1200f;    // px/s²
-    private const float Restitution  = 0.85f;    // wall/ball bounce energy retention
+    private const float Restitution  = 0.92f;    // wall/ball bounce energy retention
     private const float FloorBoost   = 260f;     // extra upward px/s on floor contact
     private const float MaxFallSpeed = 1400f;    // safety cap to prevent tunneling
+
+    private const float FloorVisualThickness = 6f;     // thick floor line vs the 2px boundary
+    private const float FlashDuration        = 0.25f;  // seconds for a blink to fade back
+
+    private const float MinSpawnSpeed = 120f;    // random initial-velocity speed range
+    private const float MaxSpawnSpeed = 220f;
+    private const float MinBallRadius = 5f;      // random per-ball size range
+    private const float MaxBallRadius = 10f;
+    private const float BlueBallBorder = 2f;     // outline thickness for the hollow blue balls
+    // Collider and rendered circle share this polygon resolution so the contact
+    // shape is exactly the drawn silhouette (see CreateBall). Tangency no longer
+    // depends on it — only roundness-of-look and narrowphase cost do — so it can be
+    // lowered for cheaper narrowphase at very high ball counts.
+    private const int BallSegments = 32;
+    // Speed clamp keeps the self-sustaining floor-boost loop from compounding into
+    // tunnelling speeds. Sits just above a full-height free-fall (~1030 px/s) so
+    // normal bounces are untouched but runaway energy is capped.
+    private const float MaxBallSpeed  = 1050f;
+
+    private const int DefaultRedCount  = 7;
+    private const int DefaultBlueCount = 3;
+    private const int MaxBallsPerColor = 999999; // clamp on the editable counts
+
+    /// Floor line tints: regular (boost off), green (boost on), bright blink on a boosted hit.
+    private static readonly Color FloorRegularColor = DemoPalette.TextLight;
+    private static readonly Color FloorActiveColor  = new(106, 190, 89);
+    private static readonly Color FloorFlashColor   = new(190, 255, 150);
 
     private const int RedBallLayer  = 0;
     private const int BlueBallLayer = 1;
     // Walls own both layers so red and blue both collide with them.
-
-    /// 10 balls: 7 red (Type=Red) collide with walls + reds; 3 blue (Type=Blue)
-    /// collide with walls only. Sizes mostly small with a couple of larger reds
-    /// for visual variety.
-    private static readonly BallSpec[] BallSpecs =
-    {
-        new(BallType.Red,   radius: 10f, spawn: new Vector2(-300, -160), velocity: new Vector2( 140,   0)),
-        new(BallType.Red,   radius: 14f, spawn: new Vector2(-150, -160), velocity: new Vector2(-180,   0)),
-        new(BallType.Red,   radius: 10f, spawn: new Vector2(   0, -160), velocity: new Vector2( 120,   0)),
-        new(BallType.Red,   radius: 18f, spawn: new Vector2( 150, -160), velocity: new Vector2(-100,   0)),
-        new(BallType.Red,   radius: 11f, spawn: new Vector2( 300, -160), velocity: new Vector2(-160,   0)),
-        new(BallType.Red,   radius: 12f, spawn: new Vector2(-220,  -80), velocity: new Vector2( 200,   0)),
-        new(BallType.Red,   radius: 22f, spawn: new Vector2( 220,  -80), velocity: new Vector2(-140,   0)),
-        new(BallType.Blue,  radius: 13f, spawn: new Vector2( -80,  -80), velocity: new Vector2( -90,   0)),
-        new(BallType.Blue,  radius: 20f, spawn: new Vector2(  80,  -80), velocity: new Vector2( 110,   0)),
-        new(BallType.Blue,  radius: 15f, spawn: new Vector2(   0,    0), velocity: new Vector2( 160,   0)),
-    };
 
     private readonly ContentManager _content;
     private readonly GraphicsDevice _graphicsDevice;
@@ -78,8 +93,14 @@ public class PhysicsDemoScreen : IGameScreen
 
     private ScreenController? _screenController;
     private readonly List<Entity> _balls = new();
+    private readonly Random _rng = new();
     private Entity _gravityToggle;
     private Entity _floorBoostToggle;
+    private Entity _floorVisual;
+    private Entity _redInput;
+    private Entity _blueInput;
+    private int _redCount = DefaultRedCount;
+    private int _blueCount = DefaultBlueCount;
     private bool _gravityOn = true;
     private bool _floorBoostOn = true;
     private bool _paused;
@@ -117,18 +138,15 @@ public class PhysicsDemoScreen : IGameScreen
     {
         _screenController = screenController;
         _world.Subscribe<DemoButtonClicked>(OnButtonClicked);
+        _world.Subscribe<TextInputChanged>(OnTextInputChanged);
 
-        var cursorTextures = new Dictionary<CursorType, Texture2D>
-        {
-            [CursorType.Default] = content.Load<Texture2D>("Cursor/default"),
-            [CursorType.Pointer] = content.Load<Texture2D>("Cursor/pointer"),
-            [CursorType.Hand]    = content.Load<Texture2D>("Cursor/hand"),
-        };
-        MonoDreams.Cursor.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
+        MonoDreams.Cursor.Cursor.CreateMesh(_world,
+            ShapeBuilder.Arrow(26f, Color.Black, Color.White).Generate(), RenderTargetID.HUD);
 
         CreateBoundary();
+        CreateFloorVisual();
         CreateWalls();
-        SpawnBalls();
+        RebuildBalls();
         BuildHud(content);
     }
 
@@ -145,6 +163,7 @@ public class PhysicsDemoScreen : IGameScreen
         sw.On = !sw.On;
         _gravityOn = sw.On;
         _gravityToggle.Set(sw);
+        WakeAllBalls();
     }
 
     public void ToggleFloorBoost()
@@ -154,22 +173,33 @@ public class PhysicsDemoScreen : IGameScreen
         sw.On = !sw.On;
         _floorBoostOn = sw.On;
         _floorBoostToggle.Set(sw);
+        UpdateFloorBaseColor();
+        WakeAllBalls();
     }
 
-    public void Reset()
+    /// Floor line is green while the boost is on, regular cream while it's off.
+    /// The FlashSystem repaints it to this base color whenever it's not blinking.
+    private void UpdateFloorBaseColor()
     {
-        for (var i = 0; i < _balls.Count && i < BallSpecs.Length; i++)
+        if (!_floorVisual.IsAlive || !_floorVisual.Has<FlashComponent>()) return;
+        ref var flash = ref _floorVisual.Get<FlashComponent>();
+        flash.BaseColor = _floorBoostOn ? FloorActiveColor : FloorRegularColor;
+    }
+
+    /// Reset spawns a fresh random layout honoring the current red/blue counts.
+    public void Reset() => RebuildBalls();
+
+    /// Wakes every ball (clears the asleep/still state from <see cref="BallRestSystem"/>)
+    /// so a fresh disturbance — flipping gravity or floor boost — re-energises a settled
+    /// pile instead of leaving it frozen in place.
+    public void WakeAllBalls()
+    {
+        foreach (var ball in _balls)
         {
-            var ball = _balls[i];
-            if (!ball.IsAlive) continue;
-
-            ref var transform = ref ball.Get<TransformComponent>();
-            transform.Position = BallSpecs[i].Spawn;
-            transform.LastPosition = BallSpecs[i].Spawn;
-
-            ref var velocity = ref ball.Get<VelocityComponent>();
-            velocity.Current = BallSpecs[i].Velocity;
-            velocity.Last = BallSpecs[i].Velocity;
+            if (!ball.IsAlive || !ball.Has<BallTagComponent>()) continue;
+            ref var tag = ref ball.Get<BallTagComponent>();
+            tag.Asleep = false;
+            tag.StillTime = 0f;
         }
     }
 
@@ -177,10 +207,33 @@ public class PhysicsDemoScreen : IGameScreen
     public bool VelocityEnabled => !_paused;
     public bool FloorBoostEnabled => _floorBoostOn;
 
+    /// The thick floor line entity, blinked by the bounce system on a boosted hit.
+    public Entity FloorVisual => _floorVisual;
+
+    /// A random launch velocity: random direction, random speed in the spawn range.
+    private Vector2 RandomVelocity()
+    {
+        var angle = (float)(_rng.NextDouble() * Math.PI * 2.0);
+        var speed = MinSpawnSpeed + (float)_rng.NextDouble() * (MaxSpawnSpeed - MinSpawnSpeed);
+        return new Vector2(MathF.Cos(angle) * speed, MathF.Sin(angle) * speed);
+    }
+
     // ─── button click routing ────────────────────────────────────────────────
+
+    private const string RedInputId  = "input.red";
+    private const string BlueInputId = "input.blue";
 
     private void OnButtonClicked(in DemoButtonClicked msg)
     {
+        // Clicking a number box focuses it (exclusively); clicking anything else
+        // blurs both so keyboard shortcuts resume.
+        switch (msg.Id)
+        {
+            case RedInputId:  FocusInput(_redInput);  return;
+            case BlueInputId: FocusInput(_blueInput); return;
+        }
+
+        BlurInputs();
         switch (msg.Id)
         {
             case DemoHeader.BackId: _screenController?.LoadScreen(DemoScreens.Launcher); break;
@@ -189,6 +242,59 @@ public class PhysicsDemoScreen : IGameScreen
             case "physics.pause":      TogglePause(); break;
             case "toggle.gravity":     ToggleGravity(); break;
             case "toggle.floor-boost": ToggleFloorBoost(); break;
+        }
+    }
+
+    private void OnTextInputChanged(in TextInputChanged msg)
+    {
+        if (msg.Input == _redInput)
+        {
+            var n = ParseCount(msg.Text);
+            if (n == _redCount) return;
+            _redCount = n;
+        }
+        else if (msg.Input == _blueInput)
+        {
+            var n = ParseCount(msg.Text);
+            if (n == _blueCount) return;
+            _blueCount = n;
+        }
+        else return;
+
+        RebuildBalls();
+    }
+
+    private static int ParseCount(string text) =>
+        int.TryParse(text, out var v) ? Math.Clamp(v, 0, MaxBallsPerColor) : 0;
+
+    // ─── focus (game-owned; TextInputSystem only reads the flag) ───────────────
+
+    private void FocusInput(Entity target)
+    {
+        SetFocus(_redInput,  target == _redInput);
+        SetFocus(_blueInput, target == _blueInput);
+    }
+
+    private void BlurInputs()
+    {
+        SetFocus(_redInput,  false);
+        SetFocus(_blueInput, false);
+    }
+
+    /// Mirrors focus onto both the input's key-capture flag and its button accent
+    /// (IsActive drives the focused border/text color via DemoButtonInteractionSystem).
+    private static void SetFocus(Entity input, bool focused)
+    {
+        if (!input.IsAlive) return;
+        if (input.Has<TextInputComponent>())
+        {
+            ref var ti = ref input.Get<TextInputComponent>();
+            ti.Focused = focused;
+        }
+        if (input.Has<DemoButtonComponent>())
+        {
+            ref var db = ref input.Get<DemoButtonComponent>();
+            db.IsActive = focused;
         }
     }
 
@@ -203,9 +309,29 @@ public class PhysicsDemoScreen : IGameScreen
         var boundary = _world.CreateEntity();
         boundary.Set(new TransformComponent(Vector2.Zero));
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.2f };
-        draw.SetMeshData(new RectangleOutlineMeshGenerator(bounds, thickness: 2f, color: SproutPalette.TextLight));
+        draw.SetMeshData(new RectangleOutlineMeshGenerator(bounds, thickness: 2f, color: DemoPalette.TextLight));
         boundary.Set(draw);
         boundary.Set<VisibleComponent>();
+    }
+
+    /// Thick horizontal line drawn over the boundary's bottom edge — the floor's
+    /// visual. Regular cream when the boost is off, green when on, and it blinks
+    /// bright (via FlashSystem) when a ball lands on it while the boost is on.
+    /// Sits at LayerDepth 0.25 — above the boundary outline (0.2), below the balls.
+    private void CreateFloorVisual()
+    {
+        var left  = new Vector2(-BoundaryHalfWidth, BoundaryHalfHeight);
+        var right = new Vector2( BoundaryHalfWidth, BoundaryHalfHeight);
+        var baseColor = _floorBoostOn ? FloorActiveColor : FloorRegularColor;
+
+        var floor = _world.CreateEntity();
+        floor.Set(new TransformComponent(Vector2.Zero));
+        var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.25f };
+        draw.SetMeshData(new LineMeshGenerator(left, right, FloorVisualThickness, baseColor));
+        floor.Set(draw);
+        floor.Set(new FlashComponent(baseColor, FloorFlashColor, FlashDuration));
+        floor.Set<VisibleComponent>();
+        _floorVisual = floor;
     }
 
     /// Four BoxColliders forming a closed box just outside the visible boundary.
@@ -254,37 +380,69 @@ public class PhysicsDemoScreen : IGameScreen
         return wall;
     }
 
-    private void SpawnBalls()
+    /// Despawns the current balls and spawns a fresh random set matching the
+    /// current red/blue counts. Called on load, on reset, and whenever a count
+    /// input changes.
+    private void RebuildBalls()
     {
-        for (var i = 0; i < BallSpecs.Length; i++)
-        {
-            var spec = BallSpecs[i];
-            _balls.Add(CreateBall(spec));
-        }
+        foreach (var ball in _balls)
+            if (ball.IsAlive) ball.Dispose();
+        _balls.Clear();
+
+        for (var i = 0; i < _redCount; i++)  _balls.Add(CreateBall(BallType.Red));
+        for (var i = 0; i < _blueCount; i++) _balls.Add(CreateBall(BallType.Blue));
     }
 
-    private Entity CreateBall(BallSpec spec)
+    private Entity CreateBall(BallType type)
     {
-        var entity = _world.CreateEntity();
-        entity.Set(new TransformComponent(spec.Spawn));
-        entity.Set(new VelocityComponent(spec.Velocity));
-        entity.Set(new RigidBodyComponent(mass: 1f));
-        entity.Set(new BallTagComponent { Type = spec.Type });
+        var radius = MinBallRadius + (float)_rng.NextDouble() * (MaxBallRadius - MinBallRadius);
+        var spawn = RandomSpawn(radius);
 
-        // Octagonal convex collider as a circle approximation. SAT handles
-        // polygon-polygon collisions natively, so ball↔ball bounces look round
-        // rather than square.
-        var layer = spec.Type == BallType.Red ? RedBallLayer : BlueBallLayer;
+        var entity = _world.CreateEntity();
+        entity.Set(new TransformComponent(spawn));
+        entity.Set(new VelocityComponent(RandomVelocity()));
+        entity.Set(new RigidBodyComponent(mass: 1f));
+        entity.Set(new BallTagComponent { Type = type });
+
+        // Convex collider with BallSegments sides, built from the same radius and
+        // angles as the rendered circle below, so the collider polygon coincides
+        // with the drawn silhouette. That makes resting balls sit visually tangent:
+        // an inscribed octagon would sit inside the rounder render, letting the
+        // circles overlap even at perfect collider contact. SAT handles the
+        // polygon-polygon bounce natively.
+        var layer = type == BallType.Red ? RedBallLayer : BlueBallLayer;
         entity.Set(new ConvexColliderComponent(
-            CircleVertices(spec.Radius, segments: 8),
+            CircleVertices(radius, segments: BallSegments),
             activeLayers: new HashSet<int> { layer }));
 
-        var color = spec.Type == BallType.Red ? SproutPalette.Crimson : SproutPalette.SkyBlue;
+        // Resting tint + the vivid color the ball blinks to on a wall hit (FlashSystem).
+        var (color, flashColor) = BallColors(type);
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.95f };
-        draw.SetMeshData(new CircleMeshGenerator(Vector2.Zero, spec.Radius, color, segments: 24));
+        // Red balls are solid; blue balls are hollow — just their painted border.
+        // BallSegments matches the collider so the contact shape is the drawn shape.
+        IMeshGenerator mesh = type == BallType.Blue
+            ? new CircleOutlineMeshGenerator(Vector2.Zero, radius, BlueBallBorder, color, segments: BallSegments)
+            : new CircleMeshGenerator(Vector2.Zero, radius, color, segments: BallSegments);
+        draw.SetMeshData(mesh);
         entity.Set(draw);
+        entity.Set(new FlashComponent(color, flashColor, FlashDuration));
         entity.Set<VisibleComponent>();
         return entity;
+    }
+
+    /// A ball type's (resting tint, wall-hit flash tint). Single source of truth so
+    /// the spawn code and the bounce system agree on a ball's colors.
+    public static (Color Resting, Color Flash) BallColors(BallType type) => type == BallType.Red
+        ? (DemoPalette.Crimson, new Color(255, 90, 80))
+        : (DemoPalette.SkyBlue, new Color(150, 230, 255));
+
+    /// A random spawn point inside the boundary, kept a ball-radius clear of the walls.
+    private Vector2 RandomSpawn(float radius)
+    {
+        var margin = radius + 8f;
+        var x = MathHelper.Lerp(-BoundaryHalfWidth + margin,  BoundaryHalfWidth - margin,  (float)_rng.NextDouble());
+        var y = MathHelper.Lerp(-BoundaryHalfHeight + margin, BoundaryHalfHeight - margin, (float)_rng.NextDouble());
+        return new Vector2(x, y);
     }
 
     private static Vector2[] CircleVertices(float radius, int segments)
@@ -302,45 +460,35 @@ public class PhysicsDemoScreen : IGameScreen
 
     private void BuildHud(ContentManager content)
     {
-        var squareButtons = content.Load<Texture2D>("SproutLands/Buttons/square_26x26");
-        var settingsSheet = content.Load<Texture2D>("SproutLands/Buttons/settings_buttons");
-
         DemoHeader.Build(
-            _world, _viewportManager, _font, squareButtons,
+            _world, _viewportManager, _font,
             title: "physics",
             descriptionLines: new[]
             {
-                "Ten balls bounce inside the boundary under gravity.",
-                "Floor adds vertical speed on impact, so the system never settles.",
-                "Red balls (7) collide with walls AND each other.",
-                "Blue balls (3) collide with walls only — never with other balls.",
+                "Balls bounce inside the box under gravity.",
+                "Red balls collide with each other; blue balls don't.",
             });
 
-        BuildSidebar(squareButtons, settingsSheet);
+        BuildSidebar();
     }
 
-    private void BuildSidebar(Texture2D squareButtons, Texture2D settingsSheet)
+    private void BuildSidebar()
     {
         var capStyle = new KeyCapStyle
         {
-            SpriteSheet = squareButtons,
-            DefaultSource = SproutSquareButtons.CreamLight,
-            HoverSource   = SproutSquareButtons.CreamDark,
-            ActiveSource  = SproutSquareButtons.TanDark,
             CapPixels = 42,
             CapLabelScale = 0.22f,
-            CapLabelColor = SproutPalette.WarmBrown,
         };
         var rowStyle = new KeyRowStyle
         {
-            LabelColor = SproutPalette.TextLight,
-            HoverColor = SproutPalette.TextHover,
-            ActiveColor = SproutPalette.TextSelected,
+            LabelColor = DemoPalette.TextLight,
+            HoverColor = DemoPalette.TextHover,
+            ActiveColor = DemoPalette.TextSelected,
             LabelScale = 0.18f,
             Gap = 10f,
-            BackgroundColor = SproutPalette.DarkBgSecondary,
-            HoverBackgroundColor = SproutPalette.DarkBgSecondary,
-            ActiveBackgroundColor = SproutPalette.DarkBgSecondary,
+            BackgroundColor = DemoPalette.DarkBgSecondary,
+            HoverBackgroundColor = DemoPalette.DarkBgSecondary,
+            ActiveBackgroundColor = DemoPalette.DarkBgSecondary,
             BackgroundPaddingX = 10f,
             BackgroundPaddingY = 6f,
         };
@@ -351,35 +499,62 @@ public class PhysicsDemoScreen : IGameScreen
         var reset = Row("physics.reset", "R", "reset balls");
         var pause = Row("physics.pause", "_", "pause / resume");
 
-        var gravity = _world.CreateToggleRow(
+        var gravity = _world.CreateCheckboxRow(
             id: "toggle.gravity",
             rowLabel: "gravity",
             font: _font,
-            toggleSheet: settingsSheet,
-            offSource: SproutSettings.ToggleOff,
-            onSource:  SproutSettings.ToggleOn,
             initiallyOn: _gravityOn,
-            toggleSize: new Vector2(42, 27),
+            boxSize: 42f,
             row: rowStyle,
             layerDepth: 0.96f);
 
-        var floorBoost = _world.CreateToggleRow(
+        var floorBoost = _world.CreateCheckboxRow(
             id: "toggle.floor-boost",
             rowLabel: "floor boost",
             font: _font,
-            toggleSheet: settingsSheet,
-            offSource: SproutSettings.ToggleOff,
-            onSource:  SproutSettings.ToggleOn,
             initiallyOn: _floorBoostOn,
-            toggleSize: new Vector2(42, 27),
+            boxSize: 42f,
             row: rowStyle,
             layerDepth: 0.96f);
 
         _gravityToggle = gravity.Outline;
         _floorBoostToggle = floorBoost.Outline;
 
+        // Counts accept up to MaxBallsPerColor; size the box so its widest value
+        // (all 9s) fits without overflowing the border.
+        var maxDigits = MaxBallsPerColor.ToString();
+        const float inputTextScale = 0.2f;
+        const float inputBoxPadding = 8f;
+        var inputBoxWidth = _font.MeasureString(new string('9', maxDigits.Length)).Width * inputTextScale
+                            + inputBoxPadding * 2f;
+
+        var inputStyle = new NumberInputStyle
+        {
+            LabelColor = DemoPalette.TextLight,
+            AccentColor = DemoPalette.TextLight,
+            HoverColor = DemoPalette.TextHover,
+            FocusColor = DemoPalette.TextSelected,
+            FillColor = DemoPalette.DarkBgSecondary,
+            BorderThickness = 2f,
+            LabelScale = 0.18f,
+            TextScale = inputTextScale,
+            Gap = 10f,
+            BoxSize = new Vector2(inputBoxWidth, 30),
+            BoxPadding = inputBoxPadding,
+        };
+
+        var redInput = _world.CreateNumberInputRow(
+            RedInputId, "red balls", _redCount.ToString(), maxLength: maxDigits.Length, _font, inputStyle, layerDepth: 0.96f);
+        var blueInput = _world.CreateNumberInputRow(
+            BlueInputId, "blue balls", _blueCount.ToString(), maxLength: maxDigits.Length, _font, inputStyle, layerDepth: 0.96f);
+
+        _redInput = redInput.Outline;
+        _blueInput = blueInput.Outline;
+
         const float rowGap = 6f;
         const float groupGap = 16f;
+
+        Entity Spacer() => _world.CreateEntity();
 
         new AutoLayoutBuilder(_world, _viewportManager)
             .CreateRoot(ScreenAnchor.TopLeft, RenderTargetID.HUD)
@@ -389,9 +564,12 @@ public class PhysicsDemoScreen : IGameScreen
             .AlignCross(CrossAxisAlignment.Start)
             .AddSlot(slot => slot.Attach(reset.Container).MeasureWith(_ => reset.Size))
             .AddSlot(slot => slot.Attach(pause.Container).MeasureWith(_ => pause.Size))
-            .AddSlot(slot => slot.Attach(_world.CreateEntity()).MeasureWith(_ => new Vector2(0, groupGap - rowGap)))
+            .AddSlot(slot => slot.Attach(Spacer()).MeasureWith(_ => new Vector2(0, groupGap - rowGap)))
             .AddSlot(slot => slot.Attach(gravity.Container).MeasureWith(_ => gravity.Size))
             .AddSlot(slot => slot.Attach(floorBoost.Container).MeasureWith(_ => floorBoost.Size))
+            .AddSlot(slot => slot.Attach(Spacer()).MeasureWith(_ => new Vector2(0, groupGap - rowGap)))
+            .AddSlot(slot => slot.Attach(redInput.Container).MeasureWith(_ => redInput.Size))
+            .AddSlot(slot => slot.Attach(blueInput.Container).MeasureWith(_ => blueInput.Size))
             .Build();
     }
 
@@ -416,17 +594,19 @@ public class PhysicsDemoScreen : IGameScreen
             new IntrinsicSizingSystem(_world),
             new AutoLayoutSystem(_world, _viewportManager),
             new DemoButtonInteractionSystem(_world),
-            new DemoIconRecolorSystem(_world),
+            new TextInputSystem(_world),
             new ToggleSwitchSystem(_world),
             new PhysicsDemoInputSystem(this),
             new GatedGravitySystem(_world, _runner, this),
+            new BallRestSystem(_world, this),
             new GatedVelocitySystem(_world, _runner, this),
             new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateCollisionMessage),
             new BallBounceSystem(_world, this),
+            new BallSpeedClampSystem(_world, MaxBallSpeed),
+            new FlashSystem(_world),
             new TransformCommitSystem(_world, _runner),
             new HierarchySystem(_world),
-            new CursorPositionSystem(_world, _camera, _viewportManager),
-            new CursorDrawPrepSystem(_world));
+            new CursorPositionSystem(_world, _camera, _viewportManager));
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
@@ -464,21 +644,35 @@ public class PhysicsDemoScreen : IGameScreen
 
 public enum BallType { Red, Blue }
 
-public struct BallTagComponent { public BallType Type; }
+public struct BallTagComponent
+{
+    public BallType Type;
+    public float StillTime;   // seconds spent below the sleep speed (BallRestSystem)
+    public bool Asleep;       // frozen: gravity cancelled + not integrated until woken
+}
 
 /// Marks the bottom wall so the bounce system can add the upward kick that
 /// keeps the demo perpetual.
 public struct FloorTag { }
 
-internal readonly struct BallSpec
+/// Demo-local "blink on impact" tint for any mesh entity. <see cref="FlashSystem"/>
+/// lerps the mesh's vertex colors from <see cref="FlashColor"/> back to
+/// <see cref="BaseColor"/> as <see cref="Remaining"/> decays to zero; setting
+/// <c>Remaining = Duration</c> (re)triggers the blink. Pure data — the system owns
+/// the timing and the vertex writes.
+public struct FlashComponent
 {
-    public readonly BallType Type;
-    public readonly float Radius;
-    public readonly Vector2 Spawn;
-    public readonly Vector2 Velocity;
-    public BallSpec(BallType type, float radius, Vector2 spawn, Vector2 velocity)
+    public Color BaseColor;
+    public Color FlashColor;
+    public float Duration;
+    public float Remaining;
+
+    public FlashComponent(Color baseColor, Color flashColor, float duration)
     {
-        Type = type; Radius = radius; Spawn = spawn; Velocity = velocity;
+        BaseColor = baseColor;
+        FlashColor = flashColor;
+        Duration = duration;
+        Remaining = 0f;
     }
 }
 
@@ -575,18 +769,42 @@ public class GatedVelocitySystem : ISystem<GameState>
 
 // ─── bounce resolution ────────────────────────────────────────────────────
 
-/// Custom resolution: subscribes to <see cref="CollisionMessage"/>, pushes the
-/// base entity out by the MTV, then reflects its velocity along the contact
-/// normal (with restitution). A floor-tagged collider adds an extra upward
-/// impulse so the system stays in motion.
+/// Custom resolution: subscribes to <see cref="CollisionMessage"/>, softly pushes
+/// the base entity out of penetration (slop + partial correction), then applies a
+/// relative-velocity impulse along the contact normal — so a ball struck while at
+/// rest takes on the incoming ball's momentum instead of acting like a wall. A fast
+/// contact bounces elastically (with restitution); a slow one below <c>RestThreshold</c>
+/// is treated as resting — the approach is merely cancelled — so dense piles settle
+/// instead of jittering. A floor-tagged collider adds an extra upward impulse so the
+/// boost showcase stays in motion.
 ///
 /// Replaces the engine's <see cref="TransformCollisionResolutionSystem{T}"/>
 /// for this demo — that system zeros velocity along the normal (kinematic
 /// "stop"), which would defeat the bouncing behaviour we want here.
 public class BallBounceSystem : ISystem<GameState>
 {
-    private const float Restitution = 0.85f;
+    private const float Restitution = 0.92f;     // energy retention per bounce (higher = less loss)
     private const float FloorBoost = 260f;
+    private const float FlashImpactSpeed = 40f;  // min closing speed that counts as a wall impact
+
+    // Resting-contact handling so dense piles settle instead of jittering. Below
+    // RestThreshold a contact is "resting": restitution drops to 0 (cancel only the
+    // inward normal velocity) instead of bouncing, so gravity's ~20 px/s per-frame
+    // nudge no longer micro-bounces a ball forever. PenetrationSlop + PositionCorrection
+    // do Baumgarte-style positional correction — push out most of the overlap each
+    // frame, leaving a sub-pixel slop — so balls sit visually tangent rather than sunk
+    // into each other. The slop is also a deadband: once a settled (asleep) pile relaxes
+    // below it, corrections stop entirely, so the pile reaches a true fixed point instead
+    // of perpetually nudging. Damped below 1.0 so packed neighbours don't over-separate.
+    // All of this engages only at low speed, so active bouncing (and the floor-boost
+    // showcase) is untouched.
+    private const float RestThreshold      = 50f;   // closing speed below which a contact is "resting"
+    private const float PenetrationSlop    = 0.2f;  // overlap (px) left uncorrected — a deadband for stillness
+    private const float PositionCorrection = 0.8f;  // fraction of the remaining overlap pushed out per frame
+
+    /// Bright pop both balls blink to when two balls collide — distinct from (and
+    /// brighter than) the per-ball wall-hit tint, and fired regardless of speed.
+    private static readonly Color BallCollisionFlashColor = new(255, 255, 235);
 
     private readonly World _world;
     private readonly PhysicsDemoScreen _screen;
@@ -652,28 +870,232 @@ public class BallBounceSystem : ISystem<GameState>
         // as A, so a single full push is correct here.
         var isBallVsBall = entity.Has<BallTagComponent>() && other.Has<BallTagComponent>();
         var pushScale = isBallVsBall ? 0.5f : 1f;
-        transform.Translate(-normal * penetration * pushScale);
 
-        // Reflect velocity along the contact normal with restitution. Only do
-        // it if velocity is moving INTO the collision (dot > 0); otherwise the
-        // ball is already separating and we'd accidentally accelerate it.
-        var vDotN = Vector2.Dot(velocity.Current, normal);
-        if (vDotN > 0)
+        // Soft positional correction: leave a slop of overlap and push out only a
+        // fraction of the rest this frame. Full immediate correction makes packed
+        // neighbours fight (resolve A↔B → A penetrates C → resolve A↔C → back),
+        // which reads as jitter; the small residual overlap is sub-pixel.
+        var correction = MathF.Max(0f, penetration - PenetrationSlop) * PositionCorrection;
+        if (correction > 0f)
+            transform.Translate(-normal * correction * pushScale);
+
+        // Velocity response uses the RELATIVE normal velocity (closing speed), so a
+        // ball hit while at rest still absorbs the impact instead of acting like a
+        // wall. Equal-mass balls split the impulse — each symmetric message (A→B and
+        // B→A) applies half, summing to the full two-body exchange — while a ball↔wall
+        // contact (infinite mass, no symmetric message) takes the full reflection.
+        // With other's velocity zero this reduces exactly to reflecting the ball's own
+        // velocity, so wall bounces and head-on ball pairs are unchanged. Only act when
+        // closing (> 0); a separating pair is already parting and must not be glued.
+        var otherVelocity = other.Has<VelocityComponent>()
+            ? other.Get<VelocityComponent>().Current
+            : Vector2.Zero;
+        var closingSpeed = Vector2.Dot(velocity.Current - otherVelocity, normal);
+        var isResting = closingSpeed < RestThreshold;
+        if (closingSpeed > 0f)
         {
-            velocity.Current -= (1f + Restitution) * vDotN * normal;
+            // Resting contact → restitution 0: just kill the approach so the ball
+            // settles (tangential motion survives, so it can still slide/roll). A real
+            // impact → elastic exchange with restitution.
+            var restitution = isResting ? 0f : Restitution;
+            var massFactor = isBallVsBall ? 0.5f : 1f;
+            velocity.Current -= massFactor * (1f + restitution) * closingSpeed * normal;
+
+            // A genuine impact (above the rest threshold) wakes a settled ball so
+            // gravity and integration resume and the impulse above isn't frozen away
+            // next frame by BallRestSystem. Resting contacts stay below it, so a quiet
+            // pile never wakes itself.
+            if (!isResting)
+            {
+                Wake(entity);
+                Wake(other);
+            }
         }
 
+        var hitFloor = other.Has<FloorTag>();
+
         // Floor kick: extra upward impulse on top of the elastic bounce.
-        if (_screen.FloorBoostEnabled && other.Has<FloorTag>())
+        if (_screen.FloorBoostEnabled && hitFloor)
         {
             // Subtract because Y-down: upward is -Y.
             velocity.Current.Y -= FloorBoost;
         }
+
+        // Two balls colliding pop a bright flash on BOTH balls — independent of which
+        // is this message's base entity. Gated by the rest threshold (not by which
+        // ball is faster) so a genuine hit at any real speed flashes, but balls in a
+        // settled pile (sustained sub-threshold contact) decay back to their resting
+        // tint instead of glowing at the flash color forever. Wall hits keep the
+        // per-ball tint, gated by a minimum closing speed.
+        if (isBallVsBall)
+        {
+            if (!isResting)
+            {
+                Flash(entity, BallCollisionFlashColor);
+                Flash(other, BallCollisionFlashColor);
+            }
+        }
+        else if (closingSpeed > FlashImpactSpeed)
+        {
+            Flash(entity, PhysicsDemoScreen.BallColors(entity.Get<BallTagComponent>().Type).Flash);
+            if (hitFloor && _screen.FloorBoostEnabled) Flash(_screen.FloorVisual);
+        }
+    }
+
+    /// Wakes a sleeping ball so gravity and integration resume next frame
+    /// (<see cref="BallRestSystem"/> stops freezing it once <c>Asleep</c> clears).
+    private static void Wake(Entity e)
+    {
+        if (!e.IsAlive || !e.Has<BallTagComponent>()) return;
+        ref var tag = ref e.Get<BallTagComponent>();
+        if (!tag.Asleep && tag.StillTime == 0f) return;
+        tag.Asleep = false;
+        tag.StillTime = 0f;
+    }
+
+    /// (Re)trigger an entity's blink, keeping its existing <see cref="FlashComponent.FlashColor"/>.
+    private static void Flash(Entity e)
+    {
+        if (!e.IsAlive || !e.Has<FlashComponent>()) return;
+        ref var flash = ref e.Get<FlashComponent>();
+        flash.Remaining = flash.Duration;
+    }
+
+    /// (Re)trigger an entity's blink with an explicit color. <see cref="FlashSystem"/> shows
+    /// <c>BaseColor</c> when idle, so overwriting <c>FlashColor</c> here only colors the blink
+    /// this call starts — letting wall hits and ball↔ball hits blink different colors.
+    private static void Flash(Entity e, Color flashColor)
+    {
+        if (!e.IsAlive || !e.Has<FlashComponent>()) return;
+        ref var flash = ref e.Get<FlashComponent>();
+        flash.FlashColor = flashColor;
+        flash.Remaining = flash.Duration;
     }
 
     public void Dispose()
     {
         _collisions.Clear();
+        GC.SuppressFinalize(this);
+    }
+}
+
+// ─── flash / blink ─────────────────────────────────────────────────────────
+
+/// Drives <see cref="FlashComponent"/>: every frame it repaints a mesh entity's
+/// vertex colors to either its resting <c>BaseColor</c> (when idle) or a value
+/// lerped from <c>FlashColor</c> back toward <c>BaseColor</c> while a blink decays.
+/// Writes colors in place (no allocation), so it must run in the update pipeline
+/// before the mesh prep / render stage reads the vertices.
+public class FlashSystem(World world)
+    : AEntitySetSystem<GameState>(world.GetEntities().With<FlashComponent>().With<DrawComponent>().AsSet())
+{
+    protected override void Update(GameState state, in Entity entity)
+    {
+        ref var flash = ref entity.Get<FlashComponent>();
+        var draw = entity.Get<DrawComponent>();
+        if (draw.Vertices is not { Length: > 0 } vertices) return;
+
+        Color color;
+        if (flash.Remaining > 0f)
+        {
+            flash.Remaining = MathF.Max(0f, flash.Remaining - state.Time);
+            var t = flash.Duration > 0f ? flash.Remaining / flash.Duration : 0f;
+            color = Color.Lerp(flash.BaseColor, flash.FlashColor, t);
+        }
+        else
+        {
+            color = flash.BaseColor;
+        }
+
+        for (var i = 0; i < vertices.Length; i++)
+            vertices[i].Color = color;
+    }
+}
+
+// ─── speed clamp ───────────────────────────────────────────────────────────
+
+/// Caps each ball's velocity magnitude. The floor boost adds fixed energy on every
+/// bounce (the demo is "self-sustaining, not damped"), which otherwise compounds
+/// until a ball is fast enough to tunnel through a wall in a single step. Clamping
+/// the speed bounds the energy and keeps the balls contained. Runs after the bounce
+/// system (the last writer of ball velocity) so the cap is the final word.
+public class BallSpeedClampSystem(World world, float maxSpeed)
+    : AEntitySetSystem<GameState>(world.GetEntities().With<BallTagComponent>().With<VelocityComponent>().AsSet())
+{
+    protected override void Update(GameState state, in Entity entity)
+    {
+        ref var velocity = ref entity.Get<VelocityComponent>();
+        var speedSq = velocity.Current.LengthSquared();
+        if (speedSq > maxSpeed * maxSpeed)
+            velocity.Current = velocity.Current * (maxSpeed / MathF.Sqrt(speedSq));
+    }
+}
+
+// ─── resting / sleep ───────────────────────────────────────────────────────
+
+/// Lets a settled ball stop being integrated so dense piles go truly still. With
+/// gravity on, every ball is nudged ~g·dt downward each frame and moved into its
+/// contact *before* detection runs, so the resolver is forever correcting a sink it
+/// can't prevent — that residual sink↔correct cycle is the "resting jitter" (and the
+/// reason a small overlap lingers instead of reaching zero). This system breaks the
+/// cycle: once a ball's speed stays below SleepSpeed for SleepDelay it is marked
+/// asleep, and thereafter its velocity is zeroed here — right after gravity, before
+/// integration — cancelling the gravity nudge so it neither sinks nor jitters. The
+/// bounce system's position correction still runs, so a freshly-slept ball relaxes
+/// the last of its overlap to tangent and then quiesces against the slop deadband.
+/// Balls wake on a deep incursion (<see cref="BallBounceSystem"/>) or any demo toggle
+/// (<see cref="PhysicsDemoScreen.WakeAllBalls"/>). Gated on GravityEnabled so it acts
+/// only in the gravity-on settling case — never while paused, and never in the lively
+/// floor-boost showcase, where balls never slow enough to sleep anyway.
+public class BallRestSystem : ISystem<GameState>
+{
+    private const float SleepSpeed = 24f;   // speed (post-gravity) under which a ball accrues still-time
+    private const float SleepDelay = 0.4f;  // seconds of continuous stillness before sleeping
+
+    private readonly EntitySet _balls;
+    private readonly PhysicsDemoScreen _screen;
+    public bool IsEnabled { get; set; } = true;
+
+    public BallRestSystem(World world, PhysicsDemoScreen screen)
+    {
+        _screen = screen;
+        _balls = world.GetEntities().With<BallTagComponent>().With<VelocityComponent>().AsSet();
+    }
+
+    public void Update(GameState state)
+    {
+        if (!IsEnabled || !_screen.GravityEnabled) return;
+
+        foreach (var entity in _balls.GetEntities())
+        {
+            ref var tag = ref entity.Get<BallTagComponent>();
+            var velocity = entity.Get<VelocityComponent>();
+
+            if (tag.Asleep)
+            {
+                velocity.Current = Vector2.Zero;   // cancel the gravity just applied → frozen
+                continue;
+            }
+
+            if (velocity.Current.LengthSquared() < SleepSpeed * SleepSpeed)
+            {
+                tag.StillTime += state.Time;
+                if (tag.StillTime >= SleepDelay)
+                {
+                    tag.Asleep = true;
+                    velocity.Current = Vector2.Zero;
+                }
+            }
+            else
+            {
+                tag.StillTime = 0f;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _balls.Dispose();
         GC.SuppressFinalize(this);
     }
 }

@@ -110,6 +110,31 @@ write-only dead field.
 **Tests:** none yet.
 **Depends on:** —
 
+## A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`, not `CursorDrawPrepSystem`
+
+`Cursor.CreateMesh(world, meshData, renderTarget)` builds a cursor whose
+silhouette is a generated mesh (e.g. an arrow), authored in local space with
+its hot-spot at the origin. It composes `CursorControllerComponent` +
+`CursorInputComponent` + `TransformComponent` + a `Mesh` `DrawComponent` +
+`VisibleComponent`, and deliberately carries **no** `CursorTexturesComponent`.
+It is positioned by the same `CursorInputSystem` → `CursorPositionSystem` pair
+(neither requires the textures component) and rendered by the screen's existing
+`MeshPrepSystem` — so a mesh-cursor screen registers **no** `CursorDrawPrepSystem`.
+The textured path (`Cursor.Create` + `CursorTexturesComponent` +
+`CursorDrawPrepSystem`) is unchanged and is what `MonoDreams.Examples` uses.
+
+**Why:** the engine is mesh-capable, and a generated arrow keeps the demos free
+of any cursor image asset. `MeshPrepSystem` already writes the per-frame world
+matrix for every `Mesh` entity with `VisibleComponent`, so the cursor needs no
+bespoke draw-prep — only the transform that `CursorPositionSystem` already sets.
+**Breaks:** a mesh cursor missing `VisibleComponent` falls out of
+`MeshPrepSystem`'s query and renders at last frame's (or the origin's) matrix.
+Registering `CursorDrawPrepSystem` for a mesh cursor is harmless (it filters on
+`CursorTexturesComponent`, which the mesh cursor lacks) but pointless.
+**Tests:** none yet (exercised by every demo screen — all four use the mesh cursor).
+**Depends on:** rendering — "`MeshPrepSystem` writes the world matrix once per
+frame"; rendering — "Three render targets, two behaviors" (HUD always renders).
+
 ## Open questions
 
 - **Multiple cursors** — the systems iterate an entity set, so two

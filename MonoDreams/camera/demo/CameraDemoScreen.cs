@@ -174,13 +174,8 @@ public class CameraDemoScreen : IGameScreen
         _screenController = screenController;
         _world.Subscribe<DemoButtonClicked>(OnButtonClicked);
 
-        var cursorTextures = new Dictionary<CursorType, Texture2D>
-        {
-            [CursorType.Default] = content.Load<Texture2D>("Cursor/default"),
-            [CursorType.Pointer] = content.Load<Texture2D>("Cursor/pointer"),
-            [CursorType.Hand] = content.Load<Texture2D>("Cursor/hand"),
-        };
-        MonoDreams.Cursor.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
+        MonoDreams.Cursor.Cursor.CreateMesh(_world,
+            ShapeBuilder.Arrow(26f, Color.Black, Color.White).Generate(), RenderTargetID.HUD);
 
         _cameraAnchor = _world.CreateEntity();
         _cameraAnchor.Set(new TransformComponent(Vector2.Zero));
@@ -345,8 +340,8 @@ public class CameraDemoScreen : IGameScreen
     {
         switch (zone)
         {
-            case HitZone.Left:  _leftBlink = HitBlinkDuration;  SetHitSquareColor(_leftHitSquare, SproutPalette.SoftYellow); break;
-            case HitZone.Right: _rightBlink = HitBlinkDuration; SetHitSquareColor(_rightHitSquare, SproutPalette.SoftYellow); break;
+            case HitZone.Left:  _leftBlink = HitBlinkDuration;  SetHitSquareColor(_leftHitSquare, DemoPalette.SoftYellow); break;
+            case HitZone.Right: _rightBlink = HitBlinkDuration; SetHitSquareColor(_rightHitSquare, DemoPalette.SoftYellow); break;
         }
     }
 
@@ -358,12 +353,12 @@ public class CameraDemoScreen : IGameScreen
         if (_leftBlink > 0f && (_leftBlink -= dt) <= 0f)
         {
             _leftBlink = 0f;
-            SetHitSquareColor(_leftHitSquare, SproutPalette.Crimson);
+            SetHitSquareColor(_leftHitSquare, DemoPalette.Crimson);
         }
         if (_rightBlink > 0f && (_rightBlink -= dt) <= 0f)
         {
             _rightBlink = 0f;
-            SetHitSquareColor(_rightHitSquare, SproutPalette.Crimson);
+            SetHitSquareColor(_rightHitSquare, DemoPalette.Crimson);
         }
     }
 
@@ -491,7 +486,7 @@ public class CameraDemoScreen : IGameScreen
         var boundary = _world.CreateEntity();
         boundary.Set(new TransformComponent(Vector2.Zero));
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.2f };
-        draw.SetMeshData(new RectangleOutlineMeshGenerator(bounds, thickness: 2f, color: SproutPalette.TextLight));
+        draw.SetMeshData(new RectangleOutlineMeshGenerator(bounds, thickness: 2f, color: DemoPalette.TextLight));
         boundary.Set(draw);
         boundary.Set<VisibleComponent>();
     }
@@ -512,7 +507,7 @@ public class CameraDemoScreen : IGameScreen
         // world-zone outlines, ball, and crosses.
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.25f };
         draw.SetMeshData(new DashedRectangleOutlineMeshGenerator(
-            CameraBounds(), thickness: 2f, color: SproutPalette.SoftYellow, dashLength: 14f, gapLength: 9f));
+            CameraBounds(), thickness: 2f, color: DemoPalette.SoftYellow, dashLength: 14f, gapLength: 9f));
         _cameraBoundsRect.Set(draw);
         // VisibleComponent is added/removed by SetCameraBoundsVisible — no
         // CullingSystem runs in this demo, so the tag fully controls visibility.
@@ -558,7 +553,7 @@ public class CameraDemoScreen : IGameScreen
             LayerDepth = 0.35f,
             TextContent = label,
             Font = _font,
-            Color = SproutPalette.TextLight,
+            Color = DemoPalette.TextLight,
             Scale = labelScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
@@ -571,16 +566,16 @@ public class CameraDemoScreen : IGameScreen
         {
             Size = new Vector2(ZoneSize, ZoneSize),
             LineThickness = 1.5f,
-            Color = SproutPalette.TextLight,
+            Color = DemoPalette.TextLight,
             TextEntity = labelEntity,
             Target = RenderTargetID.Main,
         });
         outline.Set(new DemoButtonComponent
         {
             Id = id,
-            DefaultColor = SproutPalette.TextLight,
-            HoveredColor = SproutPalette.TextHover,
-            ActiveColor = SproutPalette.TextSelected,
+            DefaultColor = DemoPalette.TextLight,
+            HoveredColor = DemoPalette.TextHover,
+            ActiveColor = DemoPalette.TextSelected,
         });
         outline.Set<VisibleComponent>();
         _worldZoneButtons[mode] = outline;
@@ -595,7 +590,7 @@ public class CameraDemoScreen : IGameScreen
         // LayerDepth=0.95 from ButtonMeshPrepSystem) so the ball doesn't get
         // clipped by a zone's outline as it crosses through.
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.97f };
-        draw.SetMeshData(new CircleMeshGenerator(Vector2.Zero, BallRadius, SproutPalette.Crimson, segments: 32));
+        draw.SetMeshData(new CircleMeshGenerator(Vector2.Zero, BallRadius, DemoPalette.Crimson, segments: 32));
         _ball.Set(draw);
         _ball.Set<VisibleComponent>();
 
@@ -641,7 +636,7 @@ public class CameraDemoScreen : IGameScreen
         // outlines, ball, and crosses — the ball passes over the square cleanly.
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.5f };
         square.Set(draw);
-        SetHitSquareColor(square, SproutPalette.Crimson);
+        SetHitSquareColor(square, DemoPalette.Crimson);
         square.Set<VisibleComponent>();
         return square;
     }
@@ -693,7 +688,7 @@ public class CameraDemoScreen : IGameScreen
         // 0.985 sits just above the green target cross (0.98) so the override marker
         // reads as the foremost crosshair while it's showing.
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.985f };
-        draw.SetMeshData(CrossMesh(armPixels: 16, thicknessPixels: 3, color: SproutPalette.SkyBlue));
+        draw.SetMeshData(CrossMesh(armPixels: 16, thicknessPixels: 3, color: DemoPalette.SkyBlue));
         _cornerCross.Set(draw);
         // VisibleComponent is added/removed by SetCornerCrossVisible — no CullingSystem
         // runs in this demo, so the tag fully controls visibility.
@@ -733,7 +728,7 @@ public class CameraDemoScreen : IGameScreen
         bg.Set(new TransformComponent(Vector2.Zero));
         // 0.90 keeps the backdrop below the screen-center cross (0.92) and cursor.
         var bgDraw = new DrawComponent { Target = RenderTargetID.HUD, LayerDepth = 0.90f };
-        bgDraw.SetMeshData(new FilledRectangleMeshGenerator(dest, SproutPalette.DarkBgSecondary));
+        bgDraw.SetMeshData(new FilledRectangleMeshGenerator(dest, DemoPalette.DarkBgSecondary));
         bg.Set(bgDraw);
         bg.Set<VisibleComponent>();
 
@@ -741,7 +736,7 @@ public class CameraDemoScreen : IGameScreen
         var frame = _world.CreateEntity();
         frame.Set(new TransformComponent(Vector2.Zero));
         var frameDraw = new DrawComponent { Target = RenderTargetID.HUD, LayerDepth = 0.91f };
-        frameDraw.SetMeshData(new RectangleOutlineMeshGenerator(frameRect, thickness: 3f, color: SproutPalette.TextLight));
+        frameDraw.SetMeshData(new RectangleOutlineMeshGenerator(frameRect, thickness: 3f, color: DemoPalette.TextLight));
         frame.Set(frameDraw);
         frame.Set<VisibleComponent>();
     }
@@ -760,11 +755,8 @@ public class CameraDemoScreen : IGameScreen
 
     private void BuildHud(ContentManager content)
     {
-        var squareButtons = content.Load<Texture2D>("SproutLands/Buttons/square_26x26");
-        var settingsSheet = content.Load<Texture2D>("SproutLands/Buttons/settings_buttons");
-
         DemoHeader.Build(
-            _world, _viewportManager, _font, squareButtons,
+            _world, _viewportManager, _font,
             title: "camera",
             descriptionLines: new[]
             {
@@ -774,33 +766,28 @@ public class CameraDemoScreen : IGameScreen
                 "Hit the right red square to shake the camera, the left to rotate it.",
             });
 
-        BuildSidebar(squareButtons, settingsSheet);
+        BuildSidebar();
     }
 
-    private void BuildSidebar(Texture2D squareButtons, Texture2D settingsSheet)
+    private void BuildSidebar()
     {
         var capStyle = new KeyCapStyle
         {
-            SpriteSheet = squareButtons,
-            DefaultSource = SproutSquareButtons.CreamLight,
-            HoverSource   = SproutSquareButtons.CreamDark,
-            ActiveSource  = SproutSquareButtons.TanDark,
-            // 42 matches the lerp toggle pill width so all sidebar elements
-            // line up on a shared left edge.
+            // 42 matches the checkbox box width so all sidebar elements line up on a
+            // shared left edge.
             CapPixels = 42,
             CapLabelScale = 0.22f,
-            CapLabelColor = SproutPalette.WarmBrown,
         };
         var rowStyle = new KeyRowStyle
         {
-            LabelColor = SproutPalette.TextLight,
-            HoverColor = SproutPalette.TextHover,
-            ActiveColor = SproutPalette.TextSelected,
+            LabelColor = DemoPalette.TextLight,
+            HoverColor = DemoPalette.TextHover,
+            ActiveColor = DemoPalette.TextSelected,
             LabelScale = 0.18f,
             Gap = 10f,
-            BackgroundColor = SproutPalette.DarkBgSecondary,
-            HoverBackgroundColor = SproutPalette.DarkBgSecondary,
-            ActiveBackgroundColor = SproutPalette.DarkBgSecondary,
+            BackgroundColor = DemoPalette.DarkBgSecondary,
+            HoverBackgroundColor = DemoPalette.DarkBgSecondary,
+            ActiveBackgroundColor = DemoPalette.DarkBgSecondary,
             BackgroundPaddingX = 10f,
             BackgroundPaddingY = 6f,
         };
@@ -816,17 +803,13 @@ public class CameraDemoScreen : IGameScreen
         var bl     = Row("mode.bl",     "4", "bottom-left");
         var center = Row("mode.center", "5", "center");
 
-        // Toggle pill native is 28x18 (aspect ~1.56). Draw at 42x27 = native × 1.5
-        // so the aspect ratio is preserved and the pill scales to match the cap chip.
-        var lerp = _world.CreateToggleRow(
+        // Checkbox box is 42×42 so it lines up with the 42px key caps above.
+        var lerp = _world.CreateCheckboxRow(
             id: "toggle.lerp",
             rowLabel: "smooth lerp",
             font: _font,
-            toggleSheet: settingsSheet,
-            offSource: SproutSettings.ToggleOff,
-            onSource: SproutSettings.ToggleOn,
             initiallyOn: _lerpSmooth,
-            toggleSize: new Vector2(42, 27),
+            boxSize: 42f,
             row: rowStyle,
             layerDepth: 0.96f);
 
@@ -869,7 +852,6 @@ public class CameraDemoScreen : IGameScreen
             new IntrinsicSizingSystem(_world),
             new AutoLayoutSystem(_world, _viewportManager),
             new DemoButtonInteractionSystem(_world),
-            new DemoIconRecolorSystem(_world),
             new ToggleSwitchSystem(_world),
             new PlayerBallMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight, BallRadius, MoveSpeed),
             new CameraDemoInputSystem(this),
@@ -882,7 +864,6 @@ public class CameraDemoScreen : IGameScreen
             new CameraLagZoomSystem(_world, _camera, this),
             new HierarchySystem(_world),
             new CursorPositionSystem(_world, _camera, _viewportManager),
-            new CursorDrawPrepSystem(_world),
             // Hit jolts run last so only rendering sees the offset/rotation — cursor and
             // hierarchy this frame already used the clean follow transform, and the system
             // peels off its own prior offset before re-applying, so the jolt never bleeds

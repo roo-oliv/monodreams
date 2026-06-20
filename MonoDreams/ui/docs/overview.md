@@ -14,6 +14,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 - `LayoutSlotComponent` — per-slot data: `SizeMeasurer` callback, `IsRoot`, `NeedsRemeasure`, attached content entity
 - `UIElementComponent` — marker for UI entities (used by game-side interaction systems for hit-testing)
 - `SimpleButtonComponent` — button state (idle / hover / pressed) and visual style
+- `TextInputComponent` — a minimal editable single-line text field: current value, character mask (`TextInputMask.None` / `Numeric`), max length, a `Focused` flag, the linked text entity that displays the value, a `CaretPosition` insertion index, and an optional `CaretEntity` the system draws a white caret line into. Focus is game-owned (see premises); formatting / placeholder / error states are intentionally out of scope and can be layered on later
 
 ### Builders (fluent API)
 
@@ -26,12 +27,14 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 - `IntrinsicSizingSystem` — invokes each slot's `SizeMeasurer` callback, writes results into `LayoutNodeComponent.Width/Height`. Runs first
 - `AutoLayoutSystem` — the flexbox solver: computes positions from the measured-size tree, writes to `TransformComponent`. Runs after `IntrinsicSizingSystem`
 - `ButtonMeshPrepSystem` — paints button outlines via `rendering` based on `SimpleButtonComponent` state
+- `TextInputSystem` — inserts masked characters at the caret (and handles Backspace / Delete / Left / Right / Home / End) into focused `TextInputComponent`s, mirrors the value onto the linked text entity, publishes `TextInputChanged`, and — when a `CaretEntity` is set — positions and shows a white vertical caret line at the insertion point. Reads the keyboard directly (edge-triggered); it only *consumes* the `Focused` flag — game code decides which field is focused
 - `LayoutDebugSystem` — optional outline visualization (toggle `LayoutDebugSystem.Enabled`)
 
 ### Other
 
 - `ButtonStyle` — visual configuration (colors, outline thickness, hover/pressed tints)
 - `LayoutEnums` — `LayoutDirection`, `JustifyContent`, `AlignItems`, `ScreenAnchor`
+- `TextInputChanged` — message published when a `TextInputComponent`'s value changes (carries the input entity and new text)
 
 ## Pipeline wiring
 

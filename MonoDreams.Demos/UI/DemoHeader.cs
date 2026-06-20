@@ -41,14 +41,13 @@ public static class DemoHeader
         World world,
         ViewportManager viewport,
         BitmapFont font,
-        Texture2D squareButtonsSheet,
         string title,
         string[] descriptionLines)
     {
         var (titleCardContainer, titleCardSize) = BuildTitleCard(world, font, title, descriptionLines);
-        var (backContainer, backSize) = BuildChromeKey(world, font, squareButtonsSheet,
+        var (backContainer, backSize) = BuildChromeKey(world, font,
             id: BackId, capLabel: "ESC", rowLabel: "back");
-        var (exitContainer, exitSize) = BuildChromeKey(world, font, squareButtonsSheet,
+        var (exitContainer, exitSize) = BuildChromeKey(world, font,
             id: ExitId, capLabel: "Q", rowLabel: "exit");
 
         new AutoLayoutBuilder(world, viewport)
@@ -101,7 +100,7 @@ public static class DemoHeader
             Size = panelSize,
             LineThickness = 0f,
             Color = Color.Transparent,
-            FillColor = SproutPalette.DarkBgSecondary,
+            FillColor = DemoPalette.DarkBgSecondary,
             TextEntity = null,
             Target = RenderTargetID.HUD,
         });
@@ -117,7 +116,7 @@ public static class DemoHeader
             LayerDepth = HeaderLayerDepth + 0.01f,
             TextContent = title,
             Font = font,
-            Color = SproutPalette.TextLight,
+            Color = DemoPalette.TextLight,
             Scale = TitleScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
@@ -137,7 +136,7 @@ public static class DemoHeader
                 LayerDepth = HeaderLayerDepth + 0.01f,
                 TextContent = descriptionLines[i],
                 Font = font,
-                Color = SproutPalette.TextHover,
+                Color = DemoPalette.TextHover,
                 Scale = DescriptionScale,
                 IsRevealed = true,
                 VisibleCharacterCount = int.MaxValue,
@@ -153,29 +152,24 @@ public static class DemoHeader
     /// the back / exit chrome — same visual language as the sidebar rows.
     /// Returned as (container, size) for embedding into the shared header layout.
     private static (Entity Container, Vector2 Size) BuildChromeKey(
-        World world, BitmapFont font, Texture2D capSheet,
+        World world, BitmapFont font,
         string id, string capLabel, string rowLabel)
     {
         var capStyle = new KeyCapStyle
         {
-            SpriteSheet = capSheet,
-            DefaultSource = SproutSquareButtons.CreamLight,
-            HoverSource = SproutSquareButtons.CreamDark,
-            ActiveSource = SproutSquareButtons.TanDark,
             CapPixels = ChipSize,
             CapLabelScale = capLabel.Length > 1 ? ChromeEscScale : ChromeQScale,
-            CapLabelColor = SproutPalette.WarmBrown,
         };
         var rowStyle = new KeyRowStyle
         {
-            LabelColor = SproutPalette.TextLight,
-            HoverColor = SproutPalette.TextHover,
-            ActiveColor = SproutPalette.TextSelected,
+            LabelColor = DemoPalette.TextLight,
+            HoverColor = DemoPalette.TextHover,
+            ActiveColor = DemoPalette.TextSelected,
             LabelScale = ChromeLabelScale,
             Gap = 8f,
-            BackgroundColor = SproutPalette.DarkBgSecondary,
-            HoverBackgroundColor = SproutPalette.DarkBgSecondary,
-            ActiveBackgroundColor = SproutPalette.DarkBgSecondary,
+            BackgroundColor = DemoPalette.DarkBgSecondary,
+            HoverBackgroundColor = DemoPalette.DarkBgSecondary,
+            ActiveBackgroundColor = DemoPalette.DarkBgSecondary,
             BackgroundPaddingX = 10f,
             BackgroundPaddingY = 6f,
         };

@@ -140,24 +140,30 @@ button query in every screen and forces a fork in the interaction logic.
 mutually exclusive on a single entity, which is why the sprite background
 lives on a sibling.
 
-## `ToggleSwitchComponent` drives a sprite's source rectangle from a bool
+## `ToggleSwitchComponent` drives a checkmark mesh's visibility from a bool
 
-`ToggleSwitchComponent` pairs a bool state with two source rectangles
-(`OffSource`, `OnSource`) and an `Entity SpriteEntity`. Each frame
-`ToggleSwitchSystem` writes the matching rectangle onto the sprite's
-`SpriteInfoComponent.Source`. Game code only flips the bool; the visual stays
-in sync without extra wiring.
+`ToggleSwitchComponent` pairs a bool state with an `Entity CheckmarkEntity` and the
+checkmark's `MeshData CheckmarkMesh`. Each frame `ToggleSwitchSystem` fills the
+checkmark entity's `DrawComponent` mesh from `CheckmarkMesh` when `On`, and empties it
+(`Vertices = []`, `Indices = []`) when off — the checkbox box itself is a static sibling
+mesh. Game code only flips the bool; the visual stays in sync without extra wiring. The
+empty-mesh toggle (rather than `VisibleComponent`) is required because checkboxes live on
+the UI / HUD target, which always renders regardless of `VisibleComponent` (see rendering
+— "Three render targets, two behaviors"); the same reason the text-input caret hides by
+emptying its mesh.
 
-**Why:** two-state toggle artwork (off / on) ships as adjacent cells in a
-sheet. Carrying both rectangles on the component lets the game store the bool
-where it makes sense (often alongside its own state) without scattering
-texture coordinates across the codebase.
-**Breaks:** mutating `SpriteInfoComponent.Source` from elsewhere fights the
-toggle system and races the value each frame. If a button is BOTH a toggle
-and has hover-driven source swaps, gate them with a single system.
-**Tests:** none yet.
-**Depends on:** rendering — `SpritePrepSystem` reads `SpriteInfoComponent.Source`
-to populate the draw call.
+**Why:** a checkbox is a two-state toggle whose "on" visual is a generated checkmark, not
+a sprite frame. Carrying the checkmark mesh on the component lets the system restore it
+without re-deriving the box geometry, and emptying it is the only hide that works on a
+screen-space target.
+**Breaks:** mutating the checkmark entity's `DrawComponent` from elsewhere fights the
+toggle system and races the value each frame. Removing `VisibleComponent` to hide the
+checkmark instead leaves a stale mesh that still renders on UI/HUD (and drops the world
+matrix `MeshPrepSystem` needs).
+**Tests:** none yet (exercised by the camera demo's lerp checkbox and the physics demo's
+gravity / floor-boost checkboxes).
+**Depends on:** rendering — "Three render targets, two behaviors"; "`MeshPrepSystem` writes
+the world matrix once per frame".
 
 ## `ButtonInteractionSystem` is deliberately NOT in this module
 
@@ -181,6 +187,69 @@ suppress it — the framework loses the "buttons compose with my own
 interaction system" property.
 **Tests:** none yet.
 **Depends on:** —
+
+## Text-input focus is game-owned; key capture is the module's job
+
+`TextInputComponent` carries the editable value, a `TextInputMask`, a max length,
+a `Focused` flag, and a `CaretPosition` insertion index. `TextInputSystem` only
+*reads* `Focused`: while it is true the system inserts characters typed this frame at
+the caret (filtered by the mask, capped at the max length), edits at the caret on
+Backspace / Delete, moves the caret on Left / Right / Home / End, mirrors the value
+onto the linked text entity, and publishes `TextInputChanged`. Deciding *which* field
+is focused — on click, on Tab, on click-away-to-blur — is game code's responsibility,
+exactly like click dispatch (`ButtonInteractionSystem`) is. Placing the caret when a
+field gains focus is part of that same focus policy: the system never repositions the
+caret on focus, so a game that pre-fills `Text` should set `CaretPosition = Text.Length`
+when it creates the field (otherwise editing starts at the front, index 0). The system
+always clamps `CaretPosition` into `[0, Text.Length]`.
+
+**Why:** focus policy is UX-specific (click-to-focus, tab order, single vs multiple
+focus, blur on outside click, where the caret lands on focus). Baking one policy into
+the module would force every game to accept or suppress it. Keeping the flag as the seam
+lets a game drive focus from its own interaction system while the module owns the
+mechanical key capture and caret editing.
+The physics demo (`MonoDreams/physics/demo/PhysicsDemoScreen.cs`) is the reference
+use site: it focuses a field on `DemoButtonClicked` and blurs the others, and
+`DemoUI.CreateNumberInputRow` seeds `CaretPosition` to the initial value's length.
+**Breaks:** a field that is never given focus is inert (no system sets the flag for
+it); two fields left `Focused` at once both consume the same keystrokes. The
+edge-triggered keyboard diff is shared per frame, so multi-focus is undefined by
+design. A pre-filled field left at `CaretPosition = 0` inserts typed characters before
+the existing value.
+**Tests:** none yet (exercised by the physics demo: the `TextInputChanged` →
+rebuild path is wired there).
+**Depends on:** "`ButtonInteractionSystem` is deliberately NOT in this module".
+
+## The text-input caret is a game-supplied mesh entity the system positions and toggles
+
+When `TextInputComponent.CaretEntity` is set, `TextInputSystem` draws a vertical white
+caret line at `CaretPosition` while the field is `Focused`. The caret entity is supplied
+by game code — a `DrawComponent` of type Mesh plus a `TransformComponent`, parented under
+the field's `TextEntity` and carrying `VisibleComponent` — exactly like `TextEntity`
+itself is game-supplied (see the focus premise). Because the caret is parented under the
+text, its local X is simply the rendered width of `Text[..CaretPosition]`
+(`Font.MeasureString(...).Width * Scale`, read off the linked text's `DynamicTextComponent`)
+and its line height is `Font.LineHeight * Scale`. The system writes that local X each
+frame and builds the line mesh once per focus session; when the field is not focused (or
+has no font) it empties the caret mesh so `MasterRenderSystem` skips it
+(`HasValidMesh == false`). `CaretEntity` left at `default` opts out — the editing logic
+still runs.
+
+**Why:** hiding on a screen-space target (UI / HUD) can't use `VisibleComponent` — only
+the Main target consults it (see rendering — "Three render targets, two behaviors"), and
+the caret needs `VisibleComponent` anyway so `MeshPrepSystem` refreshes its world matrix
+each frame. Emptying the mesh is the toggle that works regardless of target. Parenting
+under the text entity (rather than the box) means the caret offset is a pure text-width
+measurement with no box-padding bookkeeping, and it tracks the text as layout moves the
+row. Building the silhouette once (height is font-derived and stable) keeps the per-frame
+work to a transform write.
+**Breaks:** removing `VisibleComponent` to hide the caret leaves a stale world matrix and,
+on HUD/UI, still renders. Baking the caret into the box outline (`ButtonMeshPrepSystem`)
+would couple every button to text-input. Parenting the caret to the box instead of the
+text reintroduces the box-padding offset the text already encodes.
+**Tests:** none yet (exercised by the physics demo's number-input rows).
+**Depends on:** rendering — "MeshPrepSystem writes the world matrix once per frame";
+rendering-text — "`TextPrepSystem` writes the world-transformed position".
 
 ## Open questions
 
@@ -215,3 +284,5 @@ The following premises currently have **Tests: none yet**:
 - `AutoLayoutBuilder` is the canonical entry point
 - `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
 - `ButtonInteractionSystem` is deliberately NOT in this module
+- Text-input focus is game-owned; key capture is the module's job
+- The text-input caret is a game-supplied mesh entity the system positions and toggles

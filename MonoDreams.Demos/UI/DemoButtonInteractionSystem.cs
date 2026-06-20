@@ -29,6 +29,20 @@ public class DemoButtonInteractionSystem(World world) : AEntitySetSystem<GameSta
         if (cursors.Length == 0) return;
         ref readonly var cursor = ref cursors[0].Get<CursorInputComponent>();
 
+        ref var outline = ref entity.Get<SimpleButtonComponent>();
+
+        // Disabled wins over everything: paint the muted colors, never hover, never click.
+        if (demoButton.IsDisabled)
+        {
+            demoButton.IsHovered = false;
+            if (button.TextEntity is { } disabledText)
+                disabledText.Get<DynamicTextComponent>().Color = demoButton.DisabledColor;
+            outline.Color = demoButton.DisabledColor;
+            if (demoButton.DefaultFillColor.A > 0)
+                outline.FillColor = demoButton.DisabledFillColor;
+            return;
+        }
+
         var bounds = new Rectangle(
             (int)transform.WorldPosition.X,
             (int)transform.WorldPosition.Y,
@@ -49,11 +63,12 @@ public class DemoButtonInteractionSystem(World world) : AEntitySetSystem<GameSta
         if (button.TextEntity is { } textEntity)
         {
             ref var text = ref textEntity.Get<DynamicTextComponent>();
-            text.Color = color;
+            // A constant text override (grey-fill menu buttons) keeps the label dark while the
+            // border still tracks state; otherwise the label tracks the state color.
+            text.Color = demoButton.TextColorOverride.A > 0 ? demoButton.TextColorOverride : color;
         }
 
         // Also recolor the outline so the active row's border tracks the same accent.
-        ref var outline = ref entity.Get<SimpleButtonComponent>();
         outline.Color = color;
 
         // If the button has a fill palette, update the fill to track hover/active state too.

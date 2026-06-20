@@ -71,7 +71,8 @@ The dialogue UI lives on `RenderTargetID.UI` (between Main and HUD) and is owned
 
 ## Extension points
 
-- **Multiple dialogue contexts.** Construct multiple `DialogueSystem` instances (e.g. one for "speak" interactions, one for "examine" interactions). Each owns its own runner, UI, and Yarn-program set. Filter `DialogueStartMessage` consumers if both should not react.
+- **Multiple dialogue contexts.** Construct multiple `DialogueSystem` instances (e.g. one for "speak" interactions, one for "examine" interactions, or one per NPC). Each owns its own runner, UI, and Yarn-program set. All instances receive every `DialogueStartMessage`, but each reacts only to nodes its own program owns (`NodeExists` routing) — give each context distinct node names. The dialogue demo runs two: a bottom-box cow (node `Start`) and an over-the-head balloon bird (node `Bird`).
+- **Anchored (over-the-head) balloons.** Pass `renderTarget: RenderTargetID.Main`, an `anchorEntity`, an `anchorOffset`, and mesh chrome (`chromeFill`) to draw the dialogue as a compact tailed speech balloon that floats above a world entity and tracks it each frame, instead of the fixed bottom panel. See `MonoDreams/dialogue/demo/DialogueDemoScreen.cs` (the bird).
 - **Localization.** `DialogueRunner.AddStringTable` and `GetLocalizedTextForLine` are exposed; the locale-switching workflow is open (see premises).
 - **Custom Yarn commands and functions.** Hook into the underlying YarnSpinner `Dialogue` exposed by `DialogueRunner` to register your own `<<commands>>` and `Function`s for game-side script integration.
 - **Custom dialogue UI.** The module owns its UI hierarchy today; replacing it means building a parallel system or refactoring `DialogueSystem` to take a UI-builder callback (aspirational direction).

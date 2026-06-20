@@ -52,6 +52,12 @@ public static class DemoUI
     /// (container, outline, size) so the caller can attach the container to an
     /// AutoLayout slot and flip the active flag on the outline entity when the
     /// underlying selection changes.
+    ///
+    /// Visual = the greyscale ramp: grey outline + dark label, white fill that darkens
+    /// to light/medium grey on hover/press, and a muted darker-grey fill when
+    /// <paramref name="disabled"/>. The fill mesh is baked by <c>ButtonMeshPrepSystem</c> at
+    /// depth 0.95, so the label is placed just above it (<paramref name="textLayerDepth"/>
+    /// should sit above the fill — see the call sites).
     public static (Entity container, Entity outline, Vector2 size) CreateButton(
         World world,
         string id,
@@ -60,7 +66,7 @@ public static class DemoUI
         ButtonStyle style,
         float textLayerDepth,
         RenderTargetID target = RenderTargetID.Main,
-        Color? activeColor = null)
+        bool disabled = false)
     {
         var textSize = font.MeasureString(label) * style.TextScale;
         var buttonSize = new Vector2(
@@ -80,7 +86,7 @@ public static class DemoUI
             LayerDepth = textLayerDepth,
             TextContent = label,
             Font = font,
-            Color = style.DefaultColor,
+            Color = disabled ? DemoPalette.ButtonTextDisabled : DemoPalette.ButtonText,
             Scale = style.TextScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
@@ -93,102 +99,43 @@ public static class DemoUI
         {
             Size = buttonSize,
             LineThickness = style.BorderThickness,
-            Color = style.BorderColor,
+            Color = disabled ? DemoPalette.ButtonTextDisabled : DemoPalette.ButtonOutline,
+            FillColor = disabled ? DemoPalette.ButtonFillDisabled : DemoPalette.ButtonFill,
             TextEntity = textEntity,
             Target = target,
         });
         outline.Set(new DemoButtonComponent
         {
             Id = id,
-            DefaultColor = style.DefaultColor,
-            HoveredColor = style.HoveredColor,
-            ActiveColor = activeColor ?? style.HoveredColor,
+            // Outline stays a constant grey across states; the label is a constant dark
+            // (TextColorOverride); only the fill moves white -> light -> darker grey.
+            DefaultColor = DemoPalette.ButtonOutline,
+            HoveredColor = DemoPalette.ButtonOutline,
+            ActiveColor = DemoPalette.ButtonOutline,
+            TextColorOverride = DemoPalette.ButtonText,
+            DefaultFillColor = DemoPalette.ButtonFill,
+            HoveredFillColor = DemoPalette.ButtonFillHover,
+            ActiveFillColor = DemoPalette.ButtonFillActive,
+            IsDisabled = disabled,
+            DisabledColor = DemoPalette.ButtonTextDisabled,
+            DisabledFillColor = DemoPalette.ButtonFillDisabled,
         });
         outline.Set<VisibleComponent>();
-
-        return (container, outline, buttonSize);
-    }
-
-    /// Creates an icon-only clickable button (used for back / exit chrome). The
-    /// container hosts a child sprite for the icon and an outline entity for
-    /// hit-testing. Outline color is transparent so no border draws — interaction
-    /// is signaled by recoloring the icon sprite on hover instead.
-    public static (Entity container, Entity outline, Vector2 size) CreateIconButton(
-        World world,
-        string id,
-        Texture2D iconSheet,
-        Rectangle sourceRect,
-        int sizePx,
-        Color defaultTint,
-        Color hoverTint,
-        float layerDepth,
-        RenderTargetID target = RenderTargetID.Main)
-    {
-        var buttonSize = new Vector2(sizePx, sizePx);
-        var container = world.CreateEntity();
-        var transform = new TransformComponent(Vector2.Zero);
-        container.Set(transform);
-
-        // Icon sprite child — sits at (0,0) inside the container, scaled to sizePx.
-        var icon = world.CreateEntity();
-        icon.Set(new TransformComponent(
-            Vector2.Zero,
-            0f,
-            new Vector2((float)sizePx / sourceRect.Width, (float)sizePx / sourceRect.Height)));
-        icon.SetParent(container);
-        icon.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = iconSheet,
-            Source = sourceRect,
-            Size = buttonSize,
-            Color = defaultTint,
-            Target = target,
-            LayerDepth = layerDepth,
-        });
-        icon.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = target });
-        icon.Set<VisibleComponent>();
-
-        // Outline entity: invisible (transparent), supplies SimpleButton for hit-test +
-        // DemoButton for click dispatch. TextEntity points at the icon so the interaction
-        // system can recolor it on hover/active.
-        var outline = world.CreateEntity();
-        outline.Set(transform);
-        outline.Set(new SimpleButtonComponent
-        {
-            Size = buttonSize,
-            LineThickness = 0f,
-            Color = Color.Transparent,
-            TextEntity = null,
-            Target = target,
-        });
-        outline.Set(new DemoButtonComponent
-        {
-            Id = id,
-            DefaultColor = defaultTint,
-            HoveredColor = hoverTint,
-            ActiveColor = hoverTint,
-        });
-        outline.Set<VisibleComponent>();
-
-        // Cross-link via a side component so a small extra system can recolor the icon.
-        outline.Set(new IconRecolorTarget { Icon = icon });
 
         return (container, outline, buttonSize);
     }
 }
 
-/// Style data for the Sprout Lands key-cap visual: a sprite-sheet with the
-/// default/hover/active button frames, the per-cap pixel size, and the
-/// label scale/color.
+/// Style data for a key-cap visual: a small mesh square (outline + fill) with the
+/// key glyph centered, plus the per-cap pixel size and label scale/color.
 public class KeyCapStyle
 {
-    public Texture2D SpriteSheet { get; init; } = null!;
-    public Rectangle DefaultSource { get; init; }
-    public Rectangle HoverSource { get; init; }
-    public Rectangle ActiveSource { get; init; }
+    public Color FillColor { get; init; } = DemoPalette.DarkBgSecondary;
+    public Color OutlineColor { get; init; } = DemoPalette.TextLight;
+    public float OutlineThickness { get; init; } = 1.5f;
     public int CapPixels { get; init; } = 32;
     public float CapLabelScale { get; init; } = 0.13f;
-    public Color CapLabelColor { get; init; } = Color.Black;
+    public Color CapLabelColor { get; init; } = DemoPalette.TextLight;
 }
 
 /// Style data for the row that follows a key cap (the wordy label).
@@ -212,8 +159,144 @@ public class KeyRowStyle
     public float BackgroundPaddingY { get; init; } = 0f;
 }
 
+/// Style data for a number-input row: an editable box plus its label. The box's
+/// border + value text recolor on hover/focus via <see cref="DemoButtonComponent"/>
+/// (focus is shown by reusing the button's <c>IsActive</c> accent), while the box
+/// fill stays constant.
+public class NumberInputStyle
+{
+    public Color LabelColor { get; init; } = Color.White;
+    /// Border + value-text color when idle.
+    public Color AccentColor { get; init; } = Color.White;
+    /// Border + value-text color on hover.
+    public Color HoverColor { get; init; } = Color.Yellow;
+    /// Border + value-text color while focused.
+    public Color FocusColor { get; init; } = Color.Gold;
+    /// Box background fill (constant across states).
+    public Color FillColor { get; init; } = Color.Transparent;
+    public float BorderThickness { get; init; } = 2f;
+    public float LabelScale { get; init; } = 0.18f;
+    public float TextScale { get; init; } = 0.2f;
+    public float Gap { get; init; } = 10f;
+    public Vector2 BoxSize { get; init; } = new(48, 30);
+    public float BoxPadding { get; init; } = 6f;
+}
+
 public static partial class DemoUIRowExtensions
 {
+    /// Composite "number box + label" row. The box is a <see cref="SimpleButtonComponent"/>
+    /// (border + fill + hit-test) carrying a <see cref="TextInputComponent"/>; clicking it
+    /// is dispatched as a <see cref="DemoButtonClicked"/> so the screen can focus it, and
+    /// <c>TextInputSystem</c> edits the value while focused. Returns the box/input entity
+    /// as <c>Outline</c> — set its focus and read its <c>TextInputComponent.Text</c> there.
+    public static (Entity Container, Entity Outline, Vector2 Size) CreateNumberInputRow(
+        this World world,
+        string id,
+        string rowLabel,
+        string initialValue,
+        int maxLength,
+        BitmapFont font,
+        NumberInputStyle style,
+        float layerDepth,
+        RenderTargetID target = RenderTargetID.HUD)
+    {
+        var labelMeasured = font.MeasureString(rowLabel);
+        var labelSize = new Vector2(labelMeasured.Width * style.LabelScale,
+                                    labelMeasured.Height * style.LabelScale);
+        var contentSize = new Vector2(style.BoxSize.X + style.Gap + labelSize.X,
+                                      MathHelper.Max(style.BoxSize.Y, labelSize.Y));
+
+        var container = world.CreateEntity();
+        var rowTransform = new TransformComponent(Vector2.Zero);
+        container.Set(rowTransform);
+
+        // Value text inside the box, vertically centered, left-padded.
+        var valueHeight = font.MeasureString("0").Height * style.TextScale;
+        var valueText = world.CreateEntity();
+        valueText.Set(new TransformComponent(new Vector2(style.BoxPadding, (style.BoxSize.Y - valueHeight) / 2f)));
+        valueText.SetParent(container);
+        valueText.Set(new DynamicTextComponent
+        {
+            Target = target,
+            LayerDepth = layerDepth + 0.01f,
+            TextContent = initialValue,
+            Font = font,
+            Color = style.AccentColor,
+            Scale = style.TextScale,
+            IsRevealed = true,
+            VisibleCharacterCount = int.MaxValue,
+        });
+        valueText.Set<VisibleComponent>();
+
+        // Caret: a thin vertical line the TextInputSystem positions and shows while the box
+        // is focused. Parented to the value text so it shares the text's origin — the system
+        // only writes its local X (the rendered width up to the caret) and toggles its mesh.
+        var caret = world.CreateEntity();
+        caret.Set(new TransformComponent(Vector2.Zero));
+        caret.SetParent(valueText);
+        caret.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = target,
+            LayerDepth = layerDepth + 0.02f, // above the value text and the box outline
+        });
+        caret.Set<VisibleComponent>();
+
+        // Box outline = clickable hit area + border + fill, plus the input state.
+        var outline = world.CreateEntity();
+        outline.Set(rowTransform);
+        outline.Set(new SimpleButtonComponent
+        {
+            Size = style.BoxSize,
+            LineThickness = style.BorderThickness,
+            Color = style.AccentColor,
+            FillColor = style.FillColor,
+            TextEntity = valueText,
+            Target = target,
+        });
+        outline.Set(new DemoButtonComponent
+        {
+            Id = id,
+            DefaultColor = style.AccentColor,
+            HoveredColor = style.HoverColor,
+            ActiveColor = style.FocusColor, // "active" == focused for an input box
+            DefaultFillColor = style.FillColor,
+            HoveredFillColor = style.FillColor,
+            ActiveFillColor = style.FillColor,
+        });
+        outline.Set(new TextInputComponent
+        {
+            Text = initialValue,
+            MaxLength = maxLength,
+            Mask = TextInputMask.Numeric,
+            Focused = false,
+            TextEntity = valueText,
+            CaretEntity = caret,
+            CaretPosition = initialValue.Length, // start editing at the end of the pre-filled value
+        });
+        outline.Set<VisibleComponent>();
+
+        // Row label to the right of the box, vertically centered.
+        var labelEntity = world.CreateEntity();
+        labelEntity.Set(new TransformComponent(
+            new Vector2(style.BoxSize.X + style.Gap, (contentSize.Y - labelSize.Y) / 2f)));
+        labelEntity.SetParent(container);
+        labelEntity.Set(new DynamicTextComponent
+        {
+            Target = target,
+            LayerDepth = layerDepth + 0.01f,
+            TextContent = rowLabel,
+            Font = font,
+            Color = style.LabelColor,
+            Scale = style.LabelScale,
+            IsRevealed = true,
+            VisibleCharacterCount = int.MaxValue,
+        });
+        labelEntity.Set<VisibleComponent>();
+
+        return (container, outline, contentSize);
+    }
+
     /// Composite "key cap + label" row used by sidebar menus. The cap shows
     /// a small letter or digit on a sprite background; the row label is the
     /// human-readable command name. The whole row is one clickable hit-box.
@@ -242,22 +325,17 @@ public static partial class DemoUIRowExtensions
         var rowTransform = new TransformComponent(Vector2.Zero);
         container.Set(rowTransform);
 
-        // Cap sprite — at left edge of row, vertically centered. Shifted by bg padding.
+        // Cap — a mesh key-cap square (outline + fill) at the left edge, vertically centered.
+        // Drawn at `layerDepth` (above the 0.95 row background) with its glyph just above it.
         var capYOffset = padY + (contentSize.Y - capSize.Y) / 2f;
-        var spriteEntity = world.CreateEntity();
-        spriteEntity.Set(new TransformComponent(new Vector2(padX, capYOffset)));
-        spriteEntity.SetParent(container);
-        spriteEntity.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = cap.SpriteSheet,
-            Source = cap.DefaultSource,
-            Size = capSize,
-            Color = Color.White,
-            Target = target,
-            LayerDepth = layerDepth,
-        });
-        spriteEntity.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = target });
-        spriteEntity.Set<VisibleComponent>();
+        var capEntity = world.CreateEntity();
+        capEntity.Set(new TransformComponent(new Vector2(padX, capYOffset)));
+        capEntity.SetParent(container);
+        var capDraw = new DrawComponent { Target = target, LayerDepth = layerDepth };
+        capDraw.SetMeshData(ShapeBuilder.Panel(
+            new Rectangle(0, 0, cap.CapPixels, cap.CapPixels), cap.FillColor, cap.OutlineColor, cap.OutlineThickness));
+        capEntity.Set(capDraw);
+        capEntity.Set<VisibleComponent>();
 
         // Cap label — centered inside the cap.
         var capLabelMeasured = font.MeasureString(keyLabel);
@@ -322,32 +400,22 @@ public static partial class DemoUIRowExtensions
             HoveredFillColor = row.HoverBackgroundColor,
             ActiveFillColor = row.ActiveBackgroundColor,
         });
-        outline.Set(new IconRecolorTarget
-        {
-            Icon = spriteEntity,
-            DefaultSource = cap.DefaultSource,
-            HoverSource = cap.HoverSource,
-            ActiveSource = cap.ActiveSource,
-        });
         outline.Set<VisibleComponent>();
 
         return (container, outline, rowSize);
     }
 
-    /// Composite "toggle pill + label" row. Click anywhere on the row to flip
-    /// the toggle. The toggle sprite swaps its source rectangle based on
-    /// <see cref="ToggleSwitchComponent.On"/> via <c>ToggleSwitchSystem</c>;
+    /// Composite "checkbox + label" row. Click anywhere on the row to flip the checkbox.
+    /// The box is a static mesh square (white outline, black fill); a white checkmark mesh
+    /// shows/hides with <see cref="ToggleSwitchComponent.On"/> via <c>ToggleSwitchSystem</c>;
     /// the screen subscribing to <see cref="DemoButtonClicked"/> flips the bool.
-    public static (Entity Container, Entity Outline, Vector2 Size) CreateToggleRow(
+    public static (Entity Container, Entity Outline, Vector2 Size) CreateCheckboxRow(
         this World world,
         string id,
         string rowLabel,
         BitmapFont font,
-        Texture2D toggleSheet,
-        Rectangle offSource,
-        Rectangle onSource,
         bool initiallyOn,
-        Vector2 toggleSize,
+        float boxSize,
         KeyRowStyle row,
         float layerDepth,
         RenderTargetID target = RenderTargetID.HUD)
@@ -355,37 +423,41 @@ public static partial class DemoUIRowExtensions
         var rowLabelMeasured = font.MeasureString(rowLabel);
         var rowLabelSize = new Vector2(rowLabelMeasured.Width * row.LabelScale,
                                        rowLabelMeasured.Height * row.LabelScale);
-        var contentSize = new Vector2(toggleSize.X + row.Gap + rowLabelSize.X,
-                                      MathHelper.Max(toggleSize.Y, rowLabelSize.Y));
+        var contentSize = new Vector2(boxSize + row.Gap + rowLabelSize.X,
+                                      MathHelper.Max(boxSize, rowLabelSize.Y));
         var padX = row.BackgroundPaddingX;
         var padY = row.BackgroundPaddingY;
         var rowSize = new Vector2(contentSize.X + padX * 2, contentSize.Y + padY * 2);
+        var boxRect = new Rectangle(0, 0, (int)boxSize, (int)boxSize);
 
         var container = world.CreateEntity();
         var rowTransform = new TransformComponent(Vector2.Zero);
         container.Set(rowTransform);
 
-        // Toggle sprite at left, vertically centered (shifted by bg padding).
-        var toggleYOffset = padY + (contentSize.Y - toggleSize.Y) / 2f;
-        var spriteEntity = world.CreateEntity();
-        spriteEntity.Set(new TransformComponent(new Vector2(padX, toggleYOffset)));
-        spriteEntity.SetParent(container);
-        spriteEntity.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = toggleSheet,
-            Source = initiallyOn ? onSource : offSource,
-            Size = toggleSize,
-            Color = Color.White,
-            Target = target,
-            LayerDepth = layerDepth,
-        });
-        spriteEntity.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = target });
-        spriteEntity.Set<VisibleComponent>();
+        // Checkbox box — a static mesh square (white outline, black fill) at left, centered.
+        var boxYOffset = padY + (contentSize.Y - boxSize) / 2f;
+        var boxEntity = world.CreateEntity();
+        boxEntity.Set(new TransformComponent(new Vector2(padX, boxYOffset)));
+        boxEntity.SetParent(container);
+        var boxDraw = new DrawComponent { Target = target, LayerDepth = layerDepth };
+        boxDraw.SetMeshData(ShapeBuilder.Panel(boxRect, Color.Black, Color.White, 1.5f));
+        boxEntity.Set(boxDraw);
+        boxEntity.Set<VisibleComponent>();
+
+        // Checkmark — child of the box, shown only while On (ToggleSwitchSystem fills/empties it).
+        var checkMesh = ShapeBuilder.Checkmark(boxRect, 2.5f, Color.White).Generate();
+        var checkEntity = world.CreateEntity();
+        checkEntity.Set(new TransformComponent(Vector2.Zero));
+        checkEntity.SetParent(boxEntity);
+        var checkDraw = new DrawComponent { Type = DrawElementType.Mesh, Target = target, LayerDepth = layerDepth + 0.01f };
+        if (initiallyOn) checkDraw.SetMeshData(checkMesh);
+        checkEntity.Set(checkDraw);
+        checkEntity.Set<VisibleComponent>();
 
         // Row label at right, vertically centered (shifted by bg padding).
         var rowLabelYOffset = padY + (contentSize.Y - rowLabelSize.Y) / 2f;
         var rowLabelEntity = world.CreateEntity();
-        rowLabelEntity.Set(new TransformComponent(new Vector2(padX + toggleSize.X + row.Gap, rowLabelYOffset)));
+        rowLabelEntity.Set(new TransformComponent(new Vector2(padX + boxSize + row.Gap, rowLabelYOffset)));
         rowLabelEntity.SetParent(container);
         rowLabelEntity.Set(new DynamicTextComponent
         {
@@ -425,24 +497,11 @@ public static partial class DemoUIRowExtensions
         outline.Set(new ToggleSwitchComponent
         {
             On = initiallyOn,
-            OffSource = offSource,
-            OnSource = onSource,
-            SpriteEntity = spriteEntity,
+            CheckmarkEntity = checkEntity,
+            CheckmarkMesh = checkMesh,
         });
         outline.Set<VisibleComponent>();
 
         return (container, outline, rowSize);
     }
-}
-
-/// Pointer from a button's outline entity to its sprite child entity.
-/// Read by <see cref="DemoIconRecolorSystem"/> to reflect hover/active state.
-/// If any of the three source rects are non-null, the system swaps the sprite's
-/// source rectangle by state. Otherwise it falls back to recoloring the sprite tint.
-public struct IconRecolorTarget
-{
-    public Entity Icon;
-    public Rectangle? DefaultSource;
-    public Rectangle? HoverSource;
-    public Rectangle? ActiveSource;
 }

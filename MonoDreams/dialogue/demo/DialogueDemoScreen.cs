@@ -32,53 +32,54 @@ using Yarn.Compiler;
 
 namespace MonoDreams.Demo.Dialogue;
 
-/// Dialogue module demo. A very basic top-down Sprout Lands scene: walk the player around
-/// a grass field with WASD, approach the cow NPC at the top-left, and press E to start a
-/// Yarn conversation. The line text wraps and reveals character-by-character; pick a reply
-/// with the up/down arrows and E. Yarn <c>&lt;&lt;emote who kind&gt;&gt;</c> commands show
-/// the speaker's framed portrait inside the box (left = NPC, right = player) and
-/// <c>&lt;&lt;react who mark&gt;&gt;</c> pops a reaction mark above a character's head.
+/// Dialogue module demo. A very basic top-down scene drawn entirely with generated meshes:
+/// walk the player blob around a grass field with WASD, approach the cow NPC at the top-left,
+/// and press E to start a Yarn conversation. The line text wraps and reveals
+/// character-by-character; pick a reply with the up/down arrows and E. Yarn
+/// <c>&lt;&lt;emote who kind&gt;&gt;</c> commands show the speaker's framed mesh portrait inside
+/// the box and <c>&lt;&lt;react who mark&gt;&gt;</c> pops a mesh reaction mark above a head.
 ///
 /// Showcases the dialogue module (<see cref="DialogueSystem"/> + Yarn runtime, fed an
-/// in-memory-compiled program so the demo ships no .yarn asset), the rendering-text reveal,
-/// and sprite rendering on the Main target.
+/// in-memory-compiled program so the demo ships no .yarn asset) in its mesh-chrome mode, the
+/// rendering-text reveal, and procedural mesh rendering on the Main/UI targets.
 public class DialogueDemoScreen : IGameScreen
 {
     private const float BoundaryHalfWidth = 380f;
     private const float BoundaryHalfHeight = 220f;
-    private const float TileSize = 40f;          // 19×11 tiles fill the 760×440 boundary exactly
     private const float PlayerSpeed = 135f;       // 0.75× the original
-    private const int PlayerFrame = 48;           // Basic Charakter sheet: 4×4 grid of 48×48 (source)
-    private const int CowFrame = 32;              // Free Cow sheet: 3×2 grid of 32×32 (source)
-    private const float PlayerRenderSize = 96f;   // exact 2× of the 48px source — crisp under PointClamp
-    private const float CowRenderSize = 96f;      // exact 3× of the 32px source — crisp under PointClamp
+    private const float PlayerBodyRadius = 30f;   // mesh player: body radius (feet at the transform)
+    private const float CowBodyRadius = 42f;      // mesh cow: a little larger than the player
+    private const float BirdBodyRadius = 26f;     // mesh bird: the smaller upper-right NPC
     private const float InteractRange = 170f;
     private const float ReactionDuration = 1.6f;  // above-head reaction marks auto-hide
+    private const float ReactionMarkSize = 36f;   // above-head mesh glyph size
 
-    // Dialogue-box tuning passed into DialogueSystem (two-layer box: a beige background panel +
-    // a lighter inner cream talk balloon, with a left gutter for the framed emote — all sliced
-    // from the Sprout Lands UI pack sheet, SproutLands/UI/basic_pack).
+    // Dialogue-box tuning passed into DialogueSystem. The box is now generated meshes
+    // (white outline, black fill) with a left gutter holding a framed emote glyph.
     private const float DialogueTextScale = 0.27f;
-    private const float DialogueIndicatorSize = 48f;
+    private const float DialogueIndicatorSize = 40f;
     private const float DialogueBoxHeight = 150f;
     private const float DialoguePortraitGutter = 140f; // left reserve inside the box for the emote frame
     private const float DialogueBalloonPadding = 14f;
 
-    // The emote portrait: a dark-wood ornate frame (basic_pack) with the speaker's face inside it.
-    private static readonly Rectangle FrameSource = new(153, 105, 30, 30); // ornate wood frame cell
-    private const float FrameRenderSize = 120f;   // 4× the 30px frame source
-    private const float FaceRenderSize = 56f;     // speaker face, centred in the frame window
-    // Nine-patch source panels on basic_pack (corner = 8px) for the two box layers:
-    private static readonly Rectangle BoxPanelSource = new(259, 180, 90, 25);     // darker tan (background)
-    private static readonly Rectangle BalloonPanelSource = new(163, 178, 90, 27); // lighter cream (balloon)
+    // The bird's over-the-head speech balloon (anchored DialogueSystem on the Main target). A
+    // compact tailed bubble that floats above the bird and tracks it. Kept short so it clears the
+    // top header band; placement is tuned so the balloon top stays below the header.
+    private const float BirdBalloonWidth = 360f;
+    private const float BirdBalloonHeight = 124f;
+    private const float BirdBalloonTextScale = 0.26f;
+    private const float BirdBalloonIndicatorSize = 34f;
 
-    // The NPC portrait is the cow itself, cropped to its head (it faces right — horns, eyes, pink
-    // snout): a lower, wider crop than before so the whole face is framed instead of cut. Tunable.
-    private static readonly Rectangle CowHeadSource = new(14, 12, 16, 16);
+    // The in-box emote portrait: a mesh frame (white outline, black fill) with the speaker's
+    // mesh face glyph centred inside it.
+    private const float FrameRenderSize = 116f;   // the square emote frame
+    private const float FaceRenderSize = 84f;     // speaker face glyph, centred in the frame
 
     private static readonly Vector2 PlayerSpawn = new(40f, 90f);
     // Upper-left, but low enough that the above-head "E to talk" prompt clears the header banner.
     private static readonly Vector2 NpcPosition = new(-300f, -60f);
+    // Upper-right. Low enough that the bird's over-head balloon clears the centered top header.
+    private static readonly Vector2 BirdPosition = new(330f, -20f);
 
     private readonly ContentManager _content;
     private readonly GraphicsDevice _graphicsDevice;
@@ -99,6 +100,7 @@ public class DialogueDemoScreen : IGameScreen
     private ScreenController? _screenController;
     private Entity _player;
     private Entity _npc;
+    private Entity _bird;
     private bool _dialogueActive;
 
     public ISystem<GameState> UpdateSystem { get; private set; } = null!;
@@ -133,88 +135,111 @@ public class DialogueDemoScreen : IGameScreen
         _world.Subscribe<DemoButtonClicked>(OnButtonClicked);
         _world.Subscribe<DialogueActiveMessage>(OnDialogueActive);
 
-        var cursorTextures = new Dictionary<CursorType, Texture2D>
-        {
-            [CursorType.Default] = content.Load<Texture2D>("Cursor/default"),
-            [CursorType.Pointer] = content.Load<Texture2D>("Cursor/pointer"),
-            [CursorType.Hand] = content.Load<Texture2D>("Cursor/hand"),
-        };
-        MonoDreams.Cursor.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
+        MonoDreams.Cursor.Cursor.CreateMesh(_world,
+            ShapeBuilder.Arrow(26f, Color.Black, Color.White).Generate(), RenderTargetID.HUD);
 
-        var emoteSheet = content.Load<Texture2D>("SproutLands/Emotes/emotes");
-        var iconSheet = content.Load<Texture2D>("SproutLands/Icons/all_icons");
-        var cowSheet = content.Load<Texture2D>("SproutLands/Characters/Free Cow Sprites");
-        var uiSheet = content.Load<Texture2D>("SproutLands/UI/basic_pack");
-
-        CreateGround(content);
+        CreateGround();
         CreateBoundary();
-        var playerMark = CreatePlayer(content, iconSheet);
-        var (npcMark, prompt) = CreateNpc(cowSheet, iconSheet);
+        var playerMark = CreatePlayer();
+        var (npcMark, npcPrompt) = CreateNpc(
+            out _npc, NpcPosition, DialogueGlyphs.CowShape(CowBodyRadius), "DialogueDemoCow",
+            CowBodyRadius, "E to talk");
+        var (birdMark, birdPrompt) = CreateNpc(
+            out _bird, BirdPosition, DialogueGlyphs.BirdShape(BirdBodyRadius), "DialogueDemoBird",
+            BirdBodyRadius, "E to talk");
 
-        var dialogueSystem = new DialogueSystem(
+        // Cow conversation (node "Start"): a fixed bottom-of-screen box with a left portrait
+        // gutter. Box / balloon / indicator are generated meshes (white outline, black fill).
+        var cowDialogue = new DialogueSystem(
             _world,
-            uiSheet,                                  // box background: a basic_pack panel (see boxNinePatch)
+            dialogBoxTexture: null,
             _font,
-            content.Load<Texture2D>("SproutLands/Dialogue/indicator").Crop(new Rectangle(96, 0, 16, 16), _graphicsDevice),
+            indicatorTexture: null,
             _viewportManager.VirtualWidth, _viewportManager.VirtualHeight,
             layerDepth: 0.9f,
             _interact, _up, _down,
             new[] { CompileYarn(YarnSource) },
             textScale: DialogueTextScale,
             indicatorSize: DialogueIndicatorSize,
-            talkBalloonTexture: uiSheet,                       // inner cream balloon
-            talkBalloonNinePatch: Panel9(BalloonPanelSource, 8),
             portraitGutter: DialoguePortraitGutter,
             balloonPadding: DialogueBalloonPadding,
             boxHeight: DialogueBoxHeight,
-            boxNinePatch: Panel9(BoxPanelSource, 8));          // darker tan background
+            chromeFill: Color.Black,
+            chromeOutline: Color.White,
+            chromeThickness: 2f,
+            indicatorColor: Color.White);
 
-        // A single emote frame in the box's left gutter shows whoever is speaking.
-        var portrait = CreatePortraitSlot(dialogueSystem.PortraitGutterBounds, uiSheet);
+        // Bird conversation (node "Bird"): the SAME dialogue engine in its anchored mode — a
+        // compact tailed speech balloon on the Main target that floats above the bird and tracks
+        // it. No portrait gutter; a warm cream chrome distinguishes it from the cow's box. Both
+        // DialogueSystems hear every DialogueStartMessage but only react to nodes they own.
+        var birdDialogue = new DialogueSystem(
+            _world,
+            dialogBoxTexture: null,
+            _font,
+            indicatorTexture: null,
+            _viewportManager.VirtualWidth, _viewportManager.VirtualHeight,
+            layerDepth: 0.7f,
+            _interact, _up, _down,
+            new[] { CompileYarn(BirdYarnSource) },
+            textScale: BirdBalloonTextScale,
+            indicatorSize: BirdBalloonIndicatorSize,
+            boxHeight: BirdBalloonHeight,
+            chromeFill: new Color(24, 26, 34),
+            chromeOutline: new Color(250, 224, 150),
+            chromeThickness: 2f,
+            indicatorColor: new Color(250, 224, 150),
+            renderTarget: RenderTargetID.Main,
+            anchorEntity: _bird,
+            anchorOffset: new Vector2(0f, -2.7f * BirdBodyRadius),
+            boxWidthOverride: BirdBalloonWidth);
+
+        // A single emote frame in the cow box's left gutter shows whoever is speaking.
+        var portrait = CreatePortraitSlot(cowDialogue.PortraitGutterBounds);
 
         BuildHud(content);
 
-        // <<react who mark>> → above-head icon mark; <<emote who kind>> → the in-box portrait
-        // (cow head for the NPC, emote face for the player). Both arrive as DialogueCommandMessage.
-        var reactionSystem = new ReactionMarkSystem(_world, playerMark, npcMark, ReactionIcons, ReactionDuration);
-        var portraitSystem = new DialoguePortraitSystem(
-            _world, portrait,
-            uiSheet, FrameSource,         // the ornate wood frame (static)
-            cowSheet, CowHeadSource,      // NPC face: the cow's head
-            emoteSheet, EmoteCells);      // player face: emote cells
+        // <<react who mark>> → above-head mesh mark (keyed by speaker); <<emote who kind>> → the
+        // cow box's in-box portrait. Both arrive as DialogueCommandMessage from either dialogue.
+        var marks = new Dictionary<string, Entity>
+        {
+            ["player"] = playerMark,
+            ["npc"] = npcMark,
+            ["bird"] = birdMark,
+        };
+        var reactionSystem = new ReactionMarkSystem(_world, marks, ReactionDuration, ReactionMarkSize);
+        var portraitSystem = new DialoguePortraitSystem(_world, portrait, FrameRenderSize, FaceRenderSize);
 
-        UpdateSystem = CreateUpdateSystem(dialogueSystem, prompt, reactionSystem, portraitSystem);
+        var npcTargets = new[]
+        {
+            new NpcInteractionTarget(_npc, npcPrompt, "Start"),
+            new NpcInteractionTarget(_bird, birdPrompt, "Bird"),
+        };
+
+        UpdateSystem = CreateUpdateSystem(cowDialogue, birdDialogue, npcTargets, reactionSystem, portraitSystem);
         DrawSystem = CreateDrawSystem();
     }
 
     // ─── scene ────────────────────────────────────────────────────────────────
 
-    private void CreateGround(ContentManager content)
+    /// The grass field: a filled green rectangle covering the boundary, with a faint grid
+    /// of lines for texture. Replaces the old grass tile sprites.
+    private void CreateGround()
     {
-        var grass = content.Load<Texture2D>("SproutLands/Tilesets/Grass");
-        // Plain grass cell — centre of the auto-tile block (fully grass-surrounded).
-        var cell = new Rectangle(16, 16, 16, 16);
-        var cols = (int)(BoundaryHalfWidth * 2 / TileSize);
-        var rows = (int)(BoundaryHalfHeight * 2 / TileSize);
-        for (var i = 0; i < cols; i++)
-        for (var j = 0; j < rows; j++)
-        {
-            var pos = new Vector2(-BoundaryHalfWidth + i * TileSize, -BoundaryHalfHeight + j * TileSize);
-            var tile = _world.CreateEntity();
-            tile.Set(new TransformComponent(pos));
-            tile.Set(new SpriteInfoComponent
-            {
-                SpriteSheet = grass,
-                Source = cell,
-                Size = new Vector2(TileSize, TileSize),
-                Color = Color.White,
-                Target = RenderTargetID.Main,
-                LayerDepth = 0.10f,
-                Origin = Vector2.Zero,
-            });
-            tile.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main });
-            tile.Set<VisibleComponent>();
-        }
+        var field = new Rectangle(
+            -(int)BoundaryHalfWidth, -(int)BoundaryHalfHeight,
+            (int)BoundaryHalfWidth * 2, (int)BoundaryHalfHeight * 2);
+        ShapeBuilder.Filled(_world, field, new Color(58, 92, 64), RenderTargetID.Main, depth: 0.08f);
+
+        // Faint grid lines so the field reads as ground rather than a flat block.
+        const float step = 80f;
+        var grid = new CompositeMeshGenerator();
+        var lineColor = new Color(72, 110, 78);
+        for (var x = field.Left + (int)step; x < field.Right; x += (int)step)
+            grid.Add(new LineMeshGenerator(new Vector2(x, field.Top), new Vector2(x, field.Bottom), 1f, lineColor));
+        for (var y = field.Top + (int)step; y < field.Bottom; y += (int)step)
+            grid.Add(new LineMeshGenerator(new Vector2(field.Left, y), new Vector2(field.Right, y), 1f, lineColor));
+        ShapeBuilder.Create(_world, grid, RenderTargetID.Main, depth: 0.09f);
     }
 
     private void CreateBoundary()
@@ -226,71 +251,57 @@ public class DialogueDemoScreen : IGameScreen
         var boundary = _world.CreateEntity();
         boundary.Set(new TransformComponent(Vector2.Zero));
         var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.2f };
-        draw.SetMeshData(new RectangleOutlineMeshGenerator(bounds, thickness: 2f, color: SproutPalette.TextLight));
+        draw.SetMeshData(new RectangleOutlineMeshGenerator(bounds, thickness: 2f, color: DemoPalette.TextLight));
         boundary.Set(draw);
         boundary.Set<VisibleComponent>();
     }
 
     /// Returns the player's above-head reaction-mark child (hidden until a `<<react>>` command).
-    private Entity CreatePlayer(ContentManager content, Texture2D iconSheet)
+    private Entity CreatePlayer()
     {
-        var sheet = content.Load<Texture2D>("SproutLands/Characters/Basic Charakter Spritesheet");
         _player = _world.CreateEntity();
         _player.Set(new EntityInfoComponent("Player", "DialogueDemoPlayer"));
         _player.Set(new TransformComponent(PlayerSpawn));
         _player.Set(new PlayerTag());
-        _player.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = sheet,
-            Source = new Rectangle(0, 0, PlayerFrame, PlayerFrame),
-            Size = new Vector2(PlayerRenderSize, PlayerRenderSize),
-            Color = Color.White,
-            Target = RenderTargetID.Main,
-            LayerDepth = 0.50f,
-            Origin = new Vector2(PlayerFrame / 2f, PlayerFrame), // feet at the transform position
-        });
-        _player.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main });
+        var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.50f };
+        draw.SetMeshData(DialogueGlyphs.PlayerShape(PlayerBodyRadius));
+        _player.Set(draw);
         _player.Set<VisibleComponent>();
 
-        return CreateReactionChild(_player, iconSheet, new Vector2(0, -PlayerRenderSize - 18));
+        return CreateReactionChild(_player, new Vector2(0, -2f * PlayerBodyRadius - 20f));
     }
 
-    /// Returns (cow's reaction-mark child, "E to talk" prompt child).
-    private (Entity mark, Entity prompt) CreateNpc(Texture2D sheet, Texture2D iconSheet)
+    /// Creates an NPC mesh character at <paramref name="position"/> (feet at the transform) with an
+    /// above-head reaction-mark child and an "in range" interact prompt. Returns the NPC entity via
+    /// <paramref name="npc"/> and (its reaction-mark child, its prompt child).
+    private (Entity mark, Entity prompt) CreateNpc(
+        out Entity npc, Vector2 position, IMeshGenerator shape, string infoName,
+        float bodyRadius, string promptText)
     {
-        _npc = _world.CreateEntity();
-        _npc.Set(new EntityInfoComponent("NPC", "DialogueDemoCow"));
-        _npc.Set(new TransformComponent(NpcPosition));
-        _npc.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = sheet,
-            Source = new Rectangle(0, 0, CowFrame, CowFrame),
-            Size = new Vector2(CowRenderSize, CowRenderSize),
-            Color = Color.White,
-            Target = RenderTargetID.Main,
-            LayerDepth = 0.50f,
-            Origin = new Vector2(CowFrame / 2f, CowFrame), // feet at the transform position
-        });
-        _npc.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main });
-        _npc.Set<VisibleComponent>();
+        npc = _world.CreateEntity();
+        npc.Set(new EntityInfoComponent("NPC", infoName));
+        npc.Set(new TransformComponent(position));
+        var draw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = 0.50f };
+        draw.SetMeshData(shape);
+        npc.Set(draw);
+        npc.Set<VisibleComponent>();
 
-        var mark = CreateReactionChild(_npc, iconSheet, new Vector2(0, -CowRenderSize - 16));
+        var mark = CreateReactionChild(npc, new Vector2(0, -2f * bodyRadius - 18f));
 
-        // "E to talk" prompt centred just above the cow's head — shown only when in range.
+        // Interact prompt centred just above the head — shown only when the player is in range.
         const float promptScale = 0.26f;
-        const string promptText = "E to talk";
         var measured = _font.MeasureString(promptText);
         var prompt = _world.CreateEntity();
         prompt.Set(new EntityInfoComponent("DialogueDemo", "InteractPrompt"));
-        prompt.Set(new TransformComponent(new Vector2(-measured.Width * promptScale / 2f, -CowRenderSize - 24f)));
-        prompt.SetParent(_npc);
+        prompt.Set(new TransformComponent(new Vector2(-measured.Width * promptScale / 2f, -2f * bodyRadius - 30f)));
+        prompt.SetParent(npc);
         prompt.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Main,
             LayerDepth = 0.63f,
             TextContent = promptText,
             Font = _font,
-            Color = SproutPalette.TextSelected,
+            Color = DemoPalette.TextSelected,
             Scale = promptScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
@@ -301,93 +312,44 @@ public class DialogueDemoScreen : IGameScreen
         return (mark, prompt);
     }
 
-    /// An above-head reaction-mark sprite (from all_icons), child of a character on the Main
-    /// target. Hidden until a `<<react>>` command shows it; Main culls by VisibleComponent so
-    /// show/hide is just toggling that tag.
-    private Entity CreateReactionChild(Entity parent, Texture2D iconSheet, Vector2 localOffset)
+    /// An above-head reaction-mark mesh, child of a character on the Main target. Starts with an
+    /// empty mesh and no `VisibleComponent`; `ReactionMarkSystem` fills the glyph and toggles the
+    /// tag (Main respects culling/visibility, so the tag controls it here).
+    private Entity CreateReactionChild(Entity parent, Vector2 localOffset)
     {
-        const float markSize = 30f;
         var mark = _world.CreateEntity();
         mark.Set(new EntityInfoComponent("DialogueDemo", "Reaction"));
         mark.Set(new TransformComponent(localOffset));
         mark.SetParent(parent);
-        mark.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = iconSheet,
-            Source = SproutIcons.Exclamation,
-            Size = new Vector2(markSize, markSize),
-            Color = Color.White,
-            Target = RenderTargetID.Main,
-            LayerDepth = 0.62f,
-            Origin = new Vector2(SproutIcons.Cell / 2f, SproutIcons.Cell / 2f),
-        });
-        mark.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main });
+        mark.Set(new DrawComponent { Type = DrawElementType.Mesh, Target = RenderTargetID.Main, LayerDepth = 0.62f });
         // No VisibleComponent yet — ReactionMarkSystem toggles it on a <<react>> command.
         return mark;
     }
 
-    /// Builds a nine-patch (corner = <paramref name="corner"/> px) from a finished panel sprite
-    /// at <paramref name="r"/> on a sheet: corners kept at source size, edges + centre sampled as
-    /// 1px strips and stretched. Lets the wide box/balloon panels scale without warping corners.
-    private static NinePatchInfo Panel9(Rectangle r, int corner)
-    {
-        int x = r.X, y = r.Y, w = r.Width, h = r.Height, c = corner;
-        return new NinePatchInfo(
-            c,
-            new Rectangle(x, y, c, c),                 // top-left
-            new Rectangle(x + c, y, 1, c),             // top (stretched horizontally)
-            new Rectangle(x + w - c, y, c, c),         // top-right
-            new Rectangle(x, y + c, c, 1),             // left (stretched vertically)
-            new Rectangle(x + c, y + c, 1, 1),         // centre (stretched both ways)
-            new Rectangle(x + w - c, y + c, c, 1),     // right
-            new Rectangle(x, y + h - c, c, c),         // bottom-left
-            new Rectangle(x + c, y + h - c, 1, c),     // bottom
-            new Rectangle(x + w - c, y + h - c, c, c));// bottom-right
-    }
-
-    /// Creates the single in-box emote portrait — an ornate wood frame (basic_pack) with the
-    /// speaker's face inside — centred in the dialogue box's left gutter (see
-    /// DialogueSystem.PortraitGutterBounds). Both start hidden (textures cleared);
-    /// DialoguePortraitSystem fills them on an &lt;&lt;emote&gt;&gt; command and clears them on dialogue end.
-    private PortraitSlot CreatePortraitSlot(Rectangle gutter, Texture2D uiSheet)
+    /// Creates the single in-box emote portrait — a mesh frame (white outline, black fill) with
+    /// the speaker's mesh face glyph inside — centred in the dialogue box's left gutter (see
+    /// DialogueSystem.PortraitGutterBounds). Both start with empty meshes; DialoguePortraitSystem
+    /// fills them on an &lt;&lt;emote&gt;&gt; command and empties them on dialogue end.
+    private PortraitSlot CreatePortraitSlot(Rectangle gutter)
     {
         var frameTopLeft = new Vector2(
             gutter.X + (gutter.Width - FrameRenderSize) / 2f,
             gutter.Y + (gutter.Height - FrameRenderSize) / 2f);
         var faceOffset = (FrameRenderSize - FaceRenderSize) / 2f;
 
-        // Wood frame — a sprite on UI. Hidden by nulling its sheet + texture (see DialoguePortraitSystem).
+        // Frame — a mesh panel on UI, empty until the first <<emote>>; VisibleComponent kept on so
+        // MeshPrepSystem keeps its matrix fresh (UI renders regardless of the tag).
         var frame = _world.CreateEntity();
         frame.Set(new EntityInfoComponent("DialogueDemo", "PortraitFrame"));
         frame.Set(new TransformComponent(frameTopLeft));
-        frame.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = null,                 // shown on the first <<emote>>
-            Source = FrameSource,
-            Size = new Vector2(FrameRenderSize, FrameRenderSize),
-            Color = Color.White,
-            Target = RenderTargetID.UI,
-            LayerDepth = 0.92f,
-            Origin = Vector2.Zero,
-        });
-        frame.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.UI });
+        frame.Set(new DrawComponent { Type = DrawElementType.Mesh, Target = RenderTargetID.UI, LayerDepth = 0.92f });
         frame.Set<VisibleComponent>();
 
-        // Speaker face — a sprite on UI, drawn on top of the frame window.
+        // Speaker face — a mesh glyph on UI, drawn on top of the frame window.
         var face = _world.CreateEntity();
         face.Set(new EntityInfoComponent("DialogueDemo", "PortraitFace"));
         face.Set(new TransformComponent(frameTopLeft + new Vector2(faceOffset, faceOffset)));
-        face.Set(new SpriteInfoComponent
-        {
-            SpriteSheet = null, // hidden until a portrait is shown
-            Source = EmoteCells["happy"],
-            Size = new Vector2(FaceRenderSize, FaceRenderSize),
-            Color = Color.White,
-            Target = RenderTargetID.UI,
-            LayerDepth = 0.93f,
-            Origin = Vector2.Zero,
-        });
-        face.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.UI });
+        face.Set(new DrawComponent { Type = DrawElementType.Mesh, Target = RenderTargetID.UI, LayerDepth = 0.93f });
         face.Set<VisibleComponent>();
 
         return new PortraitSlot(frame, face);
@@ -397,43 +359,36 @@ public class DialogueDemoScreen : IGameScreen
 
     private void BuildHud(ContentManager content)
     {
-        var squareButtons = content.Load<Texture2D>("SproutLands/Buttons/square_26x26");
-
         DemoHeader.Build(
-            _world, _viewportManager, _font, squareButtons,
+            _world, _viewportManager, _font,
             title: "dialogue",
             descriptionLines: new[]
             {
-                "Walk up to the cow with the WASD keys, then press E to talk.",
-                "Use the up and down arrow keys to choose a reply, E to pick it.",
-                "Portraits show the speaker in the box; reaction marks pop overhead.",
+                "WASD to walk. Press E by the cow (left) or bird (right) to talk.",
+                "Up and down arrows choose a reply, E to pick it.",
+                "Cow: a box at the bottom. Bird: a balloon over its head.",
             });
 
-        BuildSidebar(squareButtons);
+        BuildSidebar();
     }
 
-    private void BuildSidebar(Texture2D squareButtons)
+    private void BuildSidebar()
     {
         var capStyle = new KeyCapStyle
         {
-            SpriteSheet = squareButtons,
-            DefaultSource = SproutSquareButtons.CreamLight,
-            HoverSource = SproutSquareButtons.CreamDark,
-            ActiveSource = SproutSquareButtons.TanDark,
             CapPixels = 42,
             CapLabelScale = 0.22f,
-            CapLabelColor = SproutPalette.WarmBrown,
         };
         var rowStyle = new KeyRowStyle
         {
-            LabelColor = SproutPalette.TextLight,
-            HoverColor = SproutPalette.TextHover,
-            ActiveColor = SproutPalette.TextSelected,
+            LabelColor = DemoPalette.TextLight,
+            HoverColor = DemoPalette.TextHover,
+            ActiveColor = DemoPalette.TextSelected,
             LabelScale = 0.18f,
             Gap = 10f,
-            BackgroundColor = SproutPalette.DarkBgSecondary,
-            HoverBackgroundColor = SproutPalette.DarkBgSecondary,
-            ActiveBackgroundColor = SproutPalette.DarkBgSecondary,
+            BackgroundColor = DemoPalette.DarkBgSecondary,
+            HoverBackgroundColor = DemoPalette.DarkBgSecondary,
+            ActiveBackgroundColor = DemoPalette.DarkBgSecondary,
             BackgroundPaddingX = 10f,
             BackgroundPaddingY = 6f,
         };
@@ -484,7 +439,7 @@ public class DialogueDemoScreen : IGameScreen
     // ─── pipeline ────────────────────────────────────────────────────────────
 
     private SequentialSystem<GameState> CreateUpdateSystem(
-        DialogueSystem dialogueSystem, Entity prompt,
+        DialogueSystem cowDialogue, DialogueSystem birdDialogue, NpcInteractionTarget[] npcTargets,
         ReactionMarkSystem reactionSystem, DialoguePortraitSystem portraitSystem)
     {
         return new SequentialSystem<GameState>(
@@ -493,18 +448,17 @@ public class DialogueDemoScreen : IGameScreen
             new IntrinsicSizingSystem(_world),
             new AutoLayoutSystem(_world, _viewportManager),
             new DemoButtonInteractionSystem(_world),
-            new DemoIconRecolorSystem(_world),
             new PlayerMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight, PlayerSpeed,
-                PlayerFrame, PlayerRenderSize / 2f, PlayerRenderSize, () => _dialogueActive),
-            new NpcInteractionSystem(_world, _player, _npc, prompt, _interact, InteractRange, () => _dialogueActive),
-            dialogueSystem,
+                PlayerBodyRadius, 2f * PlayerBodyRadius, () => _dialogueActive),
+            new NpcInteractionSystem(_world, _player, npcTargets, _interact, InteractRange, () => _dialogueActive),
+            cowDialogue,   // node "Start" → fixed bottom box; routes by node ownership
+            birdDialogue,  // node "Bird"  → over-head anchored balloon
             reactionSystem,
             portraitSystem,
             new TextUpdateSystem(_world),                        // advance the reveal animation
             new DialogueDemoShortcutSystem(this),
             new HierarchySystem(_world),
-            new CursorPositionSystem(_world, _camera, _viewportManager),
-            new CursorDrawPrepSystem(_world));
+            new CursorPositionSystem(_world, _camera, _viewportManager));
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
@@ -537,33 +491,6 @@ public class DialogueDemoScreen : IGameScreen
         GC.SuppressFinalize(this);
     }
 
-    // ─── emote frames ──────────────────────────────────────────────────────────
-
-    private const int EmoteFrame = 32; // emotes sheet: 32×32 cells (160×480 → 5×15)
-
-    private static Rectangle EmoteCell(int col, int row) =>
-        new(col * EmoteFrame, row * EmoteFrame, EmoteFrame, EmoteFrame);
-
-    /// Maps a Yarn `<<emote who kind>>` kind to a 32×32 cell on the emote sheet (the in-box
-    /// portrait face). These are the left-column faces (all complete frames); re-point them
-    /// after a visual check if a particular expression doesn't match its name.
-    private static readonly Dictionary<string, Rectangle> EmoteCells = new()
-    {
-        ["happy"] = EmoteCell(0, 0),
-        ["surprised"] = EmoteCell(0, 1),
-        ["question"] = EmoteCell(0, 2),
-        ["heart"] = EmoteCell(0, 3),
-        ["sad"] = EmoteCell(0, 4),
-    };
-
-    /// Maps a Yarn `<<react who mark>>` mark to an icon on `all_icons` (the above-head
-    /// reaction mark). Word tokens (not literal punctuation) keep the Yarn command lexer happy.
-    private static readonly Dictionary<string, Rectangle> ReactionIcons = new()
-    {
-        ["exclaim"] = SproutIcons.Exclamation,
-        ["question"] = SproutIcons.Question,
-        ["star"] = SproutIcons.Star,
-    };
 
     // ─── in-memory Yarn ──────────────────────────────────────────────────────
 
@@ -601,6 +528,29 @@ Cow: What brings you all the way out here, friend?
 <<emote npc happy>>
 Cow: Do come visit again. The meadow's always right here.
 <<react npc star>>
+===
+";
+
+    /// The bird conversation, played by the anchored (over-head balloon) DialogueSystem. Kept
+    /// short — lines and options fit the compact bubble. Only `<<react>>` commands are used (the
+    /// balloon has no portrait gutter); the start node must be named "Bird" (see the npc targets).
+    private const string BirdYarnSource = @"title: Bird
+---
+<<react bird exclaim>>
+Robin: Tweet! Up here! Mind your step down there, friend.
+Robin: Not many two-leggers stop to say hello. What's on your mind?
+-> Nice view from up here?
+    <<react bird star>>
+    Robin: The best! The whole meadow, and the cow's silly face.
+-> Seen anything interesting?
+    <<react player question>>
+    Robin: A shiny pebble by the fence. I may have borrowed it.
+    <<react bird star>>
+-> Just saying hi.
+    <<react player exclaim>>
+    Robin: Ha! A bird does love good manners. Tweet!
+Robin: Off I go. Mind the puddles!
+<<react bird star>>
 ===
 ";
 
@@ -658,48 +608,33 @@ public struct PlayerTag { }
 /// bubble auto-hides; float.NaN means "just shown — initialise on the next Update".
 public struct EmoteBubbleComponent { public float HideAt; }
 
-/// WASD/arrow movement for the tagged player, clamped so the (rendered) sprite stays inside
-/// the boundary. Frozen while a dialogue is active. Plays a subtle two-frame walk bob over the
-/// source spritesheet (source frame ≠ on-screen render size).
-[With(typeof(PlayerTag), typeof(TransformComponent), typeof(SpriteInfoComponent))]
+/// WASD/arrow movement for the tagged player (a mesh shape, feet at the transform), clamped so
+/// the body stays inside the boundary. Frozen while a dialogue is active.
+[With(typeof(PlayerTag), typeof(TransformComponent))]
 public sealed class PlayerMovementSystem : AEntitySetSystem<GameState>
 {
     private readonly float _halfWidth;
     private readonly float _halfHeight;
     private readonly float _speed;
-    private readonly int _sourceFrame;
-    private readonly float _spriteHalfWidth;
-    private readonly float _spriteHeight;
+    private readonly float _clampHalfWidth;
+    private readonly float _clampHeight;
     private readonly Func<bool> _isFrozen;
-    private float _animTimer;
-    private int _frame;
-
-    private const float BobInterval = 0.18f;
 
     public PlayerMovementSystem(World world, float halfWidth, float halfHeight, float speed,
-        int sourceFrame, float spriteHalfWidth, float spriteHeight, Func<bool> isFrozen)
+        float clampHalfWidth, float clampHeight, Func<bool> isFrozen)
         : base(world)
     {
         _halfWidth = halfWidth;
         _halfHeight = halfHeight;
         _speed = speed;
-        _sourceFrame = sourceFrame;
-        _spriteHalfWidth = spriteHalfWidth;
-        _spriteHeight = spriteHeight;
+        _clampHalfWidth = clampHalfWidth;
+        _clampHeight = clampHeight;
         _isFrozen = isFrozen;
     }
 
     protected override void Update(GameState state, in Entity entity)
     {
-        ref var sprite = ref entity.Get<SpriteInfoComponent>();
-
-        if (_isFrozen())
-        {
-            _frame = 0;
-            _animTimer = 0f;
-            sprite.Source = new Rectangle(0, 0, _sourceFrame, _sourceFrame);
-            return;
-        }
+        if (_isFrozen()) return;
 
         var keyboard = Keyboard.GetState();
         var dir = Vector2.Zero;
@@ -708,41 +643,30 @@ public sealed class PlayerMovementSystem : AEntitySetSystem<GameState>
         if (keyboard.IsKeyDown(Keys.W) || keyboard.IsKeyDown(Keys.Up)) dir.Y -= 1f;
         if (keyboard.IsKeyDown(Keys.S) || keyboard.IsKeyDown(Keys.Down)) dir.Y += 1f;
 
+        if (dir == Vector2.Zero) return;
+
+        dir.Normalize();
         var transform = entity.Get<TransformComponent>();
-
-        if (dir != Vector2.Zero)
-        {
-            dir.Normalize();
-            var next = transform.Position + dir * _speed * state.Time;
-            // Feet anchored at the position; keep the whole rendered sprite inside the boundary.
-            next.X = MathHelper.Clamp(next.X, -_halfWidth + _spriteHalfWidth, _halfWidth - _spriteHalfWidth);
-            next.Y = MathHelper.Clamp(next.Y, -_halfHeight + _spriteHeight, _halfHeight);
-            transform.Position = next;
-
-            _animTimer += state.Time;
-            if (_animTimer >= BobInterval)
-            {
-                _animTimer = 0f;
-                _frame ^= 1; // toggle between the first two front-facing frames
-            }
-        }
-        else
-        {
-            _frame = 0;
-            _animTimer = 0f;
-        }
-
-        sprite.Source = new Rectangle(_frame * _sourceFrame, 0, _sourceFrame, _sourceFrame);
+        var next = transform.Position + dir * _speed * state.Time;
+        // Feet anchored at the position; keep the whole body (which rises _clampHeight above the
+        // feet) inside the boundary.
+        next.X = MathHelper.Clamp(next.X, -_halfWidth + _clampHalfWidth, _halfWidth - _clampHalfWidth);
+        next.Y = MathHelper.Clamp(next.Y, -_halfHeight + _clampHeight, _halfHeight);
+        transform.Position = next;
     }
 }
 
-/// Shows a "press E" prompt when the player is near the NPC and, on the interact edge,
-/// publishes a <see cref="DialogueStartMessage"/>. Suppressed while a dialogue is active.
+/// One interactable NPC for <see cref="NpcInteractionSystem"/>: the character entity, its
+/// above-head prompt, and the Yarn node its <see cref="DialogueStartMessage"/> kicks off.
+public readonly record struct NpcInteractionTarget(Entity Npc, Entity Prompt, string StartNode);
+
+/// Shows a "press E" prompt when the player is near any NPC and, on the interact edge, publishes a
+/// <see cref="DialogueStartMessage"/> for the nearest in-range one (node-ownership routing then
+/// delivers it to the right DialogueSystem). Suppressed while any dialogue is active.
 public sealed class NpcInteractionSystem : ISystem<GameState>
 {
     private readonly Entity _player;
-    private readonly Entity _npc;
-    private readonly Entity _prompt;
+    private readonly NpcInteractionTarget[] _targets;
     private readonly AInputState _interact;
     private readonly float _rangeSq;
     private readonly Func<bool> _dialogueActive;
@@ -750,13 +674,12 @@ public sealed class NpcInteractionSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
-    public NpcInteractionSystem(World world, Entity player, Entity npc, Entity prompt,
+    public NpcInteractionSystem(World world, Entity player, NpcInteractionTarget[] targets,
         AInputState interact, float range, Func<bool> dialogueActive)
     {
         _world = world;
         _player = player;
-        _npc = npc;
-        _prompt = prompt;
+        _targets = targets;
         _interact = interact;
         _rangeSq = range * range;
         _dialogueActive = dialogueActive;
@@ -764,30 +687,37 @@ public sealed class NpcInteractionSystem : ISystem<GameState>
 
     public void Update(GameState state)
     {
-        if (!IsEnabled || !_player.IsAlive || !_npc.IsAlive) return;
+        if (!IsEnabled || !_player.IsAlive) return;
 
         if (_dialogueActive())
         {
-            SetPromptVisible(false);
+            foreach (var t in _targets) SetPromptVisible(t.Prompt, false);
             return;
         }
 
         var playerPos = _player.Get<TransformComponent>().Position;
-        var npcPos = _npc.Get<TransformComponent>().Position;
-        var inRange = Vector2.DistanceSquared(playerPos, npcPos) <= _rangeSq;
+        var bestDistSq = _rangeSq;
+        NpcInteractionTarget? nearest = null;
 
-        SetPromptVisible(inRange);
+        foreach (var t in _targets)
+        {
+            if (!t.Npc.IsAlive) { SetPromptVisible(t.Prompt, false); continue; }
+            var distSq = Vector2.DistanceSquared(playerPos, t.Npc.Get<TransformComponent>().Position);
+            var inRange = distSq <= _rangeSq;
+            SetPromptVisible(t.Prompt, inRange);
+            if (inRange && distSq <= bestDistSq) { bestDistSq = distSq; nearest = t; }
+        }
 
-        if (inRange && _interact.JustPressed())
-            _world.Publish(new DialogueStartMessage(_npc, "Start"));
+        if (nearest is { } target && _interact.JustPressed())
+            _world.Publish(new DialogueStartMessage(target.Npc, target.StartNode));
     }
 
-    private void SetPromptVisible(bool visible)
+    private static void SetPromptVisible(Entity prompt, bool visible)
     {
-        if (!_prompt.IsAlive) return;
-        var has = _prompt.Has<VisibleComponent>();
-        if (visible && !has) _prompt.Set<VisibleComponent>();
-        else if (!visible && has) _prompt.Remove<VisibleComponent>();
+        if (!prompt.IsAlive) return;
+        var has = prompt.Has<VisibleComponent>();
+        if (visible && !has) prompt.Set<VisibleComponent>();
+        else if (!visible && has) prompt.Remove<VisibleComponent>();
     }
 
     public void Dispose() => GC.SuppressFinalize(this);
@@ -798,24 +728,22 @@ public sealed class NpcInteractionSystem : ISystem<GameState>
 public readonly record struct PortraitSlot(Entity Frame, Entity Face);
 
 /// Above-head reaction marks. Subscribes to <see cref="DialogueCommandMessage"/>, reacts to
-/// `react who mark` by showing an icon (from all_icons) above the player or cow on the Main
-/// target, and auto-hides it after a delay. Clears on dialogue end.
+/// `react who mark` by showing a generated mesh glyph above the keyed character (`player`, `npc`,
+/// `bird`, …) on the Main target, and auto-hides it after a delay. Clears on dialogue end.
 public sealed class ReactionMarkSystem : ISystem<GameState>
 {
-    private readonly Entity _playerMark;
-    private readonly Entity _npcMark;
-    private readonly Dictionary<string, Rectangle> _icons;
+    private readonly Dictionary<string, Entity> _marks;
     private readonly float _duration;
+    private readonly float _markSize;
 
     public bool IsEnabled { get; set; } = true;
 
-    public ReactionMarkSystem(World world, Entity playerMark, Entity npcMark,
-        Dictionary<string, Rectangle> icons, float duration)
+    public ReactionMarkSystem(World world, Dictionary<string, Entity> marks,
+        float duration, float markSize)
     {
-        _playerMark = playerMark;
-        _npcMark = npcMark;
-        _icons = icons;
+        _marks = marks;
         _duration = duration;
+        _markSize = markSize;
         world.Subscribe(this);
     }
 
@@ -825,34 +753,23 @@ public sealed class ReactionMarkSystem : ISystem<GameState>
         var parts = msg.Command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3 || parts[0] != "react") return;
 
-        var target = parts[1] switch
-        {
-            "player" => _playerMark,
-            "npc" => _npcMark,
-            _ => default,
-        };
-        if (!target.IsAlive || !_icons.TryGetValue(parts[2], out var cell)) return;
+        if (!_marks.TryGetValue(parts[1], out var target) || !target.IsAlive) return;
 
         target.Set(new EmoteBubbleComponent { HideAt = float.NaN });
         if (!target.Has<VisibleComponent>()) target.Set<VisibleComponent>();
-        ref var sprite = ref target.Get<SpriteInfoComponent>();
-        sprite.Source = cell;
+        target.Get<DrawComponent>().SetMeshData(DialogueGlyphs.ReactionMark(_markSize, parts[2]));
     }
 
     [Subscribe]
     private void OnDialogueActive(in DialogueActiveMessage msg)
     {
         if (!msg.IsActive)
-        {
-            Hide(_playerMark);
-            Hide(_npcMark);
-        }
+            foreach (var mark in _marks.Values) Hide(mark);
     }
 
     public void Update(GameState state)
     {
-        Expire(_playerMark, state.TotalTime);
-        Expire(_npcMark, state.TotalTime);
+        foreach (var mark in _marks.Values) Expire(mark, state.TotalTime);
     }
 
     private void Expire(Entity mark, float now)
@@ -875,36 +792,25 @@ public sealed class ReactionMarkSystem : ISystem<GameState>
 }
 
 /// In-box speaker portrait. Subscribes to <see cref="DialogueCommandMessage"/>; on
-/// `emote who kind` it shows the framed portrait of whoever is speaking in the single emote
-/// frame (the box's left gutter). The NPC uses the cow's own head (a fixed crop — the cow has
-/// no expression frames, so `kind` is ignored there); the player picks an emote face by `kind`.
-/// The portrait persists until the next `emote` or the dialogue ends — it does not auto-expire
-/// (unlike reaction marks). Frame + face live on the UI target, which always renders, so hiding
-/// clears the drawable (the sprite's sheet + texture) rather than toggling VisibleComponent.
+/// `emote who kind` it shows the framed mesh portrait of whoever is speaking in the single emote
+/// frame (the box's left gutter). The NPC uses a cow-face glyph (`kind` ignored); the player
+/// picks an emote-face glyph by `kind`. The portrait persists until the next `emote` or the
+/// dialogue ends — it does not auto-expire (unlike reaction marks). Frame + face live on the UI
+/// target, which always renders, so hiding empties the meshes rather than toggling VisibleComponent.
 public sealed class DialoguePortraitSystem : ISystem<GameState>
 {
     private readonly PortraitSlot _slot;
-    private readonly Texture2D _frameSheet;
-    private readonly Rectangle _frameSource;    // the ornate wood frame (static, shown on any emote)
-    private readonly Texture2D _cowSheet;
-    private readonly Rectangle _cowSource;      // the cow's head crop (same for every kind)
-    private readonly Texture2D _emoteSheet;
-    private readonly Dictionary<string, Rectangle> _emoteCells;
+    private readonly MeshData _frameMesh;   // the static frame panel (shown on any emote)
+    private readonly float _faceSize;
 
     public bool IsEnabled { get; set; } = true;
 
-    public DialoguePortraitSystem(World world, PortraitSlot slot,
-        Texture2D frameSheet, Rectangle frameSource,
-        Texture2D cowSheet, Rectangle cowSource,
-        Texture2D emoteSheet, Dictionary<string, Rectangle> emoteCells)
+    public DialoguePortraitSystem(World world, PortraitSlot slot, float frameSize, float faceSize)
     {
         _slot = slot;
-        _frameSheet = frameSheet;
-        _frameSource = frameSource;
-        _cowSheet = cowSheet;
-        _cowSource = cowSource;
-        _emoteSheet = emoteSheet;
-        _emoteCells = emoteCells;
+        _faceSize = faceSize;
+        _frameMesh = ShapeBuilder.Panel(
+            new Rectangle(0, 0, (int)frameSize, (int)frameSize), Color.Black, Color.White, 2f).Generate();
         world.Subscribe(this);
     }
 
@@ -917,10 +823,10 @@ public sealed class DialoguePortraitSystem : ISystem<GameState>
         switch (parts[1])
         {
             case "npc":
-                ShowFace(_cowSheet, _cowSource); // the cow's head, regardless of kind
+                ShowFace(DialogueGlyphs.CowFace(_faceSize).Generate()); // cow face, regardless of kind
                 break;
             case "player":
-                if (_emoteCells.TryGetValue(parts[2], out var cell)) ShowFace(_emoteSheet, cell);
+                ShowFace(DialogueGlyphs.EmoteFace(_faceSize, parts[2]).Generate());
                 break;
         }
     }
@@ -930,36 +836,27 @@ public sealed class DialoguePortraitSystem : ISystem<GameState>
     {
         if (!msg.IsActive)
         {
-            ClearSprite(_slot.Frame);
-            ClearSprite(_slot.Face);
+            ClearMesh(_slot.Frame);
+            ClearMesh(_slot.Face);
         }
     }
 
     public void Update(GameState state) { }
 
-    private void ShowFace(Texture2D sheet, Rectangle source)
+    private void ShowFace(MeshData faceMesh)
     {
-        // Show the (static) wood frame on the first emote, then swap in the speaker's face.
-        if (_slot.Frame.IsAlive)
-        {
-            ref var frameSprite = ref _slot.Frame.Get<SpriteInfoComponent>();
-            frameSprite.SpriteSheet = _frameSheet;
-            frameSprite.Source = _frameSource;
-        }
-        if (_slot.Face.IsAlive)
-        {
-            ref var faceSprite = ref _slot.Face.Get<SpriteInfoComponent>();
-            faceSprite.SpriteSheet = sheet;
-            faceSprite.Source = source;
-        }
+        // Show the (static) frame on the first emote, then swap in the speaker's face glyph.
+        if (_slot.Frame.IsAlive) _slot.Frame.Get<DrawComponent>().SetMeshData(_frameMesh);
+        if (_slot.Face.IsAlive) _slot.Face.Get<DrawComponent>().SetMeshData(faceMesh);
     }
 
-    private static void ClearSprite(Entity e)
+    private static void ClearMesh(Entity e)
     {
-        if (!e.IsAlive) return;
-        ref var sprite = ref e.Get<SpriteInfoComponent>();
-        sprite.SpriteSheet = null;              // SpritePrep skips it
-        e.Get<DrawComponent>().Texture = null;  // and don't draw the stale texture
+        if (!e.IsAlive || !e.Has<DrawComponent>()) return;
+        ref var draw = ref e.Get<DrawComponent>();
+        draw.Type = DrawElementType.Mesh;
+        draw.Vertices = [];
+        draw.Indices = [];
     }
 
     public void Dispose() => GC.SuppressFinalize(this);
@@ -1012,3 +909,134 @@ public sealed class DialogueDemoShortcutSystem : ISystem<GameState>
 
 /// Concrete <see cref="AInputState"/> for the dialogue demo's per-action input.
 public sealed class DemoInputState : AInputState { }
+
+/// Generated mesh glyphs for the dialogue scene — replaces the Sprout Lands character /
+/// emote / icon sprites. World shapes are authored with the character's feet at the local
+/// origin (body rising toward -Y); portrait faces fill a (0..size) box; reaction marks are
+/// centred on the local origin.
+internal static class DialogueGlyphs
+{
+    private static readonly Color Ink    = new(28, 30, 38);     // outlines, eyes, details
+    private static readonly Color Player = new(86, 160, 196);   // player body
+    private static readonly Color Cow    = new(224, 226, 230);  // cow body
+    private static readonly Color Snout  = new(232, 160, 176);  // cow snout (pink)
+    private static readonly Color Skin   = new(250, 224, 196);  // emote face
+    private static readonly Color Bird   = new(240, 196, 96);   // bird body (warm yellow)
+    private static readonly Color Beak   = new(232, 140, 60);   // bird beak (orange)
+
+    /// World player: a round body with two eyes, feet at the origin.
+    public static IMeshGenerator PlayerShape(float r) =>
+        new CompositeMeshGenerator()
+            .Add(new CircleMeshGenerator(new Vector2(0, -r), r, Player, 28))
+            .Add(new CircleOutlineMeshGenerator(new Vector2(0, -r), r, 2.5f, Ink, 28))
+            .Add(new CircleMeshGenerator(new Vector2(-0.30f * r, -1.4f * r), 0.12f * r, Ink, 10))
+            .Add(new CircleMeshGenerator(new Vector2(0.30f * r, -1.4f * r), 0.12f * r, Ink, 10));
+
+    /// World cow: a larger pale body with horns, a pink snout and eyes, feet at the origin.
+    public static IMeshGenerator CowShape(float r) =>
+        new CompositeMeshGenerator()
+            .Add(new CircleMeshGenerator(new Vector2(0, -r), r, Cow, 28))
+            .Add(new CircleOutlineMeshGenerator(new Vector2(0, -r), r, 2.5f, Ink, 28))
+            .Add(new FilledTriangleMeshGenerator(
+                new Vector2(-0.75f * r, -1.6f * r), new Vector2(-0.40f * r, -1.7f * r), new Vector2(-0.58f * r, -2.05f * r), Ink))
+            .Add(new FilledTriangleMeshGenerator(
+                new Vector2(0.75f * r, -1.6f * r), new Vector2(0.40f * r, -1.7f * r), new Vector2(0.58f * r, -2.05f * r), Ink))
+            .Add(new CircleMeshGenerator(new Vector2(0, -0.55f * r), 0.40f * r, Snout, 18))
+            .Add(new CircleOutlineMeshGenerator(new Vector2(0, -0.55f * r), 0.40f * r, 2f, Ink, 18))
+            .Add(new CircleMeshGenerator(new Vector2(-0.35f * r, -1.35f * r), 0.11f * r, Ink, 10))
+            .Add(new CircleMeshGenerator(new Vector2(0.35f * r, -1.35f * r), 0.11f * r, Ink, 10));
+
+    /// World bird: a small round body with a head, an orange beak (facing right) and an eye,
+    /// feet at the origin. The upper-right NPC whose dialogue floats above its head.
+    public static IMeshGenerator BirdShape(float r) =>
+        new CompositeMeshGenerator()
+            .Add(new CircleMeshGenerator(new Vector2(0, -r), r, Bird, 26))                          // body
+            .Add(new CircleOutlineMeshGenerator(new Vector2(0, -r), r, 2.5f, Ink, 26))
+            .Add(new CircleMeshGenerator(new Vector2(0, -1.85f * r), 0.62f * r, Bird, 24))          // head
+            .Add(new CircleOutlineMeshGenerator(new Vector2(0, -1.85f * r), 0.62f * r, 2.5f, Ink, 24))
+            .Add(new FilledTriangleMeshGenerator(                                                   // beak (points right)
+                new Vector2(0.55f * r, -1.92f * r), new Vector2(1.02f * r, -1.78f * r), new Vector2(0.55f * r, -1.64f * r), Beak))
+            .Add(new CircleMeshGenerator(new Vector2(0.20f * r, -2.02f * r), 0.10f * r, Ink, 10))   // eye
+            .Add(new FilledTriangleMeshGenerator(                                                   // little wing
+                new Vector2(-0.20f * r, -0.95f * r), new Vector2(-0.95f * r, -1.15f * r), new Vector2(-0.30f * r, -1.55f * r), new Color(226, 176, 78)));
+
+    /// Player emote face glyph: a head with eyes and a mouth keyed by <paramref name="kind"/>.
+    public static IMeshGenerator EmoteFace(float s, string kind)
+    {
+        var c = new Vector2(s / 2f, s / 2f);
+        var face = new CompositeMeshGenerator()
+            .Add(new CircleMeshGenerator(c, 0.40f * s, Skin, 24))
+            .Add(new CircleOutlineMeshGenerator(c, 0.40f * s, 2f, Ink, 24))
+            .Add(new CircleMeshGenerator(c + new Vector2(-0.16f * s, -0.05f * s), 0.045f * s, Ink, 10))
+            .Add(new CircleMeshGenerator(c + new Vector2(0.16f * s, -0.05f * s), 0.045f * s, Ink, 10));
+
+        switch (kind)
+        {
+            case "sad":
+                face.Add(new PolylineMeshGenerator(new[]
+                {
+                    c + new Vector2(-0.16f * s, 0.18f * s), c + new Vector2(0, 0.10f * s), c + new Vector2(0.16f * s, 0.18f * s),
+                }, 2.5f, Ink));
+                break;
+            case "surprised":
+                face.Add(new CircleOutlineMeshGenerator(c + new Vector2(0, 0.13f * s), 0.06f * s, 2f, Ink, 12));
+                break;
+            case "question":
+                face.Add(new PolylineMeshGenerator(new[]
+                {
+                    c + new Vector2(-0.13f * s, 0.14f * s), c + new Vector2(0.13f * s, 0.14f * s),
+                }, 2.5f, Ink));
+                break;
+            default: // happy / heart
+                face.Add(new PolylineMeshGenerator(new[]
+                {
+                    c + new Vector2(-0.16f * s, 0.10f * s), c + new Vector2(0, 0.18f * s), c + new Vector2(0.16f * s, 0.10f * s),
+                }, 2.5f, Ink));
+                break;
+        }
+        return face;
+    }
+
+    /// Cow portrait face glyph (centred in a 0..size box).
+    public static IMeshGenerator CowFace(float s)
+    {
+        var c = new Vector2(s / 2f, s / 2f);
+        return new CompositeMeshGenerator()
+            .Add(new CircleMeshGenerator(c, 0.40f * s, Cow, 24))
+            .Add(new CircleOutlineMeshGenerator(c, 0.40f * s, 2f, Ink, 24))
+            .Add(new FilledTriangleMeshGenerator(
+                c + new Vector2(-0.34f * s, -0.20f * s), c + new Vector2(-0.16f * s, -0.26f * s), c + new Vector2(-0.26f * s, -0.42f * s), Ink))
+            .Add(new FilledTriangleMeshGenerator(
+                c + new Vector2(0.34f * s, -0.20f * s), c + new Vector2(0.16f * s, -0.26f * s), c + new Vector2(0.26f * s, -0.42f * s), Ink))
+            .Add(new CircleMeshGenerator(c + new Vector2(0, 0.16f * s), 0.16f * s, Snout, 16))
+            .Add(new CircleOutlineMeshGenerator(c + new Vector2(0, 0.16f * s), 0.16f * s, 1.5f, Ink, 16))
+            .Add(new CircleMeshGenerator(c + new Vector2(-0.16f * s, -0.05f * s), 0.045f * s, Ink, 10))
+            .Add(new CircleMeshGenerator(c + new Vector2(0.16f * s, -0.05f * s), 0.045f * s, Ink, 10));
+    }
+
+    /// An above-head reaction mark centred on the local origin: exclaim "!", star, or "?".
+    public static IMeshGenerator ReactionMark(float s, string mark)
+    {
+        switch (mark)
+        {
+            case "star":
+                return ShapeBuilder.Star(Vector2.Zero, 0.5f * s, 0.22f * s, 5, new Color(250, 205, 110));
+            case "question":
+                var cyan = new Color(120, 200, 235);
+                return new CompositeMeshGenerator()
+                    .Add(new PolylineMeshGenerator(new[]
+                    {
+                        new Vector2(-0.22f * s, -0.26f * s), new Vector2(-0.04f * s, -0.42f * s),
+                        new Vector2(0.18f * s, -0.30f * s), new Vector2(0.16f * s, -0.08f * s),
+                        new Vector2(0f, 0.02f * s), new Vector2(0f, 0.16f * s),
+                    }, 4f, cyan))
+                    .Add(new CircleMeshGenerator(new Vector2(0, 0.34f * s), 0.08f * s, cyan, 10));
+            default: // exclaim
+                var yellow = new Color(250, 210, 90);
+                return new CompositeMeshGenerator()
+                    .Add(new FilledRectangleMeshGenerator(
+                        new Rectangle((int)(-0.09f * s), (int)(-0.5f * s), (int)(0.18f * s), (int)(0.6f * s)), yellow))
+                    .Add(new CircleMeshGenerator(new Vector2(0, 0.4f * s), 0.10f * s, yellow, 10));
+        }
+    }
+}

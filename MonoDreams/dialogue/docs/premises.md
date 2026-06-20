@@ -71,28 +71,102 @@ the game having to assemble the right entity shape.
 `_dialogueState.BoxEntity` from outside, `DialogueSystem`'s next state
 transition will overwrite it. The dialogue UI is opaque to game code
 once installed.
+
+**Mesh chrome mode.** Passing `chromeFill` (with optional `chromeOutline` /
+`chromeThickness` / `indicatorColor`) switches the box, balloon, and indicator from
+sprite nine-patches to generated meshes (filled rect + outline for the box, an outline
+frame for the balloon, a small filled caret for the indicator), so a screen can dress
+dialogue without any sprite assets. The textured path is unchanged and is what
+`MonoDreams.Examples` uses; the two are mutually exclusive (`chromeFill.HasValue` selects
+mesh mode). In mesh mode `dialogBoxTexture` / `indicatorTexture` may be null, the panels
+keep `VisibleComponent` permanently (so `MeshPrepSystem` refreshes their world matrices)
+and are shown/hidden by filling vs. emptying their mesh — the same empty-to-hide rule the
+indicator and options already rely on, because the dialogue lives on the always-rendering
+UI target. Balloon mode in mesh mode is driven by `portraitGutter > 0` rather than a
+balloon texture.
 **Tests:** none yet.
 **Depends on:** rendering-text — "Use `DynamicTextComponent` for any
 text"; ui — "`LayoutNodeComponent` is a pure C# tree, not an ECS
 hierarchy" (dialogue does NOT use ui's layout; it positions children
 by hand-rolled offsets).
 
-## Dialogue UI renders on the UI render target
+## Dialogue renders on a configurable target — default UI, Main when anchored
 
 All of the dialogue entities (root, box, text, indicator, and the
-optional inner balloon) target `RenderTargetID.UI`. They live in screen-space at fixed coordinates
-relative to the virtual resolution, are not subject to culling, and
-sit between world (Main) and cursor (HUD) in z-order.
+optional inner balloon) target a single `renderTarget` passed to the
+constructor, **defaulting to `RenderTargetID.UI`**. In the default
+(UI) case they live in screen-space at fixed coordinates relative to
+the virtual resolution, are not subject to culling, and sit between
+world (Main) and cursor (HUD) in z-order. Passing
+`renderTarget: RenderTargetID.Main` together with an `anchorEntity`
+switches to *anchored* mode (see the next premise), where the whole
+hierarchy is world-space and floats above a character.
 
-**Why:** dialogue UI is HUD-like in behavior (always visible when
-active, fixed-position) but must sit *below* the cursor so the user
-can click through the dialogue chrome without occlusion. UI target is
-the right slot.
-**Breaks:** putting the dialogue on Main subjects it to camera
-transforms — the dialogue box would scroll off-screen when the camera
-moves. Putting it on HUD would put it above the cursor.
+**Why:** default dialogue UI is HUD-like in behavior (always visible
+when active, fixed-position) but must sit *below* the cursor so the
+user can click through the dialogue chrome without occlusion — UI
+target is the right slot. A game that instead wants over-the-head
+speech balloons needs the same chrome on Main so it tracks the camera.
+**Breaks:** putting the *default* bottom panel on Main subjects it to
+camera transforms — the box would scroll off-screen when the camera
+moves. Putting it on HUD would put it above the cursor. Conversely, an
+anchored balloon left on UI would not track its character.
 **Tests:** none yet.
 **Depends on:** rendering — "Three render targets, two behaviors".
+
+## Anchored dialogue floats above a world entity on the Main target
+
+Passing an `anchorEntity` (with `renderTarget: RenderTargetID.Main` and
+mesh chrome) puts `DialogueSystem` in *anchored* mode: the dialogue is
+drawn as a compact, tailed speech balloon whose root transform is
+repositioned **every frame** to the anchor's `WorldPosition + anchorOffset`,
+centred over and lifted above the anchor so the tail points at its head.
+Anchored mode is **mesh-chrome only** (the constructor throws if
+`anchorEntity` is passed without `chromeFill`), forces the legacy
+text-on-box layout (no portrait gutter / inner balloon), and uses
+`boxWidthOverride` for a compact bubble width. Because the dialogue now
+lives on Main — which consults `VisibleComponent` — the text entity is
+given the tag (the box/balloon/indicator meshes and option entities
+already carry it); a screen running `CullingSystem` would strip it, so
+anchored dialogue assumes the entity stays inside the camera view.
+
+**Why:** an over-the-head balloon is a common dialogue presentation and
+the same Yarn runtime / reveal / options / command path should drive it —
+only *where* the chrome is drawn changes. Repositioning the root (and
+letting `HierarchySystem`, which must run after `DialogueSystem`,
+re-lay the children) keeps a single source of truth for layout.
+**Breaks:** mutating the root each frame without `HierarchySystem`
+downstream leaves the children at stale positions; omitting the
+`VisibleComponent` on the text leaves the balloon framed but wordless on
+Main; passing `anchorEntity` in texture mode has no show/hide path and
+throws.
+**Tests:** none yet.
+**Depends on:** rendering — "Three render targets, two behaviors"
+(Main consults `VisibleComponent`); foundation — hierarchy/transform
+dirty propagation (root reposition cascades to children).
+
+## `DialogueStartMessage` routes by node ownership
+
+When more than one `DialogueSystem` is registered (the supported way to
+run independent conversations — see "`DialogueRunner` is per-system"),
+**every** instance receives each `DialogueStartMessage` (DefaultEcs
+publishes to all subscribers). Each instance reacts only if its merged
+Yarn program owns the requested node: `OnDialogueStart` guards on
+`_yarnDialogue.NodeExists(message.StartNode)` and returns otherwise. So
+a message addressed to a node only one system can play is delivered to
+exactly that system; game code does not tag messages with a target.
+
+**Why:** node names are already unique addresses into a runner's
+program set, so they double as the routing key — no extra message field
+or per-system identifier is needed. This is what lets the dialogue demo
+run a cow conversation (node `Start`) and a bird conversation (node
+`Bird`) from two `DialogueSystem` instances without cross-triggering.
+**Breaks:** if two systems load the *same* node name, both react and
+both activate — distinct node names per system are required. Publishing
+a `DialogueStartMessage` for a node no system owns is silently ignored
+(no active conversation, no error).
+**Tests:** none yet.
+**Depends on:** —
 
 ## `DialogueRunner` is per-system, not per-screen
 
@@ -190,14 +264,12 @@ Passing both `sideInset` and a balloon expecting both to apply: only the balloon
 
 ## Open questions
 
-- **Multi-`DialogueSystem` coordination** — if two instances are
-  registered, both will react to the same `DialogueStartMessage`
-  (DefaultEcs publishes to every subscriber). The intended interaction
-  pattern (filter by an additional message field? add a target-system
-  identifier?) is unsettled.
 - **Localization integration** — `DialogueRunner.AddStringTable` and
   `GetLocalizedTextForLine` are exposed but the locale-switching
   workflow isn't documented yet.
+
+(Multi-`DialogueSystem` coordination was an open question; it is now
+settled — see "`DialogueStartMessage` routes by node ownership".)
 
 ## Aspirational direction
 
@@ -218,7 +290,9 @@ The following premises currently have **Tests: none yet**:
 - Yarn content pipeline needs `CopyLocalLockFileAssemblies` +
   `EnableDynamicLoading`
 - `DialogueSystem` constructs its own UI entity hierarchy
-- Dialogue UI renders on the UI render target
+- Dialogue renders on a configurable target — default UI, Main when anchored
+- Anchored dialogue floats above a world entity on the Main target
+- `DialogueStartMessage` routes by node ownership
 - `DialogueRunner` is per-system, not per-screen
 - Yarn commands are surfaced as `DialogueCommandMessage` and auto-advance
 - Line + option text wrap to the box width; `sideInset` reserves side room

@@ -301,12 +301,16 @@ frame where culling, layout, and rendering disagree.
 
 ## `IMeshGenerator.Generate()` returns a triangle list
 
-All canonical generators (`CircleMeshGenerator`, `LineMeshGenerator`,
-`RectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`,
+All canonical generators (`CircleMeshGenerator`, `CircleOutlineMeshGenerator`,
+`LineMeshGenerator`, `RectangleOutlineMeshGenerator`,
+`DashedRectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`,
+`FilledTriangleMeshGenerator`, `FilledPolygonMeshGenerator`,
+`PolygonOutlineMeshGenerator`, `PolylineMeshGenerator`,
 `GradientPathMeshGenerator`, `CompositeMeshGenerator`) return `MeshData`
 whose indices describe a triangle list — every triple of indices is one
 triangle. `MasterRenderSystem` invokes `DrawUserIndexedPrimitives` with
-`PrimitiveType.TriangleList`.
+`PrimitiveType.TriangleList`. The filled triangle/polygon generators rely on
+the mesh path's `CullNone` rasterizer state, so their winding order is free.
 
 **Why:** triangle lists are the lowest common denominator for the
 `BasicEffect` path. Triangle strips or fans would require per-shape

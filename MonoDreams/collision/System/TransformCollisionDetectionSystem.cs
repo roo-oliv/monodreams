@@ -14,6 +14,10 @@ namespace MonoDreams.System.Collision;
 /// <summary>
 /// Collision detection system supporting both BoxColliderComponent (swept AABB) and ConvexColliderComponent (SAT).
 /// Uses ColliderTagComponent marker component to query entities with either collider type.
+/// Broadphase is a uniform spatial grid rebuilt each frame: colliders are bucketed by their
+/// (movement-expanded) world AABB and only same-cell pairs reach the narrowphase, turning the
+/// former all-pairs O(n²) sweep into roughly O(n) for evenly distributed colliders. The emitted
+/// CollisionMessage set is unchanged — the grid only skips pairs that could never overlap.
 /// Runs single-threaded because instance-level polygon buffers (_boxPolyBufA/_boxPolyBufB)
 /// are not thread-safe.
 /// </summary>
@@ -22,8 +26,36 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 {
     private readonly World _world;
     private readonly EntitySet _activeSet;
-    private readonly IEnumerable<Entity> _targets;
     private readonly CreateCollisionMessageDelegate<TCollisionMessage> _createCollisionMessage;
+
+    // ─── broadphase grid (rebuilt each frame) ─────────────────────────────────
+    // A uniform spatial grid replaces the old all-pairs (O(n²)) sweep: colliders
+    // are bucketed by their world AABB and only same-cell pairs are tested. Cell
+    // size adapts to the average collider AABB so small colliders occupy ~one cell
+    // while the few large ones span several. Any positive cell size is correct;
+    // this only balances cells-per-collider against colliders-per-cell.
+    private const float MinCellSize = 8f;
+    private const float CellSizeFactor = 2f;
+
+    private readonly List<ColliderEntry> _entries = new();
+    private readonly Dictionary<long, List<int>> _grid = new();
+    private readonly List<List<int>> _cellPool = new();
+    private readonly HashSet<long> _testedPairs = new();
+    private int _cellsUsed;
+    private float _cellSize;
+
+    /// Per-frame snapshot of one collider: its world AABB (expanded by the frame's
+    /// movement) plus the flags the pair loop needs, captured once so the hot loop
+    /// never re-fetches components.
+    private struct ColliderEntry
+    {
+        public Entity Entity;
+        public IColliderComponent Collider;
+        public bool HasBox;
+        public bool Active;     // non-passive; only enabled colliders are recorded
+        public Vector2 Min;
+        public Vector2 Max;
+    }
 
     public bool IsEnabled { get; set; } = true;
 
@@ -40,17 +72,12 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
         // ColliderTagComponent unifies BoxColliderComponent and ConvexColliderComponent into a single query, but each
         // type has its own passive/enabled semantics — those are checked at runtime in the
-        // collision loop via GetCollider() rather than at query level.
+        // collision loop via GetCollider() rather than at query level. This one set holds
+        // every collider; the grid build classifies them into active/target roles per frame.
         _activeSet = world.GetEntities()
             .With<ColliderTagComponent>()
             .With<TransformComponent>()
             .AsSet();
-
-        // All enabled collider entities are potential targets
-        _targets = world.GetEntities()
-            .With<ColliderTagComponent>()
-            .With<TransformComponent>()
-            .AsEnumerable();
     }
 
     private static void OnBoxColliderAdded(in Entity entity, in BoxColliderComponent _)
@@ -65,46 +92,138 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
     public void Update(GameState state)
     {
-        // Update world vertices for all ConvexColliderComponent entities (_targets is the superset of _activeSet)
-        // TODO: static entities whose transforms never change could skip this with a dirty-flag optimization
-        foreach (var target in _targets)
-        {
-            if (target.Has<ConvexColliderComponent>())
-            {
-                ref var convex = ref target.Get<ConvexColliderComponent>();
-                convex.UpdateWorldVertices(target.Get<TransformComponent>());
-            }
-        }
+        BuildEntries();
+        if (_entries.Count == 0) return;
 
-        // Test collisions
+        BuildGrid();
+        TestCandidatePairs();
+    }
+
+    /// One O(n) pass over every collider: refresh convex world vertices, snapshot
+    /// each enabled collider's world AABB (expanded by its <see cref="TransformComponent.Delta"/>
+    /// so the swept box path can never be pruned), and accumulate the average extent
+    /// used to size grid cells.
+    private void BuildEntries()
+    {
+        _entries.Clear();
+        var extentSum = 0f;
+
         foreach (var entity in _activeSet.GetEntities())
         {
-            var colliderA = GetCollider(entity);
-            if (colliderA == null || colliderA.Passive || !colliderA.Enabled) continue;
+            var transform = entity.Get<TransformComponent>();
 
-            foreach (var target in _targets)
+            // Keep the old contract: refresh world vertices for ALL convex colliders,
+            // including disabled ones (matches the pre-grid behavior).
+            // TODO: static entities whose transforms never change could skip this with a dirty flag.
+            if (entity.Has<ConvexColliderComponent>())
+                entity.Get<ConvexColliderComponent>().UpdateWorldVertices(transform);
+
+            var collider = GetCollider(entity);
+            if (collider == null || !collider.Enabled) continue;
+
+            var hasBox = entity.Has<BoxColliderComponent>();
+            var aabb = hasBox
+                ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, transform.Position)
+                : entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
+
+            // Expand by this frame's movement so a fast mover shares a cell with
+            // anything along its swept path (the box-vs-box narrowphase is swept).
+            var min = aabb.Position;
+            var max = aabb.Position + aabb.Size;
+            var delta = transform.Delta;
+            if (delta.X >= 0f) max.X += delta.X; else min.X += delta.X;
+            if (delta.Y >= 0f) max.Y += delta.Y; else min.Y += delta.Y;
+
+            extentSum += (max.X - min.X) + (max.Y - min.Y);
+            _entries.Add(new ColliderEntry
             {
-                if (target == entity) continue;
+                Entity = entity,
+                Collider = collider,
+                HasBox = hasBox,
+                Active = !collider.Passive,
+                Min = min,
+                Max = max,
+            });
+        }
 
-                var colliderB = GetCollider(target);
-                if (colliderB == null || !colliderB.Enabled) continue;
-                if (!colliderB.SharesLayerWith(colliderA)) continue;
+        // avg of (width + height) / 2 across recorded colliders.
+        _cellSize = MathF.Max(MinCellSize, extentSum / (2f * _entries.Count) * CellSizeFactor);
+    }
 
-                var hasBoxA = entity.Has<BoxColliderComponent>();
-                var hasBoxB = target.Has<BoxColliderComponent>();
+    /// Buckets every recorded collider into each grid cell its expanded AABB overlaps.
+    /// Cell lists are pooled and reused across frames to avoid per-frame allocation.
+    private void BuildGrid()
+    {
+        _grid.Clear();
+        _cellsUsed = 0;
+        var inv = 1f / _cellSize;
 
-                if (hasBoxA && hasBoxB)
+        for (var idx = 0; idx < _entries.Count; idx++)
+        {
+            var e = _entries[idx];
+            var cx0 = (int)MathF.Floor(e.Min.X * inv);
+            var cx1 = (int)MathF.Floor(e.Max.X * inv);
+            var cy0 = (int)MathF.Floor(e.Min.Y * inv);
+            var cy1 = (int)MathF.Floor(e.Max.Y * inv);
+
+            for (var cx = cx0; cx <= cx1; cx++)
+            for (var cy = cy0; cy <= cy1; cy++)
+            {
+                var key = ((long)cx << 32) | (uint)cy;
+                if (!_grid.TryGetValue(key, out var cell))
                 {
-                    // Box-vs-Box: existing swept AABB path (unchanged)
-                    TestBoxVsBox(entity, target, colliderA, colliderB);
+                    cell = RentCell();
+                    _grid[key] = cell;
                 }
-                else
-                {
-                    // Any polygon pair: SAT
-                    TestSAT(entity, target, colliderA, colliderB, hasBoxA, hasBoxB);
-                }
+                cell.Add(idx);
             }
         }
+    }
+
+    /// Tests ordered collider pairs that share a cell, deduped across multi-cell
+    /// overlaps. Because two colliders with overlapping AABBs always share a cell,
+    /// this reproduces the old all-pairs result minus pairs whose AABBs can't
+    /// overlap (which produced no message anyway) — detection output is unchanged.
+    private void TestCandidatePairs()
+    {
+        _testedPairs.Clear();
+
+        foreach (var kv in _grid)
+        {
+            var members = kv.Value;
+            for (var a = 0; a < members.Count; a++)
+            for (var b = 0; b < members.Count; b++)
+            {
+                if (a == b) continue;
+                var i = members[a];
+                var j = members[b];
+
+                var ea = _entries[i];
+                if (!ea.Active) continue;                            // A initiates only if non-passive
+                var eb = _entries[j];
+                if (!eb.Collider.SharesLayerWith(ea.Collider)) continue;
+
+                // Dedup on the ORDERED pair: (A,B) and (B,A) are intentionally kept
+                // distinct (consumers may rely on both symmetric messages), but the
+                // same ordered pair found in two shared cells is tested once.
+                var key = ((long)i << 32) | (uint)j;
+                if (!_testedPairs.Add(key)) continue;
+
+                if (ea.HasBox && eb.HasBox)
+                    TestBoxVsBox(ea.Entity, eb.Entity, ea.Collider, eb.Collider);
+                else
+                    TestSAT(ea.Entity, eb.Entity, ea.Collider, eb.Collider, ea.HasBox, eb.HasBox);
+            }
+        }
+    }
+
+    /// Rents a cleared, reusable cell list from the pool (grown on demand).
+    private List<int> RentCell()
+    {
+        if (_cellsUsed == _cellPool.Count) _cellPool.Add(new List<int>());
+        var cell = _cellPool[_cellsUsed++];
+        cell.Clear();
+        return cell;
     }
 
     private void TestBoxVsBox(Entity entity, Entity target, IColliderComponent colliderA, IColliderComponent colliderB)

@@ -119,21 +119,57 @@ a framework change, not a workaround.
 **Tests:** none yet.
 **Depends on:** —
 
-## Layer-based filtering is a coarse first filter
+## Layer-based filtering is the semantic pair filter
 
 Colliders with non-overlapping `ActiveLayers` sets are never tested
-against each other. Layer membership is a fast first filter that
-gameplay code uses to express groupings like "player vs world",
-"player vs enemy", "projectiles vs everything".
+against each other. Layer membership is the "should these ever collide?"
+filter that gameplay code uses to express groupings like "player vs
+world", "player vs enemy", "projectiles vs everything".
 
-**Why:** without a layer cut, every entity tests against every other
-entity — O(n²) detection. Layers reduce that to O(n²) within each
-layer pair.
+**Why:** layers express intent, not geometry. They are applied per
+candidate pair *after* the spatial-grid broadphase has narrowed the
+field by position (see "Broadphase is a uniform spatial grid"); together
+they keep detection near O(n) for evenly distributed colliders rather
+than all-pairs O(n²).
 **Breaks:** a missing layer membership makes two colliders silently
 not collide — the dev tunes the game logic for hours before realizing
 the layer wasn't set.
 **Tests:** none yet.
-**Depends on:** —
+**Depends on:** "Broadphase is a uniform spatial grid".
+
+## Broadphase is a uniform spatial grid, and it is behavior-preserving
+
+`TransformCollisionDetectionSystem` narrows candidate pairs with a
+uniform spatial grid rebuilt every frame, not an all-pairs sweep. Each
+enabled collider's world AABB — **expanded by its
+`TransformComponent.Delta`** — is bucketed into every grid cell it
+overlaps, and only colliders sharing a cell are pair-tested (deduped on
+the *ordered* pair). The grid changes performance, not results: it emits
+exactly the `CollisionMessage` set the old all-pairs loop did. Two
+properties make that hold: (1) inserting into *all* overlapping cells
+means any two colliders whose AABBs overlap always share a cell, so no
+real contact is pruned; (2) expanding by `Delta` means a fast mover
+shares a cell with anything along its swept path, so the swept
+box-vs-box test is never starved. The dedup key is ordered — (A,B) and
+(B,A) stay distinct — so the symmetric double-message that resolution may
+rely on is preserved.
+
+**Why:** all-pairs detection is O(n²) and stutters in the low hundreds of
+colliders; the grid is ~O(n) for evenly distributed colliders (measured
+~6× faster at 360 balls in the physics demo, and the gap widens with
+count). Cell size adapts to the average collider AABB so small colliders
+occupy ~one cell while the few large ones span several.
+**Breaks:** bucketing by the un-expanded AABB lets a fast collider tunnel
+(its swept path leaves the cells it was bucketed into) — the swept box
+test silently misses contacts. Deduping on the *unordered* pair drops one
+of the two symmetric messages, halving the impulse for resolvers that
+expect both. Inserting into only one cell (e.g. the min-corner cell)
+prunes real contacts whose colliders straddle a cell boundary.
+**Tests:** behavior parity is covered indirectly — `SATCollisionTests`,
+`InfiniteRunnerTests`, and `HeadlessDemoTests` pass unchanged after the
+grid replaced the all-pairs loop.
+**Depends on:** "Swept collision reads `TransformComponent.Delta`";
+"`TransformCollisionDetectionSystem` is single-threaded by design".
 
 ## Collision today couples to `TransformComponent` directly
 
@@ -206,7 +242,7 @@ The following premises currently have **Tests: none yet**:
 - Reference physics pipeline order
 - `TransformCollisionDetectionSystem` is single-threaded by design
 - One collider of each type per entity
-- Layer-based filtering is a coarse first filter
+- Layer-based filtering is the semantic pair filter
 - Collision today couples to `TransformComponent` directly
 - `CollisionMessage` is the contract between detection and consumers
 

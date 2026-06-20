@@ -82,6 +82,55 @@ public class CircleMeshGenerator : IMeshGenerator
 }
 
 /// <summary>
+/// Generates a hollow circle (ring) outline mesh — the circular analog of
+/// <see cref="RectangleOutlineMeshGenerator"/>. The border is built from
+/// <see cref="Segments"/> thick line quads connecting evenly spaced points around
+/// the circumference, so the result is a triangle list just like the other
+/// generators.
+/// </summary>
+public class CircleOutlineMeshGenerator : IMeshGenerator
+{
+    public Vector2 Center { get; set; }
+    public float Radius { get; set; }
+    public float Thickness { get; set; }
+    public Color Color { get; set; }
+    public int Segments { get; set; } = 24;
+
+    public CircleOutlineMeshGenerator(Vector2 center, float radius, float thickness, Color color, int segments = 24)
+    {
+        Center = center;
+        Radius = radius;
+        Thickness = thickness;
+        Color = color;
+        Segments = segments;
+    }
+
+    public MeshData Generate()
+    {
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+        int indexOffset = 0;
+
+        for (int i = 0; i < Segments; i++)
+        {
+            float angle1 = 2 * MathF.PI * i / Segments;
+            float angle2 = 2 * MathF.PI * ((i + 1) % Segments) / Segments;
+
+            var point1 = new Vector2(
+                Center.X + Radius * MathF.Cos(angle1),
+                Center.Y + Radius * MathF.Sin(angle1));
+            var point2 = new Vector2(
+                Center.X + Radius * MathF.Cos(angle2),
+                Center.Y + Radius * MathF.Sin(angle2));
+
+            LineMeshGenerator.AddLine(vertices, indices, point1, point2, Thickness, Color, ref indexOffset);
+        }
+
+        return new MeshData(vertices.ToArray(), indices.ToArray());
+    }
+}
+
+/// <summary>
 /// Generates a line mesh with configurable thickness.
 /// </summary>
 public class LineMeshGenerator : IMeshGenerator
@@ -283,6 +332,153 @@ public class FilledRectangleMeshGenerator : IMeshGenerator
         var indices = new int[] { 0, 1, 2, 0, 2, 3 };
 
         return new MeshData(vertices, indices);
+    }
+}
+
+/// <summary>
+/// Generates a single filled triangle from three points. The renderer draws meshes
+/// with <see cref="Microsoft.Xna.Framework.Graphics.RasterizerState.CullNone"/>, so the
+/// winding order of the three points does not matter.
+/// </summary>
+public class FilledTriangleMeshGenerator : IMeshGenerator
+{
+    public Vector2 A { get; set; }
+    public Vector2 B { get; set; }
+    public Vector2 C { get; set; }
+    public Color Color { get; set; }
+
+    public FilledTriangleMeshGenerator(Vector2 a, Vector2 b, Vector2 c, Color color)
+    {
+        A = a;
+        B = b;
+        C = c;
+        Color = color;
+    }
+
+    public MeshData Generate()
+    {
+        var vertices = new[]
+        {
+            new VertexPositionColor(new Vector3(A, 0), Color),
+            new VertexPositionColor(new Vector3(B, 0), Color),
+            new VertexPositionColor(new Vector3(C, 0), Color),
+        };
+        return new MeshData(vertices, new[] { 0, 1, 2 });
+    }
+}
+
+/// <summary>
+/// Generates a filled convex (or star-convex) polygon by fanning triangles out from the
+/// point set's centroid — the polygonal analog of <see cref="CircleMeshGenerator"/>. Works
+/// for any shape whose centroid "sees" every edge (convex polygons and regular stars).
+/// </summary>
+public class FilledPolygonMeshGenerator : IMeshGenerator
+{
+    public Vector2[] Points { get; set; }
+    public Color Color { get; set; }
+
+    public FilledPolygonMeshGenerator(Vector2[] points, Color color)
+    {
+        Points = points;
+        Color = color;
+    }
+
+    public MeshData Generate()
+    {
+        if (Points == null || Points.Length < 3) return new MeshData();
+
+        var centroid = Vector2.Zero;
+        foreach (var p in Points) centroid += p;
+        centroid /= Points.Length;
+
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+
+        vertices.Add(new VertexPositionColor(new Vector3(centroid, 0), Color));
+        for (var i = 0; i < Points.Length; i++)
+            vertices.Add(new VertexPositionColor(new Vector3(Points[i], 0), Color));
+
+        for (var i = 0; i < Points.Length; i++)
+        {
+            indices.Add(0);
+            indices.Add(1 + i);
+            indices.Add(1 + (i + 1) % Points.Length);
+        }
+
+        return new MeshData(vertices.ToArray(), indices.ToArray());
+    }
+}
+
+/// <summary>
+/// Generates a thick outline around an arbitrary point loop — the general case of
+/// <see cref="RectangleOutlineMeshGenerator"/> and <see cref="CircleOutlineMeshGenerator"/>.
+/// Each consecutive pair of points becomes a thick line quad; with <see cref="Closed"/> the
+/// last point connects back to the first.
+/// </summary>
+public class PolygonOutlineMeshGenerator : IMeshGenerator
+{
+    public Vector2[] Points { get; set; }
+    public float Thickness { get; set; }
+    public Color Color { get; set; }
+    public bool Closed { get; set; }
+
+    public PolygonOutlineMeshGenerator(Vector2[] points, float thickness, Color color, bool closed = true)
+    {
+        Points = points;
+        Thickness = thickness;
+        Color = color;
+        Closed = closed;
+    }
+
+    public MeshData Generate()
+    {
+        if (Points == null || Points.Length < 2) return new MeshData();
+
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+        var indexOffset = 0;
+
+        var segments = Closed ? Points.Length : Points.Length - 1;
+        for (var i = 0; i < segments; i++)
+        {
+            var start = Points[i];
+            var end = Points[(i + 1) % Points.Length];
+            LineMeshGenerator.AddLine(vertices, indices, start, end, Thickness, Color, ref indexOffset);
+        }
+
+        return new MeshData(vertices.ToArray(), indices.ToArray());
+    }
+}
+
+/// <summary>
+/// Generates an open thick path through a list of points (a polyline) — e.g. a checkmark or
+/// a mouth curve. The single-segment case is <see cref="LineMeshGenerator"/>.
+/// </summary>
+public class PolylineMeshGenerator : IMeshGenerator
+{
+    public Vector2[] Points { get; set; }
+    public float Thickness { get; set; }
+    public Color Color { get; set; }
+
+    public PolylineMeshGenerator(Vector2[] points, float thickness, Color color)
+    {
+        Points = points;
+        Thickness = thickness;
+        Color = color;
+    }
+
+    public MeshData Generate()
+    {
+        if (Points == null || Points.Length < 2) return new MeshData();
+
+        var vertices = new List<VertexPositionColor>();
+        var indices = new List<int>();
+        var indexOffset = 0;
+
+        for (var i = 0; i < Points.Length - 1; i++)
+            LineMeshGenerator.AddLine(vertices, indices, Points[i], Points[i + 1], Thickness, Color, ref indexOffset);
+
+        return new MeshData(vertices.ToArray(), indices.ToArray());
     }
 }
 

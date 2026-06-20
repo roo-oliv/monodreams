@@ -65,13 +65,8 @@ public class DemoLauncherScreen : IGameScreen
         _screenController = screenController;
         _world.Subscribe<DemoButtonClicked>(OnDemoButtonClicked);
 
-        var cursorTextures = new Dictionary<CursorType, Texture2D>
-        {
-            [CursorType.Default] = content.Load<Texture2D>("Cursor/default"),
-            [CursorType.Pointer] = content.Load<Texture2D>("Cursor/pointer"),
-            [CursorType.Hand] = content.Load<Texture2D>("Cursor/hand"),
-        };
-        MonoDreams.Cursor.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
+        MonoDreams.Cursor.Cursor.CreateMesh(_world,
+            ShapeBuilder.Arrow(26f, Color.Black, Color.White).Generate(), RenderTargetID.HUD);
 
         BuildUI();
     }
@@ -98,42 +93,27 @@ public class DemoLauncherScreen : IGameScreen
 
     private void BuildUI()
     {
+        // Menu buttons: greyscale ramp (grey outline + dark label, fill-only state). The
+        // label depth must clear the button fill mesh (baked at 0.95 by ButtonMeshPrepSystem).
+        const float buttonTextDepth = 0.96f;
         var style = new ButtonStyle
         {
-            DefaultColor = SproutPalette.TextLight,
-            HoveredColor = SproutPalette.TextHover,
-            DisabledColor = SproutPalette.MutedBrown,
-            BorderColor = SproutPalette.TextLight,
             BorderThickness = 2f,
             Padding = 18f,
             TextScale = 0.22f,
         };
 
         var title = DemoUI.CreateText(_world, "MonoDreams Module Demos", _font,
-            SproutPalette.TextLight, scale: 0.40f, layerDepth: 0.5f);
+            DemoPalette.TextLight, scale: 0.40f, layerDepth: 0.5f);
         var subtitle = DemoUI.CreateText(_world, "Pick a module below to open its working demonstration.", _font,
-            SproutPalette.TextHover, scale: 0.20f, layerDepth: 0.5f);
+            DemoPalette.TextHover, scale: 0.20f, layerDepth: 0.5f);
 
-        var cameraBtn = DemoUI.CreateButton(_world,
-            id: "camera",
-            label: "camera",
-            _font, style,
-            textLayerDepth: 0.6f,
-            activeColor: SproutPalette.TextSelected);
-
-        var physicsBtn = DemoUI.CreateButton(_world,
-            id: "physics",
-            label: "physics",
-            _font, style,
-            textLayerDepth: 0.6f,
-            activeColor: SproutPalette.TextSelected);
-
-        var dialogueBtn = DemoUI.CreateButton(_world,
-            id: "dialogue",
-            label: "dialogue",
-            _font, style,
-            textLayerDepth: 0.6f,
-            activeColor: SproutPalette.TextSelected);
+        var cameraBtn = DemoUI.CreateButton(_world, "camera", "camera", _font, style, buttonTextDepth);
+        var physicsBtn = DemoUI.CreateButton(_world, "physics", "physics", _font, style, buttonTextDepth);
+        var dialogueBtn = DemoUI.CreateButton(_world, "dialogue", "dialogue", _font, style, buttonTextDepth);
+        // A disabled entry shows the muted-grey disabled style (and doesn't dispatch a click).
+        var soonBtn = DemoUI.CreateButton(_world, "soon", "more demos soon", _font, style, buttonTextDepth,
+            disabled: true);
 
         new AutoLayoutBuilder(_world, _viewportManager)
             .CreateRoot(ScreenAnchor.Center)
@@ -146,38 +126,33 @@ public class DemoLauncherScreen : IGameScreen
             .AddSlot(slot => slot.Attach(cameraBtn.container).MeasureWith(_ => cameraBtn.size))
             .AddSlot(slot => slot.Attach(physicsBtn.container).MeasureWith(_ => physicsBtn.size))
             .AddSlot(slot => slot.Attach(dialogueBtn.container).MeasureWith(_ => dialogueBtn.size))
+            .AddSlot(slot => slot.Attach(soonBtn.container).MeasureWith(_ => soonBtn.size))
             .Build();
 
         // Single exit chrome button (top-right) styled as a Q-key chip so it
         // matches the demo header's exit row.
-        var squareButtons = _content.Load<Texture2D>("SproutLands/Buttons/square_26x26");
         var capStyle = new KeyCapStyle
         {
-            SpriteSheet = squareButtons,
-            DefaultSource = SproutSquareButtons.CreamLight,
-            HoverSource = SproutSquareButtons.CreamDark,
-            ActiveSource = SproutSquareButtons.TanDark,
             CapPixels = 32,
             CapLabelScale = 0.13f,
-            CapLabelColor = SproutPalette.WarmBrown,
         };
         var rowStyle = new KeyRowStyle
         {
-            LabelColor = SproutPalette.TextLight,
-            HoverColor = SproutPalette.TextHover,
-            ActiveColor = SproutPalette.TextSelected,
+            LabelColor = DemoPalette.TextLight,
+            HoverColor = DemoPalette.TextHover,
+            ActiveColor = DemoPalette.TextSelected,
             LabelScale = 0.18f,
             Gap = 8f,
-            BackgroundColor = SproutPalette.DarkBgSecondary,
-            HoverBackgroundColor = SproutPalette.DarkBgSecondary,
-            ActiveBackgroundColor = SproutPalette.DarkBgSecondary,
+            BackgroundColor = DemoPalette.DarkBgSecondary,
+            HoverBackgroundColor = DemoPalette.DarkBgSecondary,
+            ActiveBackgroundColor = DemoPalette.DarkBgSecondary,
             BackgroundPaddingX = 10f,
             BackgroundPaddingY = 6f,
         };
         var exitRow = _world.CreateKeyRow(
             id: DemoHeader.ExitId, keyLabel: "Q", rowLabel: "exit",
             font: _font, cap: capStyle, row: rowStyle,
-            layerDepth: 0.95f, target: RenderTargetID.HUD);
+            layerDepth: 0.96f, target: RenderTargetID.HUD);
 
         new AutoLayoutBuilder(_world, _viewportManager)
             .CreateRoot(ScreenAnchor.TopRight, RenderTargetID.HUD)
@@ -194,10 +169,8 @@ public class DemoLauncherScreen : IGameScreen
             new IntrinsicSizingSystem(_world),
             new AutoLayoutSystem(_world, _viewportManager),
             new DemoButtonInteractionSystem(_world),
-            new DemoIconRecolorSystem(_world),
             new HierarchySystem(_world),
-            new CursorPositionSystem(_world, _camera, _viewportManager),
-            new CursorDrawPrepSystem(_world));
+            new CursorPositionSystem(_world, _camera, _viewportManager));
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()

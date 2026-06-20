@@ -76,7 +76,7 @@ public class Game1 : Game
         Logger.Initialize(debugDir);
 
         // Project-wide dark navy theme for all MonoDreams demo screens.
-        FinalDrawSystem.ClearColor = SproutPalette.DarkBg;
+        FinalDrawSystem.ClearColor = DemoPalette.DarkBg;
 
         if (_headless.Enabled)
         {
