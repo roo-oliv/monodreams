@@ -19,9 +19,24 @@ public abstract class AKeyboardInputHandlingSystem : ISystem<GameState>
         if (SkipHardwareRead) return;
         if (ShouldSuppressInput?.Invoke() == true) return;
 
+        // Read the hardware once per frame, then OR-aggregate by action: an action is
+        // "down" this frame if ANY of its mapped keys is down. Each distinct AInputState is
+        // updated exactly once per frame, so multiple keys can drive one action (E OR Enter)
+        // without a later mapping overwriting an earlier one. AInputState.Update derives the
+        // JustPressed/JustReleased edges from the previous committed state, so a single
+        // call per frame with the OR'd value preserves edge detection. One key per action
+        // behaves exactly as before.
+        var keyboard = Keyboard.GetState();
+        var downByAction = new Dictionary<AInputState, bool>();
         foreach (var (inputState, key) in InputMapping)
         {
-            inputState.Update(Keyboard.GetState().IsKeyDown(key), state);
+            var down = keyboard.IsKeyDown(key);
+            downByAction[inputState] = downByAction.TryGetValue(inputState, out var prev) ? prev || down : down;
+        }
+
+        foreach (var (inputState, down) in downByAction)
+        {
+            inputState.Update(down, state);
         }
     }
 
