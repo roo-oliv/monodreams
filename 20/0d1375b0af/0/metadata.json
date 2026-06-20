@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "200d1375b0af",
+  "session_id": "d9b49d30-4a8f-4509-9ca6-ad583bdb86ea",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-20T20:53:29.200192Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Demos/Content/Cursor/default.png",
+    "MonoDreams.Demos/Content/Cursor/hand.png",
+    "MonoDreams.Demos/Content/Cursor/pointer.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/settings_buttons.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_19x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_26x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Basic Charakter Spritesheet.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Free Cow Sprites.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/dialog box medium.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/indicator.png",
+    "MonoDreams.Demos/Content/SproutLands/Emotes/emotes.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/all_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/white_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Tilesets/Grass.png",
+    "MonoDreams.Demos/Content/SproutLands/UI/basic_pack.png",
+    "MonoDreams.Demos/UI/DemoIconRecolorSystem.cs",
+    "MonoDreams.Demos/UI/SproutButtons.cs",
+    "MonoDreams.Demos/UI/SproutIcons.cs",
+    "MonoDreams.Demos/UI/SproutPalette.cs",
+    "MonoDreams/dialogue/DialogueSystem.cs",
+    "MonoDreams/dialogue/demo/DialogueDemoScreen.cs",
+    "MonoDreams/dialogue/docs/overview.md",
+    "MonoDreams/dialogue/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "e527973a-eab6-4efb-9642-cd3937eb143f",
+  "token_usage": {
+    "input_tokens": 27775,
+    "cache_creation_tokens": 756447,
+    "cache_read_tokens": 21033120,
+    "output_tokens": 226295,
+    "api_call_count": 128
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-20T20:53:28.820065Z",
+    "agent_lines": 1399,
+    "human_added": 1895,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3294,
+    "agent_percentage": 42.47115968427444
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/d9b49d30-4a8f-4509-9ca6-ad583bdb86ea.jsonl"
+}

@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "200d1375b0af",
+  "strategy": "manual-commit",
+  "branch": "feat/packages",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Demos/Content/Cursor/default.png",
+    "MonoDreams.Demos/Content/Cursor/hand.png",
+    "MonoDreams.Demos/Content/Cursor/pointer.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/settings_buttons.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_19x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_26x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Basic Charakter Spritesheet.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Free Cow Sprites.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/dialog box medium.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/indicator.png",
+    "MonoDreams.Demos/Content/SproutLands/Emotes/emotes.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/all_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/white_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Tilesets/Grass.png",
+    "MonoDreams.Demos/Content/SproutLands/UI/basic_pack.png",
+    "MonoDreams.Demos/UI/DemoIconRecolorSystem.cs",
+    "MonoDreams.Demos/UI/SproutButtons.cs",
+    "MonoDreams.Demos/UI/SproutIcons.cs",
+    "MonoDreams.Demos/UI/SproutPalette.cs",
+    "MonoDreams/dialogue/DialogueSystem.cs",
+    "MonoDreams/dialogue/demo/DialogueDemoScreen.cs",
+    "MonoDreams/dialogue/docs/overview.md",
+    "MonoDreams/dialogue/docs/premises.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/20/0d1375b0af/0/metadata.json",
+      "transcript": "/20/0d1375b0af/0/full.jsonl",
+      "context": "/20/0d1375b0af/0/context.md",
+      "content_hash": "/20/0d1375b0af/0/content_hash.txt",
+      "prompt": "/20/0d1375b0af/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 27775,
+    "cache_creation_tokens": 756447,
+    "cache_read_tokens": 21033120,
+    "output_tokens": 226295,
+    "api_call_count": 128
+  }
+}
