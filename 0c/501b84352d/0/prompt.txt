@@ -1,0 +1,118 @@
+Let's enhance the physics module's demo:
+ 1. Make the balls half their current sizes.
+ 2. Make the headline explanatory text way shorter, we only need to explain the very core, not everything.
+ 3. Make the two balls colliding to blink brighter colors, independent on who's colliding with whom and their speeds.
+ 4. Make the balls lose a little bit less energy when colliding.
+ 5. Make the input for how many blue and red balls there are to accept up to 999999.
+ 6. Make the blue balls hollow, just painted their borders.
+
+---
+
+Starting on approx. 360 red balls the demo starts stuttering and hanging, are there good optimizations we can do for the collision detection and resolution systems that will allow handling more collisions and colliders? (if there are only speculative and dimishing returns optimizations, don't implement anything)
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   - **First request (physics demo enhancements)** — six explicit changes to the physics module demo:
+     1. Make the balls half their current sizes.
+     2. Make the headline explanatory text way shorter — explain only the very core, not everything.
+     3. Make two balls colliding blink brighter colors, independent of who's colliding with whom and their speeds.
+     4. Make balls lose a little bit less energy when colliding.
+     5. Make the red/blue ball-count inputs accept up to 999999.
+     6. Make the blue balls hollow (just their borders painted).
+   - **Second request (collision optimization)** — "Starting on approx. 360 red balls the demo starts stuttering and hanging, are there good optimizations we can do for the collision detection and resolution systems that will allow handling more collisions and colliders? (if there are only speculative and diminishing returns optimizations, don't implement anything)." After analysis, the user explicitly chose to implement the **"Grid broadphase (engine)"** option (behavior-preserving, engine-wide, with premise update and test run).
+
+2. Key Technical Concepts:
+   - MonoDreams ECS engine: DefaultEcs framework, MonoGame rendering, 13 source modules, shadcn-style distribution.
+   - Pure-data components, behavior-only systems; screen owns pipeline ordering.
+   - Collision: `TransformCollisionDetectionSystem` (broadphase AABB + SAT narrowphase for convex, swept AABB for Box-vs-Box), layer-based filtering, `CollisionMessage`.
+   - Physics demo: `BallBounceSystem` (custom resolution; relies on symmetric A→B and B→A messages for half-push), `FlashComponent`/`FlashSystem`, gated gravity/velocity, speed clamp.
+   - Mesh generators implementing `IMeshGenerator` returning triangle lists; `DrawComponent.SetMeshData`.
+   - Headless verification path: Demos `--headless --screen physics --frames N --capture-every K --exit` with `MONODREAMS_DEBUG_DIR`. Variable timestep (`IsFixedTimeStep = false`) in headless vs fixed 60fps interactive.
+   - `GameState.Time` = raw `ElapsedGameTime` (spikes in headless).
+   - Uniform spatial grid / spatial hash broadphase: bucket colliders by Delta-expanded world AABB, test only same-cell pairs, dedup ordered pairs, O(n²)→~O(n).
+   - Premises files (Why/Breaks/Tests/Depends on format); CLAUDE.md workflow requiring premise updates when invariants change.
+
+3. Files and Code Sections:
+   - **MonoDreams/physics/demo/PhysicsDemoScreen.cs** (heavily modified; final state):
+     - Constants: `MinBallRadius = 5f`, `MaxBallRadius = 10f`, `BlueBallBorder = 2f`, `MaxBallsPerColor = 999999`, `Restitution = 0.92f` (screen-level), `DefaultRedCount = 7`, `DefaultBlueCount = 3`, `_gravityOn = true`, `_floorBoostOn = true` (all restored after benchmark).
+     - In `BallBounceSystem`: `Restitution = 0.92f`, `BallCollisionFlashColor = new(255, 255, 235)`.
+     - `BallColors` helper: `public static (Color Resting, Color Flash) BallColors(BallType type) => type == BallType.Red ? (SproutPalette.Crimson, new Color(255, 90, 80)) : (SproutPalette.SkyBlue, new Color(150, 230, 255));`
+     - `CreateBall`: blue uses `CircleOutlineMeshGenerator(Vector2.Zero, radius, BlueBallBorder, color, segments: 24)`, red uses `CircleMeshGenerator(...)`.
+     - Header: `descriptionLines: new[] { "Balls bounce inside the box under gravity.", "Red balls collide with each other; blue balls don't." }`
+     - Input sizing: `var maxDigits = MaxBallsPerColor.ToString();` `inputBoxWidth = _font.MeasureString(new string('9', maxDigits.Length)).Width * inputTextScale + inputBoxPadding * 2f;` maxLength `maxDigits.Length` (6).
+     - Flash block:
+       ```
+       if (isBallVsBall) { Flash(entity, BallCollisionFlashColor); Flash(other, BallCollisionFlashColor); }
+       else if (impactSpeed > FlashImpactSpeed) { Flash(entity, PhysicsDemoScreen.BallColors(entity.Get<BallTagComponent>().Type).Flash); if (hitFloor && _screen.FloorBoostEnabled) Flash(_screen.FloorVisual); }
+       ```
+     - Two `Flash` overloads: `Flash(Entity e)` (keeps FlashColor) and `Flash(Entity e, Color flashColor)` (sets FlashColor then triggers).
+   - **MonoDreams/rendering/Draw/IMeshGenerator.cs** (added `CircleOutlineMeshGenerator` after `CircleMeshGenerator`): builds a ring from `Segments` thick line quads via `LineMeshGenerator.AddLine`, returns triangle list. Properties Center/Radius/Thickness/Color/Segments(=24).
+   - **MonoDreams/rendering/docs/premises.md**: added `CircleOutlineMeshGenerator` to the canonical generators list in the "IMeshGenerator.Generate() returns a triangle list" premise.
+   - **MonoDreams/collision/System/TransformCollisionDetectionSystem.cs** (core optimization; final grid version):
+     - Class summary updated to describe uniform grid broadphase.
+     - Fields: removed `_targets`; added `MinCellSize=8f`, `CellSizeFactor=2f`, `_entries`, `_grid`, `_cellPool`, `_testedPairs`, `_cellsUsed`, `_cellSize`, and private struct `ColliderEntry { Entity Entity; IColliderComponent Collider; bool HasBox; bool Active; Vector2 Min; Vector2 Max; }`.
+     - `Update`: `BuildEntries(); if (_entries.Count == 0) return; BuildGrid(); TestCandidatePairs();`
+     - `BuildEntries`: iterates `_activeSet.GetEntities()`, calls `UpdateWorldVertices` for ALL convex (even disabled, preserving old behavior), skips null/!Enabled colliders, computes AABB (box via `CollisionRect.FromBounds`, convex via `BroadPhaseAABB`), expands min/max by `transform.Delta`, accumulates extentSum, sets `Active = !collider.Passive`. `_cellSize = MathF.Max(MinCellSize, extentSum / (2f * _entries.Count) * CellSizeFactor)`.
+     - `BuildGrid`: clears grid, computes cell ranges with `inv = 1f/_cellSize`, cell key `((long)cx << 32) | (uint)cy`, rents pooled cell lists.
+     - `TestCandidatePairs`: clears `_testedPairs`, foreach `kv in _grid`, nested loop over members (a,b, a≠b), `if (!ea.Active) continue;`, `if (!eb.Collider.SharesLayerWith(ea.Collider)) continue;`, ordered dedup key `((long)i << 32) | (uint)j`, dispatches TestBoxVsBox or TestSAT (unchanged).
+     - `RentCell`: pools/reuses `List<int>`.
+     - TestBoxVsBox/TestSAT/RayVsRect/DynamicRectVsRect/GetCollider unchanged.
+   - **MonoDreams/collision/docs/premises.md**: renamed "Layer-based filtering is a coarse first filter" → "Layer-based filtering is the semantic pair filter" (removed outdated O(n²) framing); added new premise "Broadphase is a uniform spatial grid, and it is behavior-preserving"; fixed follow-up-debt list reference.
+
+4. Errors and fixes:
+   - **Tuple element name `Rest` reserved** (CS8126): `(Color Rest, Color Flash)` is illegal because `Rest` is a reserved `ValueTuple` member name. Fixed by renaming to `(Color Resting, Color Flash)`.
+   - **Balls escaping the box in headless** (during feature verification): Investigated and confirmed PRE-EXISTING and not caused by the size halving — restoring original radius 10-20 still emptied the box. Root cause: headless variable timestep (`IsFixedTimeStep = false`) dt spikes tunnel balls through discrete-SAT walls; interactive uses fixed 60fps so containment holds. Reported to user as a caveat; did not "fix" it (out of scope, engine/host issue). User did not object.
+
+5. Problem Solving:
+   - Designed a behavior-preserving grid broadphase: emits the identical `CollisionMessage` set as the old all-pairs loop. Correctness rests on (1) inserting each collider into ALL cells its AABB overlaps (overlapping AABBs always share a cell), (2) expanding AABBs by Delta so the swept box path isn't pruned, (3) ordered-pair dedup so symmetric double-messages survive.
+   - Validated via full test suite (32/32 pass) and a clean before/after benchmark at 360 balls.
+
+6. All user messages:
+   - "Let's enhance the physics module's demo: 1. Make the balls half their current sizes. 2. Make the headline explanatory text way shorter, we only need to explain the very core, not everything. 3. Make the two balls colliding to blink brighter colors, independent on who's colliding with whom and their speeds. 4. Make the balls lose a little bit less energy when colliding. 5. Make the input for how many blue and red balls there are to accept up to 999999. 6. Make the blue balls hollow, just painted their borders."
+   - "Starting on approx. 360 red balls the demo starts stuttering and hanging, are there good optimizations we can do for the collision detection and resolution systems that will allow handling more collisions and colliders? (if there are only speculative and diminishing returns optimizations, don't implement anything)"
+   - AskUserQuestion answer: "Grid broadphase (engine)"
+   - (No security-relevant constraints or sensitive-file instructions were stated by the user.)
+
+7. Pending Tasks:
+   - None explicitly pending. Both requests are complete. Nothing has been committed; the user has not asked to commit. (Earlier I noted "Nothing is committed — let me know if you'd like me to commit" after the feature work.)
+
+8. Current Work:
+   Immediately before this summary, I completed the collision grid-broadphase optimization the user approved. Final steps performed: updated `MonoDreams/collision/docs/premises.md` (renamed the layer premise, added the "Broadphase is a uniform spatial grid, and it is behavior-preserving" premise, fixed the follow-up-debt reference), then ran a final full-solution build which succeeded ("Compilação com êxito. / 0 Erro(s)") and removed the temporary benchmark backup `/tmp/PhysicsDemoScreen.bench.bak`. The benchmark proved the win: at 360 balls over 600 frames, O(n²) took 8.66s accumulated game-time vs the grid's 1.36s (~6× faster, gap widening with count). All 32 tests pass with the grid version. The demo file is restored to proper settings (7 red / 3 blue, gravity & floor-boost on, radius 5-10), and the detection file holds the grid version (confirmed `git stash pop` restored it; grep for old `foreach (var target in _targets)` loop returns 0).
+
+9. Optional Next Step:
+   No next step without user confirmation. Both the feature work and the approved grid-broadphase optimization are complete, verified (build clean, 32/32 tests pass, ~6× benchmark improvement), and the workspace is restored to its intended state. The only outstanding open item is whether to commit — but committing should only happen if the user explicitly asks (the user has not, and committing is not in line with any pending explicit request). I would wait for the user to direct the next action (e.g., commit, further tuning, or a new task).
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+Playing with the physics module demo I've noticed that the balls doesn't sit still and reach equilibrium/stableness under gravity on and floor boost off, this is unexpected, it seems that they're processing infinetely small collisions and constantly shaking and overlapping each other when using a high number of balls. Why is this and is there a graceful/nice way to deal with this? [Image #1]
+
+---
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-06-15 às 15.06.00.png]
+
+---
+
+Let's proceed with your recommendation then, implement it
+
+---
+
+This is great, but there is one thing left to investigate: the balls keep overlapping a little with each other, specially as they come to resting state, instead of only sitting tangent to each other.
+
+---
+
+That's better, but there still uneasiness when the balls are supposedtly resting: they stop blinking bright so I supposed collisions are being ignored, but they stull overlap a little with each other and keeps changing slightly from one position to another, back and forfth, instead of staying still. Also, increase from 16 to 32 sides the collider.
+
+---
+
+Continue
+
+---
+
+There is a weird thing that happens now, as a red ball slows down it starts stop reacting to being hit by other balls, effetively becoming completely still, even when hit by a rapid moving ball. It should instead absorb part of the other ball's energy and go in the appropriate vector resulting from the collision.

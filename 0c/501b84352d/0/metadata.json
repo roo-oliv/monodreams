@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "0c501b84352d",
+  "session_id": "0f7de2e3-9ed6-4f27-a233-22c748c4d05d",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-20T20:09:13.79966Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "MonoDreams/collision/System/TransformCollisionDetectionSystem.cs",
+    "MonoDreams/collision/docs/premises.md",
+    "MonoDreams/physics/demo/PhysicsDemoScreen.cs",
+    "MonoDreams/rendering/Draw/IMeshGenerator.cs",
+    "MonoDreams/rendering/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "ea4a3209-10a7-46c6-ad75-bbe685e21dc2",
+  "token_usage": {
+    "input_tokens": 24312,
+    "cache_creation_tokens": 769958,
+    "cache_read_tokens": 15227675,
+    "output_tokens": 248025,
+    "api_call_count": 110
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-20T20:09:13.514504Z",
+    "agent_lines": 814,
+    "human_added": 1795,
+    "human_modified": 7,
+    "human_removed": 0,
+    "total_committed": 2616,
+    "agent_percentage": 31.116207951070336
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/0f7de2e3-9ed6-4f27-a233-22c748c4d05d.jsonl"
+}

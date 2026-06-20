@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "0c501b84352d",
+  "strategy": "manual-commit",
+  "branch": "feat/packages",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "MonoDreams/collision/System/TransformCollisionDetectionSystem.cs",
+    "MonoDreams/collision/docs/premises.md",
+    "MonoDreams/physics/demo/PhysicsDemoScreen.cs",
+    "MonoDreams/rendering/Draw/IMeshGenerator.cs",
+    "MonoDreams/rendering/docs/premises.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/501b84352d/0/metadata.json",
+      "transcript": "/0c/501b84352d/0/full.jsonl",
+      "context": "/0c/501b84352d/0/context.md",
+      "content_hash": "/0c/501b84352d/0/content_hash.txt",
+      "prompt": "/0c/501b84352d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24312,
+    "cache_creation_tokens": 769958,
+    "cache_read_tokens": 15227675,
+    "output_tokens": 248025,
+    "api_call_count": 110
+  }
+}
