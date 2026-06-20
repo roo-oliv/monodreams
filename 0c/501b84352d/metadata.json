@@ -3,9 +3,28 @@
   "checkpoint_id": "0c501b84352d",
   "strategy": "manual-commit",
   "branch": "feat/packages",
-  "checkpoints_count": 7,
+  "checkpoints_count": 8,
   "files_touched": [
+    "MonoDreams.Demos/Content/Cursor/default.png",
+    "MonoDreams.Demos/Content/Cursor/hand.png",
+    "MonoDreams.Demos/Content/Cursor/pointer.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/settings_buttons.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_19x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_26x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Basic Charakter Spritesheet.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Free Cow Sprites.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/dialog box medium.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/indicator.png",
+    "MonoDreams.Demos/Content/SproutLands/Emotes/emotes.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/all_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/white_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Tilesets/Grass.png",
+    "MonoDreams.Demos/Content/SproutLands/UI/basic_pack.png",
+    "MonoDreams.Demos/UI/DemoIconRecolorSystem.cs",
     "MonoDreams.Demos/UI/DemoUI.cs",
+    "MonoDreams.Demos/UI/SproutButtons.cs",
+    "MonoDreams.Demos/UI/SproutIcons.cs",
+    "MonoDreams.Demos/UI/SproutPalette.cs",
     "MonoDreams/collision/System/TransformCollisionDetectionSystem.cs",
     "MonoDreams/collision/docs/premises.md",
     "MonoDreams/physics/demo/PhysicsDemoScreen.cs",
@@ -30,13 +49,20 @@
       "context": "/0c/501b84352d/1/context.md",
       "content_hash": "/0c/501b84352d/1/content_hash.txt",
       "prompt": "/0c/501b84352d/1/prompt.txt"
+    },
+    {
+      "metadata": "/0c/501b84352d/2/metadata.json",
+      "transcript": "/0c/501b84352d/2/full.jsonl",
+      "context": "/0c/501b84352d/2/context.md",
+      "content_hash": "/0c/501b84352d/2/content_hash.txt",
+      "prompt": "/0c/501b84352d/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 30006,
-    "cache_creation_tokens": 1005947,
-    "cache_read_tokens": 29901814,
-    "output_tokens": 367734,
-    "api_call_count": 204
+    "input_tokens": 58384,
+    "cache_creation_tokens": 1925398,
+    "cache_read_tokens": 77813353,
+    "output_tokens": 582641,
+    "api_call_count": 363
   }
 }

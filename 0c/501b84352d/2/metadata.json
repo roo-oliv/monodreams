@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "0c501b84352d",
+  "session_id": "554105c6-d588-4c1c-b3ef-c95141a41597",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-20T20:09:18.649015Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Demos/Content/Cursor/default.png",
+    "MonoDreams.Demos/Content/Cursor/hand.png",
+    "MonoDreams.Demos/Content/Cursor/pointer.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/settings_buttons.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_19x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Buttons/square_26x26.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Basic Charakter Spritesheet.png",
+    "MonoDreams.Demos/Content/SproutLands/Characters/Free Cow Sprites.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/dialog box medium.png",
+    "MonoDreams.Demos/Content/SproutLands/Dialogue/indicator.png",
+    "MonoDreams.Demos/Content/SproutLands/Emotes/emotes.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/all_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Icons/white_icons.png",
+    "MonoDreams.Demos/Content/SproutLands/Tilesets/Grass.png",
+    "MonoDreams.Demos/Content/SproutLands/UI/basic_pack.png",
+    "MonoDreams.Demos/UI/DemoIconRecolorSystem.cs",
+    "MonoDreams.Demos/UI/SproutButtons.cs",
+    "MonoDreams.Demos/UI/SproutIcons.cs",
+    "MonoDreams.Demos/UI/SproutPalette.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "f9119769-0985-473d-802d-fce03de8af16",
+  "token_usage": {
+    "input_tokens": 28378,
+    "cache_creation_tokens": 919451,
+    "cache_read_tokens": 47911539,
+    "output_tokens": 214907,
+    "api_call_count": 159
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-20T20:09:18.196014Z",
+    "agent_lines": 0,
+    "human_added": 1543,
+    "human_modified": 1080,
+    "human_removed": 0,
+    "total_committed": 1543,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/554105c6-d588-4c1c-b3ef-c95141a41597.jsonl"
+}
