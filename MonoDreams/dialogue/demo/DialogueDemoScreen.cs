@@ -63,12 +63,15 @@ public class DialogueDemoScreen : IGameScreen
     private const float DialogueBalloonPadding = 14f;
 
     // The bird's over-the-head speech balloon (anchored DialogueSystem on the Main target). A
-    // compact tailed bubble that floats above the bird and tracks it. Kept short so it clears the
-    // top header band; placement is tuned so the balloon top stays below the header.
-    private const float BirdBalloonWidth = 360f;
-    private const float BirdBalloonHeight = 124f;
+    // compact tailed bubble that floats over the bird and tracks it. It now sizes dynamically to
+    // its text (≤ BirdBalloonMaxWidth) and flips above/below the bird to stay inside a safe area
+    // (the camera view inset below the top header), so the constants only cap the size + tune text.
+    private const float BirdBalloonMaxWidth = 300f;     // MAX content width — the bubble stays narrow
+    private const float BirdBalloonHeight = 124f;       // initial height; resized to the text
     private const float BirdBalloonTextScale = 0.26f;
     private const float BirdBalloonIndicatorSize = 34f;
+    // Top header band height (world px at zoom 1) the balloon's safe area must clear (HUD overlay).
+    private const float HeaderBandHeight = 115f;
 
     // The in-box emote portrait: a mesh frame (white outline, black fill) with the speaker's
     // mesh face glyph centred inside it.
@@ -78,8 +81,10 @@ public class DialogueDemoScreen : IGameScreen
     private static readonly Vector2 PlayerSpawn = new(40f, 90f);
     // Upper-left, but low enough that the above-head "E to talk" prompt clears the header banner.
     private static readonly Vector2 NpcPosition = new(-300f, -60f);
-    // Upper-right. Low enough that the bird's over-head balloon clears the centered top header.
-    private static readonly Vector2 BirdPosition = new(330f, -20f);
+    // Genuine upper-RIGHT corner. There is no room above the bird for the balloon (the head is near
+    // the camera top, under the header), so the anchored balloon auto-flips BELOW the bird — the
+    // camera-aware placement we want to showcase. (Feet at the transform; body rises toward -Y.)
+    private static readonly Vector2 BirdPosition = new(300f, -150f);
 
     private readonly ContentManager _content;
     private readonly GraphicsDevice _graphicsDevice;
@@ -143,10 +148,10 @@ public class DialogueDemoScreen : IGameScreen
         var playerMark = CreatePlayer();
         var (npcMark, npcPrompt) = CreateNpc(
             out _npc, NpcPosition, DialogueGlyphs.CowShape(CowBodyRadius), "DialogueDemoCow",
-            CowBodyRadius, "E to talk");
+            CowBodyRadius);
         var (birdMark, birdPrompt) = CreateNpc(
             out _bird, BirdPosition, DialogueGlyphs.BirdShape(BirdBodyRadius), "DialogueDemoBird",
-            BirdBodyRadius, "E to talk");
+            BirdBodyRadius);
 
         // Cow conversation (node "Start"): a fixed bottom-of-screen box with a left portrait
         // gutter. Box / balloon / indicator are generated meshes (white outline, black fill).
@@ -170,9 +175,13 @@ public class DialogueDemoScreen : IGameScreen
             indicatorColor: Color.White);
 
         // Bird conversation (node "Bird"): the SAME dialogue engine in its anchored mode — a
-        // compact tailed speech balloon on the Main target that floats above the bird and tracks
-        // it. No portrait gutter; a warm cream chrome distinguishes it from the cow's box. Both
-        // DialogueSystems hear every DialogueStartMessage but only react to nodes they own.
+        // borderless, rounded speech balloon on the Main target that floats over the bird and
+        // tracks it. It sizes to its text (≤ BirdBalloonMaxWidth) and flips above/below the bird to
+        // stay inside a safe area: the camera view with the TOP inset past the HUD header band and
+        // small side/bottom margins (the header is a HUD overlay, not part of camera bounds — we
+        // inset the provided rect so the balloon avoids it). No outline (the balloon draws fill
+        // only); a warm dark chrome distinguishes it from the cow's box. Both DialogueSystems hear
+        // every DialogueStartMessage but only react to nodes they own.
         var birdDialogue = new DialogueSystem(
             _world,
             dialogBoxTexture: null,
@@ -184,15 +193,16 @@ public class DialogueDemoScreen : IGameScreen
             new[] { CompileYarn(BirdYarnSource) },
             textScale: BirdBalloonTextScale,
             indicatorSize: BirdBalloonIndicatorSize,
+            balloonPadding: DialogueBalloonPadding,
             boxHeight: BirdBalloonHeight,
             chromeFill: new Color(24, 26, 34),
-            chromeOutline: new Color(250, 224, 150),
             chromeThickness: 2f,
             indicatorColor: new Color(250, 224, 150),
             renderTarget: RenderTargetID.Main,
             anchorEntity: _bird,
             anchorOffset: new Vector2(0f, -2.7f * BirdBodyRadius),
-            boxWidthOverride: BirdBalloonWidth);
+            boxWidthOverride: BirdBalloonMaxWidth,
+            anchorViewBounds: BirdBalloonSafeArea);
 
         // A single emote frame in the cow box's left gutter shows whoever is speaking.
         var portrait = CreatePortraitSlot(cowDialogue.PortraitGutterBounds);
@@ -272,11 +282,11 @@ public class DialogueDemoScreen : IGameScreen
     }
 
     /// Creates an NPC mesh character at <paramref name="position"/> (feet at the transform) with an
-    /// above-head reaction-mark child and an "in range" interact prompt. Returns the NPC entity via
-    /// <paramref name="npc"/> and (its reaction-mark child, its prompt child).
-    private (Entity mark, Entity prompt) CreateNpc(
+    /// above-head reaction-mark child and an "in range" interact banner. Returns the NPC entity via
+    /// <paramref name="npc"/> and (its reaction-mark child, its banner part entities).
+    private (Entity mark, Entity[] promptParts) CreateNpc(
         out Entity npc, Vector2 position, IMeshGenerator shape, string infoName,
-        float bodyRadius, string promptText)
+        float bodyRadius)
     {
         npc = _world.CreateEntity();
         npc.Set(new EntityInfoComponent("NPC", infoName));
@@ -288,28 +298,115 @@ public class DialogueDemoScreen : IGameScreen
 
         var mark = CreateReactionChild(npc, new Vector2(0, -2f * bodyRadius - 18f));
 
-        // Interact prompt centred just above the head — shown only when the player is in range.
-        const float promptScale = 0.26f;
-        var measured = _font.MeasureString(promptText);
-        var prompt = _world.CreateEntity();
-        prompt.Set(new EntityInfoComponent("DialogueDemo", "InteractPrompt"));
-        prompt.Set(new TransformComponent(new Vector2(-measured.Width * promptScale / 2f, -2f * bodyRadius - 30f)));
-        prompt.SetParent(npc);
-        prompt.Set(new DynamicTextComponent
+        // Lifted a few pixels higher than the old single-line prompt for breathing room.
+        var promptParts = CreatePromptBanner(npc, new Vector2(0, -2f * bodyRadius - 44f));
+
+        return (mark, promptParts);
+    }
+
+    // The above-head interact banner ("[E] to talk"): a black background rectangle, a keyboard
+    // key-cap square (outline + fill) with a white "E", and a white "to talk" label. Several Main-
+    // target children of the NPC, all parented and toggled together by NpcInteractionSystem.
+    private const float PromptLabelScale = 0.22f;   // smaller than the old 0.26 single-line prompt
+    private const float PromptCapPixels = 28f;      // the key-cap square
+    private const float PromptCapLabelScale = 0.20f;
+    private const float PromptGap = 8f;             // between cap and label
+    private const float PromptPadX = 9f;            // black-bg padding
+    private const float PromptPadY = 6f;
+    // Layer depths above the field/NPC: bg < cap < letter/label (the old prompt sat at ~0.63).
+    private const float PromptBgDepth = 0.63f;
+    private const float PromptCapDepth = 0.64f;
+    private const float PromptTextDepth = 0.65f;
+
+    /// Builds the key-cap "[E] to talk" banner as children of <paramref name="parent"/>, centred
+    /// over the head at <paramref name="anchor"/> (the local bottom-centre of the banner). Returns
+    /// every part entity so NpcInteractionSystem can show/hide them together. No VisibleComponent
+    /// is set here — the banner is hidden until the player is in range.
+    private Entity[] CreatePromptBanner(Entity parent, Vector2 anchor)
+    {
+        const string label = "to talk";
+        var capStyle = new KeyCapStyle();  // reuse the sidebar key-cap colours/spacing for consistency
+
+        var labelMeasured = _font.MeasureString(label);
+        var labelSize = new Vector2(labelMeasured.Width * PromptLabelScale, labelMeasured.Height * PromptLabelScale);
+        var contentWidth = PromptCapPixels + PromptGap + labelSize.X;
+        var contentHeight = MathHelper.Max(PromptCapPixels, labelSize.Y);
+        var bannerWidth = contentWidth + PromptPadX * 2f;
+        var bannerHeight = contentHeight + PromptPadY * 2f;
+
+        // Origin at the banner's top-left, centred horizontally over the head and sitting just above
+        // the anchor (its bottom edge at the anchor's Y).
+        var topLeft = anchor + new Vector2(-bannerWidth / 2f, -bannerHeight);
+
+        // Black background rectangle behind the whole banner.
+        var bg = _world.CreateEntity();
+        bg.Set(new EntityInfoComponent("DialogueDemo", "PromptBg"));
+        bg.Set(new TransformComponent(topLeft));
+        bg.SetParent(parent);
+        var bgDraw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = PromptBgDepth };
+        bgDraw.SetMeshData(new FilledRectangleMeshGenerator(
+            new Rectangle(0, 0, (int)bannerWidth, (int)bannerHeight), Color.Black));
+        bg.Set(bgDraw);
+
+        // Key-cap square (outline + fill) — vertically centred in the content row.
+        var capOffset = topLeft + new Vector2(PromptPadX, PromptPadY + (contentHeight - PromptCapPixels) / 2f);
+        var cap = _world.CreateEntity();
+        cap.Set(new EntityInfoComponent("DialogueDemo", "PromptCap"));
+        cap.Set(new TransformComponent(capOffset));
+        cap.SetParent(parent);
+        var capDraw = new DrawComponent { Target = RenderTargetID.Main, LayerDepth = PromptCapDepth };
+        capDraw.SetMeshData(ShapeBuilder.Panel(
+            new Rectangle(0, 0, (int)PromptCapPixels, (int)PromptCapPixels),
+            capStyle.FillColor, capStyle.OutlineColor, capStyle.OutlineThickness));
+        cap.Set(capDraw);
+
+        // The "E" — white, centred inside the cap.
+        var capLetterMeasured = _font.MeasureString("E");
+        var capLetterSize = new Vector2(capLetterMeasured.Width * PromptCapLabelScale,
+                                        capLetterMeasured.Height * PromptCapLabelScale);
+        var capLetterOffset = capOffset + new Vector2(
+            (PromptCapPixels - capLetterSize.X) / 2f,
+            (PromptCapPixels - capLetterSize.Y) / 2f);
+        var letter = _world.CreateEntity();
+        letter.Set(new EntityInfoComponent("DialogueDemo", "PromptCapLetter"));
+        letter.Set(new TransformComponent(capLetterOffset));
+        letter.SetParent(parent);
+        letter.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Main,
-            LayerDepth = 0.63f,
-            TextContent = promptText,
+            LayerDepth = PromptTextDepth,
+            TextContent = "E",
             Font = _font,
-            Color = DemoPalette.TextSelected,
-            Scale = promptScale,
+            Color = Color.White,
+            Scale = PromptCapLabelScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
         });
-        prompt.Set(new DrawComponent { Type = DrawElementType.Text, Target = RenderTargetID.Main });
-        // No VisibleComponent yet — NpcInteractionSystem toggles it.
+        letter.Set(new DrawComponent { Type = DrawElementType.Text, Target = RenderTargetID.Main });
 
-        return (mark, prompt);
+        // The "to talk" label — white, to the right of the cap, vertically centred in the row.
+        var labelOffset = topLeft + new Vector2(
+            PromptPadX + PromptCapPixels + PromptGap,
+            PromptPadY + (contentHeight - labelSize.Y) / 2f);
+        var labelEntity = _world.CreateEntity();
+        labelEntity.Set(new EntityInfoComponent("DialogueDemo", "PromptLabel"));
+        labelEntity.Set(new TransformComponent(labelOffset));
+        labelEntity.SetParent(parent);
+        labelEntity.Set(new DynamicTextComponent
+        {
+            Target = RenderTargetID.Main,
+            LayerDepth = PromptTextDepth,
+            TextContent = label,
+            Font = _font,
+            Color = Color.White,
+            Scale = PromptLabelScale,
+            IsRevealed = true,
+            VisibleCharacterCount = int.MaxValue,
+        });
+        labelEntity.Set(new DrawComponent { Type = DrawElementType.Text, Target = RenderTargetID.Main });
+
+        // No VisibleComponent yet — NpcInteractionSystem toggles all parts when in range.
+        return new[] { bg, cap, letter, labelEntity };
     }
 
     /// An above-head reaction-mark mesh, child of a character on the Main target. Starts with an
@@ -434,6 +531,23 @@ public class DialogueDemoScreen : IGameScreen
     public void ResetPlayer()
     {
         if (_player.IsAlive) _player.Get<TransformComponent>().Position = PlayerSpawn;
+    }
+
+    /// The WORLD-space safe rectangle the bird's anchored balloon must stay inside: the camera's
+    /// current view, with the TOP inset past the HUD header band and small side/bottom margins so
+    /// the balloon clears the centered top header (a HUD overlay outside camera bounds). At zoom 1
+    /// one world unit is one virtual pixel, so the header band height applies directly.
+    private Rectangle BirdBalloonSafeArea()
+    {
+        const int sideMargin = 16;
+        const int bottomMargin = 16;
+        var view = _camera.VirtualScreenBounds;
+        var topInset = (int)(HeaderBandHeight / _camera.Zoom);
+        return new Rectangle(
+            view.Left + sideMargin,
+            view.Top + topInset,
+            view.Width - 2 * sideMargin,
+            view.Height - topInset - bottomMargin);
     }
 
     // ─── pipeline ────────────────────────────────────────────────────────────
@@ -656,9 +770,10 @@ public sealed class PlayerMovementSystem : AEntitySetSystem<GameState>
     }
 }
 
-/// One interactable NPC for <see cref="NpcInteractionSystem"/>: the character entity, its
-/// above-head prompt, and the Yarn node its <see cref="DialogueStartMessage"/> kicks off.
-public readonly record struct NpcInteractionTarget(Entity Npc, Entity Prompt, string StartNode);
+/// One interactable NPC for <see cref="NpcInteractionSystem"/>: the character entity, the entities
+/// making up its above-head key-cap banner (all toggled together), and the Yarn node its
+/// <see cref="DialogueStartMessage"/> kicks off.
+public readonly record struct NpcInteractionTarget(Entity Npc, Entity[] PromptParts, string StartNode);
 
 /// Shows a "press E" prompt when the player is near any NPC and, on the interact edge, publishes a
 /// <see cref="DialogueStartMessage"/> for the nearest in-range one (node-ownership routing then
@@ -691,7 +806,7 @@ public sealed class NpcInteractionSystem : ISystem<GameState>
 
         if (_dialogueActive())
         {
-            foreach (var t in _targets) SetPromptVisible(t.Prompt, false);
+            foreach (var t in _targets) SetPromptVisible(t.PromptParts, false);
             return;
         }
 
@@ -701,10 +816,10 @@ public sealed class NpcInteractionSystem : ISystem<GameState>
 
         foreach (var t in _targets)
         {
-            if (!t.Npc.IsAlive) { SetPromptVisible(t.Prompt, false); continue; }
+            if (!t.Npc.IsAlive) { SetPromptVisible(t.PromptParts, false); continue; }
             var distSq = Vector2.DistanceSquared(playerPos, t.Npc.Get<TransformComponent>().Position);
             var inRange = distSq <= _rangeSq;
-            SetPromptVisible(t.Prompt, inRange);
+            SetPromptVisible(t.PromptParts, inRange);
             if (inRange && distSq <= bestDistSq) { bestDistSq = distSq; nearest = t; }
         }
 
@@ -712,12 +827,17 @@ public sealed class NpcInteractionSystem : ISystem<GameState>
             _world.Publish(new DialogueStartMessage(target.Npc, target.StartNode));
     }
 
-    private static void SetPromptVisible(Entity prompt, bool visible)
+    // The banner is several Main-target child entities (bg, cap, letter, label); Main gates each on
+    // its own VisibleComponent, so all parts toggle together.
+    private static void SetPromptVisible(Entity[] promptParts, bool visible)
     {
-        if (!prompt.IsAlive) return;
-        var has = prompt.Has<VisibleComponent>();
-        if (visible && !has) prompt.Set<VisibleComponent>();
-        else if (!visible && has) prompt.Remove<VisibleComponent>();
+        foreach (var part in promptParts)
+        {
+            if (!part.IsAlive) continue;
+            var has = part.Has<VisibleComponent>();
+            if (visible && !has) part.Set<VisibleComponent>();
+            else if (!visible && has) part.Remove<VisibleComponent>();
+        }
     }
 
     public void Dispose() => GC.SuppressFinalize(this);
@@ -873,8 +993,12 @@ public sealed class DialogueDemoInputSystem : AKeyboardInputHandlingSystem
         InputMapping = new List<(AInputState inputState, Keys)>
         {
             (interact, Keys.E),
+            (interact, Keys.Enter),
+            (interact, Keys.Space),
             (up, Keys.Up),
+            (up, Keys.W),
             (down, Keys.Down),
+            (down, Keys.S),
         };
     }
 }
