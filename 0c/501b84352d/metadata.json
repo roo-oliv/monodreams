@@ -3,7 +3,7 @@
   "checkpoint_id": "0c501b84352d",
   "strategy": "manual-commit",
   "branch": "feat/packages",
-  "checkpoints_count": 8,
+  "checkpoints_count": 9,
   "files_touched": [
     "MonoDreams.Demos/Content/Cursor/default.png",
     "MonoDreams.Demos/Content/Cursor/hand.png",
@@ -56,13 +56,20 @@
       "context": "/0c/501b84352d/2/context.md",
       "content_hash": "/0c/501b84352d/2/content_hash.txt",
       "prompt": "/0c/501b84352d/2/prompt.txt"
+    },
+    {
+      "metadata": "/0c/501b84352d/3/metadata.json",
+      "transcript": "/0c/501b84352d/3/full.jsonl",
+      "context": "/0c/501b84352d/3/context.md",
+      "content_hash": "/0c/501b84352d/3/content_hash.txt",
+      "prompt": "/0c/501b84352d/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 58384,
-    "cache_creation_tokens": 1925398,
-    "cache_read_tokens": 77813353,
-    "output_tokens": 582641,
-    "api_call_count": 363
+    "input_tokens": 62788,
+    "cache_creation_tokens": 2076938,
+    "cache_read_tokens": 82479325,
+    "output_tokens": 634651,
+    "api_call_count": 401
   }
 }
