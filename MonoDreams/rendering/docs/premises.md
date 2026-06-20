@@ -304,9 +304,10 @@ frame where culling, layout, and rendering disagree.
 All canonical generators (`CircleMeshGenerator`, `CircleOutlineMeshGenerator`,
 `LineMeshGenerator`, `RectangleOutlineMeshGenerator`,
 `DashedRectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`,
-`FilledTriangleMeshGenerator`, `FilledPolygonMeshGenerator`,
-`PolygonOutlineMeshGenerator`, `PolylineMeshGenerator`,
-`GradientPathMeshGenerator`, `CompositeMeshGenerator`) return `MeshData`
+`FilledRoundedRectangleMeshGenerator`, `FilledTriangleMeshGenerator`,
+`FilledPolygonMeshGenerator`, `PolygonOutlineMeshGenerator`,
+`PolylineMeshGenerator`, `GradientPathMeshGenerator`,
+`CompositeMeshGenerator`) return `MeshData`
 whose indices describe a triangle list — every triple of indices is one
 triangle. `MasterRenderSystem` invokes `DrawUserIndexedPrimitives` with
 `PrimitiveType.TriangleList`. The filled triangle/polygon generators rely on

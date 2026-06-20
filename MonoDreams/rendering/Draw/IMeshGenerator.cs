@@ -336,6 +336,62 @@ public class FilledRectangleMeshGenerator : IMeshGenerator
 }
 
 /// <summary>
+/// Generates a filled rounded rectangle: straight edges with quarter-circle corner arcs.
+/// The outline is the rectangle inset by <see cref="Radius"/> on each corner, with each
+/// corner replaced by a <see cref="CornerSegments"/>-segment arc; that closed point loop is
+/// then triangulated by fanning from the centre (the rect's centroid "sees" every edge, so the
+/// same centroid-fan <see cref="FilledPolygonMeshGenerator"/> uses is valid). A radius of zero
+/// degenerates to a plain filled rectangle. Used for borderless speech-balloon bodies.
+/// </summary>
+public class FilledRoundedRectangleMeshGenerator : IMeshGenerator
+{
+    public Rectangle Bounds { get; set; }
+    public float Radius { get; set; }
+    public Color Color { get; set; }
+    public int CornerSegments { get; set; } = 5;
+
+    public FilledRoundedRectangleMeshGenerator(Rectangle bounds, float radius, Color color, int cornerSegments = 5)
+    {
+        Bounds = bounds;
+        Radius = radius;
+        Color = color;
+        CornerSegments = Math.Max(1, cornerSegments);
+    }
+
+    public MeshData Generate()
+    {
+        // Clamp the radius so two opposite corners never overlap.
+        var r = MathHelper.Clamp(Radius, 0f, MathF.Min(Bounds.Width, Bounds.Height) * 0.5f);
+        if (r <= 0f)
+            return new FilledRectangleMeshGenerator(Bounds, Color).Generate();
+
+        float l = Bounds.Left, t = Bounds.Top, right = Bounds.Right, b = Bounds.Bottom;
+
+        // Corner arc centres (inset by r), each swept a quarter-turn. Order them so the
+        // emitted boundary points walk the perimeter clockwise: TL → TR → BR → BL.
+        var corners = new (Vector2 center, float start)[]
+        {
+            (new Vector2(l + r,     t + r),     MathF.PI),            // top-left:     180°→270°
+            (new Vector2(right - r, t + r),     MathF.PI * 1.5f),     // top-right:    270°→360°
+            (new Vector2(right - r, b - r),     0f),                  // bottom-right: 0°→90°
+            (new Vector2(l + r,     b - r),     MathF.PI * 0.5f),     // bottom-left:  90°→180°
+        };
+
+        var points = new List<Vector2>();
+        foreach (var (center, start) in corners)
+        {
+            for (var i = 0; i <= CornerSegments; i++)
+            {
+                var a = start + (MathF.PI * 0.5f) * i / CornerSegments;
+                points.Add(new Vector2(center.X + r * MathF.Cos(a), center.Y + r * MathF.Sin(a)));
+            }
+        }
+
+        return new FilledPolygonMeshGenerator(points.ToArray(), Color).Generate();
+    }
+}
+
+/// <summary>
 /// Generates a single filled triangle from three points. The renderer draws meshes
 /// with <see cref="Microsoft.Xna.Framework.Graphics.RasterizerState.CullNone"/>, so the
 /// winding order of the three points does not matter.
