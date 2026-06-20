@@ -75,8 +75,10 @@ once installed.
 **Mesh chrome mode.** Passing `chromeFill` (with optional `chromeOutline` /
 `chromeThickness` / `indicatorColor`) switches the box, balloon, and indicator from
 sprite nine-patches to generated meshes (filled rect + outline for the box, an outline
-frame for the balloon, a small filled caret for the indicator), so a screen can dress
-dialogue without any sprite assets. The textured path is unchanged and is what
+frame for the inner talk balloon, a small filled caret for the indicator), so a screen can dress
+dialogue without any sprite assets. (The *anchored* over-the-head balloon is a separate,
+borderless rounded shape that ignores `chromeOutline` — see "Anchored dialogue floats over a
+world entity on the Main target".) The textured path is unchanged and is what
 `MonoDreams.Examples` uses; the two are mutually exclusive (`chromeFill.HasValue` selects
 mesh mode). In mesh mode `dialogBoxTexture` / `indicatorTexture` may be null, the panels
 keep `VisibleComponent` permanently (so `MeshPrepSystem` refreshes their world matrices)
@@ -114,36 +116,102 @@ anchored balloon left on UI would not track its character.
 **Tests:** none yet.
 **Depends on:** rendering — "Three render targets, two behaviors".
 
-## Anchored dialogue floats above a world entity on the Main target
+## Anchored dialogue floats over a world entity on the Main target
 
 Passing an `anchorEntity` (with `renderTarget: RenderTargetID.Main` and
 mesh chrome) puts `DialogueSystem` in *anchored* mode: the dialogue is
-drawn as a compact, tailed speech balloon whose root transform is
-repositioned **every frame** to the anchor's `WorldPosition + anchorOffset`,
-centred over and lifted above the anchor so the tail points at its head.
-Anchored mode is **mesh-chrome only** (the constructor throws if
-`anchorEntity` is passed without `chromeFill`), forces the legacy
-text-on-box layout (no portrait gutter / inner balloon), and uses
-`boxWidthOverride` for a compact bubble width. Because the dialogue now
+drawn as a **borderless, subtly-rounded** tailed speech balloon (a filled
+rounded-rectangle body + a filled tail triangle, **fill colour only — no
+outline**) whose root transform is repositioned **every frame** to track
+the anchor's `WorldPosition + anchorOffset`. Anchored mode is
+**mesh-chrome only** (the constructor throws if `anchorEntity` is passed
+without `chromeFill`) and forces the legacy text-on-box layout (no
+portrait gutter / inner balloon). The balloon is **sized dynamically to
+the FINAL wrapped text** with a max width: `boxWidthOverride` is the MAX
+content width; on each line (`OnYarnLine`) or options block
+(`OnYarnOptions`) the content is wrapped to (maxWidth − padding), the
+longest wrapped line and total height are measured, and the box is shrunk
+to fit content + padding, its chrome mesh rebuilt, and the inner text
+origin / wrap width / indicator offset recomputed. Because the reveal
+slices the already-wrapped final string, the balloon does **not** resize
+as characters reveal.
+
+Placement is **camera/safe-area-aware** via an optional
+`anchorViewBounds: Func<Rectangle>?` (a `Func` keeps `DialogueSystem`
+decoupled from `Camera`) returning the WORLD-space rectangle the balloon
+must stay inside. `RepositionAnchor()` centres the box over the anchor
+horizontally, then: prefers **ABOVE** the head (tail pointing down) and
+flips **BELOW** (tail pointing up) when the top would fall outside the
+bounds; **clamps** the box horizontally into the bounds with a small
+margin; and keeps the **tail apex tracking the head's x** even when the
+box is shifted off-centre. The mesh is rebuilt only when the placement
+params (size / tail direction / tail-x) actually change — cached so it is
+not rebuilt every frame. With `anchorViewBounds == null` it falls back to
+the always-above, centred behaviour with no clamping. Because the dialogue
 lives on Main — which consults `VisibleComponent` — the text entity is
-given the tag (the box/balloon/indicator meshes and option entities
-already carry it); a screen running `CullingSystem` would strip it, so
-anchored dialogue assumes the entity stays inside the camera view.
+given the tag (the box/indicator meshes and option entities already carry
+it); a screen running `CullingSystem` would strip it, so anchored dialogue
+assumes the anchor stays inside the camera view.
 
 **Why:** an over-the-head balloon is a common dialogue presentation and
 the same Yarn runtime / reveal / options / command path should drive it —
-only *where* the chrome is drawn changes. Repositioning the root (and
-letting `HierarchySystem`, which must run after `DialogueSystem`,
-re-lay the children) keeps a single source of truth for layout.
+only *where* and *how big* the chrome is drawn changes. A fixed-size
+balloon overflowed long lines and could fall under the HUD header or off
+the screen edge; sizing to the final text and clamping/flipping to a
+safe area keeps the bubble compact and fully visible. Repositioning the
+root (and letting `HierarchySystem`, which must run after
+`DialogueSystem`, re-lay the children) keeps a single source of truth for
+layout. The screen provides the safe rect (e.g. the camera view inset
+past a HUD header), which is the general seam — the module never reaches
+into `Camera`.
 **Breaks:** mutating the root each frame without `HierarchySystem`
 downstream leaves the children at stale positions; omitting the
 `VisibleComponent` on the text leaves the balloon framed but wordless on
 Main; passing `anchorEntity` in texture mode has no show/hide path and
-throws.
+throws; rebuilding the balloon mesh every frame (ignoring the placement
+cache) churns vertex buffers needlessly; sizing to the per-frame revealed
+substring instead of the final wrapped string makes the balloon grow as
+characters appear.
 **Tests:** none yet.
 **Depends on:** rendering — "Three render targets, two behaviors"
-(Main consults `VisibleComponent`); foundation — hierarchy/transform
-dirty propagation (root reposition cascades to children).
+(Main consults `VisibleComponent`); rendering —
+"`IMeshGenerator.Generate()` returns a triangle list"
+(`FilledRoundedRectangleMeshGenerator` is the balloon body);
+foundation — hierarchy/transform dirty propagation (root reposition
+cascades to children).
+
+## Option selection is mesh-arrow chrome + live cursor hit-testing
+
+The selected option is marked by a small right-pointing **mesh** arrow
+that lives in a reserved left "arrow gutter" — every option's text is
+indented past that gutter so all options share one left x, with no
+per-option text prefix. The arrow is a permanent `VisibleComponent`
+entity shown by filling its mesh / hidden by emptying it (the
+empty-to-hide rule the indicator and box meshes use). Keyboard up/down
+move the selection; mouse hover/click reads the **cursor entity live**
+each frame (queried from a cached `EntitySet`, no cursor entity ⇒
+keyboard-only) and hit-tests each option's **live world bounds** (the
+option's current position + its measured wrapped-text extent), so any
+later dynamic repositioning of the options (e.g. an anchored balloon
+resizing) is transparent. Hover updates the selection only when it
+actually changed; a left-button release on the hovered option confirms.
+The cursor coordinate space is chosen per render target: `WorldPosition`
+on Main (camera-transformed), `VirtualPosition` on UI/HUD.
+
+**Why:** colour-only selection is ambiguous; a moving arrow reads
+clearly without re-wrapping option text (so option positions stay stable
+across selection moves). Hit-testing live positions rather than cached
+rects is what lets the same code serve both the fixed bottom box and the
+dynamically-resized anchored balloon. Picking the cursor space by target
+is required because Main and UI/HUD cursors live in different coordinate
+systems.
+**Breaks:** prefixing options with a selection marker shifts their left
+x and desyncs the shared gutter; caching option bounds at show-time
+breaks hover after a resize; reading `VirtualPosition` on a Main-target
+dialogue (or vice versa) makes hover/click miss by the camera transform.
+**Tests:** none yet.
+**Depends on:** cursor — `CursorInputComponent` (the live cursor read);
+rendering — "Three render targets, two behaviors".
 
 ## `DialogueStartMessage` routes by node ownership
 
@@ -291,7 +359,8 @@ The following premises currently have **Tests: none yet**:
   `EnableDynamicLoading`
 - `DialogueSystem` constructs its own UI entity hierarchy
 - Dialogue renders on a configurable target — default UI, Main when anchored
-- Anchored dialogue floats above a world entity on the Main target
+- Anchored dialogue floats over a world entity on the Main target
+- Option selection is mesh-arrow chrome + live cursor hit-testing
 - `DialogueStartMessage` routes by node ownership
 - `DialogueRunner` is per-system, not per-screen
 - Yarn commands are surfaced as `DialogueCommandMessage` and auto-advance

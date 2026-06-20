@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Graphics;
 using DefaultEcs;
 using DefaultEcs.System;
 using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
@@ -28,16 +29,32 @@ public class DialogueSystem : ISystem<GameState>
     private readonly AInputState _up;
     private readonly AInputState _down;
 
+    // Cursor entity set, for mouse hover/click selection of options (issue 5). Cached once (the
+    // standing AsSet() rule), queried live each frame — no cursor entity ⇒ keyboard-only.
+    private readonly EntitySet _cursors;
+
     // Set when a Yarn <<command>> fires mid-conversation. The post-command Continue() is
     // deferred to the next Update (see Update) rather than called re-entrantly inside the
     // Yarn command handler, which would risk faulting the VM.
     private bool _pendingContinue;
 
-    // Text layout (computed in the constructor, used by line + option rendering).
+    // Text layout (computed in the constructor; in anchored mode recomputed each time the balloon
+    // is resized to fit the final wrapped text — see ResizeAnchoredBalloon).
     private readonly float _textScale;
-    private readonly Vector2 _textLocalPos; // UI-local top-left where the line text + options start
-    private readonly float _textAreaWidth;
+    private Vector2 _textLocalPos; // UI-local top-left where the line text + options start
+    private float _textAreaWidth;
     private readonly float _overlayDepth;
+    private readonly float _indicatorSize;
+
+    // Option selection arrow (issue 4): a small right-pointing mesh triangle that marks the
+    // currently selected option, living in a reserved left "arrow gutter" so every option's text
+    // starts at the same x (no per-option prefix shift). It carries VisibleComponent permanently
+    // and is shown by filling its mesh / hidden by emptying it — the same empty-to-hide rule the
+    // indicator/options use, because dialogue lives on always-rendering UI or carries the tag on Main.
+    private readonly Entity _optionArrowEntity;
+    private readonly MeshData _optionArrowMesh;
+    private readonly float _optionArrowGutter; // left indent reserved for the arrow (UI units)
+    private readonly float _optionArrowSize;   // arrow triangle size (UI units)
 
     // Balloon mode (optional): an inner "talk balloon" panel that wraps the text, with a left
     // gutter reserved for a game-drawn emote/portrait frame. When off, the legacy box + symmetric
@@ -50,7 +67,7 @@ public class DialogueSystem : ISystem<GameState>
     // The texture path is untouched — MonoDreams.Examples still uses it. UI/HUD always render,
     // so these meshes are shown by filling their DrawComponent and hidden by emptying it.
     private readonly bool _meshMode;
-    private readonly MeshData _boxMesh;
+    private MeshData _boxMesh;
     private readonly MeshData _balloonMesh;
     private readonly MeshData _indicatorMesh;
     private readonly Color _lineColor;
@@ -59,15 +76,36 @@ public class DialogueSystem : ISystem<GameState>
     // Anchored (world-space) mode (optional): instead of a fixed bottom-of-screen UI panel, the
     // whole dialogue floats above _anchorEntity on _renderTarget (Main) as a compact tailed
     // speech balloon, repositioned each frame to the anchor's world position. Mesh-mode only.
+    // The balloon is borderless with subtly-rounded corners, sized dynamically to the FINAL
+    // wrapped text (≤ _maxBalloonWidth), and kept inside an optional view/safe-area rectangle.
     private readonly RenderTargetID _renderTarget;
     private readonly bool _anchored;
     private readonly Entity _anchorEntity;
     private readonly Vector2 _anchorOffset;
-    private readonly float _boxWidth;
-    private readonly float _boxHeight;
-    private readonly float _tailHeight;
+    private float _boxWidth;
+    private float _boxHeight;
+    private float _tailHeight;
 
-    // Downward speech-balloon tail height (anchored mode) — added below the box, pointing at the head.
+    // Anchored balloon chrome colour + sizing inputs (used to rebuild the mesh when the content,
+    // tail direction, or tail-x changes). _maxBalloonWidth is the MAX content+padding width; the
+    // actual width shrinks to the longest wrapped line. _balloonPadding is the inner text inset.
+    private readonly Color _anchorFill;
+    private readonly float _maxBalloonWidth;
+    private readonly float _anchorPadding;
+
+    // Optional provider of the WORLD-space rectangle the balloon must stay fully inside (a safe
+    // area). Null ⇒ today's always-above, centred behaviour with no clamping. Kept as a Func so
+    // the dialogue module stays decoupled from Camera — a screen passes e.g. an inset view rect.
+    private readonly Func<Rectangle>? _anchorViewBounds;
+
+    // Cached placement parameters so the balloon mesh is rebuilt only when one of them changes
+    // (size / tail direction / tail attach-x), not every frame. _tailUp = tail points UP (balloon
+    // below the head); _tailAttachX is the tail apex x in the box's LOCAL space.
+    private bool _tailUp;
+    private float _tailAttachX;
+    private Vector2 _lastMeshSize = new(float.NaN, float.NaN);
+
+    // Downward speech-balloon tail height (anchored mode) — added beyond the box, pointing at the head.
     private const float AnchoredTailHeight = 22f;
 
     /// UI-space rectangle of the left portrait gutter — the box's left region reserved for a
@@ -115,7 +153,11 @@ public class DialogueSystem : ISystem<GameState>
         RenderTargetID renderTarget = RenderTargetID.UI,
         Entity? anchorEntity = null,
         Vector2 anchorOffset = default,
-        float? boxWidthOverride = null)
+        // In anchored mode this is the MAX content+padding width — the balloon shrinks to the
+        // longest wrapped line but never exceeds it (in non-anchored mode it overrides the box
+        // width as before). Optional view/safe-area provider keeps the balloon inside a world rect.
+        float? boxWidthOverride = null,
+        Func<Rectangle>? anchorViewBounds = null)
     {
         _world = world;
         _font = font;
@@ -129,15 +171,24 @@ public class DialogueSystem : ISystem<GameState>
         _anchored = anchorEntity.HasValue;
         _anchorEntity = anchorEntity ?? default;
         _anchorOffset = anchorOffset;
+        _anchorViewBounds = anchorViewBounds;
+        _indicatorSize = indicatorSize;
         world.Subscribe(this);
+
+        // Cursor set for mouse-driven option selection (issue 5). Cached once per the standing
+        // AsSet() rule; an empty set (no cursor entity) just means keyboard-only.
+        _cursors = world.GetEntities().With<CursorInputComponent>().AsSet();
 
         var overlayDepth = layerDepth + 0.01f;
         _overlayDepth = overlayDepth;
 
         // Layout constants (UI coordinates, virtual resolution). By default the box fills the
         // screen width minus a margin and sits at the bottom; anchored balloons pass a compact
-        // boxWidthOverride and are repositioned above their anchor each frame (see RepositionAnchor).
+        // boxWidthOverride (= MAX content width) and are sized to their text + repositioned above
+        // (or below) their anchor each frame (see ResizeAnchoredBalloon / RepositionAnchor).
         const float boxMargin = 20f;
+        // In anchored mode boxWidthOverride caps the balloon; start AT the max so the first
+        // line/options resize down to fit. Otherwise it (optionally) overrides the box width.
         var boxWidth = boxWidthOverride ?? (virtualWidth - 2f * boxMargin);
         var rootPosition = new Vector2(boxMargin, virtualHeight - boxHeight - boxMargin);
 
@@ -150,6 +201,10 @@ public class DialogueSystem : ISystem<GameState>
         _boxWidth = boxWidth;
         _boxHeight = boxHeight;
         _tailHeight = _anchored ? AnchoredTailHeight : 0f;
+        _maxBalloonWidth = boxWidth;
+        _anchorFill = chromeFill ?? Color.White;
+        // Inner text inset for the anchored balloon (shares the balloon-padding knob).
+        _anchorPadding = balloonPadding;
         // In mesh mode the portrait gutter (not a balloon texture) decides balloon layout; anchored
         // mode forces the legacy text-on-box layout (no inner balloon / portrait gutter).
         _balloonMode = !_anchored && (_meshMode ? portraitGutter > 0f : talkBalloonTexture != null);
@@ -179,6 +234,13 @@ public class DialogueSystem : ISystem<GameState>
             PortraitGutterBounds = new Rectangle(
                 (int)rootPosition.X, (int)rootPosition.Y, (int)portraitGutter, (int)boxHeight);
         }
+        else if (_anchored)
+        {
+            // Anchored balloon: text inset by the balloon padding all round; these are recomputed
+            // by ApplyAnchoredLayout each time the balloon is resized to its final text.
+            (textLocal, _textAreaWidth, indicatorOffset) = AnchoredLayout(boxWidth, boxHeight);
+            PortraitGutterBounds = Rectangle.Empty;
+        }
         else
         {
             var textOffset = new Vector2(16, 16);
@@ -192,16 +254,33 @@ public class DialogueSystem : ISystem<GameState>
         }
         _textLocalPos = textLocal;
 
+        // Option selection arrow (issue 4). Size it to the option line height so it reads at any
+        // textScale, and reserve a left gutter wide enough to clear the arrow plus a little air —
+        // every option's text is then indented past the gutter so all options share one left x.
+        _optionArrowSize = _font.LineHeight * _textScale * 0.6f;
+        _optionArrowGutter = _optionArrowSize + 6f;
+        // Right-pointing triangle in the arrow's local space (origin at the gutter's top-left).
+        _optionArrowMesh = RightArrowMesh(_optionArrowSize, _optionSelectedColor);
+
         // Pre-build the chrome meshes in mesh mode (authored in each entity's local space; the
         // entity transform/parent places them). Applied on activate, emptied on deactivate.
         if (_meshMode)
         {
             var fill = chromeFill!.Value;
             var outline = chromeOutline ?? Color.White;
-            var boxRect = new Rectangle(0, 0, (int)boxWidth, (int)boxHeight);
-            _boxMesh = _anchored
-                ? BalloonMesh(boxRect, fill, outline, chromeThickness, _tailHeight)
-                : PanelMesh(boxRect, fill, outline, chromeThickness);
+            if (_anchored)
+            {
+                // Borderless rounded balloon, tail down and centred to start. Rebuilt on resize
+                // (final text) and whenever placement flips the tail or shifts the box (see
+                // RebuildBalloonMeshIfNeeded). No outline — the balloon draws fill only.
+                _tailUp = false;
+                _tailAttachX = boxWidth / 2f;
+                _boxMesh = BuildBalloonMesh();
+            }
+            else
+            {
+                _boxMesh = PanelMesh(new Rectangle(0, 0, (int)boxWidth, (int)boxHeight), fill, outline, chromeThickness);
+            }
             if (_balloonMode)
                 _balloonMesh = new RectangleOutlineMeshGenerator(
                     new Rectangle(0, 0, (int)balloonW, (int)balloonH), chromeThickness, outline).Generate();
@@ -315,6 +394,10 @@ public class DialogueSystem : ISystem<GameState>
             Font = _font,
             Color = _lineColor,
             Scale = textScale,
+            // Explicit so the spoken line's wrapped multi-line leading is pinned to the engine
+            // default (1.15) rather than relying on the ≤ 0 fallback; ShowOptions stacks options
+            // by this same constant, keeping render advance and hand-rolled stacking in sync.
+            LineSpacing = DynamicTextComponent.DefaultLineSpacing,
             RevealingSpeed = 20,
             RevealStartTime = float.NaN,
             IsRevealed = false,
@@ -364,6 +447,23 @@ public class DialogueSystem : ISystem<GameState>
                 Target = _renderTarget
             });
         }
+
+        // Create option-selection arrow child entity (issue 4): a mesh triangle in the option
+        // arrow gutter, repositioned to the selected option each frame the selection changes.
+        // Like the indicator/box meshes it keeps VisibleComponent permanently (so MeshPrepSystem
+        // refreshes its matrix) and is shown by filling its mesh / hidden by emptying it. The text
+        // path needs no separate arrow — it is mesh-only chrome and renders fine on UI or Main.
+        _optionArrowEntity = world.CreateEntity();
+        _optionArrowEntity.Set(new EntityInfoComponent(_entityInfoType, "DialogueOptionArrow"));
+        _optionArrowEntity.Set(new TransformComponent(_textLocalPos));
+        _optionArrowEntity.SetParent(_rootEntity);
+        _optionArrowEntity.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = _renderTarget,
+            LayerDepth = overlayDepth,
+        });
+        _optionArrowEntity.Set<VisibleComponent>();
 
         // Set up Yarn runtime
         _dialogueRunner = new DialogueRunner();
@@ -416,7 +516,13 @@ public class DialogueSystem : ISystem<GameState>
 
         // Wrap so long lines break onto new lines instead of overflowing the box. The reveal
         // animation slices the wrapped string, so embedded newlines just advance instantly.
-        displayText = WrapText(displayText, _textAreaWidth);
+        // Anchored balloons size to the FINAL wrapped text first (so the balloon does NOT resize
+        // as characters reveal), wrapping to the max content width; everything else wraps to the
+        // current fixed text area.
+        if (_anchored)
+            displayText = SizeAnchoredBalloonToLine(displayText);
+        else
+            displayText = WrapText(displayText, _textAreaWidth);
 
         _dialogueState.CurrentPhase = DialoguePhase.Line;
         _dialogueState.CurrentSpeaker = speaker;
@@ -453,6 +559,10 @@ public class DialogueSystem : ISystem<GameState>
         ref var dynamicText = ref _dialogueState.TextEntity.Get<DynamicTextComponent>();
         dynamicText.TextContent = "";
         dynamicText.VisibleCharacterCount = 0;
+
+        // Anchored balloons size to the full options block first, so ShowOptions lays the options
+        // out inside the already-resized balloon (positions are relative to _textLocalPos).
+        if (_anchored) SizeAnchoredBalloonToOptions();
 
         ShowOptions();
         HideIndicator();
@@ -519,15 +629,16 @@ public class DialogueSystem : ISystem<GameState>
             if (_balloonMode) _balloonEntity.Set<VisibleComponent>();
         }
 
-        // Anchored mode: place the balloon above the anchor now so it appears in the right spot
-        // on the first frame (Update also re-runs this each frame to track the anchor).
-        RepositionAnchor();
-
         _world.Publish(new DialogueActiveMessage(true));
 
-        // Start the yarn node — fires LineHandler or OptionsHandler synchronously
+        // Start the yarn node — fires LineHandler or OptionsHandler synchronously, which (in
+        // anchored mode) sizes the balloon to the first line/options.
         _yarnDialogue.SetNode(nodeName);
         _yarnDialogue.Continue();
+
+        // Anchored mode: now that the balloon is sized to its content, place it over the anchor so
+        // it appears in the right spot on the first frame (Update re-runs this each frame to track).
+        RepositionAnchor();
     }
 
     // --- Update loop ---
@@ -606,13 +717,75 @@ public class DialogueSystem : ISystem<GameState>
             UpdateOptionHighlights();
         }
 
-        if (interactJustPressed)
+        // Mouse selection (issue 5): hover sets the selection (mirroring up/down), a left-button
+        // release on the hovered option confirms it (mirroring interact). Keyboard is untouched.
+        var mouseConfirm = HandleOptionMouse();
+
+        if (interactJustPressed || mouseConfirm)
+            ConfirmSelectedOption();
+    }
+
+    /// Hover + click selection of options by mouse. Returns true when the cursor confirmed an
+    /// option this frame (left button released while hovering). The cursor entity is queried from
+    /// the world (mirroring DemoButtonInteractionSystem); with no cursor entity this is a no-op so
+    /// keyboard still works. Bounds are computed from each option's LIVE world position + measured
+    /// wrapped-text size, so they survive any later dynamic repositioning of the options.
+    private bool HandleOptionMouse()
+    {
+        var cursors = _cursors.GetEntities();
+        if (cursors.Length == 0) return false;
+        ref readonly var cursor = ref cursors[0].Get<CursorInputComponent>();
+
+        // Pick the coordinate space this instance renders in: Main reads world coords (camera-
+        // transformed), UI/HUD read the virtual-screen coords (no camera). On Main, WorldPosition
+        // is one frame stale (CursorPositionSystem runs after dialogue) — acceptable for hover/click.
+        var cursorPos = _renderTarget == RenderTargetID.Main
+            ? cursor.WorldPosition
+            : cursor.VirtualPosition;
+
+        var lineHeight = _font.LineHeight * _textScale * DynamicTextComponent.DefaultLineSpacing;
+        for (var i = 0; i < _dialogueState.OptionEntities.Count; i++)
         {
-            var yarnOptionID = _dialogueState.CurrentOptionIDs[_dialogueState.SelectedOptionIndex];
-            HideOptions();
-            _yarnDialogue.SetSelectedOption(yarnOptionID);
-            _yarnDialogue.Continue();
+            var option = _dialogueState.OptionEntities[i];
+            if (!option.IsAlive || !option.Has<DynamicTextComponent>()) continue;
+
+            // World-space rect from the option's live position + its wrapped text extent. Width is
+            // the measured wrapped string; height uses the layout's line height per wrapped line so
+            // multi-line options have a hit area matching their on-screen footprint.
+            var worldPos = option.Get<TransformComponent>().WorldPosition;
+            ref readonly var dt = ref option.Get<DynamicTextComponent>();
+            var text = dt.TextContent ?? string.Empty;
+            var width = _font.MeasureString(text).Width * _textScale;
+            var height = CountLines(text) * lineHeight;
+            var bounds = new Rectangle(
+                (int)worldPos.X, (int)worldPos.Y, (int)width, (int)height);
+
+            if (!bounds.Contains(cursorPos)) continue;
+
+            // Hover updates the selection (same path as up/down), only when it actually changed so
+            // we don't rebuild highlights/arrow every frame the cursor rests on an option.
+            if (_dialogueState.SelectedOptionIndex != i)
+            {
+                _dialogueState.SelectedOptionIndex = i;
+                UpdateOptionHighlights();
+            }
+
+            return cursor.LeftButtonReleased;
         }
+
+        return false;
+    }
+
+    /// Confirms the currently selected option — the shared keyboard/mouse path. Mirrors the
+    /// original keyboard interact: hide the options, tell Yarn, advance the conversation.
+    private void ConfirmSelectedOption()
+    {
+        if (_dialogueState.CurrentOptionIDs.Count == 0) return;
+        var index = Math.Clamp(_dialogueState.SelectedOptionIndex, 0, _dialogueState.CurrentOptionIDs.Count - 1);
+        var yarnOptionID = _dialogueState.CurrentOptionIDs[index];
+        HideOptions();
+        _yarnDialogue.SetSelectedOption(yarnOptionID);
+        _yarnDialogue.Continue();
     }
 
     // --- Option entity management ---
@@ -625,7 +798,9 @@ public class DialogueSystem : ISystem<GameState>
         // options stack without overlap — see DynamicTextComponent.DefaultLineSpacing.
         var lineHeight = _font.LineHeight * _textScale * DynamicTextComponent.DefaultLineSpacing;
         var gap = lineHeight * 0.4f;
-        var x = _textLocalPos.X;
+        // Indent every option past the arrow gutter so they share one left x and leave room for
+        // the selection arrow (issue 4) — no per-option prefix, all options align.
+        var x = _textLocalPos.X + _optionArrowGutter;
         var y = _textLocalPos.Y;
 
         for (var i = 0; i < _dialogueState.CurrentOptions.Count; i++)
@@ -662,6 +837,38 @@ public class DialogueSystem : ISystem<GameState>
             var lines = CountLines(fullText);
             y += lines * lineHeight + gap;
         }
+
+        // Place + show the selection arrow against the now-built options.
+        ShowOptionArrow();
+    }
+
+    /// Fills the arrow mesh and parks it beside the selected option's first line. Reads each
+    /// option entity's LIVE local position so it stays correct if a later change repositions them.
+    private void ShowOptionArrow()
+    {
+        if (_dialogueState.OptionEntities.Count == 0)
+        {
+            EmptyMesh(_optionArrowEntity);
+            return;
+        }
+
+        var i = Math.Clamp(_dialogueState.SelectedOptionIndex, 0, _dialogueState.OptionEntities.Count - 1);
+        var option = _dialogueState.OptionEntities[i];
+        if (!option.IsAlive)
+        {
+            EmptyMesh(_optionArrowEntity);
+            return;
+        }
+
+        // Options and the arrow are both children of the root, so an option's local Position is
+        // directly usable to place the arrow in the same (root-local) space. Park the arrow in the
+        // gutter to the option's left, vertically centred on the option's first text line.
+        var optionLocal = option.Get<TransformComponent>().Position;
+        var lineHeight = _font.LineHeight * _textScale * DynamicTextComponent.DefaultLineSpacing;
+        var arrowX = optionLocal.X - _optionArrowGutter;
+        var arrowY = optionLocal.Y + (lineHeight - _optionArrowSize) / 2f;
+        _optionArrowEntity.Get<TransformComponent>().Position = new Vector2(arrowX, arrowY);
+        _optionArrowEntity.Get<DrawComponent>().SetMeshData(_optionArrowMesh);
     }
 
     private void UpdateOptionHighlights()
@@ -671,23 +878,21 @@ public class DialogueSystem : ISystem<GameState>
             var entity = _dialogueState.OptionEntities[i];
             if (!entity.IsAlive) continue;
 
+            // Selection is now signalled by colour + the moving arrow (issue 4) — the option text
+            // itself never changes, so positions are stable across selection moves and the text is
+            // not re-wrapped here.
             ref var dt = ref entity.Get<DynamicTextComponent>();
-            // The font is monospace and the "> "/"  " prefix is a fixed width, so re-wrapping
-            // here can't change line count — option positions stay put across selection moves.
-            dt.TextContent = OptionDisplay(i);
-            dt.VisibleCharacterCount = dt.TextContent.Length;
             dt.Color = i == _dialogueState.SelectedOptionIndex ? _optionSelectedColor : _lineColor;
         }
+
+        // Move the arrow to the newly selected option (and re-fill it if it was empty).
+        ShowOptionArrow();
     }
 
-    /// The selection-prefixed, wrapped text for option <paramref name="i"/>.
+    /// The wrapped text for option <paramref name="i"/>. No selection prefix — every option starts
+    /// at the same x past the arrow gutter, so wrap to the gutter-reduced text width.
     private string OptionDisplay(int i)
-    {
-        var prefix = i == _dialogueState.SelectedOptionIndex ? "> " : "  ";
-        var prefixWidth = _font.MeasureString(prefix).Width * _textScale;
-        var wrapped = WrapText(_dialogueState.CurrentOptions[i], _textAreaWidth - prefixWidth);
-        return prefix + wrapped;
-    }
+        => WrapText(_dialogueState.CurrentOptions[i], _textAreaWidth - _optionArrowGutter);
 
     private static int CountLines(string text)
     {
@@ -737,6 +942,10 @@ public class DialogueSystem : ISystem<GameState>
             if (entity.IsAlive) entity.Dispose();
         }
         _dialogueState.OptionEntities.Clear();
+
+        // Empty the arrow mesh so it disappears with the options (it keeps VisibleComponent, so
+        // emptying — not removing the tag — is how it hides; see the indicator/box meshes).
+        EmptyMesh(_optionArrowEntity);
     }
 
     /// Shows the "continue" caret: fills the mesh in mesh mode, or sets VisibleComponent so
@@ -822,18 +1031,167 @@ public class DialogueSystem : ISystem<GameState>
 
     // --- anchored (world-space) mode ---
 
-    /// In anchored mode, place the balloon above the anchor entity: centred over it horizontally
-    /// and lifted so the tail tip sits at <c>anchor.WorldPosition + _anchorOffset</c>. Mutating the
-    /// root transform marks the child chain dirty; HierarchySystem (later in the pipeline) re-lays
-    /// the box/text/indicator. No-op when not anchored or the anchor is gone.
+    /// In anchored mode, place the balloon over the anchor entity and keep it inside the optional
+    /// view/safe-area bounds. Prefers ABOVE the head (tail down); flips BELOW (tail up) when the
+    /// top would fall outside the bounds. Horizontally centres over the anchor, then clamps left/
+    /// right to the bounds. The tail apex always tracks the anchor head's x; when the box shifts
+    /// off-centre the tail attach-x is re-derived and the mesh rebuilt only on a real change.
+    /// Mutating the root transform marks the child chain dirty; HierarchySystem (later in the
+    /// pipeline) re-lays the box/text/indicator. No-op when not anchored or the anchor is gone.
     private void RepositionAnchor()
     {
         if (!_anchored || !_anchorEntity.IsAlive) return;
-        var anchor = _anchorEntity.Get<TransformComponent>().WorldPosition;
-        _rootTransform.Position = new Vector2(
-            anchor.X + _anchorOffset.X - _boxWidth / 2f,
-            anchor.Y + _anchorOffset.Y - _boxHeight - _tailHeight);
+
+        // The tail tip target — the anchor head — in world space.
+        var head = _anchorEntity.Get<TransformComponent>().WorldPosition + _anchorOffset;
+
+        // Centre the box horizontally over the head; box top-left X.
+        var x = head.X - _boxWidth / 2f;
+        // Default placement: ABOVE the head, tail pointing down.
+        var tailUp = false;
+        var y = head.Y - _tailHeight - _boxHeight;
+
+        if (_anchorViewBounds is { } provider)
+        {
+            const float margin = 6f;
+            var view = provider();
+
+            // Flip below the head (tail up) if the above-placement top falls outside the view top.
+            if (y < view.Top + margin)
+            {
+                tailUp = true;
+                y = head.Y + _tailHeight;
+                // If below also overflows the bottom, keep whichever fits better (prefer above).
+                if (y + _boxHeight > view.Bottom - margin && head.Y - _tailHeight - _boxHeight >= view.Top + margin)
+                {
+                    tailUp = false;
+                    y = head.Y - _tailHeight - _boxHeight;
+                }
+            }
+
+            // Horizontal clamp into [Left+margin, Right-margin] (only if the box fits).
+            var minX = view.Left + margin;
+            var maxX = view.Right - margin - _boxWidth;
+            if (maxX >= minX) x = MathHelper.Clamp(x, minX, maxX);
+        }
+
+        _rootTransform.Position = new Vector2(x, y);
+
+        // Tail attach-x is the head's x in the box's LOCAL space (clamped to the box span so the
+        // apex stays attached to the body). Rebuild the mesh only when placement params change.
+        var attachX = MathHelper.Clamp(head.X - x, 8f, _boxWidth - 8f);
+        RebuildBalloonMeshIfNeeded(tailUp, attachX);
     }
+
+    // --- anchored balloon sizing ---
+
+    /// Wraps the spoken line to the max content width, shrinks the balloon to the longest wrapped
+    /// line + padding (≤ max) and the wrapped line count, rebuilds the chrome + inner layout, then
+    /// returns the wrapped text (sized to the FINAL string, so the reveal doesn't resize).
+    private string SizeAnchoredBalloonToLine(string text)
+    {
+        var maxTextWidth = _maxBalloonWidth - 2f * _anchorPadding;
+        var wrapped = WrapText(text, maxTextWidth);
+        var lineHeight = _font.LineHeight * _textScale * DynamicTextComponent.DefaultLineSpacing;
+        var contentWidth = MeasureLongestLine(wrapped);
+        var contentHeight = CountLines(wrapped) * lineHeight;
+        ResizeAnchoredBalloon(contentWidth, contentHeight);
+        return wrapped;
+    }
+
+    /// Mirrors ShowOptions' measurement to size the balloon to the full options block: each option
+    /// wrapped to the (gutter-reduced) max text width, stacked by line height + gap, plus the arrow
+    /// gutter on the left. Sizes the balloon so ShowOptions then lays the options out within it.
+    private void SizeAnchoredBalloonToOptions()
+    {
+        var lineHeight = _font.LineHeight * _textScale * DynamicTextComponent.DefaultLineSpacing;
+        var gap = lineHeight * 0.4f;
+        var maxTextWidth = _maxBalloonWidth - 2f * _anchorPadding;
+
+        var widest = 0f;
+        var totalHeight = 0f;
+        for (var i = 0; i < _dialogueState.CurrentOptions.Count; i++)
+        {
+            var wrapped = WrapText(_dialogueState.CurrentOptions[i], maxTextWidth - _optionArrowGutter);
+            widest = MathF.Max(widest, MeasureLongestLine(wrapped));
+            totalHeight += CountLines(wrapped) * lineHeight;
+            if (i < _dialogueState.CurrentOptions.Count - 1) totalHeight += gap;
+        }
+
+        ResizeAnchoredBalloon(widest + _optionArrowGutter, totalHeight);
+    }
+
+    /// Sets the balloon to fit content (width/height) + padding (clamped to the max width), rebuilds
+    /// the rounded chrome, recomputes the inner text origin / wrap width / indicator offset, and
+    /// re-parks the text, indicator, and option-arrow children for the new size.
+    private void ResizeAnchoredBalloon(float contentWidth, float contentHeight)
+    {
+        var newWidth = MathHelper.Clamp(contentWidth + 2f * _anchorPadding, 2f * _anchorPadding + 1f, _maxBalloonWidth);
+        // Reserve room below the text for the continue indicator.
+        var newHeight = contentHeight + 2f * _anchorPadding + _indicatorSize * 0.5f;
+
+        _boxWidth = newWidth;
+        _boxHeight = newHeight;
+
+        var (textLocal, wrapWidth, indicatorOffset) = AnchoredLayout(newWidth, newHeight);
+        _textLocalPos = textLocal;
+        _textAreaWidth = wrapWidth;
+
+        // Re-park the text + indicator children for the new interior; the option arrow follows the
+        // options (ShowOptions/ShowOptionArrow read live positions), so just point it at the origin.
+        if (_dialogueState.TextEntity.IsAlive)
+            _dialogueState.TextEntity.Get<TransformComponent>().Position = _textLocalPos;
+        if (_dialogueState.IndicatorEntity.IsAlive)
+            _dialogueState.IndicatorEntity.Get<TransformComponent>().Position = indicatorOffset;
+        if (_optionArrowEntity.IsAlive)
+            _optionArrowEntity.Get<TransformComponent>().Position = _textLocalPos;
+
+        // Force a mesh rebuild next placement (size changed); RepositionAnchor sets the tail params.
+        _lastMeshSize = new Vector2(float.NaN, float.NaN);
+        _boxMesh = BuildBalloonMesh();
+        if (_dialogueState.BoxEntity.IsAlive && _dialogueState.IsActive)
+            _dialogueState.BoxEntity.Get<DrawComponent>().SetMeshData(_boxMesh);
+    }
+
+    /// The anchored balloon's interior layout for a given size: text top-left, wrap width, and the
+    /// continue-indicator offset (bottom-right of the interior). Padding-inset all round.
+    private (Vector2 textLocal, float wrapWidth, Vector2 indicatorOffset) AnchoredLayout(float width, float height)
+    {
+        var textLocal = new Vector2(_anchorPadding, _anchorPadding);
+        var wrapWidth = width - 2f * _anchorPadding;
+        var indicatorOffset = new Vector2(
+            width - _anchorPadding - _indicatorSize * 0.6f,
+            height - _anchorPadding - _indicatorSize * 0.5f);
+        return (textLocal, wrapWidth, indicatorOffset);
+    }
+
+    /// The widest single wrapped line in rendered pixels (font measured at _textScale).
+    private float MeasureLongestLine(string wrapped)
+    {
+        var widest = 0f;
+        foreach (var line in wrapped.Split('\n'))
+            widest = MathF.Max(widest, _font.MeasureString(line).Width * _textScale);
+        return widest;
+    }
+
+    /// Rebuilds the balloon mesh only when the tail direction or attach-x changed since the last
+    /// build (size changes reset the cache via ResizeAnchoredBalloon). Avoids a per-frame rebuild.
+    private void RebuildBalloonMeshIfNeeded(bool tailUp, float tailAttachX)
+    {
+        var size = new Vector2(_boxWidth, _boxHeight);
+        if (_lastMeshSize == size && _tailUp == tailUp && Math.Abs(_tailAttachX - tailAttachX) < 0.5f)
+            return;
+        _tailUp = tailUp;
+        _tailAttachX = tailAttachX;
+        _lastMeshSize = size;
+        _boxMesh = BuildBalloonMesh();
+        if (_dialogueState.BoxEntity.IsAlive && _dialogueState.IsActive)
+            _dialogueState.BoxEntity.Get<DrawComponent>().SetMeshData(_boxMesh);
+    }
+
+    /// Builds the current anchored balloon mesh from the cached size + tail params.
+    private MeshData BuildBalloonMesh()
+        => BalloonMesh(new Rectangle(0, 0, (int)_boxWidth, (int)_boxHeight), _anchorFill, _tailHeight, _tailUp, _tailAttachX);
 
     // --- mesh chrome helpers ---
 
@@ -844,24 +1202,39 @@ public class DialogueSystem : ISystem<GameState>
             .Add(new RectangleOutlineMeshGenerator(rect, thickness, outline))
             .Generate();
 
-    /// A panel with a downward tail at its bottom-centre — the speech-balloon chrome used in
-    /// anchored mode. The tail apex sits <paramref name="tailHeight"/> below the box bottom and
-    /// points at the anchored entity's head.
-    private static MeshData BalloonMesh(Rectangle rect, Color fill, Color outline, float thickness, float tailHeight)
+    /// A borderless, subtly-rounded speech balloon: a filled rounded-rectangle body plus a filled
+    /// tail triangle (fill colour only — no outline). The tail points DOWN at the head when
+    /// <paramref name="tailUp"/> is false (balloon above the head) and UP when true (balloon below).
+    /// <paramref name="tailAttachX"/> is the apex x in the box's local space, so the tail tracks the
+    /// head when the box is shifted off-centre by the horizontal clamp.
+    private static MeshData BalloonMesh(Rectangle rect, Color fill, float tailHeight, bool tailUp, float tailAttachX)
     {
-        var cx = rect.X + rect.Width / 2f;
-        var by = rect.Y + rect.Height;
-        var half = MathHelper.Clamp(rect.Width * 0.05f, 9f, 20f);
-        var apex = new Vector2(cx, by + tailHeight);
-        var left = new Vector2(cx - half, by);
-        var right = new Vector2(cx + half, by);
+        // Small radius — subtle, ~0.12×height clamped to a sane pixel band.
+        var radius = MathHelper.Clamp(rect.Height * 0.12f, 8f, 14f);
+
+        var attach = MathHelper.Clamp(tailAttachX, rect.X + radius, rect.Right - radius);
+        var half = MathHelper.Clamp(rect.Width * 0.045f, 8f, 16f);
+        var edgeY = tailUp ? rect.Top : rect.Bottom;          // box edge the tail springs from
+        var apexY = tailUp ? rect.Top - tailHeight : rect.Bottom + tailHeight;
+        var baseL = new Vector2(MathHelper.Clamp(attach - half, rect.X + radius, rect.Right - radius), edgeY);
+        var baseR = new Vector2(MathHelper.Clamp(attach + half, rect.X + radius, rect.Right - radius), edgeY);
+        var apex = new Vector2(attach, apexY);
+
         return new CompositeMeshGenerator()
-            .Add(new FilledRectangleMeshGenerator(rect, fill))
-            .Add(new FilledTriangleMeshGenerator(left, right, apex, fill))
-            .Add(new RectangleOutlineMeshGenerator(rect, thickness, outline))
-            .Add(new PolylineMeshGenerator(new[] { left, apex, right }, thickness, outline))
+            .Add(new FilledRoundedRectangleMeshGenerator(rect, radius, fill))
+            .Add(new FilledTriangleMeshGenerator(baseL, baseR, apex, fill))
             .Generate();
     }
+
+    /// A small right-pointing "selection" arrow triangle fitted to a <paramref name="size"/>×
+    /// <paramref name="size"/> box in local space (apex on the right, base on the left). Used to
+    /// mark the selected option in the arrow gutter (issue 4).
+    private static MeshData RightArrowMesh(float size, Color color)
+        => new FilledTriangleMeshGenerator(
+            new Vector2(0f, 0f),
+            new Vector2(0f, size),
+            new Vector2(size, size / 2f),
+            color).Generate();
 
     /// A small downward-pointing "continue" caret triangle fitted to <paramref name="size"/>.
     private static MeshData DownCaretMesh(float size, Color color)
@@ -884,6 +1257,7 @@ public class DialogueSystem : ISystem<GameState>
 
     public void Dispose()
     {
+        _cursors.Dispose();
         GC.SuppressFinalize(this);
     }
 }
