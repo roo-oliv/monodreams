@@ -1,0 +1,15 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+Let's enhance the physics module's demo:
+ 1. When balls collide (with each other or with walls) make them blink a more vivid/bright color than they currently are colored.
+ 2. Make the bottom line of the region constraining rectangle, ie the floor, a little thickier and have it regualr colored when the floor bump is off, but green colored when the bump is on and have it blink a more vivid/bright color when a ball hits it while floor bump is on
+ 3. Make the initial vectors of balls random oriented...
+
+### Prompt 2
+
+Yes, add a clamp. Also include two input fields to edit the amount of red balls and blue balls. You will need to probably create a new input component to the UI module, make it already enabling masking input, in this case we want only numbers as input. Don't need to implement full extra features for this input field like formatting, placeholder text, error state and etc. This can be enhanced latter to include these features.
+

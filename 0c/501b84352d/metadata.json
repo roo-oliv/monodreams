@@ -3,13 +3,18 @@
   "checkpoint_id": "0c501b84352d",
   "strategy": "manual-commit",
   "branch": "feat/packages",
-  "checkpoints_count": 5,
+  "checkpoints_count": 7,
   "files_touched": [
+    "MonoDreams.Demos/UI/DemoUI.cs",
     "MonoDreams/collision/System/TransformCollisionDetectionSystem.cs",
     "MonoDreams/collision/docs/premises.md",
     "MonoDreams/physics/demo/PhysicsDemoScreen.cs",
     "MonoDreams/rendering/Draw/IMeshGenerator.cs",
-    "MonoDreams/rendering/docs/premises.md"
+    "MonoDreams/rendering/docs/premises.md",
+    "MonoDreams/ui/TextInputComponent.cs",
+    "MonoDreams/ui/TextInputSystem.cs",
+    "MonoDreams/ui/docs/overview.md",
+    "MonoDreams/ui/docs/premises.md"
   ],
   "sessions": [
     {
@@ -18,13 +23,20 @@
       "context": "/0c/501b84352d/0/context.md",
       "content_hash": "/0c/501b84352d/0/content_hash.txt",
       "prompt": "/0c/501b84352d/0/prompt.txt"
+    },
+    {
+      "metadata": "/0c/501b84352d/1/metadata.json",
+      "transcript": "/0c/501b84352d/1/full.jsonl",
+      "context": "/0c/501b84352d/1/context.md",
+      "content_hash": "/0c/501b84352d/1/content_hash.txt",
+      "prompt": "/0c/501b84352d/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 24312,
-    "cache_creation_tokens": 769958,
-    "cache_read_tokens": 15227675,
-    "output_tokens": 248025,
-    "api_call_count": 110
+    "input_tokens": 30006,
+    "cache_creation_tokens": 1005947,
+    "cache_read_tokens": 29901814,
+    "output_tokens": 367734,
+    "api_call_count": 204
   }
 }

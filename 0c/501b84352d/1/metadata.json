@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "0c501b84352d",
+  "session_id": "214e664a-29a4-4b2e-9cef-5d2a82c09e1c",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-20T20:09:16.203049Z",
+  "branch": "feat/packages",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Demos/UI/DemoUI.cs",
+    "MonoDreams/physics/demo/PhysicsDemoScreen.cs",
+    "MonoDreams/ui/TextInputComponent.cs",
+    "MonoDreams/ui/TextInputSystem.cs",
+    "MonoDreams/ui/docs/overview.md",
+    "MonoDreams/ui/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "934e4945-f9bf-41e1-aafb-b35248d0ae7b",
+  "token_usage": {
+    "input_tokens": 5694,
+    "cache_creation_tokens": 235989,
+    "cache_read_tokens": 14674139,
+    "output_tokens": 119709,
+    "api_call_count": 94
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-20T20:09:16.022835Z",
+    "agent_lines": 1093,
+    "human_added": 1530,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2623,
+    "agent_percentage": 41.6698436904308
+  },
+  "transcript_path": ".claude-personal/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-packages/214e664a-29a4-4b2e-9cef-5d2a82c09e1c.jsonl"
+}
