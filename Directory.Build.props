@@ -22,4 +22,12 @@
   <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
     <DefineConstants>$(DefineConstants);MONODREAMS_WEB</DefineConstants>
   </PropertyGroup>
+
+  <!-- Note on web vs desktop output collision: the engine + vendored content-pipeline libs
+       are built BOTH for desktop and for web from the same source. The web *content build*
+       (Examples.Web) isolates its web builds of MonoDreams + the LDtk content pipeline into a
+       dedicated output dir (passed via the nested dotnet-build output flag in
+       MonoDreams.Examples.Web.csproj) so a web content build never picks up a desktop-built engine
+       dll (which fails under the KNI MGCB on assembly identity). Desktop output stays at the
+       historical bin/$(Config)/net8.0. -->
 </Project>

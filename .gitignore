@@ -95,3 +95,15 @@ packages.lock.json
 # Worktrees
 .claude/worktrees/
 .sandbox/
+
+# Web head: generated content is built from Examples.Core/Content/Content.mgcb by the
+# KNI content build into wwwroot/Content (XNB + copied assets). It is build output, not source.
+MonoDreams.Examples.Web/wwwroot/Content/
+
+# Wave 4 throwaway verification harnesses (kept local, not part of the engine).
+scratchpad/web-proof/
+scratchpad/web-publish/
+scratchpad/kni-content-test/
+
+# MGCB stats file (build cruft)
+*.mgstats

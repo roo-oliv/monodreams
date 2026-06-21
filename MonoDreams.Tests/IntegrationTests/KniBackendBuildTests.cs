@@ -95,10 +95,10 @@ public class KniBackendBuildTests
         var dir = AppContext.BaseDirectory;
         while (dir != null)
         {
-            if (Directory.Exists(Path.Combine(dir, "MonoDreams.Examples")))
+            if (Directory.Exists(Path.Combine(dir, "MonoDreams.Examples.Core")))
                 return dir;
             dir = Directory.GetParent(dir)?.FullName;
         }
-        throw new InvalidOperationException("Could not find repo root (directory containing MonoDreams.Examples).");
+        throw new InvalidOperationException("Could not find repo root (directory containing MonoDreams.Examples.Core).");
     }
 }

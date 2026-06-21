@@ -5,7 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-#if DEBUG
+#if DEBUG && !MONODREAMS_WEB
 using MonoDreams.Examples.Inspector;
 #endif
 using MonoDreams.Component.Collision;
@@ -81,8 +81,8 @@ public class InfiniteRunnerScreen : IGameScreen
 
     public void Load(ScreenController screenController, ContentManager content)
     {
-#if DEBUG
-        // Wire debug inspector input suppression
+#if DEBUG && !MONODREAMS_WEB
+        // Wire debug inspector input suppression (desktop-only ImGui tool).
         var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
         if (debugInspector != null)
         {

@@ -110,18 +110,18 @@ public static class GameTestRunner
 {
     /// <summary>
     /// Finds the repo root by walking up from the test assembly's base directory
-    /// looking for the MonoDreams.Examples directory.
+    /// looking for the MonoDreams.Examples.Desktop head project directory.
     /// </summary>
     private static string FindRepoRoot()
     {
         var dir = AppDomain.CurrentDomain.BaseDirectory;
         while (dir != null)
         {
-            if (Directory.Exists(Path.Combine(dir, "MonoDreams.Examples")))
+            if (Directory.Exists(Path.Combine(dir, "MonoDreams.Examples.Desktop")))
                 return dir;
             dir = Directory.GetParent(dir)?.FullName;
         }
-        throw new InvalidOperationException("Could not find repo root (directory containing MonoDreams.Examples).");
+        throw new InvalidOperationException("Could not find repo root (directory containing MonoDreams.Examples.Desktop).");
     }
 
     /// <summary>
@@ -134,7 +134,7 @@ public static class GameTestRunner
         var replayJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(Path.Combine(debugDir, "input_replay.json"), replayJson);
 
-        return await RunProcessAsync("run --project MonoDreams.Examples -- --headless", debugDir, timeoutSeconds);
+        return await RunProcessAsync("run --project MonoDreams.Examples.Desktop -- --headless", debugDir, timeoutSeconds);
     }
 
     /// <summary>

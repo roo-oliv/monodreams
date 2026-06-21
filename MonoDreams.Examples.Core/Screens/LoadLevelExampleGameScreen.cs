@@ -3,7 +3,7 @@ using DefaultEcs.System;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
-#if DEBUG
+#if DEBUG && !MONODREAMS_WEB
 using MonoDreams.Examples.Inspector;
 #endif
 using Microsoft.Xna.Framework.Graphics;
@@ -93,8 +93,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
     public World World => _world;
     public void Load(ScreenController screenController, ContentManager content)
     {
-#if DEBUG
-        // Wire debug inspector input suppression
+#if DEBUG && !MONODREAMS_WEB
+        // Wire debug inspector input suppression (desktop-only ImGui tool).
         var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
         if (debugInspector != null)
         {

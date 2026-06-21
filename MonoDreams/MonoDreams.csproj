@@ -103,9 +103,12 @@
         <PackageReference Include="KNI.Extended.Content.Pipeline" Version="6.0.0" />
     </ItemGroup>
 
-    <!-- LDtkMonogame runtime: vendored source, recompiled against the active backend. -->
+    <!-- LDtkMonogame runtime: vendored source, recompiled against the active backend.
+         Forward $(MonoDreamsPlatform) so the vendored runtime matches the engine's backend
+         (a web build of the engine must pull a web build of the LDtk runtime). -->
     <ItemGroup>
-        <ProjectReference Include="level-ldtk\vendor\LDtkMonogame\LDtk\LDtk.csproj" />
+        <ProjectReference Include="level-ldtk\vendor\LDtkMonogame\LDtk\LDtk.csproj"
+                          AdditionalProperties="MonoDreamsPlatform=$(MonoDreamsPlatform)" />
     </ItemGroup>
 
     <ItemGroup>

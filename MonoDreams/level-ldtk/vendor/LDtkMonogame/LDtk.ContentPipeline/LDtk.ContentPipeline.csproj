@@ -35,8 +35,11 @@
         <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
     </ItemGroup>
 
+    <!-- Forward $(MonoDreamsPlatform) so the LDtk runtime is built for the same backend as
+         this content pipeline (web content build must reference a web LDtk runtime). -->
     <ItemGroup>
-        <ProjectReference Include="..\LDtk\LDtk.csproj" />
+        <ProjectReference Include="..\LDtk\LDtk.csproj"
+                          AdditionalProperties="MonoDreamsPlatform=$(MonoDreamsPlatform)" />
     </ItemGroup>
 
 </Project>
