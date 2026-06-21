@@ -176,23 +176,33 @@ NuGet/dotnet-tool on macOS/Linux. If you add a shader that a `.mgcb` actually
 builds for web, compile it with KniFXC on a Windows/Wine host — do not
 fabricate `.knifx`/`.xnb` output.
 
-## Known limitations
+## The Reach 32-bit-index render limit (Risk #1 — fixed in the renderer)
 
-### Reach 32-bit-index render limit (open — Risk #1)
+WebGL ES2 / the Reach profile rejects the 32-bit indices that `SpriteBatch`
+switches to once a single `Begin`/`End` submits more than 5461 sprites. A dense
+LDtk tile world exceeds that even after culling, so an unsplit draw throws
+`Reach profile does not support 32 bit indices` (desktop/HiDef accepts 32-bit
+indices, which is why the same scene paints there). This was the plan's
+**Risk #1**.
 
-The reference app **boots in Chrome and runs** (WASM loads, the LDtk world
-parses, input is wired), but a **dense LDtk world does not yet paint** on the
-canvas. WebGL ES2 / the Reach profile rejects the 32-bit indices that
-`SpriteBatch` switches to past 5461 sprites per flush; a dense tile level
-exceeds that even after culling, so the draw throws
-`Reach profile does not support 32 bit indices`. Desktop (HiDef) accepts
-32-bit indices and renders fine.
+The renderer now **splits a sprite/text run below that budget**:
+`MasterRenderSystem` flushes (`End` + `Begin`) the `SpriteBatch` before a run
+crosses `SpriteBatchFlush.MaxSpritesPerBatch` (`< 5461`), so no batch ever
+needs 32-bit indices. The cap is applied on **every** profile (no
+`GraphicsProfile` branch in the engine — the renderer stays platform-agnostic
+per "platform is selected by the head"); on HiDef it is a few extra, cheaper
+flushes, on Reach it is the fix. The invariant is guarded by
+`MonoDreams.Tests/Rendering/SpriteBatchFlushTests.cs` and the rendering premise
+"Sprite runs flush below the Reach 16-bit-index budget", and the desktop demo
+headless tests confirm the split does not change what renders.
 
-This is the plan's **Risk #1** and is **open**. The fix lives in the
-`rendering` module — break `MasterRenderSystem`'s flush into batches under
-5461 sprites for the Reach profile (or force 16-bit indices). Until then,
-treat "the world paints in the browser" as not-yet-delivered for dense
-levels; sparse scenes within the index budget render fine.
+> **In-browser visual confirmation is the remaining manual/CI step.** The root
+> cause is removed and verified on host (desktop regression + the splitter
+> unit tests + the engine recompiling against KNI). Capturing a painted canvas
+> from headless Chrome over the full web content bundle is the same
+> puppeteer + SwiftShader path used to prove the Phase 0 spike; run it on a
+> host with a real (or SwiftShader) WebGL context to sign off the end-to-end
+> "the world paints in Chrome" acceptance bullet.
 
 ### Tooling-host gaps
 

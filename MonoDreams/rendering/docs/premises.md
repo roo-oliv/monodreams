@@ -206,6 +206,37 @@ mode would wrap/tile sprites at their edges.
 **Tests:** none yet.
 **Depends on:** —
 
+## Sprite runs flush below the Reach 16-bit-index budget
+
+`MasterRenderSystem` caps the number of sprite quads submitted between a single
+`SpriteBatch.Begin` and its matching `End`. When a contiguous sprite/text run
+would push the running quad count past `SpriteBatchFlush.MaxSpritesPerBatch`
+(a constant strictly below 5461), the renderer flushes (`End` + `Begin`, with
+the same sampler) and resets the count before drawing the next element. Text
+elements count one quad per glyph (plus one underline bar per line); a sprite or
+pre-expanded nine-patch counts one. The cap is applied on **every** graphics
+profile — the renderer contains no `GraphicsProfile` literal or `#if`.
+
+**Why:** MonoGame's / KNI's `SpriteBatch` packs 4 vertices + 6 indices per
+sprite; once one batch exceeds 5461 sprites it grows to 32-bit indices, which
+the Reach profile (WebGL ES2 / BlazorGL) rejects with `Reach profile does not
+support 32 bit indices`. A dense LDtk tile world exceeds 5461 on-screen sprites
+even after culling, so without the split it paints on desktop (HiDef) but throws
+on web. Splitting unconditionally keeps the engine source platform-agnostic
+("the platform is selected by the head") — the head picks Reach vs HiDef; the
+renderer never asks.
+**Breaks:** removing the cap, raising it to/past 5461, or counting glyph-heavy
+text as one quad lets a dense run cross into 32-bit indices and crash a web
+build; capping too low pointlessly multiplies draw calls.
+**Tests:** `MonoDreams.Tests/Rendering/SpriteBatchFlushTests.cs` — asserts the
+cap stays below the 32-bit-index hard limit, that a 20000-sprite run splits into
+segments each within the limit with no quads lost, and that text is counted per
+glyph. The desktop demo headless tests
+(`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`) confirm the split is
+visually transparent on HiDef.
+**Depends on:** foundation — "The platform … is selected by the head project,
+never by engine source".
+
 ## The draw set is built once per instance, not per frame
 
 A `MasterRenderSystem` instance builds its `EntitySet` (for its `source`)

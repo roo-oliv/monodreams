@@ -152,6 +152,9 @@ public class MasterRenderSystem(
         Matrix transformMatrix)
     {
         BatchType currentBatch = BatchType.None;
+        // Sprite quads submitted into the *current* SpriteBatch Begin/End run.
+        // Reset on every Begin; used to flush below the Reach 16-bit-index budget.
+        var quadsInBatch = 0;
 
         foreach (var (_, _, dc) in sortedEntities)
         {
@@ -168,20 +171,44 @@ public class MasterRenderSystem(
 
                 // Start new batch
                 if (requiredBatch == BatchType.Sprite)
+                {
                     BeginSpriteBatch(transformMatrix, SpriteSamplerState);
+                    quadsInBatch = 0;
+                }
                 else if (requiredBatch == BatchType.Text)
+                {
                     BeginSpriteBatch(transformMatrix, TextSamplerState);
+                    quadsInBatch = 0;
+                }
                 else if (requiredBatch == BatchType.Mesh)
                     ResetGraphicsStateForMeshRendering();
 
                 currentBatch = requiredBatch;
+            }
+            else if (currentBatch is BatchType.Sprite or BatchType.Text)
+            {
+                // Same SpriteBatch context: flush + reopen before this run grows past the
+                // 16-bit-index cap, so each Begin/End stays Reach-legal (WebGL ES2). The
+                // reopened batch uses the same sampler, so painter's order is unaffected.
+                var nextQuads = SpriteBatchFlush.EstimateSpriteQuads(dc);
+                if (SpriteBatchFlush.ShouldFlushBefore(quadsInBatch, nextQuads))
+                {
+                    EndSpriteBatch();
+                    BeginSpriteBatch(
+                        transformMatrix,
+                        currentBatch == BatchType.Text ? TextSamplerState : SpriteSamplerState);
+                    quadsInBatch = 0;
+                }
             }
 
             // Draw the element
             if (requiredBatch == BatchType.Mesh)
                 DrawSingleMesh(dc, transformMatrix);
             else
+            {
                 DrawElement(dc); // Sprite or Text
+                quadsInBatch += SpriteBatchFlush.EstimateSpriteQuads(dc);
+            }
         }
 
         // End final batch if it was a SpriteBatch one

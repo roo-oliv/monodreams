@@ -68,6 +68,13 @@
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     </PropertyGroup>
 
+    <!-- Expose internal rendering helpers (e.g. SpriteBatchFlush, the Reach 16-bit-index
+         batch-split planner) to the test assembly so their invariants can be unit-tested
+         without a live GraphicsDevice. -->
+    <ItemGroup>
+        <InternalsVisibleTo Include="MonoDreams.Tests" />
+    </ItemGroup>
+
     <!-- ===== Backend-agnostic (pure .NET) dependencies — same on every platform ===== -->
     <ItemGroup>
         <PackageReference Include="YarnSpinner" Version="3.0.2" />
