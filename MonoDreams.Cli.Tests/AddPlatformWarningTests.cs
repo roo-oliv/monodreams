@@ -18,14 +18,18 @@ public class AddPlatformWarningTests
         var (registryRoot, projectDir) = SetupSyntheticRegistryAndProject(projectPlatforms: new[] { "desktop", "web" });
         try
         {
+            Environment.ExitCode = 0;
             var (stdout, stderr) = await CaptureAsync(() =>
                 Runner.RunAddAsync(new[] { "deskonly" }, presetName: null, projectPath: projectDir, dryRun: true, registryPath: registryRoot));
 
             // Warns that the desktop-only module is skipped for web, but it is still in the plan (desktop).
             Assert.Contains("does not support platform 'web'", stderr);
             Assert.Contains("to install: deskonly", stdout);
+            // A warn-and-skip is a success, not an error — the exit code must stay 0 (and not leak to the
+            // next test, which asserts a hard-error exit code 2).
+            Assert.Equal(0, Environment.ExitCode);
         }
-        finally { Cleanup(registryRoot, projectDir); }
+        finally { Environment.ExitCode = 0; Cleanup(registryRoot, projectDir); }
     }
 
     [Fact]

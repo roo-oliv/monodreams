@@ -228,10 +228,24 @@ renderer never asks.
 **Breaks:** removing the cap, raising it to/past 5461, or counting glyph-heavy
 text as one quad lets a dense run cross into 32-bit indices and crash a web
 build; capping too low pointlessly multiplies draw calls.
+**Residual limitation (one draw call cannot be split):** the split happens
+*between* draw elements, never *within* one. A single `DrawComponent` whose own
+`EstimateSpriteQuads` already exceeds the 5461 hard limit — e.g. a >5461-glyph
+text block on one line — is still submitted in one `SpriteBatch.Draw`/`DrawString`,
+so it alone crosses into 32-bit indices and throws on Reach. The cap's headroom
+(4096→5461) absorbs the conservative text over-estimate of a *normal* element,
+not a pathologically huge one. Splitting one `DrawString` is the framework's job,
+not the renderer's; if a game legitimately needs a single >5461-glyph run on web,
+`TextPrepSystem` (rendering-text) must break it into multiple text entities first.
+This residue is out of the splitter's reach by construction.
 **Tests:** `MonoDreams.Tests/Rendering/SpriteBatchFlushTests.cs` — asserts the
 cap stays below the 32-bit-index hard limit, that a 20000-sprite run splits into
 segments each within the limit with no quads lost, and that text is counted per
-glyph. The desktop demo headless tests
+glyph. The tests drive the **same** `SpriteBatchFlush.BatchRun` accumulator that
+`MasterRenderSystem.RenderInterleaved` uses for its per-element flush decision, so
+a regression inside the renderer's loop (dropping the per-`Begin` reset or skipping
+the flush check) is reflected in the unit test, not only in an on-device web run.
+The desktop demo headless tests
 (`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`) confirm the split is
 visually transparent on HiDef.
 **Depends on:** foundation — "The platform … is selected by the head project,

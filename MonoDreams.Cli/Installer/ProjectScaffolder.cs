@@ -271,6 +271,18 @@ game.Run();
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.11" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.11" PrivateAssets="all" />
   </ItemGroup>
+
+  <!--
+    CONTENT BUILD (not wired here on purpose): this starter head boots the empty GameRoot, which loads
+    NO content, so it runs with no content pipeline. The MOMENT you `monodreams add` a module that builds
+    content for web (fonts via rendering-text, level-ldtk, dialogue/Yarn), this head needs KNI's web
+    content-build wiring — the desktop head's MonoGame.Content.Builder.Task has no web equivalent here.
+    The web recipe is non-trivial and OS-dependent (KNI's MGCB builder ships Windows-only native libs, so
+    macOS/Linux needs a FreeImage/freetype shim, plus per-backend /reference: dlls). Copy the working set
+    of targets from MonoDreams.Examples.Web.csproj (BuildWebContentPipelineDlls + PrepareKniContentNativeShim,
+    nkast.Xna.Framework.Content.Pipeline.Builder, KniContentReference) and read docs/web-targeting.md
+    ("Content build (the same .mgcb, two backends)") before adding a content-using module on web.
+  -->
 </Project>
 
 """);
@@ -528,9 +540,14 @@ namespace {{projectName}}.Web.Pages
     <script src="_framework/blazor.webassembly.js"></script>
 
     <!--
-        nkast.Wasm.* JS interop shims. Versions MUST match the restored package versions
-        (nkast.Wasm.* 8.0.11, pulled transitively by nkast.Kni.Platform.Blazor.GL 4.2.9001).
-        JSObject ships in nkast.Wasm.JSInterop (it moved there from nkast.Wasm.Dom in 8.0.x).
+        nkast.Wasm.* JS interop shims. The "8.0.11" in each src below is the nkast.Wasm.* JS asset
+        version, NOT a framework version, and it is HARD-COUPLED to the package nkast.Kni.Platform.Blazor.GL
+        (4.2.9001 in {{projectName}}.Web.csproj) transitively pulls. If you bump nkast.Kni.Platform.Blazor.GL
+        (or pin nkast.Wasm.* explicitly), update EVERY "8.0.11" in these script srcs to match the restored
+        nkast.Wasm.* version, or the canvas/GL/JSObject interop fails to load at runtime with a 404 on these
+        _content/ paths. There is no build-time check that these line up — see docs/web-targeting.md
+        ("Web host" row of the dependency-parity table). JSObject ships in nkast.Wasm.JSInterop (it moved
+        there from nkast.Wasm.Dom in 8.0.x).
     -->
     <script src="_content/nkast.Wasm.JSInterop/js/JSObject.8.0.11.js"></script>
     <script src="_content/nkast.Wasm.Dom/js/Window.8.0.11.js"></script>

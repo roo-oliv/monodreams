@@ -36,13 +36,24 @@ internal static class DependencyResolver
             throw new InvalidOperationException($"Cyclic dependency: {cycle}");
         }
 
-        path.Push(name);
         var manifest = registry.GetModule(name);
 
         if (targetPlatform is { } platform && !manifest.SupportsPlatform(platform))
-            throw new InvalidOperationException(
-                $"Module '{name}' does not support platform '{Platforms.ToToken(platform)}' (supports: {string.Join(", ", manifest.SupportedPlatforms.Select(Platforms.ToToken))}).");
+        {
+            // Per the Resolve contract: a directly-requested module that excludes the target platform is
+            // rejected (hard error), but one reached only transitively is skipped — the platform simply
+            // cannot pull it in. `path` holds this module's ancestors; empty ⇒ this is a direct request.
+            if (path.Count == 0)
+                throw new InvalidOperationException(
+                    $"Module '{name}' does not support platform '{Platforms.ToToken(platform)}' (supports: {string.Join(", ", manifest.SupportedPlatforms.Select(Platforms.ToToken))}).");
 
+            // Transitive + unsupported: skip it (and its subtree) for this platform. Leaving it out of
+            // `seen`/`ordered` is the skip; mark it visited-done so a later path doesn't re-enter it.
+            visiting.Remove(name);
+            return;
+        }
+
+        path.Push(name);
         foreach (var dep in manifest.Dependencies)
             Visit(dep, registry, seen, visiting, ordered, targetPlatform, path);
         path.Pop();

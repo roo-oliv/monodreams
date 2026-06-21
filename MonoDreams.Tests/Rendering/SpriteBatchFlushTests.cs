@@ -88,25 +88,28 @@ public class SpriteBatchFlushTests
     }
 
     /// <summary>
-    /// Replays the exact running-count + <see cref="SpriteBatchFlush.ShouldFlushBefore"/>
-    /// decision MasterRenderSystem.RenderInterleaved runs for a single-context sprite/text
-    /// run, returning the quad count of each Begin/End segment it would produce.
+    /// Drives the *same* <see cref="SpriteBatchFlush.BatchRun"/> that
+    /// MasterRenderSystem.RenderInterleaved uses for a single-context sprite/text run, returning the
+    /// quad count of each Begin/End segment it produces. Because the renderer's loop delegates its
+    /// flush decision + running count to this exact struct, a regression inside RenderInterleaved
+    /// (dropping the per-Begin Reset, or skipping the ConsumeBefore flush check) is reflected here.
     /// </summary>
     private static List<int> SimulateBatchSegments(IReadOnlyList<DrawComponent> run)
     {
         var segments = new List<int>();
-        var current = 0;
+        var batch = new SpriteBatchFlush.BatchRun();
+        var previousSegmentQuads = 0;
         foreach (var dc in run)
         {
-            var next = SpriteBatchFlush.EstimateSpriteQuads(dc);
-            if (SpriteBatchFlush.ShouldFlushBefore(current, next))
+            // ConsumeBefore returns true exactly when the renderer would flush (End + reopen) before
+            // drawing this element — i.e. the run so far is a completed segment.
+            if (batch.ConsumeBefore(dc))
             {
-                segments.Add(current);
-                current = 0;
+                segments.Add(previousSegmentQuads);
             }
-            current += next;
+            previousSegmentQuads = batch.Quads;
         }
-        if (current > 0) segments.Add(current);
+        if (previousSegmentQuads > 0) segments.Add(previousSegmentQuads);
         return segments;
     }
 

@@ -29,7 +29,11 @@ internal sealed class StateFile
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<Platform> TargetPlatforms =>
-        Platforms.Count == 0 ? new[] { Platform.Desktop } : Platforms.Select(MonoDreams.Cli.Manifest.Platforms.Parse).Distinct().ToList();
+        // Treat a null list (the file has `"platforms": null`, which the `new()` initializer does not
+        // cover — that only applies when the key is absent) the same as an empty/missing one.
+        Platforms is null || Platforms.Count == 0
+            ? new[] { Platform.Desktop }
+            : Platforms.Select(MonoDreams.Cli.Manifest.Platforms.Parse).Distinct().ToList();
 
     public static StateFile LoadOrCreate(string projectDir)
     {

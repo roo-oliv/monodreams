@@ -75,8 +75,22 @@ internal static class Runner
         try { registry = Registry.Load(registryPath); }
         catch (Exception ex) { Console.Error.WriteLine($"error: {ex.Message}"); Environment.ExitCode = 2; return Task.CompletedTask; }
 
-        var state = StateFile.LoadOrCreate(projectDir);
-        var targetPlatforms = state.TargetPlatforms;
+        // A hand-edited / corrupted monodreams.json can fail to deserialize (malformed JSON) or carry an
+        // unknown platform token (TargetPlatforms calls Platforms.Parse, which throws on a bad token).
+        // Route both to the CLI's standard error path (exit code 2) instead of an uncaught crash.
+        StateFile state;
+        IReadOnlyList<Platform> targetPlatforms;
+        try
+        {
+            state = StateFile.LoadOrCreate(projectDir);
+            targetPlatforms = state.TargetPlatforms;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: could not read project state from '{Path.Combine(projectDir, StateFile.FileName)}': {ex.Message}");
+            Environment.ExitCode = 2;
+            return Task.CompletedTask;
+        }
 
         var requested = new List<string>(modules);
         if (!string.IsNullOrEmpty(presetName))

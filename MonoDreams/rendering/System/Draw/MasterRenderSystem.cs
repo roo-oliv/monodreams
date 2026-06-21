@@ -152,9 +152,10 @@ public class MasterRenderSystem(
         Matrix transformMatrix)
     {
         BatchType currentBatch = BatchType.None;
-        // Sprite quads submitted into the *current* SpriteBatch Begin/End run.
-        // Reset on every Begin; used to flush below the Reach 16-bit-index budget.
-        var quadsInBatch = 0;
+        // The running quad count + flush decision for the *current* SpriteBatch Begin/End run, shared with
+        // the SpriteBatchFlushTests so the renderer and its tests exercise the same flush logic. Reset on
+        // every Begin (context switch or flush); used to keep each run below the Reach 16-bit-index budget.
+        var batchRun = new SpriteBatchFlush.BatchRun();
 
         foreach (var (_, _, dc) in sortedEntities)
         {
@@ -173,41 +174,36 @@ public class MasterRenderSystem(
                 if (requiredBatch == BatchType.Sprite)
                 {
                     BeginSpriteBatch(transformMatrix, SpriteSamplerState);
-                    quadsInBatch = 0;
+                    batchRun.Reset();
                 }
                 else if (requiredBatch == BatchType.Text)
                 {
                     BeginSpriteBatch(transformMatrix, TextSamplerState);
-                    quadsInBatch = 0;
+                    batchRun.Reset();
                 }
                 else if (requiredBatch == BatchType.Mesh)
                     ResetGraphicsStateForMeshRendering();
 
                 currentBatch = requiredBatch;
             }
-            else if (currentBatch is BatchType.Sprite or BatchType.Text)
+
+            // Draw the element. Sprite/Text both accumulate into the current Begin/End run via the same
+            // BatchRun the tests drive: ConsumeBefore decides whether the run must flush (End + reopen
+            // with the same sampler) before this element to stay below the Reach 16-bit-index cap, and
+            // folds the element's quad count into the run. Called once per sprite/text element — including
+            // the first after a context switch (its count is 0, so it never flushes).
+            if (requiredBatch == BatchType.Mesh)
+                DrawSingleMesh(dc, transformMatrix);
+            else
             {
-                // Same SpriteBatch context: flush + reopen before this run grows past the
-                // 16-bit-index cap, so each Begin/End stays Reach-legal (WebGL ES2). The
-                // reopened batch uses the same sampler, so painter's order is unaffected.
-                var nextQuads = SpriteBatchFlush.EstimateSpriteQuads(dc);
-                if (SpriteBatchFlush.ShouldFlushBefore(quadsInBatch, nextQuads))
+                if (batchRun.ConsumeBefore(dc))
                 {
                     EndSpriteBatch();
                     BeginSpriteBatch(
                         transformMatrix,
                         currentBatch == BatchType.Text ? TextSamplerState : SpriteSamplerState);
-                    quadsInBatch = 0;
                 }
-            }
-
-            // Draw the element
-            if (requiredBatch == BatchType.Mesh)
-                DrawSingleMesh(dc, transformMatrix);
-            else
-            {
                 DrawElement(dc); // Sprite or Text
-                quadsInBatch += SpriteBatchFlush.EstimateSpriteQuads(dc);
             }
         }
 

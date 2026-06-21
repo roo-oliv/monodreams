@@ -139,6 +139,71 @@ public class ManifestPlatformTests
     }
 
     /// <summary>
+    /// The resolver contract distinguishes a directly-requested unsupported module (hard reject) from one
+    /// reached only transitively (skip). A web module that depends on a desktop-only module must resolve on
+    /// web — the desktop-only transitive dep is silently dropped, not thrown — while the same desktop-only
+    /// module requested directly on web still throws. Guards <c>resolver-transitive-skip-vs-throw</c>.
+    /// </summary>
+    [Fact]
+    public void Resolver_SkipsTransitiveUnsupportedDep_ButRejectsItDirectly()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "md-transitive-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // A: supports both platforms, depends on B (desktop-only).
+            var aDir = Path.Combine(tempRoot, "MonoDreams", "anyplat");
+            Directory.CreateDirectory(aDir);
+            File.WriteAllText(Path.Combine(aDir, "module.json"),
+                """{ "name": "anyplat", "description": "both", "platforms": ["desktop", "web"], "dependencies": ["deskdep"] }""");
+
+            // B: desktop-only.
+            var bDir = Path.Combine(tempRoot, "MonoDreams", "deskdep");
+            Directory.CreateDirectory(bDir);
+            File.WriteAllText(Path.Combine(bDir, "module.json"),
+                """{ "name": "deskdep", "description": "desktop only", "platforms": ["desktop"] }""");
+
+            var registry = Registry.Load(tempRoot);
+
+            // Desktop: both A and its dep B resolve.
+            var desktop = DependencyResolver.Resolve(registry, new[] { "anyplat" }, Array.Empty<string>(), Platform.Desktop);
+            Assert.Contains("anyplat", desktop);
+            Assert.Contains("deskdep", desktop);
+
+            // Web: A resolves; its desktop-only transitive dep B is skipped, NOT thrown (the documented
+            // contract — pre-fix, Visit threw for any unsupported module regardless of depth).
+            var web = DependencyResolver.Resolve(registry, new[] { "anyplat" }, Array.Empty<string>(), Platform.Web);
+            Assert.Contains("anyplat", web);
+            Assert.DoesNotContain("deskdep", web);
+
+            // But requesting the desktop-only module DIRECTLY on web is still a hard reject.
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                DependencyResolver.Resolve(registry, new[] { "deskdep" }, Array.Empty<string>(), Platform.Web));
+            Assert.Contains("does not support platform 'web'", ex.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A malformed/hand-edited <c>monodreams.json</c> with <c>"platforms": null</c> deserializes to a null
+    /// list (the property initializer only covers an absent key); <see cref="StateFile.TargetPlatforms"/>
+    /// must treat that as the desktop-only default rather than NRE on <c>.Count</c>. Guards
+    /// <c>statefile-null-platforms-nre</c>.
+    /// </summary>
+    [Fact]
+    public void StateFile_NullPlatforms_FallsBackToDesktop()
+    {
+        var state = JsonSerializer.Deserialize<StateFile>("""{ "platforms": null }""", JsonOpts.Default)!;
+        Assert.Null(state.Platforms);
+
+        var resolved = state.TargetPlatforms;
+        Assert.Single(resolved);
+        Assert.Equal(Platform.Desktop, resolved[0]);
+    }
+
+    /// <summary>
     /// <see cref="MgcbEntry"/> parses both manifest forms: a bare string (all platforms) and a
     /// <c>{ value, platforms }</c> object (backend-specific content-pipeline line).
     /// </summary>

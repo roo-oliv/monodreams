@@ -80,8 +80,46 @@ internal static class SpriteBatchFlush
     /// whether the caller must flush (End + Begin) before drawing the next element. A
     /// single element larger than the cap (a huge text block) is still drawn after a
     /// flush — splitting one <c>DrawString</c> is the framework's, not the engine's, job;
-    /// the cap leaves enough headroom under the hard limit to absorb it.
+    /// the cap leaves enough headroom under the hard limit to absorb it. Note the residual
+    /// case the cap cannot cover: a single element whose own <see cref="EstimateSpriteQuads"/>
+    /// already exceeds <see cref="HardIndexLimit"/> (e.g. a >5461-glyph text block on one
+    /// line) still crosses the 32-bit-index boundary on Reach — the renderer cannot split
+    /// one draw call. See the rendering premise's residual-limitation note.
     /// </summary>
     public static bool ShouldFlushBefore(int currentQuads, int nextQuads) =>
         currentQuads > 0 && currentQuads + nextQuads > MaxSpritesPerBatch;
+
+    /// <summary>
+    /// The running quad-count + flush decision a single <c>SpriteBatch</c> Begin/End run accumulates,
+    /// factored out of <c>MasterRenderSystem.RenderInterleaved</c> so the renderer and its tests share
+    /// the <em>same</em> code path. <c>RenderInterleaved</c> calls <see cref="ConsumeBefore"/> for each
+    /// element to learn whether it must flush+reopen the batch first, then draws and advances the count;
+    /// it calls <see cref="Reset"/> whenever it (re)opens a batch (context switch or flush). A test can
+    /// drive the identical sequence over a flat element list and assert no segment exceeds the cap, so a
+    /// regression inside <c>RenderInterleaved</c> (dropping the reset, skipping the check) is caught.
+    /// </summary>
+    public struct BatchRun
+    {
+        private int _quads;
+
+        /// <summary>Quads accumulated in the current Begin/End run.</summary>
+        public readonly int Quads => _quads;
+
+        /// <summary>Resets the running count — call on every <c>SpriteBatch.Begin</c> (open or reopen).</summary>
+        public void Reset() => _quads = 0;
+
+        /// <summary>
+        /// Decides whether the batch must flush+reopen before drawing <paramref name="dc"/>, then folds
+        /// the element's quads into the run (resetting first if a flush is needed). Returns true when the
+        /// caller must <c>End</c> + <c>Begin</c> before drawing this element.
+        /// </summary>
+        public bool ConsumeBefore(DrawComponent dc)
+        {
+            var next = EstimateSpriteQuads(dc);
+            var flush = ShouldFlushBefore(_quads, next);
+            if (flush) _quads = 0;
+            _quads += next;
+            return flush;
+        }
+    }
 }
