@@ -7,7 +7,7 @@ using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Runner;
 
-[With(typeof(ScoreDisplay), typeof(DynamicText))]
+[With(typeof(ScoreDisplay), typeof(DynamicTextComponent))]
 public class ScoreDisplaySystem(World world) : AEntitySetSystem<GameState>(world)
 {
     private readonly EntitySet _players = world.GetEntities().With<RunnerState>().AsSet();
@@ -18,7 +18,7 @@ public class ScoreDisplaySystem(World world) : AEntitySetSystem<GameState>(world
         if (players.Length == 0) return;
 
         var runnerState = players[0].Get<RunnerState>();
-        ref var text = ref entity.Get<DynamicText>();
+        ref var text = ref entity.Get<DynamicTextComponent>();
         text.TextContent = $"Score: {runnerState.Score}";
     }
 }

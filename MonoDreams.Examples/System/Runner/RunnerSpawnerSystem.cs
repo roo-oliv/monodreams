@@ -23,7 +23,7 @@ public class RunnerSpawnerSystem : ISystem<GameState>
     public RunnerSpawnerSystem(World world)
     {
         _world = world;
-        _spawnPointSet = world.GetEntities().With<SpawnPoint>().With<Transform>().AsSet();
+        _spawnPointSet = world.GetEntities().With<SpawnPoint>().With<TransformComponent>().AsSet();
     }
 
     public void Update(GameState state)
@@ -41,7 +41,7 @@ public class RunnerSpawnerSystem : ISystem<GameState>
         // Oscillate spawn point Y
         foreach (ref readonly var spawnEntity in _spawnPointSet.GetEntities())
         {
-            ref var transform = ref spawnEntity.Get<Transform>();
+            ref var transform = ref spawnEntity.Get<TransformComponent>();
             var newY = RunnerConstants.SpawnPointBaseY +
                 RunnerConstants.SpawnPointAmplitude * MathF.Sin(RunnerConstants.SpawnPointFrequency * _totalTime);
             transform.SetPositionY(newY);
@@ -56,7 +56,7 @@ public class RunnerSpawnerSystem : ISystem<GameState>
             Vector2 spawnPosition = new(RunnerConstants.SpawnPointX, RunnerConstants.SpawnPointBaseY);
             foreach (ref readonly var spawnEntity in _spawnPointSet.GetEntities())
             {
-                spawnPosition = spawnEntity.Get<Transform>().Position;
+                spawnPosition = spawnEntity.Get<TransformComponent>().Position;
                 break;
             }
 

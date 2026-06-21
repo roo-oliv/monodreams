@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://monodreams.dev/registry/module.schema.json",
+  "title": "MonoDreams module manifest",
+  "description": "A module is a self-contained, copyable slice of the MonoDreams engine. Manifests describe the files, dependencies, NuGet packages, csproj/.mgcb edits, and post-install guidance the CLI applies when a user runs `monodreams add <module>`.",
+  "type": "object",
+  "required": ["name", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Pointer to this schema. Conventionally `../module.schema.json` relative to the manifest."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Module identifier, kebab-case. Must match the directory name under `registry/`."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "Single-line summary shown by `monodreams list`. No trailing period."
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "default": [],
+      "description": "Other modules this module requires. Resolved transitively at install time."
+    },
+    "nugetDependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "NuGet package id (e.g. `YarnSpinner`)." },
+          "version": { "type": "string", "description": "Version string passed to `<PackageReference Version=...>`." },
+          "privateAssets": { "type": "string", "description": "Optional `PrivateAssets` value (e.g. `all`)." }
+        }
+      },
+      "uniqueItems": true,
+      "default": [],
+      "description": "NuGet `<PackageReference>` entries the CLI injects into the user's csproj."
+    },
+    "csprojProperties": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Properties the CLI adds to a `<PropertyGroup>` in the user's csproj. Keys are MSBuild property names, values are their text content."
+    },
+    "files": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["source", "destination"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Path relative to the engine repo root (this repo). Read by the CLI when copying."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Path relative to the user's project root where the file lands. By convention mirrors `source` so namespaces and the on-disk path stay aligned."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["code", "asset", "tool"],
+            "default": "code",
+            "description": "`code` — C# source (default). `asset` — non-compiled resource, copied as-is. `tool` — supporting script (e.g. Blender exporter) dropped under `Tools/`."
+          }
+        }
+      },
+      "description": "Optional override of the implicit file list. By default the CLI copies every file inside `MonoDreams/<module-name>/` (except `module.json` itself); use this only when a module needs to ship a file from outside its own directory."
+    },
+    "mgcbEntries": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Lines the CLI appends to the user's `.mgcb` file (Content pipeline). Each entry is a complete MGCB statement (e.g. `#begin Fonts/...`)."
+    },
+    "postInstallNotes": {
+      "type": "string",
+      "description": "Markdown printed to the terminal after install. Use it for `Logger.Initialize(...)` calls, asset hookups, system pipeline order — anything a human or an AI agent needs to wire the module into their screen."
+    },
+    "agentsMd": {
+      "type": "string",
+      "description": "Optional path (relative to the manifest) to an AGENTS.md snippet. When present, the CLI appends it to the user's project-root AGENTS.md so AI agents inherit the module's invariants."
+    },
+    "premisesRef": {
+      "type": "string",
+      "description": "Path relative to the module manifest, pointing at the `premises.md` for this module. Conventionally `docs/premises.md` (each module ships its own `docs/` subfolder). Surfaced by `monodreams list --verbose` so users and agents know where the invariants live."
+    },
+    "demo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "description"],
+      "description": "Optional working demonstration of the module. Files live under `<module>/demo/` and only ship when the user installs with `--with-demo`. The MonoDreams.Demos host project compiles these directly so they can reference shared menu UI.",
+      "properties": {
+        "entry": {
+          "type": "string",
+          "description": "Fully-qualified class name of the IGameScreen the demo exposes (e.g. `MonoDreams.Demo.Camera.CameraDemoScreen`)."
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line summary of what the demo shows. Surfaced in the launcher screen and by `monodreams list --verbose`."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Additional modules the demo needs beyond the owning module's `dependencies` (e.g. `ui`, `cursor`, `rendering-text` for menu chrome). Installed only when the user passes `--with-demo`."
+        }
+      }
+    }
+  }
+}

@@ -5,11 +5,10 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Component;
 using MonoDreams.Component.Cursor;
-using MonoDreams.Examples.Component.Layout;
 using MonoDreams.Examples.Component.UI;
-using MonoDreams.Examples.Layout;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System;
@@ -17,18 +16,14 @@ using MonoDreams.Extension;
 using MonoDreams.System;
 using MonoDreams.System.Cursor;
 using MonoDreams.System.Draw;
-using MonoDreams.Examples.System.Layout;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.Renderer;
+using MonoDreams.UI;
 using MonoDreams.Draw;
 using MonoDreams.Examples.Draw;
 using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
-using Camera = MonoDreams.Component.Camera;
-using DynamicText = MonoDreams.Component.Draw.DynamicText;
-using RenderTargetID = MonoDreams.Component.Draw.RenderTargetID;
-using Visible = MonoDreams.Component.Draw.Visible;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -98,7 +93,7 @@ public class LevelSelectionScreen : IGameScreen
         };
 
         // Create cursor entity
-        Objects.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
+        MonoDreams.Cursor.Cursor.Create(_world, cursorTextures, RenderTargetID.HUD);
 
         // Create level selection UI
         CreateLevelSelectionUI();
@@ -160,8 +155,8 @@ public class LevelSelectionScreen : IGameScreen
     private Entity CreateTextEntity(string text, BitmapFont font, Color color, float scale, float layerDepth)
     {
         var entity = _world.CreateEntity();
-        entity.Set(new Transform(Vector2.Zero));
-        entity.Set(new DynamicText
+        entity.Set(new TransformComponent(Vector2.Zero));
+        entity.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Main,
             LayerDepth = layerDepth,
@@ -172,7 +167,7 @@ public class LevelSelectionScreen : IGameScreen
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
-        entity.Set<Visible>();
+        entity.Set<VisibleComponent>();
         return entity;
     }
 
@@ -193,14 +188,14 @@ public class LevelSelectionScreen : IGameScreen
 
         // Create button container entity
         var buttonContainerEntity = _world.CreateEntity();
-        var buttonTransform = new Transform(Vector2.Zero);
+        var buttonTransform = new TransformComponent(Vector2.Zero);
         buttonContainerEntity.Set(buttonTransform);
 
         // Create button text entity with its own transform, offset by padding to center text
         var buttonTextEntity = _world.CreateEntity();
-        buttonTextEntity.Set(new Transform(new Vector2(style.Padding, style.Padding)));
+        buttonTextEntity.Set(new TransformComponent(new Vector2(style.Padding, style.Padding)));
         buttonTextEntity.SetParent(buttonContainerEntity);
-        buttonTextEntity.Set(new DynamicText
+        buttonTextEntity.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Main,
             LayerDepth = _layers.GetDepth(DrawLayer.ButtonText),
@@ -211,12 +206,12 @@ public class LevelSelectionScreen : IGameScreen
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
-        buttonTextEntity.Set<Visible>();
+        buttonTextEntity.Set<VisibleComponent>();
 
         // Create outline entity (shares transform with button)
         var outlineEntity = _world.CreateEntity();
         outlineEntity.Set(buttonTransform); // Share transform
-        outlineEntity.Set(new SimpleButton
+        outlineEntity.Set(new SimpleButtonComponent
         {
             Size = buttonSize,
             LineThickness = style.BorderThickness,
@@ -235,16 +230,16 @@ public class LevelSelectionScreen : IGameScreen
             HoveredColor = style.HoveredColor,
             DisabledColor = style.DisabledColor
         });
-        outlineEntity.Set<Visible>();
+        outlineEntity.Set<VisibleComponent>();
 
         return (buttonContainerEntity, buttonSize);
     }
 
     private static Vector2 MeasureText(Entity entity)
     {
-        if (!entity.Has<DynamicText>()) return Vector2.Zero;
+        if (!entity.Has<DynamicTextComponent>()) return Vector2.Zero;
 
-        ref var text = ref entity.Get<DynamicText>();
+        ref var text = ref entity.Get<DynamicTextComponent>();
         var measuredSize = text.Font.MeasureString(text.TextContent);
         return new Vector2(measuredSize.Width * text.Scale, measuredSize.Height * text.Scale);
     }
@@ -290,19 +285,25 @@ public class LevelSelectionScreen : IGameScreen
             new TextPrepSystem(_world, pixelPerfectRendering)
         );
 
-        var renderSystem = new MasterRenderSystem(
-            _spriteBatch,
-            _graphicsDevice,
-            _camera,
-            _renderTargets,
-            _world
-        );
+        var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
+        var uiPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]);
+        var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        });
 
         return new SequentialSystem<GameState>(
             prepDrawSystems,
-            renderSystem,
+            mainPass,
+            uiPass,
+            hudPass,
             finalDrawToScreenSystem
         );
     }

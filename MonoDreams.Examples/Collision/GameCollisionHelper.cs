@@ -26,8 +26,8 @@ public static class GameCollisionHelper
 
     private static CollisionType DetermineCollisionType(Entity entity, Entity target)
     {
-        var entityType = entity.Get<EntityInfo>().Type;
-        var targetType = target.Get<EntityInfo>().Type;
+        var entityType = entity.Get<EntityInfoComponent>().Type;
+        var targetType = target.Get<EntityInfoComponent>().Type;
         return entityType switch
         {
             "Player" when targetType == "Collectible" => CollisionType.Collectible,

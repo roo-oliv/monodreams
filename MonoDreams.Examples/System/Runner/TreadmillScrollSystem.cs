@@ -7,12 +7,12 @@ using MonoDreams.State;
 
 namespace MonoDreams.Examples.System.Runner;
 
-[With(typeof(TreadmillSegment), typeof(Transform))]
+[With(typeof(TreadmillSegment), typeof(TransformComponent))]
 public class TreadmillScrollSystem(World world) : AEntitySetSystem<GameState>(world)
 {
     protected override void Update(GameState state, in Entity entity)
     {
-        ref var transform = ref entity.Get<Transform>();
+        ref var transform = ref entity.Get<TransformComponent>();
         var segment = entity.Get<TreadmillSegment>();
         var segmentStride = RunnerConstants.TreadmillSegmentWidth + RunnerConstants.TreadmillSegmentGap;
         var totalWidth = RunnerConstants.TreadmillSegmentCount * segmentStride;

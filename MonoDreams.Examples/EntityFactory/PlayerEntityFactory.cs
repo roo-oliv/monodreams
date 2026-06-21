@@ -27,16 +27,16 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         var entity = world.CreateEntity();
 
         // Add core components
-        entity.Set(new EntityInfo(nameof(EntityType.Player)));
+        entity.Set(new EntityInfoComponent(nameof(EntityType.Player)));
         entity.Set(new PlayerState());
-        entity.Set(new Transform(request.Position));
-        // entity.Set(new BoxCollider(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
-        entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
-        entity.Set(new RigidBody());
-        entity.Set(new Velocity());
+        entity.Set(new TransformComponent(request.Position));
+        // entity.Set(new BoxColliderComponent(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
+        entity.Set(new BoxColliderComponent(new Rectangle(Point.Zero, Constants.PlayerSize)));
+        entity.Set(new RigidBodyComponent());
+        entity.Set(new VelocityComponent());
 
         // Add camera follow target component
-        entity.Set(new CameraFollowTarget
+        entity.Set(new CameraFollowTargetComponent
         {
             DampingX = 5.0f,  // Adjust for desired smoothness
             DampingY = 5.0f,
@@ -46,7 +46,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         });
 
         // Add sprite information for rendering
-        entity.Set(new SpriteInfo
+        entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = _charactersTileset,
             Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
@@ -90,7 +90,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         // Handle camera follow configuration from LDtk
         if (customFields.TryGetValue("cameraDamping", out var damping) && damping is float dampingValue)
         {
-            var followTarget = entity.Get<CameraFollowTarget>();
+            var followTarget = entity.Get<CameraFollowTargetComponent>();
             followTarget.DampingX = dampingValue;
             followTarget.DampingY = dampingValue;
             entity.Set(followTarget);
@@ -100,10 +100,10 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
     private void CreateBlueOrb(World world, Entity parentEntity)
     {
         var orbEntity = world.CreateEntity();
-        orbEntity.Set(new EntityInfo(nameof(EntityType.Orb), "BlueOrb"));
+        orbEntity.Set(new EntityInfoComponent(nameof(EntityType.Orb), "BlueOrb"));
 
         // Create transform parented to player
-        orbEntity.Set(new Transform(
+        orbEntity.Set(new TransformComponent(
             position: new Vector2(50, 0),
             rotation: 0f,
             scale: Vector2.One
@@ -136,7 +136,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
             PrimitiveType = circleMesh.PrimitiveType,
             LayerDepth = layers.GetDepth(GameDrawLayer.Effects, +0.001f)
         });
-        orbEntity.Set(new Visible());
+        orbEntity.Set(new VisibleComponent());
 
         // Create 3 red child orbs evenly spaced (0°, 120°, 240°)
         CreateRedOrb(world, orbEntity, 0f);
@@ -147,11 +147,11 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
     private void CreateRedOrb(World world, Entity parentEntity, float startAngle)
     {
         var orbEntity = world.CreateEntity();
-        orbEntity.Set(new EntityInfo(nameof(EntityType.Orb), "RedOrb"));
+        orbEntity.Set(new EntityInfoComponent(nameof(EntityType.Orb), "RedOrb"));
         var rnd = new Random();
 
         // Create transform parented to blue orb
-        orbEntity.Set(new Transform(
+        orbEntity.Set(new TransformComponent(
             position: new Vector2(20, 0),
             rotation: 0f,
             scale: Vector2.One
@@ -184,6 +184,6 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
             PrimitiveType = circleMesh.PrimitiveType,
             LayerDepth = layers.GetDepth(GameDrawLayer.Effects, +0.002f)
         });
-        orbEntity.Set(new Visible());
+        orbEntity.Set(new VisibleComponent());
     }
 }

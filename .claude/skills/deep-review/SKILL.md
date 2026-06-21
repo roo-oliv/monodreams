@@ -11,7 +11,7 @@ output is a single structured review the user can post to GitHub,
 copy, save, or discard.
 
 Always quote file paths and line numbers in findings. Never paraphrase
-code from memory — every Blocker/High finding must be re-verified by
+code from memory — every Moduleer/High finding must be re-verified by
 reading the actual file.
 
 ---
@@ -100,7 +100,7 @@ gathered context + its persona + its checklist.
 Every agent returns findings in this format:
 
 ```
-**[Blocker | High | Medium | Low] — <one-line title>**
+**[Moduleer | High | Medium | Low] — <one-line title>**
 File: <path>:<line>
 What: <what the change does>
 Why it's a problem: <which tenet/premise/contract it violates>
@@ -181,12 +181,12 @@ to catch it.
    shape. Use the per-frame phases as anchors:
    - Input
    - Game logic
-   - Physics block (Movement → Velocity → Detection → Resolution →
+   - Physics module (Movement → Velocity → Detection → Resolution →
      Commit)
    - Hierarchy / size / layout
    - Camera
    - Cursor
-   - Render block (Culling → Sprite prep → YSort → Text prep → Mesh
+   - Render module (Culling → Sprite prep → YSort → Text prep → Mesh
      prep → Master render → Debug overlays)
 3. Check the screen's registration site for the new/moved system.
    Confirm it lands in the correct phase.
@@ -244,7 +244,7 @@ features in MonoDreams.*
    this a framework primitive, or did we hard-code today's feature?
 3. If the diff adds a new draw/render component (anything that
    carries pixels or layer-depth besides `DrawComponent`,
-   `SpriteInfo`, `DynamicText`, `NinePatchInfo`): **Blocker**. The
+   `SpriteInfo`, `DynamicText`, `NinePatchInfo`): **Moduleer**. The
    unification of rendering through `DrawComponent` is one of the
    most load-bearing tenets — see Rendering premises.
 
@@ -332,13 +332,13 @@ that read state nobody told them about.
    the screen) → finding. Watch for `Logger.Warning("X did not run
    yet")` patterns, or fallbacks that paper over ordering bugs.
 3. **No parallel renderers.** Anything that calls `SpriteBatch.Draw`,
-   `SpriteBatch.Begin`, etc. outside `MasterRenderSystem` → Blocker.
+   `SpriteBatch.Begin`, etc. outside `MasterRenderSystem` → Moduleer.
 4. **No parallel level loading paths.** Anything that adds
    `CurrentLevelComponent` outside `LevelLoadRequestSystem` (excluding
    tests/tools that legitimately use the component-driven trigger
    pattern) → High.
 5. **Namespace integrity.** Anything placed under `MonoDreams.Entity`
-   → Blocker (shadows `DefaultEcs.Entity`). Anything placed under
+   → Moduleer (shadows `DefaultEcs.Entity`). Anything placed under
    `MonoDreams.Camera` namespace conflicting with the `Camera` class
    → High.
 6. **`Visible` ownership.** Game code that adds or removes `Visible`
@@ -355,7 +355,7 @@ Receive all six agent reports. Then:
 1. **Dedupe.** Multiple agents will catch the same bug from
    different angles. Keep the most specific framing; cite which
    lenses caught it.
-2. **Verify every Blocker and High.** For each, read the actual file
+2. **Verify every Moduleer and High.** For each, read the actual file
    at the cited path and confirm the code matches what the agent
    described. **Never dismiss a finding because the local file
    "looks different" — that means you may be on the wrong branch.
@@ -363,7 +363,7 @@ Receive all six agent reports. Then:
    the agent claimed, demote or drop the finding, and note the
    agent hallucinated.
 3. **Classify.**
-   - **Blocker** — framework-violating, will silently corrupt
+   - **Moduleer** — framework-violating, will silently corrupt
      gameplay or the engine model (parallel renderer, namespace
      shadowing, missed enum case in critical filter).
    - **High** — premise violation, missing test for newly-exercised
@@ -375,13 +375,13 @@ Receive all six agent reports. Then:
    - **Low** — naming nits, doc updates, refactor opportunities,
      premise-text suggestions.
 4. **Assign unique IDs.** After classifying, sort findings by
-   severity (Blocker → High → Medium → Low) and assign sequential
-   IDs within each severity bucket: `B1`, `B2`, … for Blockers;
+   severity (Moduleer → High → Medium → Low) and assign sequential
+   IDs within each severity bucket: `B1`, `B2`, … for Moduleers;
    `H1`, `H2`, … for Highs; `M1`, `M2`, … for Mediums; `L1`, `L2`,
    … for Lows. Each ID is a stable handle the user can reference
    in follow-up conversation ("address B1 and H3, ignore the rest").
    IDs must appear in the saved file, the summary table, and every
-   collapsed detail block.
+   collapsed detail module.
 
 ---
 
@@ -432,7 +432,7 @@ path, e.g.:
 
 Do not echo the full review body into chat — the file is the
 artifact. Follow the path line with a one-line tally
-(`3 Blockers · 2 High · 5 Medium · 1 Low`) so the user knows the
+(`3 Moduleers · 2 High · 5 Medium · 1 Low`) so the user knows the
 shape without opening the file, and then go straight to Phase 4b.
 
 ### Canonical review body (the file's contents)
@@ -450,12 +450,12 @@ shape without opening the file, and then go straight to Phase 4b.
 
 | ID | Severity | Title | File |
 |----|----------|-------|------|
-| B1 | Blocker  | <short title> | `<path>:<line>` |
+| B1 | Moduleer  | <short title> | `<path>:<line>` |
 | H1 | High     | <short title> | `<path>:<line>` |
 | M1 | Medium   | <short title> | `<path>:<line>` |
 | L1 | Low      | <short title> | `<path>:<line>` |
 
-## Blockers
+## Moduleers
 
 ### B1 — <title>
 
@@ -509,7 +509,7 @@ routing is opt-in.
 
 ### GitHub-friendly body (only when posting)
 
-GitHub renders `<details>` blocks as native collapsibles. Use this to
+GitHub renders `<details>` modules as native collapsibles. Use this to
 keep the posted comment scannable: the summary table is always
 visible, and each finding is one click to expand. **Do not post the
 canonical body to GitHub** — long flat reviews drown the PR thread.
@@ -520,17 +520,17 @@ Structure:
 # Deep review — <PR #N> @ `<short-sha>`
 
 **Mode:** <pr/branch/commit/local> · **Base:** <base-ref> · **Files changed:** <count>
-**Tally:** <N> Blockers · <N> High · <N> Medium · <N> Low
+**Tally:** <N> Moduleers · <N> High · <N> Medium · <N> Low
 **Lenses:** Adjacent-Code · System-Ordering · Component-Design · Cross-Domain · Premises/Test-Coverage · ECS-Purity
 
 | ID | Severity | Title | File |
 |----|----------|-------|------|
-| B1 | 🔴 Blocker | <title> | `<path>:<line>` |
+| B1 | 🔴 Moduleer | <title> | `<path>:<line>` |
 | H1 | 🟠 High    | <title> | `<path>:<line>` |
 | M1 | 🟡 Medium  | <title> | `<path>:<line>` |
 | L1 | ⚪ Low     | <title> | `<path>:<line>` |
 
-## 🔴 Blockers
+## 🔴 Moduleers
 
 <details>
 <summary><strong>B1</strong> — &lt;title&gt; · <code>&lt;path&gt;:&lt;line&gt;</code></summary>
@@ -598,7 +598,7 @@ Rules for the GitHub-friendly body:
 
 - The summary table is **never** collapsed — it's the at-a-glance
   index the reviewer needs even before deciding what to expand.
-- Each finding is its own `<details>` block so the reader can expand
+- Each finding is its own `<details>` module so the reader can expand
   one at a time. Do **not** group multiple findings under one
   collapsible — defeats the per-item reference purpose of the IDs.
 - The `<summary>` line always carries the ID (bold), the title, and
@@ -625,7 +625,7 @@ deliverable — they can open or share it later.
   than they probably will at first; iterate the prompts above if
   Low-finding inflation becomes a problem.
 - **Hallucinated paths are the #1 failure mode of Phase 2.** That's
-  why Phase 3 re-verifies every Blocker/High. Trust the file on
+  why Phase 3 re-verifies every Moduleer/High. Trust the file on
   disk, not the agent's recollection.
 - **The skill is calibrated for MonoDreams.** It cites tenets,
   premises, and anchors specific to this engine. Do not run it in

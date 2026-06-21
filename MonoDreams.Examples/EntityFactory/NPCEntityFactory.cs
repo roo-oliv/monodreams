@@ -27,14 +27,14 @@ public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEn
 
         // Add core components
         var name = request.CustomFields.TryGetValue("name", out var n) ? n as string : null;
-        entity.Set(new EntityInfo(nameof(EntityType.NPC), name));
-        entity.Set(new Transform(request.Position));
-        entity.Set(new BoxCollider(new Rectangle(Point.Zero, Constants.PlayerSize)));
-        entity.Set(new RigidBody());
-        entity.Set(new Velocity());
+        entity.Set(new EntityInfoComponent(nameof(EntityType.NPC), name));
+        entity.Set(new TransformComponent(request.Position));
+        entity.Set(new BoxColliderComponent(new Rectangle(Point.Zero, Constants.PlayerSize)));
+        entity.Set(new RigidBodyComponent());
+        entity.Set(new VelocityComponent());
 
         // Add sprite information for rendering
-        entity.Set(new SpriteInfo
+        entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = _charactersTileset,
             Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 

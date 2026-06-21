@@ -4,9 +4,9 @@ using DefaultEcs.System;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
+using MonoDreams.Dialogue;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Input;
-using MonoDreams.Examples.Message;
 using MonoDreams.Extensions.Monogame;
 using MonoDreams.State;
 
@@ -28,15 +28,15 @@ public class NPCInteractionSystem : ISystem<GameState>
 
         _playerSet = world.GetEntities()
             .With<PlayerState>()
-            .With<Transform>()
-            .With<ColliderTag>()
+            .With<TransformComponent>()
+            .With<ColliderTagComponent>()
             .AsSet();
 
         _zoneSet = world.GetEntities()
             .With<DialogueZoneComponent>()
             .With<NPCInteractionIcon>()
-            .With<Transform>()
-            .With<ColliderTag>()
+            .With<TransformComponent>()
+            .With<ColliderTagComponent>()
             .AsSet();
     }
 
@@ -51,8 +51,8 @@ public class NPCInteractionSystem : ISystem<GameState>
             foreach (var zone in _zoneSet.GetEntities())
             {
                 var icon = zone.Get<NPCInteractionIcon>();
-                if (icon.IconEntity.IsAlive && icon.IconEntity.Has<Visible>())
-                    icon.IconEntity.Remove<Visible>();
+                if (icon.IconEntity.IsAlive && icon.IconEntity.Has<VisibleComponent>())
+                    icon.IconEntity.Remove<VisibleComponent>();
             }
         }
     }
@@ -65,19 +65,19 @@ public class NPCInteractionSystem : ISystem<GameState>
         if (players.Length == 0) return;
 
         var playerEntity = players[0];
-        var playerTransform = playerEntity.Get<Transform>();
-        var playerRect = playerEntity.Has<BoxCollider>()
-            ? CollisionRect.FromBounds(playerEntity.Get<BoxCollider>().Bounds, playerTransform.WorldPosition)
-            : playerEntity.Get<ConvexCollider>().BroadPhaseAABB;
+        var playerTransform = playerEntity.Get<TransformComponent>();
+        var playerRect = playerEntity.Has<BoxColliderComponent>()
+            ? CollisionRect.FromBounds(playerEntity.Get<BoxColliderComponent>().Bounds, playerTransform.WorldPosition)
+            : playerEntity.Get<ConvexColliderComponent>().BroadPhaseAABB;
 
         var interactJustPressed = InputState.Interact.JustPressed();
 
         foreach (var zone in _zoneSet.GetEntities())
         {
-            var zoneTransform = zone.Get<Transform>();
-            var zoneRect = zone.Has<BoxCollider>()
-                ? CollisionRect.FromBounds(zone.Get<BoxCollider>().Bounds, zoneTransform.WorldPosition)
-                : zone.Get<ConvexCollider>().BroadPhaseAABB;
+            var zoneTransform = zone.Get<TransformComponent>();
+            var zoneRect = zone.Has<BoxColliderComponent>()
+                ? CollisionRect.FromBounds(zone.Get<BoxColliderComponent>().Bounds, zoneTransform.WorldPosition)
+                : zone.Get<ConvexColliderComponent>().BroadPhaseAABB;
 
             var icon = zone.Get<NPCInteractionIcon>();
             var iconEntity = icon.IconEntity;
@@ -85,8 +85,8 @@ public class NPCInteractionSystem : ISystem<GameState>
 
             if (playerRect.Intersects(zoneRect))
             {
-                if (!iconEntity.Has<Visible>())
-                    iconEntity.Set<Visible>();
+                if (!iconEntity.Has<VisibleComponent>())
+                    iconEntity.Set<VisibleComponent>();
 
                 if (interactJustPressed)
                 {
@@ -102,8 +102,8 @@ public class NPCInteractionSystem : ISystem<GameState>
             }
             else
             {
-                if (iconEntity.Has<Visible>())
-                    iconEntity.Remove<Visible>();
+                if (iconEntity.Has<VisibleComponent>())
+                    iconEntity.Remove<VisibleComponent>();
             }
         }
     }

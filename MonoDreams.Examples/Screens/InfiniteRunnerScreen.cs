@@ -27,7 +27,6 @@ using MonoDreams.System.Debug;
 using MonoDreams.System.Draw;
 using MonoDreams.System.Input;
 using MonoDreams.System.Physics;
-using Camera = MonoDreams.Component.Camera;
 
 namespace MonoDreams.Examples.Screens;
 
@@ -102,12 +101,12 @@ public class InfiniteRunnerScreen : IGameScreen
     {
         // Invisible collider for physics
         var collider = _world.CreateEntity();
-        collider.Set(new EntityInfo("Wall"));
-        collider.Set(new Transform(new Vector2(0, RunnerConstants.TreadmillY)));
-        collider.Set(new BoxCollider(
+        collider.Set(new EntityInfoComponent("Wall"));
+        collider.Set(new TransformComponent(new Vector2(0, RunnerConstants.TreadmillY)));
+        collider.Set(new BoxColliderComponent(
             new Rectangle(0, 0, (int)RunnerConstants.TreadmillTotalWidth, (int)RunnerConstants.TreadmillSegmentHeight),
             passive: true));
-        collider.Set(new RigidBody(isKinematic: true, gravityActive: false));
+        collider.Set(new RigidBodyComponent(isKinematic: true, gravityActive: false));
 
         // Cosmetic segments — top row (scrolls left)
         for (int i = 0; i < RunnerConstants.TreadmillSegmentCount; i++)
@@ -127,8 +126,8 @@ public class InfiniteRunnerScreen : IGameScreen
     {
         var x = index * (RunnerConstants.TreadmillSegmentWidth + RunnerConstants.TreadmillSegmentGap);
         var entity = _world.CreateEntity();
-        entity.Set(new EntityInfo("Interface"));
-        entity.Set(new Transform(new Vector2(x, y)));
+        entity.Set(new EntityInfoComponent("Interface"));
+        entity.Set(new TransformComponent(new Vector2(x, y)));
 
         var mesh = new FilledRectangleMeshGenerator(
             new Rectangle(0, 0, (int)RunnerConstants.TreadmillSegmentWidth, (int)RunnerConstants.TreadmillSegmentHeight),
@@ -142,15 +141,15 @@ public class InfiniteRunnerScreen : IGameScreen
             PrimitiveType = mesh.PrimitiveType,
             LayerDepth = _layers.GetDepth(RunnerDrawLayer.Treadmill)
         });
-        entity.Set(new Visible());
+        entity.Set(new VisibleComponent());
         entity.Set(new TreadmillSegment { IsTopRow = isTopRow });
     }
 
     private void CreateSpawnPoint()
     {
         var entity = _world.CreateEntity();
-        entity.Set(new EntityInfo("Interface"));
-        entity.Set(new Transform(new Vector2(RunnerConstants.SpawnPointX, RunnerConstants.SpawnPointBaseY)));
+        entity.Set(new EntityInfoComponent("Interface"));
+        entity.Set(new TransformComponent(new Vector2(RunnerConstants.SpawnPointX, RunnerConstants.SpawnPointBaseY)));
         entity.Set(new SpawnPoint());
 
         var circleMesh = new CircleMeshGenerator(
@@ -167,22 +166,22 @@ public class InfiniteRunnerScreen : IGameScreen
             PrimitiveType = circleMesh.PrimitiveType,
             LayerDepth = _layers.GetDepth(RunnerDrawLayer.SpawnPoint)
         });
-        entity.Set(new Visible());
+        entity.Set(new VisibleComponent());
     }
 
     private void CreatePlayer()
     {
         var entity = _world.CreateEntity();
-        entity.Set(new EntityInfo("Player"));
-        entity.Set(new Transform(RunnerConstants.PlayerStartPosition));
-        entity.Set(new BoxCollider(
+        entity.Set(new EntityInfoComponent("Player"));
+        entity.Set(new TransformComponent(RunnerConstants.PlayerStartPosition));
+        entity.Set(new BoxColliderComponent(
             new Rectangle(
                 RunnerConstants.PlayerColliderOffset.X,
                 RunnerConstants.PlayerColliderOffset.Y,
                 RunnerConstants.PlayerColliderSize.X,
                 RunnerConstants.PlayerColliderSize.Y)));
-        entity.Set(new RigidBody());
-        entity.Set(new Velocity());
+        entity.Set(new RigidBodyComponent());
+        entity.Set(new VelocityComponent());
         entity.Set(new RunnerState());
 
         var circleMesh = new CircleMeshGenerator(
@@ -199,15 +198,15 @@ public class InfiniteRunnerScreen : IGameScreen
             PrimitiveType = circleMesh.PrimitiveType,
             LayerDepth = _layers.GetDepth(RunnerDrawLayer.Player)
         });
-        entity.Set(new Visible());
+        entity.Set(new VisibleComponent());
     }
 
     private void CreateScoreHUD(ContentManager content)
     {
         var entity = _world.CreateEntity();
-        entity.Set(new EntityInfo("Interface"));
-        entity.Set(new Transform(RunnerConstants.ScorePosition));
-        entity.Set(new DynamicText
+        entity.Set(new EntityInfoComponent("Interface"));
+        entity.Set(new TransformComponent(RunnerConstants.ScorePosition));
+        entity.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.HUD,
             LayerDepth = _layers.GetDepth(RunnerDrawLayer.HUD),
@@ -218,15 +217,15 @@ public class InfiniteRunnerScreen : IGameScreen
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue
         });
-        entity.Set(new Visible());
+        entity.Set(new VisibleComponent());
         entity.Set(new ScoreDisplay());
     }
 
     private static CollisionMessage CreateRunnerCollision(
         Entity entity, Entity target, Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
     {
-        var entityType = entity.Get<EntityInfo>().Type;
-        var targetType = target.Get<EntityInfo>().Type;
+        var entityType = entity.Get<EntityInfoComponent>().Type;
+        var targetType = target.Get<EntityInfoComponent>().Type;
         var type = (entityType, targetType) switch
         {
             ("Player", "Collectible") => CollisionType.Collectible,
@@ -312,15 +311,19 @@ public class InfiniteRunnerScreen : IGameScreen
             new TextPrepSystem(_world, pixelPerfectRendering)
         );
 
-        var renderSystem = new MasterRenderSystem(
-            _spriteBatch,
-            _graphicsDevice,
-            _camera,
-            _renderTargets,
-            _world
-        );
+        var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
+        var uiPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]);
+        var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, _camera, _renderTargets);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        });
 
         var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
@@ -332,7 +335,9 @@ public class InfiniteRunnerScreen : IGameScreen
 
         return new SequentialSystem<GameState>(
             prepDrawSystems,
-            renderSystem,
+            mainPass,
+            uiPass,
+            hudPass,
             finalDrawToScreenSystem,
             screenshotSystem
         );

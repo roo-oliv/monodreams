@@ -4,7 +4,6 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component.Runner;
 using MonoDreams.Message;
 using MonoDreams.State;
-using Logger = MonoDreams.State.Logger;
 
 namespace MonoDreams.Examples.System.Runner;
 

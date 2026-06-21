@@ -17,14 +17,14 @@ public class ObstacleFactory(DrawLayerMap layers) : IEntityFactory
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
         var entity = world.CreateEntity();
-        entity.Set(new EntityInfo("Obstacle"));
+        entity.Set(new EntityInfoComponent("Obstacle"));
 
         var size = (int)RunnerConstants.ObstacleSize;
-        entity.Set(new Transform(request.Position));
-        entity.Set(new BoxCollider(
+        entity.Set(new TransformComponent(request.Position));
+        entity.Set(new BoxColliderComponent(
             new Rectangle(0, 0, size, size),
             passive: true));
-        entity.Set(new Velocity(new Vector2(-RunnerConstants.TreadmillScrollSpeed, 0)));
+        entity.Set(new VelocityComponent(new Vector2(-RunnerConstants.TreadmillScrollSpeed, 0)));
 
         var mesh = new FilledRectangleMeshGenerator(
             new Rectangle(0, 0, size, size),
@@ -38,7 +38,7 @@ public class ObstacleFactory(DrawLayerMap layers) : IEntityFactory
             PrimitiveType = mesh.PrimitiveType,
             LayerDepth = layers.GetDepth(InfiniteRunnerScreen.RunnerDrawLayer.Obstacle)
         });
-        entity.Set(new Visible());
+        entity.Set(new VisibleComponent());
 
         return entity;
     }

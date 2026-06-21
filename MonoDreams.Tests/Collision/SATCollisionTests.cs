@@ -112,8 +112,8 @@ public class SATCollisionTests
     [Fact]
     public void BoxToPolygon_MatchesAABB()
     {
-        var box = new BoxCollider(new Rectangle(-10, -10, 20, 20));
-        var transform = new Transform(new Vector2(100, 200));
+        var box = new BoxColliderComponent(new Rectangle(-10, -10, 20, 20));
+        var transform = new TransformComponent(new Vector2(100, 200));
         var output = new Vector2[4];
 
         SATCollision.BoxToPolygon(box, transform, output);
@@ -129,13 +129,13 @@ public class SATCollisionTests
     public void BoxToPolygon_SATMatchesIntersection()
     {
         // Two overlapping boxes — SAT on converted polygons should agree with AABB intersection
-        var boxA = new BoxCollider(new Rectangle(0, 0, 20, 20));
-        var transformA = new Transform(new Vector2(0, 0));
+        var boxA = new BoxColliderComponent(new Rectangle(0, 0, 20, 20));
+        var transformA = new TransformComponent(new Vector2(0, 0));
         var polyA = new Vector2[4];
         SATCollision.BoxToPolygon(boxA, transformA, polyA);
 
-        var boxB = new BoxCollider(new Rectangle(0, 0, 20, 20));
-        var transformB = new Transform(new Vector2(15, 15));
+        var boxB = new BoxColliderComponent(new Rectangle(0, 0, 20, 20));
+        var transformB = new TransformComponent(new Vector2(15, 15));
         var polyB = new Vector2[4];
         SATCollision.BoxToPolygon(boxB, transformB, polyB);
 
@@ -257,8 +257,8 @@ public class SATCollisionTests
             new(1, 1),
             new(-1, 1),
         };
-        var collider = new ConvexCollider(model);
-        var transform = new Transform(new Vector2(10, 20));
+        var collider = new ConvexColliderComponent(model);
+        var transform = new TransformComponent(new Vector2(10, 20));
 
         collider.UpdateWorldVertices(transform);
 
@@ -278,9 +278,9 @@ public class SATCollisionTests
             new(0, 1),
             new(-1, 0),
         };
-        var collider = new ConvexCollider(model);
+        var collider = new ConvexColliderComponent(model);
         // 90 degrees rotation
-        var transform = new Transform(new Vector2(0, 0), MathF.PI / 2f);
+        var transform = new TransformComponent(new Vector2(0, 0), MathF.PI / 2f);
 
         collider.UpdateWorldVertices(transform);
 
@@ -302,8 +302,8 @@ public class SATCollisionTests
             new(1, -1),
             new(0, 1),
         };
-        var collider = new ConvexCollider(model);
-        var transform = new Transform(new Vector2(0, 0), scale: new Vector2(2, 3));
+        var collider = new ConvexColliderComponent(model);
+        var transform = new TransformComponent(new Vector2(0, 0), scale: new Vector2(2, 3));
 
         collider.UpdateWorldVertices(transform);
 
@@ -321,9 +321,9 @@ public class SATCollisionTests
             new(0, 1),
             new(-1, 0),
         };
-        var collider = new ConvexCollider(model, ignoreTransformRotation: true);
+        var collider = new ConvexColliderComponent(model, ignoreTransformRotation: true);
         // Set a non-zero rotation that would normally rotate vertices
-        var transform = new Transform(new Vector2(5, 10), MathF.PI / 2f);
+        var transform = new TransformComponent(new Vector2(5, 10), MathF.PI / 2f);
 
         collider.UpdateWorldVertices(transform);
 
@@ -339,7 +339,7 @@ public class SATCollisionTests
     [Fact]
     public void ConvexCollider_ThrowsOnLessThan3Vertices()
     {
-        Assert.Throws<ArgumentException>(() => new ConvexCollider([new(0, 0), new(1, 0)]));
+        Assert.Throws<ArgumentException>(() => new ConvexColliderComponent([new(0, 0), new(1, 0)]));
     }
 
     [Fact]
@@ -352,8 +352,8 @@ public class SATCollisionTests
             new(1, 1),
             new(-1, 1),
         };
-        var collider = new ConvexCollider(model);
-        var transform = new Transform(new Vector2(100, 200));
+        var collider = new ConvexColliderComponent(model);
+        var transform = new TransformComponent(new Vector2(100, 200));
 
         collider.UpdateWorldVertices(transform);
 

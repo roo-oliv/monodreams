@@ -155,8 +155,8 @@ code should call `SpriteBatch` outside the prep-then-master path. A
 parallel render system is a framework violation — flagged by review.
 
 **Key rule — rendering systems run last.** In any pipeline assembly,
-the prep-cull-sort-render block goes at the end. The recommended order
-inside the block, from the reference assembly
+the prep-cull-sort-render module goes at the end. The recommended order
+inside the module, from the reference assembly
 (`LoadLevelExampleGameScreen.cs:277–331`), is:
 `CullingSystem` → `SpritePrepSystem` → `YSortSystem` → `TextPrepSystem`
 → `MeshPrepSystem` → `MasterRenderSystem`.
@@ -263,23 +263,31 @@ entities.
 
 **The pipeline.**
 1. Game code publishes `LoadLevelRequest`.
-2. `LevelLoadRequestSystem` consumes the request, loads the file, and
-   **adds `CurrentLevelComponent` to the world**. The background colour
-   lands as `CurrentBackgroundColorComponent`.
-3. Parser systems (`LDtkEntityParserSystem`, `LDtkTileParserSystem`,
-   `BlenderLevelParserSystem`) **subscribe to `CurrentLevelComponent`
-   being added** — not to the message. They parse on add and emit
-   `EntitySpawnRequest`s.
-4. `EntitySpawnSystem` consumes each spawn request and dispatches to an
+2. **Two systems subscribe to the message directly** —
+   `LevelLoadRequestSystem` (LDtk path) and `BlenderLevelParserSystem`
+   (Blender path). Each gates on the level identifier (see the
+   `Blender_` prefix note below).
+3. `LevelLoadRequestSystem` loads the LDtk file and **adds
+   `CurrentLevelComponent` to the world**; the LDtk parsers
+   (`LDtkEntityParserSystem`, `LDtkTileParserSystem`) then **subscribe
+   to `CurrentLevelComponent` being added** and parse on add.
+   `BlenderLevelParserSystem`, in contrast, parses directly from the
+   message — an asymmetry that's a known wart (see "Aspirational
+   direction" below and the per-module premises).
+4. Parsers emit `EntitySpawnRequest`s.
+5. `EntitySpawnSystem` consumes each spawn request and dispatches to an
    `IEntityFactory` registered for the request's string identifier.
 
-**Key invariant — systems react to component lifecycle, not to push
-messages.** The parser pattern (subscribe to `CurrentLevelComponent`
-added) is the engine-wide default. A test or tool that adds
-`CurrentLevelComponent` manually triggers the parsers just as well as
-the regular `LoadLevelRequest` path. Resist the urge to make a system
-"only respond when the right message arrived" — that's coupling the
-system to an upstream sequence that should be the assembler's choice.
+**Key invariant — the LDtk parsers react to component lifecycle, not
+to push messages.** Their pattern (subscribe to `CurrentLevelComponent`
+added) is the engine-wide *intended* default. A test or tool that adds
+`CurrentLevelComponent` manually triggers them just as well as the
+regular `LoadLevelRequest` path. The Blender parser predates the
+pattern and remains message-driven; harmonizing it is on the backlog
+(§9). For new parsers, follow the LDtk pattern — resist the urge to
+make a system "only respond when the right message arrived" — that's
+coupling the system to an upstream sequence that should be the
+assembler's choice.
 
 **Factory registration.** `EntitySpawnSystem` keeps a dictionary of
 `string → IEntityFactory`. Game code registers factories at screen
@@ -288,11 +296,14 @@ warning and the spawn is silently dropped. **Intended behavior is to
 throw** — this is on the backlog (§9). For now, treat the warning as a
 high-severity signal during development.
 
-**`Blender_` identifier prefix.** The level loader looks at the level
-identifier; if it starts with `Blender_`, the Blender parser handles
-it, otherwise the LDtk parser does. **This dispatch by name prefix is
-a quick hack** (§9); a content-driven dispatch (a format field in the
-level data) is the eventual replacement.
+**`Blender_` identifier prefix.** Both `LevelLoadRequestSystem` (LDtk)
+and `BlenderLevelParserSystem` (Blender) subscribe to `LoadLevelRequest`
+independently. The Blender parser filters by the `Blender_` prefix and
+handles the load when matched; `LevelLoadRequestSystem` unconditionally
+attempts the LDtk path, fails for Blender-prefixed names, and removes
+`CurrentLevelComponent` to clean up. **This dual-subscribe dispatch by
+name prefix is a quick hack** (§9); a content-driven dispatch (a format
+field in the level data) is the eventual replacement.
 
 ## 7. The reference pipeline
 
@@ -305,7 +316,7 @@ overall order, end-to-end:
 2. **Game logic** — game-specific systems that read input and entity
    state to update gameplay components (movement intent, AI decisions,
    dialogue state).
-3. **Physics block** — `MovementSystem` → `VelocitySystem` →
+3. **Physics module** — `MovementSystem` → `VelocitySystem` →
    `TransformCollisionDetectionSystem` →
    `TransformCollisionResolutionSystem` (or `…PhysicalCollisionResolutionSystem`) →
    `TransformCommitSystem`.
@@ -313,13 +324,13 @@ overall order, end-to-end:
    children moved independently), `SizeSystem`, `LayoutSystem`.
 5. **Camera** — `CameraFollowSystem` (optional).
 6. **Cursor** — `CursorInputSystem`, `CursorPositionSystem`.
-7. **Render block** — `CullingSystem` → `SpritePrepSystem` →
+7. **Render module** — `CullingSystem` → `SpritePrepSystem` →
    `YSortSystem` → `TextPrepSystem` → `MeshPrepSystem` →
    `MasterRenderSystem` → debug overlays.
 
 Each game's screen owns its own pipeline. The reference assembly is a
 recommendation — fixed-camera games omit `CameraFollowSystem`,
-non-physics screens skip the physics block, UI-only screens may have
+non-physics screens skip the physics module, UI-only screens may have
 no game logic at all. What does not change is the *shape* of the order:
 input first, render last, with physics ahead of hierarchy and hierarchy
 ahead of culling.
@@ -356,15 +367,29 @@ auto-exits when the replay finishes.
 the debug directory. Off by default; enable by setting `"screenshots":
 true` in `input_replay.json`.
 
-**Headless mode.** `dotnet run --project MonoDreams.Examples -- --headless`
-creates a 1×1 off-screen window, disables VSync, removes the fixed
-timestep, and runs at maximum speed. **This is experimental and not
-load-bearing.** It is convenient for fast integration tests via
-`GameTestRunner` and was originally intended to let AI agents
-"visually" test gameplay, but the implementation is not currently
-trusted as a stable testing contract — flakes and missing edge cases
-should be expected. Tests that need rendering correctness should not
-rely on it.
+**Headless mode — two hosts, two contracts.** There are two headless
+paths and they do *not* do the same thing:
+
+- **Examples** (`dotnet run --project MonoDreams.Examples -- --headless`)
+  creates a 1×1 off-screen window and **early-returns from `Draw`** — it
+  runs Update-side logic at max speed but renders **nothing**. It is
+  convenient for fast logic/replay integration tests via `GameTestRunner`
+  but cannot observe any visual or render-path behaviour. Treat it as the
+  logic-only path; don't rely on it for rendering correctness.
+- **Demos** (`dotnet run --project MonoDreams.Demos -- --headless --screen
+  <name> --frames <N> --exit`) is the **observe-and-self-verify** path
+  (issue #28). It keeps a real `GraphicsDevice` on a hidden, full-virtual-
+  resolution backbuffer, **renders every frame** (`Draw` is not a no-op),
+  dumps non-blank PNGs to `MONODREAMS_DEBUG_DIR`, logs periodic live-heap
+  samples, and self-terminates after `<N>` frames. This is the supported
+  way for an agent to verify its own work on the demo host without a human.
+  See the `debug` module premises ("Headless Demos renders every frame";
+  "Headless heap samples measure the live set") and
+  `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+
+A literal zero-window mode / null `GraphicsDevice` is **not** possible on
+MonoGame DesktopGL 3.8.4 (the window hosts the GL context); a hidden
+window that never presents is the achievable form of "headless render".
 
 **Testing.** `MonoDreams.Tests/` uses xUnit + the custom
 `GameTestRunner`, which spawns the game in headless mode with a temp
@@ -408,9 +433,12 @@ code".
   inconsistency). Intended end-state is **modular packs** (Spring Data
   / Spring Security analog) — `MonoDreams.Rendering`,
   `MonoDreams.Physics`, etc. — that can be adopted independently.
-- **Headless mode is experimental** (§8). Original intent was AI-agent
-  visual testing; current implementation is not stable enough to be
-  load-bearing.
+- **Examples headless mode is logic-only** (§8). Its `Draw` early-returns,
+  so it renders nothing — fine for replay/logic tests, useless for visual
+  observation. The Demos headless path (issue #28) is the load-bearing
+  observe-and-self-verify route and *does* render; the remaining debt is
+  that the Examples mode is still named "headless" despite not rendering,
+  and the two paths could eventually share one host abstraction.
 - **No architectural tests** (§8). Most premises lack programmatic
   protection; review and discipline are the only enforcement today.
 - **Declarative system dependencies** (§2, §7). A future API would let

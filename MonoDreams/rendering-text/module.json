@@ -1,0 +1,13 @@
+{
+  "$schema": "../module.schema.json",
+  "name": "rendering-text",
+  "description": "BitmapFont text rendering with revealable text component and prep/update systems",
+  "dependencies": [
+    "rendering"
+  ],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## rendering-text installed\n\nText is driven by the `DynamicTextComponent` component (uses `BitmapFont` from MonoGame.Extended, which `rendering` pulls in transitively). For static labels, set `IsRevealed = true` and `VisibleCharacterCount = int.MaxValue` (see `LevelSelectionScreen.cs` for the canonical pattern).\n\nPipeline order:\n- `TextUpdateSystem` (advances reveal state per-frame) BEFORE\n- `TextPrepSystem` (writes glyph quads into `DrawComponent`) BEFORE\n- `MasterRenderSystem`.\n\nThe reveal animation lives in this module today — `DynamicTextComponent` has `IsRevealed`, `RevealingSpeed`, `RevealStartTime`, and `VisibleCharacterCount` fields that `TextUpdateSystem` advances.\n\n**Premises:** `docs/premises.md`",
+  "premisesRef": "docs/premises.md"
+}

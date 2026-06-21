@@ -16,7 +16,7 @@ namespace MonoDreams.Examples.EntityFactory;
 
 /// <summary>
 /// Factory for creating wall entities that have collision.
-/// Creates entities with EntityInfo, Position, DrawComponent, BoxCollider, and RigidBody.
+/// Creates entities with EntityInfoComponent, Position, DrawComponent, BoxColliderComponent, and RigidBodyComponent.
 /// </summary>
 public class WallEntityFactory : IEntityFactory
 {
@@ -34,8 +34,8 @@ public class WallEntityFactory : IEntityFactory
         var entity = world.CreateEntity();
 
         // Core components for wall entities
-        entity.Set(new EntityInfo(nameof(EntityType.Wall)));
-        entity.Set(new Transform(request.Position));
+        entity.Set(new EntityInfoComponent(nameof(EntityType.Wall)));
+        entity.Set(new TransformComponent(request.Position));
 
         // // Create DrawComponent with a single DrawElement
         // var drawComponent = new DrawComponent();
@@ -64,7 +64,7 @@ public class WallEntityFactory : IEntityFactory
         // entity.Set(drawComponent);
         if (tilesetTexture != null)
         {
-            entity.Set(new SpriteInfo
+            entity.Set(new SpriteInfoComponent
             {
                 SpriteSheet = tilesetTexture,
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
@@ -87,8 +87,8 @@ public class WallEntityFactory : IEntityFactory
             new Point((int)request.Size.X, (int)request.Size.Y)
         );
         
-        entity.Set(new BoxCollider(colliderBounds, passive: true));
-        entity.Set(new RigidBody());
+        entity.Set(new BoxColliderComponent(colliderBounds, passive: true));
+        entity.Set(new RigidBodyComponent());
 
         // Process any additional custom fields
         ProcessCustomFields(entity, request.CustomFields);
