@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "db0afbeab843",
+  "strategy": "manual-commit",
+  "branch": "feat/packages",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".claude/scheduled_tasks.lock",
+    "MonoDreams.Demos/Game1.cs",
+    "MonoDreams.Demos/HeadlessOptions.cs",
+    "MonoDreams.Demos/Screens/DemoLauncherScreen.cs",
+    "MonoDreams.Demos/Screens/DemoScreens.cs",
+    "MonoDreams/cursor/Component/CursorMeshLibraryComponent.cs",
+    "MonoDreams/rendering/Draw/IMeshGenerator.cs",
+    "MonoDreams/ui/ButtonMeshPrepSystem.cs",
+    "MonoDreams/ui/ButtonStateComponent.cs",
+    "MonoDreams/ui/ButtonVisualSystem.cs",
+    "MonoDreams/ui/ContainerBuilder.cs",
+    "MonoDreams/ui/CursorHoverSystem.cs",
+    "MonoDreams/ui/FocusableComponent.cs",
+    "MonoDreams/ui/LayoutDebugSystem.cs",
+    "MonoDreams/ui/LayoutNodeComponent.cs",
+    "MonoDreams/ui/SimpleButtonComponent.cs",
+    "MonoDreams/ui/TabBarComponent.cs",
+    "MonoDreams/ui/TabSystem.cs",
+    "MonoDreams/ui/TextInputComponent.cs",
+    "MonoDreams/ui/TextInputSystem.cs",
+    "MonoDreams/ui/UIFocusSystem.cs",
+    "MonoDreams/ui/demo/UiDemoScreen.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/db/0afbeab843/0/metadata.json",
+      "transcript": "/db/0afbeab843/0/full.jsonl",
+      "context": "/db/0afbeab843/0/context.md",
+      "content_hash": "/db/0afbeab843/0/content_hash.txt",
+      "prompt": "/db/0afbeab843/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42317,
+    "cache_creation_tokens": 959253,
+    "cache_read_tokens": 55036890,
+    "output_tokens": 402889,
+    "api_call_count": 178
+  }
+}

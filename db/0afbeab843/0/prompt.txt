@@ -1,0 +1,257 @@
+We've just made demos for physiscs, camera, and dialogue modules. Your objetive this session is make a demo for the UI module. The idea is to do both at the same time: present the module's capabilities and extend/fix/enhance the module when we think about what we want to show in this demo. Here's what I thought of showcasing:
+ a. Layout: we'll have to visually show the layout containers to show case this I think. The layout capabilities are core to UIs and here we mirror much of Figma's autolayout features and behaviors. Use judgement if you feel that for a more solid demo we should extend and add more layout features.
+ b. Buttons: primary, seconday, tertiary/link buttons. Disabled buttons, hover changes, click behavior/animation. Buttons with icons, just icon button. Buttons navigation with mouse and keyboard (WASD and arrow keys), I think that for great navitation experience and easy of understanding and developing for this engine devs this will warrant some substantial enhancements, feel free to discuss the ideas and code interfaces to expose those. TextInput and Checkboxes and Toggles as well.
+ c. This is a new capability to develop: windows/menus, with scrolling capabilities, tabs, dialogs/alert, dropdown lists, combobox (search (TextInput) + dropdown filter).
+
+---
+
+# Autonomous loop check
+
+You're being invoked on a timer while the user is away or occupied. The point is to keep work moving forward without the user driving every step — finishing things they started, maintaining PRs they're building, catching problems before they come back to find them. You're a steward, not an initiator. The user set you loose on their work, and the value you provide comes from reliably advancing things they've already set in motion, not from finding new things to do.
+
+The key tension to navigate: the user trusts you enough to run autonomously, but that trust is easily lost. Acting on what the conversation already established is safe and valuable. Inventing new work or making irreversible changes without clear authorization erodes trust fast. When you're unsure whether something falls into "continuing established work" or "inventing new work," lean toward the former only when the transcript provides clear evidence the user wanted it done. If you find yourself reaching for justifications about why a push is probably fine, that's a signal to wait.
+
+## What to act on
+
+The current conversation is your highest-signal source — re-read the transcript above, since everything there is something the user was actively engaged with. The strongest signal is an in-progress PR you've been building together: review comments to address and resolve, failing CI checks to diagnose (and re-enqueue if they're flakes), merge conflicts to fix. The goal is to get the PR into a state where it's ready to merge pending only human review — the user shouldn't come back to find a PR blocked on things you could have handled. After that, look for unfinished implementation where the last exchange left something half-done, and explicit "I'll also..." or "next I'll..." commitments the conversation made and didn't honor. Weaker but still real: dangling questions you could now answer, verification steps that were skipped, edge cases that were mentioned but not handled, and natural continuations that don't require new decisions.
+
+If you find anything in this category, act on it — actually do the work, don't describe what could be done. Run the tests, don't say "you could run the tests." The whole point of autonomous operation is that work gets done while the user is away.
+
+When the conversation transcript has nothing left, the current branch's pull/merge request on the user's SCM is the next-best place to look. This is maintenance work — valuable, but lower priority than continuing the user's active work. Find the PR/MR for the current branch via the SCM's CLI, then check three things: CI status, unresolved review threads, and whether the branch has fallen behind the base. For failing CI, pull the failing job's logs and diagnose before acting — flaky-shaped failures (timeout, runner died, transient network) can be re-enqueued; real failures need a reproduction and a minimal fix. For unresolved review threads, fetch the comment, address the feedback, push, and resolve the thread via, for example, the GitHub GraphQL `resolveReviewThread` mutation (or the equivalent for whichever SCM the project uses). Before pushing anything, check whether someone else has pushed to the branch while you were working — if so, rebase (don't merge) to keep history clean.
+
+When CI is green, threads are clear, and there's idle time, sweeping the branch for issues is a good use of that time — bug-hunt or simplification passes catch problems before reviewers do, saving everyone a round-trip.
+
+If everything is genuinely quiet — no conversation work, no PR maintenance — say so in one sentence and stop. No summary of what you checked, no list of what you might do later. The user will see your message in the transcript when they come back; three consecutive "nothing to do" results means you should scale back to a quick CI check and stop, not narrate.
+
+## Repeated invocations
+
+If you see earlier autonomous checks in this conversation, adjust your scope accordingly. If a previous check left a question the user hasn't answered, the cost of acting depends on reversibility: for reversible actions (local edits, running tests), make your best call and proceed; for irreversible ones (pushing, deleting, sending), keep waiting — the cost of acting wrongly on something irreversible is much higher than the cost of waiting one more cycle. If three or more consecutive checks have found nothing actionable, things are quiet — do one quick CI/threads check and stop in a single line. Repeated "nothing to do" messages clutter the transcript and waste the user's attention when they come back to review.
+
+Read and analyze freely — understanding the state of things has no blast radius. Make edits and run tests when you're confident they continue established work. Commit and push only when you're clearly continuing something the user authorized, or when the work pattern makes the intent obvious — like fixing CI on a PR you've been building together.
+
+
+---
+
+# Autonomous loop tick (dynamic pacing)
+
+Run the autonomous check using the loop instructions established earlier in this conversation. If you cannot find them, treat this as a no-op tick.
+
+You scheduled this tick via the ScheduleWakeup tool (not a recurring cron). To keep the loop alive, call ScheduleWakeup again at the end of this turn with `prompt` set to the literal sentinel `<<autonomous-loop-dynamic>>` — otherwise the loop ends after this tick.
+
+If a Monitor is armed (check TaskList), keep `delaySeconds` at 1200–1800s — the Monitor is the wake signal and this is only the fallback heartbeat. If you were woken by a `<task-notification>`, handle the event before rescheduling. To stop the loop, also TaskStop the monitor (use TaskList to find its task ID if no longer in context).
+
+Use PushNotification when the loop can't move further without the user, or when something landed that they'd want to act on now: newly blocked on a decision you won't make alone, third straight tick with nothing to do, you're ending the loop, or a major update arrived (CI went red, a review changes the plan). Progress you made yourself isn't a trigger — the transcript covers that. One ping per state, not per tick.
+
+---
+
+<task-notification>
+<task-id>wpk95yyuc</task-id>
+<tool-use-id>toolu_01Rt2CdMmwzEjCE1L7waMSZr</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Explore UI module + demo pattern + supporting infra to plan a UI demo and enhancements" completed</summary>
+<result>{"synthesis":"I have everything needed. Producing the synthesis.\n\n---\n\n# UI Module Demo — Synthesis &amp; Implementation Plan\n\nThis synthesis maps the current MonoDreams `ui` module against the user's three showcase goals (Layout / Buttons+inputs / NEW widgets), then proposes framework-fit interfaces, a demo structure matching the existing `MonoDreams/&lt;module&gt;/demo/` pattern, and a phased build order with the engine changes ranked by risk.\n\n---\n\n## 1. CURRENT STATE — what works TODAY\n\n**Layout engine** (`MonoDreams/ui/LayoutNodeComponent.cs`, `AutoLayoutSystem.cs`)\n- Two-pass flexbox solver (measure bottom-up, position top-down) on a **pure-C# tree** parallel to the `TransformComponent` hierarchy.\n- Implemented: `Direction` (Horizontal/Vertical), `Gap`, four-side `Padding` and `Margin`, `JustifyContent` (Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly), `AlignItems` (Start/Center/End — **Stretch is a flag but not implemented**), sizing modes `HugContents` / `Fixed` / `FillContainer` (the last via a basic `FlexGrow=1` flag).\n- 9-point + Stretch screen anchoring for root slots, per-target (`Main`/`UI`/`HUD`).\n- Intrinsic sizing is **callback-driven** (`SlotBuilder.MeasureWith(Func&lt;Entity,Vector2&gt;)`) — the module never introspects content components.\n- Canonical entry: `AutoLayoutBuilder → ContainerBuilder → SlotBuilder` (`AutoLayoutBuilder.cs`). Hand-rolling slots is a premise violation (P3).\n- Optional `LayoutDebugSystem` (depth-colored bounds + name labels), toggled via `LayoutDebugSystem.Enabled`.\n\n**Buttons** (`SimpleButtonComponent.cs`, `ButtonMeshPrepSystem.cs`, `ButtonStyle.cs`)\n- One button component: `Size`, `LineThickness`, `Color` (outline), `FillColor`, optional `TextEntity`, `Target`. Outline + optional fill drawn as a world-baked mesh (`WorldMatrix = Identity`, must run after `MeshPrepSystem` — P5).\n- `ButtonStyle` DTO carries Default/Hover/Disabled/Border colors, thickness, padding, text scale — but **nothing applies hover/disabled state automatically**.\n- Interaction (hover, click, state) is **game-side only** — reference is `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs` and `MonoDreams.Demos/UI/DemoButtonInteractionSystem.cs`. Hit-test is AABB (`Rectangle.Contains(cursor.WorldPosition|VirtualPosition)`).\n\n**Inputs** (`TextInputComponent.cs`/`TextInputSystem.cs`, `ToggleSwitchComponent.cs`/`ToggleSwitchSystem.cs`)\n- TextInput: single-line, char capture via keyboard diff, mask None/Numeric, MaxLength, caret move (Left/Right/Home/End), Backspace/Delete, optional caret mesh entity, publishes `TextInputChanged`. **Focus is a game-owned bool** (P9); no Tab order, no placeholder, no selection/clipboard, no multi-line.\n- Toggle/Checkbox: bool `On` drives a checkmark mesh fill/empty (hides via empty mesh, not `VisibleComponent`, because UI/HUD always render — P7). Click flip is game-side.\n\n**Render primitives** (`MonoDreams/rendering/Draw/IMeshGenerator.cs`)\n- Available generators: `FilledRoundedRectangle`, `RectangleOutline`, `DashedRectangleOutline`, `FilledRectangle`, `Circle`, `CircleOutline`, `Line`, `Polygon`, `PolygonOutline`, `Triangle`, `GradientPath`, `Composite`.\n- `DrawComponent` is the single render component (Sprite/Text/NinePatch/Mesh). `LayerDepth` sorting (`MasterRenderSystem` line ~123) gives overlay z-ordering. Three targets confirmed: `Main`, `UI`, `HUD`.\n\n**Input / cursor / hierarchy / harness**\n- `CursorInputComponent` exposes `VirtualPosition` (HUD-space), `WorldPosition` (Main-space), button press/release edges, **`ScrollWheelDelta`** (already captured — useful for scroll).\n- `AInputState` action model with `JustPressed`/`Pressed`/`Consume`; `AbstractInputHandlingSystem` OR-aggregates multiple keys per action — the seam for WASD+arrows.\n- Hierarchy: `TransformComponent.Parent` (matrix) + `ChildOfComponent` (lifecycle), synced by `HierarchySystem`.\n- Demo harness: drop `MonoDreams/ui/demo/UiDemoScreen.cs` (namespace `MonoDreams.Demo.Ui`), the csproj glob `..\\MonoDreams\\**\\demo\\**\\*.cs` auto-includes it; register in `Game1.cs:100-107`, add `DemoScreens.Ui` constant, add a `\"ui\"` case to `HeadlessOptions.ResolveScreen` (confirmed switch at `HeadlessOptions.cs:80-86`). Shared chrome: `DemoHeader`, `DemoPalette`, `DemoUI`, `DemoButtonComponent`/`DemoButtonInteractionSystem`. Headless self-verify via `GameTestRunner.RunDemosAsync(\"ui\", …)`.\n\n---\n\n## 2. CAPABILITY MATRIX\n\n### (a) Layout / autolayout\n| Sub-feature | Status | Note |\n|---|---|---|\n| Direction (H/V) | **EXISTS** | `LayoutDirection` |\n| Gap | **EXISTS** | `ContainerBuilder.Gap` |\n| Padding | **EXISTS** | uniform / 2-axis / 4-side |\n| Alignment (justify) | **EXISTS** | all 6 modes |\n| Alignment (align-items) | **PARTIAL** | Start/Center/End work; **Stretch flag not implemented** |\n| Sizing Fixed / Hug | **EXISTS** | `SizingMode.Fixed`, `HugContents` |\n| Sizing Fill | **PARTIAL** | `FlexGrow=1` flag only; no true grow distribution / flex-basis |\n| Visualizing containers | **EXISTS** | `LayoutDebugSystem` depth-colored bounds + labels |\n\n### (b) Buttons &amp; basic controls\n| Sub-feature | Status | Note |\n|---|---|---|\n| Button visual (outline/fill) | **EXISTS** | `SimpleButtonComponent` + `ButtonMeshPrepSystem` |\n| Primary/secondary/tertiary(link) variants | **PARTIAL** | achievable by styling (`ButtonStyle` colors / `LineThickness=0` for link); no variant concept, demo must wire colors |\n| Disabled state | **PARTIAL** | `ButtonStyle.DisabledColor` exists; nothing applies it — game logic must |\n| Hover state | **PARTIAL** | game-side recolor only (Examples/Demos systems); no module hover state |\n| Click animation | **MISSING** | no scale/tint/bounce feedback anywhere |\n| Icon button / icon-only | **PARTIAL** | sibling sprite/mesh + `LineThickness=0` works (P6); no helper |\n| Mouse navigation | **EXISTS** | cursor hit-test AABB |\n| Keyboard nav (WASD+arrows) | **MISSING** | no focus model; no UI nav system |\n| TextInput | **EXISTS** | single-line; no placeholder/Tab focus |\n| Checkbox/Toggle | **EXISTS** | `ToggleSwitchComponent`; click flip game-side |\n\n### (c) NEW widgets\n| Sub-feature | Status | Note |\n|---|---|---|\n| Window/menu container | **PARTIAL** | panel via mesh + AutoLayout; no titlebar/chrome concept |\n| Scrolling | **MISSING** | **no scissor/clipping** in `MasterRenderSystem`; `ScrollWheelDelta` captured but unused |\n| Tabs | **MISSING** | buildable from buttons + show/hide content; no helper |\n| Dialog / alert (modal) | **MISSING** | overlay via `LayerDepth` works; no modal/backdrop/focus-trap |\n| Dropdown list | **MISSING** | needs overlay layering + outside-click dismiss + keyboard nav |\n| Combobox | **MISSING** | TextInput + filtered dropdown; depends on dropdown + focus |\n\n---\n\n## 3. KEY GAPS &amp; ENGINE CHANGES (ranked, load-bearing)\n\n### (i) Scissor / clipping for scrolling windows — **HIGHEST RISK, most invasive**\n- **Where:** `MonoDreams/rendering` — `DrawComponent` + `MasterRenderSystem.cs` (`MonoDreams/rendering/System/Draw/MasterRenderSystem.cs`).\n- **Why required:** there is **zero** clipping support today; a scroll viewport cannot hide overflow. `ScrollWheelDelta` is captured but nothing consumes it.\n- **Approach (recommended — per-entity scissor):** add an optional `Rectangle? ClipRect` field to `DrawComponent` (no new component — respects Tenet 4 \"do not create new draw components\"). In `MasterRenderSystem`, group/flush by clip rect: set `GraphicsDevice.ScissorRectangle` + a `RasterizerState { ScissorTestEnable = true }` before drawing clipped entities, restore after. Scroll offset is applied by the layout/scroll system shifting child `TransformComponent.Position` (content moves; clip rect stays).\n- **Constraints:** `MasterRenderSystem` is the sole renderer (Tenet 4) — clipping must live inside it, not in game code calling SpriteBatch. Scissor changes flush the batch (perf cost — acceptable for a demo, note it)
+... (truncated 20484 chars, full result in REDACTED.output)</result>
+<usage><agent_count>6</agent_count><subagent_tokens>495036</subagent_tokens><tool_uses>183</tool_uses><duration_ms>315541</duration_ms></usage>
+</task-notification>
+
+---
+
+# Autonomous loop tick (dynamic pacing)
+
+Run the autonomous check using the loop instructions established earlier in this conversation. If you cannot find them, treat this as a no-op tick.
+
+You scheduled this tick via the ScheduleWakeup tool (not a recurring cron). To keep the loop alive, call ScheduleWakeup again at the end of this turn with `prompt` set to the literal sentinel `<<autonomous-loop-dynamic>>` — otherwise the loop ends after this tick.
+
+If a Monitor is armed (check TaskList), keep `delaySeconds` at 1200–1800s — the Monitor is the wake signal and this is only the fallback heartbeat. If you were woken by a `<task-notification>`, handle the event before rescheduling. To stop the loop, also TaskStop the monitor (use TaskList to find its task ID if no longer in context).
+
+Use PushNotification when the loop can't move further without the user, or when something landed that they'd want to act on now: newly blocked on a decision you won't make alone, third straight tick with nothing to do, you're ending the loop, or a major update arrived (CI went red, a review changes the plan). Progress you made yourself isn't a trigger — the transcript covers that. One ping per state, not per tick.
+
+---
+
+Launch subagents to implement waves 3 and 4
+
+---
+
+<task-notification>
+<task-id>wwsg0fz75</task-id>
+<tool-use-id>toolu_01Av3T5mAe9MTyrdhA9mS8kX</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Implement UI module waves 3 (Dialog, Dropdown) and 4 (Scroll, Combobox) + demo integration + premises/tests" completed</summary>
+<result>{"widgets":[{"files":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/DialogComponent.cs","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/DialogSystem.cs"]},{"files":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/DropdownComponent.cs","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/DropdownSystem.cs"]},{"files":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/rendering/Component/Draw/RenderTargetID.cs","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/ScrollViewComponent.cs","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/ScrollViewSystem.cs"]}],"combobox":{"files":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/ComboboxComponent.cs","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/ComboboxSystem.cs"]},"integration":{"built":true,"screenshots":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/.uidemo-verify/screenshot_000002_gt0,59_20260620_201729_625.png"],"windowsTabOk":true,"dialogsTabOk":true,"filesEdited":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/demo/UiDemoScreen.cs"],"notes":"Wired all four widgets into the ui demo and verified both tabs render correctly. Build is green (0 errors). Only UiDemoScreen.cs was edited — the four widget files + the RenderTargetID.Scroll enum compiled as-written with no changes needed.\n\nWHAT I WIRED:\n- Update pipeline: added DialogSystem, DropdownSystem, ComboboxSystem, ScrollViewSystem right after TabSystem + UiDemoTickSystem (Tick runs first so it sets ScrollViewComponent.Enabled before ScrollViewSystem reads it), then HierarchySystem propagates ContentRoot moves before the draw stage. UIFocusSystem now takes a ComputeActiveGroup accessor (dialog=100 &gt; dropdown=200 &gt; combobox=300 &gt; base 0) so the topmost open overlay traps focus.\n- Draw pipeline: added a MasterRenderSystem pass for RenderTargetID.Scroll into a 360x230 RenderTarget2D (no camera), and appended RenderLayer.Overlay(scrollTarget, _scrollVirtualBounds) AFTER Main/UI/HUD. _scrollVirtualBounds is computed in the ctor (deterministic = box world rect + VirtualWidth/2,VirtualHeight/2) so CreateDrawSystem captures it. Scroll target disposed in Dispose().\n- WINDOWS tab (index 2): a dropdown (Secondary trigger group 0 + 5-option popup group 200, panel+items+labels in Overlay), a combobox (text field group 0 + 6-option dropdown group 300, items+labels in Overlay so the list populates on open; ComboboxSystem narrows on keystroke), and a scroll box (Main outline chrome tagged{2}) with 12 alternating-tint opaque rows on the Scroll target parented under a ContentRoot. ScrollViewComponent.Enabled is driven each frame by ActiveTab==Windows in Tick().\n- DIALOGS tab (index 3): an \"Open dialog\" button (group 0) plus a built-once dialog (full-screen opaque near-black scrim, rounded panel fill+outline, title, OK[dialog-confirm]/Cancel[dialog-cancel] in group 100), not tab-tagged — DialogSystem toggles it by IsOpen.\n- OnActivated routes: dlg.open-&gt;open; dialog-confirm/cancel-&gt;close; dropdown trigger-&gt;open, item-&gt;select+update trigger label+close; combobox input-&gt;open, item-&gt;fill field text+close.\n- MakeButton gained group + tag params (overlay/dialog content opts out of TabSystem tagging); a _lastButtonText field exposes each button's label child to the overlay builders so labels join Content/Overlay.\n\nVERIFIED VISUALLY (headless renderer, read the PNGs in-session): Windows tab with both popups open shows FRUIT dropdown (Apple/Banana/Cherry/Date/Elderberry), FILTER COLORS combobox (Red..Violet), and the scroll box showing Row 1-6 (rows 7-12 clipped/scrollable) with no overlap. Dialogs tab open shows the dark modal scrim, rounded panel, CONFIRM ACTION title, focused OK + Cancel; the Open-dialog trigger is hidden while open. Dialogs tab closed shows just the OPEN DIALOG button. Final state left on _tabIndex=0 (Layout); a clean 60-frame run exits 0 with no exceptions.\n\nIMPERFECTIONS / NOTES:\n- Modal depth ordering: ButtonMeshPrepSystem hardcodes button fill depth at 0.95, so the dialog scrim sits BELOW the dialog's own buttons (depth 0.80). To keep the scrim covering a clean screen I hide the only Main-target tab content on the Dialogs tab (the Open-dialog button) via Tick() after TabSystem. The HUD header stays on its always-on-top target (standard modal behavior).\n- Combobox filter caveat (documented by the widget author): item buttons are in DropdownComponent.Overlay so the list populates on open, but DropdownSystem re-adds VisibleComponent to all Overlay entities each open frame, so a filtered-out item's BUTTON re-shows on no-keystroke frames; its LABEL (toggled by ComboboxSystem per keystroke) is the visible filter signal. Acceptable type-to-filter UX for a demo.\n- Verification screenshots from the open-overlay/open-dialog states were overwritten by the final default-tab run (the headless debug dir is wiped each run, and the verify-only force-open env hooks were removed before shipping). The single returned PNG is the final shipped Layout-tab state; the Windows/Dialogs correctness was confirmed live during the session."},"premisesTests":{"filesEdited":["/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/ui/docs/premises.md","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams/rendering/docs/premises.md","/Users/rodrigooliveira/git/roo-oliv/monodreams/.worktrees/feat/packages/MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs"],"testAdded":true,"buildGreen":true,"notes":"Pre-flight Demos build was green before starting. No widget behavior changed — docs + one test only.\n\nui/docs/premises.md:\n- REVISED \"ButtonInteractionSystem is deliberately NOT in this module\" -&gt; new title \"The module owns the focus + visual MECHANISM and publishes UIFocusActivated; the ACTION stays game-side\". States the module now ships UIFocusSystem + ButtonVisualSystem + the UIFocusActivated(Entity Focused,string Id) dispatch, that the game subscribes and routes by Id, and that DemoButtonInteractionSystem (Demos) and Examples' ButtonInteractionSystem remain the legacy/coexisting path.\n- ADDED 5 premises (all verified against source field/message names): (a) \"UIFocusSystem is the single focus owner; pointer steals focus only on mouse move; nav is group-scoped\" — cites cursor.Delta != Vector2.Zero gate, Func&lt;int&gt;? activeGroup default 0, FocusChanged, TextInputComponent.Focused mirror, ButtonStateComponent.IsPressed. (b) \"FocusableComponent.Disabled (tab-gating) and ButtonStateComponent.IsDisabled (control-disabled) are separate, and both skip nav\" — re-enabling a tab group never re-enables a game-disabled control. (c) \"Tab / Dialog / Dropdown systems show/hide on the Main target via VisibleComponent and gate focus via FocusableComponent.Disabled\" — TabSystem reference; systems expose IsOpen, screen computes active group; group ids dialog=100/dropdown=200/combobox=300, base=0. (d) \"A combobox is a TextInputComponent driving a DropdownComponent's filter\" — ComboboxComponent.Input/DropdownEntity/ItemLabels, TextInputChanged subscription, group 300. (e) \"Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution\" — WidthFill/HeightFill, FlexGrow weighting (default 1 when &lt;=0), AlignItems==CrossAxisAlignment.Stretch, top-down parent-driven resolution.\n- Updated Open questions flexbox bullet (flex-grow/Fill/Stretch now done), struck the Aspirational ButtonInteractionSystem bullet as Realized, and appended all new titles to the Follow-up debt list.\n\nrendering/docs/premises.md:\n- ADDED \"The mesh render path uses premultipl
+... (truncated 1394 chars, full result in REDACTED.output)</result>
+<usage><agent_count>6</agent_count><subagent_tokens>532352</subagent_tokens><tool_uses>172</tool_uses><duration_ms>1064784</duration_ms></usage>
+</task-notification>
+
+---
+
+# Autonomous loop tick (dynamic pacing)
+
+Run the autonomous check using the loop instructions established earlier in this conversation. If you cannot find them, treat this as a no-op tick.
+
+You scheduled this tick via the ScheduleWakeup tool (not a recurring cron). To keep the loop alive, call ScheduleWakeup again at the end of this turn with `prompt` set to the literal sentinel `<<autonomous-loop-dynamic>>` — otherwise the loop ends after this tick.
+
+If a Monitor is armed (check TaskList), keep `delaySeconds` at 1200–1800s — the Monitor is the wake signal and this is only the fallback heartbeat. If you were woken by a `<task-notification>`, handle the event before rescheduling. To stop the loop, also TaskStop the monitor (use TaskList to find its task ID if no longer in context).
+
+Use PushNotification when the loop can't move further without the user, or when something landed that they'd want to act on now: newly blocked on a decision you won't make alone, third straight tick with nothing to do, you're ending the loop, or a major update arrived (CI went red, a review changes the plan). Progress you made yourself isn't a trigger — the transcript covers that. One ping per state, not per tick.
+
+---
+
+# Autonomous loop tick (dynamic pacing)
+
+Run the autonomous check using the loop instructions established earlier in this conversation. If you cannot find them, treat this as a no-op tick.
+
+You scheduled this tick via the ScheduleWakeup tool (not a recurring cron). To keep the loop alive, call ScheduleWakeup again at the end of this turn with `prompt` set to the literal sentinel `<<autonomous-loop-dynamic>>` — otherwise the loop ends after this tick.
+
+If a Monitor is armed (check TaskList), keep `delaySeconds` at 1200–1800s — the Monitor is the wake signal and this is only the fallback heartbeat. If you were woken by a `<task-notification>`, handle the event before rescheduling. To stop the loop, also TaskStop the monitor (use TaskList to find its task ID if no longer in context).
+
+Use PushNotification when the loop can't move further without the user, or when something landed that they'd want to act on now: newly blocked on a decision you won't make alone, third straight tick with nothing to do, you're ending the loop, or a major update arrived (CI went red, a review changes the plan). Progress you made yourself isn't a trigger — the transcript covers that. One ping per state, not per tick.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   The user (in ultracode mode: "xhigh + dynamic workflow orchestration", optimize for exhaustive/correct over cheap, use Workflow tool for substantive tasks) asked me to build a demo for the **UI module** of MonoDreams, an ECS-purist 2D game engine on MonoGame + DefaultEcs. The demo should mirror the existing physics/camera/dialogue demos AND drive enhancements to the module. Three showcase areas:
+   - **(a) Layout:** visually show autolayout containers (Figma-like: direction, gap, padding, alignment, sizing fixed/hug/fill). Use judgement to extend if warranted.
+   - **(b) Buttons:** primary/secondary/tertiary/link, disabled, hover changes, click behavior/animation, buttons with icons, just-icon buttons, keyboard navigation (WASD + arrows) with "great navigation experience" warranting "substantial enhancements, feel free to discuss the ideas and code interfaces to expose those," plus TextInput, Checkboxes, Toggles.
+   - **(c) NEW capability:** windows/menus with scrolling, tabs, dialogs/alerts, dropdown lists, combobox (TextInput + filtered dropdown).
+   
+   Subsequent explicit instructions: "Proceed. /goal is to implement all 5 waves." and "Launch subagents to implement waves 3 and 4."
+
+2. Key Technical Concepts:
+   - MonoDreams engine: 13 self-contained source modules under MonoDreams/<module>/, distributed shadcn-style. ECS-purist (components = pure data ending in `Component`, systems end in `System`, messages no suffix).
+   - DefaultEcs: `entity.Get<T>()` returns `ref` for structs; `EntitySet` cached in ctor via `world.GetEntities().With<...>().AsSet()`; `world.Subscribe`/`[Subscribe]` for messages.
+   - Render pipeline: `DrawComponent` (unified Sprite/Text/NinePatch/Mesh — DO NOT create new draw components), `RenderTargetID` enum (Main/UI/HUD/+now Scroll), `MasterRenderSystem` (one pass per target), `FinalDrawSystem` + `RenderLayer` (Main/UI/HUD/Overlay; `Overlay(target, virtualBounds, sampler)` composites a target into a virtual sub-rect), `MeshPrepSystem`, `ButtonMeshPrepSystem`.
+   - **CRITICAL: mesh render path uses PREMULTIPLIED alpha** — partial-alpha (1-254) mesh fills render far too bright; UI fills must be OPAQUE (alpha 0 = not drawn, is fine).
+   - Main target honors `VisibleComponent` (no CullingSystem in demos, so add/remove tag to show/hide); UI/HUD/Scroll targets ALWAYS render regardless.
+   - Demo pattern: `IGameScreen` with ctor `(GraphicsDevice, ContentManager, Camera, ViewportManager, SpriteBatch)`, pipelines built in ctor (CreateUpdateSystem/CreateDrawSystem), entities in Load(). Camera at Vector2.Zero, Zoom 1f. Font: `content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt")`.
+   - Headless self-verification (issue #28): `dotnet run --project MonoDreams.Demos -- --headless --screen ui --frames N --capture-every K --exit` with `MONODREAMS_DEBUG_DIR` env var; renders non-blank PNGs + heap samples; logs "Headless run: screen='demos.ui'".
+   - Demo glob: `<Compile Include="..\MonoDreams\**\demo\**\*.cs">` auto-compiles demo files INTO MonoDreams.Demos so they can use DemoHeader/DemoPalette/DemoUI/ShapeBuilder.
+   - Build commands: `dotnet build MonoDreams.Demos/MonoDreams.Demos.csproj -v q -clp:ErrorsOnly` (or `dotnet build` for whole solution).
+   - Standing rule: "Commit or push only when the user asks."
+
+3. Files and Code Sections:
+
+   **MonoDreams/ui/LayoutNodeComponent.cs (EDITED — flexbox W1):**
+   - Added `public bool WidthFill { get; set; }` and `public bool HeightFill { get; set; }` near FlexGrow.
+   - Changed MeasureSize: fill axes measure base as hug-contents (`else if (WidthAuto || WidthFill) LayoutWidth = contentWidth + PaddingLeft + PaddingRight;`).
+   - Rewrote PositionChildren to do main-axis flex-grow distribution (leftover shared among MainFill children by GrowWeight = FlexGrow>0?FlexGrow:1), cross-axis Stretch/CrossFill resizing, then justify with remaining space.
+
+   **MonoDreams/ui/ContainerBuilder.cs (EDITED):** FillContainer now sets `node.WidthFill=true; node.WidthAuto=false; node.Width=null; node.FlexGrow=1;` (and HeightFill equivalent).
+
+   **MonoDreams/rendering/Draw/IMeshGenerator.cs (EDITED):** Added `RoundedRectangleOutlineMeshGenerator` (mirrors FilledRoundedRectangle corner arcs, strokes via PolygonOutlineMeshGenerator closed:true; r<=0 → RectangleOutline).
+
+   **MonoDreams/ui/FocusableComponent.cs (NEW):**
+   ```csharp
+   public struct FocusableComponent {
+       public int TabIndex; public int Group; public bool Disabled; public bool IsFocused;
+       public Vector2 Size; public RenderTargetID Target;
+   }
+   public readonly record struct UIFocusActivated(Entity Focused, string Id);
+   public readonly record struct FocusChanged(Entity Previous, Entity Current);
+   ```
+
+   **MonoDreams/ui/UIFocusSystem.cs (NEW):** Single focus owner. ctor `(World, AInputState up/down/left/right/next/prev/activate, Func<int>? activeGroup=null)`. Pointer pass (mouse steals focus only when `cursor.Delta != Vector2.Zero`), keyboard spatial nav (skips on text fields), ordinal Tab/Shift-Tab. Skips both `FocusableComponent.Disabled` AND `ButtonStateComponent.IsDisabled` (via `ControlDisabled(e)` helper). Mirrors `TextInputComponent.Focused`, sets `ButtonStateComponent.IsPressed`, publishes `UIFocusActivated`.
+
+   **MonoDreams/ui/ButtonStateComponent.cs (NEW):** `ButtonVariant {Primary,Secondary,Tertiary,Link}`; `ButtonStateComponent {string Id, ButtonVariant Variant, bool IsDisabled, bool IsPressed, bool IsActive, float VisualScale}`; `ButtonStateColors(Color Outline,Fill,Text)` record; `ButtonVariantColors {Normal,Hover,Pressed,Disabled}`; `ButtonTheme` with `FocusRingColor=new(250,210,120)`, `FocusRingThickness=2.5f`, `Default` (opaque colors: accent blue, ghost=`new(60,84,132)`, ghostStrong=`new(84,112,168)`).
+
+   **MonoDreams/ui/ButtonVisualSystem.cs (NEW):** `[With(SimpleButtonComponent, ButtonStateComponent)]`. Resolves colors by state (disabled/pressed/highlighted=focused||IsActive/normal); when highlighted sets `btn.LineThickness=theme.FocusRingThickness; btn.Color=theme.FocusRingColor`; eases VisualScale toward 0.94 (pressed) or 1. Needs `using MonoDreams.Component.Draw;` (for DynamicTextComponent).
+
+   **MonoDreams/ui/SimpleButtonComponent.cs (EDITED):** Added `public float VisualScale { get; set; }` (0 treated as 1).
+
+   **MonoDreams/ui/ButtonMeshPrepSystem.cs (EDITED):** Applies VisualScale around button centre (hit-test unchanged): `var visualScale = outline.VisualScale <= 0f ? 1f : outline.VisualScale; var center = position + outline.Size*0.5f; Vector2 Scaled(Vector2 c) => center + (c-center)*visualScale;`
+
+   **MonoDreams/ui/TextInputComponent.cs / TextInputSystem.cs (EDITED):** Added `string Placeholder; Color PlaceholderColor; Color TextColor;` + `using Microsoft.Xna.Framework;`. TextInputSystem.UpdateDisplayText shows placeholder when Text empty.
+
+   **MonoDreams/ui/TabBarComponent.cs (NEW):** `TabBarComponent {Entity[] Tabs=[]; int Active;}` and `struct TabContentComponent {int TabIndex;}`.
+
+   **MonoDreams/ui/TabSystem.cs (NEW):** Listens UIFocusActivated to switch tabs; toggles `VisibleComponent` + `FocusableComponent.Disabled` on TabContentComponent entities by active index; sets header `ButtonStateComponent.IsActive`.
+
+   **MonoDreams/ui/LayoutDebugSystem.cs (EDITED):** Now filters `if (slot.Target != _renderTarget) continue;`, uses `transform.WorldPosition`, and adds `VisibleComponent` to debug entities (so it renders on Main).
+
+   **MonoDreams/rendering/Component/Draw/RenderTargetID.cs (EDITED):** Added `Scroll` value.
+
+   **DialogComponent.cs/DialogSystem.cs, DropdownComponent.cs/DropdownSystem.cs, ScrollViewComponent.cs/ScrollViewSystem.cs, ComboboxComponent.cs/ComboboxSystem.cs (NEW, by subagents):** Dialog/Dropdown = class components with IsOpen/Group/Content or Overlay/Items/Trigger; systems mirror TabSystem (show/hide via VisibleComponent + focus-gate); DropdownSystem does outside-click close. ScrollViewComponent {Offset, ContentHeight, ViewportHeight, ViewportWidth, Entity ContentRoot, bool Enabled, Rectangle ViewportVirtualBounds}; ScrollViewSystem reads ScrollWheelDelta, sets ContentRoot.Position.Y=-Offset, parks offscreen when !Enabled. ComboboxComponent {Input, DropdownEntity, ItemLabels, ItemLabelEntities}; ComboboxSystem filters on TextInputChanged.
+
+   **MonoDreams/ui/demo/UiDemoScreen.cs (NEW, ~960 lines):** The demo. Tabs: Layout(0, default)/Buttons(1)/Windows(2)/Dialogs(3). Group ids: GroupDialog=100, GroupDropdown=200, GroupCombobox=300. All on Main target, manual positioning. `ComputeActiveGroup()` returns topmost open overlay's group. `Tick()` (via UiDemoTickSystem) sets LayoutDebugSystem.Enabled, ScrollViewComponent.Enabled, hides Open-dialog button AND tab headers while dialog open. Has MakeButton (with group/tag params + `_lastButtonText` field), MakeIconButton (star icon via ShapeBuilder.Star), MakeTextInput, MakeCheckbox builders. Scroll plumbing: `_scrollTarget = new RenderTarget2D(gd, 360, 230)`, Scroll MasterRenderSystem pass, `RenderLayer.Overlay(_scrollTarget, _scrollVirtualBounds)`. Update pipeline order: UiNavInputSystem → CursorInputSystem → IntrinsicSizingSystem → AutoLayoutSystem → DemoButtonInteractionSystem → UIFocusSystem(ComputeActiveGroup) → ButtonVisualSystem → ToggleSwitchSystem → TextInputSystem → TabSystem → UiDemoTickSystem → DialogSystem → DropdownSystem → ComboboxSystem → ScrollViewSystem → HierarchySystem → LayoutDebugSystem → CursorPositionSystem → UiDemoShortcutSystem. Includes inner classes UiInputState, UiNavInputSystem (handles Shift+Tab), UiDemoTickSystem, UiDemoShortcutSystem (ESC→launcher).
+
+   **MonoDreams.Demos/Game1.cs, HeadlessOptions.cs, Screens/DemoScreens.cs, Screens/DemoLauncherScreen.cs (EDITED):** Registered `DemoScreens.Ui="demos.ui"`, Game1 registration, HeadlessOptions `"ui"=>DemoScreens.Ui`, launcher tile + route.
+
+   **MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs (EDITED):** Added "ui" test case (`screen: "ui"`, asserts `"Headless run: screen='demos.ui'"`).
+
+   **MonoDreams/ui/docs/premises.md (EDITED):** Revised P8, added 5 premises. **MonoDreams/rendering/docs/premises.md (EDITED):** Added premultiplied-alpha, Scroll render-target, RoundedRectangleOutline premises.
+
+   **scratchpad/ui-demo-ledger.md:** Cross-turn progress ledger (durable).
+
+4. Errors and fixes:
+   - `DynamicTextComponent` not found in ButtonVisualSystem.cs (CS0246): it's in `MonoDreams.Component.Draw` not `MonoDreams.Component` → added `using MonoDreams.Component.Draw;`.
+   - `System.Array` collision with `MonoDreams.System` namespace in TabBarComponent.cs (CS0234) → used collection expression `public Entity[] Tabs = [];`.
+   - Premultiplied alpha: active tab fill rendered glaring near-white (theme used partial-alpha "ghost" fills) → made ButtonTheme.Default colors fully opaque; added a gold focus ring for clear focus visibility.
+   - Modal scrim depth: tab bar (Main, button depth hardcoded 0.95 in ButtonMeshPrepSystem) poked through the dialog scrim (depth 0.80) → extended Tick() to hide tab headers + their label children while dialog open (mirroring the Open-dialog-button hide).
+   - `System.Environment` ambiguity in temp verify hook → `global::System.Environment` (hook later removed).
+
+5. Problem Solving:
+   - Resolved tab show/hide architecture: Main target + VisibleComponent toggle + TabContentComponent tag, focus gated via FocusableComponent.Disabled (separate from ButtonStateComponent.IsDisabled so tab re-enabling never re-enables a genuinely-disabled control).
+   - Resolved mouse-vs-keyboard focus fighting: single UIFocusSystem; pointer only steals focus when mouse moves.
+   - Resolved modal focus trapping: game-side ComputeActiveGroup (topmost open overlay's group), widgets only expose IsOpen.
+   - Resolved scroll clipping: dedicated RenderTargetID.Scroll target composited via RenderLayer.Overlay (content outside target bounds auto-clipped).
+   - Verified ALL tabs visually via headless renders (Layout, Buttons, Windows with popups+scroll open, Dialogs modal). Heap flat, builds green.
+
+6. All user messages:
+   - "[/effort set to ultracode]. We've just made demos for physiscs, camera, and dialogue modules. Your objetive this session is make a demo for the UI module. The idea is to do both at the same time: present the module's capabilities and extend/fix/enhance the module... a. Layout: ... b. Buttons: primary, seconday, tertiary/link buttons. Disabled buttons, hover changes, click behavior/animation. Buttons with icons, just icon button. Buttons navigation with mouse and keyboard (WASD and arrow keys)... TextInput and Checkboxes and Toggles as well. c. This is a new capability to develop: windows/menus, with scrolling capabilities, tabs, dialogs/alert, dropdown lists, combobox (search (TextInput) + dropdown filter)."
+   - (AskUserQuestion answers): Keyboard nav="Both"; Scroll="Dedicated render-target"; Widgets="First-class widgets now"; Flexbox="Finish Stretch + flex-grow".
+   - "Proceed. /goal is to implement all 5 waves."
+   - "Launch subagents to implement waves 3 and 4"
+   - (Multiple autonomous-loop tick prompts — timer-driven, instructing me to continue established work, reschedule via ScheduleWakeup with sentinel `<<autonomous-loop-dynamic>>`, PushNotification when blocked/ending loop.)
+   - (System note that UiDemoScreen.cs was intentionally modified by user/linter — not to revert.)
+
+7. Pending Tasks:
+   - **Commit the work** — only when the user explicitly asks (standing rule). I offered per-wave or single feature commit; user has NOT answered.
+   - **Run `/deep-review`** on the branch (last W5 item) — only when user asks; user has NOT answered.
+
+8. Current Work:
+   Immediately before this summary, I was on an autonomous loop tick. The prior tick I completed the deferred icon/icon-only buttons (original W2 spec item b): added `MakeIconButton(...)` to UiDemoScreen.cs using `ShapeBuilder.Star(new Vector2(iconSize/2f), iconSize*0.5f, iconSize*0.24f, 5, iconColor)` for the icon mesh, wired two into BuildButtonsTab ("★ Starred" Secondary + "★" icon-only Tertiary at `PlaceRow(..., centerX: 120f, y: ContentTop+70f, gap: 18f)`), verified the render (gold stars render correctly), reverted `_tabIndex` to 0, and confirmed full solution build green (0 errors). On the final tick I determined everything is complete and gated on the user, ended the loop, and sent a PushNotification: "UI module demo done: all 5 waves + icon buttons, solution builds green, all tabs visually verified. 28 files uncommitted — awaiting your call on commit and/or /deep-review." Branch is `feat/packages`. All changes are UNCOMMITTED in the working tree.
+
+9. Optional Next Step:
+   No next step — the loop has been ended and all explicitly-requested work (all 5 waves + the original three-part showcase including now-completed icon buttons) is done, verified, and building green. The only remaining actions (commit, /deep-review) require the user's explicit decision, which I have requested and not yet received. Per the user's last actionable instruction ("Launch subagents to implement waves 3 and 4") — that is complete and verified. I should wait for the user's response on whether to commit and/or run /deep-review before taking any further action, rather than starting tangential work.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/rodrigooliveira/.REDACTED.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+Spawn subagents to address each of these issues I found in the UI module's demo (your can group some issues for the same subagent when you judge best):
+1. Make the presentation text shorter, like: "Navigate focus with arrows, WASD, TAB or mouse. Explore layout options, buttons, dialogs, and more."
+2. [Image #1] On the layout tab, the layout presentation should be at the center of the screen, it's just below the center and it's conflicting with the "SHOW LAYOUT BOUNDS" checkbox, the checkbox button itself should be presented on the top left portion of the screen actually.
+3. On the layout tab, just below the "SHOW LAYOUT BOUNDS" checkbox, there should be an input field to determine the gap between items displayed (make it simple, just a single Gap var for all examples in this tab).
+4. On the layout tab, layout should be changing in a loop to demonstrate all possible options: the row demonstration should be changing alignment from top, to center, to bottom; the column demonstration should be changing alignment from left, to center, to right. Each loop cycle should take 1.5 seconds.
+5. The buttons/tabs hovering shouldn't highlight the button the same as the current selected tab, leave the yellow border for the selected option, hovering shouldn't add the yellow border, leave it just chaning the button's background color.
+6. The link button should be wired to change the cursor sprit to a hand with a pointing finger (you can do a simple hand shape with rectangular meshes only, maybe with a bit of radius on their corners, but still a simple and small mesh, fitting of a cursor). The link button should have underscore text (develop underscore text if needed).
+7. [Image #2] The Disabled, Starred, and Star-icon buttons should be togheter in the center of the screen, center aligned, but the disabled button is skewed to the left, leaving a weird gap until the Starred button.
+8. [Image #3] The hover highlighting is not rendering order deterministically with the checkbox, and sometimes it's rendered on top of the checkbox itself, like in this image where I hover the "SOUND ON" button and the checkbox disappears because of the highlight, the checkbox renders just fine when the button isn't highlighted, as you can see in the "ENABLE FEATURE" buttom.
+9. In the InputText box, I just noticed that you can't change the carret position by using your mouse. Code this feature so beyond keyboard arrows one can use the mouse cursor. Also make the carret blinking.
+10. [Image #4] On the windows tab, use a layout to keep these three demonstrations togheter at the center with a much narrow gap between them (maybe a gap of 16).
+11. The scroll demonstration should be a little bit shorter in height so it clearly clips the "Row 6" text on half to make it obvious there is more to scroll.
+12. The scroll demonstration should have a scroll bar, fully implemented not only to visually show the scroll state, but also to enable scrolling via clicking or via click-and-drag.
+13. [Image #5] The Fruit selection list doens't expand/contract it's width to accomodate the selection text, making it overflow the box.
+14. The Fruit selection list should have a down chevron icon to indicate it's a dropdown.
+15. The combobox keeps removing focus from the search input bar, while it's open/selected, the input should always be active for the user to type more. And typing isn't filtering dropdown items, it should. And whenever you click on the combobox the input should be clear so it doesn't inherit the current selection's text as search input, but clicking outside it should dismiss/cancel. Also the dropdown in the combobox should be of limited height and have more options than it can display at once, also displaying a scrollbar.
+
+---
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-06-20 às 23.23.50.png]
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-06-20 às 23.25.16.png]
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-06-20 às 23.25.16.png]
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-06-20 às 23.30.51.png]
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-06-21 às 00.01.12.png]
+
+---
+
+Commit everything that's uncommited and push
