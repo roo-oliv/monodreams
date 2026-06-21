@@ -147,6 +147,40 @@ other's log file (same default `debug/` path).
 parallel execution will surface this indirectly).
 **Depends on:** —
 
+## Engine source is backend/OS-agnostic — non-portable calls go through `IPlatformServices`
+
+MonoDreams engine modules never touch `System.IO.File` / `Directory`,
+`System.AppDomain`, `System.Environment`, or `System.Console` directly.
+Every such call is routed through `PlatformServices.Current` (an
+`IPlatformServices` in `MonoDreams.Platform`): storage read/write
+(`FileExists`/`ReadAllText`/`WriteAllText`/`WriteAllBytes`/`CreateDirectory`),
+base path (`BaseDirectory`), env/config lookup (`GetEnvironmentVariable`),
+path joining (`CombinePath`), the `Logger` sink (`OpenLogWriter` +
+`WriteLineToConsole`), and best-effort background work (`RunBackground`).
+The holder defaults to `DesktopPlatformServices` (real filesystem / process
+environment — the historical behaviour), so a desktop head and every test
+behave exactly as before with no setup. A non-desktop head (web/WASM)
+assigns its own implementation to `PlatformServices.Current` at the very
+start of startup. The build-time content-pipeline importers
+(`dialogue/YarnSpinnerImporter.cs`) are exempt: they run on the developer's
+desktop at build time, never in the shipped runtime.
+
+**Why:** KNI/BlazorGL recompiles MonoDreams source unchanged against the
+same `Microsoft.Xna.Framework` namespace, but a browser has no process
+filesystem / environment / `Console`. Hard-coding those APIs into engine
+modules would make the source un-runnable on web. The seam keeps the
+platform a head-level choice, never baked into a module.
+**Breaks:** a module that calls `File`/`AppDomain`/`Environment`/`Console`
+directly compiles for web but throws (or silently no-ops) at runtime in the
+browser — e.g. `BlenderLevelParserSystem` reading a JSON path off a disk
+that doesn't exist, or `Logger` writing to a `StreamWriter` that can't open.
+**Tests:** `MonoDreams.Tests/Platform/PlatformServicesTests.cs` (asserts
+`Logger` and `InputReplayPlan.TryLoad` route through a fake
+`IPlatformServices` with no real disk, and that `DesktopPlatformServices`
+round-trips the real filesystem); the routed runtime sites are exercised
+end-to-end on the desktop FS by `BlenderLevelTests` and `HeadlessDemoTests`.
+**Depends on:** —
+
 ## Open questions
 
 - **Entity disposed mid-frame:** convention not yet established —

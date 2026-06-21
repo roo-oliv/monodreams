@@ -6,7 +6,6 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
@@ -16,6 +15,7 @@ using MonoDreams.Level;
 using MonoDreams.Message.Level;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
+using MonoDreams.Platform;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Level;
@@ -84,11 +84,14 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
         try
         {
-            // Load JSON file from Content directory
-            // The Content.RootDirectory gives us the path to the Content folder
-            var jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _content.RootDirectory, "blender_level.json");
+            // Load JSON file from Content directory.
+            // Content.RootDirectory gives us the path to the Content folder; routed through
+            // IPlatformServices so a web head can serve the JSON over HTTP / in-memory
+            // instead of the local filesystem (see Phase-1 portability premises).
+            var jsonPath = PlatformServices.Current.CombinePath(
+                PlatformServices.Current.BaseDirectory, _content.RootDirectory, "blender_level.json");
             Logger.Debug($"Loading Blender level from: {jsonPath}");
-            var jsonContent = File.ReadAllText(jsonPath);
+            var jsonContent = PlatformServices.Current.ReadAllText(jsonPath);
 
             var options = new JsonSerializerOptions
             {

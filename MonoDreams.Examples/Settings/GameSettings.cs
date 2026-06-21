@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MonoDreams.Platform;
 
 namespace MonoDreams.Examples.Settings;
 
@@ -65,7 +66,7 @@ public class GameSettings
     public void Save(string path)
     {
         var json = JsonSerializer.Serialize(this, JsonOptions);
-        File.WriteAllText(path, json);
+        PlatformServices.Current.WriteAllText(path, json);
     }
 
     /// <summary>
@@ -73,7 +74,7 @@ public class GameSettings
     /// </summary>
     public static GameSettings Load(string path)
     {
-        if (!File.Exists(path))
+        if (!PlatformServices.Current.FileExists(path))
         {
             var defaultSettings = new GameSettings();
             defaultSettings.Save(path);
@@ -82,7 +83,7 @@ public class GameSettings
 
         try
         {
-            var json = File.ReadAllText(path);
+            var json = PlatformServices.Current.ReadAllText(path);
             return JsonSerializer.Deserialize<GameSettings>(json, JsonOptions) ?? new GameSettings();
         }
         catch

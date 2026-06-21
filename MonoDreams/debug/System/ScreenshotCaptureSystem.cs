@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading.Tasks;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Platform;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Debug;
@@ -29,7 +29,7 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
         _captureIntervalSeconds = captureIntervalSeconds;
         _outputDirectory = outputDirectory;
 
-        Directory.CreateDirectory(outputDirectory);
+        PlatformServices.Current.CreateDirectory(outputDirectory);
         Logger.Info($"ScreenshotCaptureSystem initialized. Interval: {captureIntervalSeconds}s, output: {outputDirectory}");
     }
 
@@ -47,14 +47,17 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
         var frame = Grab();
 
         var filename = MakeFilename(state.TotalTime);
-        var filePath = Path.Combine(_outputDirectory, filename);
+        var filePath = PlatformServices.Current.CombinePath(_outputDirectory, filename);
 
         _pendingSave = true;
-        Task.Run(() =>
+        // Fire-and-forget: desktop runs this on a thread-pool thread; a single-threaded
+        // host (WASM) runs it inline. Either way the save is best-effort, off the
+        // deterministic CaptureNow path.
+        PlatformServices.Current.RunBackground(() =>
         {
             try
             {
-                File.WriteAllBytes(filePath, frame.png);
+                PlatformServices.Current.WriteAllBytes(filePath, frame.png);
                 Logger.Debug($"Screenshot saved: {filename} (nonBlank={frame.nonBlank}, distinctColors={frame.distinct})");
             }
             catch (Exception ex)
@@ -79,11 +82,11 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     {
         var frame = Grab();
         var filename = MakeFilename(gameTime);
-        var filePath = Path.Combine(_outputDirectory, filename);
+        var filePath = PlatformServices.Current.CombinePath(_outputDirectory, filename);
 
         try
         {
-            File.WriteAllBytes(filePath, frame.png);
+            PlatformServices.Current.WriteAllBytes(filePath, frame.png);
             Logger.Info($"Screenshot saved: {filename} (nonBlank={frame.nonBlank}, distinctColors={frame.distinct})");
         }
         catch (Exception ex)

@@ -1,3 +1,5 @@
+using MonoDreams.Platform;
+
 namespace MonoDreams.Examples.Settings;
 
 /// <summary>
@@ -42,7 +44,7 @@ public class SettingsManager
 
     private SettingsManager(string settingsFileName)
     {
-        _settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, settingsFileName);
+        _settingsPath = PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, settingsFileName);
         _settings = GameSettings.Load(_settingsPath);
     }
 

@@ -18,6 +18,7 @@ using MonoDreams.Examples.Runner;
 using MonoDreams.Examples.System;
 using MonoDreams.Input;
 using MonoDreams.Message;
+using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -237,8 +238,8 @@ public class InfiniteRunnerScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
-            ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
@@ -325,8 +326,8 @@ public class InfiniteRunnerScreen : IGameScreen
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
         });
 
-        var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
-            ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         var replayPlan = InputReplayPlan.TryLoad(debugDir);
         var screenshotSystem = new ScreenshotCaptureSystem(_graphicsDevice, captureIntervalSeconds: 2.0f, debugDir)
         {

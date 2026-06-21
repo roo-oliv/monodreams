@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text.Json;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Input;
+using MonoDreams.Platform;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Input;
@@ -31,8 +31,8 @@ public sealed class InputReplaySystem : ISystem<GameState>
 
     public static InputReplaySystem TryLoad(string debugDirectory, Dictionary<string, AInputState> actionMap, Game game)
     {
-        var filePath = Path.Combine(debugDirectory, "input_replay.json");
-        if (!File.Exists(filePath))
+        var filePath = PlatformServices.Current.CombinePath(debugDirectory, "input_replay.json");
+        if (!PlatformServices.Current.FileExists(filePath))
         {
             Logger.Debug($"No input_replay.json found at {filePath}. Replay disabled.");
             return null;
@@ -40,7 +40,7 @@ public sealed class InputReplaySystem : ISystem<GameState>
 
         try
         {
-            var json = File.ReadAllText(filePath);
+            var json = PlatformServices.Current.ReadAllText(filePath);
             var plan = JsonSerializer.Deserialize<InputReplayPlan>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true

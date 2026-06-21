@@ -10,6 +10,7 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Examples.Settings;
+using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Input;
 using MonoDreams.Screen;
@@ -42,7 +43,14 @@ public class Game1 : Game
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = false;
+        // GraphicsProfile is platform-conditional: desktop GL supports HiDef; a web
+        // (BlazorGL/WebGL) head defines MONODREAMS_WEB and falls back to Reach.
+        // The platform is chosen by the head's build, never baked into engine source.
+#if MONODREAMS_WEB
+        _graphics.GraphicsProfile = GraphicsProfile.Reach;
+#else
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
+#endif
 
         if (_headless)
         {
@@ -65,8 +73,11 @@ public class Game1 : Game
         _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight);
         _camera = new(_settings.VirtualWidth, _settings.VirtualHeight);
 
-        // Add window resize handling
+        // Window resize handling is a desktop concern; a web head sizes the canvas
+        // from the host page, so the OS-window event is gated out there.
+#if !MONODREAMS_WEB
         Window.ClientSizeChanged += OnWindowResize;
+#endif
     }
     
     private void OnWindowResize(object sender, EventArgs e)
@@ -83,13 +94,16 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        var debugDir = Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
-            ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
+        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
 
         if (_headless)
         {
+            // Off-screen window positioning is a desktop-only headless trick.
+#if !MONODREAMS_WEB
             Window.Position = new Point(-2000, -2000);
+#endif
             Logger.Info("Running in headless mode.");
         }
 
