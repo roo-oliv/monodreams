@@ -1,0 +1,12 @@
+# Throwaway spike build/run artifacts — never commit these.
+**/bin/
+**/obj/
+**/publish/
+cdp/node_modules/
+cdp/package-lock.json
+*.log
+devserver.pid
+# Transient screenshots (keep only the named proof: spike-proof.png)
+shot1.png
+shot-diag.png
+shot-final.png
