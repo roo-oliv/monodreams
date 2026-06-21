@@ -303,6 +303,7 @@ frame where culling, layout, and rendering disagree.
 
 All canonical generators (`CircleMeshGenerator`, `CircleOutlineMeshGenerator`,
 `LineMeshGenerator`, `RectangleOutlineMeshGenerator`,
+`RoundedRectangleOutlineMeshGenerator`,
 `DashedRectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`,
 `FilledRoundedRectangleMeshGenerator`, `FilledTriangleMeshGenerator`,
 `FilledPolygonMeshGenerator`, `PolygonOutlineMeshGenerator`,
@@ -366,6 +367,93 @@ unrelated parts of the composite.
 **Tests:** none yet.
 **Depends on:** —
 
+## The mesh render path uses premultiplied alpha — UI fills must be opaque
+
+The mesh path (`DrawComponent.Type = Mesh`, rendered through `BasicEffect`
+triangles in `MasterRenderSystem`) draws into render targets that composite
+with **premultiplied alpha**. The vertex colors in `MeshData` are *not*
+premultiplied by the generators, so a fill color with partial alpha
+(`A` in `1..254`) renders far brighter than a designer expects — the
+straight-alpha RGB is composited as if it were already premultiplied, so
+a 50%-alpha mid-grey reads as near-white. UI mesh fills must therefore be
+**opaque** (`A == 255`). Fully transparent (`A == 0`, `Color.Transparent`)
+is also safe because the prep/draw path skips a zero-alpha fill entirely
+(`ButtonMeshPrepSystem` produces a degenerate mesh; `ToggleSwitchSystem`
+empties the mesh) — that's how a "no fill" button or an "off" checkbox is
+expressed. Encode translucency by choosing a darker opaque color, not by
+lowering alpha.
+
+**Why:** the targets blend premultiplied; matching that would mean
+premultiplying every vertex color in the generators or the prep systems,
+which nothing does today. Restricting UI fills to opaque (or fully
+transparent) sidesteps the brightness blow-up without a pipeline-wide color
+transform. `ButtonTheme` / `ButtonVariantColors` pick opaque fills for this
+reason, and `ButtonVisualSystem` keys the "no fill" state off `A == 0`.
+**Breaks:** a button or panel given a partial-alpha fill (e.g. a "subtle"
+`Color.Black * 0.3f`) renders as a glaring near-white block instead of a
+faint tint — the canonical "why is my overlay white?" bug. Lowering alpha
+to dim a fill makes it brighter, not dimmer.
+**Tests:** none yet (exercised by every demo with mesh-backed UI — the
+`ui` demo's buttons / panels, the camera and physics demos' checkboxes).
+**Depends on:** "`IMeshGenerator.Generate()` returns a triangle list";
+ui — "`ToggleSwitchComponent` drives a checkmark mesh's visibility from a
+bool".
+
+## Scrollable content uses a dedicated `RenderTargetID.Scroll` target composited via `RenderLayer.Overlay`
+
+Scrollable UI regions render into their own `RenderTargetID.Scroll` render
+target, composited onto the screen by a `RenderLayer.Overlay` entry in
+`FinalDrawSystem`'s layer list. The overlay's HUD-virtual sub-rectangle is
+the scroll viewport, so content drawn past the target's edges is clipped by
+the target bounds (the overlay maps the whole target into the viewport box —
+content outside the box's mapped region does not appear). Like UI and HUD,
+the `Scroll` target is screen-space and always renders regardless of
+`VisibleComponent`. For now there is **one** `Scroll` region per screen: a
+screen registers a single `source = Scroll` `MasterRenderSystem` pass and a
+single overlay layer for it.
+
+**Why:** clipping a sub-region of scrolling content is exactly what a
+separate render target plus an overlay sub-rect gives for free — the target
+is the clip rect, the overlay is the placement. Reusing the existing
+multi-pass + `RenderLayer.Overlay` machinery (the same path the minimap
+uses) keeps scrolling as data, not a new code path. Bounding it to one
+region per screen avoids inventing per-region target allocation before a
+second region is actually needed.
+**Breaks:** drawing scrollable content directly on UI/HUD with no dedicated
+target gives no clip rect — content spills past the intended viewport.
+Registering two `Scroll` regions today collides on the single target
+(each pass clears it on entry, per "One `MasterRenderSystem` instance is one
+render pass"), so the second region erases the first.
+**Tests:** none yet (exercised by the `ui` demo's scroll region).
+**Depends on:** "One `MasterRenderSystem` instance is one render pass";
+"`FinalDrawSystem` composites an explicit, ordered layer list"; "Three
+render targets, two behaviors".
+
+## `RoundedRectangleOutlineMeshGenerator` draws a stroked rounded-rectangle border
+
+`RoundedRectangleOutlineMeshGenerator` emits a triangle-list `MeshData` for
+the *border* of a rounded rectangle (straight edges + quarter-circle corner
+arcs of a given corner radius, stroked at a given line thickness) — the
+hollow counterpart to `FilledRoundedRectangleMeshGenerator`'s solid fill. A
+bordered rounded panel is therefore two sibling mesh entities sharing a
+`TransformComponent`: a `FilledRoundedRectangleMeshGenerator` fill behind a
+`RoundedRectangleOutlineMeshGenerator` stroke, exactly as a plain panel pairs
+`FilledRectangleMeshGenerator` with `RectangleOutlineMeshGenerator`. Both the
+fill and the outline obey the opaque-fill rule for the mesh path.
+
+**Why:** rounded panels and rounded buttons want a crisp border distinct
+from the fill, and (per `DrawComponent.Type` being mutually exclusive) one
+mesh entity can carry either the fill *or* the outline, not both — so the
+border is its own generator on its own entity. Matching the fill generator's
+corner-radius parameterization lets the two line up pixel-for-pixel.
+**Breaks:** mismatched corner radii between the fill and the outline leave
+the stroke floating off the fill's rounded corners. Putting a partial-alpha
+color on the stroke triggers the premultiplied-alpha brightness bug above.
+**Tests:** none yet (exercised by the `ui` demo's rounded panels/buttons).
+**Depends on:** "`IMeshGenerator.Generate()` returns a triangle list";
+"`DrawComponent.Type` is mutually exclusive"; "The mesh render path uses
+premultiplied alpha — UI fills must be opaque".
+
 ## Open questions
 
 - **Same-Y flicker in practice** — has this surfaced? If so, the
@@ -424,6 +512,9 @@ The following premises currently have **Tests: none yet**:
 - `IMeshGenerator.Generate()` returns a triangle list
 - `MeshPrepSystem` writes the world matrix once per frame
 - `CompositeMeshGenerator` rebases indices into the combined buffer
+- The mesh render path uses premultiplied alpha — UI fills must be opaque
+- Scrollable content uses a dedicated `RenderTargetID.Scroll` target composited via `RenderLayer.Overlay`
+- `RoundedRectangleOutlineMeshGenerator` draws a stroked rounded-rectangle border
 
 Architectural tests for ECS-purity premises (no parallel render systems,
 no game `SpriteBatch` calls, `VisibleComponent` not added outside

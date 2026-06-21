@@ -54,6 +54,7 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AE
                  : position,
              Rotation = transform.WorldRotation,
              Color = text.Color,
+             Underline = text.Underline,
              LayerDepth = layerDepth,
              Size = text.Font.MeasureString(visibleText), // Store measured size if needed elsewhere
              Scale = transform.WorldScale * new Vector2(text.Scale > 0 ? text.Scale : 0.5f), // Combine world scale with DynamicTextComponent scale

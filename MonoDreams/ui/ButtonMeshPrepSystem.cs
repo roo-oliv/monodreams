@@ -29,11 +29,18 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
         // (Layout system positions elements at their top-left corner)
         var position = transform.WorldPosition;
 
+        // Optional visual-only "pop" scale around the button's centre (ButtonVisualSystem drives
+        // it on press). Zero means "unset" → full size. The hit-test still uses the unscaled Size,
+        // so the geometry stays anchored while the drawn quad scales.
+        var visualScale = outline.VisualScale <= 0f ? 1f : outline.VisualScale;
+        var center = position + outline.Size * 0.5f;
+        Vector2 Scaled(Vector2 corner) => center + (corner - center) * visualScale;
+
         // Top-left, top-right, bottom-right, bottom-left corners
-        var topLeft = position;
-        var topRight = new Vector2(position.X + outline.Size.X, position.Y);
-        var bottomRight = position + outline.Size;
-        var bottomLeft = new Vector2(position.X, position.Y + outline.Size.Y);
+        var topLeft = Scaled(position);
+        var topRight = Scaled(new Vector2(position.X + outline.Size.X, position.Y));
+        var bottomRight = Scaled(position + outline.Size);
+        var bottomLeft = Scaled(new Vector2(position.X, position.Y + outline.Size.Y));
 
         // Optional solid fill behind the outline.
         if (outline.FillColor.A > 0)
@@ -61,6 +68,11 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
             AddThickLine(vertices, indices, bottomLeft, topLeft, outline.LineThickness, outline.Color, ref indexOffset);
         }
 
+        // The button's draw depth: honor SimpleButtonComponent.LayerDepth, treating 0 (unset) as the
+        // default 0.95. Setting it lower lets a screen push the fill/ring behind sibling decorations
+        // (e.g. a checkbox box + checkmark) so the depth ordering stays strict.
+        var layerDepth = outline.LayerDepth > 0f ? outline.LayerDepth : 0.95f;
+
         // Set or update the DrawComponent.
         // Vertices above are baked in world coordinates, so WorldMatrix must be
         // identity (or null). When the screen also runs MeshPrepSystem (which would
@@ -75,7 +87,7 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
                 Indices = indices.ToArray(),
                 PrimitiveType = PrimitiveType.TriangleList,
                 Target = outline.Target,
-                LayerDepth = 0.95f,
+                LayerDepth = layerDepth,
                 WorldMatrix = Matrix.Identity,
             });
         }
@@ -87,6 +99,7 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
             drawComponent.Indices = indices.ToArray();
             drawComponent.PrimitiveType = PrimitiveType.TriangleList;
             drawComponent.Target = outline.Target;
+            drawComponent.LayerDepth = layerDepth;
             drawComponent.WorldMatrix = Matrix.Identity;
         }
     }

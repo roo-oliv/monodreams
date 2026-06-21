@@ -31,6 +31,7 @@ public class DrawComponent
     // Text specific
     public BitmapFont? Font;
     public string? Text;
+    public bool Underline; // When true, MasterRenderSystem strokes a thin underline (in Color) under each text line (see the text render path).
     public float LineSpacing = DynamicTextComponent.DefaultLineSpacing; // Multiplier on Font.LineHeight when laying out '\n'-separated lines (see MasterRenderSystem).
 
     // NinePatch specific

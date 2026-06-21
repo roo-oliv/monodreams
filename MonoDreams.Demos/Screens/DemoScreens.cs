@@ -7,4 +7,5 @@ public static class DemoScreens
     public const string Camera = "demos.camera";
     public const string Physics = "demos.physics";
     public const string Dialogue = "demos.dialogue";
+    public const string Ui = "demos.ui";
 }

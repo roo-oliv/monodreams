@@ -77,14 +77,17 @@ public class LayoutDebugSystem : ISystem<GameState>
             ref readonly var slot = ref entity.Get<LayoutSlotComponent>();
             ref readonly var transform = ref entity.Get<MonoDreams.Component.TransformComponent>();
 
+            // Only visualize slots drawn to the same target as this debug system, so a Main-target
+            // overlay does not try to draw HUD-anchored chrome bounds through the camera transform.
+            if (slot.Target != _renderTarget) continue;
+
             // Calculate hierarchy depth for coloring
             var depth = CalculateDepth(slot.Node);
             var color = DepthColors[global::System.Math.Min(depth, DepthColors.Length - 1)];
 
-            // Get computed layout bounds
-            // Use Position (not WorldPosition) because layout containers don't have Origin offset
-            // Position is the top-left corner set by AutoLayoutSystem
-            var pos = transform.Position;
+            // Get computed layout bounds. WorldPosition is the absolute top-left after the
+            // hierarchy resolves parent transforms, so nested containers draw at the right place.
+            var pos = transform.WorldPosition;
             var width = slot.ComputedWidth;
             var height = slot.ComputedHeight;
 
@@ -145,6 +148,9 @@ public class LayoutDebugSystem : ISystem<GameState>
             Target = _renderTarget,
             LayerDepth = DebugLayerDepth
         });
+        // The Main target only draws entities tagged visible (no CullingSystem runs in demos),
+        // so the overlay needs the tag to appear; UI/HUD render regardless but the tag is harmless.
+        entity.Set<VisibleComponent>();
     }
 
     private void CreateLabelEntity(string name, float x, float y, Color color)
@@ -167,6 +173,7 @@ public class LayoutDebugSystem : ISystem<GameState>
             Target = _renderTarget,
             LayerDepth = DebugLayerDepth
         });
+        entity.Set<VisibleComponent>();
     }
 
     private void AddThickLine(List<VertexPositionColor> vertices, List<int> indices,

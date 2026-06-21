@@ -5,4 +5,5 @@ public enum RenderTargetID
     Main,
     UI,
     HUD,
+    Scroll,
 }

@@ -135,6 +135,28 @@ Registering `CursorDrawPrepSystem` for a mesh cursor is harmless (it filters on
 **Depends on:** rendering — "`MeshPrepSystem` writes the world matrix once per
 frame"; rendering — "Three render targets, two behaviors" (HUD always renders).
 
+## `CursorMeshLibraryComponent` holds the per-`CursorType` silhouettes a mesh cursor swaps between
+
+`CursorMeshLibraryComponent` is an optional add-on for a mesh cursor: a
+`Dictionary<CursorType, MeshData>` whose `Default` entry is the resting (arrow) mesh and
+whose other entries (e.g. `Hand`) are alternate silhouettes. It is pure data — the *swap*
+is owned by a consumer system (today the `ui` module's `CursorHoverSystem`, see the ui
+premises), which sets `CursorControllerComponent.Type` and, on a change, fills the cursor
+entity's mesh `DrawComponent` from the matching library entry. A mesh cursor without this
+component simply never swaps; the textured cursor path (`CursorTexturesComponent` +
+`CursorDrawPrepSystem`) is the parallel mechanism for image cursors and is unaffected.
+
+**Why:** the engine is mesh-capable, so a hover-cursor change is "pick a different mesh",
+exactly mirroring how `CursorTexturesComponent` lets the textured path "pick a different
+texture" per `CursorType`. Keeping the silhouettes as data (and the swap in a system)
+keeps the mechanism reusable for any cursor type and any consumer.
+**Breaks:** a library missing the `Default` entry leaves a consumer with no arrow to fall
+back to (the cursor keeps whatever mesh it last had). Mutating the cursor's mesh
+`DrawComponent` from elsewhere races the swap system the same way two writers race any
+shared component.
+**Tests:** none yet (exercised by the `ui` demo's Link-button hand cursor).
+**Depends on:** "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`".
+
 ## Open questions
 
 - **Multiple cursors** — the systems iterate an entity set, so two

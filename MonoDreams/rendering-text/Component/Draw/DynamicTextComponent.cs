@@ -21,6 +21,7 @@ public struct DynamicTextComponent : IComponent
     public BitmapFont Font; // BitmapFont from MonoGame.Extended
     public Color Color;
     public float Scale; // Scale factor for the font size
+    public bool Underline; // When true, MasterRenderSystem draws a thin underline (in Color) under each rendered line. Default false = no underline. See the text render path.
     public float LineSpacing; // Multiplier on the font's line height for multi-line ('\n') text; <= 0 means DefaultLineSpacing. See MasterRenderSystem's text path.
     public float RevealingSpeed; // Characters per second
     public float RevealStartTime; // GameTime total seconds when reveal started

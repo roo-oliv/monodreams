@@ -41,6 +41,59 @@ public static class ShapeBuilder
             .Add(new PolygonOutlineMeshGenerator(new[] { tip, left, notch, right }, outlineThickness, outline));
     }
 
+    /// A small pointing-hand cursor (a "link" hand): an extended index finger pointing up with a
+    /// rounded fist below, built from rounded rectangles. The hot-spot is the local origin — the
+    /// fingertip — so the cursor points exactly where the arrow's tip would. <paramref name="size"/>
+    /// is the overall height (cursor-sized, ~24-28px). Filled opaque (premultiplied-alpha rule).
+    public static IMeshGenerator Hand(float size, Color fill, Color outline, float outlineThickness = 1.5f)
+    {
+        // Local space: origin at the fingertip (top), hand extends down and slightly right.
+        var fingerW = size * 0.20f;
+        var fingerH = size * 0.52f;
+        var fingerX = size * 0.10f;           // index finger sits a little right of the tip column
+        var palmW = size * 0.52f;
+        var palmH = size * 0.46f;
+        var palmX = fingerX - size * 0.06f;   // palm a touch left so the finger rises from its edge
+        var palmY = size * 0.42f;             // palm starts partway down, overlapping the finger base
+        var thumbW = size * 0.16f;
+        var thumbH = size * 0.26f;
+
+        var corner = size * 0.10f;
+
+        return new CompositeMeshGenerator()
+            // Palm / fist.
+            .Add(new FilledRoundedRectangleMeshGenerator(
+                new Rectangle((int)palmX, (int)palmY, (int)palmW, (int)palmH), corner, fill))
+            // Index finger (the pointer), rising to the fingertip at the origin.
+            .Add(new FilledRoundedRectangleMeshGenerator(
+                new Rectangle((int)fingerX, 0, (int)fingerW, (int)fingerH), fingerW * 0.5f, fill))
+            // Thumb, angled out to the left of the palm.
+            .Add(new FilledRoundedRectangleMeshGenerator(
+                new Rectangle((int)(palmX - thumbW * 0.5f), (int)(palmY + size * 0.04f), (int)thumbW, (int)thumbH),
+                thumbW * 0.5f, fill))
+            // Outline around the palm so the silhouette reads against any background.
+            .Add(new RoundedRectangleOutlineMeshGenerator(
+                new Rectangle((int)palmX, (int)palmY, (int)palmW, (int)palmH), corner, outlineThickness, outline))
+            .Add(new RoundedRectangleOutlineMeshGenerator(
+                new Rectangle((int)fingerX, 0, (int)fingerW, (int)fingerH), fingerW * 0.5f, outlineThickness, outline));
+    }
+
+    /// A downward-pointing chevron (a "v"), centred on the local origin and spanning roughly
+    /// <paramref name="size"/> wide. Built from two thick line segments so it reads as a crisp
+    /// dropdown-disclosure glyph (replacing the "▾" text glyph). Opaque color (premultiplied-alpha
+    /// rule). The apex sits at the bottom centre; the two arms rise to the top-left and top-right.
+    public static IMeshGenerator Chevron(float size, float thickness, Color color)
+    {
+        var half = size / 2f;
+        var quarter = size * 0.28f; // vertical drop from arm-top to apex
+        var left   = new Vector2(-half, -quarter);
+        var apex   = new Vector2(0f, quarter);
+        var right  = new Vector2(half, -quarter);
+        return new CompositeMeshGenerator()
+            .Add(new LineMeshGenerator(left, apex, thickness, color))
+            .Add(new LineMeshGenerator(apex, right, thickness, color));
+    }
+
     /// A checkmark stroke fitted inside <paramref name="box"/> (a tick: down to the
     /// low point, then up to the top-right).
     public static IMeshGenerator Checkmark(Rectangle box, float thickness, Color color)

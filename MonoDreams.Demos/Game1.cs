@@ -105,6 +105,8 @@ public class Game1 : Game
             () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner));
         _screenController.RegisterScreen(DemoScreens.Dialogue,
             () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+        _screenController.RegisterScreen(DemoScreens.Ui,
+            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
 
         // Headless jumps straight to the requested screen, skipping the launcher menu.
         _screenController.LoadScreen(_headless.Enabled ? _headless.Screen : DemoScreens.Launcher);

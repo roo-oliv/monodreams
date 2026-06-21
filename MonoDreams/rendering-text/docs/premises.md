@@ -117,6 +117,31 @@ multi-line text (not used today).
 **Tests:** none yet.
 **Depends on:** rendering — "Three render targets, two behaviors".
 
+## `DynamicTextComponent.Underline` strokes a per-line underline in the text's own color
+
+`DynamicTextComponent.Underline` (default `false`, a no-op) is carried onto
+`DrawComponent.Underline` by `TextPrepSystem`. When true, `MasterRenderSystem`'s text
+branch draws, under each rendered line, a thin filled bar (a 1×1 white pixel scaled to the
+line width × a small thickness) tinted with the text's `Color`, positioned at the line's
+bottom (`Position.Y + Font.LineHeight * Scale.Y - thickness`) and spanning the line's
+rendered width (`Font.MeasureString(line).Width * Scale.X`). It scales with the text and is
+drawn in the same depth-sorted SpriteBatch pass as the glyphs, so it shares their layer
+depth. The text `Color` is opaque, satisfying the opaque-fill convention.
+
+**Why:** an underline is the canonical "this is a link" affordance, and deriving it from
+the same per-line layout the renderer already computes (width via `MeasureString`, bottom
+via the scaled line height) keeps it consistent with the multi-line leading rules without a
+separate entity or mesh. Defaulting to `false` keeps every existing label byte-for-byte
+unchanged.
+**Breaks:** a future per-glyph text path (see Open questions) would need to recompute the
+underline span per glyph run rather than per line. Tinting the underline with a partial-
+alpha color is not the issue here (text uses straight-alpha `AlphaBlend`, not the mesh
+path's premultiplied alpha), but keeping it the text color is what makes it read as part
+of the text.
+**Tests:** none yet (exercised by the `ui` demo's Link button label).
+**Depends on:** "Multi-line text is laid out by the engine, not the font backend;
+`LineSpacing` sets leading".
+
 ## Open questions
 
 - **Per-glyph layout** — `TextPrepSystem` currently submits the whole

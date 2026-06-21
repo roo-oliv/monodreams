@@ -302,8 +302,10 @@ public class ContainerBuilder
                 node.Width = null;
                 break;
             case SizingMode.FillContainer:
-                node.FlexGrow = 1;
+                node.WidthFill = true;
                 node.WidthAuto = false;
+                node.Width = null;
+                node.FlexGrow = 1;
                 break;
             case SizingMode.Fixed:
                 node.WidthAuto = false;
@@ -319,8 +321,10 @@ public class ContainerBuilder
                 node.Height = null;
                 break;
             case SizingMode.FillContainer:
-                node.FlexGrow = 1;
+                node.HeightFill = true;
                 node.HeightAuto = false;
+                node.Height = null;
+                node.FlexGrow = 1;
                 break;
             case SizingMode.Fixed:
                 node.HeightAuto = false;

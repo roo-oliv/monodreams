@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
 using MonoDreams.State;
@@ -30,6 +31,8 @@ public class TextInputSystem : AEntitySetSystem<GameState>
     /// The caret is a thin vertical white line drawn at the insertion point while focused.
     private static readonly Color CaretColor = Color.White;
     private const float CaretThickness = 1.5f;
+    /// Blink period halves: caret is shown for the first half of each full period, hidden the second.
+    private const float CaretBlinkHalfPeriod = 0.5f;
 
     private KeyboardState _previous;
     private readonly List<char> _typed = new();
@@ -40,15 +43,42 @@ public class TextInputSystem : AEntitySetSystem<GameState>
     private bool _home;
     private bool _end;
 
+    // Per-frame cursor read (shared across every focused field, like the keyboard diff). Populated in
+    // PreUpdate from the single cursor entity so the caret can be placed at a click point.
+    private readonly EntitySet _cursors;
+    private bool _hasCursor;
+    private bool _cursorClicked; // left button pressed OR released this frame
+    private Vector2 _cursorWorld;
+    private Vector2 _cursorVirtual;
+
+    // The time of the most recent caret move / edit. Used to show a steady (non-blinking) caret right
+    // after typing so the user sees where they are, then resume blinking.
+    private float _lastCaretActivity = float.NegativeInfinity;
+
     public TextInputSystem(World world) : base(world)
     {
         _previous = Keyboard.GetState();
+        _cursors = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
     protected override void PreUpdate(GameState state)
     {
         _typed.Clear();
         _backspace = _delete = _left = _right = _home = _end = false;
+
+        var cursorEntities = _cursors.GetEntities();
+        _hasCursor = cursorEntities.Length > 0;
+        if (_hasCursor)
+        {
+            ref readonly var cursor = ref cursorEntities[0].Get<CursorInputComponent>();
+            _cursorClicked = cursor.LeftButtonPressed || cursor.LeftButtonReleased;
+            _cursorWorld = cursor.WorldPosition;
+            _cursorVirtual = cursor.VirtualPosition;
+        }
+        else
+        {
+            _cursorClicked = false;
+        }
 
         var current = Keyboard.GetState();
         foreach (var key in current.GetPressedKeys())
@@ -75,14 +105,99 @@ public class TextInputSystem : AEntitySetSystem<GameState>
         ref var input = ref entity.Get<TextInputComponent>();
         var text = input.Text ?? string.Empty;
 
+        var caretBefore = input.CaretPosition;
+
         if (input.Focused)
+        {
             ApplyEditing(entity, ref input, ref text);
+            PlaceCaretFromClick(entity, ref input, text); // a click inside the field moves the caret
+        }
 
         // Keep the caret valid even when the field isn't focused or the value was changed
         // outside the system (e.g. the game reset it).
         input.CaretPosition = Math.Clamp(input.CaretPosition, 0, text.Length);
 
-        UpdateCaretVisual(input, text);
+        // Show a steady caret right after any caret move / edit, then resume blinking.
+        if (input.CaretPosition != caretBefore || text != (input.Text ?? string.Empty))
+            _lastCaretActivity = state.TotalTime;
+
+        UpdateDisplayText(input, text);
+        UpdateCaretVisual(state, input, text);
+    }
+
+    /// When the left button is pressed/released this frame inside the focused field's bounds, places
+    /// the caret at the nearest character boundary to the click X. The field's bounds come from its
+    /// <see cref="FocusableComponent.Size"/> (or <see cref="SimpleButtonComponent.Size"/>); the text
+    /// world-start X is the field's WorldPosition plus the value text's local offset (it's parented
+    /// under the field). Mirrors the hit-test convention used elsewhere (Rectangle(WorldPosition,
+    /// Size) vs the cursor's world/virtual position by the focusable's target).
+    private void PlaceCaretFromClick(in Entity entity, ref TextInputComponent input, string text)
+    {
+        if (!_hasCursor || !_cursorClicked) return;
+        if (!entity.Has<TransformComponent>()) return;
+        if (!input.TextEntity.IsAlive || !input.TextEntity.Has<DynamicTextComponent>()) return;
+
+        var size = Vector2.Zero;
+        var target = RenderTargetID.Main;
+        if (entity.Has<FocusableComponent>())
+        {
+            ref readonly var f = ref entity.Get<FocusableComponent>();
+            size = f.Size;
+            target = f.Target;
+        }
+        else if (entity.Has<SimpleButtonComponent>())
+        {
+            size = entity.Get<SimpleButtonComponent>().Size;
+            target = entity.Get<SimpleButtonComponent>().Target;
+        }
+        if (size == Vector2.Zero) return;
+
+        var fieldWorld = entity.Get<TransformComponent>().WorldPosition;
+        var cursorPos = target == RenderTargetID.Main ? _cursorWorld : _cursorVirtual;
+        var bounds = new Rectangle((int)fieldWorld.X, (int)fieldWorld.Y, (int)size.X, (int)size.Y);
+        if (!bounds.Contains(cursorPos)) return;
+
+        ref readonly var display = ref input.TextEntity.Get<DynamicTextComponent>();
+        if (display.Font is not { } font) return;
+        var scale = display.Scale > 0 ? display.Scale : 1f;
+
+        // The value text is a child of the field; its local X is the left padding. World start X of
+        // the rendered text = field world X + text-local X.
+        var textLocalX = input.TextEntity.Has<TransformComponent>()
+            ? input.TextEntity.Get<TransformComponent>().Position.X
+            : 0f;
+        var textStartX = fieldWorld.X + textLocalX;
+        var advance = cursorPos.X - textStartX;
+
+        // Walk prefix widths and pick the caret index whose boundary is nearest the click.
+        var best = 0;
+        var bestDist = Math.Abs(advance); // distance to the index-0 boundary (x = 0)
+        for (var i = 1; i <= text.Length; i++)
+        {
+            var width = font.MeasureString(text[..i]).Width * scale;
+            var dist = Math.Abs(advance - width);
+            if (dist < bestDist) { bestDist = dist; best = i; }
+        }
+        input.CaretPosition = best;
+    }
+
+    /// Mirrors the value onto the linked text entity, swapping in the placeholder (and its color,
+    /// when the field opted into color management via <see cref="TextInputComponent.TextColor"/>)
+    /// while the value is empty. Runs every frame so the placeholder reappears when the field is
+    /// cleared and the caret still sits at index 0 over it.
+    private static void UpdateDisplayText(in TextInputComponent input, string text)
+    {
+        if (!input.TextEntity.IsAlive || !input.TextEntity.Has<DynamicTextComponent>()) return;
+
+        ref var display = ref input.TextEntity.Get<DynamicTextComponent>();
+        var showPlaceholder = string.IsNullOrEmpty(text) && !string.IsNullOrEmpty(input.Placeholder);
+
+        display.TextContent = showPlaceholder ? input.Placeholder : text;
+
+        if (input.TextColor.A > 0)
+            display.Color = showPlaceholder && input.PlaceholderColor.A > 0
+                ? input.PlaceholderColor
+                : input.TextColor;
     }
 
     /// Applies this frame's caret movement and edits to <paramref name="text"/> and the
@@ -131,11 +246,13 @@ public class TextInputSystem : AEntitySetSystem<GameState>
         World.Publish(new TextInputChanged(entity, text));
     }
 
-    /// Positions and shows the caret line while the field is focused, or hides it (empty mesh,
-    /// skipped by <c>MasterRenderSystem</c>) otherwise. The caret entity is parented under the
-    /// text entity, so its local X is simply the rendered width of the text up to the caret;
-    /// its height tracks the text's font line height. No-op when the field opted out of a caret.
-    private static void UpdateCaretVisual(in TextInputComponent input, string text)
+    /// Positions and shows the caret line while the field is focused AND in the visible half of the
+    /// blink cycle, or hides it (empty mesh, skipped by <c>MasterRenderSystem</c>) otherwise. The
+    /// caret entity is parented under the text entity, so its local X is simply the rendered width of
+    /// the text up to the caret; its height tracks the text's font line height. No-op when the field
+    /// opted out of a caret. The caret shows steadily for one half-period right after an edit / move,
+    /// then resumes blinking, so typing is easy to follow.
+    private void UpdateCaretVisual(GameState state, in TextInputComponent input, string text)
     {
         if (!input.CaretEntity.IsAlive
             || !input.CaretEntity.Has<DrawComponent>()
@@ -144,7 +261,14 @@ public class TextInputSystem : AEntitySetSystem<GameState>
 
         ref var draw = ref input.CaretEntity.Get<DrawComponent>();
 
+        // Blink: visible in the first half of each ~1s period (0.5s on / 0.5s off). Recent activity
+        // forces the on-phase so the caret is steady right after typing / clicking.
+        var sinceActivity = state.TotalTime - _lastCaretActivity;
+        var blinkOn = sinceActivity < CaretBlinkHalfPeriod
+            || (state.TotalTime % (CaretBlinkHalfPeriod * 2f)) < CaretBlinkHalfPeriod;
+
         if (!input.Focused
+            || !blinkOn
             || !input.TextEntity.IsAlive
             || !input.TextEntity.Has<DynamicTextComponent>())
         {
@@ -200,4 +324,10 @@ public class TextInputSystem : AEntitySetSystem<GameState>
         Keys.Space => ' ',
         _ => '\0',
     };
+
+    public override void Dispose()
+    {
+        _cursors.Dispose();
+        base.Dispose();
+    }
 }

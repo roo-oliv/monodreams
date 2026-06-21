@@ -1,4 +1,5 @@
 using DefaultEcs;
+using Microsoft.Xna.Framework;
 
 namespace MonoDreams.UI;
 
@@ -48,6 +49,17 @@ public struct TextInputComponent
     /// <see cref="Focused"/>, and clears the mesh otherwise. Leave it at <c>default</c> to opt
     /// out of caret rendering — the editing logic works either way.
     public Entity CaretEntity;
+    /// Optional hint shown on the linked text entity while <see cref="Text"/> is empty (focused or
+    /// not). Null/empty disables it. <see cref="TextInputSystem"/> swaps the displayed string and,
+    /// when <see cref="TextColor"/> is set, the color between value and placeholder.
+    public string Placeholder;
+    /// Color for the placeholder string. Applied only when it has alpha and a placeholder shows.
+    public Color PlaceholderColor;
+    /// The normal value color, restored when the field has text. Set this alongside
+    /// <see cref="Placeholder"/> so the system can swap back from <see cref="PlaceholderColor"/>.
+    /// Left at default (alpha 0) the system leaves the linked text's color alone — back-compat for
+    /// fields that manage their own color (e.g. the demos' number-input rows).
+    public Color TextColor;
 }
 
 /// Published by <see cref="TextInputSystem"/> on the frame an input's

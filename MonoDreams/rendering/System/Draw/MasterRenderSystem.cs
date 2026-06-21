@@ -37,6 +37,10 @@ public class MasterRenderSystem(
 {
     private BasicEffect? _basicEffect;
 
+    // A 1×1 white pixel used to stroke text underlines in the text branch (tinted with the text
+    // color). Created lazily on the graphics device, disposed with the system.
+    private Texture2D? _pixel;
+
     // The draw set for this pass, built once and reused for the system's lifetime.
     // AsSet() registers subscriptions the World keeps alive forever — building a fresh
     // set every frame leaks an EntitySet + its subscriptions per frame, so memory climbs
@@ -77,6 +81,16 @@ public class MasterRenderSystem(
     // virtual resolution must match the destination size (it centers the view there).
     private Matrix Projection() =>
         Matrix.CreateOrthographicOffCenter(0, destination.Width, destination.Height, 0, 0, 1);
+
+    private Texture2D Pixel()
+    {
+        if (_pixel == null)
+        {
+            _pixel = new Texture2D(graphicsDevice, 1, 1);
+            _pixel.SetData(new[] { Color.White });
+        }
+        return _pixel;
+    }
 
     private void EnsureBasicEffect()
     {
@@ -240,16 +254,40 @@ public class MasterRenderSystem(
                 var lines = element.Text.Split('\n');
                 for (var i = 0; i < lines.Length; i++)
                 {
+                    var linePos = element.Position + new Vector2(0f, i * lineAdvance);
                     spriteBatch.DrawString(
                         element.Font,
                         lines[i],
-                        element.Position + new Vector2(0f, i * lineAdvance),
+                        linePos,
                         element.Color,
                         element.Rotation,
                         element.Origin,
                         element.Scale,
                         SpriteEffects.None,
                         element.LayerDepth);
+
+                    // Underline: a thin filled bar (1×1 pixel scaled) under the line, in the text's
+                    // own color, spanning the rendered line width, at the line's bottom. Scales with
+                    // the text. The text color is opaque, so this honors the opaque-fill rule.
+                    if (element.Underline && lines[i].Length > 0)
+                    {
+                        var lineWidth = element.Font.MeasureString(lines[i]).Width * element.Scale.X;
+                        if (lineWidth > 0f)
+                        {
+                            var thickness = MathHelper.Max(1f, element.Font.LineHeight * element.Scale.Y * 0.06f);
+                            var underlineY = linePos.Y + element.Font.LineHeight * element.Scale.Y - thickness;
+                            spriteBatch.Draw(
+                                Pixel(),
+                                new Vector2(linePos.X, underlineY),
+                                null,
+                                element.Color,
+                                element.Rotation,
+                                Vector2.Zero,
+                                new Vector2(lineWidth, thickness),
+                                SpriteEffects.None,
+                                element.LayerDepth);
+                        }
+                    }
                 }
                 break;
 
@@ -266,6 +304,7 @@ public class MasterRenderSystem(
     public void Dispose()
     {
         _basicEffect?.Dispose();
+        _pixel?.Dispose();
         _drawSet?.Dispose();
     }
 

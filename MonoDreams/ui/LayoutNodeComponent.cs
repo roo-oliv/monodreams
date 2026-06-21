@@ -34,6 +34,14 @@ public class LayoutNodeComponent
     public bool HeightAuto { get; set; } = true;
     public float FlexGrow { get; set; }
 
+    // Per-axis "Fill container" (Figma) flags. Resolved by the PARENT, which is the only node
+    // that knows the flow direction: on the parent's MAIN axis a fill child grows to share
+    // leftover space (weighted by FlexGrow); on the parent's CROSS axis it stretches to the
+    // parent's inner cross size. A fill axis still measures its BASE as hug-contents (see
+    // MeasureSize) so the parent has a sensible starting size to grow/stretch from.
+    public bool WidthFill { get; set; }
+    public bool HeightFill { get; set; }
+
     // Computed layout results
     public float LayoutX { get; private set; }
     public float LayoutY { get; private set; }
@@ -137,80 +145,90 @@ public class LayoutNodeComponent
             }
         }
 
-        // Determine final size
+        // Determine final size. A "fill" axis measures its BASE as hug-contents here; the
+        // parent's PositionChildren then grows it on the main axis (sharing leftover space)
+        // or stretches it on the cross axis. WidthAuto without a fill flag also hugs. The bare
+        // "else" (non-auto, non-fill, no explicit size) fills the available space — used by
+        // the screen root, which is given an explicit size anyway.
         if (Width.HasValue)
-        {
             LayoutWidth = Width.Value;
-        }
-        else if (WidthAuto)
-        {
+        else if (WidthAuto || WidthFill)
             LayoutWidth = contentWidth + PaddingLeft + PaddingRight;
-        }
         else
-        {
             LayoutWidth = availableWidth;
-        }
 
         if (Height.HasValue)
-        {
             LayoutHeight = Height.Value;
-        }
-        else if (HeightAuto)
-        {
+        else if (HeightAuto || HeightFill)
             LayoutHeight = contentHeight + PaddingTop + PaddingBottom;
-        }
         else
-        {
             LayoutHeight = availableHeight;
-        }
     }
 
     /// <summary>
-    /// Positions children within this node's bounds.
+    /// Positions children within this node's bounds, resolving flex-grow on the main axis and
+    /// Stretch / per-child cross-fill on the cross axis. Runs top-down: by the time a node is
+    /// positioned, its own LayoutWidth/Height is final, so it can distribute its leftover space.
     /// </summary>
     private void PositionChildren()
     {
         if (Children.Count == 0) return;
 
+        var horizontal = FlexDirection == LayoutDirection.Horizontal;
         var innerX = PaddingLeft;
         var innerY = PaddingTop;
         var innerWidth = LayoutWidth - PaddingLeft - PaddingRight;
         var innerHeight = LayoutHeight - PaddingTop - PaddingBottom;
+        var mainAxisSize = horizontal ? innerWidth : innerHeight;
+        var crossAxisSize = horizontal ? innerHeight : innerWidth;
 
-        // Calculate total content size and remaining space
-        float totalMainSize = 0;
-        float maxCrossSize = 0;
+        float MainOuter(LayoutNodeComponent c) => horizontal
+            ? c.LayoutWidth + c.MarginLeft + c.MarginRight
+            : c.LayoutHeight + c.MarginTop + c.MarginBottom;
+        float CrossOuter(LayoutNodeComponent c) => horizontal
+            ? c.LayoutHeight + c.MarginTop + c.MarginBottom
+            : c.LayoutWidth + c.MarginLeft + c.MarginRight;
+        bool MainFill(LayoutNodeComponent c) => horizontal ? c.WidthFill : c.HeightFill;
+        bool CrossFill(LayoutNodeComponent c) => horizontal ? c.HeightFill : c.WidthFill;
+        float GrowWeight(LayoutNodeComponent c) => c.FlexGrow > 0 ? c.FlexGrow : 1f;
 
+        // --- Main-axis flex-grow: share leftover space among fill children by weight. ---
+        float totalBase = 0;
+        float totalGrow = 0;
         foreach (var child in Children)
         {
-            if (FlexDirection == LayoutDirection.Horizontal)
+            totalBase += MainOuter(child);
+            if (MainFill(child)) totalGrow += GrowWeight(child);
+        }
+        totalBase += Gap * (Children.Count - 1);
+        var remainingSpace = mainAxisSize - totalBase;
+
+        if (totalGrow > 0 && remainingSpace > 0)
+        {
+            foreach (var child in Children)
             {
-                totalMainSize += child.LayoutWidth + child.MarginLeft + child.MarginRight;
-                maxCrossSize = MathHelper.Max(maxCrossSize, child.LayoutHeight + child.MarginTop + child.MarginBottom);
+                if (!MainFill(child)) continue;
+                var add = remainingSpace * (GrowWeight(child) / totalGrow);
+                if (horizontal) child.LayoutWidth += add; else child.LayoutHeight += add;
             }
-            else
-            {
-                totalMainSize += child.LayoutHeight + child.MarginTop + child.MarginBottom;
-                maxCrossSize = MathHelper.Max(maxCrossSize, child.LayoutWidth + child.MarginLeft + child.MarginRight);
-            }
+            remainingSpace = 0; // grow consumed the slack; justify gets nothing left to spread
         }
 
-        // Add gaps to total
-        totalMainSize += Gap * (Children.Count - 1);
+        // --- Cross-axis: Stretch (all children) or per-child cross-fill grows to inner cross. ---
+        foreach (var child in Children)
+        {
+            if (AlignItems != CrossAxisAlignment.Stretch && !CrossFill(child)) continue;
+            if (horizontal)
+                child.LayoutHeight = MathHelper.Max(0f, crossAxisSize - child.MarginTop - child.MarginBottom);
+            else
+                child.LayoutWidth = MathHelper.Max(0f, crossAxisSize - child.MarginLeft - child.MarginRight);
+        }
 
-        float mainAxisSize = FlexDirection == LayoutDirection.Horizontal ? innerWidth : innerHeight;
-        float crossAxisSize = FlexDirection == LayoutDirection.Horizontal ? innerHeight : innerWidth;
-        float remainingSpace = mainAxisSize - totalMainSize;
-
-        // Calculate starting position and spacing based on JustifyContent
+        // --- Main-axis justification using any space the grow pass did not consume. ---
         float mainPos;
         float spacing = 0;
-
         switch (JustifyContent)
         {
-            case MainAxisAlignment.Start:
-                mainPos = 0;
-                break;
             case MainAxisAlignment.Center:
                 mainPos = remainingSpace / 2;
                 break;
@@ -219,8 +237,7 @@ public class LayoutNodeComponent
                 break;
             case MainAxisAlignment.SpaceBetween:
                 mainPos = 0;
-                if (Children.Count > 1)
-                    spacing = remainingSpace / (Children.Count - 1);
+                if (Children.Count > 1) spacing = remainingSpace / (Children.Count - 1);
                 break;
             case MainAxisAlignment.SpaceAround:
                 spacing = remainingSpace / Children.Count;
@@ -230,46 +247,28 @@ public class LayoutNodeComponent
                 spacing = remainingSpace / (Children.Count + 1);
                 mainPos = spacing;
                 break;
-            default:
+            default: // Start
                 mainPos = 0;
                 break;
         }
 
-        // Position each child
         foreach (var child in Children)
         {
-            float childMainSize = FlexDirection == LayoutDirection.Horizontal
-                ? child.LayoutWidth + child.MarginLeft + child.MarginRight
-                : child.LayoutHeight + child.MarginTop + child.MarginBottom;
+            var childCross = CrossOuter(child);
 
-            float childCrossSize = FlexDirection == LayoutDirection.Horizontal
-                ? child.LayoutHeight + child.MarginTop + child.MarginBottom
-                : child.LayoutWidth + child.MarginLeft + child.MarginRight;
-
-            // Calculate cross-axis position based on AlignItems
+            // Stretched / cross-fill children already span the cross axis, so they pin to 0.
             float crossPos;
-            switch (AlignItems)
-            {
-                case CrossAxisAlignment.Start:
-                    crossPos = 0;
-                    break;
-                case CrossAxisAlignment.Center:
-                    crossPos = (crossAxisSize - childCrossSize) / 2;
-                    break;
-                case CrossAxisAlignment.End:
-                    crossPos = crossAxisSize - childCrossSize;
-                    break;
-                case CrossAxisAlignment.Stretch:
-                    crossPos = 0;
-                    // Could resize child here if needed
-                    break;
-                default:
-                    crossPos = 0;
-                    break;
-            }
+            if (AlignItems == CrossAxisAlignment.Stretch || CrossFill(child))
+                crossPos = 0;
+            else
+                crossPos = AlignItems switch
+                {
+                    CrossAxisAlignment.Center => (crossAxisSize - childCross) / 2,
+                    CrossAxisAlignment.End => crossAxisSize - childCross,
+                    _ => 0,
+                };
 
-            // Apply position
-            if (FlexDirection == LayoutDirection.Horizontal)
+            if (horizontal)
             {
                 child.LayoutX = innerX + mainPos + child.MarginLeft;
                 child.LayoutY = innerY + crossPos + child.MarginTop;
@@ -280,10 +279,8 @@ public class LayoutNodeComponent
                 child.LayoutY = innerY + mainPos + child.MarginTop;
             }
 
-            // Move to next position
-            mainPos += childMainSize + Gap + spacing;
+            mainPos += MainOuter(child) + Gap + spacing;
 
-            // Recursively position this child's children
             child.PositionChildren();
         }
     }
