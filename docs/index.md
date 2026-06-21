@@ -8,6 +8,7 @@ next to each module's source.
 | Doc | What's in it |
 |---|---|
 | [`CORE_TENETS.md`](CORE_TENETS.md) | Engine-wide invariants: framework-not-library, ECS purity, hierarchy, rendering, physics, level loading, reference pipeline, debug, refactor backlog. **Load this first** for any non-trivial task. |
+| [`web-targeting.md`](web-targeting.md) | Targeting the web browser via KNI/BlazorGL: the shared `.Core` + per-platform heads model, `$(MonoDreamsPlatform)` backend selection, the CLI `--platform` flag, per-platform content build (incl. the macOS/Linux MGCB native-lib shim), and the open Reach 32-bit-index render limit. |
 
 ## Per-module docs
 

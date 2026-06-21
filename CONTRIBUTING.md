@@ -44,24 +44,53 @@ cd monodreams
 dotnet tool restore
 dotnet restore
 
-# Build everything
+# Build everything (desktop). The web head is excluded from the default
+# solution build — see "Targeting the web (KNI/BlazorGL)" below.
 dotnet build
 
-# Run the example games
-dotnet run --project MonoDreams.Examples/MonoDreams.Examples.csproj
+# Run the desktop example game (LDtk + Blender platformer)
+dotnet run --project MonoDreams.Examples.Desktop/MonoDreams.Examples.Desktop.csproj
 
 # Run the CLI from source
 dotnet run --project MonoDreams.Cli -- list
 ```
 
+> **Build order matters.** Always build `MonoDreams/MonoDreams.csproj` before
+> the Examples/Demos heads. The MGCB content step references `MonoDreams.dll`
+> by absolute path (not as an MSBuild dependency), so the core dll must exist
+> first — otherwise the content build fails with `Failed to create importer
+> 'YarnSpinnerImporter'`. A clean `dotnet build MonoDreams.sln` orders this
+> correctly.
+
 ### Individual projects
 
 ```bash
 dotnet build MonoDreams/MonoDreams.csproj            # core engine (all modules)
-dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
+dotnet build MonoDreams.Examples.Desktop/MonoDreams.Examples.Desktop.csproj  # desktop head
 dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
 dotnet build MonoDreams.Cli/MonoDreams.Cli.csproj
 ```
+
+### Targeting the web (KNI/BlazorGL)
+
+MonoDreams builds for the **web browser** as well as desktop, via KNI's
+BlazorGL backend. The backend is chosen by the consuming **head project**
+(`$(MonoDreamsPlatform)`), never by engine source — `MonoDreams.Examples` is a
+shared `MonoDreams.Examples.Core` library plus `.Desktop` and `.Web` heads.
+
+```bash
+# Build the web (WASM) head — requires the wasm-tools workload. -p is GLOBAL
+# so it flows to the shared Core at restore time.
+dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web
+
+# Scaffold a new game for one or more platforms
+dotnet run --project MonoDreams.Cli -- init MyGame --platform desktop|web|multi
+```
+
+See [`docs/web-targeting.md`](./docs/web-targeting.md) for the full picture:
+the project model, per-platform dependency parity, the same-`.mgcb`/two-backend
+content build (and the macOS/Linux MGCB native-lib shim it needs), and the
+known open Reach 32-bit-index render limit.
 
 ## Tests
 
@@ -82,12 +111,19 @@ MonoDreams/                  ← the engine (13 modules + project files)
   <module>/                   ← e.g. foundation/, rendering/, cursor/
     module.json               ← module manifest
     ...source files...       ← every file inside is part of the module
-MonoDreams.Examples/         ← reference games (LDtk, Blender, infinite-runner)
+MonoDreams.Examples.Core/    ← reference games, shared lib (LDtk, Blender, infinite-runner)
+MonoDreams.Examples.Desktop/ ← DesktopGL head (Program.cs -> game.Run())
+MonoDreams.Examples.Web/     ← BlazorGL (KNI) WASM head
 MonoDreams.Cli/              ← the `monodreams` global tool (init / add / list)
 MonoDreams.Tests/            ← integration + unit tests
-docs/                        ← engine tenets and per-domain premises
+MonoDreams.Cli.Tests/        ← CLI unit tests (manifest + scaffolder)
+docs/                        ← engine tenets, per-domain premises, web-targeting guide
 .claude/                     ← Claude Code skills (e.g. /deep-review)
 ```
+
+The Examples app is laid out as a shared `.Core` library + per-platform heads
+(see [`docs/web-targeting.md`](./docs/web-targeting.md)); the `monodreams init`
+CLI generates the same shape for new games.
 
 ## Adding or modifying modules
 
@@ -118,11 +154,15 @@ print('all manifests valid')
 End-to-end test the change:
 
 ```bash
-# Regenerate a sandbox project via the CLI and build it
+# Regenerate a sandbox project via the CLI and build it. init scaffolds a
+# shared Sandbox.Core lib + per-platform head(s) + Sandbox.sln; pick the
+# platform with --platform desktop|web|multi (default desktop).
 rm -rf .sandbox
-dotnet run --project MonoDreams.Cli -- init Sandbox --dir .sandbox/Sandbox
+dotnet run --project MonoDreams.Cli -- init Sandbox --dir .sandbox/Sandbox --platform desktop
 dotnet run --project MonoDreams.Cli -- add --preset infinite-runner --project .sandbox/Sandbox
-dotnet build .sandbox/Sandbox/Sandbox.csproj
+dotnet build .sandbox/Sandbox/Sandbox.sln
+# For a web/multi project, build the web head explicitly:
+#   dotnet build .sandbox/Sandbox/Sandbox.Web/Sandbox.Web.csproj -p:MonoDreamsPlatform=web
 ```
 
 ## Conventions
@@ -135,7 +175,7 @@ dotnet build .sandbox/Sandbox/Sandbox.csproj
 
 ## Engine invariants
 
-Before any non-trivial change, read [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.md). For each domain you touch, read the matching `docs/<domain>/premises.md` (rendering, hierarchy-transform, collision, physics, level-loading). Skipping these is the most common way changes silently break an engine contract.
+Before any non-trivial change, read [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.md). For each module you touch, read the matching `MonoDreams/<module>/docs/premises.md` (foundation, rendering, rendering-text, camera, physics, collision, level-loading, level-ldtk, level-blender, ui, cursor, dialogue, debug). Skipping these is the most common way changes silently break an engine contract. If your change affects platform targeting, the load-bearing invariants are the *backend/OS-agnostic engine* and *platform-selected-by-head* premises in `foundation` and the *content-built-per-platform* premise in `level-loading` (see [`docs/web-targeting.md`](./docs/web-targeting.md)).
 
 ## Coding style
 
