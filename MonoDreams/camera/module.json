@@ -5,6 +5,7 @@
   "dependencies": [
     "rendering"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],

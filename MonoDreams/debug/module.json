@@ -6,6 +6,7 @@
     "rendering",
     "collision"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],

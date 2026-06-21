@@ -6,6 +6,7 @@
     "foundation",
     "rendering"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],

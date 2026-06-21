@@ -56,11 +56,12 @@ ships as part of the module.
 |---|---|---|
 | `name` | yes | Kebab-case identifier, matches the directory name. |
 | `description` | yes | One-line summary, shown by `monodreams list`. |
+| `platforms` | no | Target platforms (`desktop`, `web`). Omit for a platform-agnostic module — the default is all platforms. The CLI skips a module for a project whose target platform it does not list. |
 | `dependencies` | no | Other modules required transitively. |
-| `nugetDependencies` | no | `<PackageReference>` entries to inject into the user's csproj. |
+| `nugetDependencies` | no | `<PackageReference>` entries to inject into the user's csproj. Each entry may carry its own `platforms` tag so a backend-specific package (e.g. `MonoGame.Framework.DesktopGL`↔`nkast.Xna.Framework`, `MonoGame.Extended`↔`KNI.Extended`) is injected only on the platform it applies to; untagged entries apply to all platforms. |
 | `csprojProperties` | no | Properties (e.g. `EnableDynamicLoading`) appended to the csproj. |
 | `files` | no | **Override** the implicit-file-list. Useful only for modules that ship files from outside their directory; most modules omit this. |
-| `mgcbEntries` | no | Lines appended to the user's Content pipeline `.mgcb`. |
+| `mgcbEntries` | no | Lines appended to the user's Content pipeline `.mgcb`. Each entry is either a bare string (all platforms) or an object `{ value, platforms }` for a content-pipeline line that differs per backend. |
 | `postInstallNotes` | no | Markdown printed after install — for both humans and AI agents. |
 | `agentsMd` | no | Path to an AGENTS.md snippet appended to the user's `AGENTS.md`. |
 | `premisesRef` | no | Pointer into `docs/` so users can find the invariants this module obeys. |

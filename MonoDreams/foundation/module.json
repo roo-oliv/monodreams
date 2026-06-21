@@ -3,10 +3,32 @@
   "name": "foundation",
   "description": "Required base: ECS world, screen controller, hierarchy/transform, input, replay, logger",
   "dependencies": [],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [
     {
       "id": "MonoGame.Framework.DesktopGL",
-      "version": "3.8.4"
+      "version": "3.8.4",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "nkast.Xna.Framework",
+      "version": "4.2.9001",
+      "platforms": ["web"]
+    },
+    {
+      "id": "nkast.Xna.Framework.Content",
+      "version": "4.2.9001",
+      "platforms": ["web"]
+    },
+    {
+      "id": "nkast.Xna.Framework.Graphics",
+      "version": "4.2.9001",
+      "platforms": ["web"]
+    },
+    {
+      "id": "nkast.Xna.Framework.Input",
+      "version": "4.2.9001",
+      "platforms": ["web"]
     },
     {
       "id": "DefaultEcs",

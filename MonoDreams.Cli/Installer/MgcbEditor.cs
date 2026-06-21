@@ -21,7 +21,7 @@ internal static class MgcbEditor
 
         lines.Add("");
         lines.Add(marker);
-        lines.AddRange(manifest.MgcbEntries);
+        lines.AddRange(manifest.MgcbEntries.Select(e => e.Value));
         File.WriteAllLines(mgcbPath, lines);
     }
 }
