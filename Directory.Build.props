@@ -5,4 +5,21 @@
     <NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(OS)' == 'Windows_NT'">$(USERPROFILE)\.nuget\packages\</NuGetPackageRoot>
     <NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(OS)' != 'Windows_NT'">$(HOME)/.nuget/packages/</NuGetPackageRoot>
   </PropertyGroup>
+
+  <!-- Backend/platform selection for the engine and its precompiled deps.
+       The consumer's head project picks the backend; MonoDreams source stays
+       backend-agnostic (same Microsoft.Xna.Framework namespace either way).
+       'desktop' => MonoGame.Framework.DesktopGL + MonoGame.Extended + MonoGame
+       content pipeline; 'web' => nkast.Xna.Framework.* (KNI/BlazorGL) +
+       KNI.Extended + nkast content pipeline. Default is desktop so existing
+       desktop builds are unaffected; a web head sets it via
+       AdditionalProperties="MonoDreamsPlatform=web" (see plan Architecture model).
+       It also surfaces as the MONODREAMS_WEB compile constant for the heads'
+       GraphicsProfile/window gating. -->
+  <PropertyGroup>
+    <MonoDreamsPlatform Condition="'$(MonoDreamsPlatform)' == ''">desktop</MonoDreamsPlatform>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+    <DefineConstants>$(DefineConstants);MONODREAMS_WEB</DefineConstants>
+  </PropertyGroup>
 </Project>

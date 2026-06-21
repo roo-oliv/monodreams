@@ -1,4 +1,12 @@
-// HLSL for DirectX
+// Texture-array tilemap effect.
+//
+// NOTE (HiDef-only — not Reach): sampler2DArray / tex2DArray require Shader Model 4 and the
+// HiDef graphics profile. BlazorGL/WebGL caps below SM4, so this variant cannot run under the
+// Reach profile the web backend uses — it is the HiDef shader risk flagged in the porting plan.
+// It is currently NOT built by any .mgcb and NOT loaded at runtime (MasterRenderSystem renders
+// via BasicEffect); kept as a reference asset. A WebGL-capable path would have to drop texture
+// arrays (e.g. an atlas + the simpler MonoDreams/Effect/MultiTextureEffect.fx, which IS Reach).
+// The GL counterpart lives in MultiTextureEffect.glsl (reused, not regenerated).
 sampler2DArray TextureArray : register(s0);
 
 float4x4 WorldViewProjection;

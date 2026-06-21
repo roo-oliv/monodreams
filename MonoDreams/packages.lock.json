@@ -20,26 +20,6 @@
         "resolved": "1.2.25",
         "contentHash": "xCXiw7BCxHJ8pF6wPepRUddlh2dlQlbr81gXA72hdk4FLHkKXas7EH/n+fk5UCA/YfMqG1Z6XaPiUjDbUNBUzg=="
       },
-      "LDtkMonogame": {
-        "type": "Direct",
-        "requested": "[1.8.0, )",
-        "resolved": "1.8.0",
-        "contentHash": "pgn9+X11myyVYFfS2SLN8CcQEGPNJ7JICe90Ar9Wc3TqBc/uxO/s/tS79BxF4GhcT2r2d3NM3SklZ8zLKCFhzg==",
-        "dependencies": {
-          "MonoGame.Framework.DesktopGL": "3.8.4"
-        }
-      },
-      "LDtkMonogame.ContentPipeline": {
-        "type": "Direct",
-        "requested": "[1.8.0, )",
-        "resolved": "1.8.0",
-        "contentHash": "ec+mlBzFJgsnGltCnjo0bYNnlCkxOVPHh6N6oFSCE8s0O0CjsVWTFk2+qaIj1MNCqvRjJ1aJRsuzP7j+NZwC0A==",
-        "dependencies": {
-          "LDtkMonogame": "1.8.0",
-          "MonoGame.Framework.Content.Pipeline": "3.8.4",
-          "MonoGame.Framework.DesktopGL": "3.8.4"
-        }
-      },
       "Microsoft.SourceLink.GitHub": {
         "type": "Direct",
         "requested": "[8.0.0, )",
@@ -315,6 +295,12 @@
         "type": "Transitive",
         "resolved": "4.5.0",
         "contentHash": "okurQJO6NRE/apDIP23ajJ0hpiNmJ+f0BwOlB/cSqTLQlw5upkf+5+96+iG2Jw40G1fCVCyPz/FhIABUjMR+RQ=="
+      },
+      "LDtkMonogame": {
+        "type": "Project",
+        "dependencies": {
+          "MonoGame.Framework.DesktopGL": "[3.8.4, )"
+        }
       }
     }
   }

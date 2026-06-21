@@ -1,4 +1,7 @@
-#if OPENGL
+// Cross-backend shader-model selection. OPENGL (DesktopGL) and __KNIFX__ (KNI/BlazorGL)
+// both compile the GL path, where SM3 keeps the effect inside the Reach feature set so it
+// runs on BlazorGL/WebGL (which caps below SM4). DirectX/HiDef uses feature-level-9_1 SM4.
+#if OPENGL || __KNIFX__
 	#define SV_POSITION POSITION
 	#define VS_SHADERMODEL vs_3_0
 	#define PS_SHADERMODEL ps_3_0

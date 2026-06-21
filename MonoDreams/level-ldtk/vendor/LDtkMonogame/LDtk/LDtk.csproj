@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      VENDORED from https://github.com/IrishBruse/LDtkMonogame at tag 1.8.0
+      (commit 4a652fbdf2ea249ece15bf79cf412128ec2200d5), MIT licensed (see ../LICENSE).
+      Upstream's NuGet build references MonoGame.Framework.DesktopGL only, so there is no
+      KNI/BlazorGL variant on NuGet. We vendor the source and recompile it against the
+      backend selected by $(MonoDreamsPlatform): MonoGame.Framework.DesktopGL for desktop,
+      nkast.Xna.Framework.* (KNI) for web. The runtime touches only Microsoft.Xna.Framework
+      [.Content/.Graphics], which KNI preserves under a different assembly identity, so the
+      source recompiles unchanged — exactly like MonoDreams' own modules.
+
+      To re-sync with upstream: re-fetch the LDtk/ source at the desired tag, keep this csproj
+      (the platform-conditional package refs + stripped NuGet packaging metadata), and bump the
+      pinned version below + level-ldtk/module.json + the level-ldtk premise.
+    -->
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>LDtkMonogame</AssemblyName>
+        <RootNamespace>LDtk</RootNamespace>
+        <NoWarn>CS1591</NoWarn>
+        <ImplicitUsings>false</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <DebugType>embedded</DebugType>
+        <!-- Pinned upstream version this vendored copy mirrors. -->
+        <LDtkVendoredVersion>1.8.0</LDtkVendoredVersion>
+        <!-- Vendored source dependency; never packed as its own NuGet. -->
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <!--
+      Exclude upstream's optional example renderer (Renderer/ExampleRenderer.cs +
+      RenderedLevel.cs). MonoDreams never uses it — the engine's own LDtkTileParserSystem /
+      LDtkEntityParserSystem consume the LDtk data model (LDtkFile/LDtkLevel/LDtkWorld) and
+      render through MasterRenderSystem. ExampleRenderer also calls Texture2D.FromFile, a
+      desktop-only MonoGame API absent from KNI, so keeping it would break the web build. The
+      source files stay vendored for fidelity/re-sync; they are just not compiled in.
+    -->
+    <ItemGroup>
+        <Compile Remove="Renderer/**/*.cs" />
+    </ItemGroup>
+
+    <!-- Desktop backend (MonoGame). Default. -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' != 'web'">
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
+    </ItemGroup>
+
+    <!-- Web backend (KNI/BlazorGL). Split nkast framework packages, same namespace. -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+        <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+    </ItemGroup>
+
+</Project>
