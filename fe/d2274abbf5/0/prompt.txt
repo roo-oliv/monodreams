@@ -1,0 +1,88 @@
+MonoDreams currently only builds for desktop (Windows, MacOS, and Linux), the goal of this session is to enable targeting Web Browsers (we'll focus on Chrome latest). The chosen path is to use the KNI library. First, get yourself familiar with KNI:
+ - https://github.com/kniengine/kni
+ - https://darkgenesis.zenithmoon.com/monogame-on-the-web-No-really!.html
+ - https://blog.nkast.gr/post/what-s-new-in-kni-v4-02
+Second, plan on how to enable devs using MonoDreams to easily target the Web and have games that can run specifically on one platform or be multi-platform (desktop + web).
+
+---
+
+Just check (by running and taking screenshots) the current state of LoadLevelExampleGameScreen. For most of the work, checking against MonoDreams.Demos will do.
+
+---
+
+Spaw agents to implement this in waves
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.claude/skills/implement
+
+`implement` executa um plano aprovado até virar um Pull Request aberto, e então encadeia o `/review-fix-loop`. A implementação roda dentro de um **Workflow** (`~/.claude/workflows/implement.js`) — esta invocação de skill é o opt-in explícito do usuário para a orquestração multi-agente, incluindo a autorização expressa para os agentes do workflow **commitarem e darem push na branch de trabalho** (somente nela; nunca em `main`, nunca force).
+
+Arquitetura de contexto: **waves + ledger**. O script divide o plano em ondas; cada onda é um agente *fresco* que lê o plano + o ledger de progresso, implementa só a sua fatia, verifica, commita, dá push e atualiza o ledger. Nenhum agente acumula contexto além da própria onda — esse é o substituto do `/compact` (não invocável dentro de agentes de workflow) — e um crash é retomável a partir do ledger + branch.
+
+---
+
+## Passo 1 — Parse dos argumentos
+
+- Detecte e remova o token `no-review` (alias: `noreview`, `sem-review`) → seta `NO_REVIEW`.
+- O restante é o input: texto livre, caminho de arquivo ou URL.
+
+## Passo 2 — Garantir um plano APROVADO
+
+1. Se o input é um caminho para um plano com `**Status:** APROVADO` (ou um plano aprovado **nesta sessão** via refine/plan mode) → use-o.
+2. Caso contrário (texto, URL, plano DRAFT, ou nada) → **invoque a skill `refine`** (Skill tool) com o input. O refine entrevista se necessário, decide deep-plan vs direto e termina com a aprovação final do usuário — essa aprovação vale como a confirmação para implementar; não pergunte de novo.
+3. Se o refine terminar em Cancelar, pare.
+
+Extraia do plano: caminho, branch sugerida, domínios, tier de risco, e o caminho do contrato standalone do deep-plan (`.claude/deep-plan/<branch>-<shortSha>.md`), se existir.
+
+## Passo 3 — Preflight
+
+Execute e **pare com diagnóstico claro** se algo falhar (não improvise):
+
+1. **Working tree limpa**: `git status --porcelain` vazio. Se houver mudanças não commitadas, pergunte ao usuário (stash / commitar / abortar) — nunca descarte.
+2. **Branch**: se está na `main`, crie a branch sugerida pelo plano (`git checkout -b <branch>`). Se já está numa feature branch diferente da sugerida, confirme com o usuário qual usar. Registre o nome final — todos os agentes do workflow validam contra ele.
+3. **Base atualizada**: `git fetch origin main`.
+4. **Docker**: `docker info` (testes usam TestContainers; o daemon é Colima — se estiver parado, sugira `colima start` via `!` e aguarde).
+5. **Ledger**: derive `slug` = branch com `/`→`-`; ledger em `~/.claude/implement/<slug>/ledger.md` (crie o diretório). Se o usuário deu **diretivas de execução** (restrições, "em caso de X, faça Y", avisos de armadilha — ex.: "ambiguidade de dinheiro → blocked, não decisão"), semeie o ledger agora com uma seção `## Diretivas (do usuário)` contendo-as: é o canal de injeção de contexto para dentro do workflow, e os agentes as tratam com **precedência sobre decisões autônomas**. Trabalho já feito fora do workflow (ex.: uma "Onda 0" manual) também entra aqui, marcado como concluído com os commits. Se já existir um ledger com ondas concluídas para essa branch, é uma **retomada**: o workflow continua das ondas pendentes, preservando diretivas existentes.
+
+## Passo 4 — Disparar o workflow
+
+Chame `Workflow` com `scriptPath: /Users/rodrigooliveira/.claude/workflows/implement.js` e `args` (objeto JSON real, não string):
+
+```json
+{
+  "planPath": "<caminho do plano aprovado>",
+  "branch": "<branch>",
+  "baseBranch": "main",
+  "repoRoot": "<git rev-parse --show-toplevel>",
+  "ledgerPath": "~/.claude/implement/<slug>/ledger.md (expandido)",
+  "timestamp": "<date +%Y-%m-%dT%H-%M>",
+  "deepPlanContractPath": "<caminho ou null>",
+  "prTitleHint": "<tipo(escopo): descrição em pt-br>",
+  "maxWaves": 8
+}
+```
+
+O workflow roda em background; aguarde a `<task-notification>`. Acompanhe via `/workflows` se o usuário pedir.
+
+## Passo 5 — Pós-workflow
+
+Leia o resultado e reporte ao usuário **liderando com o outcome**:
+
+- `status: "pr-opened"` → URL do PR, ondas executadas, commits, e a seção **Decisões tomadas autonomamente** (cada ponto onde um input de usuário teria sido pedido: opções consideradas + caminho escolhido + porquê — também presente na descrição do PR para o usuário revisar e pedir alterações).
+- `status: "blocked" | "verify-failed" | "blocked-gate"` → o que foi commitado/pushado até aqui, a onda/etapa travada e o motivo. **Não** encadeie o review. Se for `blocked-gate` (hook do deep-plan barrou o `gh pr create`), o caminho é completar o plan-contract — nunca instrua o token de override.
+
+Se `status: "pr-opened"` e **não** `NO_REVIEW` → **invoque a skill `review-fix-loop`** (Skill tool) com o número do PR. Ao final dela, consolide o relatório dos dois estágios numa única mensagem final.
+
+---
+
+## Contrato do workflow (o que `implement.js` garante)
+
+- **Setup**: valida a branch, semeia/retoma o ledger, divide o plano em ≤`maxWaves` ondas (por fase do plano ou por grupos lógicos de commit, per git-conventions), e commita o contrato do deep-plan em `.claude/deep-plan/` quando existir (é o artefato que o hook de PR em branch money lê).
+- **Implement**: uma onda por vez, agente fresco por onda, com retry único em caso de `blocked`. Cada onda: implementa só seu escopo → roda verify incremental (spotless, detekt, testes direcionados + ArchitectureTests dos módulos tocados) → commita (Conventional Commits pt-br) → push na branch → atualiza ledger com progresso e decisões. **Gate de fechamento**: a onda não fecha com contract item sem teste nomeado (ou justificativa explícita) nem com premissa nova em `Tests: none yet` — no PR #1065, metade dos Highs do review eram "untested X" que este gate teria pego na origem. **Dimension-row-on-mint**: quantia monetária derivada que o plano não especifica ganha dimension row retroativa no contrato + premissa testada, no mesmo commit.
+- **Verify**: `/verify` completo (inclui `clean build`) com loop de fix (≤3 tentativas), depois reconciliação `verify-plan` (Missing/Diverged/Unplanned/UntestedPremises vs Contract — o 4º bucket é o grep mecânico por `Tests: none yet` nas premissas da branch) com 1 rodada de fix; residuais viram seção explícita do PR, nunca silêncio.
+- **PR**: rebase sobre `origin/main` (re-verifica se o rebase trouxe mudanças), push, e `gh pr create` com corpo extenso em pt-br seguindo `.claude/rules/git-conventions.md` — Resumo, Plano de teste, Decisões tomadas autonomamente, e seções condicionais (payloads, rollback, tabelas) quando aplicáveis.
+- **Decisões em vez de perguntas**: agentes de workflow não têm `AskUserQuestion`. Em qualquer ponto de decisão, o agente registra as opções, escolhe a que melhor serve o plano, e segue — o registro aparece no ledger, no output do workflow e na descrição do PR.
+
+
+ARGUMENTS: Implement the approved plan at /Users/rodrigooliveira/.claude/plans/monodreams-currently-only-builds-quiet-dream.md — "Enable Web Browser (KNI/BlazorGL) targeting for MonoDreams". The plan was approved via ExitPlanMode this session. Implement it wave-based (fresh agent per wave) following the plan's Phase 0→5 ordering. Verify against MonoDreams.Demos headless for most waves; non-headless Examples (LoadLevelExampleGameScreen) for the LDtk-platformer proof.
