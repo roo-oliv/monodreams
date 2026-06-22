@@ -21,13 +21,23 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
     <DefineConstants>$(DefineConstants);MONODREAMS_WEB</DefineConstants>
-    <!-- Web builds of the shared engine/Core/LDtk go to a SEPARATE obj/bin so they never
-         overwrite the desktop build at the default obj|bin/$(Config)/net8.0 (and vice-versa).
-         Without this, building the web head and then a desktop head (or Rider's incremental
-         build) leaves web-backed dlls under the shared path, and the desktop compile picks them
-         up -> CS0012 ("ContentManager/Keys/... in Xna.Framework.* not referenced"). Desktop keeps
-         the historical default paths, so the desktop MGCB content references
-         (../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll) are unchanged. -->
+  </PropertyGroup>
+
+  <!-- Web builds of the SHARED engine/Core/LDtk libs go to a SEPARATE obj/bin so they never
+       overwrite the desktop build at the default obj|bin/$(Config)/net8.0 (and vice-versa).
+       Without this, building the web head and then a desktop head (or Rider's incremental build)
+       leaves web-backed dlls under the shared path and the desktop compile picks them up
+       -> CS0012 ("ContentManager/Keys/... in Xna.Framework.* not referenced"). Desktop keeps the
+       historical default paths, so the desktop MGCB content references
+       (../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll) are unchanged.
+
+       The Blazor WASM head (MonoDreams.Examples.Web) is EXCLUDED from the relocation: its
+       static-web-assets / _framework / boot pipeline assumes the default output layout, and
+       moving it makes the dev server 404 on _framework/blazor.webassembly.js. The head only ever
+       builds web (it never participates in the desktop/web clobber), so it stays at the default
+       bin/$(Config)/net8.0 — it references the shared libs from bin/web and copies them into its
+       own WASM bundle as usual. -->
+  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web' AND '$(MSBuildProjectName)' != 'MonoDreams.Examples.Web'">
     <BaseIntermediateOutputPath>obj/web/</BaseIntermediateOutputPath>
     <BaseOutputPath>bin/web/</BaseOutputPath>
   </PropertyGroup>
