@@ -111,11 +111,16 @@
     </ItemGroup>
 
     <!-- LDtkMonogame runtime: vendored source, recompiled against the active backend.
-         Forward $(MonoDreamsPlatform) so the vendored runtime matches the engine's backend
-         (a web build of the engine must pull a web build of the LDtk runtime). -->
+         The vendored runtime must match the engine's backend (a web build of the engine must
+         pull a web build of the LDtk runtime). We do NOT set AdditionalProperties here:
+         $(MonoDreamsPlatform) is set per-project by Directory.Build.props (default desktop) and
+         a web build flows it globally via -p:MonoDreamsPlatform=web, which propagates through
+         this ProjectReference. Pinning it with AdditionalProperties makes MSBuild build a second
+         LDtk instance (distinct global-property set) into the same output path, racing the
+         solution-node build (LDtkMonogame.deps.json "used by another process") now that LDtk is
+         a solution member — which it must be so Rider's solution build graph builds it. -->
     <ItemGroup>
-        <ProjectReference Include="level-ldtk\vendor\LDtkMonogame\LDtk\LDtk.csproj"
-                          AdditionalProperties="MonoDreamsPlatform=$(MonoDreamsPlatform)" />
+        <ProjectReference Include="level-ldtk\vendor\LDtkMonogame\LDtk\LDtk.csproj" />
     </ItemGroup>
 
     <ItemGroup>
