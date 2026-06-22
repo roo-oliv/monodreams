@@ -21,6 +21,24 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
     <DefineConstants>$(DefineConstants);MONODREAMS_WEB</DefineConstants>
+    <!-- Web builds of the shared engine/Core/LDtk go to a SEPARATE obj/bin so they never
+         overwrite the desktop build at the default obj|bin/$(Config)/net8.0 (and vice-versa).
+         Without this, building the web head and then a desktop head (or Rider's incremental
+         build) leaves web-backed dlls under the shared path, and the desktop compile picks them
+         up -> CS0012 ("ContentManager/Keys/... in Xna.Framework.* not referenced"). Desktop keeps
+         the historical default paths, so the desktop MGCB content references
+         (../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll) are unchanged. -->
+    <BaseIntermediateOutputPath>obj/web/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/web/</BaseOutputPath>
+  </PropertyGroup>
+
+  <!-- Relocating obj->obj/web makes the SDK auto-exclude only the CURRENT BaseIntermediateOutputPath
+       (obj/web/**) from the default compile glob, so a web build would otherwise sweep the desktop
+       build's leftover obj/Release/**/*AssemblyInfo.cs into the compile -> CS0579 (duplicate assembly
+       attributes), and vice-versa. Both platforms' outputs live under obj/ and bin/, so excluding all
+       of them from default items keeps generated sources out of every build regardless of platform. -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/obj/**;$(MSBuildProjectDirectory)/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Note on web vs desktop output collision: the engine + vendored content-pipeline libs
