@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "78063f3889d4",
+  "strategy": "manual-commit",
+  "branch": "feat/kni",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "Directory.Build.props"
+  ],
+  "sessions": [
+    {
+      "metadata": "/78/063f3889d4/0/metadata.json",
+      "transcript": "/78/063f3889d4/0/full.jsonl",
+      "context": "/78/063f3889d4/0/context.md",
+      "content_hash": "/78/063f3889d4/0/content_hash.txt",
+      "prompt": "/78/063f3889d4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 33839,
+    "cache_creation_tokens": 2582106,
+    "cache_read_tokens": 35204969,
+    "output_tokens": 311265,
+    "api_call_count": 109
+  }
+}

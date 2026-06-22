@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "78063f3889d4",
+  "session_id": "e055633c-9269-4d8b-8806-20330ccc4064",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-22T02:05:08.012893Z",
+  "branch": "feat/kni",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "Directory.Build.props"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "3ed2b90c-2ce3-4ae3-8f05-03fd359362d3",
+  "token_usage": {
+    "input_tokens": 33839,
+    "cache_creation_tokens": 2582106,
+    "cache_read_tokens": 35204969,
+    "output_tokens": 311265,
+    "api_call_count": 109
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-22T02:05:07.103563Z",
+    "agent_lines": 0,
+    "human_added": 726,
+    "human_modified": 164,
+    "human_removed": 0,
+    "total_committed": 744,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-kni/e055633c-9269-4d8b-8806-20330ccc4064.jsonl"
+}
