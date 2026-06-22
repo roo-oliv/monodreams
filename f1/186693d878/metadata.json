@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f1186693d878",
+  "strategy": "manual-commit",
+  "branch": "feat/kni",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/MonoDreams.csproj",
+    "monodreams.sln"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f1/186693d878/0/metadata.json",
+      "transcript": "/f1/186693d878/0/full.jsonl",
+      "context": "/f1/186693d878/0/context.md",
+      "content_hash": "/f1/186693d878/0/content_hash.txt",
+      "prompt": "/f1/186693d878/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 28764,
+    "cache_creation_tokens": 1190811,
+    "cache_read_tokens": 19838538,
+    "output_tokens": 195101,
+    "api_call_count": 83
+  }
+}
