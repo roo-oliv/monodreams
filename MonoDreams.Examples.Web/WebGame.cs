@@ -3,7 +3,6 @@ using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
-using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Platform;
@@ -17,9 +16,10 @@ namespace MonoDreams.Examples.Web
     /// The BlazorGL host for the MonoDreams reference app. Mirrors the desktop
     /// <c>Game1</c> screen-assembly path but drops every desktop-only concern (ImGui
     /// inspector, OS window position/resize events, headless 1x1 mode, file-based input
-    /// replay) — those are gated out of Examples.Core's web build. It boots straight into
-    /// <see cref="LoadLevelExampleGameScreen"/> on the LDtk <c>Level_0</c> so the browser
-    /// proof renders the platformer and takes keyboard input.
+    /// replay) — those are gated out of Examples.Core's web build. It registers the same
+    /// three screens as desktop and boots into the <see cref="LevelSelectionScreen"/> menu,
+    /// so the browser flow matches <c>Game1</c> (desktop has no replay plan ⇒ menu; web has
+    /// no replay plan at all ⇒ menu).
     ///
     /// GraphicsProfile is Reach (BlazorGL/WebGL); the engine's MONODREAMS_WEB gate already
     /// routes the desktop HiDef choice to Reach. The Game loop is driven by the Blazor page
@@ -44,8 +44,10 @@ namespace MonoDreams.Examples.Web
             IsMouseVisible = true;
 
             _graphics.GraphicsProfile = GraphicsProfile.Reach;
-            _graphics.PreferredBackBufferWidth = _settings.WindowWidth;
-            _graphics.PreferredBackBufferHeight = _settings.WindowHeight;
+            // Do NOT force a back-buffer size: on BlazorGL the back buffer follows the canvas drawing
+            // buffer (sized by the host page to the aspect-fit display size, 1:1). Forcing a size here
+            // desyncs the render from the canvas (content offset/clipped). The per-frame viewport sync
+            // keeps ScreenWidth matched to the actual back buffer.
             _graphics.ApplyChanges();
 
             _viewportManager = new ViewportManager(this, _settings.VirtualWidth, _settings.VirtualHeight);
@@ -71,20 +73,41 @@ namespace MonoDreams.Examples.Web
             _camera.Zoom = _settings.CameraZoom;
             _camera.Position = Vector2.Zero;
 
+            // Same screen set as desktop Game1 — the platform is the only difference, the
+            // game flow is identical (develop once, build everywhere).
+            _screenController.RegisterScreen(ScreenName.LevelSelection,
+                () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
             _screenController.RegisterScreen(ScreenName.Game,
                 () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+            _screenController.RegisterScreen(ScreenName.InfiniteRunner,
+                () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
-            // Boot straight into the LDtk platformer proof level.
-            Services.AddService(new RequestedLevelComponent("Level_0"));
-            _screenController.LoadScreen(ScreenName.Game);
+            // Web has no file-based replay plan (the desktop skip-to-level mechanism), so it
+            // always takes desktop's default branch: open the level-selection menu.
+            _screenController.LoadScreen(ScreenName.LevelSelection);
 
             base.Initialize();
         }
 
         protected override void Update(GameTime gameTime)
         {
+            // The browser canvas (and thus the GL backbuffer) can change size at any time and web
+            // has no Window.ClientSizeChanged event, so poll each frame and re-sync the viewport
+            // (the desktop heads do this from the resize event).
+            SyncViewportToBackbuffer();
             _screenController.Update(gameTime);
             base.Update(gameTime);
+        }
+
+        private void SyncViewportToBackbuffer()
+        {
+            var w = GraphicsDevice.Viewport.Width;
+            var h = GraphicsDevice.Viewport.Height;
+            if (w == _viewportManager.ScreenWidth && h == _viewportManager.ScreenHeight) return;
+
+            _viewportManager.ScreenWidth = w;
+            _viewportManager.ScreenHeight = h;
+            _camera.RecalculateTransformationMatrices();
         }
 
         protected override void Draw(GameTime gameTime)
