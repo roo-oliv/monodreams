@@ -82,7 +82,21 @@ dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDream
 # Serve & open in Chrome (the Blazor dev server, or any static host over the
 # publish output). Diagnose via the browser devtools console — the engine
 # Logger routes through WebPlatformServices to console.log on web.
+dotnet run --project MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web
+
+# The module demos have a web head too — same flags. It boots the demo launcher
+# (camera / physics / dialogue / UI), mirroring the desktop MonoDreams.Demos flow.
+dotnet run --project MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj -p:MonoDreamsPlatform=web
 ```
+
+> **Two web heads today:** `MonoDreams.Examples.Web` (the reference game) and
+> `MonoDreams.Demos.Web` (the per-module demos). Both are thin Blazor hosts over
+> shared game code; Demos.Web compile-includes `MonoDreams.Demos` `Screens/` +
+> `UI/` and the module `demo/` sources directly (the same cross-compile pattern
+> the desktop `MonoDreams.Demos` uses), so the desktop Demos project and its
+> issue-#28 headless tests are untouched. Every `*.Web` head stays at the default
+> `bin/$(Config)/net8.0` output (see `Directory.Build.props`) — the Blazor boot
+> pipeline assumes it; only the shared libs relocate to `bin/web`.
 
 ### Why the web head is excluded from the `.sln` build
 
@@ -185,24 +199,32 @@ LDtk tile world exceeds that even after culling, so an unsplit draw throws
 indices, which is why the same scene paints there). This was the plan's
 **Risk #1**.
 
-The renderer now **splits a sprite/text run below that budget**:
-`MasterRenderSystem` flushes (`End` + `Begin`) the `SpriteBatch` before a run
-crosses `SpriteBatchFlush.MaxSpritesPerBatch` (`< 5461`), so no batch ever
-needs 32-bit indices. The cap is applied on **every** profile (no
-`GraphicsProfile` branch in the engine — the renderer stays platform-agnostic
-per "platform is selected by the head"); on HiDef it is a few extra, cheaper
-flushes, on Reach it is the fix. The invariant is guarded by
-`MonoDreams.Tests/Rendering/SpriteBatchFlushTests.cs` and the rendering premise
-"Sprite runs flush below the Reach 16-bit-index budget", and the desktop demo
-headless tests confirm the split does not change what renders.
+32-bit indices arise on **two** render paths, both fixed unconditionally (no
+`GraphicsProfile` branch — the renderer stays platform-agnostic per "platform is
+selected by the head"; on HiDef the work is harmless, on Reach it is the fix):
 
-> **In-browser visual confirmation is the remaining manual/CI step.** The root
-> cause is removed and verified on host (desktop regression + the splitter
-> unit tests + the engine recompiling against KNI). Capturing a painted canvas
-> from headless Chrome over the full web content bundle is the same
-> puppeteer + SwiftShader path used to prove the Phase 0 spike; run it on a
-> host with a real (or SwiftShader) WebGL context to sign off the end-to-end
-> "the world paints in Chrome" acceptance bullet.
+1. **Sprite/text runs** — `MasterRenderSystem` flushes (`End` + `Begin`) the
+   `SpriteBatch` before a run crosses `SpriteBatchFlush.MaxSpritesPerBatch`
+   (`< 5461`), so no batch needs 32-bit indices. Guarded by
+   `MonoDreams.Tests/Rendering/SpriteBatchFlushTests.cs` + the premise "Sprite
+   runs flush below the Reach 16-bit-index budget".
+2. **Mesh draws** — `DrawUserIndexedPrimitives` picks the index width from its
+   array type (`int[]` ⇒ 32-bit, `short[]` ⇒ 16-bit). Meshes are authored with
+   `int[]`, so `DrawComponent.Get16BitIndices()` converts to a cached `short[]`
+   and `DrawSingleMesh` renders through the 16-bit overload (falling back to
+   32-bit only for a mesh past the 16-bit vertex ceiling, HiDef-only). Without
+   this the player's orb mesh (a `CircleMeshGenerator`) threw on the first web
+   frame. Guarded by `MonoDreams.Tests/Rendering/MeshIndexConversionTests.cs` +
+   the premise "Mesh indices render through 16-bit indices (Reach-safe)".
+
+The desktop demo headless tests confirm neither change alters what renders on
+HiDef.
+
+> **Confirmed in Chrome.** Both fixes are verified in-browser: the
+> `MonoDreams.Examples.Web` LDtk platformer paints its dense tile world (sprite
+> path) and the player orb (mesh path), and the `MonoDreams.Demos.Web` physics
+> demo paints filled circles, ring outlines, the box/floor, and mesh checkboxes
+> — all on the Reach profile via the Blazor dev server.
 
 ### Tooling-host gaps
 

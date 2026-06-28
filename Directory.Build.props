@@ -31,13 +31,16 @@
        historical default paths, so the desktop MGCB content references
        (../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll) are unchanged.
 
-       The Blazor WASM head (MonoDreams.Examples.Web) is EXCLUDED from the relocation: its
-       static-web-assets / _framework / boot pipeline assumes the default output layout, and
-       moving it makes the dev server 404 on _framework/blazor.webassembly.js. The head only ever
-       builds web (it never participates in the desktop/web clobber), so it stays at the default
+       The Blazor WASM heads (every '*.Web' project — MonoDreams.Examples.Web,
+       MonoDreams.Demos.Web, and any CLI-scaffolded '<Game>.Web') are EXCLUDED from the
+       relocation: their static-web-assets / _framework / boot pipeline assumes the default
+       output layout, and moving it makes the dev server 404 on _framework/blazor.webassembly.js
+       (and `dotnet run` look for the host dll at the wrong path). A web head only ever builds web
+       (it never participates in the desktop/web clobber), so it stays at the default
        bin/$(Config)/net8.0 — it references the shared libs from bin/web and copies them into its
-       own WASM bundle as usual. -->
-  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web' AND '$(MSBuildProjectName)' != 'MonoDreams.Examples.Web'">
+       own WASM bundle as usual. The '.Web' suffix is the established naming convention for these
+       heads, so keying the exclusion on it keeps this rule self-maintaining as new heads appear. -->
+  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web' AND !$(MSBuildProjectName.EndsWith('.Web'))">
     <BaseIntermediateOutputPath>obj/web/</BaseIntermediateOutputPath>
     <BaseOutputPath>bin/web/</BaseOutputPath>
   </PropertyGroup>

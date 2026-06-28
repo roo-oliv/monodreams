@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>MonoDreams Demos (BlazorGL)</title>
+    <base href="/" />
+    <link href="css/app.css" rel="stylesheet" />
+</head>
+
+<body>
+
+    <div id="app">
+        <div id="loading" style="display: table-cell; margin: auto; width:100vw; height:100vh; vertical-align: middle; background: #1d2330;">
+            <div style="display: block; margin: auto; width: 14em; color: white; font-family: 'Segoe UI', sans-serif;">
+                <div style="text-align: center; font-size: 1.0em;">MonoDreams &middot; Demos (BlazorGL)</div>
+                <div style="text-align: center; font-size: 1.6em;">loading&nbsp;.&nbsp;.&nbsp;.</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">x</a>
+    </div>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+
+    <!--
+        nkast.Wasm.* JS interop shims. Versions MUST match the restored package versions
+        (nkast.Wasm.* 8.0.11, pulled transitively by nkast.Kni.Platform.Blazor.GL 4.2.9001).
+        JSObject ships in nkast.Wasm.JSInterop (it moved there from nkast.Wasm.Dom in 8.0.x).
+    -->
+    <script src="_content/nkast.Wasm.JSInterop/js/JSObject.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Dom/js/Window.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Dom/js/Document.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Dom/js/Navigator.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Dom/js/Gamepad.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Dom/js/Media.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.XHR/js/XHR.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Canvas/js/Canvas.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Canvas/js/Canvas2dContext.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Canvas/js/CanvasGLContext.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.Audio/js/Audio.8.0.11.js"></script>
+    <script src="_content/nkast.Wasm.XR/js/XR.8.0.11.js"></script>
+
+    <script>
+        function tickJS() {
+            window.theInstance.invokeMethod('TickDotNet');
+            window.requestAnimationFrame(tickJS);
+        }
+
+        // The canvas FILLS the window and its DRAWING BUFFER equals its on-screen (CSS) size — 1:1,
+        // full-window. This keeps the cursor locked to the mouse: KNI maps a pointer event to
+        // backbuffer space by the canvas buffer-to-display ratio; with buffer == display that ratio
+        // is always 1, so the mouse, the back buffer, and the engine's ScreenWidth all share ONE
+        // coordinate space — nothing can go stale and there is no scale error (the earlier drift came
+        // from a fixed 16:9 buffer scaled to fit, whose cached ratio was stale until a resize).
+        //
+        // Letterboxing is done by the ENGINE, not the canvas: the viewport manager fits the 16:9
+        // virtual resolution inside the (window-shaped) back buffer and FinalDrawSystem paints the
+        // margins black. So a single, correct letterbox on every aspect ratio — no CSS centering and
+        // no double letterbox when KNI sizes its back buffer to the window on resize.
+        function resizeCanvas() {
+            var canvas = document.getElementById('theCanvas');
+            var holder = document.getElementById('canvasHolder');
+            var w = Math.max(1, holder.clientWidth), h = Math.max(1, holder.clientHeight);
+            if (canvas.width !== w) canvas.width = w;     // drawing buffer == display size (1:1)
+            if (canvas.height !== h) canvas.height = h;
+        }
+
+        window.initRenderJS = (instance) => {
+            window.theInstance = instance;
+
+            var canvas = document.getElementById('theCanvas');
+            resizeCanvas();
+
+            // keep canvas focusable so it receives keyboard input
+            canvas.setAttribute('tabindex', '0');
+            canvas.focus();
+            canvas.addEventListener('pointerdown', () => canvas.focus());
+
+            // disable context menu on right click
+            canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+            // re-sync the drawing buffer (kept == display) whenever the window changes size
+            window.addEventListener('resize', resizeCanvas);
+
+            // begin game loop
+            window.requestAnimationFrame(tickJS);
+        };
+
+        // Prevent Arrow keys / Spacebar from scrolling the outer page (e.g. iframe embeds).
+        window.addEventListener("keydown", function (event) {
+            if ([32, 37, 38, 39, 40].indexOf(event.keyCode) > -1)
+                event.preventDefault();
+        });
+        window.addEventListener("wheel", function (event) {
+            event.preventDefault();
+        }, { passive: false });
+    </script>
+</body>
+
+</html>
