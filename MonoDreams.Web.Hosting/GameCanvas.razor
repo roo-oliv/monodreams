@@ -1,0 +1,11 @@
+@*
+    GameCanvas — the single root component every web head mounts at #app. Markup only; the loop
+    logic lives in the GameCanvas.razor.cs code-behind (plain C#, so its usings resolve cleanly).
+
+    It renders the full-window canvas the KNI BlazorGL backend draws into. The canvas drawing
+    buffer is kept 1:1 with its display size by host.js; letterboxing is done by the engine
+    (ViewportManager + FinalDrawSystem), not here — see host.js for why.
+*@
+<div id="canvasHolder" style="background:#000; margin:0; position:fixed; top:0; right:0; bottom:0; left:0; width:100vw; height:100vh;">
+    <canvas id="theCanvas" style="touch-action:none; display:block; outline:none; width:100%; height:100%;"></canvas>
+</div>

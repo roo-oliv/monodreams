@@ -1,3 +1,6 @@
+/* Shared host-page styles for every MonoDreams web head. Referenced by each head's index.html as
+   <link href="_content/MonoDreams.Web.Hosting/css/app.css" rel="stylesheet" />. */
+
 html, body {
     margin: 0;
     padding: 0;

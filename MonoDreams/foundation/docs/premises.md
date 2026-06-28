@@ -198,8 +198,10 @@ compiles once per backend, with no assembly-identity collision. The `web`
 value also defines the `MONODREAMS_WEB` compile symbol, the only thing that
 flips head-level platform conditionals (`GraphicsProfile.Reach` instead of
 `HiDef`, dropping `Window.Position` / `Window.ClientSizeChanged`). A web
-head additionally assigns its `WebPlatformServices` to
-`PlatformServices.Current` as the very first startup step. MonoDreams
+head additionally installs the web `WebPlatformServices` (via the shared
+`MonoDreams.Web.Hosting` host layer's `WebHost.RunAsync`, which every web head's
+one-line `Program.Main` calls) to `PlatformServices.Current` as the very first
+startup step. MonoDreams
 modules contain **no** `#if MONODREAMS_WEB`, no framework-package choice,
 and no `GraphicsProfile` literal — every such decision lives in the head or
 in `Directory.Build.props`.

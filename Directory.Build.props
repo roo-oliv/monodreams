@@ -39,8 +39,13 @@
        (it never participates in the desktop/web clobber), so it stays at the default
        bin/$(Config)/net8.0 — it references the shared libs from bin/web and copies them into its
        own WASM bundle as usual. The '.Web' suffix is the established naming convention for these
-       heads, so keying the exclusion on it keeps this rule self-maintaining as new heads appear. -->
-  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web' AND !$(MSBuildProjectName.EndsWith('.Web'))">
+       heads, so keying the exclusion on it keeps this rule self-maintaining as new heads appear.
+
+       MonoDreams.Web.Hosting (the shared web host layer the heads reference) is excluded for the
+       same reason: it is a Razor Class Library whose _content/ static-web-asset publishing assumes
+       the default output layout, and it is web-only (never participates in the desktop/web clobber),
+       so it also stays at the default path. -->
+  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web' AND !$(MSBuildProjectName.EndsWith('.Web')) AND '$(MSBuildProjectName)' != 'MonoDreams.Web.Hosting'">
     <BaseIntermediateOutputPath>obj/web/</BaseIntermediateOutputPath>
     <BaseOutputPath>bin/web/</BaseOutputPath>
   </PropertyGroup>

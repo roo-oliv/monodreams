@@ -29,9 +29,9 @@ MyGame.Core/      shared game code + MonoDreams modules (platform-agnostic).
                   Backend chosen by the $(MonoDreamsPlatform) MSBuild property.
 MyGame.Desktop/   DesktopGL head: Program.cs -> new Game(); game.Run().
                   References MonoGame.Framework.DesktopGL.
-MyGame.Web/       BlazorGL head: Blazor WASM host (Program.cs host builder,
-                  Index.razor, wwwroot/index.html canvas).
-                  References nkast.Xna.Framework.* + nkast.Kni.Platform.Blazor.GL.
+MyGame.Web/       BlazorGL head: just WebGame.cs + a one-line Program.cs +
+                  wwwroot/index.html. All other host wiring comes from the shared
+                  MonoDreams.Web.Hosting library (below).
 MyGame.sln        the desktop heads build by default; the web head is excluded
                   (see "Why the web head is excluded from the .sln build").
 ```
@@ -39,6 +39,36 @@ MyGame.sln        the desktop heads build by default; the web head is excluded
 The reference app `MonoDreams.Examples` is laid out exactly this way —
 `MonoDreams.Examples.Core` + `.Desktop` + `.Web` — and doubles as the template
 the CLI generates.
+
+### The shared web host layer (`MonoDreams.Web.Hosting`)
+
+Every web head is a Blazor WASM host with the *same* boot wiring: install the
+web `IPlatformServices`, build the `WebAssemblyHostBuilder`, mount a full-window
+`<canvas>`, and drive `Game.Tick()` from a `requestAnimationFrame` loop. That
+wiring lives **once** in `MonoDreams.Web.Hosting` (a Razor Class Library), so a
+head carries only what is genuinely its own:
+
+- `WebGame.cs` — the game's `Game` subclass (screens, virtual resolution, boot screen).
+- `Program.cs` — one line: `WebHost.RunAsync(args, () => new WebGame())`.
+- `wwwroot/index.html` — the host page (title + the nkast.Wasm.* `<script>` tags),
+  which pulls the shared CSS + game loop from `_content/MonoDreams.Web.Hosting/`.
+- its per-game content build (the `.mgcb` differs per game).
+
+The library owns: `WebPlatformServices`, `WebHost.RunAsync` (the bootstrap),
+`GameCanvas` (the root component: canvas markup + the tick loop, with the head's
+`Game` injected as a `Func<Game>`), and the shared `wwwroot/js/host.js` +
+`wwwroot/css/app.css` (served to heads at `_content/MonoDreams.Web.Hosting/`).
+The KNI runtime stack (`nkast.Xna.Framework.*` + `nkast.Kni.Platform.Blazor.GL`
++ `KNI.Extended`) is referenced here too; heads inherit it transitively. The
+library is web-only host infrastructure (a sibling of the heads, **not** an
+engine module) — it is excluded from the default `.sln` build and from the
+`bin/web` relocation, exactly like the `*.Web` heads.
+
+> **CLI note:** `monodreams init --platform web|multi` still scaffolds a
+> *self-contained* web head (its own copy of the host wiring), because a
+> shadcn-style generated game can't reference this in-repo library. Folding the
+> shared host layer into a scaffolded/installable form is a tracked follow-up;
+> the in-repo Examples/Demos heads use the shared library today.
 
 ### How the backend is selected
 
@@ -90,13 +120,17 @@ dotnet run --project MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj -p:MonoDre
 ```
 
 > **Two web heads today:** `MonoDreams.Examples.Web` (the reference game) and
-> `MonoDreams.Demos.Web` (the per-module demos). Both are thin Blazor hosts over
-> shared game code; Demos.Web compile-includes `MonoDreams.Demos` `Screens/` +
-> `UI/` and the module `demo/` sources directly (the same cross-compile pattern
-> the desktop `MonoDreams.Demos` uses), so the desktop Demos project and its
-> issue-#28 headless tests are untouched. Every `*.Web` head stays at the default
+> `MonoDreams.Demos.Web` (the per-module demos). Both are thin Blazor hosts that
+> share their boot wiring through `MonoDreams.Web.Hosting` (see "The shared web
+> host layer" above), so each is just its `WebGame.cs` + a one-line `Program.cs`
+> + `index.html`. They differ only in their game source and content build:
+> Examples.Web references `MonoDreams.Examples.Core`; Demos.Web compile-includes
+> `MonoDreams.Demos` `Screens/` + `UI/` and the module `demo/` sources directly
+> (the same cross-compile pattern the desktop `MonoDreams.Demos` uses), so the
+> desktop Demos project and its issue-#28 headless tests are untouched. Every
+> `*.Web` head — and `MonoDreams.Web.Hosting` — stays at the default
 > `bin/$(Config)/net8.0` output (see `Directory.Build.props`) — the Blazor boot
-> pipeline assumes it; only the shared libs relocate to `bin/web`.
+> pipeline assumes it; only the shared engine/game libs relocate to `bin/web`.
 
 ### Why the web head is excluded from the `.sln` build
 

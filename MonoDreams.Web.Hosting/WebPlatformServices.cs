@@ -2,11 +2,12 @@ using System;
 using System.IO;
 using MonoDreams.Platform;
 
-namespace MonoDreams.Examples.Web
+namespace MonoDreams.Web.Hosting
 {
     /// <summary>
-    /// Web (Blazor/WASM) implementation of <see cref="IPlatformServices"/>. There is no
-    /// writable host filesystem and no process environment in the browser sandbox, so:
+    /// Web (Blazor/WASM) implementation of <see cref="IPlatformServices"/>, shared by every web
+    /// head. There is no writable host filesystem and no process environment in the browser
+    /// sandbox, so:
     ///   - reads of game CONTENT (XNB assets, and raw /copy: files like the Blender level JSON)
     ///     go through MonoGame's <c>ContentManager</c> / <c>TitleContainer</c> (served over HTTP),
     ///     never through here — so they work on web;
@@ -16,8 +17,8 @@ namespace MonoDreams.Examples.Web
     ///     <see cref="Console"/>, which Blazor maps to the dev console);
     ///   - background work runs inline — WASM is single-threaded;
     ///   - file writes (screenshots, settings save) are no-ops.
-    /// The head installs this via <c>PlatformServices.Current</c> before any engine
-    /// construction (Logger, systems), as required by the foundation portability premise.
+    /// <see cref="WebHost.RunAsync"/> installs this via <c>PlatformServices.Current</c> before any
+    /// engine construction (Logger, systems), as required by the foundation portability premise.
     /// </summary>
     public sealed class WebPlatformServices : IPlatformServices
     {
