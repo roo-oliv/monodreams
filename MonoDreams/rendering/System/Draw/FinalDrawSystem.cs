@@ -36,10 +36,17 @@ public sealed record RenderLayer(
             ? SamplerState.LinearClamp
             : SamplerState.PointClamp);
 
-    /// Screen-space HUD layer: stretched to the whole screen; point filtered.
+    /// Screen-space HUD layer: aspect-fit into the letterboxed viewport (the same
+    /// <see cref="ViewportManager.DestinationRectangle"/> as Main/UI), point filtered. HUD content —
+    /// including the cursor — is authored in virtual coordinates and positioned via
+    /// <see cref="ViewportManager.ScaleMouseToVirtualCoordinates"/>, which inverts the aspect-fit
+    /// transform; drawing the layer to the SAME rectangle is what keeps the cursor locked to the
+    /// mouse and the HUD undistorted. Stretching it to the whole screen instead scales HUD content
+    /// non-uniformly on a non-virtual aspect ratio and desyncs the cursor from the pointer (they
+    /// meet only at the screen centre and drift apart toward the edges, by the letterbox amount).
     public static RenderLayer HUD(RenderTarget2D target) => new(
         target,
-        vm => new Rectangle(0, 0, vm.ScreenWidth, vm.ScreenHeight),
+        vm => vm.DestinationRectangle,
         _ => SamplerState.PointClamp);
 
     /// Sub-rectangle layer (minimap / CCTV / picture-in-picture). The bounds are in HUD
@@ -52,10 +59,15 @@ public sealed record RenderLayer(
 
     private static Rectangle MapVirtualToScreen(Rectangle bounds, ViewportManager vm)
     {
-        var sx = vm.ScreenWidth / (float)vm.VirtualWidth;
-        var sy = vm.ScreenHeight / (float)vm.VirtualHeight;
+        // Map HUD-virtual coordinates into the letterboxed viewport (the same aspect-fit
+        // DestinationRectangle the HUD layer draws to), so an overlay aligns with HUD chrome drawn
+        // at those coordinates. At a matching aspect ratio DestinationRectangle fills the screen, so
+        // this reduces to the full-screen mapping.
+        var dest = vm.DestinationRectangle;
+        var sx = dest.Width / (float)vm.VirtualWidth;
+        var sy = dest.Height / (float)vm.VirtualHeight;
         return new Rectangle(
-            (int)(bounds.X * sx), (int)(bounds.Y * sy),
+            dest.X + (int)(bounds.X * sx), dest.Y + (int)(bounds.Y * sy),
             (int)(bounds.Width * sx), (int)(bounds.Height * sy));
     }
 }
@@ -73,9 +85,17 @@ public sealed class FinalDrawSystem : ISystem<GameState>
     private readonly ViewportManager _viewportManager;
     private readonly IReadOnlyList<RenderLayer> _layers;
 
-    /// Background color used to clear the final back buffer. Settable so the
-    /// game shell can pick a project-wide palette (e.g., dark navy demo theme).
+    // 1×1 white pixel used to paint the in-viewport background fill, created lazily.
+    private Texture2D? _pixel;
+
+    /// Background color painted inside the aspect-fit viewport (the game's backdrop). Settable so
+    /// the game shell can pick a project-wide palette (e.g., dark navy demo theme).
     public static Color ClearColor = new(245, 235, 220); // Warm, cozy lofi default
+
+    /// Color of the letter/pillarbox bars — the margins outside the aspect-fit viewport when the
+    /// screen aspect ratio differs from the virtual one. Black by default (the conventional
+    /// "bars around a centered game" look); the bars are distinct from <see cref="ClearColor"/>.
+    public static Color LetterboxColor = Color.Black;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -93,9 +113,23 @@ public sealed class FinalDrawSystem : ISystem<GameState>
 
     public void Update(GameState state)
     {
-        // Draw to the back buffer; clear the whole screen (including letter/pillarbox areas).
+        // Draw to the back buffer. Clear the WHOLE surface to the letterbox color so the
+        // margins outside the aspect-fit viewport read as bars, then paint the game backdrop
+        // (ClearColor) only inside the aspect-fit viewport. When the screen aspect matches the
+        // virtual one, the viewport fills the screen and only ClearColor shows — identical to
+        // before; only a mismatched aspect reveals the bars.
         _graphicsDevice.SetRenderTarget(null);
-        _graphicsDevice.Clear(ClearColor);
+        _graphicsDevice.Clear(LetterboxColor);
+
+        var viewport = _viewportManager.DestinationRectangle;
+        _spriteBatch.Begin(
+            SpriteSortMode.Immediate,
+            BlendState.Opaque,
+            SamplerState.PointClamp,
+            DepthStencilState.None,
+            RasterizerState.CullNone);
+        _spriteBatch.Draw(Pixel(), viewport, ClearColor);
+        _spriteBatch.End();
 
         foreach (var layer in _layers)
         {
@@ -113,5 +147,15 @@ public sealed class FinalDrawSystem : ISystem<GameState>
         }
     }
 
-    public void Dispose() { }
+    private Texture2D Pixel()
+    {
+        if (_pixel == null)
+        {
+            _pixel = new Texture2D(_graphicsDevice, 1, 1);
+            _pixel.SetData(new[] { Color.White });
+        }
+        return _pixel;
+    }
+
+    public void Dispose() => _pixel?.Dispose();
 }

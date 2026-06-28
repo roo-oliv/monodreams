@@ -111,12 +111,14 @@ renders off-center and mis-scaled in that pass.
 
 `FinalDrawSystem` takes an ordered `RenderLayer` list and draws each
 target onto the back buffer in order (later = on top). `RenderLayer.Main`
-/ `UI` / `HUD` are factories for the standard full-frame layers (carrying
-the viewport-mode-aware destination rect + sampler); `RenderLayer.Overlay`
-places a target in a sub-rectangle given in HUD virtual coordinates,
-mapped to the screen the same way the HUD layer is — so an overlay aligns
-with HUD chrome drawn at those coordinates. The screen owns the list, so it
-decides which targets exist, their order, and where each lands.
+/ `UI` / `HUD` are factories for the standard full-frame layers — all three
+draw to the aspect-fit `ViewportManager.DestinationRectangle` (with their
+own samplers), so they share one letterboxed viewport and never stretch or
+spill into the bars; `RenderLayer.Overlay` places a target in a
+sub-rectangle given in HUD virtual coordinates, mapped into that same
+`DestinationRectangle` — so an overlay aligns with HUD chrome drawn at
+those coordinates. The screen owns the list, so it decides which targets
+exist, their order, and where each lands.
 
 **Why:** the compositor is the natural seam for screen layout — overlays
 (minimap, CCTV), and eventually tiled splitscreen — without touching the
@@ -128,6 +130,34 @@ result). An overlay rect given in screen pixels instead of HUD virtual
 coords misaligns with HUD chrome under non-1:1 scaling.
 **Tests:** none yet (exercised by every demo/example screen and the minimap
 overlay in the camera demo).
+**Depends on:** —
+
+## The HUD layer is aspect-fit, not screen-stretched (cursor depends on it)
+
+The HUD render layer is composited to the aspect-fit
+`ViewportManager.DestinationRectangle`, exactly like Main and UI — never
+stretched to the raw back-buffer rectangle `(0,0,ScreenWidth,ScreenHeight)`.
+HUD-space content is authored in virtual coordinates, and the cursor (a
+`RenderTargetID.HUD` entity) is positioned by `CursorPositionSystem` via
+`ViewportManager.ScaleMouseToVirtualCoordinates`, which inverts the aspect-fit
+transform. The layer must be drawn back through that *same* transform, or the
+cursor's render and its position math disagree.
+
+**Why:** when the screen aspect ratio differs from the virtual one (any
+letter/pillarboxed window — common on web, where the back buffer is the whole
+browser canvas), stretching HUD to the full back buffer scales it
+non-uniformly (square keycaps render as rectangles) and, because the cursor's
+*position* is still computed in the aspect-fit space, the rendered cursor
+drifts from the system pointer — they coincide only at the screen centre and
+separate toward the edges by the letterbox amount.
+**Breaks:** giving the HUD layer (or `Overlay`'s `MapVirtualToScreen`) the
+`(0,0,ScreenWidth,ScreenHeight)` destination instead of `DestinationRectangle`
+reintroduces the stretch + cursor-drift. At a matching aspect ratio the two
+rectangles are equal, so the bug is invisible at 16:9 and only appears once the
+window aspect diverges — test/observe at a non-virtual aspect ratio.
+**Tests:** none yet (desktop headless renders at the virtual 16:9 resolution,
+where the rectangles coincide; observed on the web heads at arbitrary window
+aspects).
 **Depends on:** —
 
 ## Renderable entity stack on the Main target
@@ -248,6 +278,40 @@ the flush check) is reflected in the unit test, not only in an on-device web run
 The desktop demo headless tests
 (`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`) confirm the split is
 visually transparent on HiDef.
+**Depends on:** foundation — "The platform … is selected by the head project,
+never by engine source".
+
+## Mesh indices render through 16-bit indices (Reach-safe)
+
+`MasterRenderSystem.DrawSingleMesh` draws a mesh through the **`short[]`** overload of
+`GraphicsDevice.DrawUserIndexedPrimitives`, using the 16-bit index array
+`DrawComponent.Get16BitIndices()` returns. Meshes are authored with `int[]` indices
+(`MeshData.Indices`, every `IMeshGenerator`), so `Get16BitIndices()` converts once and caches
+the result, rebuilding only when `Indices` is reassigned (reference identity changes). It
+returns `null` only when the mesh has more vertices than a 16-bit index can address (more than
+65536); the renderer then falls back to the 32-bit `int[]` overload, which is valid only on
+HiDef. As with the sprite-run flush, the renderer contains no `GraphicsProfile` literal — the
+16-bit path is taken on every profile.
+
+**Why:** the overload's index-array type selects the GPU index width (`int[]` ⇒ 32-bit,
+`short[]` ⇒ 16-bit), and the Reach profile (WebGL ES2 / BlazorGL) rejects 32-bit indices with
+`Reach profile does not support 32 bit indices`. The player's orb is a `CircleMeshGenerator`
+mesh; before this, its `int[]` indices took the 32-bit overload and threw on the first web
+render tick (it painted on desktop, where HiDef accepts 32-bit). This is the mesh analog of the
+sprite-run flush — both keep mesh/sprite submissions inside the 16-bit budget so the engine
+source stays platform-agnostic.
+**Breaks:** rendering meshes through the `int[]` overload again (e.g. passing `dc.Indices`
+directly) reintroduces the Reach crash for every mesh-backed entity — orbs, the demo UI
+buttons/checkboxes, physics-demo circles. Converting per frame instead of caching reintroduces
+a per-frame allocation that fails the headless heap-flat assertion.
+**Caching note:** the cache keys off the `Indices` array reference, not `SetMeshData` — factories
+that set `DrawComponent.Indices` directly (e.g. `PlayerEntityFactory`) still get a correct,
+rebuilt-on-change conversion.
+**Tests:** `MonoDreams.Tests/Rendering/MeshIndexConversionTests.cs` — asserts the short values
+match the int indices, that the conversion is cached across calls and rebuilt on reassignment,
+that values above 32767 round-trip as unsigned 16-bit bit patterns, and that a mesh past the
+16-bit vertex ceiling returns `null` (32-bit fallback). The physics/UI demo headless tests
+exercise the mesh path on HiDef; the in-browser physics demo confirms it on Reach.
 **Depends on:** foundation — "The platform … is selected by the head project,
 never by engine source".
 

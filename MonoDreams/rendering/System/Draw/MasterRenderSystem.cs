@@ -219,17 +219,22 @@ public class MasterRenderSystem(
         _basicEffect!.Projection = Projection();
         _basicEffect.World = (dc.WorldMatrix ?? Matrix.Identity) * transformMatrix;
 
+        // Prefer 16-bit indices so meshes paint on the Reach profile (WebGL/BlazorGL), which
+        // rejects 32-bit indices. Procedural meshes are tiny, so this is the path taken; only a
+        // mesh exceeding the 16-bit vertex ceiling falls back to 32-bit indices (HiDef only).
+        // See DrawComponent.Get16BitIndices() and the "Mesh indices render 16-bit" premise.
+        var indices16 = dc.Get16BitIndices();
+        var primitiveCount = dc.GetPrimitiveCount();
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
-            graphicsDevice.DrawUserIndexedPrimitives(
-                dc.PrimitiveType,
-                dc.Vertices,
-                0,
-                dc.Vertices!.Length,
-                dc.Indices,
-                0,
-                dc.GetPrimitiveCount());
+            if (indices16 != null)
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    dc.PrimitiveType, dc.Vertices, 0, dc.Vertices!.Length, indices16, 0, primitiveCount);
+            else
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    dc.PrimitiveType, dc.Vertices, 0, dc.Vertices!.Length, dc.Indices, 0, primitiveCount);
         }
     }
 
