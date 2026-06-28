@@ -21,6 +21,14 @@
       "maxLength": 120,
       "description": "Single-line summary shown by `monodreams list`. No trailing period."
     },
+    "platforms": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["desktop", "web"] },
+      "uniqueItems": true,
+      "minItems": 1,
+      "default": ["desktop", "web"],
+      "description": "Target platforms this module supports. Omit (or list both) for a platform-agnostic module — the default is all platforms. Restrict it only when a module cannot work on a backend (e.g. a desktop-only debugging overlay). The CLI skips the module for a project whose target platform is not listed here. Platform values match the `$(MonoDreamsPlatform)` MSBuild property: `desktop` (MonoGame.Framework.DesktopGL) and `web` (nkast.Xna.Framework / KNI BlazorGL)."
+    },
     "dependencies": {
       "type": "array",
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
@@ -37,12 +45,20 @@
         "properties": {
           "id": { "type": "string", "description": "NuGet package id (e.g. `YarnSpinner`)." },
           "version": { "type": "string", "description": "Version string passed to `<PackageReference Version=...>`." },
-          "privateAssets": { "type": "string", "description": "Optional `PrivateAssets` value (e.g. `all`)." }
+          "privateAssets": { "type": "string", "description": "Optional `PrivateAssets` value (e.g. `all`)." },
+          "platforms": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["desktop", "web"] },
+            "uniqueItems": true,
+            "minItems": 1,
+            "default": ["desktop", "web"],
+            "description": "Platforms this package applies to. Omit for a platform-agnostic package (pure .NET, no MonoGame ref — e.g. YarnSpinner, CsvHelper, DefaultEcs). Tag it when the package is a backend-specific binary: list one platform here and its counterpart as a sibling entry tagged with the other (e.g. `MonoGame.Framework.DesktopGL` for `desktop` and `nkast.Xna.Framework.Blazor` for `web`; `MonoGame.Extended` for `desktop` and `KNI.Extended` for `web`). The CLI injects only the entries matching the project's target platform."
+          }
         }
       },
       "uniqueItems": true,
       "default": [],
-      "description": "NuGet `<PackageReference>` entries the CLI injects into the user's csproj."
+      "description": "NuGet `<PackageReference>` entries the CLI injects into the user's csproj. Platform-specific packages (the MonoGame/KNI backend, MonoGame.Extended/KNI.Extended) are tagged per-platform via each entry's `platforms`; untagged entries apply to all platforms."
     },
     "csprojProperties": {
       "type": "object",
@@ -78,9 +94,32 @@
     },
     "mgcbEntries": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "A complete MGCB statement applying to all platforms (e.g. `#begin Fonts/...`)."
+          },
+          {
+            "type": "object",
+            "required": ["value"],
+            "additionalProperties": false,
+            "properties": {
+              "value": { "type": "string", "description": "The complete MGCB statement (e.g. `/importer:YarnSpinnerImporter`)." },
+              "platforms": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["desktop", "web"] },
+                "uniqueItems": true,
+                "minItems": 1,
+                "default": ["desktop", "web"],
+                "description": "Platforms this content-pipeline line applies to. Omit for a backend-agnostic line. Tag it when the importer/processor or `/reference:` path differs by backend (the desktop content build uses MonoGame's pipeline assemblies; the web build uses the matching KNI ones)."
+              }
+            }
+          }
+        ]
+      },
       "default": [],
-      "description": "Lines the CLI appends to the user's `.mgcb` file (Content pipeline). Each entry is a complete MGCB statement (e.g. `#begin Fonts/...`)."
+      "description": "Lines the CLI appends to the user's `.mgcb` file (Content pipeline). Each entry is either a complete MGCB statement string (applies to all platforms) or an object `{ value, platforms }` for a content-pipeline line that differs per backend. The CLI appends only the entries matching the project's target platform."
     },
     "postInstallNotes": {
       "type": "string",

@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      VENDORED from https://github.com/IrishBruse/LDtkMonogame at tag 1.8.0
+      (commit 4a652fbdf2ea249ece15bf79cf412128ec2200d5), MIT licensed (see ../LICENSE).
+      Content-pipeline extension (LDtk importer + processor + writer). It runs in MGCB on the
+      developer's desktop at content-build time and must reference the SAME backend's pipeline
+      assemblies that the output XNB targets: MonoGame.Framework.Content.Pipeline for desktop
+      output, nkast.Xna.Framework.Content.Pipeline (KNI) for web/BlazorGL output. The backend
+      is selected by $(MonoDreamsPlatform). The pipeline code touches only
+      Microsoft.Xna.Framework.Content.Pipeline[.Serialization.Compiler], preserved by KNI.
+
+      Note: KNIFXC/effect compilation is unrelated to this project — LDtk has no shaders.
+    -->
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>false</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <!-- Desktop content pipeline (MonoGame). Default. -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' != 'web'">
+        <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.4" />
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
+    </ItemGroup>
+
+    <!-- Web content pipeline (KNI). Builds the same .ldtk into a BlazorGL-targeted XNB. -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+        <PackageReference Include="nkast.Xna.Framework.Content.Pipeline" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+    </ItemGroup>
+
+    <!-- Forward $(MonoDreamsPlatform) so the LDtk runtime is built for the same backend as
+         this content pipeline (web content build must reference a web LDtk runtime). -->
+    <ItemGroup>
+        <ProjectReference Include="..\LDtk\LDtk.csproj"
+                          AdditionalProperties="MonoDreamsPlatform=$(MonoDreamsPlatform)" />
+    </ItemGroup>
+
+</Project>

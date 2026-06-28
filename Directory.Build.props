@@ -5,4 +5,65 @@
     <NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(OS)' == 'Windows_NT'">$(USERPROFILE)\.nuget\packages\</NuGetPackageRoot>
     <NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(OS)' != 'Windows_NT'">$(HOME)/.nuget/packages/</NuGetPackageRoot>
   </PropertyGroup>
+
+  <!-- Backend/platform selection for the engine and its precompiled deps.
+       The consumer's head project picks the backend; MonoDreams source stays
+       backend-agnostic (same Microsoft.Xna.Framework namespace either way).
+       'desktop' => MonoGame.Framework.DesktopGL + MonoGame.Extended + MonoGame
+       content pipeline; 'web' => nkast.Xna.Framework.* (KNI/BlazorGL) +
+       KNI.Extended + nkast content pipeline. Default is desktop so existing
+       desktop builds are unaffected; a web head sets it via
+       AdditionalProperties="MonoDreamsPlatform=web" (see plan Architecture model).
+       It also surfaces as the MONODREAMS_WEB compile constant for the heads'
+       GraphicsProfile/window gating. -->
+  <PropertyGroup>
+    <MonoDreamsPlatform Condition="'$(MonoDreamsPlatform)' == ''">desktop</MonoDreamsPlatform>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+    <DefineConstants>$(DefineConstants);MONODREAMS_WEB</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Web builds of the SHARED engine/Core/LDtk libs go to a SEPARATE obj/bin so they never
+       overwrite the desktop build at the default obj|bin/$(Config)/net8.0 (and vice-versa).
+       Without this, building the web head and then a desktop head (or Rider's incremental build)
+       leaves web-backed dlls under the shared path and the desktop compile picks them up
+       -> CS0012 ("ContentManager/Keys/... in Xna.Framework.* not referenced"). Desktop keeps the
+       historical default paths, so the desktop MGCB content references
+       (../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll) are unchanged.
+
+       The Blazor WASM heads (every '*.Web' project — MonoDreams.Examples.Web,
+       MonoDreams.Demos.Web, and any CLI-scaffolded '<Game>.Web') are EXCLUDED from the
+       relocation: their static-web-assets / _framework / boot pipeline assumes the default
+       output layout, and moving it makes the dev server 404 on _framework/blazor.webassembly.js
+       (and `dotnet run` look for the host dll at the wrong path). A web head only ever builds web
+       (it never participates in the desktop/web clobber), so it stays at the default
+       bin/$(Config)/net8.0 — it references the shared libs from bin/web and copies them into its
+       own WASM bundle as usual. The '.Web' suffix is the established naming convention for these
+       heads, so keying the exclusion on it keeps this rule self-maintaining as new heads appear.
+
+       MonoDreams.Web.Hosting (the shared web host layer the heads reference) is excluded for the
+       same reason: it is a Razor Class Library whose _content/ static-web-asset publishing assumes
+       the default output layout, and it is web-only (never participates in the desktop/web clobber),
+       so it also stays at the default path. -->
+  <PropertyGroup Condition="'$(MonoDreamsPlatform)' == 'web' AND !$(MSBuildProjectName.EndsWith('.Web')) AND '$(MSBuildProjectName)' != 'MonoDreams.Web.Hosting'">
+    <BaseIntermediateOutputPath>obj/web/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/web/</BaseOutputPath>
+  </PropertyGroup>
+
+  <!-- Relocating obj->obj/web makes the SDK auto-exclude only the CURRENT BaseIntermediateOutputPath
+       (obj/web/**) from the default compile glob, so a web build would otherwise sweep the desktop
+       build's leftover obj/Release/**/*AssemblyInfo.cs into the compile -> CS0579 (duplicate assembly
+       attributes), and vice-versa. Both platforms' outputs live under obj/ and bin/, so excluding all
+       of them from default items keeps generated sources out of every build regardless of platform. -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/obj/**;$(MSBuildProjectDirectory)/bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- Note on web vs desktop output collision: the engine + vendored content-pipeline libs
+       are built BOTH for desktop and for web from the same source. The web *content build*
+       (Examples.Web) isolates its web builds of MonoDreams + the LDtk content pipeline into a
+       dedicated output dir (passed via the nested dotnet-build output flag in
+       MonoDreams.Examples.Web.csproj) so a web content build never picks up a desktop-built engine
+       dll (which fails under the KNI MGCB on assembly identity). Desktop output stays at the
+       historical bin/$(Config)/net8.0. -->
 </Project>

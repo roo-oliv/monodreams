@@ -84,11 +84,22 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
         try
         {
-            // Load JSON file from Content directory
-            // The Content.RootDirectory gives us the path to the Content folder
-            var jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _content.RootDirectory, "blender_level.json");
-            Logger.Debug($"Loading Blender level from: {jsonPath}");
-            var jsonContent = File.ReadAllText(jsonPath);
+            // Read the level JSON as GAME CONTENT, through TitleContainer — the portable
+            // content-stream primitive ContentManager itself uses under the hood. blender_level.json
+            // ships in the content pipeline (a /copy: asset), so it sits beside the .xnb files under
+            // <ContentRoot>/. TitleContainer.OpenStream resolves the SAME relative path on every
+            // backend: a file read on desktop, a synchronous fetch of the served asset on web
+            // (BlazorGL). This is read-only content, not user data, so it belongs on the content
+            // path — NOT the host-filesystem path (IPlatformServices), which has no readable disk in
+            // the browser and used to return empty, leaving the web level silently entity-less.
+            var contentPath = Path.Combine(_content.RootDirectory, "blender_level.json");
+            Logger.Debug($"Loading Blender level from content: {contentPath}");
+            string jsonContent;
+            using (var stream = TitleContainer.OpenStream(contentPath))
+            using (var reader = new StreamReader(stream))
+            {
+                jsonContent = reader.ReadToEnd();
+            }
 
             var options = new JsonSerializerOptions
             {

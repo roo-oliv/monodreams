@@ -5,6 +5,7 @@
     {
       "name": "ldtk-platformer",
       "description": "Full LDtk-driven platformer with dialogue, UI, cursor, and debug overlays (Level 1)",
+      "platforms": ["desktop", "web"],
       "modules": [
         "foundation",
         "rendering",
@@ -23,6 +24,7 @@
     {
       "name": "blender-platformer",
       "description": "Same as ldtk-platformer but loading Blender-exported levels (Level 2)",
+      "platforms": ["desktop", "web"],
       "modules": [
         "foundation",
         "rendering",
@@ -41,6 +43,7 @@
     {
       "name": "infinite-runner",
       "description": "Procedural shape-driven runner with no level files, no UI, no dialogue (Level 3)",
+      "platforms": ["desktop", "web"],
       "modules": [
         "foundation",
         "rendering",

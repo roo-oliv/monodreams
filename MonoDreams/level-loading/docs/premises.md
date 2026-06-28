@@ -145,6 +145,52 @@ silently discarded.
 **Tests:** none yet.
 **Depends on:** —
 
+## Content is built per-platform from the same `.mgcb`; custom processors must match the backend's pipeline assemblies
+
+A game's content (`.mgcb`) is **not** platform-specific — the same content
+project builds for either backend. What changes is the *builder* and the
+*pipeline assemblies* the custom processors link: the platform is supplied
+to MGCB at build time, taken from the head, not hard-coded in the `.mgcb`.
+A **desktop** head builds it with `MonoGame.Content.Builder.Task`
+(`/platform:DesktopGL`) and surfaces custom-processor DLLs
+(`KNI.Extended.Content.Pipeline` → MonoGame's; the vendored LDtk pipeline;
+the Yarn importer) built against MonoGame's pipeline assemblies. A **web**
+head builds the *same* `.mgcb` with KNI's builder
+(`nkast.Xna.Framework.Content.Pipeline`, `/platform:BlazorGL`) and surfaces
+the *same* custom processors recompiled against KNI's pipeline assemblies
+via `MonoDreamsPlatform=web`, passed to the out-of-process MGCB with
+`/reference:` lines. A custom processor must link the pipeline assemblies
+**matching the output backend**: a desktop processor cannot produce
+BlazorGL `.xnb` and vice versa. (Off-Windows the KNI MGCB also needs a
+one-time native-lib shim — see the web-targeting guide — because its
+NuGet ships Windows-only `FreeImage`/`freetype`; this is a tooling-host
+gap, not a content-format difference.)
+
+**Why:** the `.xnb` binary format is platform-tagged, and a content
+processor runs *inside* the builder process, so it must speak the same
+`Microsoft.Xna.Framework.Content.Pipeline` identity the builder uses. One
+`.mgcb` driving two backends is what lets a multi-platform game ship a
+single content source; the only per-platform inputs are the builder task
+and the processor references.
+**Breaks:** building the web `.xnb` with the desktop processor DLL (or
+vice versa) fails MGCB at content-build time with an
+importer/processor-not-found or assembly-load error; the failure is
+non-obvious because the csproj appears to reference the assembly correctly
+— the issue is the *backend* the processor was compiled against and the
+`/reference:` line that surfaces it to the separate MGCB process. Pointing
+the web build's `/reference:` at the desktop pipeline DLL produces
+DesktopGL-tagged output that a BlazorGL runtime cannot load.
+**Tests:**
+`MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs::VendoredLDtkRuntimeCompilesAgainstKniWebBackend`
+(the LDtk content pipeline recompiles against the KNI backend);
+`MonoDreams.Cli.Tests/ScaffolderPlatformTests.cs::MgcbEditor_AppendsOnlyEntriesForTargetPlatform`
+and `MonoDreams.Cli.Tests/ManifestPlatformTests.cs` (the CLI emits the
+correct per-platform builder/processor wiring); the desktop content build
+is exercised end-to-end by `LDtkLevelTests` and `BlenderLevelTests`.
+**Depends on:** level-ldtk — "Consumers still surface the LDtk
+content-pipeline DLL to MGCB via `/reference:`"; foundation — "The platform
+(backend + OS services) is selected by the head project".
+
 ## Known limitations (acknowledged gaps)
 
 - **Hot reload doesn't fully work** — adding `CurrentLevelComponent`

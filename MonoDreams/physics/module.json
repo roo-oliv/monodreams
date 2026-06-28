@@ -5,6 +5,7 @@
   "dependencies": [
     "foundation"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],

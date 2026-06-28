@@ -5,10 +5,17 @@
   "dependencies": [
     "foundation"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [
     {
       "id": "MonoGame.Extended",
-      "version": "4.1.0"
+      "version": "4.1.0",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "KNI.Extended",
+      "version": "6.0.0",
+      "platforms": ["web"]
     }
   ],
   "csprojProperties": {},

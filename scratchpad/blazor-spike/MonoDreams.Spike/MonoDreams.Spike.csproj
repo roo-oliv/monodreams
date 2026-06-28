@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 0 de-risking spike (throwaway). This library compiles the REAL MonoDreams
+    foundation + rendering source against the KNI (nkast.Xna.Framework.*) backend, to
+    prove the plan's core hypothesis: MonoDreams' own source recompiles UNCHANGED against
+    KNI because KNI keeps the Microsoft.Xna.Framework namespace under a different assembly
+    identity. No MonoDreams source is copied or edited — it is <Compile Include>'d directly
+    from the repo tree.
+
+    It deliberately references only the minimal slice needed to draw one sprite:
+      - foundation/ (Transform, EntityInfo, GameState, Camera deps, hierarchy, etc.)
+      - rendering/  (DrawComponent, SpriteInfo, Culling/SpritePrep/MasterRender/FinalDraw)
+    The heavy desktop-only deps of the full MonoDreams.csproj (LDtkMonogame, YarnSpinner,
+    MonoGame content pipeline) are intentionally NOT referenced — those are Phase 2/3 work.
+    MonoGame.Extended -> KNI.Extended is included because rendering's DrawComponent/
+    MasterRenderSystem reference MonoGame.Extended.BitmapFonts (the Text draw path); for a
+    sprite-only spike the Text branch never executes, but the types must resolve to compile.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>MonoDreams</RootNamespace>
+    <AssemblyName>MonoDreams.Spike</AssemblyName>
+    <!-- KNI's BlazorGL backend; gates any future platform-conditional engine code. -->
+    <DefineConstants>$(DefineConstants);BLAZORGL</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Repo-root-relative path to the real engine source (this csproj lives at
+       scratchpad/blazor-spike/MonoDreams.Spike/ => three levels under the repo root). -->
+  <PropertyGroup>
+    <MonoDreamsSrc>$(MSBuildThisFileDirectory)..\..\..\MonoDreams</MonoDreamsSrc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(MonoDreamsSrc)\foundation\**\*.cs" Exclude="$(MonoDreamsSrc)\foundation\**\demo\**\*.cs" />
+    <Compile Include="$(MonoDreamsSrc)\rendering\**\*.cs" Exclude="$(MonoDreamsSrc)\rendering\**\demo\**\*.cs" />
+    <!-- rendering hard-references DynamicTextComponent (the Text draw path in DrawComponent +
+         MasterRenderSystem), which lives in the rendering-text module. The rendering module is
+         therefore not standalone-compilable; rendering-text comes along. It is a small slice
+         (3 files) and KNI-compatible (only Microsoft.Xna.Framework + KNI.Extended BitmapFonts). -->
+    <Compile Include="$(MonoDreamsSrc)\rendering-text\**\*.cs" Exclude="$(MonoDreamsSrc)\rendering-text\**\demo\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KNI split framework packages (Microsoft.Xna.Framework namespace, nkast assembly identity). -->
+    <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Input" Version="4.2.9001" />
+    <!-- KNI port of MonoGame.Extended (BitmapFont types referenced by rendering). -->
+    <PackageReference Include="KNI.Extended" Version="6.0.0" />
+    <!-- Pure-.NET, backend-agnostic deps unchanged from the desktop build. -->
+    <PackageReference Include="DefaultEcs" Version="0.18.0-beta01" />
+  </ItemGroup>
+
+</Project>

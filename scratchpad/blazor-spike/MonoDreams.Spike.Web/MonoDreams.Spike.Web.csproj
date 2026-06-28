@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    Phase 0 spike: minimal BlazorGL head. Hosts a MonoGame `Game` (KNI BlazorGL backend) inside
+    a Blazor WebAssembly app, references the MonoDreams.Spike library (real foundation+rendering
+    source recompiled against KNI), and draws ONE sprite through the real MonoDreams render
+    pipeline (CullingSystem -> SpritePrepSystem -> MasterRenderSystem -> FinalDrawSystem).
+
+    Wiring template captured from the canonical KNI sample nkast/WebGLxnaProj (WebGLxna head):
+      - SDK Microsoft.NET.Sdk.BlazorWebAssembly, net8.0, KniPlatform=BlazorGL, DEFINE BLAZORGL.
+      - nkast.Kni.Platform.Blazor.GL transitively pulls all nkast.Xna.Framework.* (4.2.9001) +
+        nkast.Wasm.* (8.0.x) packages; the head pins the 10 split framework packages explicitly
+        to keep the resolved graph deterministic and matched to MonoDreams.Spike (4.2.9001).
+      - The game loop is JS-driven: index.html requestAnimationFrame -> [JSInvokable] TickDotNet.
+    Requires the `wasm-tools` dotnet workload (installed on this host during the spike).
+  -->
+
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>MonoDreams.Spike.Web</RootNamespace>
+    <AssemblyName>MonoDreams.Spike.Web</AssemblyName>
+    <DefineConstants>$(DefineConstants);BLAZORGL</DefineConstants>
+    <KniPlatform>BlazorGL</KniPlatform>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Smaller/faster startup for a spike; KNI's sample uses the same. -->
+    <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="SpikeGame.cs" />
+    <Compile Include="Pages\Index.razor.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MonoDreams.Spike\MonoDreams.Spike.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KNI split framework packages (transitively included by Kni.Platform.Blazor.GL, pinned
+         here to lock the version to the one MonoDreams.Spike compiled against). -->
+    <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Audio" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Media" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Input" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Game" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Devices" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Storage" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.XR" Version="4.2.9001" />
+    <!-- The BlazorGL platform (GraphicsDevice + window/canvas backend for WebGL). -->
+    <PackageReference Include="nkast.Kni.Platform.Blazor.GL" Version="4.2.9001" />
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0' ">
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.11" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+      Examples.Core — the shared game library for the MonoDreams reference app.
+      It holds every screen, system, factory, component, setting, and the Content/ +
+      Assets/ trees; the two head projects (Examples.Desktop / Examples.Web) are thin
+      and only own the entry point + platform host wiring.
+
+      The platform/backend is selected by the head, never baked here: each head
+      references this project with AdditionalProperties="MonoDreamsPlatform=desktop|web",
+      so MSBuild produces a distinct Core build per head (same source, two backends, no
+      assembly-identity collision). $(MonoDreamsPlatform) (Directory.Build.props) gates
+      the precompiled framework/extension deps below; the engine source recompiles
+      unchanged against either backend (same Microsoft.Xna.Framework namespace).
+    -->
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <RollForward>Major</RollForward>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>MonoDreams.Examples</RootNamespace>
+        <AssemblyName>MonoDreams.Examples.Core</AssemblyName>
+        <IsPackable>false</IsPackable>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    </PropertyGroup>
+
+    <!-- The engine. Backend chosen by $(MonoDreamsPlatform): forward it explicitly so a web
+         head's MonoDreamsPlatform=web reaches MonoDreams (AdditionalProperties on a
+         ProjectReference does NOT propagate transitively on its own — without this the engine
+         builds desktop under a web head and the KNI types mismatch). -->
+    <ItemGroup>
+        <ProjectReference Include="..\MonoDreams\MonoDreams.csproj"
+                          AdditionalProperties="MonoDreamsPlatform=$(MonoDreamsPlatform)" />
+    </ItemGroup>
+
+    <!-- Backend-agnostic (pure .NET) deps — same on every platform. -->
+    <ItemGroup>
+        <PackageReference Include="DefaultEcs" Version="0.18.0-beta01" />
+    </ItemGroup>
+
+    <!-- ===== Desktop (MonoGame.Framework.DesktopGL). Default. ===== -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' != 'web'">
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
+        <PackageReference Include="MonoGame.Extended" Version="4.1.0" />
+        <!-- ImGui-based debug inspector is a desktop-only tool (see Inspector/ exclusion on web). -->
+        <PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" ExcludeAssets="compile" />
+        <Reference Include="Monogame.ImGuiNet">
+            <HintPath>$(NuGetPackageRoot)monogame.imguinet/1.0.5/Monogame.ImGuiNet.dll</HintPath>
+        </Reference>
+        <PackageReference Include="ImGui.NET" Version="1.89.7.1" />
+    </ItemGroup>
+
+    <!-- ===== Web (KNI / BlazorGL). ===== -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+        <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Input" Version="4.2.9001" />
+        <PackageReference Include="KNI.Extended" Version="6.0.0" />
+    </ItemGroup>
+
+    <!-- The ImGui debug inspector links ImGuiNET (desktop only) — exclude from the web build.
+         Screens gate their use behind #if DEBUG && !MONODREAMS_WEB. -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+        <Compile Remove="Inspector\**\*.cs" />
+    </ItemGroup>
+
+    <!-- Asset content (theme JSON, textures). -->
+    <ItemGroup>
+        <Folder Include="Assets\" />
+    </ItemGroup>
+</Project>

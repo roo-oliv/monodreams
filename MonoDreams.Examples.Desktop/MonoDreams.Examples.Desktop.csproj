@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+      Examples.Desktop — the DesktopGL head for the MonoDreams reference app.
+      Thin: owns Program.cs (game.Run()) + Game1.cs (the MonoGame Game host), and the
+      desktop content build. All game logic lives in Examples.Core, referenced here as
+      a desktop backend build (MonoDreamsPlatform=desktop, the Directory.Build.props default).
+
+      Content is built from the SAME Content.mgcb that lives in Examples.Core, via
+      MonoGame.Content.Builder.Task at /platform:DesktopGL. The web head builds the
+      identical .mgcb through the KNI builder at /platform:BlazorGL (see Examples.Web).
+    -->
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <RollForward>Major</RollForward>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>MonoDreams.Examples</RootNamespace>
+        <AssemblyName>MonoDreams.Examples.Desktop</AssemblyName>
+        <IsPackable>false</IsPackable>
+
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <PublishSingleFile>false</PublishSingleFile>
+        <SelfContained>false</SelfContained>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Shared game library, built for the desktop backend (default). -->
+        <ProjectReference Include="..\MonoDreams.Examples.Core\MonoDreams.Examples.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Content-pipeline + builder packages (desktop). The content sources live in
+             Examples.Core/Content; this head owns the build because the platform differs. -->
+        <PackageReference Include="LDtkMonogame" Version="1.8.0" />
+        <PackageReference Include="LDtkMonogame.ContentPipeline" Version="1.8.0" />
+        <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="4.1.0" />
+        <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.4" />
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
+        <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4" />
+        <PackageReference Include="Nopipeline.Task" Version="2.3.0" />
+        <!-- ImGui debug inspector packages (desktop only; Inspector/ lives in Core). -->
+        <PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" ExcludeAssets="compile" />
+        <Reference Include="Monogame.ImGuiNet">
+            <HintPath>$(NuGetPackageRoot)monogame.imguinet/1.0.5/Monogame.ImGuiNet.dll</HintPath>
+        </Reference>
+        <PackageReference Include="ImGui.NET" Version="1.89.7.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The shared Content.mgcb (lives in Examples.Core). MonoGameContentReference
+             builds it via MonoGame.Content.Builder.Task and copies the XNB to this head's output. -->
+        <MonoGameContentReference Include="..\MonoDreams.Examples.Core\Content\Content.mgcb">
+            <Link>Content\Content.mgcb</Link>
+        </MonoGameContentReference>
+    </ItemGroup>
+
+    <!-- MGCB runs out-of-process and does not inherit csproj references; surface the
+         content-pipeline DLLs (Extended, LDtk, and the engine's Yarn importer in MonoDreams.dll)
+         to it via /reference:. The engine dll path is the desktop build of MonoDreams. -->
+    <PropertyGroup>
+        <MonoGameMGCBAdditionalArguments>$(MonoGameMGCBAdditionalArguments) /reference:$(NuGetPackageRoot)monogame.extended.content.pipeline/4.1.0/tools/MonoGame.Extended.Content.Pipeline.dll /reference:$(NuGetPackageRoot)ldtkmonogame.contentpipeline/1.8.0/lib/net8.0/LDtk.ContentPipeline.dll /reference:$(MSBuildThisFileDirectory)../MonoDreams/bin/$(Configuration)/net8.0/MonoDreams.dll</MonoGameMGCBAdditionalArguments>
+    </PropertyGroup>
+</Project>

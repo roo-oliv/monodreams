@@ -6,6 +6,7 @@
     "level-loading",
     "rendering"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],

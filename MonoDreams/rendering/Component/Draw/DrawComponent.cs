@@ -43,6 +43,48 @@ public class DrawComponent
     public PrimitiveType PrimitiveType = PrimitiveType.TriangleList;
     public Matrix? WorldMatrix; // TransformComponent matrix for mesh rendering
 
+    // 16-bit index cache for Reach-safe mesh rendering — see Get16BitIndices().
+    private int[]? _indices16Source;
+    private short[]? _indices16;
+
+    /// <summary>
+    /// The mesh <see cref="Indices"/> as 16-bit values, for rendering through the
+    /// <c>short[]</c> overload of <c>DrawUserIndexedPrimitives</c>. Returns <c>null</c> when there
+    /// are no indices, or when the mesh has more vertices than a 16-bit index can address
+    /// (more than 65536) — in which case the caller must fall back to the 32-bit
+    /// <see cref="Indices"/> (valid only on the HiDef profile).
+    /// <para>
+    /// Why: the overload's index-array type selects the GPU index width (<c>int[]</c> ⇒ 32-bit,
+    /// <c>short[]</c> ⇒ 16-bit), and the Reach profile (WebGL ES2 / BlazorGL) rejects 32-bit
+    /// indices with <c>"Reach profile does not support 32 bit indices"</c>. Procedural meshes are
+    /// tiny (far below the 16-bit ceiling), so rendering them through 16-bit indices works on
+    /// every profile with no profile branch — the mesh analog of the sprite-run flush
+    /// (see <see cref="MonoDreams.System.Draw.SpriteBatchFlush"/>).
+    /// </para>
+    /// The converted array is cached and rebuilt only when <see cref="Indices"/> is reassigned
+    /// (reference identity changes), so a static mesh converts once — the per-frame render loop
+    /// allocates nothing and the heap stays flat.
+    /// </summary>
+    public short[]? Get16BitIndices()
+    {
+        if (Indices is not { Length: > 0 }) return null;
+        // A 16-bit index addresses vertices 0..65535, so up to 65536 vertices fit.
+        if (Vertices is { Length: > ushort.MaxValue + 1 }) return null;
+
+        if (!ReferenceEquals(_indices16Source, Indices))
+        {
+            // Reuse the buffer when the new index array is the same length (common for an
+            // animated mesh that rewrites its indices in place each frame).
+            if (_indices16 is not { } buffer || buffer.Length != Indices.Length)
+                buffer = new short[Indices.Length];
+            for (var i = 0; i < Indices.Length; i++)
+                buffer[i] = (short)Indices[i]; // values ≤ 65535 round-trip as ushort bit patterns
+            _indices16 = buffer;
+            _indices16Source = Indices;
+        }
+        return _indices16;
+    }
+
     /// <summary>
     /// Sets the mesh data from a MeshData struct.
     /// </summary>

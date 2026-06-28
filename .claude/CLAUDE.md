@@ -10,9 +10,10 @@ and gravity just works.
 MonoDreams is still in alpha. Each module's source is colocated with its
 manifest (`MonoDreams/<module>/module.json`) and its docs
 (`MonoDreams/<module>/docs/overview.md` + `premises.md`). The
-`MonoDreams.Examples/` project demonstrates how to wire up modules into
-real game screens — start at
-`MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs`.
+`MonoDreams.Examples` project (a shared `MonoDreams.Examples.Core` library
+plus per-platform `.Desktop` / `.Web` heads) demonstrates how to wire up
+modules into real game screens — start at
+`MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs`.
 
 # Project structure
 - `MonoDreams/` — engine source organized into 13 modules (`foundation`,
@@ -110,10 +111,11 @@ real game screens — start at
   `debug/`. Off by default; enable by setting `"screenshots": true` in
   `input_replay.json`.
 - **Running a test session** — write `input_replay.json`, run
-  `dotnet run --project MonoDreams.Examples`, check `debug/` for log +
-  screenshots.
+  `dotnet run --project MonoDreams.Examples.Desktop`, check `debug/` for log +
+  screenshots. (Examples is now a shared `.Core` lib + per-platform heads;
+  the desktop head is `MonoDreams.Examples.Desktop`.)
 - **Headless mode (Examples — logic only)** — `dotnet run --project
-  MonoDreams.Examples -- --headless` skips rendering (its `Draw`
+  MonoDreams.Examples.Desktop -- --headless` skips rendering (its `Draw`
   early-returns), runs at max speed (no VSync, no fixed timestep), for
   logic/replay testing. The game window is created at 1×1 off-screen — it
   renders nothing, so it cannot observe visual or render-path behaviour.
@@ -191,8 +193,9 @@ rather than loading all 15.
 
 ## Other workflow rules
 
-- After planning but before coding, build the MonoDreams.Examples solution
-  so you know the build is working before you commit changes.
+- After planning but before coding, build `MonoDreams.sln` (core-first; the
+  desktop heads + tests) so you know the build is working before you commit
+  changes. The web head builds separately with `-p:MonoDreamsPlatform=web`.
 - Eval between using `LevelSelectionScreen` (the lightweight entry point
   with UI + cursor) or `LoadLevelExampleGameScreen` (the full physics +
   level loading stack) as a starting point for your own work, or creating
@@ -211,11 +214,16 @@ Before making changes, ensure the project builds successfully.
 
 ## Build Commands
 ```bash
-# Build core engine (compiles all 13 modules together)
+# Build core engine (compiles all 13 modules together).
+# ALWAYS build this BEFORE Examples/Demos: the MGCB content step references
+# MonoDreams.dll by absolute path (not as an MSBuild dependency), so the core
+# dll must already exist or content build fails with
+# "Failed to create importer 'YarnSpinnerImporter'".
 dotnet build MonoDreams/MonoDreams.csproj
 
-# Build examples (includes MonoDreams)
-dotnet build MonoDreams.Examples/MonoDreams.Examples.csproj
+# Build the desktop reference game (the LDtk + Blender platformer).
+# Examples is now a shared lib + per-platform heads (see "Platform targeting").
+dotnet build MonoDreams.Examples.Desktop/MonoDreams.Examples.Desktop.csproj
 
 # Build the CLI
 dotnet build MonoDreams.Cli/MonoDreams.Cli.csproj
@@ -223,9 +231,41 @@ dotnet build MonoDreams.Cli/MonoDreams.Cli.csproj
 # Build tests
 dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj
 
-# Build everything
-dotnet build
+# Build everything (desktop). The web head is deliberately excluded from the
+# default .sln build — build it explicitly (see below).
+dotnet build MonoDreams.sln
 ```
+
+## Platform targeting (desktop + web via KNI/BlazorGL)
+
+A game is a **shared `.Core` library + per-platform head projects**, so the
+same engine + game source ships for desktop (MonoGame `DesktopGL`) and web
+(KNI/BlazorGL `nkast.Xna.Framework.*`). The backend is chosen by the
+`$(MonoDreamsPlatform)` MSBuild property (`desktop` default, `web`), defined in
+`Directory.Build.props` and flowed from a head into `.Core` — never baked into
+MonoDreams modules. `MonoDreams.Examples` is laid out as `.Examples.Core`
+(shared) + `.Examples.Desktop` (head) + `.Examples.Web` (Blazor WASM head).
+
+```bash
+# Desktop tests + regression (GameTestRunner / HeadlessDemoTests live here)
+dotnet test MonoDreams.Tests/
+dotnet test MonoDreams.Cli.Tests/        # CLI unit tests (separate project)
+
+# Build the web head (KNI/BlazorGL, WASM). -p is GLOBAL (flows to Core);
+# requires the wasm-tools workload installed.
+dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web
+
+# Scaffold a new game via the CLI for one or more platforms
+dotnet run --project MonoDreams.Cli -- init MyGame --platform desktop|web|multi
+```
+
+A multi-platform `.sln` builds the desktop heads by default and **excludes the
+web head from the default build** (MSBuild `AdditionalProperties` does not
+propagate through `restore`, so a head-driven web build of `.Core` must be
+invoked explicitly with `-p:MonoDreamsPlatform=web`). The web content build,
+the native-lib shim required by KNI's MGCB on macOS/Linux, and the known
+Reach-profile render limit are documented in
+[`docs/web-targeting.md`](../docs/web-targeting.md).
 
 # Documentation
 

@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    MonoDreams.Web.Hosting — the shared BlazorGL (KNI) host layer for every web head.
+
+    All the web-host wiring that used to be copy-pasted into each '*.Web' head lives here ONCE:
+      - WebPlatformServices  (the IPlatformServices web implementation)
+      - WebHost.RunAsync     (the Blazor WebAssembly host bootstrap)
+      - GameCanvas           (the root component: canvas markup + requestAnimationFrame tick loop)
+      - wwwroot/js/host.js + wwwroot/css/app.css  (served to heads at _content/MonoDreams.Web.Hosting/)
+    A head now only carries its own WebGame.cs, a one-line Program.cs that calls
+    WebHost.RunAsync(args, () => new WebGame()), an index.html host page, and its per-game
+    content build. This is web-only host infrastructure (a sibling of the heads), NOT an engine
+    module — it never builds for desktop.
+
+    It is built for the KNI/web backend, so it is EXCLUDED from the solution's default (desktop)
+    build and from the bin/web relocation (see Directory.Build.props), exactly like the heads.
+    Build it transitively via a head with -p:MonoDreamsPlatform=web.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Nullable-oblivious like the engine it glues to (IPlatformServices returns null/empty by
+         design), so the no-op web services compile warning-free. -->
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>MonoDreams.Web.Hosting</RootNamespace>
+    <AssemblyName>MonoDreams.Web.Hosting</AssemblyName>
+    <DefineConstants>$(DefineConstants);BLAZORGL;MONODREAMS_WEB</DefineConstants>
+    <KniPlatform>BlazorGL</KniPlatform>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Engine, built for the WEB backend (KNI). Needed for IPlatformServices
+         (WebPlatformServices) and Microsoft.Xna.Framework.Game (GameCanvas). The
+         AdditionalProperties forward is REQUIRED: without it the engine builds the desktop
+         (MonoGame) backend even under a web build, and MonoGame's Game collides with KNI's Game
+         here (CS0433). This mirrors how MonoDreams.Examples.Core forwards the backend to the engine. -->
+    <ProjectReference Include="..\MonoDreams\MonoDreams.csproj"
+                      AdditionalProperties="MonoDreamsPlatform=$(MonoDreamsPlatform)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KNI split framework packages — the web runtime stack. Pinned here (matched to the engine's
+         web build); the heads inherit them transitively through this library, so the block is no
+         longer copy-pasted per head. -->
+    <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Audio" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Media" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Input" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Game" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Devices" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Storage" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.XR" Version="4.2.9001" />
+    <!-- BlazorGL platform (GraphicsDevice + window/canvas backend for WebGL). Also the transitive
+         source of the nkast.Wasm.* JS interop packages whose _content/ scripts each head's
+         index.html loads. -->
+    <PackageReference Include="nkast.Kni.Platform.Blazor.GL" Version="4.2.9001" />
+    <!-- KNI port of MonoGame.Extended (BitmapFont runtime). -->
+    <PackageReference Include="KNI.Extended" Version="6.0.0" />
+    <!-- Blazor WebAssembly hosting (WebAssemblyHostBuilder for WebHost.RunAsync; ComponentBase /
+         JSInterop for GameCanvas). -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.11" />
+  </ItemGroup>
+
+</Project>

@@ -6,14 +6,17 @@
     "level-loading",
     "rendering"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [
     {
       "id": "LDtkMonogame",
-      "version": "1.8.0"
+      "version": "1.8.0",
+      "platforms": ["desktop"]
     },
     {
       "id": "LDtkMonogame.ContentPipeline",
-      "version": "1.8.0"
+      "version": "1.8.0",
+      "platforms": ["desktop"]
     }
   ],
   "csprojProperties": {},

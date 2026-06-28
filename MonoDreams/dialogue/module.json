@@ -6,6 +6,7 @@
     "rendering-text",
     "ui"
   ],
+  "platforms": ["desktop", "web"],
   "nugetDependencies": [
     {
       "id": "YarnSpinner",

@@ -152,6 +152,10 @@ public class MasterRenderSystem(
         Matrix transformMatrix)
     {
         BatchType currentBatch = BatchType.None;
+        // The running quad count + flush decision for the *current* SpriteBatch Begin/End run, shared with
+        // the SpriteBatchFlushTests so the renderer and its tests exercise the same flush logic. Reset on
+        // every Begin (context switch or flush); used to keep each run below the Reach 16-bit-index budget.
+        var batchRun = new SpriteBatchFlush.BatchRun();
 
         foreach (var (_, _, dc) in sortedEntities)
         {
@@ -168,20 +172,39 @@ public class MasterRenderSystem(
 
                 // Start new batch
                 if (requiredBatch == BatchType.Sprite)
+                {
                     BeginSpriteBatch(transformMatrix, SpriteSamplerState);
+                    batchRun.Reset();
+                }
                 else if (requiredBatch == BatchType.Text)
+                {
                     BeginSpriteBatch(transformMatrix, TextSamplerState);
+                    batchRun.Reset();
+                }
                 else if (requiredBatch == BatchType.Mesh)
                     ResetGraphicsStateForMeshRendering();
 
                 currentBatch = requiredBatch;
             }
 
-            // Draw the element
+            // Draw the element. Sprite/Text both accumulate into the current Begin/End run via the same
+            // BatchRun the tests drive: ConsumeBefore decides whether the run must flush (End + reopen
+            // with the same sampler) before this element to stay below the Reach 16-bit-index cap, and
+            // folds the element's quad count into the run. Called once per sprite/text element — including
+            // the first after a context switch (its count is 0, so it never flushes).
             if (requiredBatch == BatchType.Mesh)
                 DrawSingleMesh(dc, transformMatrix);
             else
+            {
+                if (batchRun.ConsumeBefore(dc))
+                {
+                    EndSpriteBatch();
+                    BeginSpriteBatch(
+                        transformMatrix,
+                        currentBatch == BatchType.Text ? TextSamplerState : SpriteSamplerState);
+                }
                 DrawElement(dc); // Sprite or Text
+            }
         }
 
         // End final batch if it was a SpriteBatch one
@@ -196,17 +219,22 @@ public class MasterRenderSystem(
         _basicEffect!.Projection = Projection();
         _basicEffect.World = (dc.WorldMatrix ?? Matrix.Identity) * transformMatrix;
 
+        // Prefer 16-bit indices so meshes paint on the Reach profile (WebGL/BlazorGL), which
+        // rejects 32-bit indices. Procedural meshes are tiny, so this is the path taken; only a
+        // mesh exceeding the 16-bit vertex ceiling falls back to 32-bit indices (HiDef only).
+        // See DrawComponent.Get16BitIndices() and the "Mesh indices render 16-bit" premise.
+        var indices16 = dc.Get16BitIndices();
+        var primitiveCount = dc.GetPrimitiveCount();
+
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
-            graphicsDevice.DrawUserIndexedPrimitives(
-                dc.PrimitiveType,
-                dc.Vertices,
-                0,
-                dc.Vertices!.Length,
-                dc.Indices,
-                0,
-                dc.GetPrimitiveCount());
+            if (indices16 != null)
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    dc.PrimitiveType, dc.Vertices, 0, dc.Vertices!.Length, indices16, 0, primitiveCount);
+            else
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    dc.PrimitiveType, dc.Vertices, 0, dc.Vertices!.Length, dc.Indices, 0, primitiveCount);
         }
     }
 

@@ -147,6 +147,92 @@ other's log file (same default `debug/` path).
 parallel execution will surface this indirectly).
 **Depends on:** —
 
+## Engine source is backend/OS-agnostic — non-portable calls go through `IPlatformServices`
+
+MonoDreams engine modules never touch `System.IO.File` / `Directory`,
+`System.AppDomain`, `System.Environment`, or `System.Console` directly.
+Every such call is routed through `PlatformServices.Current` (an
+`IPlatformServices` in `MonoDreams.Platform`): storage read/write
+(`FileExists`/`ReadAllText`/`WriteAllText`/`WriteAllBytes`/`CreateDirectory`),
+base path (`BaseDirectory`), env/config lookup (`GetEnvironmentVariable`),
+path joining (`CombinePath`), the `Logger` sink (`OpenLogWriter` +
+`WriteLineToConsole`), and best-effort background work (`RunBackground`).
+The holder defaults to `DesktopPlatformServices` (real filesystem / process
+environment — the historical behaviour), so a desktop head and every test
+behave exactly as before with no setup. A non-desktop head (web/WASM)
+assigns its own implementation to `PlatformServices.Current` at the very
+start of startup. The build-time content-pipeline importers
+(`dialogue/YarnSpinnerImporter.cs`) are exempt: they run on the developer's
+desktop at build time, never in the shipped runtime.
+
+**Why:** KNI/BlazorGL recompiles MonoDreams source unchanged against the
+same `Microsoft.Xna.Framework` namespace, but a browser has no process
+filesystem / environment / `Console`. Hard-coding those APIs into engine
+modules would make the source un-runnable on web. The seam keeps the
+platform a head-level choice, never baked into a module.
+**Breaks:** a module that calls `File`/`AppDomain`/`Environment`/`Console`
+directly compiles for web but throws (or silently no-ops) at runtime in the
+browser — e.g. `GameSettings` reading a save file off a disk that doesn't
+exist, or `Logger` writing to a `StreamWriter` that can't open. (Read-only
+*game content* is the exception: it is not a host-filesystem concern — it
+goes through `ContentManager`/`TitleContainer`, which serves it over HTTP on
+web. See level-blender — "Blender level JSON is read as content, not host
+filesystem".)
+**Tests:** `MonoDreams.Tests/Platform/PlatformServicesTests.cs` (asserts
+`Logger` and `InputReplayPlan.TryLoad` route through a fake
+`IPlatformServices` with no real disk, and that `DesktopPlatformServices`
+round-trips the real filesystem); the routed runtime sites are exercised
+end-to-end on the desktop FS by `BlenderLevelTests` and `HeadlessDemoTests`.
+**Depends on:** —
+
+## The platform (backend + OS services) is selected by the head project, never by engine source
+
+Which graphics backend a build links — MonoGame `DesktopGL` or
+KNI/BlazorGL `nkast.Xna.Framework.*` — and which `IPlatformServices`
+implementation runs, are decided **outside** the engine modules, by the
+consuming head project. The mechanism is the `$(MonoDreamsPlatform)`
+MSBuild property (`desktop` | `web`, default `desktop`, defined in
+`Directory.Build.props`): a head flows it into the shared game library via
+`AdditionalProperties="MonoDreamsPlatform=…"` so the *same* engine source
+compiles once per backend, with no assembly-identity collision. The `web`
+value also defines the `MONODREAMS_WEB` compile symbol, the only thing that
+flips head-level platform conditionals (`GraphicsProfile.Reach` instead of
+`HiDef`, dropping `Window.Position` / `Window.ClientSizeChanged`). A web
+head additionally installs the web `WebPlatformServices` (via the shared
+`MonoDreams.Web.Hosting` host layer's `WebHost.RunAsync`, which every web head's
+one-line `Program.Main` calls) to `PlatformServices.Current` as the very first
+startup step. MonoDreams
+modules contain **no** `#if MONODREAMS_WEB`, no framework-package choice,
+and no `GraphicsProfile` literal — every such decision lives in the head or
+in `Directory.Build.props`.
+
+**Why:** a single shared game library must produce two distinct backend
+builds from one source tree (desktop + web), which only works if the
+backend choice is an external MSBuild input, not a baked-in reference. If
+engine modules picked the backend or the platform services, a project
+could not be desktop-only, web-only, *and* multi-platform from the same
+modules — and the assembly identities (`Microsoft.Xna.Framework` provided
+by two different packages) would collide in one build.
+**Breaks:** a module that hard-codes `GraphicsProfile.HiDef`, references a
+framework package directly, or branches on `#if MONODREAMS_WEB` makes the
+web head fail (HiDef is rejected by WebGL/Reach) or makes the desktop and
+web builds impossible to produce from the same source. A head that forgets
+to set `PlatformServices.Current` before `Logger.Initialize` silently runs
+the desktop FS services in the browser (see the backend/OS-agnostic premise
+above).
+**Tests:**
+`MonoDreams.Cli.Tests/ScaffolderPlatformTests.cs::Scaffold_Desktop_EmitsCoreAndDesktopHeadOnly`,
+`::Scaffold_Web_EmitsCoreAndWebHeadWithHostWiring`,
+`::Scaffold_Multi_EmitsBothHeads_WebExcludedFromDefaultSolutionBuild`, and
+`::Scaffold_Core_CarriesBackendGateButNoPreDeclaredFrameworkPackages`
+(the scaffolded Core carries only the `$(MonoDreamsPlatform)` gate, the
+heads own the backend);
+`MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs::EngineCoreCompilesAgainstKniWebBackend`
+(the unchanged engine source recompiles under the web backend selected by
+an external property).
+**Depends on:** "Engine source is backend/OS-agnostic — non-portable calls
+go through `IPlatformServices`".
+
 ## Open questions
 
 - **Entity disposed mid-frame:** convention not yet established —

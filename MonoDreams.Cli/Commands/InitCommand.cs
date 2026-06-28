@@ -18,10 +18,16 @@ internal static class InitCommand
             description: "Target directory. Defaults to ./<name>.");
         cmd.AddOption(dirOption);
 
-        cmd.SetHandler(async (name, dir, registry) =>
+        var platformOption = new Option<string?>(
+            name: "--platform",
+            description: "Target platform: 'desktop' (DesktopGL head, default), 'web' (BlazorGL/KNI head), or 'multi' (both heads sharing one Core library).");
+        platformOption.FromAmong("desktop", "web", "multi");
+        cmd.AddOption(platformOption);
+
+        cmd.SetHandler(async (name, dir, platform, registry) =>
         {
-            await Runner.RunInitAsync(name, dir, registry);
-        }, nameArg, dirOption, registryOption);
+            await Runner.RunInitAsync(name, dir, platform, registry);
+        }, nameArg, dirOption, platformOption, registryOption);
 
         return cmd;
     }

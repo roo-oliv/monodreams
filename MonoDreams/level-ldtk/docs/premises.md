@@ -79,29 +79,67 @@ desired.
 **Depends on:** rendering — "`VisibleComponent` is owned exclusively by
 `CullingSystem`".
 
-## Module requires the LDtkMonogame content-pipeline DLL referenced in csproj
+## LDtkMonogame is vendored as source, recompiled per backend via `$(MonoDreamsPlatform)`
+
+The `LDtkMonogame` runtime + content pipeline are **vendored as source**
+under `MonoDreams/level-ldtk/vendor/LDtkMonogame/` (from
+`github.com/IrishBruse/LDtkMonogame`, MIT, pinned to tag 1.8.0 / commit
+`4a652fb`; see `vendor/LDtkMonogame/LICENSE`). They are **not** consumed as
+NuGet packages by the engine. The reason: the upstream packages reference
+`MonoGame.Framework.DesktopGL` only, so there is no KNI/BlazorGL build on
+NuGet — vendoring the source lets it recompile against whichever backend
+`$(MonoDreamsPlatform)` selects (MonoGame for `desktop`, nkast.Xna.Framework.\*
+for `web`), exactly like MonoDreams' own modules. `MonoDreams.csproj`
+`ProjectReference`s the vendored *runtime* (`LDtk/LDtk.csproj`); the vendored
+*content pipeline* (`LDtk.ContentPipeline/`) is built per-platform and
+surfaced to MGCB by the consumer's `/reference:` line. Upstream's optional
+example renderer (`Renderer/`) is excluded from compilation — it calls the
+desktop-only `Texture2D.FromFile`, which KNI lacks, and MonoDreams renders
+LDtk levels through its own parser systems + `MasterRenderSystem` instead.
+
+**Why:** every *precompiled* third-party dep that links MonoGame needs a
+KNI-built variant for the web backend; LDtkMonogame has none, so it is the
+one dep MonoDreams owns as source (shadcn-style) and recompiles. Pinning the
+version + commit lets a maintainer re-sync deliberately on upstream changes.
+**Breaks:** if someone re-adds the NuGet `LDtkMonogame` package ref to the
+engine, the web build pulls a DesktopGL-only assembly and fails to resolve
+`Microsoft.Xna.Framework` against the nkast identity; if `Renderer/` is
+re-included, the web build fails on `Texture2D.FromFile`. Bumping the
+vendored source without updating the pinned version note (here +
+`vendor/.../LDtk.csproj` `<LDtkVendoredVersion>` + `module.json`) silently
+drifts the fork.
+**Tests:**
+`MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs::VendoredLDtkRuntimeCompilesAgainstKniWebBackend`
+(web recompile) and `::EngineCoreCompilesAgainstKniWebBackend` (core graph);
+`LDtkLevelTests::LDtkLevelLoadsSuccessfully` exercises the vendored runtime
+end-to-end on desktop.
+**Depends on:** foundation — "Engine source is backend/OS-agnostic".
+
+## Consumers still surface the LDtk content-pipeline DLL to MGCB via `/reference:`
 
 The LDtk file format is loaded via `_content.Load<LDtkFile>(...)` and
 `_content.Load<LDtkLevel>(...)`, which require the `LDtkImporter` and
-`LDtkProcessor` to be present at content-build time. The module's
-manifest adds `nugetDependencies: ["LDtkMonogame",
-"LDtkMonogame.ContentPipeline"]` and the post-install notes instruct
-the consumer to add
-`/reference:$(NuGetPackageRoot)ldtkmonogame.contentpipeline/.../LDtk.ContentPipeline.dll`
-to `MonoGameMGCBAdditionalArguments` in their csproj. Without the
-reference, MGCB can't find the importer at content-build time.
+`LDtkProcessor` to be present at content-build time. MGCB runs as a
+separate process from the consuming csproj and does not inherit its
+references, so the consumer adds the LDtk content-pipeline DLL to
+`MonoGameMGCBAdditionalArguments` with a `/reference:` line. For the
+desktop reference app this still points at the NuGet
+`LDtkMonogame.ContentPipeline` DLL; the web content build (Phase 3) points
+at the vendored `LDtk.ContentPipeline` build output instead, built against
+the KNI pipeline assemblies for BlazorGL-targeted XNB output. Either way the
+`/reference:` mechanism is the same.
 
-**Why:** MGCB runs as a separate process from the consuming csproj
-and doesn't inherit its NuGet references; explicit
-`/reference:` arguments to MGCB are the supported way to surface
-content-pipeline DLLs. The same pattern applies to `dialogue` (Yarn)
-and any future content-pipeline-using module.
+**Why:** `/reference:` arguments to MGCB are the supported way to surface
+content-pipeline DLLs to the out-of-process builder. The same pattern
+applies to `dialogue` (Yarn) and any future content-pipeline-using module.
 **Breaks:** MGCB fails with `Importer LDtkImporter not found` at
-content-build time. The fix is non-obvious because the csproj appears
-to reference the NuGet correctly — the issue is the MGCB-specific
-`/reference:` line.
+content-build time. The fix is non-obvious because the csproj appears to
+reference the assembly correctly — the issue is the MGCB-specific
+`/reference:` line, and on web it must point at the KNI-built pipeline DLL,
+not the desktop one.
 **Tests:** none yet (content-pipeline failures fail the build, which
-is its own protection).
+is its own protection; the desktop path is exercised by the Examples
+content build that `LDtkLevelTests` depends on).
 **Depends on:** —
 
 ## `Blender_` prefix routes around this module
@@ -158,6 +196,7 @@ The following premises currently have **Tests: none yet**:
 - Tile parser and entity parser are independent systems both
   subscribing to the same component
 - LDtk's `layer.Visible` is not the engine's `VisibleComponent`
-- Module requires the LDtkMonogame content-pipeline DLL referenced in
-  csproj
+- Consumers still surface the LDtk content-pipeline DLL to MGCB via
+  `/reference:` (content build is its own protection; web path lands in
+  Phase 3)
 - `Blender_` prefix routes around this module

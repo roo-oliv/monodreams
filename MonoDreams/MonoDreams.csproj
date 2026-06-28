@@ -68,15 +68,59 @@
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     </PropertyGroup>
 
+    <!-- Expose internal rendering helpers (e.g. SpriteBatchFlush, the Reach 16-bit-index
+         batch-split planner) to the test assembly so their invariants can be unit-tested
+         without a live GraphicsDevice. -->
     <ItemGroup>
-        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
-        <PackageReference Include="LDtkMonogame" Version="1.8.0" />
+        <InternalsVisibleTo Include="MonoDreams.Tests" />
+    </ItemGroup>
+
+    <!-- ===== Backend-agnostic (pure .NET) dependencies — same on every platform ===== -->
+    <ItemGroup>
         <PackageReference Include="YarnSpinner" Version="3.0.2" />
         <PackageReference Include="YarnSpinner.Compiler" Version="3.0.2" />
         <PackageReference Include="CsvHelper" Version="31.0.4" />
-        <PackageReference Include="LDtkMonogame.ContentPipeline" Version="1.8.0" />
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
+    </ItemGroup>
+
+    <!-- ===== Precompiled backend deps, selected by $(MonoDreamsPlatform) (see Directory.Build.props) =====
+         Every precompiled third-party dep that links MonoGame needs a KNI-built variant for web.
+         MonoDreams' own source recompiles unchanged against either backend (same
+         Microsoft.Xna.Framework namespace, different assembly identity), so only these refs flip.
+         LDtkMonogame has no KNI build and is vendored + recompiled (see level-ldtk/vendor). -->
+
+    <!-- Desktop (MonoGame.Framework.DesktopGL). Default. -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' != 'web'">
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
         <PackageReference Include="MonoGame.Framework.Content.Pipeline" Version="3.8.4" />
+        <PackageReference Include="MonoGame.Extended" Version="4.1.0" />
+        <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="4.1.0" />
+        <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4" />
+    </ItemGroup>
+
+    <!-- Web (KNI / BlazorGL). Split nkast framework packages + KNI.Extended.
+         Versions pinned to the line proven by the Phase 0 spike (4.2.9001 / 6.0.0). -->
+    <ItemGroup Condition="'$(MonoDreamsPlatform)' == 'web'">
+        <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Input" Version="4.2.9001" />
+        <PackageReference Include="nkast.Xna.Framework.Content.Pipeline" Version="4.2.9001" />
+        <PackageReference Include="KNI.Extended" Version="6.0.0" />
+        <PackageReference Include="KNI.Extended.Content.Pipeline" Version="6.0.0" />
+    </ItemGroup>
+
+    <!-- LDtkMonogame runtime: vendored source, recompiled against the active backend.
+         The vendored runtime must match the engine's backend (a web build of the engine must
+         pull a web build of the LDtk runtime). We do NOT set AdditionalProperties here:
+         $(MonoDreamsPlatform) is set per-project by Directory.Build.props (default desktop) and
+         a web build flows it globally via -p:MonoDreamsPlatform=web, which propagates through
+         this ProjectReference. Pinning it with AdditionalProperties makes MSBuild build a second
+         LDtk instance (distinct global-property set) into the same output path, racing the
+         solution-node build (LDtkMonogame.deps.json "used by another process") now that LDtk is
+         a solution member — which it must be so Rider's solution build graph builds it. -->
+    <ItemGroup>
+        <ProjectReference Include="level-ldtk\vendor\LDtkMonogame\LDtk\LDtk.csproj" />
     </ItemGroup>
 
     <ItemGroup>
@@ -104,8 +148,6 @@
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
           <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="MonoGame.Extended.Content.Pipeline" Version="4.1.0" />
-        <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4" />
     </ItemGroup>
     <ItemGroup>
       <Compile Remove="Core\**" />
@@ -113,12 +155,13 @@
       <!-- they must not be compiled into the core engine library. The Demos project picks them up explicitly. -->
       <Compile Remove="**\demo\**" />
       <None Remove="**\demo\**" />
-    </ItemGroup>
-    <ItemGroup>
-      <PackageReference Include="MonoGame.Extended" Version="4.1.0" />
-    </ItemGroup>
-    <ItemGroup>
-      <ClCompile Include="Effect\MultiTextureEffect.fx" />
+      <!-- Vendored third-party source (level-ldtk/vendor) is built by its own csprojs and pulled in -->
+      <!-- via ProjectReference; it must NOT be swept into this project's default-glob compile, or the -->
+      <!-- vendored projects' obj/ AssemblyInfo + source get double-compiled (CS0579 duplicate attrs). -->
+      <Compile Remove="**\vendor\**" />
+      <None Remove="**\vendor\**" />
+      <EmbeddedResource Remove="**\vendor\**" />
+      <Content Remove="**\vendor\**" />
     </ItemGroup>
     <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
         <Message Text="Restoring dotnet tools" Importance="High" />

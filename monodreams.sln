@@ -5,9 +5,29 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams", "MonoDreams\Mo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Tests", "MonoDreams.Tests\MonoDreams.Tests.csproj", "{6F604CA3-7350-468B-8141-98C77BD7771C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Examples", "MonoDreams.Examples\MonoDreams.Examples.csproj", "{05B7C39C-CF10-4BA6-BBDE-9F126E32DAB9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Examples.Core", "MonoDreams.Examples.Core\MonoDreams.Examples.Core.csproj", "{6F663023-87AB-4E6D-9C4C-C5E474CBB7A9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Examples.Desktop", "MonoDreams.Examples.Desktop\MonoDreams.Examples.Desktop.csproj", "{179166E3-D15E-464D-8E7B-9E21077B7BE3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Examples.Web", "MonoDreams.Examples.Web\MonoDreams.Examples.Web.csproj", "{76059B96-4A16-4882-BD42-E8249AC280F8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Demos", "MonoDreams.Demos\MonoDreams.Demos.csproj", "{18D28677-74E9-4798-8A66-7E28F163DB16}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Cli.Tests", "MonoDreams.Cli.Tests\MonoDreams.Cli.Tests.csproj", "{3CF38BF5-EFFE-4AB1-9BDD-2E7E27D33FF2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "MonoDreams", "MonoDreams", "{621C9686-DD80-42A1-8F12-9E4F5CBA588F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "level-ldtk", "level-ldtk", "{EC137A55-57D8-49B1-9956-ABD3164EC78C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "vendor", "vendor", "{3FEBAE50-6654-42C0-976B-412719F74A2C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "LDtkMonogame", "LDtkMonogame", "{EED02690-0668-489B-B5A9-3B2FDD8CCAEA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LDtk", "MonoDreams\level-ldtk\vendor\LDtkMonogame\LDtk\LDtk.csproj", "{45B66BB7-5B40-4056-B25D-ED9E8B1560BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Demos.Web", "MonoDreams.Demos.Web\MonoDreams.Demos.Web.csproj", "{3FA378FD-3A91-490E-BC4E-02C20B126B05}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Web.Hosting", "MonoDreams.Web.Hosting\MonoDreams.Web.Hosting.csproj", "{AA162B80-6CDE-41B3-85D8-6E930B15A2AD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,13 +43,38 @@ Global
 		{6F604CA3-7350-468B-8141-98C77BD7771C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6F604CA3-7350-468B-8141-98C77BD7771C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6F604CA3-7350-468B-8141-98C77BD7771C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{05B7C39C-CF10-4BA6-BBDE-9F126E32DAB9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{05B7C39C-CF10-4BA6-BBDE-9F126E32DAB9}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{05B7C39C-CF10-4BA6-BBDE-9F126E32DAB9}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{05B7C39C-CF10-4BA6-BBDE-9F126E32DAB9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6F663023-87AB-4E6D-9C4C-C5E474CBB7A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6F663023-87AB-4E6D-9C4C-C5E474CBB7A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6F663023-87AB-4E6D-9C4C-C5E474CBB7A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6F663023-87AB-4E6D-9C4C-C5E474CBB7A9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{179166E3-D15E-464D-8E7B-9E21077B7BE3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{179166E3-D15E-464D-8E7B-9E21077B7BE3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{179166E3-D15E-464D-8E7B-9E21077B7BE3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{179166E3-D15E-464D-8E7B-9E21077B7BE3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{76059B96-4A16-4882-BD42-E8249AC280F8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{76059B96-4A16-4882-BD42-E8249AC280F8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{18D28677-74E9-4798-8A66-7E28F163DB16}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{18D28677-74E9-4798-8A66-7E28F163DB16}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{18D28677-74E9-4798-8A66-7E28F163DB16}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{18D28677-74E9-4798-8A66-7E28F163DB16}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3CF38BF5-EFFE-4AB1-9BDD-2E7E27D33FF2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3CF38BF5-EFFE-4AB1-9BDD-2E7E27D33FF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3CF38BF5-EFFE-4AB1-9BDD-2E7E27D33FF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3CF38BF5-EFFE-4AB1-9BDD-2E7E27D33FF2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{45B66BB7-5B40-4056-B25D-ED9E8B1560BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45B66BB7-5B40-4056-B25D-ED9E8B1560BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45B66BB7-5B40-4056-B25D-ED9E8B1560BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45B66BB7-5B40-4056-B25D-ED9E8B1560BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3FA378FD-3A91-490E-BC4E-02C20B126B05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FA378FD-3A91-490E-BC4E-02C20B126B05}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AA162B80-6CDE-41B3-85D8-6E930B15A2AD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AA162B80-6CDE-41B3-85D8-6E930B15A2AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E2A92394-1D8C-451C-8A84-5627BA5E5E61} = {621C9686-DD80-42A1-8F12-9E4F5CBA588F}
+		{EC137A55-57D8-49B1-9956-ABD3164EC78C} = {621C9686-DD80-42A1-8F12-9E4F5CBA588F}
+		{3FEBAE50-6654-42C0-976B-412719F74A2C} = {EC137A55-57D8-49B1-9956-ABD3164EC78C}
+		{EED02690-0668-489B-B5A9-3B2FDD8CCAEA} = {3FEBAE50-6654-42C0-976B-412719F74A2C}
+		{45B66BB7-5B40-4056-B25D-ED9E8B1560BB} = {EED02690-0668-489B-B5A9-3B2FDD8CCAEA}
 	EndGlobalSection
 EndGlobal

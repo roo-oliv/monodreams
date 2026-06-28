@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using MonoDreams.Platform;
 
 namespace MonoDreams.State;
 
@@ -14,7 +15,7 @@ public enum LogLevel
 public static class Logger
 {
     private static readonly object Lock = new();
-    private static StreamWriter _writer;
+    private static TextWriter _writer;
     private static LogLevel _minimumLevel = LogLevel.Debug;
     private static float _gameTime = -1f;
     private static bool _initialized;
@@ -27,14 +28,14 @@ public static class Logger
 
             _minimumLevel = minimumLevel;
 
-            Directory.CreateDirectory(outputDirectory);
-
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var logPath = Path.Combine(outputDirectory, $"monodreams_{timestamp}.log");
-            _writer = new StreamWriter(logPath, append: false) { AutoFlush = true };
+            var fileName = $"monodreams_{timestamp}.log";
+            // Routed through IPlatformServices: the desktop sink is a file StreamWriter
+            // under outputDirectory; a web head supplies a Console/in-memory writer.
+            _writer = PlatformServices.Current.OpenLogWriter(outputDirectory, fileName);
             _initialized = true;
 
-            Info($"Logger initialized. Writing to {logPath}");
+            Info($"Logger initialized. Writing to {PlatformServices.Current.CombinePath(outputDirectory, fileName)}");
         }
     }
 
@@ -82,7 +83,7 @@ public static class Logger
 
         lock (Lock)
         {
-            Console.WriteLine(line);
+            PlatformServices.Current.WriteLineToConsole(line);
             _writer?.WriteLine(line);
         }
     }

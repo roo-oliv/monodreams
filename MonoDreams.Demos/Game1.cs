@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
+using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -36,7 +37,13 @@ public class Game1 : Game
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = false;
+        // Platform-conditional: desktop GL supports HiDef; a web (BlazorGL/WebGL)
+        // head defines MONODREAMS_WEB and falls back to Reach. Selected by the head.
+#if MONODREAMS_WEB
+        _graphics.GraphicsProfile = GraphicsProfile.Reach;
+#else
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
+#endif
         // Headless still renders at full virtual resolution into a real backbuffer —
         // the window is just hidden off-screen and never relied on for presentation.
         // The render path (and its memory behaviour) is exercised exactly as in a
@@ -59,7 +66,10 @@ public class Game1 : Game
         _viewportManager = new ViewportManager(this, VirtualWidth, VirtualHeight);
         _camera = new Camera(VirtualWidth, VirtualHeight);
 
+        // OS-window resize is a desktop concern; a web head sizes from the host page.
+#if !MONODREAMS_WEB
         Window.ClientSizeChanged += (_, _) => InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+#endif
     }
 
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
@@ -71,8 +81,8 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        var debugDir = global::System.Environment.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
-            ?? global::System.IO.Path.Combine(global::System.AppDomain.CurrentDomain.BaseDirectory, "debug");
+        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
 
         // Project-wide dark navy theme for all MonoDreams demo screens.
@@ -81,8 +91,11 @@ public class Game1 : Game
         if (_headless.Enabled)
         {
             // Hide the window off-screen; the GL context (and its backbuffer) stay live
-            // so Draw renders real frames we read back to PNG.
+            // so Draw renders real frames we read back to PNG. Desktop-only — a web head
+            // has no OS window to move.
+#if !MONODREAMS_WEB
             Window.Position = new Point(-2000, -2000);
+#endif
             _screenshotCapture = new ScreenshotCaptureSystem(GraphicsDevice, captureIntervalSeconds: 0f, debugDir);
             Logger.Info($"Headless run: screen='{_headless.Screen}', frames={_headless.Frames}, " +
                         $"captureEvery={_headless.CaptureEvery}, sampleEvery={_headless.SampleEvery}.");

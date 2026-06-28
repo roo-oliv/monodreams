@@ -1,0 +1,151 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    Examples.Web — the BlazorGL (KNI) head for the MonoDreams reference app.
+    Thin: a Blazor WebAssembly host that boots WebGame (Examples.Core, built for the web
+    backend) into the LDtk platformer. The shared game library + Content.mgcb live in
+    Examples.Core; this head owns the WASM host wiring (Program/App/Index/index.html) and
+    the per-platform content build (the SAME Content.mgcb, built for /platform:BlazorGL).
+
+    BUILD IT WITH:  dotnet build MonoDreams.Examples.Web -p:MonoDreamsPlatform=web
+    The property must be GLOBAL (passed via -p:) so it propagates through the reference graph
+    at RESTORE time (AdditionalProperties on a ProjectReference does NOT flow to restore). This
+    head is intentionally excluded from the solution's default build configuration so a plain
+    `dotnet build MonoDreams.sln` (the desktop regression) does not try to build it without the
+    property. Requires the `wasm-tools` dotnet workload.
+
+    Host wiring template captured from the Phase 0 spike (nkast/WebGLxnaProj-derived).
+  -->
+
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>MonoDreams.Examples.Web</RootNamespace>
+    <AssemblyName>MonoDreams.Examples.Web</AssemblyName>
+    <DefineConstants>$(DefineConstants);BLAZORGL;MONODREAMS_WEB</DefineConstants>
+    <KniPlatform>BlazorGL</KniPlatform>
+    <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only the game-specific files remain; every shared web-host file (WebPlatformServices,
+         Program boilerplate, the canvas/tick component, host.js, app.css) moved to the shared
+         MonoDreams.Web.Hosting layer below. -->
+    <Compile Include="Program.cs" />
+    <Compile Include="WebGame.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared game library + the shared web-host layer, both built for the WEB backend (KNI).
+         MonoDreamsPlatform=web must be a global property (-p:) for the restore to resolve the KNI
+         packages transitively. The KNI runtime stack (nkast.* + Blazor.GL + KNI.Extended) is no
+         longer listed here — it comes transitively through MonoDreams.Web.Hosting. -->
+    <ProjectReference Include="..\MonoDreams.Examples.Core\MonoDreams.Examples.Core.csproj" />
+    <ProjectReference Include="..\MonoDreams.Web.Hosting\MonoDreams.Web.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0' ">
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.11" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- =====================================================================================
+       Per-platform content build: the SAME Content.mgcb that the desktop head builds with
+       MonoGame.Content.Builder.Task, here built for /platform:BlazorGL by the KNI builder.
+
+       macOS/Linux note: the KNI builder package ships only Windows-native FreeImage/freetype;
+       on a non-Windows host the TextureImporter throws DllNotFoundException. The shim target
+       below copies the matching macOS/Linux native libs from the desktop MonoGame MGCB tool
+       (dotnet-mgcb 3.8.4) into the KNI builder tools dir, and runs the managed MGCB.dll via
+       `dotnet`. This makes BlazorGL content build cross-platform.
+       ===================================================================================== -->
+  <PropertyGroup>
+    <KniBuilderPkg>$(NuGetPackageRoot)nkast.xna.framework.content.pipeline.builder/4.2.9001</KniBuilderPkg>
+    <KniBuilderToolsDir>$(KniBuilderPkg)/tools</KniBuilderToolsDir>
+    <MonoGameMgcbToolDir>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/runtimes/osx/native</MonoGameMgcbToolDir>
+    <MonoGameMgcbToolDirLinux>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/runtimes/linux-x64/native</MonoGameMgcbToolDirLinux>
+    <!-- Run MGCB cross-platform via the managed entrypoint instead of the bundled Windows .exe. -->
+    <KniContentBuilderExe Condition="'$(OS)' != 'Windows_NT'">dotnet</KniContentBuilderExe>
+  </PropertyGroup>
+
+  <!-- The KNI content-builder package is dev-time only (runs MGCB on the dev's desktop);
+       reference it for the restore + tools, but keep its assets out of the WASM bundle. -->
+  <ItemGroup>
+    <PackageReference Include="nkast.Xna.Framework.Content.Pipeline.Builder" Version="4.2.9001"
+                      ExcludeAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="KNI.Extended.Content.Pipeline" Version="6.0.0"
+                      ExcludeAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!-- Import the KNI content-builder targets (CollectContentReferences / RunContentBuilder /
+       IncludeContent). The .targets auto-globs **/*.mgcb under THIS project; ours lives in
+       Examples.Core, so we add it explicitly as a KniContentReference below. -->
+  <Import Project="$(KniBuilderPkg)/build/nkast.Xna.Framework.Content.Pipeline.Builder.targets"
+          Condition="Exists('$(KniBuilderPkg)/build/nkast.Xna.Framework.Content.Pipeline.Builder.targets')" />
+
+  <ItemGroup>
+    <!-- The shared Content.mgcb (lives in Examples.Core). The Link's directory name becomes the
+         ContentFolder, so output lands in wwwroot/Content/ for the BlazorGL platform. -->
+    <KniContentReference Include="..\MonoDreams.Examples.Core\Content\Content.mgcb">
+      <Link>Content\Content.mgcb</Link>
+    </KniContentReference>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Isolated bin roots for the WEB builds of the engine + LDtk content pipeline, so they
+         never clobber (or get clobbered by) the desktop dll at bin/$(Config)/net8.0. -->
+    <_WebEngineBin>$(MSBuildProjectDirectory)/obj/web-engine-bin</_WebEngineBin>
+    <_WebLDtkBin>$(MSBuildProjectDirectory)/obj/web-ldtk-bin</_WebLDtkBin>
+  </PropertyGroup>
+
+  <Target Name="BuildWebContentPipelineDlls" BeforeTargets="PrepareKniContentNativeShim">
+    <!-- Build the engine + vendored LDtk content pipeline FOR WEB via a nested `dotnet build`
+         (Restore+Build) so MonoDreamsPlatform=web restores the KNI packages into the obj and
+         produces a genuinely web-backed dll. A plain MSBuild Build target reused the
+         desktop-restored project.assets.json and silently emitted a desktop dll, after which the
+         KNI MGCB fails to bind the Yarn/LDtk importers (NullReferenceException). The isolated
+         output dir keeps these web dlls from colliding with the desktop dll; deps (YarnSpinner,
+         the vendored LDtk runtime) land beside each dll where the KNI MGCB probes them. This
+         mirrors KniBackendBuildTests' build isolation from Wave 2/3. -->
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)../MonoDreams/MonoDreams.csproj&quot; -c $(Configuration) -p:MonoDreamsPlatform=web --output &quot;$(_WebEngineBin)&quot;"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)../MonoDreams/level-ldtk/vendor/LDtkMonogame/LDtk.ContentPipeline/LDtk.ContentPipeline.csproj&quot; -c $(Configuration) -p:MonoDreamsPlatform=web --output &quot;$(_WebLDtkBin)&quot;"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+  </Target>
+
+  <!-- Stage the cross-platform native libs + set the /reference: args before MGCB runs. -->
+  <Target Name="PrepareKniContentNativeShim" BeforeTargets="RunContentBuilder">
+    <PropertyGroup>
+      <_LDtkWebPipelineDll>$(_WebLDtkBin)/LDtk.ContentPipeline.dll</_LDtkWebPipelineDll>
+      <_EngineWebDll>$(_WebEngineBin)/MonoDreams.dll</_EngineWebDll>
+      <_ExtendedPipelineDll>$(PkgKNI_Extended_Content_Pipeline)/lib/net8.0/KNI.Extended.Content.Pipeline.dll</_ExtendedPipelineDll>
+      <_ExtendedRuntimeDll>$(NuGetPackageRoot)kni.extended/6.0.0/lib/net8.0/KNI.Extended.dll</_ExtendedRuntimeDll>
+      <_AutofacDll>$(NuGetPackageRoot)autofac/5.2.0/lib/netstandard2.1/Autofac.dll</_AutofacDll>
+      <!-- Run the managed MGCB.dll on non-Windows; the .targets default is the Windows MGCB.exe. -->
+      <KniContentBuilderArguments Condition="'$(OS)' != 'Windows_NT'">"$(KniBuilderToolsDir)/MGCB.dll" /quiet /reference:"$(_ExtendedPipelineDll)" /reference:"$(_LDtkWebPipelineDll)" /reference:"$(_EngineWebDll)"</KniContentBuilderArguments>
+      <KniContentBuilderArguments Condition="'$(OS)' == 'Windows_NT'">/quiet /reference:"$(_ExtendedPipelineDll)" /reference:"$(_LDtkWebPipelineDll)" /reference:"$(_EngineWebDll)"</KniContentBuilderArguments>
+    </PropertyGroup>
+
+    <!-- The KNI builder's importer-dependency probing loads referenced assemblies from the
+         tools dir; stage KNI.Extended runtime + Autofac there so the BitmapFont importer resolves. -->
+    <Copy SourceFiles="$(_ExtendedRuntimeDll)" DestinationFolder="$(KniBuilderToolsDir)"
+          SkipUnchangedFiles="true" Condition="Exists('$(_ExtendedRuntimeDll)')" />
+    <Copy SourceFiles="$(_ExtendedPipelineDll)" DestinationFolder="$(KniBuilderToolsDir)"
+          SkipUnchangedFiles="true" Condition="Exists('$(_ExtendedPipelineDll)')" />
+    <Copy SourceFiles="$(_AutofacDll)" DestinationFolder="$(KniBuilderToolsDir)"
+          SkipUnchangedFiles="true" Condition="Exists('$(_AutofacDll)')" />
+
+    <!-- macOS/Linux native-lib shim for the TextureImporter (FreeImage/freetype). The KNI builder
+         package ships only Windows DLLs; borrow the matching native libs from the desktop MonoGame
+         MGCB tool (dotnet-mgcb), renamed to the names the KNI P/Invoke probes (FreeImage / freetype6). -->
+    <Copy SourceFiles="$(MonoGameMgcbToolDir)/libfreeimage.dylib" DestinationFiles="$(KniBuilderToolsDir)/FreeImage.dylib"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDir)/libfreeimage.dylib')" />
+    <Copy SourceFiles="$(MonoGameMgcbToolDir)/libfreetype.dylib" DestinationFiles="$(KniBuilderToolsDir)/freetype6.dylib"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDir)/libfreetype.dylib')" />
+    <Copy SourceFiles="$(MonoGameMgcbToolDirLinux)/libfreeimage.so" DestinationFiles="$(KniBuilderToolsDir)/FreeImage.so"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDirLinux)/libfreeimage.so')" />
+  </Target>
+
+</Project>
