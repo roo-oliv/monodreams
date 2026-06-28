@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "7c253379eed4",
+  "session_id": "7b634335-eb18-4637-8cf2-25a3ffd6634f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-28T16:18:49.015304Z",
+  "branch": "feat/kni",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "Directory.Build.props",
+    "MonoDreams.Demos.Web/App.razor",
+    "MonoDreams.Demos.Web/MainLayout.razor",
+    "MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj",
+    "MonoDreams.Demos.Web/Pages/Index.razor",
+    "MonoDreams.Demos.Web/Pages/Index.razor.cs",
+    "MonoDreams.Demos.Web/Program.cs",
+    "MonoDreams.Demos.Web/WebGame.cs",
+    "MonoDreams.Demos.Web/WebPlatformServices.cs",
+    "MonoDreams.Demos.Web/_Imports.razor",
+    "MonoDreams.Demos.Web/wwwroot/css/app.css",
+    "MonoDreams.Demos.Web/wwwroot/index.html",
+    "MonoDreams.Examples.Web/Pages/Index.razor",
+    "MonoDreams.Examples.Web/WebGame.cs",
+    "MonoDreams.Examples.Web/wwwroot/index.html",
+    "MonoDreams.Tests/Rendering/MeshIndexConversionTests.cs",
+    "MonoDreams/rendering/Component/Draw/DrawComponent.cs",
+    "MonoDreams/rendering/System/Draw/FinalDrawSystem.cs",
+    "MonoDreams/rendering/System/Draw/MasterRenderSystem.cs",
+    "MonoDreams/rendering/docs/premises.md",
+    "docs/web-targeting.md",
+    "monodreams.sln"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "c4322546-2569-4379-82c9-e394b25f3c9a",
+  "token_usage": {
+    "input_tokens": 63040,
+    "cache_creation_tokens": 5448802,
+    "cache_read_tokens": 192505324,
+    "output_tokens": 617077,
+    "api_call_count": 486
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-28T16:18:48.019007Z",
+    "agent_lines": 956,
+    "human_added": 794,
+    "human_modified": 21,
+    "human_removed": 0,
+    "total_committed": 1771,
+    "agent_percentage": 53.98080180688877
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams--worktrees-feat-kni/7b634335-eb18-4637-8cf2-25a3ffd6634f.jsonl"
+}

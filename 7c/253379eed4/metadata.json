@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "7c253379eed4",
+  "strategy": "manual-commit",
+  "branch": "feat/kni",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".claude/settings.local.json",
+    "Directory.Build.props",
+    "MonoDreams.Demos.Web/App.razor",
+    "MonoDreams.Demos.Web/MainLayout.razor",
+    "MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj",
+    "MonoDreams.Demos.Web/Pages/Index.razor",
+    "MonoDreams.Demos.Web/Pages/Index.razor.cs",
+    "MonoDreams.Demos.Web/Program.cs",
+    "MonoDreams.Demos.Web/WebGame.cs",
+    "MonoDreams.Demos.Web/WebPlatformServices.cs",
+    "MonoDreams.Demos.Web/_Imports.razor",
+    "MonoDreams.Demos.Web/wwwroot/css/app.css",
+    "MonoDreams.Demos.Web/wwwroot/index.html",
+    "MonoDreams.Examples.Web/Pages/Index.razor",
+    "MonoDreams.Examples.Web/WebGame.cs",
+    "MonoDreams.Examples.Web/wwwroot/index.html",
+    "MonoDreams.Tests/Rendering/MeshIndexConversionTests.cs",
+    "MonoDreams/rendering/Component/Draw/DrawComponent.cs",
+    "MonoDreams/rendering/System/Draw/FinalDrawSystem.cs",
+    "MonoDreams/rendering/System/Draw/MasterRenderSystem.cs",
+    "MonoDreams/rendering/docs/premises.md",
+    "docs/web-targeting.md",
+    "monodreams.sln"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7c/253379eed4/0/metadata.json",
+      "transcript": "/7c/253379eed4/0/full.jsonl",
+      "context": "/7c/253379eed4/0/context.md",
+      "content_hash": "/7c/253379eed4/0/content_hash.txt",
+      "prompt": "/7c/253379eed4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 63040,
+    "cache_creation_tokens": 5448802,
+    "cache_read_tokens": 192505324,
+    "output_tokens": 617077,
+    "api_call_count": 486
+  }
+}
