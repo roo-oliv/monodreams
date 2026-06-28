@@ -112,6 +112,41 @@ parser ignores — the Blender artist's intent is silently discarded.
 `blender_level.json`; nothing exercises the schema-evolution path).
 **Depends on:** —
 
+## Blender level JSON is read as content, not host filesystem
+
+`BlenderLevelParserSystem` reads `<ContentRoot>/blender_level.json` through
+`TitleContainer.OpenStream` (the `Microsoft.Xna.Framework` content-stream
+primitive that `ContentManager` itself uses), **not** through
+`System.IO.File` or `IPlatformServices`. The JSON ships in the content
+pipeline as a `/copy:` asset, so it sits beside the `.xnb` files under the
+content root and resolves by the same relative path on every backend — a
+file read on desktop, a synchronous HTTP fetch of the served asset on web
+(BlazorGL). The distinction is deliberate: the level JSON is **read-only
+game content**, not user data, so it travels the content path; user data
+(settings, the debug input-replay plan) is what goes through
+`IPlatformServices`, which has no readable disk on web.
+
+**Why:** the browser sandbox has no readable host filesystem. The earlier
+implementation read the JSON via `IPlatformServices.ReadAllText` off an
+absolute disk path; `WebPlatformServices.ReadAllText` returns empty there,
+so deserialization produced no objects and the Blender level loaded with
+**zero entities on web** while working on desktop — a silent, platform-split
+failure. Routing the read through `TitleContainer` is what makes the same
+content load on both backends.
+**Breaks:** reverting to `File.ReadAllText` / `IPlatformServices.ReadAllText`
+for the JSON makes the Blender level silently empty on web again (no
+exception — just no entities). Conversely, making `blender_level.json` a
+processed `.xnb` asset (instead of `/copy:`) would break the raw-stream read
+unless the path/extension is updated to match.
+**Tests:**
+`MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelLoadsSuccessfully`
+exercises the `TitleContainer` read path end-to-end on desktop (it asserts
+"objects from Blender level" / "entities from Blender level" appear, which
+only happens if the stream opened and deserialized). The web fetch path is
+verified manually in-browser (Examples.Web "Level 2").
+**Depends on:** foundation — "Engine source is backend/OS-agnostic —
+non-portable calls go through `IPlatformServices`".
+
 ## Collider-child convention: `-collider` suffix attaches a ConvexCollider to the parent
 
 Child meshes whose `name` ends with `-collider` (e.g. `Rock-collider`)

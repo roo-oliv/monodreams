@@ -172,8 +172,12 @@ modules would make the source un-runnable on web. The seam keeps the
 platform a head-level choice, never baked into a module.
 **Breaks:** a module that calls `File`/`AppDomain`/`Environment`/`Console`
 directly compiles for web but throws (or silently no-ops) at runtime in the
-browser — e.g. `BlenderLevelParserSystem` reading a JSON path off a disk
-that doesn't exist, or `Logger` writing to a `StreamWriter` that can't open.
+browser — e.g. `GameSettings` reading a save file off a disk that doesn't
+exist, or `Logger` writing to a `StreamWriter` that can't open. (Read-only
+*game content* is the exception: it is not a host-filesystem concern — it
+goes through `ContentManager`/`TitleContainer`, which serves it over HTTP on
+web. See level-blender — "Blender level JSON is read as content, not host
+filesystem".)
 **Tests:** `MonoDreams.Tests/Platform/PlatformServicesTests.cs` (asserts
 `Logger` and `InputReplayPlan.TryLoad` route through a fake
 `IPlatformServices` with no real disk, and that `DesktopPlatformServices`

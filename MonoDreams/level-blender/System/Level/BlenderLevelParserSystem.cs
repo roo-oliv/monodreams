@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
@@ -15,7 +16,6 @@ using MonoDreams.Level;
 using MonoDreams.Message.Level;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
-using MonoDreams.Platform;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Level;
@@ -84,14 +84,22 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
         try
         {
-            // Load JSON file from Content directory.
-            // Content.RootDirectory gives us the path to the Content folder; routed through
-            // IPlatformServices so a web head can serve the JSON over HTTP / in-memory
-            // instead of the local filesystem (see Phase-1 portability premises).
-            var jsonPath = PlatformServices.Current.CombinePath(
-                PlatformServices.Current.BaseDirectory, _content.RootDirectory, "blender_level.json");
-            Logger.Debug($"Loading Blender level from: {jsonPath}");
-            var jsonContent = PlatformServices.Current.ReadAllText(jsonPath);
+            // Read the level JSON as GAME CONTENT, through TitleContainer — the portable
+            // content-stream primitive ContentManager itself uses under the hood. blender_level.json
+            // ships in the content pipeline (a /copy: asset), so it sits beside the .xnb files under
+            // <ContentRoot>/. TitleContainer.OpenStream resolves the SAME relative path on every
+            // backend: a file read on desktop, a synchronous fetch of the served asset on web
+            // (BlazorGL). This is read-only content, not user data, so it belongs on the content
+            // path — NOT the host-filesystem path (IPlatformServices), which has no readable disk in
+            // the browser and used to return empty, leaving the web level silently entity-less.
+            var contentPath = Path.Combine(_content.RootDirectory, "blender_level.json");
+            Logger.Debug($"Loading Blender level from content: {contentPath}");
+            string jsonContent;
+            using (var stream = TitleContainer.OpenStream(contentPath))
+            using (var reader = new StreamReader(stream))
+            {
+                jsonContent = reader.ReadToEnd();
+            }
 
             var options = new JsonSerializerOptions
             {

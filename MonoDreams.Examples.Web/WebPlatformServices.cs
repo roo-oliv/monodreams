@@ -7,9 +7,11 @@ namespace MonoDreams.Examples.Web
     /// <summary>
     /// Web (Blazor/WASM) implementation of <see cref="IPlatformServices"/>. There is no
     /// writable host filesystem and no process environment in the browser sandbox, so:
-    ///   - reads of game content go through MonoGame's <c>ContentManager</c> (XNB over HTTP),
-    ///     never <see cref="File"/>; the engine routes those that used <see cref="File"/>
-    ///     (Blender level JSON, settings) through here, which on web return empty/no-op.
+    ///   - reads of game CONTENT (XNB assets, and raw /copy: files like the Blender level JSON)
+    ///     go through MonoGame's <c>ContentManager</c> / <c>TitleContainer</c> (served over HTTP),
+    ///     never through here — so they work on web;
+    ///   - reads of USER DATA / dev files that used <see cref="File"/> (settings, the debug
+    ///     input-replay plan) route through here and return empty/no-op (no readable disk);
     ///   - the log sink is the browser console (a <see cref="TextWriter"/> over
     ///     <see cref="Console"/>, which Blazor maps to the dev console);
     ///   - background work runs inline — WASM is single-threaded;
