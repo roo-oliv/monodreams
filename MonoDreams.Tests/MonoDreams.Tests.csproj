@@ -24,6 +24,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MonoDreams\MonoDreams.csproj" />
+    <!-- Examples.Core supplies the reference game's menu wiring (LevelSelector / ButtonInteractionSystem
+         / ScreenTransitionRequest / ScreenName), so the editor-menu-wiring contract can be asserted at
+         the message/handler level in-process (no separate spawned game needed). -->
+    <ProjectReference Include="..\MonoDreams.Examples.Core\MonoDreams.Examples.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
