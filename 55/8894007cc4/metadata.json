@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "558894007cc4",
+  "strategy": "manual-commit",
+  "branch": "feat/skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".gitignore",
+    "CONTRIBUTING.md",
+    "docs/agents/skills-config.md",
+    "docs/flows/camera.md",
+    "docs/flows/collision.md",
+    "docs/flows/cursor.md",
+    "docs/flows/debug.md",
+    "docs/flows/dialogue.md",
+    "docs/flows/foundation.md",
+    "docs/flows/level-blender.md",
+    "docs/flows/level-ldtk.md",
+    "docs/flows/level-loading.md",
+    "docs/flows/physics.md",
+    "docs/flows/platform.md",
+    "docs/flows/rendering-text.md",
+    "docs/flows/rendering.md",
+    "docs/flows/ui.md",
+    "docs/index.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/55/8894007cc4/0/metadata.json",
+      "transcript": "/55/8894007cc4/0/full.jsonl",
+      "context": "/55/8894007cc4/0/context.md",
+      "content_hash": "/55/8894007cc4/0/content_hash.txt",
+      "prompt": "/55/8894007cc4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 678,
+    "cache_creation_tokens": 199444,
+    "cache_read_tokens": 2308596,
+    "output_tokens": 44804,
+    "api_call_count": 17
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "558894007cc4",
+  "session_id": "72271dd1-9d27-4528-8ca8-9814ff375c28",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T00:28:28.304041Z",
+  "branch": "feat/skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".gitignore",
+    "CONTRIBUTING.md",
+    "docs/agents/skills-config.md",
+    "docs/flows/camera.md",
+    "docs/flows/collision.md",
+    "docs/flows/cursor.md",
+    "docs/flows/debug.md",
+    "docs/flows/dialogue.md",
+    "docs/flows/foundation.md",
+    "docs/flows/level-blender.md",
+    "docs/flows/level-ldtk.md",
+    "docs/flows/level-loading.md",
+    "docs/flows/physics.md",
+    "docs/flows/platform.md",
+    "docs/flows/rendering-text.md",
+    "docs/flows/rendering.md",
+    "docs/flows/ui.md",
+    "docs/index.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "5b5f5084-97c9-430d-998a-458f498b61f6",
+  "checkpoint_transcript_start": 260,
+  "transcript_lines_at_start": 260,
+  "token_usage": {
+    "input_tokens": 678,
+    "cache_creation_tokens": 199444,
+    "cache_read_tokens": 2308596,
+    "output_tokens": 44804,
+    "api_call_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T00:28:28.146026Z",
+    "agent_lines": 1249,
+    "human_added": 30,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 1280,
+    "agent_percentage": 97.578125
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-skills/72271dd1-9d27-4528-8ca8-9814ff375c28.jsonl"
+}
