@@ -6,18 +6,20 @@
 > Read this before changing the editor screen, its overlay entities, or the
 > scene save/load path.
 >
-> **Status: Wave 5 (complete).** The run-state premise (Wave 1), the three
-> serialization premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
-> SOURCE-not-derived sort fields), the scene round-trip premise (Wave 3 —
-> membership closure + the `LoadSceneRequest` reader + `Texture2D` rehydration),
-> the Wave-4a interactive-editor invariants — overlay-standalone +
-> delete-snapshot, bounded undo with drag-coalescing, and selection topmost —
-> the Wave-4b gizmo + toolbar invariants — the gizmo applies a quantized
-> (snap-on) or raw (snap-off) transform edit honoring Origin, and the toolbar's
-> buttons drive the SAME shared editor instances — and the Wave-5 headless
+> **Status: Wave 5 (complete) + post-Wave-A editor usability.** The run-state
+> premise (Wave 1), the three serialization premises (Wave 2 — registry opt-in,
+> AssetKey-not-live-texture, SOURCE-not-derived sort fields), the scene
+> round-trip premise (Wave 3 — membership closure + the `LoadSceneRequest`
+> reader + `Texture2D` rehydration), the Wave-4a interactive-editor invariants —
+> overlay-standalone + delete-snapshot, bounded undo with drag-coalescing, and
+> selection topmost — the Wave-4b gizmo + toolbar invariants — the gizmo applies
+> a quantized (snap-on) or raw (snap-off) transform edit honoring Origin, and the
+> toolbar's buttons drive the SAME shared editor instances — the Wave-5 headless
 > editor-op channel (injected cursor state survives the input pass; the op
-> channel holds the session open) are all live below. No premise here ships
-> `Tests: none yet`.
+> channel holds the session open), and the post-Wave-A camera-navigation
+> invariant (pan/zoom/frame-scene drive the camera directly, Edit-guarded,
+> ordered before the cursor's world-pos derivation) are all live below. No
+> premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -289,6 +291,42 @@ publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack 
 **Depends on:** ui — `AutoLayoutBuilder` / `SimpleButtonComponent` / `ButtonMeshPrepSystem`; cursor —
 `CursorInputComponent.VirtualPosition`; level-editor — "Bounded undo with drag-coalescing", "Scene
 round-trip reconstructs from registered components, not factories".
+
+## Editor camera navigation pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation
+
+In `RunMode.Edit` the editor — not `CameraFollowSystem` — owns the camera (the §9 interaction
+matrix: camera-follow is `Freeze`-gated, "in Edit the editor drives `Camera.Position`/`Zoom`
+directly"). `CameraNavSystem` provides that drive: **pan** (middle-mouse drag → the camera moves the
+opposite way to the cursor's virtual-pixel delta so the grabbed world point stays under the cursor —
+`Position -= virtualDelta / Zoom`), **zoom** (scroll wheel → a geometric step on `Camera.Zoom`,
+clamped to a sane range, default 0.25–4.0), and **frame-scene** (a key edge centres the camera on the
+AABB of all renderable content — every `SpriteInfoComponent` + `TransformComponent` entity, via the
+pure `GizmoTransform.SpriteWorldQuad` corners — and zoom-fits it with a margin; **no content is a
+no-op**). The system is **Edit-guarded** (inert in Play — it must not fight `CameraFollowSystem`) and is
+registered **before `CursorPositionSystem`** so the camera mutation it makes this frame is the camera
+state `CursorPositionSystem` reads when deriving the cursor's world position — no one-frame lag between
+a pan/zoom and the cursor's world coordinate. Pan reads the cursor's **virtual** (pre-camera) position,
+so it never feeds back on the camera it just moved. The math (pan sign, zoom clamp, AABB centre/fit)
+is the pure, world-free `Navigation/CameraNav` so it is unit-testable without a real `Camera` or cursor.
+
+**Why:** off-origin levels (e.g. `Blender_Level`'s content at ~(1275,-530)) are unreachable with a
+pinned editor camera; frame-scene is the "jump to the level" affordance. Ordering before
+`CursorPositionSystem` keeps picking/gizmo hit-tests consistent the frame after a pan/zoom. The
+Edit-guard keeps every play screen byte-identical and stops the nav from fighting camera-follow in Play.
+**Breaks:** a pinned camera (no pan/zoom) means a designer can't reach off-origin content; the wrong pan
+sign scrolls content away from the cursor; running in Play fights `CameraFollowSystem` for the camera;
+ordering after `CursorPositionSystem` lags the cursor's world coordinate one frame behind the camera;
+framing on empty content would jump/zoom to a degenerate AABB instead of no-op'ing.
+**Tests:** `MonoDreams.Tests/LevelEditor/CameraNavTests.cs` (`Pan_AtZoomOne_MovesCameraOppositeTheDrag`,
+`Pan_AccountsForZoom`, `Pan_ViaSystem_MiddleDrag_KeepsWorldPointUnderCursor` — pan sign + zoom scaling;
+`Zoom_ScrollIn_MultipliesUp_ScrollOut_MultipliesDown`, `Zoom_ClampsAtBounds`,
+`Zoom_ViaSystem_ScrollStepsAndClamps` — geometric step + clamp; `FrameScene_CentersOnContentAabb`,
+`FrameScene_NoContent_IsNoOp`, `ContentBounds_NoQuads_ReturnsNull` — centre on AABB + no-content no-op;
+`CameraNav_InPlayMode_IsInert` — Edit-guarded).
+**Depends on:** rendering — the `Camera` class (`Position`/`Zoom`/`VirtualScreenToWorld`); cursor —
+`CursorInputComponent` (`MiddleButton` / `ScrollWheelDelta` / `VirtualPosition`) and `CursorPositionSystem`
+(which derives the cursor's world position from the camera — hence the ordering); foundation — the
+run-state model (`GameState.RunMode` + the `Freeze`-gated `CameraFollowSystem` the editor replaces in Edit).
 
 ## Injected editor cursor/op state survives the input pass; the op channel holds the session open
 

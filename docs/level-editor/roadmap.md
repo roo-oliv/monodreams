@@ -88,6 +88,22 @@ the new `LoadSceneRequest` message, separate from `LoadLevelRequest`).
 wrapping it `GatedSystem(child, EditTimeBehavior.Freeze)`. `SceneObjectComponent` tags
 save-roots (Wave 3); the writer serializes the tagged closure.
 
+### Post-Wave-A usability (editor camera + menu entry)
+
+Two usability gaps surfaced once the substrate was exercised, closed without a new wave:
+
+- **Editor camera navigation is now part of the substrate.** `CameraNavSystem` (+ the pure
+  `Navigation/CameraNav` math) drives the camera in `Edit`: middle-mouse **pan**, scroll-wheel
+  **zoom** (clamped 0.25–4.0), and a **frame-scene** key that centres + zoom-fits the camera on the
+  AABB of all content — the affordance that makes off-origin levels (e.g. `Blender_Level` at
+  ~(1275,-530)) reachable. Edit-guarded; ordered before `CursorPositionSystem`. The editor owns the
+  camera in `Edit` (`CameraFollowSystem` stays `Freeze`-gated), which is what made this an editor
+  responsibility rather than a play-pipeline one.
+- **Menu entry into the editor.** The reference menu reaches the editor through the existing
+  `ScreenTransitionRequest` path — a per-level "Edit" button publishes
+  `ScreenTransitionRequest(ScreenName.LevelEditor, levelId)`, reusing the generalized transition
+  handler (no new screen-swap plumbing, no `Game1` hand-editing).
+
 ---
 
 ## Wave B — scatter tool (entity brush)
