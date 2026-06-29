@@ -2,6 +2,8 @@
 flow: platform
 covers:
   - Directory.Build.props
+  - MonoDreams/MonoDreams.csproj
+  - MonoDreams.Examples.Core/MonoDreams.Examples.Core.csproj
   - MonoDreams.Examples.Web/**
   - MonoDreams.Demos.Web/**
   - MonoDreams.Examples.Desktop/**

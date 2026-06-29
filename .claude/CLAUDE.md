@@ -347,7 +347,8 @@ hardcoded in a skill.
   PR/branch/commit/local diff through the universal lens set plus one
   dedicated lens per module (flow) the change touches. Invoke `/deep-review`
   with a PR number, URL, branch, commit SHA, or no argument (current
-  changes vs `main`). Append `cheaper` for tiered model routing.
+  changes vs `main`). Append `cheaper` (aliases: `cheap`, `simple`, `eco`,
+  `economy`) for tiered model routing.
 
 **Checks:**
 - [`verify`](skills/verify/SKILL.md) — run the configured verify command

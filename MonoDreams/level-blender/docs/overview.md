@@ -44,6 +44,7 @@ Trigger a load by publishing `LoadLevelRequest("Blender_World1")` — the `Blend
 
 - `level-loading` — provides `LoadLevelRequest`, which this parser subscribes to directly. Note it does **not** use the shared `EntitySpawnRequest`/`EntitySpawnSystem`/`IEntityFactory` path the LDtk parsers and runner use — it creates entities itself.
 - `rendering` — Blender meshes become sprite entities; the parser sets `SpriteInfoComponent` / `DrawComponent` (and collider shapes) directly, and registered collection handlers can add or override components.
+- `collision` — a child mesh whose name ends with `-collider` is turned into a `ConvexColliderComponent` on the parent (consumed by the `collision` module) instead of spawning a separate entity.
 
 ## Extension points
 

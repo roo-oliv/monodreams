@@ -24,11 +24,15 @@ any head. The MGCB content step references `MonoDreams.dll` by absolute path (no
 dependency), so the core dll must already exist or the content build fails with
 `Failed to create importer 'YarnSpinnerImporter'`.
 
-- **Full:** `dotnet build MonoDreams/MonoDreams.csproj && dotnet test --configuration Release && dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web`
-  - `dotnet test --configuration Release` builds + tests the desktop solution (the `.sln`
-    excludes the web head by design). The final step builds the KNI/WASM web head and
-    **requires the `wasm-tools` workload** installed (`dotnet workload install wasm-tools`);
-    drop it if the workload is unavailable.
+- **Full:** `dotnet build MonoDreams/MonoDreams.csproj && dotnet test --configuration Release`
+  - Builds + tests the desktop solution (the `.sln` excludes the web head by design). This is
+    the required gate.
+- **Web head (optional — only when the `wasm-tools` workload is installed):**
+  `dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web`
+  - Run this in addition to **Full** when a change touches the `platform` flow or the
+    rendering/content paths. Install the workload with `dotnet workload install wasm-tools`;
+    **skip this step entirely if it is not installed** — it hard-fails without the workload and
+    is deliberately kept out of the core Full gate so Full never fails on a missing workload.
 - **Incremental** (faster, scoped per-wave — desktop only, skips the heavy web build):
   `dotnet build MonoDreams/MonoDreams.csproj && dotnet test MonoDreams.Tests/`
   - Use `dotnet test MonoDreams.Cli.Tests/` instead when the change is CLI-only.
