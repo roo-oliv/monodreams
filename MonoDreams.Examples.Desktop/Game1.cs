@@ -139,6 +139,7 @@ public class Game1 : Game
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.LevelEditor, () => new LevelEditorScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
         // If a replay plan specifies a start screen or level, skip menus
         var replayPlan = InputReplayPlan.TryLoad(debugDir);

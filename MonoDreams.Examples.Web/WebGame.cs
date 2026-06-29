@@ -81,6 +81,8 @@ namespace MonoDreams.Examples.Web
                 () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
             _screenController.RegisterScreen(ScreenName.InfiniteRunner,
                 () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+            _screenController.RegisterScreen(ScreenName.LevelEditor,
+                () => new LevelEditorScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
             // Web has no file-based replay plan (the desktop skip-to-level mechanism), so it
             // always takes desktop's default branch: open the level-selection menu.

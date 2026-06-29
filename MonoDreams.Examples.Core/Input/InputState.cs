@@ -13,4 +13,13 @@ public class InputState : AInputState
     public static readonly InputState Exit = new();
     public static readonly InputState Orb = new();
     public static readonly InputState Interact = new();
+
+    /// <summary>Toggles the in-game level editor (Play↔Edit) — read by the editor screen's mode-toggle system.</summary>
+    public static readonly InputState Editor = new();
+    /// <summary>Deletes the current editor selection (Edit mode only).</summary>
+    public static readonly InputState Delete = new();
+    /// <summary>Undo the last editor command (Edit mode only).</summary>
+    public static readonly InputState Undo = new();
+    /// <summary>Redo the last undone editor command (Edit mode only).</summary>
+    public static readonly InputState Redo = new();
 }
