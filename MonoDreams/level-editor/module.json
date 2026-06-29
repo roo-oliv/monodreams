@@ -1,0 +1,18 @@
+{
+  "$schema": "../module.schema.json",
+  "name": "level-editor",
+  "description": "In-game level editor: an Edit run mode over the real pipeline (scaffold — editor systems land in later waves)",
+  "dependencies": [
+    "foundation",
+    "rendering",
+    "ui",
+    "cursor",
+    "level-loading"
+  ],
+  "platforms": ["desktop", "web"],
+  "nugetDependencies": [],
+  "csprojProperties": {},
+  "mgcbEntries": [],
+  "postInstallNotes": "## level-editor module installed (scaffold)\n\nThis module is a **skeleton** today. Wave 1 ships only the contract that the editor stands on:\n\n- the run-state model in `foundation` (`GameState.RunMode` Play/Edit + `EditTimeBehavior` + the `GatedSystem` decorator), and\n- the docs codifying \"the editor is part of the game\" (`docs/CORE_TENETS.md` tenet + a `foundation` run-state premise).\n\nThe editor's own components and systems (scene-object tagging + serializer registry, `LoadSceneRequest` reader/writer, `SelectedComponent` + selection, the transform gizmo, bounded undo/redo, and the engine-native toolbar) arrive in later waves (3–5). See `docs/level-editor/roadmap.md` (added in Wave 2) for the wave map and plug-in points.\n\nTo opt a screen into editing: wrap the game-logic / physics / camera-follow systems in `GatedSystem(child, EditTimeBehavior.Freeze)` and keep render / input / cursor / `HierarchySystem` ungated (or `RunNormally`), then flip `gameState.RunMode` to enter/exit Edit without a screen swap. The full system-by-mode policy is the interaction matrix in `docs/CORE_TENETS.md`.",
+  "premisesRef": "docs/premises.md"
+}

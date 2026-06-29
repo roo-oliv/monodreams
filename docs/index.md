@@ -7,12 +7,12 @@ next to each module's source.
 
 | Doc | What's in it |
 |---|---|
-| [`CORE_TENETS.md`](CORE_TENETS.md) | Engine-wide invariants: framework-not-library, ECS purity, hierarchy, rendering, physics, level loading, reference pipeline, debug, refactor backlog. **Load this first** for any non-trivial task. |
+| [`CORE_TENETS.md`](CORE_TENETS.md) | Engine-wide invariants: framework-not-library, ECS purity, hierarchy, rendering, physics, level loading, reference pipeline, debug, the editor-is-part-of-the-game run-state contract, refactor backlog. **Load this first** for any non-trivial task. |
 | [`web-targeting.md`](web-targeting.md) | Targeting the web browser via KNI/BlazorGL: the shared `.Core` + per-platform heads model, `$(MonoDreamsPlatform)` backend selection, the CLI `--platform` flag, per-platform content build (incl. the macOS/Linux MGCB native-lib shim), and the open Reach 32-bit-index render limit. |
 
 ## Per-module docs
 
-Each of the 13 modules ships its own `docs/` subfolder colocated with the
+Each of the 14 modules ships its own `docs/` subfolder colocated with the
 module source. Read `overview.md` for the tour (purpose, components,
 systems, wiring), `premises.md` for the load-bearing invariants.
 
@@ -31,6 +31,7 @@ systems, wiring), `premises.md` for the load-bearing invariants.
 | `cursor` | [overview](../MonoDreams/cursor/docs/overview.md) | [premises](../MonoDreams/cursor/docs/premises.md) |
 | `dialogue` | [overview](../MonoDreams/dialogue/docs/overview.md) | [premises](../MonoDreams/dialogue/docs/premises.md) |
 | `debug` | [overview](../MonoDreams/debug/docs/overview.md) | [premises](../MonoDreams/debug/docs/premises.md) |
+| `level-editor` | [overview](../MonoDreams/level-editor/docs/overview.md) | [premises](../MonoDreams/level-editor/docs/premises.md) |
 
 Premises follow the format **Why / Breaks / Tests / Depends on**, with
 optional `Open questions`, `Aspirational direction`, and `Follow-up debt`
@@ -65,6 +66,7 @@ with the change's module footprint (see
 | [`cursor`](flows/cursor.md) | | Poll input → project across coordinate spaces → paint cursor on top (HUD). |
 | [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |
 | [`debug`](flows/debug.md) | | Opt-in, read-only collider/sprite overlays + periodic screenshot capture. |
+| [`level-editor`](flows/level-editor.md) | ✅ | In-game `Edit` run mode over the real pipeline; `GatedSystem` freezes game logic while render/input/cursor/hierarchy stay live (scaffold). |
 
 ## Contributor docs
 

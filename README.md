@@ -53,7 +53,7 @@ dotnet run
 
 `monodreams list` shows every module and preset; `--verbose` adds deps and NuGet refs.
 
-## The 13 modules
+## The 14 modules
 
 ```
 foundation              required base — installed by `monodreams init`
@@ -69,7 +69,8 @@ foundation              required base — installed by `monodreams init`
 │       └── dialogue    YarnSpinner integration
 ├── physics             velocity + gravity, decoupled from collision
 ├── collision           AABB + SAT detection, message-based responses
-└── level-loading       LoadLevelRequest, EntitySpawnRequest plumbing
+├── level-loading       LoadLevelRequest, EntitySpawnRequest plumbing
+└── level-editor        in-game Edit run mode over the real pipeline (scaffold)
 ```
 
 ## Project layout after `init` + `add`

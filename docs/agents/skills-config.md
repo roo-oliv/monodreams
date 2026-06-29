@@ -10,7 +10,7 @@ default noted here and says so in its output.
 
 `C# + .NET (dotnet), MonoGame DesktopGL (desktop) / KNI-BlazorGL (web), DefaultEcs`
 
-A code-first, ECS-purist 2D game engine shipped as 13 self-contained source modules under
+A code-first, ECS-purist 2D game engine shipped as 14 self-contained source modules under
 `MonoDreams/<module>/`, distributed shadcn-style via the `monodreams` CLI. Used only for idioms
 (test style, file naming) — never as a hard gate.
 

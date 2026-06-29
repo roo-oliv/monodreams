@@ -107,7 +107,7 @@ split exists to support complex hierarchical UI such as a dialogue
 panel — a single visual whose banner, avatars, text and waiting-indicator
 move and dispose together but may not all share matrix scaling.
 `HierarchySystem` keeps the two in sync. **This split is on the refactor
-backlog** (§9); read both fields when reasoning about hierarchy until it
+backlog** (§10); read both fields when reasoning about hierarchy until it
 is consolidated.
 
 **Dirty propagation.** Mutating a parent's transform marks the entire
@@ -121,7 +121,7 @@ two committed positions. They are meaningful only after
 `TransformCommitSystem` has run for the *previous* frame. Today no API
 prevents reading stale `Delta` mid-frame; this is on the backlog as
 "`Transform` should expose interaction methods that guarantee `Delta`
-consistency" (§9). For now, downstream systems that depend on `Delta`
+consistency" (§10). For now, downstream systems that depend on `Delta`
 (notably the collision detection's swept tests) must trust the
 assembler put `TransformCommitSystem` at the end of every frame.
 
@@ -175,7 +175,7 @@ entity that never gets `Visible` because no `CullingSystem` is in the
 pipeline, and the dev stares at an invisible sprite). The renderable
 entity stack is therefore `EntityInfo + Transform + SpriteInfo +
 DrawComponent + Visible` for Main, minus `Visible` for UI/HUD.
-**This split is a known wart** (§9): `Visible` may become a property of
+**This split is a known wart** (§10): `Visible` may become a property of
 `DrawComponent` to remove the easy-to-miss tag.
 
 **Layer depth ownership.** Three systems write `LayerDepth`, in this
@@ -284,7 +284,7 @@ added) is the engine-wide *intended* default. A test or tool that adds
 `CurrentLevelComponent` manually triggers them just as well as the
 regular `LoadLevelRequest` path. The Blender parser predates the
 pattern and remains message-driven; harmonizing it is on the backlog
-(§9). For new parsers, follow the LDtk pattern — resist the urge to
+(§10). For new parsers, follow the LDtk pattern — resist the urge to
 make a system "only respond when the right message arrived" — that's
 coupling the system to an upstream sequence that should be the
 assembler's choice.
@@ -293,7 +293,7 @@ assembler's choice.
 `string → IEntityFactory`. Game code registers factories at screen
 setup time. Currently, an unregistered identifier produces a logged
 warning and the spawn is silently dropped. **Intended behavior is to
-throw** — this is on the backlog (§9). For now, treat the warning as a
+throw** — this is on the backlog (§10). For now, treat the warning as a
 high-severity signal during development.
 
 **`Blender_` identifier prefix.** Both `LevelLoadRequestSystem` (LDtk)
@@ -302,7 +302,7 @@ independently. The Blender parser filters by the `Blender_` prefix and
 handles the load when matched; `LevelLoadRequestSystem` unconditionally
 attempts the LDtk path, fails for Blender-prefixed names, and removes
 `CurrentLevelComponent` to clean up. **This dual-subscribe dispatch by
-name prefix is a quick hack** (§9); a content-driven dispatch (a format
+name prefix is a quick hack** (§10); a content-driven dispatch (a format
 field in the level data) is the eventual replacement.
 
 ## 7. The reference pipeline
@@ -404,7 +404,75 @@ today are `SATCollisionTests` (pure-logic), `BlenderLevelTests`
 yet. Most premises in `docs/{domain}/premises.md` start their `Tests:`
 field as `none yet`; introducing architectural tests is on the backlog.
 
-## 9. Refactor backlog (named cruft)
+## 9. The editor is part of the game
+
+The level editor is **not a separate application** and **not a separate
+renderer** — it is an in-game *mode* of the running game. There is one
+world, one `Camera`, and one draw stack
+(`CullingSystem → SpritePrepSystem → YSortSystem → MeshPrepSystem →
+TextPrepSystem → MasterRenderSystem`); the editor previews exactly what
+the player sees because it runs that same pipeline. What changes between
+playing and editing is not *which* pipeline runs but *which systems in
+it are allowed to run* — a **run-state contract** the engine codifies in
+`foundation`.
+
+**The run-state contract.** `GameState.RunMode` is one of `Play`
+(default) or `Edit`. A system opts into run-state awareness by being
+wrapped in a `GatedSystem` carrying an `EditTimeBehavior` policy
+(`RunNormally` / `Freeze` / `RunPartial` / `RuntimeEditable`). Each
+frame the gate reads `RunMode` and decides whether to forward to its
+child: `RunNormally` runs in both modes; `Freeze` runs in `Play` only;
+`RunPartial` and `RuntimeEditable` are reserved (today they run in both,
+finer semantics deferred). Editor tooling is **ECS systems over this
+gated game pipeline** — selection, gizmo, undo-apply, scene save/load,
+and the toolbar are ordinary systems registered alongside the game's,
+made inert in `Play` by an Edit guard. There is no parallel editor data
+model: a scene round-trips by serializing the entities' components, not
+by re-running factories.
+
+**Key invariant — default `Play` + opt-in gating leaves every existing
+screen byte-identical.** `RunMode` defaults to `Play`, and only a system
+explicitly wrapped in a `GatedSystem` changes behavior with the mode. A
+screen that never wraps a system and never sets `Edit` behaves exactly
+as it did before the model existed. This is what makes the run-state
+model safe to add across all modules at once.
+
+**Key rule — the gating policy per system group is fixed by what editing
+needs to see and not disturb.** Render, input, cursor, and
+`HierarchySystem` stay live in `Edit` (`RunNormally`) — the preview must
+keep drawing, the designer must keep clicking, and an editor's transform
+edit must still propagate to world space the same frame. Game logic,
+physics, collision, AI/dialogue, and `CameraFollowSystem` `Freeze` in
+`Edit` — they would otherwise move entities out from under the designer
+or fight the editor for the camera; in `Edit` the editor drives
+`Camera.Position`/`Zoom` directly. Get a policy wrong and the failure is
+silent: a frozen render module is a black screen the instant you enter
+`Edit`; a live physics module rains gravity on entities you are trying
+to place; a frozen `HierarchySystem` shows edits at last frame's world
+position. The authoritative system-by-mode table is the interaction
+matrix in the level-editor plan-contract and
+[`docs/flows/level-editor.md`](flows/level-editor.md); the run-state
+premises live in
+[`MonoDreams/foundation/docs/premises.md`](../MonoDreams/foundation/docs/premises.md).
+
+**Editor-overlay entities are standalone.** Gizmo handles, the selection
+highlight, and the toolbar are never `ChildOfComponent`-parented to game
+entities, because `HierarchySystem.DisposeOrphans` runs in `Edit` and
+would cascade-dispose them when their host entity is deleted. Deletion is
+modeled as an undo command that snapshots the disposed sub-graph, not a
+bare `entity.Dispose()`.
+
+### Aspirational direction
+
+The reserved `RunPartial` / `RuntimeEditable` policies are placeholders
+for finer edit-time behavior (a system that does reduced work, or stays
+interactive, while editing) — they run-as-`RunNormally` today and gain
+distinct semantics when a later wave needs them. The interaction matrix
+is enforced by review and by the editor screen's own tests until a
+declarative system-dependency API (§2, §7) can validate it at
+registration time.
+
+## 10. Refactor backlog (named cruft)
 
 Carried forward from the bootstrap interview so they are not forgotten.
 Each is either implementation debt or an aspirational direction that
