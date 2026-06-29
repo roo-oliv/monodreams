@@ -122,11 +122,16 @@ public class LevelSelectionScreen : IGameScreen
         // Create button style
         var buttonStyle = ButtonStyle.WithColors(darkBrown, terracotta, mutedBrown);
 
-        // Create entities first
+        // Create entities first. Each editable level is a row of [Play | Edit]: Play loads the level
+        // into the game screen; Edit boots the in-game LevelEditorScreen on the SAME level (reusing the
+        // existing ScreenTransitionRequest → RequestedLevelComponent path). Level 3 is the infinite
+        // runner, not a level file, so it has no Edit affordance.
         var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, _layers.GetDepth(DrawLayer.Title));
-        var button1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
-        var button2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
-        var button3 = CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner);
+        var play1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
+        var edit1 = CreateButtonEntity("Edit", _font, 0, "Level_0", true, buttonStyle, ScreenName.LevelEditor);
+        var play2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
+        var edit2 = CreateButtonEntity("Edit", _font, 1, "Blender_Level", true, buttonStyle, ScreenName.LevelEditor);
+        var play3 = CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner);
 
         // Create UI using auto layout with slots
         var layout = new AutoLayoutBuilder(_world, _viewportManager);
@@ -140,14 +145,26 @@ public class LevelSelectionScreen : IGameScreen
             .AddSlot(slot => slot
                 .Attach(titleEntity)
                 .MeasureWith(MeasureText))
-            .AddContainer(row => row
+            .AddContainer(column => column
                 .Name("ButtonColumn")
                 .Direction(LayoutDirection.Vertical)
                 .Gap(50)
                 .AlignCross(CrossAxisAlignment.Center)
-                .AddSlot(slot => slot.Attach(button1.container).MeasureWith(_ => button1.size))
-                .AddSlot(slot => slot.Attach(button2.container).MeasureWith(_ => button2.size))
-                .AddSlot(slot => slot.Attach(button3.container).MeasureWith(_ => button3.size))
+                .AddContainer(row => row
+                    .Name("Level1Row")
+                    .Direction(LayoutDirection.Horizontal)
+                    .Gap(20)
+                    .AlignCross(CrossAxisAlignment.Center)
+                    .AddSlot(slot => slot.Attach(play1.container).MeasureWith(_ => play1.size))
+                    .AddSlot(slot => slot.Attach(edit1.container).MeasureWith(_ => edit1.size)))
+                .AddContainer(row => row
+                    .Name("Level2Row")
+                    .Direction(LayoutDirection.Horizontal)
+                    .Gap(20)
+                    .AlignCross(CrossAxisAlignment.Center)
+                    .AddSlot(slot => slot.Attach(play2.container).MeasureWith(_ => play2.size))
+                    .AddSlot(slot => slot.Attach(edit2.container).MeasureWith(_ => edit2.size)))
+                .AddSlot(slot => slot.Attach(play3.container).MeasureWith(_ => play3.size))
             )
             .Build();
     }
