@@ -321,12 +321,42 @@ should be able to understand.>
 
 # Skills
 
-`.claude/skills/` contains repo-specific Claude Code skills.
+`.claude/skills/` contains a portable, config-driven engineering
+pipeline (vendored from [`roo-oliv/skills`](https://github.com/roo-oliv/skills),
+re-vendor with that repo's `scripts/install.sh`). Each skill reads
+**`docs/agents/skills-config.md`** for everything repo-specific —
+stack, verify command, docs layout, domains, sensitive domains
+(`foundation`, `platform`), the per-module flow lenses, and commit/PR
+conventions. Edit that file to retune them; nothing stack-specific is
+hardcoded in a skill.
 
-- [`deep-review`](skills/deep-review/SKILL.md) — multi-agent code
-  review through six lenses calibrated for MonoDreams: adjacent-code,
-  system-ordering, component-design/framework-fit, cross-domain
-  dependency, premises/test-coverage, and ECS-purity. Invoke with
-  `/deep-review` on a PR number, URL, branch, commit SHA, or no
-  argument (reviews the current branch vs `main`, including
-  uncommitted changes). Pass `--eco` for a cheaper run.
+**Pipeline:**
+- [`refine`](skills/refine/SKILL.md) — turn a raw request (text, plan file,
+  or GitHub/Jira/Slack link) into an approved plan with a verifiable
+  Contract block. Replaces interactive plan mode.
+- [`deep-plan`](skills/deep-plan/SKILL.md) — fill and adversarially refute
+  a plan's contract against the live codebase before code exists. Heavy
+  path engages for changes touching a sensitive domain.
+- [`implement`](skills/implement/SKILL.md) — drive an approved plan to an
+  open PR: wave-based, fresh agent per wave + a persistent ledger, then
+  chains `review-fix-loop`.
+- [`review-fix-loop`](skills/review-fix-loop/SKILL.md) — review → fix loop
+  over an open PR until exhaustion; posts a consolidated review.
+- [`deep-review`](skills/deep-review/SKILL.md) — multi-agent review of a
+  PR/branch/commit/local diff through the universal lens set plus one
+  dedicated lens per module (flow) the change touches. Invoke `/deep-review`
+  with a PR number, URL, branch, commit SHA, or no argument (current
+  changes vs `main`). Append `cheaper` for tiered model routing.
+
+**Checks:**
+- [`verify`](skills/verify/SKILL.md) — run the configured verify command
+  (`config › Verify`) with a fix loop until green.
+- [`verify-plan`](skills/verify-plan/SKILL.md) — reconcile an
+  implementation against its plan (Missing / Diverged / Unplanned).
+
+**Setup (run once per repo):**
+- [`setup`](skills/setup/SKILL.md) — write `docs/agents/skills-config.md`
+  (already done for this repo).
+- [`bootstrap`](skills/bootstrap/SKILL.md) — scaffold/revise the docs the
+  skills consume: `CORE_TENETS.md`, per-module `premises.md`, and the
+  per-module flow docs under `docs/flows/`.
