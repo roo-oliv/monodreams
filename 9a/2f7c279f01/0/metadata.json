@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "9a2f7c279f01",
+  "session_id": "99588020-158e-40d6-aa8e-de0c7ddae9dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T13:32:38.694646Z",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "0304a995-4dbe-471e-bf9e-a539b2f03abb",
+  "checkpoint_transcript_start": 736,
+  "transcript_lines_at_start": 736,
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 11242,
+    "cache_read_tokens": 2273812,
+    "output_tokens": 7851,
+    "api_call_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T13:32:38.261825Z",
+    "agent_lines": 0,
+    "human_added": 920,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 920,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-level-editor/99588020-158e-40d6-aa8e-de0c7ddae9dd.jsonl"
+}
