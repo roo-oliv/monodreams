@@ -6,17 +6,18 @@
 > Read this before changing the editor screen, its overlay entities, or the
 > scene save/load path.
 >
-> **Status: Wave 4 (4a + 4b).** The run-state premise (Wave 1), the three
+> **Status: Wave 5 (complete).** The run-state premise (Wave 1), the three
 > serialization premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
 > SOURCE-not-derived sort fields), the scene round-trip premise (Wave 3 —
 > membership closure + the `LoadSceneRequest` reader + `Texture2D` rehydration),
 > the Wave-4a interactive-editor invariants — overlay-standalone +
 > delete-snapshot, bounded undo with drag-coalescing, and selection topmost —
-> and the Wave-4b gizmo + toolbar invariants — the gizmo applies a quantized
+> the Wave-4b gizmo + toolbar invariants — the gizmo applies a quantized
 > (snap-on) or raw (snap-off) transform edit honoring Origin, and the toolbar's
-> buttons drive the SAME shared editor instances — are all live below. The
-> remaining "Planned" entry (the headless editor-op channel) lands in Wave 5
-> with its named tests. No premise here ships `Tests: none yet`.
+> buttons drive the SAME shared editor instances — and the Wave-5 headless
+> editor-op channel (injected cursor state survives the input pass; the op
+> channel holds the session open) are all live below. No premise here ships
+> `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -289,18 +290,37 @@ publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack 
 `CursorInputComponent.VirtualPosition`; level-editor — "Bounded undo with drag-coalescing", "Scene
 round-trip reconstructs from registered components, not factories".
 
-## Planned premises (Wave 5 — text + named test pre-committed)
+## Injected editor cursor/op state survives the input pass; the op channel holds the session open
 
-The headless editor-op channel (item 15) lands in Wave 5. Its invariant is recorded here so the
-implementing wave drops it in verbatim with the named test, honoring the no-`Tests: none yet` rule.
+The editor is driven headlessly — with **no real mouse** — by two cooperating seams. First,
+`CursorInputSystem` gains a `SkipHardwareRead` flag (mirroring `AKeyboardInputHandlingSystem.SkipHardwareRead`):
+when set it does **not** call `Mouse.GetState()` and does **not** overwrite any
+`CursorInputComponent` field, so an injected cursor state (world / virtual / screen position, delta,
+the left-button down + press/release edges, scroll) survives the input pass untouched. The flag
+defaults to `false`, so every existing screen is byte-identical (back-compat). Second, the editor-op
+channel — an `EditorOpPlan` (a scripted list of `MoveCursor` / `LeftDown` / `LeftUp` / `ToggleMode` /
+`ToolbarAction` ops, each on a frame index) consumed by `EditorOpReplaySystem` — injects that cursor
+state, toggles `GameState.RunMode`, and fires toolbar actions through a dispatch callback, so a test
+reproduces select → gizmo-drag → undo → save against the **real** editor systems. The driver
+**holds the session open**: it requests exit only after its op queue drains plus a configurable tail,
+so the input-replay channel's auto-exit-on-drain (which fires when its keyboard commands run out)
+never kills the editor-op run before its ops + the harness's assertions complete. The driver is
+registered only when a plan is present, so a normal Play run pays nothing.
 
-- **"Injected editor cursor/op state survives the input pass; the op channel holds the session
-  open."** (Wave 5) A `SkipHardwareRead` flag on `CursorInputSystem` (mirroring
-  `AKeyboardInputHandlingSystem`) lets a test inject `CursorInputComponent` state without the
-  hardware read overwriting it; the editor-op channel (`select`/`move`/`save`/`undo` + target +
-  coords) holds the replay session open until the op queue drains. **Tests:**
-  `HeadlessEditorOpTest` (named, Wave 5). **Depends on:** cursor — `CursorInputSystem`; foundation —
-  input replay.
+**Why:** the headless integration test must exercise the real selection / gizmo / toolbar systems
+with a scripted cursor (refuter HIGH 6); without the `SkipHardwareRead` seam the per-frame hardware
+read would clobber the injected cursor, and without the session-hold the input replay's
+auto-exit-on-drain would end the run before the editor ops complete.
+**Breaks:** a hardware read that overwrites the injected cursor (selection / gizmo never see the
+scripted click); a run that exits the instant the keyboard replay drains, before the editor ops run;
+a per-frame cost in normal Play (the driver must be plan-gated, not always-on).
+**Tests:** `MonoDreams.Tests/LevelEditor/HeadlessEditorOpTests.cs` (`HeadlessEditorOpTest` — with no
+real mouse, the editor-op channel injects a click that selects a sprite, a move-drag that moves it,
+a release that commits one undo step, an Undo that reverts it, and a Save that exports the scene
+through a fake `IPlatformServices`; asserts the entity moved then reverted and the saved scene
+matches expected, and that the driver requested exit exactly once).
+**Depends on:** cursor — `CursorInputSystem` (the `SkipHardwareRead` seam); foundation — input replay
+(the auto-exit-on-drain the session-hold guards against).
 
 ## See also
 
