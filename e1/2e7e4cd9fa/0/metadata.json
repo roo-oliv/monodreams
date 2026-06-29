@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "e12e7e4cd9fa",
+  "session_id": "72271dd1-9d27-4528-8ca8-9814ff375c28",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T00:46:08.370368Z",
+  "branch": "feat/skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    "MonoDreams/camera/docs/overview.md",
+    "MonoDreams/foundation/docs/overview.md",
+    "MonoDreams/level-blender/docs/overview.md",
+    "MonoDreams/level-blender/module.json",
+    "MonoDreams/physics/docs/overview.md",
+    "MonoDreams/physics/docs/premises.md",
+    "docs/flows/collision.md",
+    "docs/flows/foundation.md",
+    "docs/flows/physics.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "1b6375b9-27d1-4cdc-860d-c9662b6fe94f",
+  "checkpoint_transcript_start": 491,
+  "transcript_lines_at_start": 491,
+  "token_usage": {
+    "input_tokens": 852,
+    "cache_creation_tokens": 243281,
+    "cache_read_tokens": 8281084,
+    "output_tokens": 42136,
+    "api_call_count": 39
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T00:46:08.110602Z",
+    "agent_lines": 46,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 46,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-skills/72271dd1-9d27-4528-8ca8-9814ff375c28.jsonl"
+}

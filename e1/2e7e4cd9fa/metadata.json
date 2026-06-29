@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "e12e7e4cd9fa",
+  "strategy": "manual-commit",
+  "branch": "feat/skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    "MonoDreams/camera/docs/overview.md",
+    "MonoDreams/foundation/docs/overview.md",
+    "MonoDreams/level-blender/docs/overview.md",
+    "MonoDreams/level-blender/module.json",
+    "MonoDreams/physics/docs/overview.md",
+    "MonoDreams/physics/docs/premises.md",
+    "docs/flows/collision.md",
+    "docs/flows/foundation.md",
+    "docs/flows/physics.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e1/2e7e4cd9fa/0/metadata.json",
+      "transcript": "/e1/2e7e4cd9fa/0/full.jsonl",
+      "context": "/e1/2e7e4cd9fa/0/context.md",
+      "content_hash": "/e1/2e7e4cd9fa/0/content_hash.txt",
+      "prompt": "/e1/2e7e4cd9fa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 852,
+    "cache_creation_tokens": 243281,
+    "cache_read_tokens": 8281084,
+    "output_tokens": 42136,
+    "api_call_count": 39
+  }
+}
