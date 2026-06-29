@@ -9,8 +9,21 @@ namespace MonoDreams.System.Cursor;
 public class CursorInputSystem(World world)
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorControllerComponent>().With<CursorInputComponent>().AsSet())
 {
+    /// <summary>
+    /// When <c>true</c>, the system does <b>not</b> read <see cref="Mouse"/> and does not overwrite any
+    /// injected <see cref="CursorInputComponent"/> field (screen/virtual/world position, delta, the
+    /// button + press/release edges, scroll). The injected state survives the input pass untouched.
+    /// Mirrors <c>AKeyboardInputHandlingSystem.SkipHardwareRead</c>: an editor-op / replay channel sets
+    /// it so a scripted cursor drives selection / gizmo / toolbar with no real mouse. Default
+    /// <c>false</c> → normal hardware behaviour, so every existing screen is byte-identical (back-compat).
+    /// </summary>
+    public bool SkipHardwareRead { get; set; }
+
     protected override void Update(GameState state, in Entity entity)
     {
+        // Skip the hardware read entirely so injected cursor state survives (editor-op / replay channel).
+        if (SkipHardwareRead) return;
+
         ref var input = ref entity.Get<CursorInputComponent>();
         var mouseState = Mouse.GetState();
 
