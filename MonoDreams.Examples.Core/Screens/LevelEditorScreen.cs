@@ -169,6 +169,7 @@ public class LevelEditorScreen : IGameScreen
             ["Interact"] = InputState.Interact,
             ["Editor"] = InputState.Editor, ["Delete"] = InputState.Delete,
             ["Undo"] = InputState.Undo, ["Redo"] = InputState.Redo,
+            ["Frame"] = InputState.Frame,
         };
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
@@ -261,6 +262,14 @@ public class LevelEditorScreen : IGameScreen
         // Camera-follow FREEZES in Edit (the editor drives the camera); RunNormally in Play.
         var cameraFollowSystem = new GatedSystem(new CameraFollowSystem(_world, _camera), EditTimeBehavior.Freeze);
 
+        // Edit-time camera navigation (pan / zoom / frame-scene). Edit-guarded; drives _camera directly
+        // (CameraFollowSystem is Freeze-gated, so the editor owns the camera in Edit). Registered BEFORE
+        // CursorPositionSystem so the camera mutation this frame is what CursorPositionSystem reads when
+        // it derives the cursor's world position — no one-frame lag between a pan/zoom and the cursor's
+        // world coordinate. Pan reads the cursor's VIRTUAL (pre-camera) position, so it never feeds back.
+        var cameraNavSystem = new CameraNavSystem(_world, _camera,
+            frameRequested: _ => InputState.Frame.JustPressed());
+
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
         // Editor systems — pre-registered, RunNormally, Edit-guarded internally (inert in Play).
@@ -313,6 +322,7 @@ public class LevelEditorScreen : IGameScreen
             cameraFollowSystem,// FROZEN in Edit
             buttonMeshPrep,    // toolbar button outline meshes (HUD) — rebuilt every frame
             toolbarSystem,     // toolbar clicks + visibility (AFTER buttonMeshPrep so Play-hide sticks)
+            cameraNavSystem,   // editor pan/zoom/frame-scene (Edit-guarded); BEFORE CursorPositionSystem
             cursorLateUpdateSystem,
             new CursorDrawPrepSystem(_world),
         };

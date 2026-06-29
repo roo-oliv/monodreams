@@ -26,7 +26,8 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
         (InputState.Editor, Keys.F1),     // toggle Play↔Edit
         (InputState.Delete, Keys.Delete),
         (InputState.Undo, Keys.Z),
-        (InputState.Redo, Keys.Y)
+        (InputState.Redo, Keys.Y),
+        (InputState.Frame, Keys.Home)     // frame the editor camera on all content
     ];
 
     public override void Update(GameState state)

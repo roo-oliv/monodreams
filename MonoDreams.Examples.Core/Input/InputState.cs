@@ -22,4 +22,6 @@ public class InputState : AInputState
     public static readonly InputState Undo = new();
     /// <summary>Redo the last undone editor command (Edit mode only).</summary>
     public static readonly InputState Redo = new();
+    /// <summary>Frames the editor camera on all renderable content — centre + zoom-fit (Edit mode only).</summary>
+    public static readonly InputState Frame = new();
 }
