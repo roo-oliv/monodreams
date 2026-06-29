@@ -4,7 +4,7 @@ Velocity-driven motion with optional gravity, decoupled from collision. Add a `V
 
 ## Purpose
 
-This module is the engine's source of motion. Gameplay systems express intent as writes to `VelocityComponent.Current`; `VelocitySystem` is the single system that converts intent into position changes; `GravitySystem` adds the universal downward acceleration to anything tagged with `RigidBodyComponent`. The split lets a game use physics *without* collision (parallax backgrounds, particle drift, falling decorative leaves) and lets collision use physics' freeze flags (`FreezePositionX/Y`, `FreezeRotation`) as the single source of truth for "this axis doesn't move." Without this module, every system that wants to move an entity has to write `TransformComponent.LocalPosition` directly and lose the `Delta` swept-collision input.
+This module is the engine's source of motion. Gameplay systems express intent as writes to `VelocityComponent.Current`; `VelocitySystem` is the single system that converts intent into position changes; `GravitySystem` adds the universal downward acceleration to anything tagged with `RigidBodyComponent`. The split lets a game use physics *without* collision (parallax backgrounds, particle drift, falling decorative leaves) and exposes freeze flags (`FreezePositionX/Y`, `FreezeRotation`) intended as the single source of truth for "this axis doesn't move" (the read side is not yet implemented — see premises). Without this module, every system that wants to move an entity has to write `TransformComponent.LocalPosition` directly and lose the `Delta` swept-collision input.
 
 ## What ships
 

@@ -37,6 +37,35 @@ optional `Open questions`, `Aspirational direction`, and `Follow-up debt`
 sections at the bottom. See [`CORE_TENETS.md`](CORE_TENETS.md) §"Premises"
 for the full convention.
 
+## Review flows (lenses)
+
+One flow doc per module, under [`flows/`](flows/). Each reads like a
+dedicated core-tenet for that module — the end-to-end **path** state takes
+through it, its lifecycle/ordering, curated invariants (linking to the
+module's premises), load-bearing quantities, and failure modes. The
+`deep-review` / `deep-plan` skills spawn one dedicated lens per flow doc
+whose `covers:` globs intersect a change, so review/planning agents scale
+with the change's module footprint (see
+[`agents/skills-config.md`](agents/skills-config.md) › Flows). Flows marked
+**sensitive** trip the heavy planning/review path + the PR gate.
+
+| Flow | Sensitive | Path in one line |
+|---|---|---|
+| [`foundation`](flows/foundation.md) | ✅ | Per-frame screen heartbeat: input → movement → hierarchy/transform → world-space readers → commit. |
+| [`platform`](flows/platform.md) | ✅ | Head picks `$(MonoDreamsPlatform)` → flows into `.Core` → backend NuGet + per-platform content build. |
+| [`rendering`](flows/rendering.md) | | Draw path: cull → prep → Y-sort → render → composite across Main/UI/HUD targets. |
+| [`rendering-text`](flows/rendering-text.md) | | Revealable BitmapFont text: component → update → prep → `DrawComponent` text element. |
+| [`camera`](flows/camera.md) | | Follow target → camera position, ordered before culling/render reads it. |
+| [`physics`](flows/physics.md) | | Physics tick: gravity → velocity integrate → handoff to collision (Transform.Delta). |
+| [`collision`](flows/collision.md) | | Detection (AABB + SAT, swept via Delta) → `CollisionMessage` → resolution. |
+| [`level-loading`](flows/level-loading.md) | | `LoadLevelRequest` → `CurrentLevelComponent` / `EntitySpawnRequest` → factory-by-id dispatch. |
+| [`level-ldtk`](flows/level-ldtk.md) | | Component-driven LDtk parse (tiles + entities) on `CurrentLevelComponent` add. |
+| [`level-blender`](flows/level-blender.md) | | Message-driven Blender parse; the exporter↔parser JSON contract. |
+| [`ui`](flows/ui.md) | | Auto-layout: build tree → intrinsic sizing (bottom-up) → flexbox placement (top-down). |
+| [`cursor`](flows/cursor.md) | | Poll input → project across coordinate spaces → paint cursor on top (HUD). |
+| [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |
+| [`debug`](flows/debug.md) | | Opt-in, read-only collider/sprite overlays + periodic screenshot capture. |
+
 ## Contributor docs
 
 | Doc | What's in it |
@@ -45,4 +74,5 @@ for the full convention.
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Contributor setup: prereqs by OS, build commands, adding a new module, manifest validation, test workflow. |
 | [`../MonoDreams/MODULES.md`](../MonoDreams/MODULES.md) | Module manifest schema and authoring guide. |
 | [`../.claude/CLAUDE.md`](../.claude/CLAUDE.md) | Coding conventions, module-to-premises mapping, workflow rules. Loaded automatically by Claude Code; humans should also read it. |
-| [`../.claude/skills/deep-review/SKILL.md`](../.claude/skills/deep-review/SKILL.md) | Multi-agent review skill. Run `/deep-review` on a PR, branch, or commit. |
+| [`agents/skills-config.md`](agents/skills-config.md) | Per-repo config the engineering skills read — stack, verify command, docs layout, domains, sensitive domains, flows, conventions. |
+| [`../.claude/skills/`](../.claude/skills/) | The engineering pipeline (`refine` → `deep-plan` → `implement` → `review-fix-loop`, plus `deep-review`, `verify`, `verify-plan`, `setup`, `bootstrap`). Run `/deep-review` on a PR, branch, or commit. |

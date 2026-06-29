@@ -41,21 +41,24 @@ the impulse history is wrong.
 **Tests:** none yet (indirectly exercised by `InfiniteRunnerTests`).
 **Depends on:** collision — "Swept collision reads `TransformComponent.Delta`".
 
-## `RigidBodyComponent.FreezePositionX/Y` and `FreezeRotation` are honored by resolution
+## `RigidBodyComponent.FreezePositionX/Y` and `FreezeRotation` are NOT yet honored by resolution
 
-The resolution systems read the freeze flags and zero out the
-corresponding correction. Movement systems that mutate a frozen axis
-directly will desync from resolution, because resolution will keep
-reverting it.
+The freeze flags exist on `RigidBodyComponent` and are *intended* to be the single
+source of truth for "this axis doesn't move," but **no system reads them today** —
+neither `TransformCollisionResolutionSystem` nor
+`TransformPhysicalCollisionResolutionSystem`, nor any `TransformComponent` mutator,
+consults them (they call `SetPositionX/Y` / `Translate` unconditionally). Setting a
+freeze flag currently has no effect: a contact that pushes along a "frozen" axis still
+moves the entity. Treat this as an unimplemented contract, not a guarantee.
 
-**Why:** freeze flags are the single source of truth for "this axis
-doesn't move." Splitting that authority between game code and the
-flag produces inconsistent behavior depending on which system ran last.
-**Breaks:** a game system pushes a frozen entity along the frozen
-axis; resolution un-pushes it; the entity vibrates or stays put with
-wasted CPU.
-**Tests:** none yet.
-**Depends on:** —
+**Why:** the flags were added ahead of the resolution support that would honor them —
+the field set is the intended API, the read side is the gap.
+**Breaks:** a dev sets `FreezePositionX` expecting the axis to be pinned during
+resolution; the entity moves anyway, and the bug reads like a resolution error rather
+than a missing feature.
+**Tests:** none yet — the gap itself is unguarded. Once the read side lands, a test
+should assert a frozen axis is not displaced by a contact.
+**Depends on:** collision (the resolution systems are where the freeze-flag read would live).
 
 ## `VelocityComponent.Delta` is `Current - Last`, updated by `VelocitySystem`
 
@@ -127,6 +130,6 @@ The following premises currently have **Tests: none yet**:
   `InfiniteRunnerTests.PlayerFallsOffLeftEdge`)*
 - `VelocitySystem` is the primary mover of physics entities
 - `RigidBodyComponent.FreezePositionX/Y` and `FreezeRotation` are
-  honored by resolution
+  **not yet honored** by resolution (known gap — no read side exists)
 - `VelocityComponent.Delta` is `Current - Last`, updated by `VelocitySystem`
 - `RigidBodyComponent.IsKinematic` selects the resolution path

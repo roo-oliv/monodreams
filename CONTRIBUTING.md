@@ -183,9 +183,15 @@ Follow the existing code in the module you're editing — formatting, naming, co
 
 ## Skills
 
-The repo's `.claude/skills/` directory contains Claude Code skills that help during contribution:
+The repo's `.claude/skills/` directory contains a portable, config-driven engineering pipeline (vendored from [`roo-oliv/skills`](https://github.com/roo-oliv/skills)). Each skill reads `docs/agents/skills-config.md` for everything repo-specific — stack, verify command, docs layout, domains, sensitive domains (`foundation`, `platform`), the per-module flow lenses, and commit/PR conventions — so nothing stack-specific is hardcoded.
 
-- `/deep-review` — multi-agent review of a PR or branch through six lenses calibrated for MonoDreams (adjacent-code, system-ordering, framework-fit, cross-domain deps, premises/test-coverage, ECS-purity). Invoke with `/deep-review <PR# or branch>`.
+- `/refine` — turn a raw request (text, plan file, or a GitHub/Jira/Slack link) into an approved plan with a verifiable Contract block.
+- `/deep-plan` — fill and adversarially refute a plan's contract against the live codebase before code exists; the heavy path engages for changes touching a sensitive domain.
+- `/implement` — drive an approved plan to an open PR (wave-based, fresh agent per wave + a persistent ledger), then chains `/review-fix-loop`.
+- `/review-fix-loop` — review → fix loop over an open PR until exhaustion; posts a consolidated review.
+- `/deep-review` — multi-agent review of a PR/branch/commit/local diff through the universal lens set plus one dedicated lens per module the change touches. Invoke `/deep-review <PR# or branch>` (or no argument for current changes vs `main`); append `cheaper` for tiered model routing.
+- `/verify`, `/verify-plan` — run the configured verify command with a fix loop; reconcile an implementation against its plan.
+- `/setup`, `/bootstrap` — run-once-per-repo: write `docs/agents/skills-config.md`, and scaffold/revise the docs the skills consume (`CORE_TENETS.md`, per-module `premises.md`, per-module flow docs under `docs/flows/`).
 
 ## Filing issues and PRs
 

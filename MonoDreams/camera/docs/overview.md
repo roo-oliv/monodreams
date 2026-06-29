@@ -10,7 +10,7 @@ This module is the small, optional layer on top of the `Camera` class that handl
 
 ### Components
 
-- `CameraFollowTargetComponent` — tag with an `IsActive` flag; place on the entity (typically the player) the camera should follow. An optional `Bounds` rectangle clamps the resolved camera position so the view never scrolls past those edges (e.g. to keep the camera inside the level) — leave it null to follow freely
+- `CameraFollowTargetComponent` — tag with an `IsActive` flag; place on the entity (typically the player) the camera should follow. An optional `Bounds` rectangle clamps the follow **target** before smoothing, so the camera eases toward an in-bounds goal and the view never settles past those edges (e.g. to keep the camera inside the level) — leave it null to follow freely
 
 ### Systems
 

@@ -96,6 +96,10 @@ packages.lock.json
 .claude/worktrees/
 .sandbox/
 
+# Skills runtime state (never versioned): refine plans + implement ledgers
+.claude/.plans/
+.claude/.implement/
+
 # Web head: generated content is built from Examples.Core/Content/Content.mgcb by the
 # KNI content build into wwwroot/Content (XNB + copied assets). It is build output, not source.
 MonoDreams.Examples.Web/wwwroot/Content/
