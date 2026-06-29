@@ -6,15 +6,17 @@
 > Read this before changing the editor screen, its overlay entities, or the
 > scene save/load path.
 >
-> **Status: Wave 4a.** The run-state premise (Wave 1), the three serialization
-> premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
+> **Status: Wave 4 (4a + 4b).** The run-state premise (Wave 1), the three
+> serialization premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
 > SOURCE-not-derived sort fields), the scene round-trip premise (Wave 3 —
 > membership closure + the `LoadSceneRequest` reader + `Texture2D` rehydration),
-> and the Wave-4a interactive-editor invariants — overlay-standalone +
+> the Wave-4a interactive-editor invariants — overlay-standalone +
 > delete-snapshot, bounded undo with drag-coalescing, and selection topmost —
-> are all live below. The remaining "Planned" entry (the headless editor-op
-> channel) lands in Wave 5 with its named tests. No premise here ships
-> `Tests: none yet`.
+> and the Wave-4b gizmo + toolbar invariants — the gizmo applies a quantized
+> (snap-on) or raw (snap-off) transform edit honoring Origin, and the toolbar's
+> buttons drive the SAME shared editor instances — are all live below. The
+> remaining "Planned" entry (the headless editor-op channel) lands in Wave 5
+> with its named tests. No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -197,7 +199,10 @@ can't know the stack is empty.
 the first undo with nothing to undo.
 **Tests:** `MonoDreams.Tests/LevelEditor/UndoTests.cs` (`UndoBoundedCapTest` — push cap+2, history
 holds exactly cap, oldest evicted, undo stops at the oldest retained, empty-stack undo/redo no-op;
-`DragCoalescingTest` — a transaction of many pushes commits one entry that one undo reverses whole).
+`DragCoalescingTest` — a transaction of many pushes commits one entry that one undo reverses whole)
+and `MonoDreams.Tests/LevelEditor/GizmoTests.cs` (`DragCoalescingTest` — the gizmo path: a drag of N
+`TransformEditCommand`s inside one transaction commits one entry that one undo restores to the
+pre-drag transform, redo re-applies the whole drag).
 **Depends on:** —.
 
 ## Selection picks MAX final `LayerDepth` with a selection-owned tiebreak
@@ -226,6 +231,63 @@ rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by t
 `EditorId` tiebreak, deterministically).
 **Depends on:** rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` →
 `MasterRenderSystem` derive + sort on final `DrawComponent.LayerDepth`).
+
+## The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit, honoring Origin
+
+A gizmo drag computes the selected entity's new transform from the drag-start state plus the cursor
+motion via the pure `GizmoTransform.Compute`. **Move** offsets the position by the world-space cursor
+delta; **rotate** adds the signed angle swept (start cursor ray → current cursor ray) about the
+entity's world pivot; **scale** multiplies the scale by a factor derived from the drag distance. With
+**grid-snap off** the raw result is applied; with **snap on** the world-space result is quantized —
+the move position to the grid step, the rotation to the rotation step, the scale to whole steps.
+Rotate and scale pivot about the entity's <b>world pivot</b> (the world location of its `Origin`) and
+the local `Origin` field is preserved unchanged through every edit. The math is separated from
+`GizmoSystem` (which owns only the drag lifecycle + the overlay meshes) so it is unit-testable
+without a world, a cursor, or a GraphicsDevice. The gizmo + selection-highlight overlay entities are
+standalone (never `ChildOf`-parented) and set `VisibleComponent` themselves, drawing world-space on
+Main with handle sizes scaled by `1/Camera.Zoom` for constant on-screen size.
+
+**Why:** the contract's derived-value rows "grid-snap quantum applied world-space, honor origin" and
+the editor-overlay-standalone rule; a designer dragging with snap on must land on grid lines, and a
+rotate/scale must spin/grow about the entity's pivot rather than translate it.
+**Breaks:** a snap-off drag that quantizes (or vice versa) surprises the designer; a rotate/scale that
+moves the entity (pivoting about the wrong point) or that mutates `Origin`; an overlay parented to the
+selected entity gets cascade-disposed on delete; a mesh overlay with no self-`VisibleComponent` never
+renders.
+**Tests:** `MonoDreams.Tests/LevelEditor/GizmoTests.cs` (`GizmoTransformSnapTest` — move/rotate/scale
+with snap off = raw delta and snap on = quantized; rotate and scale preserve `Origin` and pivot about
+the world pivot).
+**Depends on:** rendering — `MeshPrepSystem` / `MasterRenderSystem` render a mesh `DrawComponent` on
+Main through the camera; foundation — `HierarchySystem.DisposeOrphans` (why overlays are standalone).
+
+## The editor toolbar's buttons drive the same shared editor instances; the toolbar is on UI/HUD, hidden in Play
+
+The engine-native toolbar (built with `AutoLayoutBuilder` + the engine's `SimpleButtonComponent` /
+`ButtonMeshPrepSystem`, no ImGui) lives on the **HUD** render target (screen-space, never Main), and
+each button carries a `ToolbarButtonComponent` binding a click to an `EditorToolbarAction`.
+`ToolbarSystem` hit-tests the cursor's `VirtualPosition` (the screen-space, pre-camera coordinate)
+against the button bounds and hands the action to a game-supplied dispatch — which wires Save through
+`SceneWriter.Save(world, file, camera, layers)` (the **same** `SceneSerializer`), Load by publishing a
+`LoadSceneRequest` (handled by the registered `SceneReaderSystem`), Undo/Redo on the **same**
+`EditorHistory`, snap-toggle flipping the shared `GizmoStateComponent.SnapEnabled`, and tool-select
+setting the shared `GizmoStateComponent.Tool`. There is exactly one `EditorHistory` / one gizmo-state
+entity — the toolbar never constructs a second. The toolbar is Edit-guarded (inert clicks in Play) and
+hidden in Play (the HUD pass does not cull on `VisibleComponent`, so the system blanks the buttons'
+mesh + label in Play and restores them in Edit).
+
+**Why:** the contract item 14 (toolbar on UI/HUD, web-capable, no ImGui) + the handoff "pass the SAME
+`_history`/`_sceneSerializer`/`_camera`/`_layers` instances — do not construct a second
+`EditorHistory`"; a second history would split undo state and a Main-target toolbar would scroll with
+the world camera.
+**Breaks:** a toolbar that news up its own history (its undo button can't reverse the gizmo's edits);
+a toolbar on Main that desyncs from the cursor when the camera moves; a toolbar that stays visible /
+clickable in Play.
+**Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`ToolbarWiringTest` — tool-select sets the
+tool, snap-toggle flips the flag, Save invokes `SceneWriter` through a fake `IPlatformServices`, Load
+publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack undo is a no-op).
+**Depends on:** ui — `AutoLayoutBuilder` / `SimpleButtonComponent` / `ButtonMeshPrepSystem`; cursor —
+`CursorInputComponent.VirtualPosition`; level-editor — "Bounded undo with drag-coalescing", "Scene
+round-trip reconstructs from registered components, not factories".
 
 ## Planned premises (Wave 5 — text + named test pre-committed)
 

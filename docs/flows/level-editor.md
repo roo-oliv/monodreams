@@ -7,13 +7,15 @@ sensitive: true
 
 # Level-editor frame: the game pipeline, gated by run state
 
-> **Status: Wave 4a.** Live today: the run-state gate in `foundation`
+> **Status: Wave 4 (4a + 4b).** Live today: the run-state gate in `foundation`
 > (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`); the scene round-trip (Wave 3);
-> and the Wave-4a interactive substrate — the reference `LevelEditorScreen`
+> the Wave-4a interactive substrate — the reference `LevelEditorScreen`
 > (`MonoDreams.Examples.Core`), `SelectionSystem` (click-to-pick), `EditorHistory` bounded
 > undo/redo with drag-coalescing, the `EditorModeToggleSystem` RunMode flip, and the
-> create/delete/transform commands. The transform **gizmo** and the **toolbar** are Wave 4b;
-> the headless editor-op channel is Wave 5. Anything not yet built is marked **(planned, Wave N)**.
+> create/delete/transform commands; and the Wave-4b interaction layer — the transform
+> **gizmo** (`GizmoSystem` + `GizmoStateComponent` + the pure `GizmoTransform` math) and the
+> engine-native **toolbar** (`ToolbarSystem` + `EditorToolbarBuilder` on the HUD target). The
+> headless editor-op channel is Wave 5. Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -44,12 +46,14 @@ In `Edit`, three kinds of entities coexist in one world:
 1. **Game entities** — the scene being edited. Their game-logic / physics / camera-follow
    systems are `Freeze`-gated, so they hold still; only the editor (and `HierarchySystem`)
    moves them.
-2. **Editor-overlay entities** — the selection highlight, the transform gizmo handles
-   **(gizmo planned, Wave 4b)**, and the toolbar **(planned, Wave 4b)**. These are **standalone** —
+2. **Editor-overlay entities** — the selection highlight + the transform gizmo handles (the
+   `GizmoSystem`'s outline + active-tool handle mesh entities, tagged `GizmoOverlayComponent`,
+   Wave 4b) and the toolbar buttons (on the HUD target, Wave 4b). These are **standalone** —
    never `ChildOfComponent`-parented to a game entity — so `HierarchySystem.DisposeOrphans` (live in
-   Edit) cannot cascade-dispose them. Gizmo/selection meshes set `VisibleComponent` themselves.
-   (Wave 4a selection tags the picked **game** entity with `SelectedComponent` — a transient marker,
-   not an overlay entity; the visible highlight/gizmo overlay arrives in 4b.)
+   Edit) cannot cascade-dispose them. The gizmo/outline meshes set `VisibleComponent` themselves
+   (`CullingSystem` only visits `SpriteInfoComponent` entities). Selection tags the picked **game**
+   entity with `SelectedComponent` (a transient marker, not an overlay entity); the gizmo reads that
+   tag to draw the overlay around it.
 3. **Transient input entities** — the cursor, positioned by the live `CursorInputSystem` →
    `CursorPositionSystem` pair the editor reads for hit-testing and dragging.
 
@@ -59,17 +63,24 @@ Per frame, in pipeline order (the reference assembly is `LevelEditorScreen`):
 2. **Mode toggle** (`RunNormally`) — `EditorModeToggleSystem` flips `RunMode` in place on the toggle key.
 3. **Level / scene load** — `LoadLevelRequest` (LDtk/Blender) + `LoadSceneRequest` (`SceneReaderSystem`).
 4. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
-5. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`);
-   gizmo drag → `TransformEditCommand` via the coalescing API **(gizmo planned, Wave 4b)**.
-6. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
+5. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`).
+6. **Gizmo** (Edit-guarded) — `GizmoSystem` reads `SelectedComponent`, hit-tests the active handle, and
+   on a drag opens a coalescing transaction and pushes a `TransformEditCommand` per frame (one undo step
+   on release). It runs **before** `HierarchySystem` so the edit propagates the same frame, and rebuilds
+   the standalone overlay meshes (outline + handle) each frame.
+7. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
    world space so the preview is correct *this* frame (it must run in both modes).
-7. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
+8. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
-8. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move.
-9. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
+9. **Toolbar** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the toolbar button meshes, then
+   `ToolbarSystem` hit-tests the cursor's `VirtualPosition` against the button bounds, fires a clicked
+   button's `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap), and
+   hides the toolbar in Play.
+10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move.
+11. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
    at the **end** of the draw pipeline (after `YSortSystem`) so it picks on the final post-Y-sort
-   depth this frame; the toolbar draws on the UI/HUD target **(planned, Wave 4b)**, the gizmo/selection
-   overlay on Main **(planned, Wave 4b)**.
+   depth this frame; the toolbar draws on the HUD target (screen-space), the gizmo/selection
+   overlay on Main (world-space, sized by `1/Camera.Zoom`).
 
 ## Invariants
 
@@ -84,12 +95,16 @@ the ones this flow leans on:
   entities drifting while editing.
 - Default `RunMode = Play` + opt-in gating ⇒ existing screens unchanged.
 - Editor-overlay entities are standalone (no `ChildOfComponent`) so the live
-  `DisposeOrphans` can't reap them; delete snapshots the disposed sub-graph for undo
-  (Wave 4a — `DeleteEntityCommand`; the visible overlay/gizmo it protects is Wave 4b).
+  `DisposeOrphans` can't reap them; the gizmo/outline meshes self-set `VisibleComponent`; delete
+  snapshots the disposed sub-graph for undo (Wave 4a — `DeleteEntityCommand`).
 - Selection picks MAX final post-Y-sort `DrawComponent.LayerDepth` with a selection-owned
   tiebreak (`EditorIdComponent`), read after `YSortSystem` this frame (Wave 4a).
 - Undo is bounded (FIFO eviction past the cap) with drag-coalescing (one drag = one entry);
-  empty-stack undo/redo is a no-op (Wave 4a).
+  empty-stack undo/redo is a no-op (Wave 4a). The gizmo drives this: drag-start opens the
+  transaction, each frame pushes a `TransformEditCommand`, release commits → one entry (Wave 4b).
+- The gizmo applies a quantized (snap-on) or raw (snap-off) world-space transform edit honoring
+  `Origin`; the toolbar (on the HUD target, never Main) drives the SAME shared `EditorHistory` /
+  `SceneSerializer` / `GizmoStateComponent`, never a second instance (Wave 4b).
 - Native scenes load via a dedicated `LoadSceneRequest`, never `LoadLevelRequest` (which is
   LDtk-coupled) (Wave 3).
 
