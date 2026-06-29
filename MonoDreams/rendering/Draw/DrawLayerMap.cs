@@ -106,6 +106,17 @@ public sealed class DrawLayerMap
     }
 
     /// <summary>
+    /// Enumerates every registered layer (including aliases) as (name, depth, ySorted) — used by the
+    /// scene writer to persist the <c>layers[]</c> block so a loaded scene can reconstruct the depth
+    /// banding. Read-only: the map's internal storage is not exposed, only a snapshot of its entries.
+    /// </summary>
+    public IEnumerable<(string Name, float Depth, bool YSorted)> EnumerateLayers()
+    {
+        foreach (var (name, depth) in _layers)
+            yield return (name, depth, _ySortedDepths.Contains(depth));
+    }
+
+    /// <summary>
     /// Returns the Y-sort interpolation range for a depth value, if it belongs to a Y-sorted layer.
     /// The range is slightly inset from the full layer range to prevent overlap with adjacent layers.
     /// </summary>
