@@ -6,12 +6,13 @@
 > Read this before changing the editor screen, its overlay entities, or the
 > scene save/load path.
 >
-> **Status: Wave 2.** The run-state premise (Wave 1) plus the three
-> serialization premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
-> SOURCE-not-derived sort fields) are live below. The remaining invariants —
-> the full scene round-trip on `LoadSceneRequest`, overlay-standalone +
+> **Status: Wave 3.** The run-state premise (Wave 1), the three serialization
+> premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
+> SOURCE-not-derived sort fields), and the scene round-trip premise (Wave 3 —
+> membership closure + the `LoadSceneRequest` reader + `Texture2D` rehydration)
+> are live below. The remaining invariants — overlay-standalone +
 > delete-snapshot, bounded undo, selection topmost — land with their code in
-> Waves 3–5 and are listed under "Planned premises" so a future session has the
+> Waves 4–5 and are listed under "Planned premises" so a future session has the
 > exact text and the test each must name. No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
@@ -113,6 +114,45 @@ SOURCE fields are written; the derived-depth *reproduction* across a full save�
 **Depends on:** rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` →
 `MasterRenderSystem` rewrite `DrawComponent.LayerDepth` each frame).
 
+## Scene round-trip reconstructs from registered components, not factories
+
+A scene saves the registered components of every `SceneObjectComponent`-tagged root **plus** each
+root's `ChildOfComponent` descendant closure, so a factory's sub-graph (e.g. a player and its
+orbiting orbs) round-trips with its parent graph intact even though only the root is tagged.
+Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar) are
+untagged → excluded; Blender-origin entities are untagged in this wave (their save is deferred) →
+view-only. `SceneWriter` computes the closure, serializes it through the Wave-2 `SceneSerializer`
+into a `SceneData` (attaching the active `Camera` state and the `DrawLayerMap` banding), and exports
+the JSON through `IPlatformServices.ExportScene` (desktop file / web download). Loading is a
+**dedicated `LoadSceneRequest`** message — separate from `LoadLevelRequest` so it never triggers
+(or, on failure, clobbers) the LDtk `Content.Load` / `Remove<CurrentLevelComponent>` path —
+handled by `SceneReaderSystem` in two passes (create + deserialize each entity's components, then
+wire the parent graph from the recorded indices), after which it **rehydrates** each sprite's
+`Texture2D` from its `SpriteInfo.AssetKey` via `ContentManager.Load`. The reader **fails loud** on a
+component key in the file with no registered serializer (the registry throws; the load aborts with a
+clear message rather than silently dropping data). A re-prep + Y-sort frame after load recomputes
+`DrawComponent.LayerDepth` identically, because the SOURCE sort fields — not the derived depth — were
+persisted.
+
+**Why:** the round-trip must reconstruct from components, not by re-running factories (GAP-A), so
+edited state and factory sub-graphs survive; a dedicated load message keeps the native and LDtk load
+paths independent; rehydration restores the live GPU texture the JSON cannot carry; failing loud on an
+unknown component turns a dropped component into a visible error rather than the missing-entity class of
+bug.
+**Breaks:** sharing `LoadLevelRequest` would let a native-scene load clobber the LDtk
+`CurrentLevelComponent`; serializing from factories would lose edited state; a missing membership
+closure would drop a tagged root's children; persisting the derived depth would bake one camera
+frame's Y-sort into the file; swallowing an unregistered key would silently lose a designer's data.
+**Tests:** `MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` (`SceneRoundTripGoldenTest` — tag a
+sprite root + a `ChildOf` child, write, reload via `LoadSceneRequest`, assert Transform + `SpriteInfo`
+SOURCE sort fields + `AssetKey` + texture rehydration + parent graph + camera/layers reproduce;
+`MembershipFilterTest` — only tagged roots + their `ChildOf` closure serialize, transient/untagged
+and Blender-style entities excluded; `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
+frame recomputes the identical derived `DrawComponent.LayerDepth`).
+**Depends on:** level-loading — `LoadLevelRequest` is LDtk-coupled (the asymmetry this premise routes
+around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
+frame); foundation — the `IPlatformServices` portability seam.
+
 ## Planned premises (land with their code in later waves — text + named test pre-committed)
 
 These are **not yet live** (their code does not exist yet). They are
@@ -120,19 +160,6 @@ recorded here so the implementing wave drops in the premise verbatim and wires
 the named test in the same PR — honoring the repo rule that no premise ships
 `Tests: none yet`.
 
-- **"Scene round-trip reconstructs from registered components, not factories."**
-  (Wave 3) Save = the registered components of every `SceneObjectComponent` root
-  plus its `ChildOfComponent` closure; load = two passes (create + deserialize via
-  the registry, rehydrate `Texture2D` from the asset key, then wire the parent
-  graph) on a dedicated `LoadSceneRequest`. **Tests:** `SceneRoundTripGoldenTest`,
-  `MembershipFilterTest`, `DerivedDepthReproductionTest`. **Depends on:**
-  level-loading — `LoadLevelRequest` is LDtk-coupled. **Note (Wave 2):** the
-  component-serialization *engine* of this premise is already live — the opt-in
-  registry, the in-memory `SceneSerializer` two-pass create-then-wire-parents
-  round-trip, and the `AssetKey`/SOURCE-sort-field rules above are tested by
-  `ComponentSerializerRegistryTest` with hand-built entities. Wave 3 adds the
-  `SceneObjectComponent` membership filter, the JSON file writer/reader through
-  `IPlatformServices`, `Texture2D` rehydration, and the `LoadSceneRequest` dispatch.
 - **"Editor-overlay entities are standalone; delete snapshots the sub-graph."**
   (Wave 4) Gizmo / selection / toolbar entities are never `ChildOfComponent`-parented
   to game entities, so `HierarchySystem.DisposeOrphans` (live in Edit) cannot

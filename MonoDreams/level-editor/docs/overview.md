@@ -2,7 +2,7 @@
 
 The in-game level editor: an **Edit run mode** layered over the real game pipeline. The editor is not a separate application or renderer — it is a mode of the game (see `docs/CORE_TENETS.md`, "The editor is part of the game"). In `Edit`, the same world, the same `Camera`, and the same `CullingSystem → SpritePrepSystem → YSortSystem → MasterRenderSystem` draw stack the player sees stay live; game logic, physics, and camera-follow freeze; and editor tooling (selection, gizmos, undo, scene save/load, toolbar) runs on top.
 
-> **Status: Wave 2.** Wave 1 shipped the run-state model (in `foundation`) and the docs that codify it. Wave 2 adds the **native scene format** + the **component-serializer registry** (this module's first code, under `Serialization/`) and an additive `AssetKey` on `SpriteInfoComponent`. The interactive editor (screen, selection, gizmo, undo, toolbar) and the file writer/reader on `LoadSceneRequest` land in later waves (3–5). The sections below describe the *intended* shape so a fresh session can implement the remaining waves without re-deriving the architecture; anything not yet built is marked **(planned, Wave N)**.
+> **Status: Wave 3.** Wave 1 shipped the run-state model (in `foundation`) and the docs that codify it. Wave 2 added the **native scene format** + the **component-serializer registry** (under `Serialization/`) and an additive `AssetKey` on `SpriteInfoComponent`. Wave 3 adds the **scene round-trip**: `SceneObjectComponent` (save-root tag), the `SceneWriter` (membership closure + camera/layers + export through `IPlatformServices`), the dedicated `LoadSceneRequest` message + `SceneReaderSystem` (two-pass create + deserialize + parent-wire + `Texture2D` rehydration), and an `IPlatformServices.ExportScene` member (desktop file / web download). The interactive editor (screen, selection, gizmo, undo, toolbar) lands in later waves (4–5). The sections below describe the *intended* shape so a fresh session can implement the remaining waves without re-deriving the architecture; anything not yet built is marked **(planned, Wave N)**.
 
 ## Purpose
 
@@ -30,23 +30,27 @@ The scene-persistence substrate. It is infrastructure (services), not components
 - `EngineComponentSerializers.RegisterEngineComponents` — registers the engine's serializers (`Transform`, `SpriteInfo`, `EntityInfo`, the colliders, `RigidBody`, `Velocity`, the `ChildOf` parent link). Centralized here because this module already depends on the modules those components live in.
 - `SceneSerializer` — the in-memory round-trip seam: serializes a set of entities to `SceneData` (preserving the `ChildOf` parent graph as indices) and reconstructs them in two passes (create + deserialize, then wire parents). Wave 3 layers JSON file I/O + `LoadSceneRequest` + `Texture2D` rehydration on top.
 
-### Components (planned, Waves 3–4)
+### Components
 
-- `SceneObjectComponent` — tags a save-root entity; the scene writer includes each tagged root plus its `ChildOfComponent` descendants.
-- `SelectedComponent` — marks the currently-selected entity for the gizmo and toolbar.
-- Transform-gizmo components — the move/rotate/scale handle entities (standalone overlay entities, never `ChildOfComponent`-parented to game entities).
+- `SceneObjectComponent` (Wave 3, live, under `Component/`) — a pure tag marking a **save-root** entity; the `SceneWriter` includes each tagged root plus its `ChildOfComponent` descendant closure.
+- `SelectedComponent` (planned, Wave 4) — marks the currently-selected entity for the gizmo and toolbar.
+- Transform-gizmo components (planned, Wave 4) — the move/rotate/scale handle entities (standalone overlay entities, never `ChildOfComponent`-parented to game entities).
 
-### Systems (planned, Waves 3–5)
+### Systems
 
-- The scene writer/reader on a dedicated `LoadSceneRequest` message (NOT `LoadLevelRequest`), built on the Wave-2 registry + `SceneSerializer`.
-- A selection system (hit-test cursor world position vs world-space sprite bounds; topmost = MAX final post-YSort `LayerDepth`).
-- A transform-gizmo system (gizmo/selection meshes set `VisibleComponent` themselves).
-- An editor-command abstraction + bounded undo/redo (drag-coalesced).
-- An engine-native toolbar (`AutoLayoutBuilder`, on the UI/HUD render target).
+- `SceneReaderSystem` (Wave 3, live, under `System/`) — subscribes to `LoadSceneRequest`, reads the scene JSON (content stream via `TitleContainer`, or `IPlatformServices` for host-filesystem user data), deserializes via the Wave-2 `SceneSerializer` (two-pass create + deserialize + parent-wire), rehydrates each sprite's `Texture2D` from its `AssetKey`, and fails loud on an unregistered component key. The texture loader is injectable (`Func<string, Texture2D>`) so it is unit-testable without a `GraphicsDevice`.
+- A selection system (planned, Wave 4) — hit-test cursor world position vs world-space sprite bounds; topmost = MAX final post-YSort `LayerDepth`.
+- A transform-gizmo system (planned, Wave 4) — gizmo/selection meshes set `VisibleComponent` themselves.
+- An editor-command abstraction + bounded undo/redo (planned, Wave 4) — drag-coalesced.
+- An engine-native toolbar (planned, Wave 4) — `AutoLayoutBuilder`, on the UI/HUD render target; the toolbar's save/load buttons call the Wave-3 `SceneWriter.Save` and publish `LoadSceneRequest`.
 
-### Messages (planned, Wave 3)
+### Serialization writer (Wave 3, live — under `Serialization/`)
 
-- `LoadSceneRequest` — loads a native MonoDreams scene file; distinct from `LoadLevelRequest` so it never triggers the LDtk `Content.Load` / `Remove<CurrentLevelComponent>` path.
+- `SceneWriter` — computes the membership closure (`SceneWriter.CollectMembership`: every `SceneObjectComponent` root + each one's `ChildOfComponent` descendants), serializes it through the Wave-2 `SceneSerializer` into a `SceneData` (attaching `Camera` state + the `DrawLayerMap` banding), JSON-serializes it, and exports through `IPlatformServices.ExportScene`. Save-time only — never per frame.
+
+### Messages
+
+- `LoadSceneRequest` (Wave 3, live, under `Message/`) — loads a native MonoDreams scene file; distinct from `LoadLevelRequest` so it never triggers the LDtk `Content.Load` / `Remove<CurrentLevelComponent>` path. Carries the scene `Path` and a `FromContent` flag (content asset vs. host-filesystem user data).
 
 ## Pipeline wiring (intended)
 
