@@ -1,0 +1,789 @@
+git rebase main
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.claude/skills/implement
+
+`implement` executa um plano aprovado até virar um Pull Request aberto, e então encadeia o `/review-fix-loop`. A implementação roda dentro de um **Workflow** (`~/.claude/workflows/implement.js`) — esta invocação de skill é o opt-in explícito do usuário para a orquestração multi-agente, incluindo a autorização expressa para os agentes do workflow **commitarem e darem push na branch de trabalho** (somente nela; nunca em `main`, nunca force).
+
+Arquitetura de contexto: **waves + ledger**. O script divide o plano em ondas; cada onda é um agente *fresco* que lê o plano + o ledger de progresso, implementa só a sua fatia, verifica, commita, dá push e atualiza o ledger. Nenhum agente acumula contexto além da própria onda — esse é o substituto do `/compact` (não invocável dentro de agentes de workflow) — e um crash é retomável a partir do ledger + branch.
+
+---
+
+## Passo 1 — Parse dos argumentos
+
+- Detecte e remova o token `no-review` (alias: `noreview`, `sem-review`) → seta `NO_REVIEW`.
+- O restante é o input: texto livre, caminho de arquivo ou URL.
+
+## Passo 2 — Garantir um plano APROVADO
+
+1. Se o input é um caminho para um plano com `**Status:** APROVADO` (ou um plano aprovado **nesta sessão** via refine/plan mode) → use-o.
+2. Caso contrário (texto, URL, plano DRAFT, ou nada) → **invoque a skill `refine`** (Skill tool) com o input. O refine entrevista se necessário, decide deep-plan vs direto e termina com a aprovação final do usuário — essa aprovação vale como a confirmação para implementar; não pergunte de novo.
+3. Se o refine terminar em Cancelar, pare.
+
+Extraia do plano: caminho, branch sugerida, domínios, tier de risco, e o caminho do contrato standalone do deep-plan (`.claude/deep-plan/<branch>-<shortSha>.md`), se existir.
+
+## Passo 3 — Preflight
+
+Execute e **pare com diagnóstico claro** se algo falhar (não improvise):
+
+1. **Working tree limpa**: `git status --porcelain` vazio. Se houver mudanças não commitadas, pergunte ao usuário (stash / commitar / abortar) — nunca descarte.
+2. **Branch**: se está na `main`, crie a branch sugerida pelo plano (`git checkout -b <branch>`). Se já está numa feature branch diferente da sugerida, confirme com o usuário qual usar. Registre o nome final — todos os agentes do workflow validam contra ele.
+3. **Base atualizada**: `git fetch origin main`.
+4. **Docker**: `docker info` (testes usam TestContainers; o daemon é Colima — se estiver parado, sugira `colima start` via `!` e aguarde).
+5. **Ledger**: derive `slug` = branch com `/`→`-`; ledger em `~/.claude/implement/<slug>/ledger.md` (crie o diretório). Se o usuário deu **diretivas de execução** (restrições, "em caso de X, faça Y", avisos de armadilha — ex.: "ambiguidade de dinheiro → blocked, não decisão"), semeie o ledger agora com uma seção `## Diretivas (do usuário)` contendo-as: é o canal de injeção de contexto para dentro do workflow, e os agentes as tratam com **precedência sobre decisões autônomas**. Trabalho já feito fora do workflow (ex.: uma "Onda 0" manual) também entra aqui, marcado como concluído com os commits. Se já existir um ledger com ondas concluídas para essa branch, é uma **retomada**: o workflow continua das ondas pendentes, preservando diretivas existentes.
+
+## Passo 4 — Disparar o workflow
+
+Chame `Workflow` com `scriptPath: /Users/rodrigooliveira/.claude/workflows/implement.js` e `args` (objeto JSON real, não string):
+
+```json
+{
+  "planPath": "<caminho do plano aprovado>",
+  "branch": "<branch>",
+  "baseBranch": "main",
+  "repoRoot": "<git rev-parse --show-toplevel>",
+  "ledgerPath": "~/.claude/implement/<slug>/ledger.md (expandido)",
+  "timestamp": "<date +%Y-%m-%dT%H-%M>",
+  "deepPlanContractPath": "<caminho ou null>",
+  "prTitleHint": "<tipo(escopo): descrição em pt-br>",
+  "maxWaves": 8
+}
+```
+
+O workflow roda em background; aguarde a `<task-notification>`. Acompanhe via `/workflows` se o usuário pedir.
+
+## Passo 5 — Pós-workflow
+
+Leia o resultado e reporte ao usuário **liderando com o outcome**:
+
+- `status: "pr-opened"` → URL do PR, ondas executadas, commits, e a seção **Decisões tomadas autonomamente** (cada ponto onde um input de usuário teria sido pedido: opções consideradas + caminho escolhido + porquê — também presente na descrição do PR para o usuário revisar e pedir alterações).
+- `status: "blocked" | "verify-failed" | "blocked-gate"` → o que foi commitado/pushado até aqui, a onda/etapa travada e o motivo. **Não** encadeie o review. Se for `blocked-gate` (hook do deep-plan barrou o `gh pr create`), o caminho é completar o plan-contract — nunca instrua o token de override.
+
+Se `status: "pr-opened"` e **não** `NO_REVIEW` → **invoque a skill `review-fix-loop`** (Skill tool) com o número do PR. Ao final dela, consolide o relatório dos dois estágios numa única mensagem final.
+
+---
+
+## Contrato do workflow (o que `implement.js` garante)
+
+- **Setup**: valida a branch, semeia/retoma o ledger, divide o plano em ≤`maxWaves` ondas (por fase do plano ou por grupos lógicos de commit, per git-conventions), e commita o contrato do deep-plan em `.claude/deep-plan/` quando existir (é o artefato que o hook de PR em branch money lê).
+- **Implement**: uma onda por vez, agente fresco por onda, com retry único em caso de `blocked`. Cada onda: implementa só seu escopo → roda verify incremental (spotless, detekt, testes direcionados + ArchitectureTests dos módulos tocados) → commita (Conventional Commits pt-br) → push na branch → atualiza ledger com progresso e decisões. **Gate de fechamento**: a onda não fecha com contract item sem teste nomeado (ou justificativa explícita) nem com premissa nova em `Tests: none yet` — no PR #1065, metade dos Highs do review eram "untested X" que este gate teria pego na origem. **Dimension-row-on-mint**: quantia monetária derivada que o plano não especifica ganha dimension row retroativa no contrato + premissa testada, no mesmo commit.
+- **Verify**: `/verify` completo (inclui `clean build`) com loop de fix (≤3 tentativas), depois reconciliação `verify-plan` (Missing/Diverged/Unplanned/UntestedPremises vs Contract — o 4º bucket é o grep mecânico por `Tests: none yet` nas premissas da branch) com 1 rodada de fix; residuais viram seção explícita do PR, nunca silêncio.
+- **PR**: rebase sobre `origin/main` (re-verifica se o rebase trouxe mudanças), push, e `gh pr create` com corpo extenso em pt-br seguindo `.claude/rules/git-conventions.md` — Resumo, Plano de teste, Decisões tomadas autonomamente, e seções condicionais (payloads, rollback, tabelas) quando aplicáveis.
+- **Decisões em vez de perguntas**: agentes de workflow não têm `AskUserQuestion`. Em qualquer ponto de decisão, o agente registra as opções, escolhe a que melhor serve o plano, e segue — o registro aparece no ledger, no output do workflow e na descrição do PR.
+
+
+ARGUMENTS: (Obs before the spec: a concern is how to keep this performatic, both, at editting time and at game runtime) # Spec: brush-based authoring experience for illustrated 2D maps (MonoGame + ECS)
+
+## How to read this spec
+
+This is a **specification of intent and rationale**, not a set of implementation instructions. It describes *what needs to be true* and *why*, deliberately without prescribing data structures, classes, signatures, or order of execution.
+
+About the codebase: **assume nothing beyond the fact that this is a MonoGame game with an ECS architecture.** Everything else (serialization format, camera model, render pipeline, sprite ordering, whether any editor tooling exists at all, input handling, the notion of a "level/scene", asset loading, whether undo exists) is unknown and **must be discovered by investigating the code before proposing a solution**. Wherever this spec depends on something from the engine, that is flagged explicitly as an investigation point.
+
+First deliverable expected from this next session: **a deep dive into the codebase + a proposed implementation plan**, mapping how each requirement below fits into what already exists, and surfacing the cross-cutting decisions (listed further down) back to the human to decide. **Do not, on your own, decide what goes in now vs. later, and do not size the effort** — that is the human's call, based on your mapping.
+
+The "waves" described in the last section are **dependency/architecture seams** (where the delivery naturally splits), **not a schedule and not a recommended ordering**.
+
+---
+
+## 1. Context and goal
+
+The art-direction target is **illustrated/painterly 2D** — the visual family of games like Wytchwood and Hollow Knight. The mental model is a **diorama / pop-up book**: the scene is a free composition of illustrated "cutouts" (props, ground patches, foliage) placed in space, with depth coming from layering and from sort ordering. **It is not pixel art, not pixel-perfect, and crucially not tile-based** — there is no grid of snap-together tiles.
+
+For that reason, tile-oriented editors (Tiled, LDtk) are a poor fit for this project: their paradigm is filling a matrix, and the friction shows up precisely when the game isn't pixel art. The desired authoring experience is **dragging a cursor across the scene to "paint"**: painting the ground, scattering scenery elements, and drawing paths/roads. The goal of this delivery is to offer that experience inside our own engine.
+
+### The central realization that structures everything
+
+"Brush" here is **an input metaphor** (dragging a cursor) shared by **distinct tools whose data model and output diverge**. Treating this as a single monolithic brush system is a trap that creates rework. The three tools the metaphor covers:
+
+- **Scatter scenery** → produces **discrete ECS entities** (with variation in rotation/scale/tint and density). The output is real game entities.
+- **Paint the ground** → produces **texture/material** (a blend of layers) or large ground stamps with soft alpha that overlap. The output is pixels, not entities.
+- **Draw path/road** → **not a stamp, a spline**. The real requirement is continuity, controllable width, and corners that resolve cleanly. Modeling a road as loose stamps is where most implementations get tangled.
+
+This spec is therefore about "a stroke sampler + pluggable stamp behaviors", not a single tool.
+
+---
+
+## 2. Requirements (properties that need to be true)
+
+Each item carries the rationale, which matters more than the form.
+
+**2.1 — A single stroke-sampling input layer, feeding pluggable behaviors.**
+The drag gesture must be sampled at points along the cursor path at a controlled interval (so dragging fast doesn't leave gaps), with a notion of radius and falloff, dispatching to a *stamp behavior* per sample. Rationale: scatter and ground are the same gesture with different behaviors; separating the gesture from the effect avoids duplication and keeps input consistent across tools.
+
+**2.2 — The outputs of the three tools are divergent by nature (see section 1) and must not be forced into a single model.** Rationale: unifying the output prematurely (e.g., trying to represent ground and props with the same structure) couples decisions that should remain independent.
+
+**2.3 — Explicit "parametric vs. baked" decision.**
+For each tool it must be decided whether the stroke becomes an entity/texture immediately (simple, but the stroke is lost and not re-tweakable) or is stored as a re-evaluable operation/source. Rationale per tool: a road **wants** to be parametric (store the spline and regenerate); scatter should store at least region + seed to allow re-rolling density; ground-texture is typically baked. The common hybrid pattern is to keep an editable "source" that bakes to the runtime representation on save/export. This is the highest-impact decision in the delivery and must be resolved and justified explicitly.
+
+**2.4 — Determinism via seeded RNG (especially in scatter).**
+The result of scattering must be reproducible from a seed. Rationale: levels are versioned in git; if every brush stroke re-randomizes, the level file *churns* on every save and merges become a nightmare. A stable per-region seed = reproducible and diffable levels.
+
+**2.5 — Reuse the existing ECS; no parallel editor data model.**
+The brush must manipulate **the same components the runtime consumes**, not a separate editor data model that is later converted. Rationale: this is exactly the payoff of building your own editor instead of using LDtk/Tiled — eliminating the editor↔runtime translation boundary and the drift it causes. **Investigate how entities/components are created and mutated in this engine** so the stamp effect produces them directly.
+
+**2.6 — Integration with ordering (sorting groups + y-sort).**
+Whatever is painted must land in the correct depth grouping and feed baseline ordering (ground and road underneath; props ordered by the sprite's bottom point). Rationale: without this, ordering becomes manual correction after every stroke. **Investigate how sprite ordering is currently done** (is there a sorting layer/group? y-sort? by Z?) before defining how the brush assigns it.
+
+**2.7 — Preview with the real game camera.**
+The designer must compose while seeing the final framing (and ideally post-processing) of the game, not a generic editor view. Rationale: composition quality in this style depends heavily on seeing the real result while placing things; it's the highest-perceived-return feature. **Investigate the current camera model** to know what's needed to mirror it in the editor.
+
+**2.8 — Undo/redo with drag coalescing.**
+A brush without undo is unusable. The correct granularity is **one entire drag = one undo step**, not each sample. Rationale: it's as essential as the brushes themselves, and the wrong granularity (undo per sample) makes the tool frustrating. **Investigate whether any notion of undo/history exists today.**
+
+---
+
+## 3. What must be discovered in the codebase (do not assume)
+
+Before proposing architecture, explicitly establish:
+
+- How entities and components are represented, created, and mutated; whether there are archetypes/queries; how the runtime consumes them.
+- Whether any form of level serialization/persistence exists, in what format, and whether levels go into git.
+- What "level" / "scene" means in this engine, if the concept exists at all.
+- How sprites are loaded and drawn; how **ordering** is decided (Z, sorting layer, y-sort, submission order?).
+- Whether any **render-to-texture** path is available (relevant to the blended-ground option and to the preview).
+- The **camera** model (projection, transform, post-processing) and what's missing to reproduce it in the editor.
+- How **input** is handled.
+- Whether any **editor infrastructure** already exists (viewport, picking/selection, gizmos, UI panel) or none of it does — including whether any immediate-mode UI (e.g. ImGui) is already integrated.
+- Whether any concept of **undo/history** exists.
+
+Every gap found must become an explicit point in the plan, not a silent assumption.
+
+---
+
+## 4. Cross-cutting decisions to surface and bring back
+
+Do not decide alone; map options with trade-offs and return them to the human:
+
+- **Ground representation and how it renders**: large stamps with alpha blend vs. splatmap in a render target (perfect blend, requires a shader) vs. another approach. Coupled to 2.3 and to whether render-to-texture exists.
+- **How the road renders**: stamps-along-the-spline with alpha blend (simplest, fits the illustrated style, but seams and ordering to resolve) vs. mesh strip with tileable texture (continuous, but UV/corners are fiddly) vs. splatmap. A look decision as much as a technical one.
+- **Where the parametric "source" lives vs. the baked runtime representation** (2.3), and how save/export handles both.
+- **Where the scatter seed is stored** and at what granularity (per region? per stroke?).
+- **How the brush assigns sorting group / sort key** given whatever ordering model already exists.
+- **Editor chrome**: if nothing exists, what is the minimum viewport/UI substrate (and this interacts with everything in Wave A below).
+
+---
+
+## 5. Dependency seams ("waves")
+
+> These are the **natural breaks** I identified in the delivery — separations by dependency and by data-model divergence. **They are not a recommended order and not a sizing.** The ordering and scope of each wave is the human's decision, based on your mapping of the codebase. The dependencies described are factual (X cannot exist without Y), not preferences.
+
+- **Wave A — Authoring substrate.** Viewport with the real game-camera preview (2.7), selection/picking, transform gizmos, undo/redo with coalescing (2.8), and a load/save level round-trip. Rationale for the seam: every other wave presupposes this substrate; and part of it may already exist in the engine — investigate first.
+
+- **Wave B — Stroke-sampling layer.** The shared gesture (2.1): samples the cursor path with radius/falloff/spacing and dispatches to a stamp behavior. Dependency: the brush-like tools (scatter, ground) depend on this gesture existing.
+
+- **Wave C — Free entity placement.** Placing existing ECS entities by hand, with snapping, and with correct sorting group / y-sort assignment (2.6). Dependency: needs the substrate (A); establishes the "create entity in the scene" path that scatter reuses.
+
+- **Wave D — Scatter stamp.** A behavior that produces entities, seeded (2.4) and density-driven, with variation in rotation/scale/tint. Dependency: on the gesture (B) and the entity-creation/ordering path (C). Forces resolving the part of 2.3 about storing region + seed.
+
+- **Wave E — Ground stamp.** A behavior that produces texture/material or ground stamps. Dependency: on the gesture (B). Forces the ground representation and render decision (section 4) and, depending on it, render-to-texture.
+
+- **Wave F — Path/road tool.** Based on a **spline**, with width and corners — a **different** interaction model from the stroke sampler (editing control points/handles, not continuous stamping), so its coupling to B is weak and its coupling to the substrate A (gizmos/handles) is strong. Forces the road render decision (section 4) and tends to be intrinsically parametric (2.3).
+
+---
+
+## 6. Out of scope (scope-creep guards)
+
+- Not a tile system and not pixel-perfect.
+- Does not include art asset creation.
+- Does not prescribe data structures, classes, or signatures — these should be proposed after the deep dive.
+- Does not decide what to implement now vs. later, nor estimate size.
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.claude/skills/refine
+
+`refine` é a etapa de planejamento do pipeline `refine → implement → review-fix-loop`, mas funciona isoladamente. Ela recebe uma intenção em qualquer formato, resolve o conteúdo, decide se precisa entrevistar o usuário, escreve um plano com os artefatos de `.claude/rules/planning.md`, **decide sozinha** se o risco justifica rodar `/deep-plan`, e só então volta ao usuário para a aprovação final. O output é um arquivo de plano carimbado como APROVADO — exatamente o input que `/implement` consome.
+
+Este skill roda **inline na conversa principal** (precisa de `AskUserQuestion`); ele não dispara Workflow diretamente — no máximo invoca `/deep-plan`, que tem seu próprio Workflow.
+
+---
+
+## Fase 0 — Resolver o input
+
+Classifique o argumento e materialize a **intenção bruta** (brief):
+
+1. **Caminho de arquivo existente** → leia. Se já for um plano com `## Contract`, trate como rascunho a refinar (não como brief cru).
+2. **URL** — resolva pelo host:
+   - `github.com/.../issues/N` → `gh issue view N --repo <owner/repo> --json title,body,comments`
+   - `github.com/.../pull/N` → `gh pr view N --repo <owner/repo> --json title,body,comments`
+   - Jira (`*.atlassian.net/browse/KEY-N`) → ToolSearch `+atlassian` e use as tools do MCP Atlassian (autentique se necessário via `authenticate`).
+   - Slack (`.../archives/<channel>/p<ts>`) → ToolSearch `+slack read thread` e use `slack_read_thread`.
+   - Google Drive/Docs → ToolSearch `+drive read` e leia o conteúdo.
+   - Outra URL → ToolSearch `select:WebFetch` e busque.
+3. **Texto livre** → é o próprio brief.
+
+Eco do brief: resuma em 2–4 linhas o que entendeu que deve ser implementado e **de onde veio** (link/arquivo). Se o brief vier vazio ou a URL não resolver, pare e pergunte.
+
+## Fase 1 — Contexto do codebase
+
+Igual ao Phase 1 do deep-plan, mas mais leve:
+
+1. Liste os **domínios afetados** a partir do brief. Para cada um, leia `docs/{domain}/premises.md` e `docs/schema/{domain}.md` (se existirem) e `docs/CORE_TENETS.md`.
+2. Despache 1–3 agentes **Explore** em paralelo para mapear os arquivos/serviços/fluxos que a mudança toca (breadth "medium"; "very thorough" se o brief for vago sobre onde mexer). Você quer: pontos de wiring, guards existentes, callers, testes que cobrem o fluxo hoje.
+3. `rg`, nunca `grep -r` (escopo do repo, ignora worktrees/build).
+
+## Fase 2 — Entrevistar ou não (julgamento)
+
+Entreviste **apenas se** existir ambiguidade material: múltiplas interpretações razoáveis do escopo, invariante não declarada da qual a implementação dependerá, edge case com respostas plausíveis divergentes, ou tradeoff que muda a arquitetura (ex.: síncrono vs outbox). Use `AskUserQuestion` (até 4 perguntas por rodada, máx. ~2 rodadas — siga o roteiro de entrevista de `.claude/rules/premises.md`: "que invariantes existentes essa mudança assume?", "o que quebra em outro lugar se a premissa for falsa?").
+
+Para todo cenário que o plano decide **deferir** ("fora de escopo", "tratamos depois"), acrescente a pergunta: **"com que frequência o caso deferido dispara em produção?"** Gatilho rotineiro será re-litigado no review como se fosse gap (caso clawback do PR #1065: deferido no plano, re-aberto em review porque o gatilho era rotineiro) — ou o plano o trata, ou a justificativa do deferral entra na prosa com o dado de frequência.
+
+Se o brief é inequívoco, **diga isso em uma linha e siga** — não fabrique perguntas. O paradoxo da autocrítica do deep-plan vale aqui: cerimônia em tarefa simples ensina o usuário a ignorar o skill.
+
+## Fase 3 — Autorar o plano
+
+Escreva o plano seguindo `.claude/rules/planning.md` e `docs/planning/plan-contract.md`:
+
+- **Prosa**: contexto, abordagem escolhida (e alternativas descartadas, com 1 linha de porquê), fases de implementação se multi-fase.
+- **`## Contract`** (sempre): lista numerada de compromissos atômicos verificáveis.
+- **Interaction matrix** e **Precondition diff**: quando os gatilhos do plan-contract se aplicarem (status/lifecycle novo, state machine, registro RESERVED/PENDING longevo; método/fluxo deletado/substituído ou guard copiado).
+- **Cabeçalho de metadados** no topo do arquivo:
+
+```markdown
+# {título}
+
+**Origem:** {texto | arquivo | URL resolvida}
+**Branch sugerida:** {tipo}/{slug-kebab}   ← siga .claude/rules/git-conventions.md
+**Domínios:** {lista}
+**Tier de risco:** {direto | deep-plan} — {1 linha de justificativa}
+**Status:** DRAFT
+```
+
+Salve em `~/.claude/plans/<slug-kebab>.md`. (É o diretório que `/verify-plan` e o hook `deep-plan-pr-gate.sh` escaneiam.) Se o plan mode da sessão bloquear o Write, apresente o plano na conversa e escreva o arquivo logo após a aprovação da Fase 6.
+
+## Fase 4 — Ilustrar outcomes críticos (julgamento)
+
+Se o plano produz outcomes cuja forma concreta o usuário precisa validar — payload de API/evento novo ou alterado, fluxo de dinheiro (quem recebe quanto em que conta), antes/depois de uma mutação de dados, schema novo — **mostre o exemplo concreto** (JSON realista, tabela antes/depois, conta aritmética em centavos) e confirme com `AskUserQuestion`. Pule quando o outcome é óbvio pelo próprio contrato (refactor sem mudança de comportamento, fix pontual).
+
+## Fase 5 — Tier de risco: deep-plan ou direto (decisão autônoma)
+
+Decida **sozinha** — não pergunte — e declare a decisão com justificativa de 1–2 linhas. Rode `/deep-plan` (via Skill tool, passando o caminho do plano como intent file) quando **qualquer** um valer:
+
+1. **Regra do deep-plan Phase 0**: domínio money (`paymentgateway`, `storecredit`, `billing`, `debtsettlement`, `cohort`, `payout`, `notary`) **e** a mudança adiciona/modifica status/lifecycle de entidade, introduz state machine, cria registro RESERVED/PENDING longevo, ou substitui fluxo/método existente.
+2. **Likelihood de bug high/crítico** por outros vetores: ordering assíncrono novo (listener/outbox/webhook), concorrência/locking, migration com backfill de dados money, refactor que cruza ≥3 módulos/domínios, ou mudança em cálculo monetário (rounding, rateio, caps).
+
+Caso contrário, siga direto. Em dúvida genuína entre tiers em domínio money, prefira deep-plan (false-heavy é barato; false-light embarca o gap).
+
+Quando o deep-plan rodar: use a opção "Write artifacts into the plan" dele para fundir o contrato refutado no arquivo do plano, e **anote no cabeçalho** `**Tier de risco:** deep-plan (rodado — contrato fundido)`. GAPs residuais viram itens explícitos da aprovação na Fase 6, nunca silenciosamente aceitos. O contrato standalone que o deep-plan grava em `.claude/deep-plan/<branch>-<shortSha>.md` será commitado pela wave 1 do `/implement` (é o que o hook de PR lê).
+
+## Fase 6 — Aprovação final (sempre)
+
+Independente do tier, **volte ao usuário** com `AskUserQuestion`:
+
+- Resumo do plano em ≤10 linhas: o que muda, contract size, tier de risco, GAPs residuais do deep-plan (se houver), branch sugerida.
+- Opções: **Aprovar** / **Ajustar** (colete o ajuste, volte à Fase 3) / **Cancelar**.
+
+Na aprovação, atualize o cabeçalho para `**Status:** APROVADO — refine {data}` e termine reportando:
+
+```
+Plano aprovado: ~/.claude/plans/<slug>.md
+Branch sugerida: feat/<slug>
+Próximo passo: /implement ~/.claude/plans/<slug>.md
+```
+
+Quando invocada **pelo `/implement`**, a aprovação daqui já vale como a confirmação final — o implement não pergunta de novo.
+
+---
+
+## Regras
+
+- **Enumere do codebase, não da memória** — wiring points e guards no Contract vêm de grep/Explore, não de recall.
+- **Não escolha silenciosamente entre alternativas** — interpretações concorrentes vão para a entrevista (Fase 2) ou aparecem como alternativa descartada na prosa.
+- **Plano mínimo que resolve** — nada especulativo no contrato; cada item rastreia ao brief.
+- **Tier honesto** — não rode deep-plan em typo fix; não light-passe lifecycle money.
+
+
+ARGUMENTS: The user invoked /implement with the spec below. It is a SPECIFICATION OF INTENT, not an approved plan — its explicit first deliverable is "a deep dive into the codebase + a proposed implementation plan, mapping how each requirement fits what exists, and surfacing the cross-cutting decisions back to the human to decide." The human says NOT to decide scope (now-vs-later) or size the effort alone — those are the human's calls. There is also a pre-spec performance concern: "how to keep this performatic, both at editing time and at game runtime." Treat this as a high-risk, multi-domain change (rendering, level-loading, ECS, input, new editor tooling) that almost certainly warrants /deep-plan and explicit decision-surfacing to the user before any implementation. Investigate the real codebase (do not assume) per Section 3, map each requirement (2.1–2.8) to existing modules, and bring back the Section-4 cross-cutting decisions as questions.
+
+=== FULL SPEC ===
+
+(Obs before the spec: a concern is how to keep this performatic, both, at editing time and at game runtime)
+
+# Spec: brush-based authoring experience for illustrated 2D maps (MonoGame + ECS)
+
+## How to read this spec
+
+This is a **specification of intent and rationale**, not a set of implementation instructions. It describes *what needs to be true* and *why*, deliberately without prescribing data structures, classes, signatures, or order of execution.
+
+About the codebase: **assume nothing beyond the fact that this is a MonoGame game with an ECS architecture.** Everything else (serialization format, camera model, render pipeline, sprite ordering, whether any editor tooling exists at all, input handling, the notion of a "level/scene", asset loading, whether undo exists) is unknown and **must be discovered by investigating the code before proposing a solution**. Wherever this spec depends on something from the engine, that is flagged explicitly as an investigation point.
+
+First deliverable expected from this next session: **a deep dive into the codebase + a proposed implementation plan**, mapping how each requirement below fits into what already exists, and surfacing the cross-cutting decisions (listed further down) back to the human to decide. **Do not, on your own, decide what goes in now vs. later, and do not size the effort** — that is the human's call, based on your mapping.
+
+The "waves" described in the last section are **dependency/architecture seams** (where the delivery naturally splits), **not a schedule and not a recommended ordering**.
+
+## 1. Context and goal
+
+The art-direction target is **illustrated/painterly 2D** — the visual family of games like Wytchwood and Hollow Knight. The mental model is a **diorama / pop-up book**: the scene is a free composition of illustrated "cutouts" (props, ground patches, foliage) placed in space, with depth coming from layering and from sort ordering. **It is not pixel art, not pixel-perfect, and crucially not tile-based** — there is no grid of snap-together tiles.
+
+For that reason, tile-oriented editors (Tiled, LDtk) are a poor fit for this project: their paradigm is filling a matrix, and the friction shows up precisely when the game isn't pixel art. The desired authoring experience is **dragging a cursor across the scene to "paint"**: painting the ground, scattering scenery elements, and drawing paths/roads. The goal of this delivery is to offer that experience inside our own engine.
+
+### The central realization that structures everything
+
+"Brush" here is **an input metaphor** (dragging a cursor) shared by **distinct tools whose data model and output diverge**. Treating this as a single monolithic brush system is a trap that creates rework. The three tools the metaphor covers:
+
+- **Scatter scenery** → produces **discrete ECS entities** (with variation in rotation/scale/tint and density). The output is real game entities.
+- **Paint the ground** → produces **texture/material** (a blend of layers) or large ground stamps with soft alpha that overlap. The output is pixels, not entities.
+- **Draw path/road** → **not a stamp, a spline**. The real requirement is continuity, controllable width, and corners that resolve cleanly. Modeling a road as loose stamps is where most implementations get tangled.
+
+This spec is therefore about "a stroke sampler + pluggable stamp behaviors", not a single tool.
+
+## 2. Requirements (properties that need to be true)
+
+**2.1 — A single stroke-sampling input layer, feeding pluggable behaviors.** The drag gesture must be sampled at points along the cursor path at a controlled interval (so dragging fast doesn't leave gaps), with a notion of radius and falloff, dispatching to a *stamp behavior* per sample. Rationale: scatter and ground are the same gesture with different behaviors; separating the gesture from the effect avoids duplication and keeps input consistent across tools.
+
+**2.2 — The outputs of the three tools are divergent by nature (see section 1) and must not be forced into a single model.** Rationale: unifying the output prematurely couples decisions that should remain independent.
+
+**2.3 — Explicit "parametric vs. baked" decision.** For each tool it must be decided whether the stroke becomes an entity/texture immediately (simple, but the stroke is lost and not re-tweakable) or is stored as a re-evaluable operation/source. A road wants to be parametric (store the spline and regenerate); scatter should store at least region + seed to allow re-rolling density; ground-texture is typically baked. The common hybrid pattern is to keep an editable "source" that bakes to the runtime representation on save/export. This is the highest-impact decision and must be resolved and justified explicitly.
+
+**2.4 — Determinism via seeded RNG (especially in scatter).** The result of scattering must be reproducible from a seed. Rationale: levels are versioned in git; if every brush stroke re-randomizes, the level file churns on every save and merges become a nightmare. A stable per-region seed = reproducible and diffable levels.
+
+**2.5 — Reuse the existing ECS; no parallel editor data model.** The brush must manipulate the same components the runtime consumes, not a separate editor data model that is later converted. Investigate how entities/components are created and mutated in this engine so the stamp effect produces them directly.
+
+**2.6 — Integration with ordering (sorting groups + y-sort).** Whatever is painted must land in the correct depth grouping and feed baseline ordering (ground and road underneath; props ordered by the sprite's bottom point). Investigate how sprite ordering is currently done before defining how the brush assigns it.
+
+**2.7 — Preview with the real game camera.** The designer must compose while seeing the final framing (and ideally post-processing) of the game, not a generic editor view. Investigate the current camera model to know what's needed to mirror it in the editor.
+
+**2.8 — Undo/redo with drag coalescing.** A brush without undo is unusable. The correct granularity is one entire drag = one undo step, not each sample. Investigate whether any notion of undo/history exists today.
+
+## 3. What must be discovered in the codebase (do not assume)
+
+- How entities and components are represented, created, and mutated; archetypes/queries; how the runtime consumes them.
+- Whether any form of level serialization/persistence exists, in what format, and whether levels go into git.
+- What "level" / "scene" means in this engine, if the concept exists at all.
+- How sprites are loaded and drawn; how ordering is decided (Z, sorting layer, y-sort, submission order?).
+- Whether any render-to-texture path is available.
+- The camera model (projection, transform, post-processing) and what's missing to reproduce it in the editor.
+- How input is handled.
+- Whether any editor infrastructure already exists (viewport, picking/selection, gizmos, UI panel) or none — including whether any immediate-mode UI (e.g. ImGui) is already integrated.
+- Whether any concept of undo/history exists.
+
+Every gap found must become an explicit point in the plan, not a silent assumption.
+
+## 4. Cross-cutting decisions to surface and bring back
+
+- **Ground representation and how it renders**: large stamps with alpha blend vs. splatmap in a render target (perfect blend, requires a shader) vs. another approach. Coupled to 2.3 and to whether render-to-texture exists.
+- **How the road renders**: stamps-along-the-spline with alpha blend vs. mesh strip with tileable texture vs. splatmap. A look decision as much as a technical one.
+- **Where the parametric "source" lives vs. the baked runtime representation** (2.3), and how save/export handles both.
+- **Where the scatter seed is stored** and at what granularity (per region? per stroke?).
+- **How the brush assigns sorting group / sort key** given whatever ordering model already exists.
+- **Editor chrome**: if nothing exists, what is the minimum viewport/UI substrate.
+
+## 5. Dependency seams ("waves") — NOT an order, NOT a sizing
+
+- **Wave A — Authoring substrate.** Viewport with real game-camera preview (2.7), selection/picking, transform gizmos, undo/redo with coalescing (2.8), load/save level round-trip. Every other wave presupposes this; part may already exist — investigate.
+- **Wave B — Stroke-sampling layer.** The shared gesture (2.1): samples cursor path with radius/falloff/spacing, dispatches to a stamp behavior.
+- **Wave C — Free entity placement.** Placing existing ECS entities by hand, with snapping, with correct sorting group / y-sort assignment (2.6). Establishes the "create entity in the scene" path scatter reuses.
+- **Wave D — Scatter stamp.** Behavior producing entities, seeded (2.4) and density-driven, with rotation/scale/tint variation. Forces the region+seed part of 2.3.
+- **Wave E — Ground stamp.** Behavior producing texture/material or ground stamps. Forces the ground representation/render decision and possibly render-to-texture.
+- **Wave F — Path/road tool.** Spline-based, width and corners — a different interaction model (editing control points/handles, not continuous stamping); weak coupling to B, strong coupling to substrate A (gizmos/handles). Forces the road render decision; intrinsically parametric.
+
+## 6. Out of scope
+
+- Not a tile system, not pixel-perfect.
+- No art asset creation.
+- Does not prescribe data structures, classes, or signatures.
+- Does not decide what to implement now vs. later, nor estimate size.
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.warp/worktrees/monodreams/feat/level-editor/.claude/skills/deep-plan
+
+`deep-plan` is `deep-review` run **before** code exists. Where deep-review takes a *diff* and emits *findings*, deep-plan takes a *design intent* (plan-mode prose) + the *live codebase* and emits a **filled, refuted plan-contract** — the four artifacts in the repo's plan-contract spec (`docs/agents/skills-config.md` › Docs layout › Planning; default `docs/planning/plan-contract.md`): Contract block, Interaction matrix, dimension table, Precondition diff — with every matrix cell answered, every derived quantity's base tagged, and every guard copy diffed. That artifact is exactly what `/verify-plan` later reconciles the implementation against.
+
+**Why it exists.** The review side is industrial (lenses + consolidator + facet enumeration). The planning side was a single pass — so the matrix ships with the columns the planner remembered and empty cells, the dimension table with the variables they happened to name, the precondition diff covering the one guard copy they recalled. The same bug class — a deferred/RESERVED record invisible downstream — shipped twice and still needed many review rounds the second time: the missing piece is institutional learning at plan time, not another reviewer. deep-plan points the same specialists that catch these bugs in a diff at the *plan*.
+
+Invocation:
+
+- `/deep-plan` — use the current plan-mode draft (the prose in this session) as the design intent.
+- `/deep-plan path/to/draft.md` — read the design intent from a file.
+- Append `cheaper` (aliases: `cheap`, `simple`, `eco`, `economy`) for tiered model routing. Default is all-Opus.
+
+This skill reads the repo's `docs/agents/skills-config.md` for everything stack-specific (where docs live, which domains are sensitive, lenses, conventions). When a section is absent it falls back to a stated default and says so in its output.
+
+---
+
+## Model Routing
+
+**Default (full):** all phases and agents use **Opus** with extended thinking.
+
+**Economy mode** (`cheaper`/`cheap`/`simple`/`eco`/`economy`) — mirrors deep-review's tiers, since the agents are the same specialists reframed:
+
+| Phase / Agent | Model | Reason |
+|---|---|---|
+| Agent 1 — Dimension Table | **Opus** (extended thinking) | Deep multi-stage reasoning; base/cap correctness |
+| Agent 2 — Caller-Enumerated Matrix Columns | **Sonnet** (extended thinking) | Structured grep + enumerate pattern |
+| Agent 3 — State-Mutation Seams | **Opus** (extended thinking) | Complex multi-path mutation logic |
+| Agent 4 — Matrix Cells / Lifecycle | **Sonnet** (extended thinking) | Sequential lifecycle against an explicit checklist |
+| Agent 5 — Failing-First Tests & Premises | **Sonnet** | Semi-structured obligation analysis |
+| Agent 6 — Refuter | **Opus** (extended thinking) | Adversarial; independence is the whole value |
+
+Consolidation (Phase 6) and the Gate always use **Opus** regardless of mode.
+
+---
+
+## Phase 0: Scope tiering
+
+Parse arguments for the **model tier** (detect and strip `cheaper`/etc.). Then classify the change — this decides whether deep-plan fans out at all.
+
+Read the repo's **Sensitive domains** (`docs/agents/skills-config.md` › Sensitive domains). A change touching ANY of them is the bug-prone class this skill exists for. **If none are listed, treat no domain as sensitive — take the light path and never block** (and say so in the output).
+
+**The self-critique paradox: do not over-critique easy tasks.** A heavy enumerate→refute→gate loop on a one-line config tweak is noise that teaches the user to ignore the skill. Tier honestly.
+
+Classify the design intent:
+
+- **TRIVIAL / NON-SENSITIVE** → **light inline pass.** The intent does not touch a Sensitive domain, or touches one only cosmetically (rename, doc, dependency bump, a single non-stateful field). No fan-out. Do Phase 1 context-gathering yourself, then fill the artifacts the change actually needs (often just the Contract block) inline, in one pass. Note explicitly: "Light pass — no sensitive-domain lifecycle change detected." (When the config lists no Sensitive domains at all, every plan takes this path — say "Light pass — no Sensitive domains configured.")
+
+- **SENSITIVE-DOMAIN + STATE/LIFECYCLE/FLOW-REPLACEMENT** → **heavy pass (Workflow).** The intent touches a Sensitive domain (config › Sensitive domains) **and** adds/modifies an entity status or lifecycle, introduces a state machine, or replaces an existing flow/method. Run the deterministic Workflow `.claude/workflows/deep-plan.js` via the Workflow tool (Phases 2–6 below execute inside it). **Always pass `args: { intent, domains, repoRoot }`** where `repoRoot` is the current worktree root (`git rev-parse --show-toplevel`) — agents scope every search to it, and resolve their role files as `${repoRoot}/.claude/skills/deep-plan/agents/…`. (Pass a normal object: the runtime delivers Workflow `args` as a JSON-encoded *string*, and `deep-plan.js` defensively `JSON.parse`s it, so no wrapper is needed — an un-parsed string silently zeroes the intent and runs the whole pass on a blank brief.) **Preflight first** (see Concurrency below): quarantine stale planning artifacts so no agent anchors on another run's file.
+
+When genuinely unsure between tiers, prefer the heavy pass for sensitive domains and say why — a false-heavy is cheap; a false-light ships the gap.
+
+---
+
+## Phase 1: Context gathering (both tiers)
+
+Gather and pass to every agent (read paths from `docs/agents/skills-config.md` › Docs layout, substituting `{domain}`/`{module}` per the configured premises pattern; if a path is absent, default to `docs/CORE_TENETS.md` + `docs/{domain}/premises.md` and say so):
+
+1. **The design intent** — the plan-mode prose (or the intent file). This is the analogue of deep-review's diff: the source of truth for *what is being proposed*. There is no diff; the codebase on disk is the *current* (pre-change) state.
+2. **The recurring-failure-modes doc** (config › Docs layout › Planning) — **mandatory when present.** Every entry whose trigger matches the change is a question the plan must answer. This is the mechanism that makes a new plan consult past lessons. If the repo has no such doc, note its absence and rely on the core tenets + premises.
+3. **The core-tenets doc** (config › Docs layout › Core tenets; default `docs/CORE_TENETS.md`) — invariants every agent checks the intent against.
+4. **Affected domains** — detect each changed/affected file's domain via **Domains** (config › Domains — path-glob → domain). For each, read its schema doc and premises (config › Docs layout).
+5. **Touched flows** — from the flows dir (config › Flows, default `docs/flows/`), read the flow doc of every flow the intent touches (frontmatter `covers:` globs). A flow doc is the dedicated core-tenet for that flow — its invariants and load-bearing quantities are exactly what the dimension table and lifecycle matrix must hold the change to.
+5. **The plan-contract spec** (config › Docs layout › Planning; default `docs/planning/plan-contract.md`) — the artifact spec the output must conform to.
+6. **The repo conventions** — `docs/agents/skills-config.md` itself plus any rules dir it points at (config › Docs layout › rules dir).
+
+**Pass to all agents:** the design intent, the recurring-failure-modes doc, the core-tenets doc, relevant schema + premises docs, the touched flow docs, the plan-contract spec, the affected-domain list. Agents have full file tools (Read, Grep, Bash) and **must use them** — unlike deep-review, the codebase is the *current* state, so an agent's job is to discover, in real code, the callers/guards/readers the intent will collide with.
+
+---
+
+## Phase 2: ENUMERATE (heavy pass)
+
+Before analysis, build the real enumeration the plan-contract needs — this is what a single planning pass skips. Two sweeps (Agent 2 owns the first, Agent 3/Agent 1 feed the second):
+
+- **Interaction-matrix columns.** Grep every site that reads or transitions the state the new record touches (the membership collection it feeds, the central create/transition method, status-from-children rollups, `findByStatus`, exhaustive `when(status)`/`switch`/`match` blocks, status-membership helpers). Each distinct reader becomes a **column**. A generic adjacent-event list is the floor, not the column set — see the plan-contract spec Artifact 2.
+- **Guard copies.** For every guard/gate/predicate the intent tightens or copies, grep **all** copies across the codebase. Each copy becomes a precondition-diff row.
+
+Output of this phase is the *column set* and the *copy set* — concrete, codebase-derived, feeding Phases 3–4.
+
+## Phase 3: ANALYZE (heavy pass)
+
+Launch the specialists. Each reads its role file under `.claude/skills/deep-plan/agents/` and produces a **structured contract slice**, not prose findings:
+
+| Agent | Role file | Owns |
+|---|---|---|
+| 1 — Dimension Table | `agents/dimension-table.md` | Artifact 4: variable→unit/base→cap→seam (money is the canonical kind; any load-bearing derived value qualifies) |
+| 2 — Caller-Enumerated Matrix Columns | `agents/matrix-columns.md` | Artifact 2 *columns* (the enumeration) |
+| 3 — State-Mutation Seams | `agents/state-mutation-seams.md` | every state-creation/mutation seam + the `require`/`check` each needs |
+| 4 — Matrix Cells / Lifecycle | `agents/lifecycle-matrix.md` | Artifact 2 *cells*: `handled`/`N/A`/`GAP` per (state × event) |
+| 5 — Failing-First Tests & Premises | `agents/test-coverage.md` | failing-first test obligations + executable-premise proposals + premise/doc drift |
+| 6 — Refuter | `agents/refuter.md` | (Phase 4 — runs against the draft only) |
+
+Agents 1 and 3 carry the **flow-specific concern** — they read the repo's **flow docs** (config › Flows) for the invariants this repo's key flows depend on and hold the change to them. The backend's flows (e.g. a `payment-pipeline` doc tagging every value's base/cap; a `dsa-lifecycle` doc listing a new status × every adjacent entity event) are the *example* of what the flow docs contain; your repo's are whatever it declares.
+
+## Phase 4: REFUTE (heavy pass) — loop-until-dry
+
+Agent 6 (the refuter) gets **only the draft contract**, not the reasoning that produced it — anchoring-free. Its job: find one unhandled scenario, one dimension/cap violation, or one wrongly-`handled` cell. Refute-or-promote. Each refutation carries an **`attacks` tag** — `resolution` (it breaks a fill/fix the draft already contains) vs `new-surface` (it names territory the draft lacks) — which the verdict aggregates per round to tell fix-attack equilibrium apart from undiscovered surface. The Workflow runs **`REFUTERS_PER_ROUND` refuters in parallel per round** (each assigned a **distinct attack lens** — quantity/dimensional · async-ordering/lifecycle · premise/invariant · completeness/wrong-cell — plus the list of already-open roots, so the N refuters cover N near-independent surfaces instead of colliding on the same targets or re-raising a known GAP), and loops until **2 consecutive rounds surface nothing new** or it hits `MAX_REFUTE_ROUNDS`; each surfaced gap reopens the relevant cell/row and forces Phase 3's owner to resolve it. Independence is the point — it breaks the cascade where planner and reviewer share a blind spot.
+
+**Resolution re-refute (when the loop ends at the round cap).** Ending at `MAX_REFUTE_ROUNDS` right after a resolve means the **final resolver patch was never attacked** — every earlier patch was re-attacked by the next round, but the last one ships unexamined. The Workflow runs **one targeted pass** (`RESOLUTION_REREFUTERS`, default 2, `ARGS.reRefuters` overrides) scoped to ONLY those final resolutions — not a full re-sweep — and integrates any break with a single resolver call. The regress ends there by design: the verdict reports the outcome ("all held" is a real signal; "N fresh, integrated" means the re-refute's own patch ships unattacked — weigh it accordingly, and reach for an independent re-run if it matters).
+
+## Phase 5: GATE (heavy pass) — programmatic completeness
+
+The Workflow's `Gate` phase flags any of:
+
+- an interaction-matrix cell that is **empty or `GAP` without written justification**;
+- a load-bearing premise (correctness-critical) with **no `require`/`check` seam or no failing-first test**;
+- a touched guard with **no per-copy precondition diff**.
+
+It runs a **bounded justify loop** (`GATE_JUSTIFY_ROUNDS`): each pass is fed the gate violations *plus* the deterministic missing-cell list (`missingCells`), so when a refuter grew the matrix with a new column/state the justify pass fills the **whole** new row/column, not just the cell the refuter named. After the loop, any residual GAP is **recorded in the result (`gate: FAIL`, `residualGaps`, `violations`) and surfaced at the top of the body — never thrown.** deep-plan never blocks (Phase 7): a throw here once lost ~3M tokens / 2h on 91 empty cells a single justify pass left after matrix growth, *before synthesize ever ran*. A flagged contract is incomparably more useful than a 0-byte output. (Seed mode keeps its own throw for the gate-detects-incompleteness test.)
+
+## Phase 6: SYNTHESIZE (heavy pass)
+
+The contract is rendered **deterministically in JS from the gated draft**, not retyped by an LLM. `renderVerdict()` builds the verdict header — a count of any **`### ⚠️ Contradiction`** themes the consolidator flagged (surfaced FIRST — the gate checks completeness, not *consistency* between two commitments, so a contract that says "source X from A" beside "source X from B" passes the gate; this leads with it); the substantive-GAP count plus its **clustering** into distinct code seams + the Síntese decision-theme count (so the headline reads ~decisions, not ~cells — most cells are one un-built surface repeated across rows); the refute-convergence status with the **per-round trajectory shape** (`[11, 11, 8]` → FLAT = surface far from exhausted, re-run; `[11, 5, 1]` → DECAYING = a round or two more would close it) plus the **final-round mix** of resolution-attacks vs new-surface (a FLAT shape with a high resolution share means the loop is *generative* — each resolver patch mints new attack surface — not that the original surface is unexplored) and the **resolution re-refute outcome**; the reframed gate verdict; and a `### ⚠️ Unresolved` list of every GAP cell + unresolved dimension violation. `renderArtifacts()` renders the four artifacts (Contract block + Interaction matrix + dimension table + Precondition diff + premises) **losslessly** — every draft row appears verbatim, with no output-token ceiling. The consolidator (`agents/consolidate.md`) writes **only** the narrative synthesis (`## Síntese` — clustering the GAPs/refutations into the BLOCKERs the planner must decide), sandwiched between the header and the artifacts. Retyping the artifacts through the LLM is exactly what dropped 16 of 70 contract items on a real run (the recurring consolidation-lossiness class); moving the render to JS removes that lossy step entirely.
+
+**The state axis is canonicalized before render** (`canonicalizeMatrixStates`, applied inside every `applyPatch`): a downstream fill/refute/justify agent paraphrases an enumerated state into a terser convention ("status=STOPLOSS" vs the verbose "StoreStopLoss.status = STOPLOSS (…)"), which `normCode`'s full-label fallback can't collapse — so on a real run the matrix DOUBLED to 18 states / 576 cells (9 / 288 real), the gate-justify pass filled ~288 phantom cells, and the GAP count read 2× the truth. The canonicalizer collapses verbose/terse variants of the same logical state (suffix-anchored loose key), remaps the cells, and merges collisions (GAP wins, so a merge never hides open work).
+
+**Three programmatic checks** still run over the rendered body — but as a **regression guard on the engine's render**, not a cure for LLM-retype lossiness (which is now gone): (1) `consolidationFidelity()` (DROP class — anchor absent everywhere), (2) `contractBlockCoverage()` (BURIED class — a commitment outside the numbered `## Contract` block; it anchors on the heading whose text *begins* with "contract", not the document title `## deep-plan contract — …`), (3) `structuralCounts()` (SHORTFALL class — a collection rendering *fewer* rows than the draft holds). With deterministic render these are always clean; a hit means `renderArtifacts` itself dropped something (an engine bug), so it is **logged + surfaced in the result, never patched by an LLM repair pass.** The narrative is `stripPreamble`-trimmed to its first heading (a model can leak task narration before it). Residuals are reported in the run result (`consolidationOmissions`, `contractBuried`, `contractBlockMissing`, `structuralCounts`, `structuralShortfalls`).
+
+---
+
+## Phase 7: Verdict (advisory-loud) and next step
+
+deep-plan **never blocks** plan finalization — plan mode is used for one-liners too, and a hard gate there needs a fragile escape hatch. Instead it surfaces residual gaps prominently, then asks what to do with `AskUserQuestion`.
+
+The **heavy (Workflow) pass already emits its own verdict header** — `## deep-plan contract — …` followed by a `### Verdict` block (contradiction count if any, substantive-GAP count + clustering, refute-convergence status + per-round trajectory shape + final-round resolution/new-surface mix + resolution re-refute outcome, reframed gate verdict) and a `### ⚠️ Unresolved` list, all rendered by `renderVerdict()`. Present that body as-is; you only add a one-line **Mode·Tier** banner above it (metadata the Workflow can't know):
+
+```markdown
+**Mode**: {Full Opus | Economy (tiered)} · **Tier**: Heavy (Workflow)
+```
+
+For a **light inline pass** (no Workflow), prepend the full header yourself:
+
+```markdown
+## deep-plan: {plan name or intent summary}
+
+**Mode**: {Full Opus | Economy (tiered)} · **Tier**: Light inline
+**Affected domains**: {list}
+**Residual GAPs**: {count — 0 means the contract is complete}
+```
+
+If there are residual GAPs, list them first, each as `⚠️ GAP: <state> × <event/variable> — <why unresolved>`.
+
+Then `AskUserQuestion` — options:
+
+1. **Write artifacts into the plan** — append the filled Contract / Matrix / Dimension table / Precondition diff to the plan file (or the in-session plan draft), replacing any hand-filled versions. When committing a standalone contract, write it to **`.claude/deep-plan/<branch>-<shortSha>.md`** (`git rev-parse --abbrev-ref HEAD` + `git rev-parse --short HEAD`) — branch+commit makes it unique per run and is exactly what the PR-gate reads.
+2. **Save gap report to file** — write to a **run-unique** path `.claude/deep-plan/<branch>-<shortSha>/report.md` (or the repo's own scratch dir — never a shared `/tmp/deep-plan-{name}.md`; a flat name in a shared temp dir is the contamination vector that wrecked a real run).
+3. **Proceed anyway** — leave the plan as-is; the GAPs are recorded in the conversation. (Used when a GAP is a deliberate, justified exclusion.)
+4. **Nothing** — keep it in the conversation output.
+
+The real choke point is downstream: the `gh pr create` PreToolUse hook (the repo's PR-gate, installed under `.claude/`) blocks sensitive-domain branches whose plan-contract is incomplete or whose `/verify-plan` is not clean. deep-plan at plan time is advisory; the hook at PR time is the gate.
+
+---
+
+## Key rules
+
+- **Enumerate from the codebase, never from memory.** The single defining difference from a one-pass planner: matrix columns and guard copies are *grepped*, not recalled. A column set that matches your memory is suspect — grep anyway.
+- **The intent is the source of truth for what is proposed; the codebase is the current state.** When the intent contradicts what the code can support, that contradiction is a finding, not something to silently reconcile.
+- **The dimension axis is king.** A load-bearing derived value with no tagged base or no cap seam is a Blocker-class gap, exactly as in deep-review. Money is the canonical case; a count, a window-bounded sum, or a ratio with the wrong base is the same bug.
+- **Refute independently.** The refuter must not see the analysis reasoning — only the draft contract. Sharing context defeats it.
+- **Tier honestly (self-critique paradox).** Don't fan out on trivial or non-sensitive plans; don't light-pass a sensitive-domain lifecycle change.
+
+---
+
+## Concurrency, contamination & search hygiene
+
+These are not optional polish — each maps to an observed failure when running deep-plan across multiple worktrees.
+
+- **Scope every search to the repo root with `rg`, never `grep -r`.** `rg` honors `.gitignore`, so it skips build output, the VCS dir, and **worktrees** — a bare `grep -r` from a worktree traverses build artifacts and every sibling worktree and has hung a run for **87 minutes**. This applies to the light inline pass too. Never read or search `/tmp`, `..`, `~`, or absolute paths outside the current repo. Keep each Bash call one simple command (a fragile `rg … | head; echo; find …` one-liner hangs on an unbalanced quote). Bound any DB/MCP query (`LIMIT`).
+
+- **Contamination guard.** Running multiple deep-plans concurrently, an agent that searches broadly can read **another run's** artifact (a stale `deep-plan-*.md`, a sibling worktree's plan-contract) and silently re-anchor the whole contract to the wrong feature (observed: an "apuração" plan came back 100% about "retention-bonus"). The workflow's `ctx()` injects a guard telling agents the inline intent is the only source of truth — reinforce it in the intent text when two live branches touch the same domain: *"this change is X, NOT Y; ignore any artifact mentioning Y."*
+
+- **Preflight quarantine.** Before a heavy run, move stale flat artifacts out of the search path: `mkdir -p ~/.deepplan-quarantine && mv /tmp/deep-plan-*.md ~/.deepplan-quarantine/ 2>/dev/null || true`. With `rg`-scoping this is belt-and-suspenders, but it's cheap insurance.
+
+- **Run-unique outputs.** Key any saved artifact by branch + short SHA (Phase 7) — `<branch>-<shortSha>` is unique per worktree+commit; append `-<unixTimestamp>` if you keep multiple runs on the same commit. (The org/repo is already encoded by the repo path.) A flat shared-temp name re-contaminates the next run. Note: unique *naming* alone is insufficient — the real fix is that agents no longer read shared temp or sibling worktrees at all (`rg`-scoping above); a uniquely-named stale file is still found by an unscoped `grep`.
+
+- **Matrix axis↔cell integrity: every (state,column) is keyed by its leading CODE (`normCode`), not its full label.** The matrix had a latent bug that only surfaced at scale: refuters/resolvers write cells under drifting label variants — `"S1"` vs `"S1 PERFORMANCE_BONUS_RETAINED"`, `"C1"` vs `"C1 RETENTION mint hook"` — and the gate keyed by exact string. A 4-refuter × 5-round run wrote cells under 68 column-labels (→ 34 codes) and 22 state-labels (→ 15 codes), so the gate saw **374 phantom-empty grid pairs** and a single 59k justify pass re-created 374 duplicates while the real analysis sat in 105 orphaned cells. The fix: `gateCheck` and `applyPatch` key cells by `normCode`, and `applyPatch` reconciles any cell's state/column code back into the axes — so the gate validates the *real* analyzed surface, label variants collapse, and the `refKey` dedup/dry-streak can finally fire. **The gate-violation count tracks refuter invocations under the bug (6→1, 6→84, 20→374); fix the data structure, don't cap the loop.**
+- **Refute breadth and depth: 4 lensed refuters/round (`REFUTERS_PER_ROUND`, `ARGS.refutersPerRound` overrides), capped at 3 rounds (`MAX_REFUTE_ROUNDS`), early-exit after 2 dry rounds (`DRY_ROUNDS_TO_STOP`).** History: a 4×5 run *did* reach the full r1+r2 cluster union in one run, but at ~1.8× cost, still no convergence (flat 16/12/15/15/15), and the 374-violation gate above — because more refuters *amplified* the then-unfixed label drift. Once that amplifier was fixed twice over (`normCode` keying + `canonicalizeMatrixStates`) and a coherent matrix was confirmed, breadth was **re-raised deliberately 2→4** — the post-mortem's own invitation. The lever is *breadth, not depth*: the FLAT `11/11/8` trajectory showed coverage-per-round (the number of distinct attack angles) was the binding constraint, and refuters run in **parallel** so breadth is ~free on wall-clock (it trades tokens for coverage); raising *rounds* (depth) just burns serial wall-clock without converging. To keep added refuters from colliding, each takes a **distinct lens** (quantity/dimension · async-ordering · premise · completeness). The ceiling is the resolver patch size (all fresh funnel into ONE patch → StructuredOutput bloat), not thinking — so it is a band, not "more is better". Each round still feeds refuters the **already-open roots** (GAP cells + unresolved violations) so they push to new territory. For *coverage* still prefer an independent re-run over raising rounds — see **One run does not exhaust** below.
+
+- **Terseness prevents crashes.** Oversized drafts make the resolver/consolidator's `StructuredOutput` call return nothing and waste the run (~600 KB observed). The schemas cap verbose fields and the prompts demand `file:line + one clause`. Don't relax that.
+
+- **The iterative resolver returns a PATCH, not the whole draft.** Re-emitting the full — and growing — draft every refute/gate round is what hit the 64k output-token ceiling: on a real run the round-5 refuter found its *strongest* refutation (a creation-time amortization gap) and the resolver then returned nothing, silently dropping it. The refute-resolve and gate-justify steps now emit only the cells/rows/premises/columns they add or change (`DRAFT_PATCH`), which `applyPatch()` merges by key. The merge is additive/override-only, so a thin or malformed patch degrades to "gate still fails", never to silent corruption. The initial **fill** is now a PATCH too (Lever 1): the matrix specialist (Agent 4) already answers every cell into the draft, so the fill no longer re-emits the matrix — it returns only the precondition rows, the Contract block, and any cells the deterministic `missingCells` check still reports missing. Re-emitting all ~N cells was the run's long pole (~35 min on a 28×14 matrix) and itself risked the StructuredOutput crash; cartesian completeness is enforced by the gate's justify loop, not by costly re-emission. `applyPatch` + `gateCheck` + `missingCells` are exercised deterministically via the script's `seedPatch` / `seedDraft` / `seedMissing` test modes.
+
+---
+
+## One run does not exhaust — the multi-run protocol
+
+A single heavy pass samples a *fraction* of the finding space, and the refute loop reaching `MAX_REFUTE_ROUNDS` is **not** a signal it found everything. The evidence across four dogfood runs of the *same* plan: r1 and r2 agreed on only ~4 core clusters while each caught 4–6 the other missed; r3 at 4×5 reached the r1+r2 union but never went dry (flat 16/12/15/15/15); r4 at half r3's budget (18 agents, ~3.1M tokens) **still surfaced 6 new confirmed premises including a blocker**. The variance lives in the refuter's *attack-angle sampling*, not in loop depth — so cranking `MAX_REFUTE_ROUNDS` buys little; an *independent* re-run buys a lot.
+
+For a high-stakes sensitive-domain plan, **run deep-plan 2+ times and union the findings**, rather than trusting one deep pass:
+
+1. Each run already writes a run-unique deliverable `.claude/deep-plan/<branch>-<shortSha>.md` (add `-<timestamp>` for same-commit re-runs). Keep them side by side.
+2. **Union, don't intersect:** a finding present in *any* run is in scope. Reconcile the Contract blocks, the matrix `GAP` cells, and the premises across runs; a commitment in run B but not run A is a real gap run A missed, not noise.
+3. **Strike revoked items — never append a revision beside the commitment it supersedes.** When a later run *overturns* an earlier decision, the union must delete or visibly strike the superseded item, not carry both. A real run opened with **7 contradictions — all 7** were a stale unioned commitment sitting beside the revision that replaced it: union debt, not new findings.
+4. **Scan the unioned document for contradictions at reconciliation time** — two commitments giving conflicting directives for the same mechanism/seam, the same check the consolidator runs in-run. The gate never catches these (completeness, not consistency), so the hand-reconciliation is the only place this happens between runs.
+5. **The first run fed with the unioned contract is the designated re-refute of the union** — not an optional extra. Contradictions it flags are the *expected output* of union debt; they render first in the verdict — resolve them before reading any other finding.
+6. Treat a run that surfaces *zero* new load-bearing findings as the real convergence signal — two such runs in a row is "dry" at the run level, the analogue of the in-run dry-streak. A cheaper leading indicator: when a run spends more of its top findings *revoking* earlier decisions than discovering new surface, the design is near its fixpoint even while the in-run refute trajectory stays FLAT.
+
+This is breadth at the *run* level: cheaper and higher-yield than raising **round depth** (`MAX_REFUTE_ROUNDS`), which the FLAT trajectory shows never converges. Per-round **breadth** (`REFUTERS_PER_ROUND`, now 4 lensed) is the one in-run knob worth raising — it adds near-independent attack surfaces per round at ~no wall-clock cost — and `ARGS.refutersPerRound` dials it per-run for an unusually large change. But for *coverage* of the finding space, an independent re-run still beats raising any in-run knob; reach for it first, and read the new run's `### Verdict` trajectory shape to decide whether another is warranted.
+
+
+ARGUMENTS: /Users/rodrigooliveira/.claude/plans/level-editor-wave-a-foundation.md
+
+This is the intent file (an APPROVED-pending plan) for the MonoDreams in-game level editor: foundation + Wave A. Repo root: /Users/rodrigooliveira/.warp/worktrees/monodreams/feat/level-editor (branch feat/level-editor, base main).
+
+Context the deep-plan must honor:
+- Two cornerstones: (C1) the editor is part of the game — an in-game mode running the real pipeline/camera; (C2) editor tooling = ECS systems + components layered on the game's systems via a NEW engine-wide system run-state model (Play/Edit run-mode on GameState + per-system edit-time policy + a GatedSystem decorator), and the ENGINE DOCS MUST codify this (a CORE_TENETS tenet + a foundation premise) because the gamedev's AI agents deliver future waves.
+- Scope is Wave A ONLY (authoring substrate) but the delivery must lay the foundation/roadmap for Waves B–F. Render-specific forks (ground splatmap-vs-stamps, road mesh-vs-stamps, scatter seed granularity) are explicitly DEFERRED — do not pull them into scope.
+- Decided: engine-native web-capable chrome (NOT ImGui); a NEW native MonoDreams scene format (there is NO save path in the engine today — the writer is the biggest gap); per-tool hybrid parametric/baked with MANDATORY bounded undo/redo.
+
+Load these as context (per .claude/CLAUDE.md): docs/CORE_TENETS.md and the per-module premises for foundation, rendering, camera, cursor, ui, level-loading, level-ldtk, level-blender. The plan's §1 lists verified codebase findings — re-verify the load-bearing ones against the live code (especially: GameState has no run-state today; SequentialSystem does not expose children; ScreenController is single-screen; no save path exists; no entity↔level association; Y-sort exists but no sorting-group concept; ImGui is desktop/DEBUG-only).
+
+Focus the adversarial refutation on the novel/load-bearing seams: (1) the system run-state model and how it interacts with EVERY existing system group (back-compat: default RunMode=Play must leave all current screens unchanged); (2) the scene serialization round-trip and entity↔scene membership (since none exists today); (3) editor-as-same-world-overlay vs the single-screen ScreenController; (4) the ECS-purity of editor systems/undo-commands. If you write artifacts back, merge the refuted contract into the plan file and update the header tier line to note deep-plan was run.
+
+---
+
+<task-notification>
+<task-id>wtmt71rrf</task-id>
+<tool-use-id>toolu_019oW6VcYEUzGcBX1Mo6HJ1q</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Dynamic workflow "Fill and adversarially refute a plan-contract (matrix, dimension table, precondition diff) from design intent + the live codebase, gating on completeness before synthesis." failed: Error: Analyze phase failed — a specialist slice is missing.
+    at &lt;anonymous&gt; (workflow.js:1158:42)
+    at processTicksAndRejections (native)</summary>
+<recovery>Agent transcripts: /Users/rodrigooliveira/.REDACTED</recovery>
+<failures>parallel[1] failed: agent({schema}): StructuredOutput retry cap (5) exceeded — 5 failed calls with no valid output</failures>
+<usage><agent_count>5</agent_count><subagent_tokens>581562</subagent_tokens><tool_uses>150</tool_uses><duration_ms>1171593</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>wd22c1686</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Dynamic workflow "Wave-based implementation of an approved plan: fresh agent per wave + persistent ledger, verify and verify-plan at the end, opens the PR with documented decisions" failed: TelemetrySafeError: agent({schema}): StructuredOutput retry cap (5) exceeded — 5 failed calls with no valid output
+    at &lt;anonymous&gt; (/$bunfs/root/src/entrypoints/cli.js:4338:2648)
+    at processTicksAndRejections (native:7:39)</summary>
+<recovery>Agent transcripts: /Users/rodrigooliveira/.REDACTED</recovery>
+<usage><agent_count>1</agent_count><subagent_tokens>73425</subagent_tokens><tool_uses>15</tool_uses><duration_ms>250026</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a053d9d269f6242f5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 1: run-state foundation" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Wave 1 is complete and verified. Here is the report.
+
+---
+
+## Wave 1 complete — in-game level editor foundation
+
+**Branch:** `feat/level-editor` (pushed to origin). Two commits on top of the deep-plan contract.
+
+### Files added/changed
+
+**Item 2 — run-state model (foundation):**
+- `MonoDreams/foundation/State/GameState.cs` — added `RunMode` enum (`Play`/`Edit`) + `GameState.RunMode` property (default `Play`). The `new GameState(GameTime)` ctor is untouched, so ScreenController.cs:31 still works.
+- `MonoDreams/foundation/System/EditTimeBehavior.cs` (new) — `EditTimeBehavior` enum (`RunNormally`/`Freeze`/`RunPartial`/`RuntimeEditable`).
+- `MonoDreams/foundation/System/GatedSystem.cs` (new) — `ISystem&lt;GameState&gt;` decorator. Reads `RunMode` + policy: `RunNormally` always runs, `Freeze` runs in Play only, reserved policies run in both (deferred). Honors its own + the child's `IsEnabled`, forwards `Dispose`. Exposes a pure static `ShouldRun(policy, mode)`.
+
+**Item 1 — module skeleton + bookkeeping:**
+- `MonoDreams/level-editor/module.json` (deps foundation/rendering/ui/cursor/level-loading; description trimmed to the schema's 120-char cap), `docs/overview.md`, `docs/premises.md`.
+- `docs/flows/level-editor.md` (new, `sensitive: true`).
+- Module count 13→14 + `level-editor` row across `MonoDreams/MODULES.md`, `.claude/CLAUDE.md` (module list + module-to-premises table), `docs/index.md` (per-module + flows tables), `README.md`, `CONTRIBUTING.md`, `docs/agents/skills-config.md`.
+
+**Item 3 — docs codify the contract:**
+- `docs/CORE_TENETS.md` — new tenet §9 "The editor is part of the game" (in-game mode over the real pipeline; render/input/cursor + HierarchySystem stay live, game logic/physics/camera-follow Freeze). Backlog renumbered §9→§10; all 6 backlog cross-refs updated.
+- `MonoDreams/foundation/docs/premises.md` — two new premises with `Tests:` filled (back-compat default + per-system policy), plus an intro update.
+
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs` (new) — 14 cases covering the Play default/back-compat, Freeze skip-in-Edit, RunNormally in both, reserved-policies in both, the `ShouldRun` table, gate + child `IsEnabled` composition, and `Dispose` forwarding.
+
+### Commits
+- `f823f15` feat(foundation): add system run-state model (RunMode + GatedSystem)
+- `24f07be` feat(level-editor): scaffold module + docs; codify editor-is-the-game tenet
+
+### Verify result (exact)
+- `dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** (40 pre-existing warnings).
+- `dotnet test MonoDreams.Tests/` → **64 passed, 0 failed, 0 skipped** (incl. the 14 new).
+- `dotnet test MonoDreams.Cli.Tests/` → **31 passed, 0 failed** (confirms the new manifest integrates with the CLI registry/scaffolder).
+- Web head not built (wasm-tools not needed for a docs + foundation change).
+
+### Autonomous decisions
+- **`GatedSystem` is non-generic** (contract allowed `GatedSystem&lt;T&gt;` or `GatedSystem`). Every engine system is `ISystem&lt;GameState&gt;` and only `GameState` carries `RunMode`; a generic with a `GameState` constraint serves no current caller. Reversible if a second state type appears.
+- **Added a public static `GatedSystem.ShouldRun(policy, mode)`** so the gating table is directly testable — small, stateless.
+- **CORE_TENETS numbering:** inserted the tenet as §9 and bumped the backlog to §10 (kept §8/Debug refs valid; minimal churn).
+- **level-editor `premises.md` ships one live premise** (Tests: `RunStateGatingTest`) plus a "Planned premises" section pre-writing the Wave 3–5 premise text + each named test — so nothing ships `Tests: none yet` without fabricating tests for code that doesn't exist.
+- **Reverted an unrelated `packages.lock.json` churn** from `dotnet restore`.
+
+### Handoffs for Wave 2
+- **NOT done in Wave 1 (Wave 2 scope):** the native scene format spec, `docs/level-editor/roadmap.md`, the **component-serializer registry**, and the additive `AssetKey` on `SpriteInfoComponent`. The overview/flow docs reference these as "(planned, Wave 2/3)".
+- **Seam Wave 4 depends on:** `GameState.RunMode` + `EditTimeBehavior` + `GatedSystem` are live in `foundation`; the editor screen wraps game/physics/camera-follow in `Freeze`, leaves render/input/cursor/hierarchy `RunNormally`, and flips `RunMode` Play↔Edit (no screen swap). Authoritative policy table = the plan-contract interaction matrix, mirrored in CORE_TENETS §9 and `docs/flows/level-editor.md`.
+- **Module auto-wiring:** new `.cs` files under `MonoDreams/level-editor/` are picked up by `MonoDreams.csproj`'s default glob and shipped by the module's implicit file list — no csproj or module.json edits needed for later waves.
+
+Ledger updated at `/Users/rodrigooliveira/.claude/implement/feat-level-editor/ledger.md` (Wave 1 checked off; Decisions/Handoffs/Progress filled).</result>
+<usage><subagent_tokens>158332</subagent_tokens><tool_uses>91</tool_uses><duration_ms>756894</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa22f58e8b6982ec2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 2: format + registry" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The two "none yet" matches are both prose lines stating the rule ("No premise here ships `Tests: none yet`"), not actual `Tests: none yet` fields. All referenced test names exist. Wave-close gate passes.
+
+Wave 2 is complete. Here is the report.
+
+---
+
+## Wave 2 complete — scene format spec + roadmap + serializer registry + AssetKey
+
+**Scope:** plan-contract items 4, 5, 8, 10 (NOT the writer/reader/LoadSceneRequest/membership — that is Wave 3).
+
+### Files added
+- `MonoDreams/level-editor/Serialization/SceneData.cs` — in-memory native-scene model (`version`/`camera`/`layers[]`/reserved `sources[]`/`entities[]` with `components{}` + `parent` index), System.Text.Json-shaped.
+- `MonoDreams/level-editor/Serialization/ComponentSerializer.cs` — a `(write,read)` pair for one component `Type`, keyed by a stable string.
+- `MonoDreams/level-editor/Serialization/ComponentSerializerRegistry.cs` — opt-in registry; discovers an entity's components via DefaultEcs `ReadAllComponents`, writes registered ones, **warns-and-skips** unregistered on write, **throws** on an unknown key on read.
+- `MonoDreams/level-editor/Serialization/EngineComponentSerializers.cs` — registers the engine serializers (Transform, SpriteInfo with AssetKey + SOURCE sort fields, EntityInfo, Box/Convex colliders, RigidBody, Velocity, ChildOf parent-link). Centralized in this module.
+- `MonoDreams/level-editor/Serialization/SceneSerializer.cs` — in-memory two-pass round-trip (entities ⇄ `SceneData`, parent graph as indices).
+- `MonoDreams/level-editor/docs/scene-format.md` — the format spec + concrete JSON example.
+- `docs/level-editor/roadmap.md` — the Wave A–F cross-session map.
+- `MonoDreams.Tests/LevelEditor/ComponentSerializerRegistryTest.cs` — 7 tests.
+
+### Files changed
+- `MonoDreams/rendering/Component/Draw/SpriteInfoComponent.cs` — additive optional `AssetKey` (string?, default null).
+- `MonoDreams/level-editor/docs/premises.md` — 3 new live Wave-2 premises (all naming the test).
+- `MonoDreams/level-editor/docs/overview.md`, `docs/index.md` — doc updates.
+
+### Commits (pushed to origin/feat/level-editor)
+- `52a2a99` feat(level-editor): add component-serializer registry + SpriteInfo AssetKey
+- `9a9f658` test(level-editor): round-trip + opt-in + AssetKey/SOURCE-fields registry tests
+- `95fb964` docs(level-editor): native scene format spec + Wave A-F roadmap + Wave 2 premises
+
+### Verify (no Docker)
+`dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** (41 pre-existing warnings; the 4 transient XML-doc warnings I introduced were fixed, net new = 0). `dotnet test MonoDreams.Tests/` → **71 passed, 0 failed, 0 skipped** (was 64; 7 new). Web head not built (no platform/content touched).
+
+### Autonomous decisions
+- **`ReadAllComponents`-based discovery** (vs probing registered types via `Has&lt;T&gt;`): the only mechanism that can *see* an unregistered component to warn about it — required by the contract.
+- **`SceneSerializer` in-memory round-trip seam** separate from file I/O: makes the round-trip fully unit-testable in Wave 2; Wave 3 layers JSON file I/O + texture rehydration + `LoadSceneRequest` on top.
+- **Parent link as a `SceneEntityData.Parent` index, not a `ChildOfComponent` body** (`Entity` ids are volatile); `ChildOf` registered as a structural-parent-link so parented entities don't trip the warning, body never written.
+- **Engine serializers centralized in the level-editor module** (per directive — lean, greppable; modularity trade-off documented).
+- **`DrawComponent` not registered**: sprite fields re-prep from `SpriteInfoComponent`, `LayerDepth` is forbidden-to-persist derived; mesh-Draw params deferred to when the editor authors meshes (Wave F) rather than speculatively serializing `VertexPositionColor[]`.
+
+### Handoffs for Wave 3 (writer/reader/LoadSceneRequest/SceneObjectComponent/membership + factory AssetKey)
+The serialization engine is live and reusable — Wave 3 does NOT rebuild it. It owns: `SceneObjectComponent` + the membership filter (collect `[With(SceneObjectComponent)]` roots + their `ChildOf` closure, hand the set to `SceneSerializer.Serialize`); the `LoadSceneRequest` message + reader system (calls `SceneSerializer.Deserialize`); `Texture2D` rehydration (`SpriteSheet = content.Load(assetKey)` post-deserialize — Wave 2 leaves it null); **factory AssetKey-population** (e.g. `PlayerEntityFactory` must set `AssetKey = "Atlas/TX Player"`); and the `IPlatformServices` web download/clipboard member. Premises `SceneRoundTripGoldenTest`/`MembershipFilterTest`/`DerivedDepthReproductionTest` land with that code. Full detail is in the ledger's "From Wave 2 → Wave 3" handoff section.
+
+The ledger (`~/.claude/implement/feat-level-editor/ledger.md`) is updated: Wave 2 checked off, Decisions/Handoffs/Progress filled.</result>
+<usage><subagent_tokens>204729</subagent_tokens><tool_uses>84</tool_uses><duration_ms>984635</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abbbb5d9e734333c4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 3: round-trip persistence" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Working tree clean, HEAD == origin/feat/level-editor. Wave 3 is complete.
+
+## Wave 3 Report — round-trip persistence (items 7 + 9)
+
+**Files added:**
+- `MonoDreams/level-editor/Component/SceneObjectComponent.cs` — pure save-root tag.
+- `MonoDreams/level-editor/Message/LoadSceneRequest.cs` — dedicated native-scene load message (`Path` + `FromContent`), separate from `LoadLevelRequest`.
+- `MonoDreams/level-editor/Serialization/SceneWriter.cs` — membership closure + `BuildScene`/`Save` (camera + layers, JSON, export via `IPlatformServices`).
+- `MonoDreams/level-editor/System/SceneReaderSystem.cs` — `LoadSceneRequest` reader: JSON read → two-pass deserialize → Texture2D rehydration → fails loud on unregistered key.
+- `MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` — the 3 named tests.
+
+**Files changed:**
+- `MonoDreams/foundation/Platform/IPlatformServices.cs` + `DesktopPlatformServices.cs` + `MonoDreams.Web.Hosting/WebPlatformServices.cs` — new `ExportScene` member.
+- `MonoDreams/rendering/Draw/DrawLayerMap.cs` — `EnumerateLayers()` read-only accessor.
+- `MonoDreams.Examples.Core/EntityFactory/{Player,NPC}EntityFactory.cs` — populate `SpriteInfo.AssetKey`.
+- Two test fakes (`PlatformServicesTests`, `ComponentSerializerRegistryTest`) + `level-editor` `premises.md`/`overview.md`.
+
+**Commits (pushed to origin/feat/level-editor, base `95fb964`):** `d80332c` (ExportScene seam), `4a99d2e` (writer+reader+message+component), `c8bd209` (factory AssetKey), `835880f` (tests), `3af5e6c` (docs).
+
+**Verify result:** core `dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** (41 warnings = Wave-2 baseline, net-new 0). `dotnet build MonoDreams.sln` → 0 errors. `dotnet test MonoDreams.Tests/` → **74 passed, 0 failed, 0 skipped** (71 prior + 3 new). Web head built (`MonoDreams.Examples.Web -p:MonoDreamsPlatform=web`; wasm-tools installed) → **0 errors** — confirms the new `ExportScene` + web stub compile on KNI (platform seam was touched).
+
+**Autonomous decisions (options → choice → why):**
+- *Where LoadSceneRequest/reader live:* level-loading vs level-editor → **level-editor**, because the reader consumes the level-editor registry + `SceneSerializer`; putting it in level-loading would invert the module dependency.
+- *Texture rehydration testability:* real headless GraphicsDevice vs injectable loader → **injectable `Func&lt;string,Texture2D&gt;`** (default `content.Load&lt;Texture2D&gt;`); test asserts the load call + AssetKey, not pixel data (per the plan).
+- *Web ExportScene:* full JS-interop download vs stub → **console-echo + loud-warning stub** (directive said don't block on perfect web download); desktop fully implements file write. Handoff noted for Wave 4.
+- *layers[] persistence:* `DrawLayerMap.EnumerateLayers()` read-only accessor (point-range `[d,d]`, forward-compatible with the `[min,max]` schema).
+
+**Wave-close gate:** PASS — both items have named tests; the promoted live premise names `SceneRoundTripTests`; no premise ships `Tests: none yet`.
+
+**Handoffs for Wave 4 (interactive editor):** Save/load are done — the toolbar's Save button calls `SceneWriter.Save(...)` and Load publishes `LoadSceneRequest`; the editor screen must register `SceneReaderSystem`. The editor-placement path must `entity.Set(new SceneObjectComponent())` on new save-roots (not their children — the writer auto-closes `ChildOf` descendants). The reader does **not** yet apply the persisted camera/layers on load (data is in the file; applying it is a deliberate Wave-4 concern). LDtk-tileset sprites still have a null `AssetKey` (no key at the factory). Web scene download is still a stub. Full notes are in the ledger's "From Wave 3 → Wave 4" section.</result>
+<usage><subagent_tokens>207019</subagent_tokens><tool_uses>95</tool_uses><duration_ms>1006870</duration_ms></usage>
+</task-notification>
