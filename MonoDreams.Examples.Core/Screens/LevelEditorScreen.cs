@@ -19,9 +19,13 @@ using MonoDreams.Message;
 using MonoDreams.Platform;
 using MonoDreams.Examples.Collision;
 using MonoDreams.Examples.System;
+using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.UI;
 using MonoDreams.System;
 using MonoDreams.System.Camera;
 using MonoDreams.System.EntitySpawn;
@@ -85,6 +89,13 @@ public class LevelEditorScreen : IGameScreen
     private readonly ComponentSerializerRegistry _registry;
     private readonly SceneSerializer _sceneSerializer;
     private readonly EditorHistory _history;
+
+    // The single gizmo-state entity: the toolbar's tool-select / snap-toggle mutate it; GizmoSystem
+    // reads it. Created in CreateUpdateSystem so both the gizmo and the toolbar dispatch share it.
+    private Entity _gizmoState;
+
+    /// <summary>The default file name the toolbar's Save button writes to (under the host scene dir).</summary>
+    private const string SceneFileName = "editor_scene.json";
 
     public LevelEditorScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
@@ -245,17 +256,76 @@ public class LevelEditorScreen : IGameScreen
             undoRequested: _ => InputState.Undo.JustPressed(),
             redoRequested: _ => InputState.Redo.JustPressed());
 
+        // The shared gizmo-state entity (single instance): the toolbar mutates it, GizmoSystem reads it.
+        _gizmoState = _world.CreateEntity();
+        _gizmoState.Set(GizmoStateComponent.Default);
+
+        // The transform gizmo: reads SelectedComponent, draws handles + selection outline, drives a
+        // drag into ONE undo step via the SAME _history (drag-coalescing). Runs BEFORE HierarchySystem
+        // so an edit propagates to world space the same frame.
+        var gizmoSystem = new GizmoSystem(_world, _camera, _history);
+
+        // The engine-native toolbar (HUD target). Build the buttons, wire the dispatch to the screen's
+        // own SAME _history / _sceneSerializer / _camera / _layers, and register the click system.
+        new EditorToolbarBuilder(_world, promptFont).Build(viewportManager: _viewportManager);
+        var toolbarSystem = new ToolbarSystem(_world, DispatchToolbarAction);
+        var buttonMeshPrep = new ButtonMeshPrepSystem(_world);
+
         return new SequentialSystem<GameState>(
             inputSystems,
             modeToggle,        // flips RunMode (works in both modes)
             levelLoadSystems,  // message-driven; loads game level + native scenes
             logicSystems,      // FROZEN in Edit
-            hierarchySystem,   // LIVE in Edit
-            cameraFollowSystem,// FROZEN in Edit
             editorCommands,    // delete / undo / redo (Edit-guarded)
+            gizmoSystem,       // selection gizmo + drag → one undo step (Edit-guarded); BEFORE Hierarchy
+            hierarchySystem,   // LIVE in Edit (propagates the gizmo edit this frame)
+            cameraFollowSystem,// FROZEN in Edit
+            buttonMeshPrep,    // toolbar button outline meshes (HUD) — rebuilt every frame
+            toolbarSystem,     // toolbar clicks + visibility (AFTER buttonMeshPrep so Play-hide sticks)
             cursorLateUpdateSystem,
             new CursorDrawPrepSystem(_world)
         );
+    }
+
+    /// <summary>
+    /// Wires a toolbar <see cref="EditorToolbarAction"/> to the screen's concrete behaviour, using the
+    /// SAME shared instances the rest of the editor uses (no second <c>EditorHistory</c> / serializer).
+    /// Tool-select + snap-toggle mutate the single <see cref="_gizmoState"/> entity that
+    /// <c>GizmoSystem</c> reads; Save writes through <see cref="SceneWriter"/> with the live camera +
+    /// layers; Load publishes a <see cref="LoadSceneRequest"/> the registered <c>SceneReaderSystem</c>
+    /// handles; Undo/Redo drive the shared history.
+    /// </summary>
+    private void DispatchToolbarAction(EditorToolbarAction action)
+    {
+        switch (action)
+        {
+            case EditorToolbarAction.ToolMove: SetGizmoTool(GizmoTool.Move); break;
+            case EditorToolbarAction.ToolRotate: SetGizmoTool(GizmoTool.Rotate); break;
+            case EditorToolbarAction.ToolScale: SetGizmoTool(GizmoTool.Scale); break;
+            case EditorToolbarAction.ToggleSnap: ToggleGizmoSnap(); break;
+            case EditorToolbarAction.Save:
+                new SceneWriter(_sceneSerializer).Save(_world, SceneFileName, _camera, _layers);
+                break;
+            case EditorToolbarAction.Load:
+                _world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+                break;
+            case EditorToolbarAction.Undo: _history.Undo(); break;
+            case EditorToolbarAction.Redo: _history.Redo(); break;
+        }
+    }
+
+    private void SetGizmoTool(GizmoTool tool)
+    {
+        if (!_gizmoState.IsAlive) return;
+        ref var state = ref _gizmoState.Get<GizmoStateComponent>();
+        state.Tool = tool;
+    }
+
+    private void ToggleGizmoSnap()
+    {
+        if (!_gizmoState.IsAlive) return;
+        ref var state = ref _gizmoState.Get<GizmoStateComponent>();
+        state.SnapEnabled = !state.SnapEnabled;
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
