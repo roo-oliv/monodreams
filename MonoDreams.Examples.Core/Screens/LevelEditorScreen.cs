@@ -19,6 +19,7 @@ using MonoDreams.Message;
 using MonoDreams.Platform;
 using MonoDreams.Examples.Collision;
 using MonoDreams.Examples.System;
+using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
@@ -172,17 +173,31 @@ public class LevelEditorScreen : IGameScreen
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
 
+        // The headless editor-op channel (Wave 5): when an editor_op_plan.json is present, a scripted
+        // cursor (no real mouse) drives the real editor systems. The driver injects CursorInputComponent
+        // state that CursorInputSystem.SkipHardwareRead must leave untouched.
+        var editorOpPlan = EditorOpPlan.TryLoad(debugDir);
+        var cursorInputSystem = new CursorInputSystem(_world);
+
         ISystem<GameState> inputSystems;
         if (replaySystem != null)
         {
             inputMappingSystem.SkipHardwareRead = true;
+            if (editorOpPlan != null) cursorInputSystem.SkipHardwareRead = true;
             inputSystems = new SequentialSystem<GameState>(
-                new CursorInputSystem(_world), replaySystem, inputMappingSystem);
+                cursorInputSystem, replaySystem, inputMappingSystem);
+        }
+        else if (editorOpPlan != null)
+        {
+            // Editor-op channel without a keyboard replay: still skip the hardware cursor read so the
+            // injected state survives, and run input mapping normally (the channel drives the cursor).
+            cursorInputSystem.SkipHardwareRead = true;
+            inputSystems = new SequentialSystem<GameState>(cursorInputSystem, inputMappingSystem);
         }
         else
         {
             inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-                new CursorInputSystem(_world), inputMappingSystem);
+                cursorInputSystem, inputMappingSystem);
         }
 
         var promptFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
@@ -271,7 +286,23 @@ public class LevelEditorScreen : IGameScreen
         var toolbarSystem = new ToolbarSystem(_world, DispatchToolbarAction);
         var buttonMeshPrep = new ButtonMeshPrepSystem(_world);
 
-        return new SequentialSystem<GameState>(
+        // The headless editor-op driver (Wave 5): scripted cursor + RunMode toggle + toolbar actions,
+        // no real mouse. It is registered ONLY when a plan is present (zero cost in a normal run). It
+        // runs AFTER CursorPositionSystem so its injected world/virtual cursor is the final word the
+        // gizmo/toolbar read, and it holds the session open (requestExit fires only when its ops drain),
+        // so the input-replay channel's auto-exit-on-drain can't kill the editor-op run early.
+        EditorOpReplaySystem editorOpDriver = null;
+        if (editorOpPlan != null)
+        {
+            editorOpDriver = new EditorOpReplaySystem(_world, editorOpPlan, DispatchToolbarAction, _game.Exit);
+            // Hold the session open: if a keyboard replay is also present, suppress its auto-exit-on-drain
+            // until the editor-op plan finishes, so the editor-op driver owns the exit.
+            if (replaySystem != null)
+                replaySystem.SuppressAutoExit = () => !editorOpDriver.IsComplete;
+        }
+
+        var systems = new List<ISystem<GameState>>
+        {
             inputSystems,
             modeToggle,        // flips RunMode (works in both modes)
             levelLoadSystems,  // message-driven; loads game level + native scenes
@@ -283,8 +314,11 @@ public class LevelEditorScreen : IGameScreen
             buttonMeshPrep,    // toolbar button outline meshes (HUD) — rebuilt every frame
             toolbarSystem,     // toolbar clicks + visibility (AFTER buttonMeshPrep so Play-hide sticks)
             cursorLateUpdateSystem,
-            new CursorDrawPrepSystem(_world)
-        );
+            new CursorDrawPrepSystem(_world),
+        };
+        if (editorOpDriver != null) systems.Add(editorOpDriver); // after cursor late-update: final word
+
+        return new SequentialSystem<GameState>(systems.ToArray());
     }
 
     /// <summary>
