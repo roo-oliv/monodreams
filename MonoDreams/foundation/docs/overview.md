@@ -18,7 +18,7 @@ Install this module first; every other module depends on it directly or transiti
 
 - `HierarchySystem` — propagates dirty flags, syncs `ChildOfComponent` → `Transform.Parent`, disposes orphans. Runs after movement, before any system that reads `WorldPosition`
 - `TransformCommitSystem` — end-of-frame: commits the current `Position` to `LastPosition` so next frame's `Delta` is meaningful
-- `AbstractInputHandlingSystem` — base class for game-specific input mapping; reads keyboard/gamepad/replay
+- `AKeyboardInputHandlingSystem` (in `System/Input/AbstractInputHandlingSystem.cs` — the file name differs from the class name) — base class for game-specific input mapping; reads keyboard/gamepad/replay
 - `InputReplaySystem` — reads `debug/input_replay.json` and feeds it into the input handler, optionally driving headless test runs
 
 ### Messages
@@ -48,7 +48,7 @@ This module has no dependencies — it is the root of the dependency graph. Ever
 
 ## Extension points
 
-- **Custom input mapping.** Subclass `AbstractInputHandlingSystem` and override the input-state mapping. Implementers in `MonoDreams.Examples/` show keyboard, gamepad, and zone-based input mappings.
+- **Custom input mapping.** Subclass `AKeyboardInputHandlingSystem` and override the input-state mapping. Implementers in `MonoDreams.Examples/` show keyboard, gamepad, and zone-based input mappings.
 - **Custom screens.** Implement `IGameScreen` and register with `ScreenController` to swap update/render pipelines per screen.
 - **Replay-driven tests.** Write an `InputReplayPlan` to `debug/input_replay.json` and run the game — `InputReplaySystem` feeds it into your input handler frame-by-frame. The headless test runner uses this for integration tests.
 

@@ -69,15 +69,16 @@ modules into real game screens — start at
 ## Rendering pipeline
 - All rendering infrastructure lives in the `rendering` module
   (`MonoDreams/rendering/`).
-- Three render targets defined by `RenderTargetID`: Main (game world,
-  camera transform applied), UI, HUD.
-- Draw pipeline: prep systems (`SpritePrepSystem`, `TextPrepSystem`,
-  `MeshPrepSystem`) populate `DrawComponent` from source data →
-  `MasterRenderSystem` renders everything.
+- Render targets defined by `RenderTargetID`: Main (game world, camera
+  transform applied), UI, HUD, and Scroll (screen-space overlay).
+- Draw pipeline (in order): `CullingSystem` adds/removes `VisibleComponent`
+  from camera view bounds → prep systems (`SpritePrepSystem`,
+  `TextPrepSystem`, `MeshPrepSystem`) populate `DrawComponent` for visible
+  entities → `YSortSystem` orders them → `MasterRenderSystem` renders
+  everything. The prep and sort systems query `[With(VisibleComponent)]`, so
+  a culled entity is also un-prepped that frame.
 - `MasterRenderSystem` is game-agnostic and handles all draw types. Do not
   create parallel render systems.
-- `CullingSystem` adds/removes the `VisibleComponent` based on camera view
-  bounds.
 
 ## Collision and physics
 - `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`,

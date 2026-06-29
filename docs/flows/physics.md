@@ -27,7 +27,7 @@ if it participates in gravity/resolution. Per frame, in pipeline order:
 
 1. **Gravity** — `GravitySystem` adds to `Current.Y` for entities whose `RigidBodyComponent.Gravity.active` is true (entities without an active rigid body skip this stage; game systems may still write `Current` directly).
 2. **Integrate** — `TransformVelocitySystem` advances `Position` by `Current * dT`, then sets `Last = Current`. `Delta` (`Current - Last`) is therefore zero immediately after this pass and reflects last frame's change before it.
-3. **Detect/Resolve (downstream, `collision` module)** — swept detection reads `Transform.Delta`; resolution corrects `Position` and may zero/reflect `Current`, honoring `RigidBodyComponent.FreezePositionX/Y` and `FreezeRotation`.
+3. **Detect/Resolve (downstream, `collision` module)** — swept detection reads `Transform.Delta`; resolution corrects `Position` and may zero/reflect `Current`. (The `RigidBodyComponent` freeze flags are *intended* to constrain this step but are not yet read — see the physics premise.)
 
 Velocity is mutated by many writers in one frame (gravity, input/movement systems, dampening); `Current` is the shared accumulator, and only `TransformVelocitySystem` advances `Last`.
 
@@ -37,7 +37,7 @@ Authoritative list in [`MonoDreams/physics/docs/premises.md`](../../MonoDreams/p
 
 - `GravitySystem` runs before `TransformVelocitySystem` (semi-implicit Euler). Reorder and gravity lags one frame.
 - Motion on physics entities is expressed as writes to `VelocityComponent.Current`, **never** direct `Transform.Position` mutation — direct mutation teleports, leaving `Delta` empty so swept collision misses the contact and resolution can't reverse it.
-- A frozen axis (`FreezePositionX/Y`, `FreezeRotation`) is owned by resolution; movement systems must not also drive it.
+- Freeze flags (`FreezePositionX/Y`, `FreezeRotation`) are **not yet consumed** by resolution — setting one has no effect today (known gap, see physics premise); don't rely on them to pin an axis.
 - `Last` is advanced by `TransformVelocitySystem` only; readers of `Delta` must know which side of that pass they're on.
 
 ## Load-bearing quantities

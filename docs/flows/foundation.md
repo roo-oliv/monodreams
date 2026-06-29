@@ -84,5 +84,5 @@ Foundation moves coordinates and timing rather than scalar magnitudes, so it car
 - **Lost logs / clobbered test runs** — a system logs before `Logger.Initialize`, or a parallel
   test forgets `MONODREAMS_DEBUG_DIR`; output silently drops or two runs overwrite one log file.
 
-> Name drift: the overview/premises call the input base `AbstractInputHandlingSystem`, but the
-> actual class (in `System/Input/AbstractInputHandlingSystem.cs`) is `AKeyboardInputHandlingSystem`.
+> Name note: the input base class is `AKeyboardInputHandlingSystem`, but its file is
+> `System/Input/AbstractInputHandlingSystem.cs` — file name and class name differ.

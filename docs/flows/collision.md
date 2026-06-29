@@ -86,10 +86,11 @@ Authoritative list in [`MonoDreams/collision/docs/premises.md`](../../MonoDreams
 - **Double resolution** — registering both resolution systems for the same entity stack applies two
   corrections to one contact (the physical system only filters to `CollisionType.Physics`, so a
   `Generic`/`Physics` mix can have each message handled once *per* system). Pick one per stack.
-- **Freeze-axis fights — the documented gap.** The `physics` premise says resolution honors
-  `RigidBodyComponent.FreezePositionX/Y` and `FreezeRotation`, but **neither collision resolution
-  system reads those flags today** — `SetPositionX/Y` and `Translate` move unconditionally. A frozen
-  axis is only "frozen" if no resolvable contact pushes it; a contact along that axis silently wins.
+- **Freeze axis is not enforced — known gap.** `RigidBodyComponent.FreezePositionX/Y` and
+  `FreezeRotation` exist but **no collision resolution system reads them** — `SetPositionX/Y` and
+  `Translate` move unconditionally. A frozen axis is only "frozen" if no resolvable contact pushes
+  it; a contact along that axis silently wins. See the physics freeze-flag premise (a documented gap,
+  not yet implemented).
 - **Layer omission** — a collider with no overlapping `ActiveLayers` is never pair-tested; the
   contact never reaches the narrowphase and the dev tunes gameplay for hours before noticing.
 - **Stale `BroadPhaseAABB`** — vertices mutated outside detection without refreshing the convex
