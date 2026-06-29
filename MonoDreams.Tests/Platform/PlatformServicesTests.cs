@@ -54,6 +54,16 @@ public class PlatformServicesTests
         public void WriteAllBytes(string path, byte[] bytes) =>
             Files[path] = Convert.ToBase64String(bytes);
 
+        public List<(string fileName, string contents)> ExportedScenes { get; } = new();
+
+        public string ExportScene(string suggestedFileName, string contents)
+        {
+            ExportedScenes.Add((suggestedFileName, contents));
+            var path = CombinePath(BaseDirectory, suggestedFileName);
+            Files[path] = contents;
+            return path;
+        }
+
         public void CreateDirectory(string path) => CreatedDirectories.Add(path);
 
         public TextWriter OpenLogWriter(string directory, string fileName)

@@ -216,6 +216,7 @@ public class ComponentSerializerRegistryTest
             public string ReadAllText(string path) => throw new FileNotFoundException(path);
             public void WriteAllText(string path, string contents) { }
             public void WriteAllBytes(string path, byte[] bytes) { }
+            public string ExportScene(string suggestedFileName, string contents) => suggestedFileName;
             public void CreateDirectory(string path) { }
             public TextWriter OpenLogWriter(string directory, string fileName) => LogWriter;
             public void WriteLineToConsole(string line) => ConsoleLines.Add(line);

@@ -26,6 +26,14 @@ public sealed class DesktopPlatformServices : IPlatformServices
 
     public void WriteAllBytes(string path, byte[] bytes) => File.WriteAllBytes(path, bytes);
 
+    public string ExportScene(string suggestedFileName, string contents)
+    {
+        // Desktop: write the scene next to the executable so the user can find it on disk.
+        var path = Path.Combine(BaseDirectory, suggestedFileName);
+        File.WriteAllText(path, contents);
+        return path;
+    }
+
     public void CreateDirectory(string path) => Directory.CreateDirectory(path);
 
     public TextWriter OpenLogWriter(string directory, string fileName)

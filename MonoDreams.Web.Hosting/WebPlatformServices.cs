@@ -36,6 +36,20 @@ namespace MonoDreams.Web.Hosting
 
         public void WriteAllBytes(string path, byte[] bytes) { /* no writable FS on web */ }
 
+        public string ExportScene(string suggestedFileName, string contents)
+        {
+            // Minimal web export path (issue: full browser download is deferred — see the Wave 3
+            // handoff). There is no writable host filesystem in the browser, so a desktop-style
+            // File.Write is impossible. Until a JS-interop blob download / clipboard copy is wired
+            // through GameCanvas's IJSRuntime, surface the scene to the dev console so it is not
+            // silently lost, and warn loudly that the export was not downloaded.
+            Console.WriteLine(
+                $"[level-editor] WebPlatformServices.ExportScene: browser download is not yet wired; " +
+                $"echoing '{suggestedFileName}' to the console. Copy it from here to save it.\n{contents}");
+            // null => delivered out-of-band (here: only to the console, pending a real download).
+            return null;
+        }
+
         public void CreateDirectory(string path) { /* no-op on web */ }
 
         public TextWriter OpenLogWriter(string directory, string fileName)

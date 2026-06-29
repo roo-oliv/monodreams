@@ -47,6 +47,20 @@ public interface IPlatformServices
     /// <summary>Writes bytes to a file, overwriting any existing content.</summary>
     void WriteAllBytes(string path, byte[] bytes);
 
+    /// <summary>
+    /// Persists an editor-exported scene (or similar user-authored output) so the user can keep it,
+    /// using whatever delivery the host supports. Unlike <see cref="WriteAllText"/> — a plain
+    /// host-filesystem write — this is the <i>output-to-the-user</i> seam: the desktop head writes a
+    /// file under <see cref="BaseDirectory"/> and returns its path; a web head triggers a browser
+    /// download / clipboard copy (or, until that is wired, logs a warning and returns the contents so
+    /// the caller can surface them). The returned string is a host-meaningful locator (a file path on
+    /// desktop) or <c>null</c> when the export was delivered out-of-band (e.g. a browser download).
+    /// </summary>
+    /// <param name="suggestedFileName">A file name the host may use (e.g. <c>"scene.json"</c>).</param>
+    /// <param name="contents">The text to export.</param>
+    /// <returns>A host-meaningful locator (desktop file path), or <c>null</c> if delivered out-of-band.</returns>
+    string ExportScene(string suggestedFileName, string contents);
+
     /// <summary>Creates a directory (and any missing parents); a no-op if it exists.</summary>
     void CreateDirectory(string path);
 
