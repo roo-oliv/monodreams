@@ -2,7 +2,7 @@
 
 The in-game level editor: an **Edit run mode** layered over the real game pipeline. The editor is not a separate application or renderer — it is a mode of the game (see `docs/CORE_TENETS.md`, "The editor is part of the game"). In `Edit`, the same world, the same `Camera`, and the same `CullingSystem → SpritePrepSystem → YSortSystem → MasterRenderSystem` draw stack the player sees stay live; game logic, physics, and camera-follow freeze; and editor tooling (selection, gizmos, undo, scene save/load, toolbar) runs on top.
 
-> **Status: Wave 3.** Wave 1 shipped the run-state model (in `foundation`) and the docs that codify it. Wave 2 added the **native scene format** + the **component-serializer registry** (under `Serialization/`) and an additive `AssetKey` on `SpriteInfoComponent`. Wave 3 adds the **scene round-trip**: `SceneObjectComponent` (save-root tag), the `SceneWriter` (membership closure + camera/layers + export through `IPlatformServices`), the dedicated `LoadSceneRequest` message + `SceneReaderSystem` (two-pass create + deserialize + parent-wire + `Texture2D` rehydration), and an `IPlatformServices.ExportScene` member (desktop file / web download). The interactive editor (screen, selection, gizmo, undo, toolbar) lands in later waves (4–5). The sections below describe the *intended* shape so a fresh session can implement the remaining waves without re-deriving the architecture; anything not yet built is marked **(planned, Wave N)**.
+> **Status: Wave 4a.** Wave 1 shipped the run-state model (in `foundation`) and the docs that codify it. Wave 2 added the **native scene format** + the **component-serializer registry** (under `Serialization/`) and an additive `AssetKey` on `SpriteInfoComponent`. Wave 3 added the **scene round-trip** (`SceneObjectComponent`, `SceneWriter`, `LoadSceneRequest` + `SceneReaderSystem`, `IPlatformServices.ExportScene`). Wave 4a adds the **interactive-editor substrate**: the reference `LevelEditorScreen` (in `MonoDreams.Examples.Core`) that composes the gated game pipeline + editor systems in one world with an in-place `RunMode` toggle; `SelectedComponent` + `EditorIdComponent` + `SelectionSystem` (click-to-pick the frontmost sprite); the `EditorHistory` bounded undo/redo with drag-coalescing + the `IEditorCommand` abstraction and the create/delete/transform commands; and the `EditorModeToggleSystem` / `EditorCommandSystem`. The transform **gizmo** and the **toolbar** are Wave 4b; the headless editor-op channel is Wave 5. Anything not yet built is marked **(planned, Wave N)**.
 
 ## Purpose
 
@@ -33,16 +33,26 @@ The scene-persistence substrate. It is infrastructure (services), not components
 ### Components
 
 - `SceneObjectComponent` (Wave 3, live, under `Component/`) — a pure tag marking a **save-root** entity; the `SceneWriter` includes each tagged root plus its `ChildOfComponent` descendant closure.
-- `SelectedComponent` (planned, Wave 4) — marks the currently-selected entity for the gizmo and toolbar.
-- Transform-gizmo components (planned, Wave 4) — the move/rotate/scale handle entities (standalone overlay entities, never `ChildOfComponent`-parented to game entities).
+- `SelectedComponent` (Wave 4a, live, under `Component/`) — a pure tag marking the currently-selected entity for the gizmo and toolbar (single-select; transient, not serialized).
+- `EditorIdComponent` (Wave 4a, live, under `Component/`) — a stable monotonic id the selection system assigns to each candidate the first time it sees it; the selection-owned tiebreak for an exact-depth pick (the renderer's insertion index is private).
+- Transform-gizmo components (planned, Wave 4b) — the move/rotate/scale handle entities (standalone overlay entities, never `ChildOfComponent`-parented to game entities).
 
 ### Systems
 
 - `SceneReaderSystem` (Wave 3, live, under `System/`) — subscribes to `LoadSceneRequest`, reads the scene JSON (content stream via `TitleContainer`, or `IPlatformServices` for host-filesystem user data), deserializes via the Wave-2 `SceneSerializer` (two-pass create + deserialize + parent-wire), rehydrates each sprite's `Texture2D` from its `AssetKey`, and fails loud on an unregistered component key. The texture loader is injectable (`Func<string, Texture2D>`) so it is unit-testable without a `GraphicsDevice`.
-- A selection system (planned, Wave 4) — hit-test cursor world position vs world-space sprite bounds; topmost = MAX final post-YSort `LayerDepth`.
-- A transform-gizmo system (planned, Wave 4) — gizmo/selection meshes set `VisibleComponent` themselves.
-- An editor-command abstraction + bounded undo/redo (planned, Wave 4) — drag-coalesced.
-- An engine-native toolbar (planned, Wave 4) — `AutoLayoutBuilder`, on the UI/HUD render target; the toolbar's save/load buttons call the Wave-3 `SceneWriter.Save` and publish `LoadSceneRequest`.
+- `SelectionSystem` (Wave 4a, live, under `System/`) — on a left-button press in Edit, hit-tests the cursor's `WorldPosition` against each rendered sprite's world-space quad (`SpriteHitTest`, honoring rotation/scale/origin/offset) and selects the frontmost (MAX final post-YSort `DrawComponent.LayerDepth`, tiebroken by `EditorIdComponent`). Ordered at the end of the draw pipeline so it reads the final depth this frame; Edit-guarded; click-empty clears.
+- `EditorModeToggleSystem` (Wave 4a, live, under `System/`) — flips `GameState.RunMode` Play↔Edit in place (no screen swap) when a `Func<GameState,bool>` predicate fires.
+- `EditorCommandSystem` (Wave 4a, live, under `System/`) — Edit-guarded; translates delete/undo/redo intent into `EditorHistory` operations (delete builds a sub-graph-snapshotting `DeleteEntityCommand`).
+- A transform-gizmo system (planned, Wave 4b) — reads `SelectedComponent`, draws handles via mesh generators (meshes set `VisibleComponent` themselves), emits a `TransformEditCommand` through the history's coalescing API on drag.
+- An engine-native toolbar (planned, Wave 4b) — `AutoLayoutBuilder`, on the UI/HUD render target; the toolbar's save/load/undo/redo/snap buttons call `SceneWriter.Save`, publish `LoadSceneRequest`, and drive `EditorHistory`.
+
+### Undo (Wave 4a, live — under `Undo/`)
+
+- `IEditorCommand` — a reversible editor mutation as DATA + an `Apply`/`Revert` pair (ECS purity: not a behavior-laden OO object).
+- `EditorHistory` — bounded undo/redo (configurable cap, oldest-evicted FIFO; empty-stack no-op) with the drag-coalescing transaction API (`BeginTransaction`/`CommitTransaction`/`CancelTransaction` → one entry per drag).
+- `CompositeCommand` — bundles a coalesced transaction's commands into one undo step.
+- `CreateEntityCommand` / `DeleteEntityCommand` — create tags the new root `SceneObjectComponent` + snapshots its sub-graph; delete snapshots the disposed sub-graph (reusing `SceneSerializer`) so undo restores it whole. `EntitySubgraph.Collect` is the shared `ChildOf` descendant-closure walk.
+- `TransformEditCommand` — a before/after transform edit (defined here; the gizmo wires + emits it in Wave 4b).
 
 ### Serialization writer (Wave 3, live — under `Serialization/`)
 

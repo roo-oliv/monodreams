@@ -7,11 +7,13 @@ sensitive: true
 
 # Level-editor frame: the game pipeline, gated by run state
 
-> **Status: scaffold (Wave 1).** The only part of this flow that exists today is the
-> run-state gate in `foundation` (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`).
-> The editor screen, selection, gizmo, undo, and scene I/O land in Waves 3–5. This doc
-> describes the *intended* per-frame flow so a fresh session can implement them against a
-> fixed contract; anything not yet built is marked **(planned, Wave N)**.
+> **Status: Wave 4a.** Live today: the run-state gate in `foundation`
+> (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`); the scene round-trip (Wave 3);
+> and the Wave-4a interactive substrate — the reference `LevelEditorScreen`
+> (`MonoDreams.Examples.Core`), `SelectionSystem` (click-to-pick), `EditorHistory` bounded
+> undo/redo with drag-coalescing, the `EditorModeToggleSystem` RunMode flip, and the
+> create/delete/transform commands. The transform **gizmo** and the **toolbar** are Wave 4b;
+> the headless editor-op channel is Wave 5. Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -42,26 +44,32 @@ In `Edit`, three kinds of entities coexist in one world:
 1. **Game entities** — the scene being edited. Their game-logic / physics / camera-follow
    systems are `Freeze`-gated, so they hold still; only the editor (and `HierarchySystem`)
    moves them.
-2. **Editor-overlay entities** **(planned, Wave 4)** — the selection highlight, the transform
-   gizmo handles, and the toolbar. These are **standalone** — never `ChildOfComponent`-parented
-   to a game entity — so `HierarchySystem.DisposeOrphans` (live in Edit) cannot cascade-dispose
-   them. Gizmo/selection meshes set `VisibleComponent` themselves.
+2. **Editor-overlay entities** — the selection highlight, the transform gizmo handles
+   **(gizmo planned, Wave 4b)**, and the toolbar **(planned, Wave 4b)**. These are **standalone** —
+   never `ChildOfComponent`-parented to a game entity — so `HierarchySystem.DisposeOrphans` (live in
+   Edit) cannot cascade-dispose them. Gizmo/selection meshes set `VisibleComponent` themselves.
+   (Wave 4a selection tags the picked **game** entity with `SelectedComponent` — a transient marker,
+   not an overlay entity; the visible highlight/gizmo overlay arrives in 4b.)
 3. **Transient input entities** — the cursor, positioned by the live `CursorInputSystem` →
    `CursorPositionSystem` pair the editor reads for hit-testing and dragging.
 
-Per frame, in pipeline order (intended; reference editor screen lands in Wave 4):
+Per frame, in pipeline order (the reference assembly is `LevelEditorScreen`):
 
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
-2. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
-3. **Editor systems** **(planned)** — selection, gizmo drag, undo-apply, scene save/load;
-   registered always, Edit-guarded so inert in `Play`.
-4. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
+2. **Mode toggle** (`RunNormally`) — `EditorModeToggleSystem` flips `RunMode` in place on the toggle key.
+3. **Level / scene load** — `LoadLevelRequest` (LDtk/Blender) + `LoadSceneRequest` (`SceneReaderSystem`).
+4. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
+5. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`);
+   gizmo drag → `TransformEditCommand` via the coalescing API **(gizmo planned, Wave 4b)**.
+6. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
    world space so the preview is correct *this* frame (it must run in both modes).
-5. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
+7. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
-6. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move.
-7. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes; the toolbar draws
-   on the UI/HUD target, the gizmo/selection overlay on Main.
+8. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move.
+9. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
+   at the **end** of the draw pipeline (after `YSortSystem`) so it picks on the final post-Y-sort
+   depth this frame; the toolbar draws on the UI/HUD target **(planned, Wave 4b)**, the gizmo/selection
+   overlay on Main **(planned, Wave 4b)**.
 
 ## Invariants
 
@@ -77,9 +85,13 @@ the ones this flow leans on:
 - Default `RunMode = Play` + opt-in gating ⇒ existing screens unchanged.
 - Editor-overlay entities are standalone (no `ChildOfComponent`) so the live
   `DisposeOrphans` can't reap them; delete snapshots the disposed sub-graph for undo
-  **(planned, Wave 4)**.
+  (Wave 4a — `DeleteEntityCommand`; the visible overlay/gizmo it protects is Wave 4b).
+- Selection picks MAX final post-Y-sort `DrawComponent.LayerDepth` with a selection-owned
+  tiebreak (`EditorIdComponent`), read after `YSortSystem` this frame (Wave 4a).
+- Undo is bounded (FIFO eviction past the cap) with drag-coalescing (one drag = one entry);
+  empty-stack undo/redo is a no-op (Wave 4a).
 - Native scenes load via a dedicated `LoadSceneRequest`, never `LoadLevelRequest` (which is
-  LDtk-coupled) **(planned, Wave 3)**.
+  LDtk-coupled) (Wave 3).
 
 ## Load-bearing quantities
 
@@ -99,9 +111,10 @@ the ones this flow leans on:
 - **Hierarchy frozen in Edit** — `HierarchySystem` `Freeze`-gated means an editor transform
   edit never reaches world space, so the preview shows the entity at its old position. It must
   be `RunNormally`.
-- **Overlay reaped** **(planned, Wave 4)** — a gizmo handle `ChildOfComponent`-parented to the
-  selected entity is cascade-disposed by the live `DisposeOrphans` when the entity is deleted.
-  Overlay entities must be standalone.
-- **Scene load clobbered** **(planned, Wave 3)** — loading a native scene through
+- **Overlay reaped** (guarded Wave 4a; the overlay it protects is Wave 4b) — a gizmo handle
+  `ChildOfComponent`-parented to the selected entity would be cascade-disposed by the live
+  `DisposeOrphans` when the entity is deleted. Overlay entities must be standalone; delete is the
+  reversible `DeleteEntityCommand`, never a bare `entity.Dispose()`.
+- **Scene load clobbered** (Wave 3) — loading a native scene through
   `LoadLevelRequest` triggers the unconditional LDtk `Content.Load` + `Remove<CurrentLevelComponent>`.
   Use the dedicated `LoadSceneRequest`.

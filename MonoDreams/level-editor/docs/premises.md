@@ -6,14 +6,15 @@
 > Read this before changing the editor screen, its overlay entities, or the
 > scene save/load path.
 >
-> **Status: Wave 3.** The run-state premise (Wave 1), the three serialization
+> **Status: Wave 4a.** The run-state premise (Wave 1), the three serialization
 > premises (Wave 2 — registry opt-in, AssetKey-not-live-texture,
-> SOURCE-not-derived sort fields), and the scene round-trip premise (Wave 3 —
-> membership closure + the `LoadSceneRequest` reader + `Texture2D` rehydration)
-> are live below. The remaining invariants — overlay-standalone +
-> delete-snapshot, bounded undo, selection topmost — land with their code in
-> Waves 4–5 and are listed under "Planned premises" so a future session has the
-> exact text and the test each must name. No premise here ships `Tests: none yet`.
+> SOURCE-not-derived sort fields), the scene round-trip premise (Wave 3 —
+> membership closure + the `LoadSceneRequest` reader + `Texture2D` rehydration),
+> and the Wave-4a interactive-editor invariants — overlay-standalone +
+> delete-snapshot, bounded undo with drag-coalescing, and selection topmost —
+> are all live below. The remaining "Planned" entry (the headless editor-op
+> channel) lands in Wave 5 with its named tests. No premise here ships
+> `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -153,28 +154,91 @@ frame recomputes the identical derived `DrawComponent.LayerDepth`).
 around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
 frame); foundation — the `IPlatformServices` portability seam.
 
-## Planned premises (land with their code in later waves — text + named test pre-committed)
+## Editor-overlay entities are standalone; delete snapshots the disposed sub-graph
 
-These are **not yet live** (their code does not exist yet). They are
-recorded here so the implementing wave drops in the premise verbatim and wires
-the named test in the same PR — honoring the repo rule that no premise ships
-`Tests: none yet`.
+Editor-overlay entities — the selection marker / gizmo handles / toolbar widgets the editor
+itself creates — are **never** `ChildOfComponent`-parented to a game entity. They stand alone.
+The reason is `HierarchySystem.DisposeOrphans`, which runs **in Edit** (HierarchySystem is
+RunNormally, not frozen): it cascade-disposes any `ChildOf` entity whose parent is no longer
+alive. If a gizmo handle were parented to the entity it decorates, deleting that entity would
+silently cascade-dispose the gizmo too. Correspondingly, an editor **delete is never a bare
+`entity.Dispose()`**: it is a reversible `DeleteEntityCommand` that **snapshots the disposed
+sub-graph** (the entity plus its `ChildOf` descendant closure, serialized through the Wave-2
+`SceneSerializer`) at construction time, so undo reconstructs the whole sub-graph — components and
+parent graph — from the snapshot. `SceneObjectComponent` is transient editor state (not in the
+serializer registry), so the command records whether the root was tagged and re-applies the tag on
+restore.
 
-- **"Editor-overlay entities are standalone; delete snapshots the sub-graph."**
-  (Wave 4) Gizmo / selection / toolbar entities are never `ChildOfComponent`-parented
-  to game entities, so `HierarchySystem.DisposeOrphans` (live in Edit) cannot
-  cascade-dispose them; delete is an undo command that snapshots the disposed
-  sub-graph. **Tests:** `HierarchyLiveInEditTest`, `DeleteUndoSnapshotTest`.
-  **Depends on:** foundation — "Children are disposed with their parents".
-- **"Bounded undo with drag-coalescing."** (Wave 4) Configurable cap with
-  oldest-evicted FIFO; one full gizmo drag = exactly one undo step; empty-stack
-  undo is a no-op. **Tests:** `UndoBoundedCapTest`, `DragCoalescingTest`.
-  **Depends on:** —.
-- **"Selection picks MAX final `LayerDepth` with a selection-owned tiebreak."**
-  (Wave 4) The selected entity is the one rendered frontmost (MAX post-YSort
-  `LayerDepth`) with a deterministic selection-owned tiebreak, because the
-  renderer's insertion index is private. **Tests:** `SelectionTopmostTest`,
-  `SelectionOrderingTest`. **Depends on:** rendering — final sort key.
+**Why:** `DisposeOrphans` (live in Edit) cascades through `ChildOf`; an overlay parented to a game
+entity would be collateral on delete, and a bare dispose of a sub-graph would be un-undoable.
+**Breaks:** the gizmo/selection overlay vanishes when its host entity is deleted; a delete that
+cannot be undone (the children, or the whole sub-graph, are lost with no snapshot).
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorRunStateTests.cs` (`HierarchyLiveInEditTest` — Edit
+keeps HierarchySystem propagating, so the dispose-orphan path is live in Edit) and
+`MonoDreams.Tests/LevelEditor/UndoTests.cs` (`DeleteUndoSnapshotTest` — delete an entity with a
+`ChildOf` child, undo restores both with their components + parent graph).
+**Depends on:** foundation — "Children are disposed with their parents" (`HierarchySystem.DisposeOrphans`).
+
+## Bounded undo with drag-coalescing
+
+The editor's `EditorHistory` is bounded: it holds at most a configurable cap of undo entries, and a
+push past the cap evicts the **oldest** (FIFO) — an old edit drops off rather than blocking the new
+one. `Undo` on an empty undo stack and `Redo` on an empty redo stack are **no-ops** (no exception),
+so the toolbar can wire the buttons unconditionally. **Drag-coalescing**: `BeginTransaction` opens a
+coalesced transaction during which pushed commands apply live (the edit shows on screen) but
+accumulate; `CommitTransaction` collapses the whole accumulation into a **single** history entry, so
+one full gizmo drag = exactly one undo step. Commands are DATA + an `Apply`/`Revert` pair
+(`IEditorCommand`), never behavior-laden OO objects — the history only sequences them.
+
+**Why:** unbounded history is a memory leak in a long editing session; un-coalesced drags would make
+one mouse-drag dozens of undo steps; an exception on empty-stack undo would crash a toolbar that
+can't know the stack is empty.
+**Breaks:** memory growth (no cap / no eviction); a drag that takes N undos to reverse; a crash on
+the first undo with nothing to undo.
+**Tests:** `MonoDreams.Tests/LevelEditor/UndoTests.cs` (`UndoBoundedCapTest` — push cap+2, history
+holds exactly cap, oldest evicted, undo stops at the oldest retained, empty-stack undo/redo no-op;
+`DragCoalescingTest` — a transaction of many pushes commits one entry that one undo reverses whole).
+**Depends on:** —.
+
+## Selection picks MAX final `LayerDepth` with a selection-owned tiebreak
+
+Click-to-select picks the **topmost** sprite under the cursor — the one the renderer draws
+frontmost, i.e. **MAX final post-Y-sort `DrawComponent.LayerDepth`**. The selection system reads
+that depth **after** `YSortSystem` has run this frame (it is ordered at the end of the draw pipeline,
+after prep + Y-sort), mirroring `MasterRenderSystem`, which sorts on the same final depth. For an
+**exact-depth tie**, selection cannot use the renderer's tiebreak (its per-frame insertion index is
+private), so it owns a deterministic one: each candidate gets a stable monotonic `EditorIdComponent`
+the first time the selection system sees it (first-seen / creation order), and the larger id — the
+later-seen entity, which an undisturbed scene draws last — wins the tie. Hit-testing honors the
+sprite's world-space rotation, scale, origin and offset (it inverts the exact draw transform), and a
+click on empty space clears the selection. Single-select for Wave A (marquee/multi-select is a later
+extension). The system is Edit-guarded (inert in Play).
+
+**Why:** the selected entity must be the one the designer sees on top; matching the render front means
+reading the same final depth the renderer sorts on, and the tie must break on a key selection can
+observe (the renderer's index can't be).
+**Breaks:** picking the back sprite of an overlapping stack (reading source depth, or pre-Y-sort
+depth); a non-deterministic / unstable pick on an exact-depth tie; a rotated/scaled sprite mis-picked
+because the hit-test ignored its transform.
+**Tests:** `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`SelectionTopmostTest` — stacked sprites
+on different depths, click selects MAX final depth, click-empty clears, hit-test honors
+rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by the selection-owned
+`EditorId` tiebreak, deterministically).
+**Depends on:** rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` →
+`MasterRenderSystem` derive + sort on final `DrawComponent.LayerDepth`).
+
+## Planned premises (Wave 5 — text + named test pre-committed)
+
+The headless editor-op channel (item 15) lands in Wave 5. Its invariant is recorded here so the
+implementing wave drops it in verbatim with the named test, honoring the no-`Tests: none yet` rule.
+
+- **"Injected editor cursor/op state survives the input pass; the op channel holds the session
+  open."** (Wave 5) A `SkipHardwareRead` flag on `CursorInputSystem` (mirroring
+  `AKeyboardInputHandlingSystem`) lets a test inject `CursorInputComponent` state without the
+  hardware read overwriting it; the editor-op channel (`select`/`move`/`save`/`undo` + target +
+  coords) holds the replay session open until the op queue drains. **Tests:**
+  `HeadlessEditorOpTest` (named, Wave 5). **Depends on:** cursor — `CursorInputSystem`; foundation —
+  input replay.
 
 ## See also
 
