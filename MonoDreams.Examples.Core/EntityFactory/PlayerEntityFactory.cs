@@ -20,7 +20,8 @@ namespace MonoDreams.Examples.EntityFactory;
 /// </summary>
 public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : IEntityFactory
 {
-    private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Atlas/TX Player");
+    private const string CharactersTilesetKey = "Atlas/TX Player";
+    private readonly Texture2D _charactersTileset = content.Load<Texture2D>(CharactersTilesetKey);
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -49,7 +50,8 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = _charactersTileset,
-            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
+            AssetKey = CharactersTilesetKey, // so the editor can re-load this texture on scene load
+            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                                  (int)request.Size.X, (int)request.Size.Y),
             Size = request.Size,
             Color = Color.White * request.Layer._Opacity,

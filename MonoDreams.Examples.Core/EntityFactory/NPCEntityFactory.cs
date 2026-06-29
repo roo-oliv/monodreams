@@ -19,7 +19,8 @@ namespace MonoDreams.Examples.EntityFactory;
 /// </summary>
 public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEntityFactory
 {
-    private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Characters");
+    private const string CharactersTilesetKey = "Characters";
+    private readonly Texture2D _charactersTileset = content.Load<Texture2D>(CharactersTilesetKey);
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -37,7 +38,8 @@ public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEn
         entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = _charactersTileset,
-            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
+            AssetKey = CharactersTilesetKey, // so the editor can re-load this texture on scene load
+            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                                  request.Layer._GridSize, request.Layer._GridSize),
             Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize),
             Color = Color.White * request.Layer._Opacity,
