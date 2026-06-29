@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "9c4a5340a713",
+  "strategy": "manual-commit",
+  "branch": "feat/skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    "MonoDreams/level-blender/docs/overview.md",
+    "docs/agents/skills-config.md",
+    "docs/flows/platform.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9c/4a5340a713/0/metadata.json",
+      "transcript": "/9c/4a5340a713/0/full.jsonl",
+      "context": "/9c/4a5340a713/0/context.md",
+      "content_hash": "/9c/4a5340a713/0/content_hash.txt",
+      "prompt": "/9c/4a5340a713/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 556,
+    "cache_creation_tokens": 542475,
+    "cache_read_tokens": 4823463,
+    "output_tokens": 25159,
+    "api_call_count": 20
+  }
+}

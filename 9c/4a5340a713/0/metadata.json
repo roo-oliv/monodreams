@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "9c4a5340a713",
+  "session_id": "72271dd1-9d27-4528-8ca8-9814ff375c28",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T01:15:04.549801Z",
+  "branch": "feat/skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    "MonoDreams/level-blender/docs/overview.md",
+    "docs/agents/skills-config.md",
+    "docs/flows/platform.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "9a5f172c-372c-401f-b1a0-771495fe0885",
+  "checkpoint_transcript_start": 768,
+  "transcript_lines_at_start": 768,
+  "token_usage": {
+    "input_tokens": 556,
+    "cache_creation_tokens": 542475,
+    "cache_read_tokens": 4823463,
+    "output_tokens": 25159,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T01:15:04.220153Z",
+    "agent_lines": 14,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 14,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-skills/72271dd1-9d27-4528-8ca8-9814ff375c28.jsonl"
+}
