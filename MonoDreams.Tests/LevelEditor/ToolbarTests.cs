@@ -1,0 +1,191 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using DefaultEcs;
+using Microsoft.Xna.Framework;
+using MonoDreams.Component;
+using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Message;
+using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Platform;
+using MonoDreams.State;
+using Xunit;
+
+namespace MonoDreams.Tests.LevelEditor;
+
+/// <summary>
+/// Protects the Wave 4b toolbar wiring (item 14): each <see cref="EditorToolbarAction"/> drives the
+/// SAME shared instances the editor uses — Save writes through <see cref="SceneWriter"/> (via the
+/// <see cref="IPlatformServices"/> export seam), Load publishes a <see cref="LoadSceneRequest"/>,
+/// Undo/Redo drive the shared <see cref="EditorHistory"/>, snap-toggle flips
+/// <see cref="GizmoStateComponent.SnapEnabled"/>, and tool-select sets <see cref="GizmoStateComponent.Tool"/>.
+///
+/// Tests at the handler/command level (a full UI render is not required): a dispatch closure built
+/// exactly like <c>LevelEditorScreen.DispatchToolbarAction</c> — same shared <see cref="EditorHistory"/>,
+/// <see cref="SceneSerializer"/>/<see cref="SceneWriter"/>, gizmo-state entity, and
+/// <see cref="LoadSceneRequest"/> publish — and asserts each action's observable effect. The Save test
+/// uses a fake <see cref="IPlatformServices"/> (no disk).
+/// </summary>
+[Collection("PlatformServices (non-parallel: mutates static state)")]
+public class ToolbarTests
+{
+    private const string SceneFileName = "toolbar-test.scene.json";
+
+    /// <summary>In-memory platform capturing ExportScene calls so the Save test asserts the writer ran.</summary>
+    private sealed class InMemoryPlatformServices : IPlatformServices
+    {
+        public Dictionary<string, string> Files { get; } = new();
+        public int ExportCount { get; private set; }
+        public StringWriter LogWriter { get; } = new();
+        public string BaseDirectory => "/scene/";
+        public string GetEnvironmentVariable(string name) => null;
+        public string CombinePath(params string[] paths) => string.Join("/", paths);
+        public bool FileExists(string path) => Files.ContainsKey(path);
+        public string ReadAllText(string path) =>
+            Files.TryGetValue(path, out var v) ? v : throw new FileNotFoundException(path);
+        public void WriteAllText(string path, string contents) => Files[path] = contents;
+        public void WriteAllBytes(string path, byte[] bytes) { }
+        public string ExportScene(string suggestedFileName, string contents)
+        {
+            ExportCount++;
+            Files[suggestedFileName] = contents;
+            return suggestedFileName;
+        }
+        public void CreateDirectory(string path) { }
+        public TextWriter OpenLogWriter(string directory, string fileName) => LogWriter;
+        public void WriteLineToConsole(string line) { }
+        public void RunBackground(Action work) => work();
+    }
+
+    private static void WithPlatform(InMemoryPlatformServices fake, Action body)
+    {
+        var previous = PlatformServices.Current;
+        try { PlatformServices.Current = fake; body(); }
+        finally { PlatformServices.Current = previous; }
+    }
+
+    private static ComponentSerializerRegistry NewEngineRegistry()
+    {
+        var registry = new ComponentSerializerRegistry();
+        registry.RegisterEngineComponents();
+        return registry;
+    }
+
+    /// <summary>
+    /// Builds the toolbar dispatch closure mirroring <c>LevelEditorScreen.DispatchToolbarAction</c>:
+    /// same shared history + serializer + gizmo-state entity, Load publishing a LoadSceneRequest.
+    /// </summary>
+    private static Action<EditorToolbarAction> BuildDispatch(
+        World world, EditorHistory history, SceneSerializer serializer, Entity gizmoState)
+    {
+        void SetTool(GizmoTool t) { ref var s = ref gizmoState.Get<GizmoStateComponent>(); s.Tool = t; }
+        void ToggleSnap() { ref var s = ref gizmoState.Get<GizmoStateComponent>(); s.SnapEnabled = !s.SnapEnabled; }
+
+        return action =>
+        {
+            switch (action)
+            {
+                case EditorToolbarAction.ToolMove: SetTool(GizmoTool.Move); break;
+                case EditorToolbarAction.ToolRotate: SetTool(GizmoTool.Rotate); break;
+                case EditorToolbarAction.ToolScale: SetTool(GizmoTool.Scale); break;
+                case EditorToolbarAction.ToggleSnap: ToggleSnap(); break;
+                case EditorToolbarAction.Save:
+                    new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
+                    break;
+                case EditorToolbarAction.Load:
+                    world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+                    break;
+                case EditorToolbarAction.Undo: history.Undo(); break;
+                case EditorToolbarAction.Redo: history.Redo(); break;
+            }
+        };
+    }
+
+    /// <summary>A counter-mutating command (DATA + apply/revert) so Undo/Redo have something to drive.</summary>
+    private sealed class IncrementCommand : IEditorCommand
+    {
+        private readonly int[] _box;
+        public IncrementCommand(int[] box) { _box = box; }
+        public void Apply(World world) => _box[0]++;
+        public void Revert(World world) => _box[0]--;
+    }
+
+    [Fact]
+    public void ToolbarWiringTest()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            using var world = new World();
+            var registry = NewEngineRegistry();
+            var serializer = new SceneSerializer(registry);
+            var history = new EditorHistory(world);
+
+            // The single shared gizmo-state entity (defaults: Move tool, snap off).
+            var gizmoState = world.CreateEntity();
+            gizmoState.Set(GizmoStateComponent.Default);
+
+            // Capture LoadSceneRequest publications.
+            var loadRequests = new List<LoadSceneRequest>();
+            world.Subscribe((in LoadSceneRequest r) => loadRequests.Add(r));
+
+            // A tagged save-root so Save has something to serialize and export.
+            var root = world.CreateEntity();
+            root.Set(new SceneObjectComponent());
+            root.Set(new EntityInfoComponent("Player", "Hero"));
+            root.Set(new TransformComponent(new Vector2(1, 2)));
+
+            var dispatch = BuildDispatch(world, history, serializer, gizmoState);
+
+            // ---- tool-select sets the active tool ----
+            dispatch(EditorToolbarAction.ToolRotate);
+            Assert.Equal(GizmoTool.Rotate, gizmoState.Get<GizmoStateComponent>().Tool);
+            dispatch(EditorToolbarAction.ToolScale);
+            Assert.Equal(GizmoTool.Scale, gizmoState.Get<GizmoStateComponent>().Tool);
+            dispatch(EditorToolbarAction.ToolMove);
+            Assert.Equal(GizmoTool.Move, gizmoState.Get<GizmoStateComponent>().Tool);
+
+            // ---- snap-toggle flips the flag ----
+            Assert.False(gizmoState.Get<GizmoStateComponent>().SnapEnabled);
+            dispatch(EditorToolbarAction.ToggleSnap);
+            Assert.True(gizmoState.Get<GizmoStateComponent>().SnapEnabled);
+            dispatch(EditorToolbarAction.ToggleSnap);
+            Assert.False(gizmoState.Get<GizmoStateComponent>().SnapEnabled);
+
+            // ---- Save invokes SceneWriter (writes through IPlatformServices.ExportScene) ----
+            Assert.Equal(0, fake.ExportCount);
+            dispatch(EditorToolbarAction.Save);
+            Assert.Equal(1, fake.ExportCount);
+            Assert.True(fake.Files.ContainsKey(SceneFileName));
+
+            // ---- Load publishes a LoadSceneRequest (the SceneReaderSystem handles it in the screen) ----
+            Assert.Empty(loadRequests);
+            dispatch(EditorToolbarAction.Load);
+            Assert.Single(loadRequests);
+            Assert.Equal(SceneFileName, loadRequests[0].Path);
+            Assert.False(loadRequests[0].FromContent);
+
+            // ---- Undo / Redo drive the shared history ----
+            var box = new int[] { 0 };
+            history.Push(new IncrementCommand(box)); // box = 1, one undo entry
+            Assert.Equal(1, box[0]);
+            Assert.Equal(1, history.Count);
+
+            dispatch(EditorToolbarAction.Undo);
+            Assert.Equal(0, box[0]);
+            Assert.Equal(0, history.Count);
+            Assert.Equal(1, history.RedoCount);
+
+            dispatch(EditorToolbarAction.Redo);
+            Assert.Equal(1, box[0]);
+            Assert.Equal(1, history.Count);
+
+            // ---- empty-stack undo/redo are no-ops (the toolbar wires the buttons unconditionally) ----
+            dispatch(EditorToolbarAction.Undo); // box = 0
+            dispatch(EditorToolbarAction.Undo); // no-op (nothing left)
+            Assert.Equal(0, box[0]);
+            Assert.Equal(0, history.Count);
+        });
+    }
+}
