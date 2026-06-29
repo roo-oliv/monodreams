@@ -3,8 +3,9 @@
 > Technical invariants the engine assumes about the foundation module:
 > `TransformComponent`, `ChildOfComponent`, `HierarchySystem`,
 > `TransformCommitSystem`, the `EntityHierarchy` resource, the input/replay
-> scaffold, and the `Logger`. Read this before changing any of those pieces
-> or any system that depends on them.
+> scaffold, the `Logger`, and the run-state model (`GameState.RunMode`,
+> `EditTimeBehavior`, `GatedSystem`). Read this before changing any of those
+> pieces or any system that depends on them.
 
 ## Don't mix two Transform-shaped components in one project
 
@@ -232,6 +233,57 @@ heads own the backend);
 an external property).
 **Depends on:** "Engine source is backend/OS-agnostic — non-portable calls
 go through `IPlatformServices`".
+
+## Default `RunMode = Play` preserves all existing pipelines
+
+`GameState.RunMode` defaults to `RunMode.Play`. The run state changes behaviour
+**only** for systems explicitly wrapped in a `GatedSystem`; an ungated system is
+run by the pipeline regardless of the mode, exactly as before the run-state model
+existed. A screen that never wraps a system in a `GatedSystem`, or never sets
+`RunMode = Edit`, is byte-identical to its pre-run-state behaviour.
+
+**Why:** the run-state model was added to `foundation` (a sensitive domain) so the
+in-game level editor can freeze the game pipeline without forking it (see
+`docs/CORE_TENETS.md` — "The editor is part of the game"). Adding a property to
+`GameState` that every screen across all 14 modules carries is only safe if the
+default leaves every existing screen untouched. Opt-in-only gating is what makes
+that true.
+**Breaks:** if `RunMode` defaulted to `Edit`, or if a system consulted `RunMode`
+without being opted in, an existing screen would silently freeze part of its
+pipeline (a black screen, or physics that no longer runs) with no code change at
+the call site.
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs::GameState_RunMode_DefaultsToPlay`
+(asserts the default; the same file's gating tests assert ungated behaviour is
+unchanged).
+**Depends on:** —
+
+## Edit-time behaviour is a per-system policy honoured by `GatedSystem`
+
+`GatedSystem` is the one mechanism by which the run mode gates a system. It wraps a
+child `ISystem<GameState>` plus an `EditTimeBehavior` policy and, each `Update`,
+reads `GameState.RunMode` to decide whether to forward to the child:
+`RunNormally` runs in both modes; `Freeze` runs in `Play` only (skipped in `Edit`);
+`RunPartial` and `RuntimeEditable` are reserved and, for now, run in both modes. The
+gate also honours its own `IsEnabled` and forwards `Dispose` to the child. The
+fixed policy assignment the level editor relies on: render / input / cursor and
+`HierarchySystem` are `RunNormally` (live while editing); movement / velocity /
+physics / collision / AI / dialogue and `CameraFollowSystem` are `Freeze`; editor
+systems are `RunNormally` and Edit-guarded.
+
+**Why:** cornerstone of the editor design (cornerstone C2) — editor tooling is ECS
+systems over a run-state-gated game pipeline, not a separate renderer. The policy
+must be data on the gate (not baked into each system) so the same engine system can
+be live in one screen and frozen in another purely by how the screen wraps it (ECS
+purity — behaviour lives in the system, the *decision to run* lives in the
+assembler's gate).
+**Breaks:** a render system wrapped in `Freeze` is a black screen the instant the
+designer enters `Edit`; a physics system left ungated keeps moving entities while
+they are being placed; a `Freeze`-gated `HierarchySystem` shows editor transform
+edits at last frame's world position. All three fail silently.
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs` (a `Freeze`-wrapped
+fake runs in `Play` and is skipped in `Edit`; a `RunNormally`-wrapped fake runs in
+both; the gate honours its own `IsEnabled`).
+**Depends on:** rendering — "Rendering systems run last in the pipeline".
 
 ## Open questions
 
