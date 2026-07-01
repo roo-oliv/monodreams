@@ -1,0 +1,232 @@
+#nullable enable
+using System;
+using DefaultEcs;
+using DefaultEcs.System;
+using Microsoft.Xna.Framework.Content;
+using MonoDreams.Component;
+using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Channel;
+using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Message;
+using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.UI;
+using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Renderer;
+using MonoDreams.State;
+using MonoDreams.UI;
+using MonoGame.Extended.BitmapFonts;
+
+namespace MonoDreams.LevelEditor.Composition;
+
+/// <summary>
+/// The reusable in-game editor overlay: everything a screen needs to become editor-capable,
+/// built once over the screen's <b>own</b> world / camera / layers (the editor is part of the
+/// game — no second world, renderer, or data model). It encapsulates the shared editor
+/// infrastructure (<see cref="Registry"/> + <see cref="Serializer"/> + bounded
+/// <see cref="History"/> + the single gizmo-state entity), constructs every editor system, builds
+/// the HUD toolbar entities, wires the toolbar dispatch to those same shared instances, and loads
+/// the headless editor-op channel when a plan is present.
+///
+/// <para><b>The screen weaves; the overlay supplies.</b> Editor systems interleave with the game
+/// pipeline at specific points (the ordering invariants of Waves 4–5), so the overlay exposes
+/// individual hooks rather than one opaque block. Update-side weave order:</para>
+/// <list type="number">
+///   <item><see cref="ModeToggle"/> — after input (flips RunMode in place, works in both modes).</item>
+///   <item><see cref="SceneReader"/> — with/after the level-load group (message-driven).</item>
+///   <item><see cref="EditorCommands"/> then <see cref="Gizmo"/> — after the frozen logic block,
+///   <b>before</b> <c>HierarchySystem</c> (the edit must propagate to world space this frame).</item>
+///   <item><see cref="Toolbar"/> — after camera-follow (button mesh prep + click dispatch).</item>
+///   <item><see cref="CameraNav"/> — <b>before</b> <c>CursorPositionSystem</c> (the camera
+///   mutation this frame is what the cursor's world position derives from).</item>
+///   <item><see cref="EditorOpDriver"/> (when present) — <b>last</b>, after the cursor late
+///   update, so its injected cursor is the final word the gizmo/toolbar read.</item>
+/// </list>
+/// <para>Draw-side: <see cref="Selection"/> goes after the prep/YSort group and before the render
+/// passes (it must read the FINAL post-YSort <c>DrawComponent.LayerDepth</c> of this frame).</para>
+///
+/// <para>The woven pipeline owns system disposal (gates forward <c>Dispose</c>); the overlay
+/// itself holds no disposable state beyond world entities, which die with the world.</para>
+/// </summary>
+public sealed class EditorOverlay
+{
+    /// <summary>The default file the toolbar's Save button writes (under the host scene dir).</summary>
+    public const string DefaultSceneFileName = "editor_scene.json";
+
+    private readonly World _world;
+    private readonly Camera _camera;
+    private readonly DrawLayerMap _layers;
+    private readonly string _sceneFileName;
+    private readonly Entity _gizmoState;
+
+    /// <summary>
+    /// Builds the overlay over the screen's own world/camera/layers. <paramref name="toolbarFont"/>
+    /// labels the toolbar buttons; <paramref name="input"/> supplies the game's editor key
+    /// predicates; <paramref name="debugDirectory"/> is probed for a headless
+    /// <c>editor_op_plan.json</c>; <paramref name="requestExit"/> lets the headless driver end the
+    /// session (wire the host's <c>Game.Exit</c>).
+    /// </summary>
+    public EditorOverlay(
+        World world,
+        Camera camera,
+        DrawLayerMap layers,
+        ContentManager content,
+        BitmapFont toolbarFont,
+        ViewportManager viewportManager,
+        EditorInputBindings input,
+        string debugDirectory,
+        Action? requestExit = null,
+        string sceneFileName = DefaultSceneFileName)
+    {
+        _world = world ?? throw new ArgumentNullException(nameof(world));
+        _camera = camera ?? throw new ArgumentNullException(nameof(camera));
+        _layers = layers ?? throw new ArgumentNullException(nameof(layers));
+        if (input == null) throw new ArgumentNullException(nameof(input));
+        _sceneFileName = sceneFileName;
+
+        // The shared editor infrastructure. The registry ships the engine serializers; a game
+        // registers its own game-component serializers via the exposed Registry.
+        Registry = new ComponentSerializerRegistry();
+        Registry.RegisterEngineComponents();
+        Serializer = new SceneSerializer(Registry);
+        History = new EditorHistory(world);
+
+        // The single gizmo-state entity: the toolbar's tool-select / snap-toggle mutate it,
+        // GizmoSystem reads it.
+        _gizmoState = world.CreateEntity();
+        _gizmoState.Set(GizmoStateComponent.Default);
+
+        ModeToggle = new EditorModeToggleSystem(input.ToggleEditRequested);
+        SceneReader = new SceneReaderSystem(world, Serializer, content);
+        EditorCommands = new EditorCommandSystem(
+            world, History, Serializer,
+            input.DeleteRequested, input.UndoRequested, input.RedoRequested);
+        Gizmo = new GizmoSystem(world, camera, History);
+        CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
+        Selection = new SelectionSystem(world);
+
+        // The engine-native toolbar (HUD target): build the button entities now, then the click
+        // system + the per-frame button mesh prep, dispatching into the SAME shared instances.
+        new EditorToolbarBuilder(world, toolbarFont).Build(viewportManager: viewportManager);
+        Toolbar = new SequentialSystem<GameState>(
+            new ButtonMeshPrepSystem(world),
+            new ToolbarSystem(world, DispatchToolbarAction));
+
+        // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
+        // cost in a normal run. The driver holds the session open (requests exit only after its
+        // ops drain), and SuppressReplayAutoExit lets a coexisting keyboard replay defer to it.
+        var editorOpPlan = EditorOpPlan.TryLoad(debugDirectory);
+        if (editorOpPlan != null)
+        {
+            var driver = new EditorOpReplaySystem(world, editorOpPlan, DispatchToolbarAction, requestExit);
+            EditorOpDriver = driver;
+            SuppressReplayAutoExit = () => !driver.IsComplete;
+        }
+    }
+
+    /// <summary>The component-serializer registry (engine components pre-registered); the game
+    /// registers its own serializers here before saving game components.</summary>
+    public ComponentSerializerRegistry Registry { get; }
+
+    /// <summary>The scene serializer every save/load/undo-snapshot path shares.</summary>
+    public SceneSerializer Serializer { get; }
+
+    /// <summary>The single bounded undo/redo history (never construct a second one).</summary>
+    public EditorHistory History { get; }
+
+    /// <summary>The shared gizmo-state entity (tool / snap config).</summary>
+    public Entity GizmoState => _gizmoState;
+
+    /// <summary>RunMode flip on the game's toggle key. Weave after input.</summary>
+    public ISystem<GameState> ModeToggle { get; }
+
+    /// <summary>Native-scene loading (<c>LoadSceneRequest</c>). Weave with the level-load group.</summary>
+    public ISystem<GameState> SceneReader { get; }
+
+    /// <summary>Delete / undo / redo keys (Edit-guarded). Weave after logic, before <see cref="Gizmo"/>.</summary>
+    public ISystem<GameState> EditorCommands { get; }
+
+    /// <summary>The transform gizmo (Edit-guarded). Weave before <c>HierarchySystem</c>.</summary>
+    public ISystem<GameState> Gizmo { get; }
+
+    /// <summary>Button mesh prep + toolbar clicks/visibility. Weave after camera-follow.</summary>
+    public ISystem<GameState> Toolbar { get; }
+
+    /// <summary>Editor pan/zoom/frame (Edit-guarded). Weave before <c>CursorPositionSystem</c>.</summary>
+    public ISystem<GameState> CameraNav { get; }
+
+    /// <summary>The headless editor-op driver; null when no <c>editor_op_plan.json</c> is present.
+    /// Weave LAST (after the cursor late update) so its injected cursor is the final word.</summary>
+    public ISystem<GameState>? EditorOpDriver { get; }
+
+    /// <summary>Click-to-select (Edit-guarded). Weave into the DRAW pipeline after the prep/YSort
+    /// group and before the render passes (reads this frame's final post-YSort depth).</summary>
+    public ISystem<GameState> Selection { get; }
+
+    /// <summary>Whether a headless editor-op plan was found (the screen must then set
+    /// <c>CursorInputSystem.SkipHardwareRead</c> so the injected cursor state survives).</summary>
+    public bool HasEditorOpPlan => EditorOpDriver != null;
+
+    /// <summary>When the op channel is active: assign to <c>InputReplaySystem.SuppressAutoExit</c>
+    /// so a coexisting keyboard replay's auto-exit-on-drain defers to the editor-op driver.
+    /// Null when no plan is present.</summary>
+    public Func<bool>? SuppressReplayAutoExit { get; }
+
+    /// <summary>The screen's update-pipeline registry, bound via <see cref="BindPipelines"/> —
+    /// the seam the editor's systems panel enumerates/toggles. Null until bound.</summary>
+    public EditorPipelineRegistrar? UpdatePipeline { get; private set; }
+
+    /// <summary>The screen's draw-pipeline registry (see <see cref="UpdatePipeline"/>).</summary>
+    public EditorPipelineRegistrar? DrawPipeline { get; private set; }
+
+    /// <summary>
+    /// Binds the screen's retained pipeline registrars so editor tooling (the upcoming systems
+    /// panel) can enumerate and toggle the live pipeline. Call after both pipelines are built.
+    /// </summary>
+    public void BindPipelines(EditorPipelineRegistrar updatePipeline, EditorPipelineRegistrar drawPipeline)
+    {
+        UpdatePipeline = updatePipeline ?? throw new ArgumentNullException(nameof(updatePipeline));
+        DrawPipeline = drawPipeline ?? throw new ArgumentNullException(nameof(drawPipeline));
+    }
+
+    /// <summary>
+    /// Wires a toolbar <see cref="EditorToolbarAction"/> to concrete behaviour using the SAME
+    /// shared instances the rest of the editor uses (no second history / serializer). Tool-select
+    /// and snap-toggle mutate the single <see cref="GizmoState"/> entity; Save writes through
+    /// <see cref="SceneWriter"/> with the live camera + layers; Load publishes a
+    /// <see cref="LoadSceneRequest"/> handled by the woven <see cref="SceneReader"/>; Undo/Redo
+    /// drive <see cref="History"/>. Public so the headless channel and tests dispatch the same way.
+    /// </summary>
+    public void DispatchToolbarAction(EditorToolbarAction action)
+    {
+        switch (action)
+        {
+            case EditorToolbarAction.ToolMove: SetGizmoTool(GizmoTool.Move); break;
+            case EditorToolbarAction.ToolRotate: SetGizmoTool(GizmoTool.Rotate); break;
+            case EditorToolbarAction.ToolScale: SetGizmoTool(GizmoTool.Scale); break;
+            case EditorToolbarAction.ToggleSnap: ToggleGizmoSnap(); break;
+            case EditorToolbarAction.Save:
+                new SceneWriter(Serializer).Save(_world, _sceneFileName, _camera, _layers);
+                break;
+            case EditorToolbarAction.Load:
+                _world.Publish(new LoadSceneRequest(_sceneFileName, fromContent: false));
+                break;
+            case EditorToolbarAction.Undo: History.Undo(); break;
+            case EditorToolbarAction.Redo: History.Redo(); break;
+        }
+    }
+
+    private void SetGizmoTool(GizmoTool tool)
+    {
+        if (!_gizmoState.IsAlive) return;
+        ref var state = ref _gizmoState.Get<GizmoStateComponent>();
+        state.Tool = tool;
+    }
+
+    private void ToggleGizmoSnap()
+    {
+        if (!_gizmoState.IsAlive) return;
+        ref var state = ref _gizmoState.Get<GizmoStateComponent>();
+        state.SnapEnabled = !state.SnapEnabled;
+    }
+}
