@@ -28,7 +28,16 @@ public class ScreenController(
     public ContentManager Content { get; } = content;
 
     private (IGameScreen current, IGameScreen next) _screen;
-    private GameState _state = new(new GameTime());
+    private readonly GameState _state = new(new GameTime());
+
+    /// <summary>
+    /// The single <see cref="GameState"/> every screen's pipelines run against. Exposed so the
+    /// host can apply boot-time run configuration after construction — e.g. the editor run flag
+    /// sets <c>State.RunMode = RunMode.Edit</c> so the game boots straight into editing. The
+    /// constructed default stays <see cref="RunMode.Play"/> (the back-compat premise); any
+    /// deviation is an explicit host-level opt-in through this property.
+    /// </summary>
+    public GameState State => _state;
 
     public World CurrentWorld => _screen.current?.World;
 
