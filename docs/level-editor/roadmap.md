@@ -104,6 +104,32 @@ Two usability gaps surfaced once the substrate was exercised, closed without a n
   `ScreenTransitionRequest(ScreenName.LevelEditor, levelId)`, reusing the generalized transition
   handler (no new screen-swap plumbing, no `Game1` hand-editing).
 
+### Wave 6 — composition seam (registrar + overlay + run flag)
+
+Direct user feedback after hands-on testing: the editor must be one flag away in any game
+screen, and the pipeline must become enumerable/toggleable for the upcoming systems panel.
+Shipped under `MonoDreams/level-editor/Composition/`:
+
+- **`EditorPipelineRegistrar`** — a screen registers each pipeline entry
+  (`Add(name, system, policy)`), every entry is wrapped in a `GatedSystem` per its policy, and
+  the registrar retains the ordered, named entry registry at runtime (`Entries`,
+  `SetEnabled(name, bool)` = a both-modes master toggle on the gate's `IsEnabled`). **This is the
+  seam the systems-panel wave binds to.** The edit-mode default is a registration-site
+  declaration (never an interface on the system type); a declaration contradicting the policy
+  throws until the runtime per-mode policy override lands (deliberate follow-up).
+- **`EditorOverlay`** — the whole editor block (shared registry/serializer/history + gizmo-state
+  entity, every editor system incl. the draw-side `Selection` and the plan-gated headless
+  driver, the HUD toolbar + its dispatch) as reusable, individually-woven hooks over the
+  screen's own world. `BindPipelines` hands it the screen's registrars for the panel.
+- **`EditorRunFlag`** — `--editor` launch arg / `MONODREAMS_EDITOR=1` env var (Rider run
+  configuration friendly): the desktop head registers `ScreenName.Game` with
+  `editorEnabled: true` and boots `ScreenController.State.RunMode = Edit` (no F1 needed).
+  `LevelEditorScreen` collapsed to `LoadLevelExampleGameScreen` with the flag pinned on — one
+  composition path, no duplicated pipeline definition. Deferred: the web head's flag (browsers
+  have no args/env — needs a query-string switch via JS interop) and the InfiniteRunner overlay
+  (no cursor pipeline; runner systems mutate transforms outside the Freeze block — needs its own
+  policy-matrix pass).
+
 ---
 
 ## Wave B — scatter tool (entity brush)

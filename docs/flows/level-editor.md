@@ -7,15 +7,19 @@ sensitive: true
 
 # Level-editor frame: the game pipeline, gated by run state
 
-> **Status: Wave 4 (4a + 4b).** Live today: the run-state gate in `foundation`
-> (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`); the scene round-trip (Wave 3);
-> the Wave-4a interactive substrate — the reference `LevelEditorScreen`
-> (`MonoDreams.Examples.Core`), `SelectionSystem` (click-to-pick), `EditorHistory` bounded
-> undo/redo with drag-coalescing, the `EditorModeToggleSystem` RunMode flip, and the
-> create/delete/transform commands; and the Wave-4b interaction layer — the transform
-> **gizmo** (`GizmoSystem` + `GizmoStateComponent` + the pure `GizmoTransform` math) and the
-> engine-native **toolbar** (`ToolbarSystem` + `EditorToolbarBuilder` on the HUD target). The
-> headless editor-op channel is Wave 5. Anything not yet built is marked **(planned, Wave N)**.
+> **Status: Wave 6 (Wave A complete + composition seam).** Live today: the run-state gate in
+> `foundation` (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`); the scene round-trip
+> (Wave 3); the Wave-4a interactive substrate — `SelectionSystem` (click-to-pick),
+> `EditorHistory` bounded undo/redo with drag-coalescing, the `EditorModeToggleSystem`
+> RunMode flip, and the create/delete/transform commands; the Wave-4b interaction layer —
+> the transform **gizmo** (`GizmoSystem` + `GizmoStateComponent` + the pure `GizmoTransform`
+> math) and the engine-native **toolbar** (`ToolbarSystem` + `EditorToolbarBuilder` on the
+> HUD target); the Wave-5 **headless editor-op channel**; post-Wave-A **camera navigation**
+> (`CameraNavSystem`); and the Wave-6 **composition seam** (`Composition/`):
+> `EditorPipelineRegistrar` (named, gate-wrapped, runtime-toggleable pipeline entries),
+> `EditorOverlay` (the whole editor block as reusable hooks), and `EditorRunFlag`
+> (`--editor` / `MONODREAMS_EDITOR=1` — game screens compose the overlay and boot in Edit).
+> Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -57,7 +61,10 @@ In `Edit`, three kinds of entities coexist in one world:
 3. **Transient input entities** — the cursor, positioned by the live `CursorInputSystem` →
    `CursorPositionSystem` pair the editor reads for hit-testing and dragging.
 
-Per frame, in pipeline order (the reference assembly is `LevelEditorScreen`):
+Per frame, in pipeline order (the reference assembly is the shared composition in
+`LoadLevelExampleGameScreen` behind its `editorEnabled` flag, built through the
+`EditorPipelineRegistrar` and the `EditorOverlay` hooks; `LevelEditorScreen` is that screen with
+the flag pinned on, and the `--editor` run flag turns it on for `ScreenName.Game`):
 
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
 2. **Mode toggle** (`RunNormally`) — `EditorModeToggleSystem` flips `RunMode` in place on the toggle key.

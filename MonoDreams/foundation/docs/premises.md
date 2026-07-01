@@ -240,7 +240,12 @@ go through `IPlatformServices`".
 **only** for systems explicitly wrapped in a `GatedSystem`; an ungated system is
 run by the pipeline regardless of the mode, exactly as before the run-state model
 existed. A screen that never wraps a system in a `GatedSystem`, or never sets
-`RunMode = Edit`, is byte-identical to its pre-run-state behaviour.
+`RunMode = Edit`, is byte-identical to its pre-run-state behaviour. The editor run
+flag (`--editor` / `MONODREAMS_EDITOR=1`) does **not** change this default: the
+host applies its boot-in-Edit as an explicit opt-in mutation of
+`ScreenController.State.RunMode` **after** construction (the property exists for
+exactly this seam), and the flag itself defaults off (see level-editor — "The
+editor run flag opts game screens into the overlay and boots RunMode = Edit").
 
 **Why:** the run-state model was added to `foundation` (a sensitive domain) so the
 in-game level editor can freeze the game pipeline without forking it (see
@@ -254,7 +259,8 @@ pipeline (a black screen, or physics that no longer runs) with no code change at
 the call site.
 **Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs::GameState_RunMode_DefaultsToPlay`
 (asserts the default; the same file's gating tests assert ungated behaviour is
-unchanged).
+unchanged); `MonoDreams.Tests/LevelEditor/EditorRunFlagTests.cs` (the boot-in-Edit
+flag defaults off and mutates only after a Play-constructed `GameState`).
 **Depends on:** —
 
 ## Edit-time behaviour is a per-system policy honoured by `GatedSystem`

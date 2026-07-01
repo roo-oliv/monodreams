@@ -360,6 +360,66 @@ matches expected, and that the driver requested exit exactly once).
 **Depends on:** cursor — `CursorInputSystem` (the `SkipHardwareRead` seam); foundation — input replay
 (the auto-exit-on-drain the session-hold guards against).
 
+## The pipeline registrar is the composition seam: named, ordered, gate-wrapped, runtime-toggleable
+
+A screen composes its update (and draw) pipeline through
+`EditorPipelineRegistrar.Add(name, system, policy, enabledInEditByDefault?)`, which wraps **every**
+entry in a `GatedSystem` per its declared `EditTimeBehavior` (a `RunNormally` gate is a pass-through,
+so uniform wrapping costs two boolean checks and buys a uniform toggle handle) and **retains** the
+ordered entry list at runtime — name, policy, gate + child refs, current enabled state — exposing
+`Entries` / `SetEnabled(name, bool)` / `GetEntry`. `SetEnabled(false)` flips the gate's own
+`IsEnabled`: a master kill switch that stops the child in **both** modes, orthogonal to the per-mode
+policy; unknown names throw loudly (listing what is registered). The edit-mode default is declared at
+the **registration site**, never by an interface/attribute on the system type — the same engine
+system may be frozen in one game's editor and live in another's, so baking the policy into the type
+would force one game's choice on all (ECS purity: the decision to run belongs to the assembler).
+Today `enabledInEditByDefault` must agree with the policy's Edit column (a contradiction throws;
+honouring it needs the runtime per-mode policy override, a deliberate systems-panel follow-up — a
+silently-recorded no-effect declaration would be worse). The registry lives on the screen (fields)
+and is bound onto the `EditorOverlay` via `BindPipelines` — the seam the systems panel enumerates
+and toggles.
+
+**Why:** the systems-panel wave needs a live, ordered, named view of the real pipeline with a toggle
+per entry; and the plain game screen + the editor screen must share ONE composition path (the
+`--editor` run flag just flips which entries are added), or their gate matrices silently diverge.
+**Breaks:** without the retained registry the panel has nothing to bind to; per-screen ad-hoc
+`GatedSystem` wrapping lets the editor screen and the flagged game screen drift apart; a toggle that
+only worked in one mode would let a "disabled" system keep running in the other.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorPipelineRegistrarTests.cs` (Freeze skips in Edit /
+runs in Play; RunNormally runs in both; `SetEnabled(false)` stops a system in BOTH modes — including
+a Freeze entry in Play; enumeration + execution preserve registration order; unknown name throws
+loudly; duplicate name / add-after-build / contradicting edit-default throw; the entry exposes
+policy + gate + child refs).
+**Depends on:** foundation — "Edit-time behaviour is a per-system policy honoured by `GatedSystem`".
+
+## The editor run flag opts game screens into the overlay and boots RunMode = Edit; default off is byte-identical
+
+The editor-everywhere run configuration — the `--editor` launch arg **or** the
+`MONODREAMS_EDITOR=1`/`true` environment variable, both settable in an IDE run configuration and
+parsed by the pure `EditorRunFlag.IsEnabled` — makes the desktop head register the plain game screen
+with `editorEnabled: true` (it composes the `EditorOverlay`: selection, gizmo, undo, toolbar, camera
+nav, scene save/load, headless channel) and sets `ScreenController.State.RunMode = RunMode.Edit` at
+boot, so the designer lands editing with **no F1 needed** (F1 still toggles). The boot mutation is an
+explicit host-level opt-in **after** construction: `GameState` still *constructs* as `Play`
+(preserving foundation's "Default `RunMode = Play` preserves all existing pipelines"). With the flag
+off — the default — screens compose **without** the overlay (nothing editor-related is constructed)
+and, because `RunMode` then never leaves `Play` and every registrar gate is a pass-through in Play,
+behave exactly as before the editor existed. `LevelEditorScreen` (the menu's per-level "Edit"
+button) is the same composition with the flag pinned on.
+
+**Why:** the gamedev iterates by launching their normal run configuration with one flag — no
+dedicated editor build, no menu detour — and every game screen gets the editor for free through the
+one shared composition path.
+**Breaks:** a flag that defaulted on (or a boot mutation baked into `GameState`'s constructor) would
+flip every unflagged run into Edit — frozen physics, a black gameplay screen; a separate editor-only
+pipeline definition would silently drift from the game's.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorRunFlagTests.cs` (arg + env-var parse, including
+off-values and whitespace; the flag defaults off; boot run mode at the GameState level — constructed
+default is Play, flag-on composition yields Edit, flag-off stays Play).
+**Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
+constructed default this flag deliberately does not change); this file — "The pipeline registrar is
+the composition seam".
+
 ## See also
 
 - `docs/CORE_TENETS.md` — "The editor is part of the game" + the interaction matrix.
