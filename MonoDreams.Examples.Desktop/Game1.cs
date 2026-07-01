@@ -10,6 +10,7 @@ using MonoDreams.Component;
 using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Examples.Settings;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Input;
@@ -28,6 +29,7 @@ public class Game1 : Game
     private ScreenController _screenController;
     private GameSettings _settings;
     private readonly bool _headless;
+    private readonly bool _editor;
 #if DEBUG
     private ImGuiRenderer _imGuiRenderer;
     private DebugInspector _debugInspector;
@@ -36,6 +38,10 @@ public class Game1 : Game
     public Game1(string[] args = null)
     {
         _headless = args?.Contains("--headless") ?? false;
+        // The editor run configuration: `--editor` launch arg or MONODREAMS_EDITOR=1 env var
+        // (both settable in a Rider run configuration). When active, game screens compose the
+        // editor overlay and the game boots straight into Edit mode (no F1 needed).
+        _editor = EditorRunFlag.IsEnabled(args, Environment.GetEnvironmentVariable);
 
         // Load settings first
         _settings = SettingsManager.Instance.Settings;
@@ -137,9 +143,23 @@ public class Game1 : Game
 #endif
 
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
-        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        // Under the editor run flag the plain game screen composes the editor overlay too (same
+        // composition path as LevelEditorScreen, which pins the flag on for the menu Edit button).
+        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
+        // InfiniteRunner deliberately does NOT compose the overlay yet: it runs no cursor
+        // pipeline (CursorInputSystem/CursorPositionSystem) and its runner systems mutate
+        // transforms outside a Freeze-gated logic block, so it needs its own policy-matrix pass
+        // before the editor is meaningful there (documented follow-up).
         _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
         _screenController.RegisterScreen(ScreenName.LevelEditor, () => new LevelEditorScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+
+        if (_editor)
+        {
+            // Boot straight into Edit (F1 still toggles). GameState still CONSTRUCTS as Play —
+            // this is an explicit host-level opt-in mutation, so unflagged runs are untouched.
+            _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
+            Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): game screens compose the editor overlay; booting in Edit mode.");
+        }
 
         // If a replay plan specifies a start screen or level, skip menus
         var replayPlan = InputReplayPlan.TryLoad(debugDir);

@@ -75,6 +75,10 @@ namespace MonoDreams.Examples.Web
 
             // Same screen set as desktop Game1 — the platform is the only difference, the
             // game flow is identical (develop once, build everywhere).
+            // NOTE: the desktop `--editor` / MONODREAMS_EDITOR=1 run flag (editor overlay on the
+            // plain game screen + boot-in-Edit) is not wired here yet — a browser has no launch
+            // args/env vars, so the web equivalent (a query-string switch read through JS interop)
+            // is a documented follow-up. The LevelEditor screen below is fully editor-capable.
             _screenController.RegisterScreen(ScreenName.LevelSelection,
                 () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
             _screenController.RegisterScreen(ScreenName.Game,

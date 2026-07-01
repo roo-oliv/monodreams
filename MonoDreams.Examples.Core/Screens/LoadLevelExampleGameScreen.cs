@@ -15,6 +15,7 @@ using MonoDreams.Input;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Message.Level;
 using MonoDreams.Message;
 using MonoDreams.Platform;
@@ -46,6 +47,28 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Examples.Screens;
 
+/// <summary>
+/// The reference platformer screen (LDtk + Blender levels) — and, since Wave 6, the single
+/// composition path for the in-game level editor. The pipeline is built through an
+/// <see cref="EditorPipelineRegistrar"/> (every entry named + wrapped in a run-state gate with
+/// the §4-matrix policy: game logic / physics / dialogue and camera-follow <c>Freeze</c> in Edit,
+/// everything else <c>RunNormally</c>), and when <c>editorEnabled</c> is true the
+/// <see cref="EditorOverlay"/>'s systems are woven in at their documented points. With the flag
+/// off nothing editor-related is constructed and — because <c>RunMode</c> never leaves Play and a
+/// <c>RunNormally</c>/<c>Freeze</c> gate is a pass-through in Play — the screen behaves exactly
+/// as it did before the editor existed.
+///
+/// <para>The editor flag arrives two ways: the menu's per-level "Edit" button loads
+/// <see cref="LevelEditorScreen"/> (this screen with the overlay always on), and the
+/// <c>--editor</c> / <c>MONODREAMS_EDITOR=1</c> run configuration (see
+/// <see cref="EditorRunFlag"/>) makes the host register even <c>ScreenName.Game</c> with the
+/// overlay and boot <see cref="GameState.RunMode"/> in <see cref="RunMode.Edit"/> (no F1 needed;
+/// F1 still toggles).</para>
+///
+/// <para>The retained registrars (<see cref="EditorPipelineRegistrar"/>) are bound onto the
+/// overlay (<c>BindPipelines</c>) — the seam the editor's systems panel will enumerate and
+/// toggle.</para>
+/// </summary>
 public class LoadLevelExampleGameScreen : IGameScreen
 {
     private readonly ContentManager _content;
@@ -62,8 +85,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly DrawLayerMap _layers;
 
+    // Wave 6: the editor overlay (null when editorEnabled is false) and the retained pipeline
+    // registries the systems panel binds to.
+    private readonly bool _editorEnabled;
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private EditorOverlay _editor;
+
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
+        bool editorEnabled = false)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -72,13 +103,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _viewportManager = viewportManager;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
             { RenderTargetID.UI, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
             { RenderTargetID.HUD, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) }
         };
-        
+
         camera.Position = new Vector2(0, 0);
 
         _layers = DrawLayerMap.FromEnum<GameDrawLayer>()
@@ -86,6 +118,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        _editor?.BindPipelines(_updatePipeline, _drawPipeline);
     }
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -125,7 +161,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }
 
     }
-    
+
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
@@ -142,23 +178,66 @@ public class LoadLevelExampleGameScreen : IGameScreen
             ["Orb"] = InputState.Orb, ["Exit"] = InputState.Exit,
             ["Interact"] = InputState.Interact,
         };
+        if (_editorEnabled)
+        {
+            // Editor replay-action names, mapped only when the overlay is composed so a plain
+            // Play screen's replay surface is unchanged.
+            actionMap["Editor"] = InputState.Editor;
+            actionMap["Delete"] = InputState.Delete;
+            actionMap["Undo"] = InputState.Undo;
+            actionMap["Redo"] = InputState.Redo;
+            actionMap["Frame"] = InputState.Frame;
+        }
+
+        var promptFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+
+        // The editor overlay: the shared registry/serializer/history, every editor system, the
+        // HUD toolbar, and the headless op channel — built over THIS screen's world/camera/layers
+        // (the editor is part of the game). Constructed before the input composition because the
+        // presence of a headless editor-op plan changes the cursor-input wiring below.
+        if (_editorEnabled)
+        {
+            _editor = new EditorOverlay(
+                _world, _camera, _layers, _content, promptFont, _viewportManager,
+                new EditorInputBindings(
+                    toggleEditRequested: _ => InputState.Editor.JustPressed(),
+                    deleteRequested: _ => InputState.Delete.JustPressed(),
+                    undoRequested: _ => InputState.Undo.JustPressed(),
+                    redoRequested: _ => InputState.Redo.JustPressed(),
+                    frameRequested: _ => InputState.Frame.JustPressed()),
+                debugDir,
+                requestExit: _game.Exit);
+        }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
+        var cursorInputSystem = new CursorInputSystem(_world);
+        var editorOpActive = _editor?.HasEditorOpPlan == true;
 
         ISystem<GameState> inputSystems;
         if (replaySystem != null)
         {
             inputMappingSystem.SkipHardwareRead = true;
+            // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+            if (editorOpActive) cursorInputSystem.SkipHardwareRead = true;
             inputSystems = new SequentialSystem<GameState>(
-                new CursorInputSystem(_world), replaySystem, inputMappingSystem);
+                cursorInputSystem, replaySystem, inputMappingSystem);
+            // Hold the session open: a coexisting keyboard replay's auto-exit-on-drain defers to
+            // the editor-op driver, which owns the exit.
+            if (_editor?.SuppressReplayAutoExit != null)
+                replaySystem.SuppressAutoExit = _editor.SuppressReplayAutoExit;
+        }
+        else if (editorOpActive)
+        {
+            // Editor-op channel without a keyboard replay: still skip the hardware cursor read so
+            // the injected state survives, and run input mapping normally.
+            cursorInputSystem.SkipHardwareRead = true;
+            inputSystems = new SequentialSystem<GameState>(cursorInputSystem, inputMappingSystem);
         }
         else
         {
             inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-                new CursorInputSystem(_world), inputMappingSystem);
+                cursorInputSystem, inputMappingSystem);
         }
-        
-        var promptFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
 
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
         blenderParser.SetDrawLayerMap(_layers);
@@ -274,7 +353,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             new LDtkTileParserSystem(_world, _content),
             new LDtkEntityParserSystem(_world),
             entitySpawnSystem);
-        
+
         // Collision pipeline must run sequentially (movement → velocity → detect → resolve → commit)
         // Individual systems keep their internal _parallelRunner for entity-level parallelism
         var logicSystems = new SequentialSystem<GameState>(
@@ -308,7 +387,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 nameof(EntityType.Interface))
             // ... other game logic systems
         );
-        
+
         // Hierarchy system must run AFTER logic systems modify transforms
         // but BEFORE any systems read world transforms (camera, rendering, etc.)
         var hierarchySystem = new HierarchySystem(_world);
@@ -318,18 +397,50 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Cursor position must update AFTER camera has moved to avoid 1-frame lag
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
-        return new SequentialSystem<GameState>(
-            // new DebugSystem(_world, _game, _spriteBatch), // If needed
-            inputSystems,
-            levelLoadSystems,
-            logicSystems,
-            hierarchySystem, // Entity hierarchy + transform dirty flag propagation
-            cameraFollowSystem,
-            cursorLateUpdateSystem,          // Cursor position updates after camera
-            new CursorDrawPrepSystem(_world) // Draw prep after position is finalized
-        );
+        // ---- Weave the update pipeline through the registrar (the §4 interaction matrix). ----
+        // Every entry is gate-wrapped by name+policy; with the editor off, RunMode never leaves
+        // Play and every gate is a pass-through, so the pipeline behaves exactly as before.
+        var p = _updatePipeline;
+        p.Add("input", inputSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // Flips RunMode in place (works in both modes) — right after input reads the key edge.
+            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
+        p.Add("levelLoad", levelLoadSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // Native-scene loading (LoadSceneRequest) — with the level-load group, message-driven.
+            p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+        // Game logic + physics + dialogue — FROZEN in Edit (runs only in Play).
+        p.Add("logic", logicSystems, EditTimeBehavior.Freeze);
+        if (_editor != null)
+        {
+            // Delete/undo/redo, then the gizmo — BEFORE HierarchySystem so a transform edit
+            // propagates to world space the same frame. Both Edit-guarded internally.
+            p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Gizmo, EditTimeBehavior.RunNormally);
+        }
+        // HierarchySystem stays LIVE in Edit (RunNormally) — editor edits propagate this frame.
+        p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
+        // Camera-follow FREEZES in Edit (the editor owns the camera there).
+        p.Add("cameraFollow", cameraFollowSystem, EditTimeBehavior.Freeze);
+        if (_editor != null)
+        {
+            // Toolbar mesh prep + clicks (hidden in Play), then edit-time camera navigation —
+            // BEFORE CursorPositionSystem so the camera mutation this frame is what the cursor's
+            // world position derives from (no one-frame lag).
+            p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
+        }
+        p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
+        p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor?.EditorOpDriver != null)
+            // The headless editor-op driver — LAST, after the cursor late update, so its injected
+            // cursor is the final word the gizmo/toolbar read. Plan-gated: only present when an
+            // editor_op_plan.json exists (zero cost in a normal run).
+            p.Add("editor.opDriver", _editor.EditorOpDriver, EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
-    
+
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
@@ -373,19 +484,27 @@ public class LoadLevelExampleGameScreen : IGameScreen
             IsEnabled = replayPlan?.Screenshots ?? false
         };
 
-        return new SequentialSystem<GameState>(
-            prepDrawSystems,
-            mainPass,
-            uiPass,
-            hudPass,
-            finalDrawToScreenSystem, // Draw RTs to screen
-            screenshotSystem
-        );
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // Selection runs at the END of the prep phase so it reads the FINAL post-YSort
+            // DrawComponent.LayerDepth computed THIS frame. The cursor's click edge (set in the
+            // update phase) survives into the draw call, so picking is in-frame. Edit-guarded.
+            p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+        p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
+        p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", finalDrawToScreenSystem, EditTimeBehavior.RunNormally);
+        p.Add("screenshots", screenshotSystem, EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()
     {
         UpdateSystem.Dispose();
+        DrawSystem.Dispose();
         GC.SuppressFinalize(this);
     }
 }
