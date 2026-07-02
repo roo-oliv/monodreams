@@ -22,6 +22,10 @@ public class CursorPositionSystem(World world, MonoDreams.Component.Camera camer
         // First convert screen position to virtual coordinates
         var virtualPosition = viewportManager.ScaleMouseToVirtualCoordinates(input.ScreenPosition);
 
+        // Track whether the pointer is outside the aspect-fit viewport (letterbox bars or the
+        // editor shell's chrome margins) so world-space consumers can ignore clicks/scrolls there.
+        input.OutsideViewport = !virtualPosition.HasValue;
+
         if (virtualPosition.HasValue)
         {
             // Always calculate world position for systems that need it (e.g., ButtonInteractionSystem)

@@ -10,6 +10,13 @@ public struct CursorInputComponent
     /// camera moving does not desync the cursor from on-screen UI.
     public Vector2 VirtualPosition { get; set; }
     public Vector2 WorldPosition { get; set; }
+    /// True while the OS pointer is outside the aspect-fit game viewport — in the letterbox bars
+    /// or in the editor shell's chrome margins. Set by CursorPositionSystem each frame; while
+    /// true, VirtualPosition/WorldPosition keep their last inside-the-viewport values, so systems
+    /// acting on click/scroll edges in world space must ignore those edges (the pointer is over
+    /// chrome, which hit-tests ScreenPosition instead). Defaults to false, so injected cursor
+    /// state (replay/editor-op channels, tests) behaves as "inside" unless stated otherwise.
+    public bool OutsideViewport { get; set; }
     public Vector2 PreviousScreenPosition { get; set; }
     public Vector2 PreviousWorldPosition { get; set; }
     public Vector2 Delta { get; set; }
