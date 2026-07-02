@@ -105,7 +105,7 @@ public class LevelSelectionScreen : IGameScreen
         if (_editor != null)
         {
             _editor.BindPipelines(_updatePipeline, _drawPipeline);
-            LoadLevelExampleGameScreen.LogEditorComposition(nameof(LevelSelectionScreen), _updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(LevelSelectionScreen), _updatePipeline, _drawPipeline);
         }
     }
 

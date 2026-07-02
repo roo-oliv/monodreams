@@ -106,7 +106,7 @@ public class InfiniteRunnerScreen : IGameScreen
         if (_editor != null)
         {
             _editor.BindPipelines(_updatePipeline, _drawPipeline);
-            LoadLevelExampleGameScreen.LogEditorComposition(nameof(InfiniteRunnerScreen), _updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(InfiniteRunnerScreen), _updatePipeline, _drawPipeline);
         }
     }
 

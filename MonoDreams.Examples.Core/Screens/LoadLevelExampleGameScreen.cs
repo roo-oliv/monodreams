@@ -124,19 +124,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (_editor != null)
         {
             _editor.BindPipelines(_updatePipeline, _drawPipeline);
-            LogEditorComposition(nameof(LoadLevelExampleGameScreen), _updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(LoadLevelExampleGameScreen), _updatePipeline, _drawPipeline);
         }
-    }
-
-    /// <summary>Logs the composed editor pipeline (entry names, in order) — the observable
-    /// contract the universal-overlay integration tests assert per screen.</summary>
-    internal static void LogEditorComposition(string screenName,
-        EditorPipelineRegistrar updatePipeline, EditorPipelineRegistrar drawPipeline)
-    {
-        Logger.Info(
-            $"[level-editor] Editor overlay composed on {screenName}: " +
-            $"update=[{string.Join(", ", updatePipeline.Entries.Select(e => e.Name))}] " +
-            $"draw=[{string.Join(", ", drawPipeline.Entries.Select(e => e.Name))}]");
     }
 
     public ISystem<GameState> UpdateSystem { get; }

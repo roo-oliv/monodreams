@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Linq;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -284,6 +285,20 @@ public sealed class EditorOverlay
     {
         UpdatePipeline = updatePipeline ?? throw new ArgumentNullException(nameof(updatePipeline));
         DrawPipeline = drawPipeline ?? throw new ArgumentNullException(nameof(drawPipeline));
+    }
+
+    /// <summary>
+    /// Logs the composed editor pipeline (entry names, in order) — the observable contract the
+    /// universal-overlay integration tests assert per screen, across hosts. Call it right after
+    /// <see cref="BindPipelines"/> from the composing screen.
+    /// </summary>
+    public static void LogComposition(string screenName,
+        EditorPipelineRegistrar updatePipeline, EditorPipelineRegistrar drawPipeline)
+    {
+        Logger.Info(
+            $"[level-editor] Editor overlay composed on {screenName}: " +
+            $"update=[{string.Join(", ", updatePipeline.Entries.Select(e => e.Name))}] " +
+            $"draw=[{string.Join(", ", drawPipeline.Entries.Select(e => e.Name))}]");
     }
 
     /// <summary>
