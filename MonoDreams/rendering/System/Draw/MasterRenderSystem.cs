@@ -35,6 +35,15 @@ public class MasterRenderSystem(
     SamplerState? spriteSampler = null,
     SamplerState? textSampler = null) : ISystem<GameState>
 {
+    /// <summary>
+    /// The render target this pass draws into. Mutable so a pass whose target tracks the window
+    /// size (e.g. the editor's native-resolution chrome target) can be retargeted after a resize
+    /// recreates the target — the mesh projection re-derives from the current destination size on
+    /// every draw, so retargeting needs no other bookkeeping. The pass does NOT own/dispose the
+    /// target (the screen or the retargeting owner does).
+    /// </summary>
+    public RenderTarget2D Destination { get; set; } = destination;
+
     private BasicEffect? _basicEffect;
 
     // A 1×1 white pixel used to stroke text underlines in the text branch (tinted with the text
@@ -80,7 +89,7 @@ public class MasterRenderSystem(
     // destination size (not the camera) so screen-space passes need no camera; the camera's
     // virtual resolution must match the destination size (it centers the view there).
     private Matrix Projection() =>
-        Matrix.CreateOrthographicOffCenter(0, destination.Width, destination.Height, 0, 0, 1);
+        Matrix.CreateOrthographicOffCenter(0, Destination.Width, Destination.Height, 0, 0, 1);
 
     private Texture2D Pixel()
     {
@@ -129,7 +138,7 @@ public class MasterRenderSystem(
     {
         EnsureBasicEffect();
 
-        graphicsDevice.SetRenderTarget(destination);
+        graphicsDevice.SetRenderTarget(Destination);
         graphicsDevice.Clear(Color.Transparent);
 
         var transformMatrix = camera?.GetViewTransformationMatrix() ?? Matrix.Identity;

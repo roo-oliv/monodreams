@@ -18,8 +18,23 @@ namespace MonoDreams.System.Draw;
 public sealed record RenderLayer(
     RenderTarget2D Target,
     Func<ViewportManager, Rectangle> Destination,
-    Func<ViewportManager, SamplerState> Sampler)
+    Func<ViewportManager, SamplerState> Sampler,
+    Func<RenderTarget2D> TargetProvider = null)
 {
+    /// <summary>
+    /// Native-resolution chrome layer (the editor shell): the provided target is composited 1:1
+    /// over the whole window (no aspect-fit, no scaling — its pixels ARE screen pixels), point
+    /// sampled, above whatever layers precede it in the list. The target comes from a provider
+    /// because a native-resolution target is recreated on window resize (a fixed reference would
+    /// go stale); a <c>null</c> provider result skips the layer entirely — how the chrome
+    /// contributes nothing outside Edit mode.
+    /// </summary>
+    public static RenderLayer Native(Func<RenderTarget2D> targetProvider) => new(
+        null,
+        vm => new Rectangle(0, 0, vm.ScreenWidth, vm.ScreenHeight),
+        _ => SamplerState.PointClamp,
+        targetProvider);
+
     /// World layer: integer-scaled in pixel-perfect mode, else aspect-fit; linear filtered.
     public static RenderLayer Main(RenderTarget2D target) => new(
         target,
@@ -133,7 +148,10 @@ public sealed class FinalDrawSystem : ISystem<GameState>
 
         foreach (var layer in _layers)
         {
-            if (layer.Target == null) continue;
+            // A provider-backed layer (RenderLayer.Native) resolves its target per frame — the
+            // target may be recreated on resize or absent (null = skip; e.g. chrome outside Edit).
+            var target = layer.TargetProvider != null ? layer.TargetProvider() : layer.Target;
+            if (target == null) continue;
 
             _spriteBatch.Begin(
                 SpriteSortMode.Immediate,
@@ -142,7 +160,7 @@ public sealed class FinalDrawSystem : ISystem<GameState>
                 DepthStencilState.None,
                 RasterizerState.CullNone);
 
-            _spriteBatch.Draw(layer.Target, layer.Destination(_viewportManager), Color.White);
+            _spriteBatch.Draw(target, layer.Destination(_viewportManager), Color.White);
             _spriteBatch.End();
         }
     }
