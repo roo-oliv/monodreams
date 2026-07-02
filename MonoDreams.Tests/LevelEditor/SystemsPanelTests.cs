@@ -269,6 +269,229 @@ public class SystemsPanelTests
         Assert.Equal(0, panel.ScrollOffset);
     }
 
+    // ---- The tree: groups render above their children, indented, with tri-state checkboxes ----
+
+    /// <summary>Update registrar = a Freeze group with two leaves; draw registrar = one leaf.
+    /// Lines: UPDATE(0), logic(1), logic.a(2), logic.b(3), DRAW(4), renderMain(5).</summary>
+    private static (SystemsPanelSystem panel, EditorPipelineRegistrar update,
+        CountingSystem a, CountingSystem b)
+        MakeTreePanel(World world, ViewportManager vm)
+    {
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        var a = new CountingSystem();
+        var b = new CountingSystem();
+        update.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("a", a);
+            g.Add("b", b);
+        });
+        update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+
+        var panel = new SystemsPanelSystem(world, vm, font: null, () => (update, draw));
+        return (panel, update, a, b);
+    }
+
+    [Fact]
+    public void SystemsPanel_TreeRows_RenderGroupsBeforeChildren_IndentedByDepth()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        var (panel, _, _, _) = MakeTreePanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // Labels: the group shows its policy tag; children show their LOCAL name (indentation
+        // conveys the hierarchy) and no tag (they inherit the group's visual context).
+        var labels = LabelTexts(world);
+        Assert.Contains("logic [freeze]", labels);
+        Assert.Contains("a", labels);
+        Assert.Contains("b", labels);
+        Assert.DoesNotContain("logic.a", labels);
+
+        // Checkbox indentation: the group's checkbox sits at the content edge, the children's
+        // one indent step to the right.
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var content = SystemsPanelLayout.ContentArea(panelRect);
+        var xs = new List<int>();
+        using var boxes = world.GetEntities().With<SimpleButtonComponent>().AsSet();
+        foreach (var e in boxes.GetEntities())
+        {
+            ref readonly var box = ref e.Get<SimpleButtonComponent>();
+            if ((int)box.Size.X != SystemsPanelLayout.CheckboxSize) continue; // skip the minus bars
+            xs.Add((int)e.Get<TransformComponent>().Position.X);
+        }
+        Assert.Equal(2, xs.Count(x => x == content.X + SystemsPanelLayout.IndentPerDepth)); // a, b
+        Assert.Contains(content.X, xs); // the group row (and the flat draw entry)
+    }
+
+    [Fact]
+    public void SystemsPanel_GroupCheckbox_ShowsTriState_MixedRendersTheMinusBar()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        var (panel, update, _, _) = MakeTreePanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // All children enabled → the group box is filled and the minus bar is hidden.
+        Assert.Equal(EditorChromeBuilder.CheckboxOnFill, GroupCheckboxFill(world));
+        Assert.Equal(0, MinusBarFill(world).A);
+
+        // One child off → Mixed: still filled, with the dark minus bar visible (Gmail/Material).
+        update.SetEnabled("logic.a", false);
+        panel.Update(Edit());
+        Assert.Equal(EditorChromeBuilder.CheckboxOnFill, GroupCheckboxFill(world));
+        Assert.Equal(EditorChromeBuilder.CheckboxMixedMark, MinusBarFill(world));
+
+        // Every child off → empty box, no bar.
+        update.SetEnabled("logic.b", false);
+        panel.Update(Edit());
+        Assert.Equal(0, GroupCheckboxFill(world).A);
+        Assert.Equal(0, MinusBarFill(world).A);
+    }
+
+    /// <summary>The group row's checkbox fill (the un-indented checkbox in the UPDATE section).</summary>
+    private static Color GroupCheckboxFill(World world)
+    {
+        using var boxes = world.GetEntities().With<SimpleButtonComponent>().AsSet();
+        foreach (var e in boxes.GetEntities())
+        {
+            ref readonly var box = ref e.Get<SimpleButtonComponent>();
+            if ((int)box.Size.X != SystemsPanelLayout.CheckboxSize) continue;
+            // The group's box is the topmost checkbox (line 1).
+            return box.FillColor;
+        }
+        throw new InvalidOperationException("no checkbox found");
+    }
+
+    /// <summary>The (single) minus-bar mark's fill.</summary>
+    private static Color MinusBarFill(World world)
+    {
+        using var boxes = world.GetEntities().With<SimpleButtonComponent>().AsSet();
+        foreach (var e in boxes.GetEntities())
+        {
+            ref readonly var box = ref e.Get<SimpleButtonComponent>();
+            if ((int)box.Size.X == SystemsPanelLayout.MinusBarWidth &&
+                (int)box.Size.Y == SystemsPanelLayout.MinusBarHeight)
+                return box.FillColor;
+        }
+        throw new InvalidOperationException("no minus bar found");
+    }
+
+    [Fact]
+    public void SystemsPanel_GroupClick_GmailSemantics_MixedOrOnTurnsAllOff_OffTurnsAllOn()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, update, _, _) = MakeTreePanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // Make the group Mixed first.
+        update.SetEnabled("logic.a", false);
+        Assert.Equal(PipelineEnabledState.Mixed, update.GetEnabledState("logic"));
+
+        // Click the GROUP row (line 1): Mixed → everything off.
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var row = SystemsPanelLayout.LineRect(panelRect, 1);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.Equal(PipelineEnabledState.Off, update.GetEnabledState("logic"));
+        Assert.False(update.IsEnabled("logic.a"));
+        Assert.False(update.IsEnabled("logic.b"));
+
+        // Click again: Off → everything on.
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.Equal(PipelineEnabledState.On, update.GetEnabledState("logic"));
+
+        // Click once more: On → everything off (checked behaves like indeterminate).
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.Equal(PipelineEnabledState.Off, update.GetEnabledState("logic"));
+    }
+
+    [Fact]
+    public void SystemsPanel_LeafClickInsideAGroup_TogglesOnlyThatLeaf()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, update, _, _) = MakeTreePanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // Click the "logic.a" row (line 2).
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var row = SystemsPanelLayout.LineRect(panelRect, 2);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+
+        Assert.False(update.IsEnabled("logic.a"));
+        Assert.True(update.IsEnabled("logic.b"));
+        Assert.Equal(PipelineEnabledState.Mixed, update.GetEnabledState("logic"));
+    }
+
+    [Fact]
+    public void SystemsPanel_RefusesToDisableAnAncestorGroupOfItsOwnEntry()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+
+        // The panel's entry nested INSIDE a group: clicking the group must refuse (the cascade
+        // would disable the panel itself — no UI path back).
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        SystemsPanelSystem panel = null!;
+        panel = new SystemsPanelSystem(world, vm, font: null, () => (update, draw));
+        var sibling = new CountingSystem();
+        update.AddGroup("editor", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("systemsPanel", panel);
+            g.Add("cameraNav", sibling);
+        });
+        update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // Click the GROUP row (line 1: header, editor, editor.systemsPanel, editor.cameraNav).
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var row = SystemsPanelLayout.LineRect(panelRect, 1);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+
+        // Refused: nothing under the group was disabled.
+        Assert.True(update.IsEnabled("editor.systemsPanel"));
+        Assert.True(update.IsEnabled("editor.cameraNav"));
+
+        // The sibling leaf itself stays individually toggleable (line 3).
+        row = SystemsPanelLayout.LineRect(panelRect, 3);
+        input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.False(update.IsEnabled("editor.cameraNav"));
+    }
+
     // ---- Layout math: scrolled-out lines are parked, visible ones sit in the strip ----
 
     [Fact]

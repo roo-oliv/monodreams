@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using DefaultEcs.System;
+using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.State;
@@ -205,5 +206,214 @@ public class EditorPipelineRegistrarTests
         Assert.Same(child, entry.Gate.Child);
         Assert.True(entry.IsEnabled);
         Assert.Same(entry, registrar.GetEntry("logic"));
+    }
+
+    // ---- Groups: the registrar owns the hierarchy (named children behind one policy gate) ----
+
+    [Fact]
+    public void Group_Sequential_BuildsOneGateAroundTheChildren_FreezeFreezesTheWholeGroupInEdit()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        var executed = new List<string>();
+        var a = new CountingSystem(() => executed.Add("a"));
+        var b = new CountingSystem(() => executed.Add("b"));
+        var group = registrar.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("a", a);
+            g.Add("b", b);
+        });
+        var pipeline = registrar.Build();
+
+        // The group entry IS the tree node: named, gated with the group policy, children visible.
+        Assert.True(group.IsGroup);
+        Assert.Equal(EditTimeBehavior.Freeze, group.Policy);
+        Assert.Equal(new[] { "logic.a", "logic.b" }, group.Children.Select(c => c.Name));
+
+        // Play: the whole group runs, children in registration order.
+        pipeline.Update(NewState(RunMode.Play));
+        Assert.Equal(new[] { "a", "b" }, executed);
+
+        // Edit: the group's Freeze gate skips EVERY child (identical to the old opaque composite).
+        pipeline.Update(NewState(RunMode.Edit));
+        Assert.Equal(1, a.UpdateCount);
+        Assert.Equal(1, b.UpdateCount);
+    }
+
+    [Fact]
+    public void Group_ParallelKind_RunsAllChildren()
+    {
+        using var runner = new DefaultParallelRunner(1);
+        var registrar = new EditorPipelineRegistrar();
+        var cursor = new CountingSystem();
+        var mapping = new CountingSystem();
+        registrar.AddGroup("input", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("cursor", cursor);
+            g.Add("mapping", mapping);
+        }, PipelineCompositeKind.Parallel, runner);
+        var pipeline = registrar.Build();
+
+        pipeline.Update(NewState(RunMode.Play));
+        Assert.Equal(1, cursor.UpdateCount);
+        Assert.Equal(1, mapping.UpdateCount);
+    }
+
+    [Fact]
+    public void Group_ParallelKind_WithoutARunner_ThrowsLoudly()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        Assert.Throws<ArgumentNullException>(() =>
+            registrar.AddGroup("input", EditTimeBehavior.RunNormally,
+                g => g.Add("cursor", new CountingSystem()), PipelineCompositeKind.Parallel));
+    }
+
+    [Fact]
+    public void Group_WithNoChildren_ThrowsLoudly()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        Assert.Throws<InvalidOperationException>(() =>
+            registrar.AddGroup("logic", EditTimeBehavior.Freeze, _ => { }));
+    }
+
+    [Fact]
+    public void NestedGroups_PrefixNames_TrackDepth_AndFlattenPreOrder()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        registrar.Add("input", new CountingSystem(), EditTimeBehavior.RunNormally);
+        registrar.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("movement", new CountingSystem());
+            g.AddGroup("dialogue", EditTimeBehavior.RunNormally, gg =>
+            {
+                gg.Add("runner", new CountingSystem());
+            });
+        });
+
+        // Flattened enumeration is pre-order (a group precedes its children), names are
+        // hierarchical, and Depth reflects nesting for the panel's indentation.
+        Assert.Equal(
+            new[] { "input", "logic", "logic.movement", "logic.dialogue", "logic.dialogue.runner" },
+            registrar.Entries.Select(e => e.Name));
+        Assert.Equal(new[] { 0, 0, 1, 1, 2 }, registrar.Entries.Select(e => e.Depth));
+        Assert.Equal(new[] { "input", "logic" }, registrar.Roots.Select(e => e.Name));
+
+        var dialogue = registrar.GetEntry("logic.dialogue");
+        Assert.True(dialogue.IsGroup);
+        Assert.Same(registrar.GetEntry("logic"), dialogue.Parent);
+        Assert.Equal("dialogue", dialogue.LocalName);
+    }
+
+    [Fact]
+    public void Group_DuplicateChildName_Throws_SameLocalNameInAnotherGroupIsFine()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        Assert.Throws<ArgumentException>(() => registrar.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("movement", new CountingSystem());
+            g.Add("movement", new CountingSystem());
+        }));
+
+        // Full names are the namespace: the same local name under a different group is distinct.
+        var registrar2 = new EditorPipelineRegistrar();
+        registrar2.AddGroup("logic", EditTimeBehavior.Freeze, g => g.Add("prep", new CountingSystem()));
+        registrar2.AddGroup("draw", EditTimeBehavior.RunNormally, g => g.Add("prep", new CountingSystem()));
+        Assert.NotNull(registrar2.GetEntry("logic.prep"));
+        Assert.NotNull(registrar2.GetEntry("draw.prep"));
+    }
+
+    // ---- Enabled semantics over the tree: leaf toggles, group cascade, derived tri-state ----
+
+    [Fact]
+    public void LeafToggle_InsideAGroup_StopsExactlyThatSystem()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        var a = new CountingSystem();
+        var b = new CountingSystem();
+        registrar.AddGroup("logic", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("a", a);
+            g.Add("b", b);
+        });
+        var pipeline = registrar.Build();
+
+        registrar.SetEnabled("logic.a", false);
+        pipeline.Update(NewState(RunMode.Play));
+        Assert.Equal(0, a.UpdateCount); // exactly the toggled leaf stops
+        Assert.Equal(1, b.UpdateCount); // its sibling keeps running
+    }
+
+    [Fact]
+    public void GroupToggle_CascadesToAllDescendantLeaves()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        var a = new CountingSystem();
+        var nested = new CountingSystem();
+        registrar.AddGroup("logic", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("a", a);
+            g.AddGroup("dialogue", EditTimeBehavior.RunNormally, gg => gg.Add("runner", nested));
+        });
+        var pipeline = registrar.Build();
+
+        registrar.SetEnabled("logic", false);
+        Assert.False(registrar.IsEnabled("logic.a"));
+        Assert.False(registrar.IsEnabled("logic.dialogue.runner"));
+        pipeline.Update(NewState(RunMode.Play));
+        Assert.Equal(0, a.UpdateCount);
+        Assert.Equal(0, nested.UpdateCount);
+
+        // Re-enabling the group cascades back on.
+        registrar.SetEnabled("logic", true);
+        pipeline.Update(NewState(RunMode.Play));
+        Assert.Equal(1, a.UpdateCount);
+        Assert.Equal(1, nested.UpdateCount);
+    }
+
+    [Fact]
+    public void GroupEnabledState_DerivesTriStateFromDescendantLeaves()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        registrar.AddGroup("logic", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("a", new CountingSystem());
+            g.AddGroup("dialogue", EditTimeBehavior.RunNormally, gg => gg.Add("runner", new CountingSystem()));
+        });
+
+        // All leaves enabled → On.
+        Assert.Equal(PipelineEnabledState.On, registrar.GetEnabledState("logic"));
+
+        // One leaf off → Mixed, bubbling through nesting levels.
+        registrar.SetEnabled("logic.dialogue.runner", false);
+        Assert.Equal(PipelineEnabledState.Off, registrar.GetEnabledState("logic.dialogue"));
+        Assert.Equal(PipelineEnabledState.Mixed, registrar.GetEnabledState("logic"));
+
+        // Every leaf off → Off.
+        registrar.SetEnabled("logic.a", false);
+        Assert.Equal(PipelineEnabledState.Off, registrar.GetEnabledState("logic"));
+
+        // A leaf's state is its own toggle, two-valued.
+        Assert.Equal(PipelineEnabledState.Off, registrar.GetEnabledState("logic.a"));
+        registrar.SetEnabled("logic.a", true);
+        Assert.Equal(PipelineEnabledState.On, registrar.GetEnabledState("logic.a"));
+        Assert.Equal(PipelineEnabledState.Mixed, registrar.GetEnabledState("logic"));
+    }
+
+    [Fact]
+    public void GroupGate_EnforcesPolicyOnly_ItsOwnIsEnabledIsNotTheToggleAxis()
+    {
+        // The enabled axis lives on the LEAVES (the group's checkbox state is derived), so a
+        // group cascade must never flip the group gate itself — otherwise the derived state
+        // could say "all enabled" while the gate silently blocked everything.
+        var registrar = new EditorPipelineRegistrar();
+        var group = registrar.AddGroup("logic", EditTimeBehavior.Freeze,
+            g => g.Add("a", new CountingSystem()));
+
+        registrar.SetEnabled("logic", false);
+        Assert.True(group.Gate.IsEnabled);
+        Assert.Equal(PipelineEnabledState.Off, group.EnabledState);
+
+        registrar.SetEnabled("logic", true);
+        Assert.True(group.Gate.IsEnabled);
+        Assert.Equal(PipelineEnabledState.On, group.EnabledState);
     }
 }
