@@ -1,0 +1,67 @@
+using DefaultEcs;
+
+namespace MonoDreams.LevelEditor.Component;
+
+/// <summary>
+/// Which spatial field of the bound entity a gizmo proxy edits. This is the <b>generalization
+/// seam</b> for component-local spatial data: colliders are NOT entities — their shapes live as
+/// fields on the game entity's components (<c>BoxColliderComponent.Bounds</c>,
+/// <c>ConvexColliderComponent.ModelVertices</c>) — so the editor cannot grab them with the
+/// transform gizmo directly. A proxy binds a standalone handle entity to
+/// <c>(entity, component, field)</c> through this kind; adding a new editable spatial field
+/// (e.g. the road tool's spline control points, Waves D/F) is a new enum member + a derivation
+/// case in <c>Proxy/ProxyGeometry</c> + a write-back case in the gizmo's proxy drag — never a
+/// new proxy mechanism.
+/// </summary>
+public enum ProxyBindingKind
+{
+    /// <summary>Edits <c>BoxColliderComponent.Bounds</c> (the entity-relative AABB): a drag
+    /// shifts the rectangle's X/Y by the world delta.</summary>
+    BoxColliderBounds,
+
+    /// <summary>Edits <c>ConvexColliderComponent.ModelVertices</c> as a whole shape: a drag
+    /// translates every local-space vertex by the (inverse-transformed) world delta. Per-vertex
+    /// editing is a documented follow-up (see <see cref="GizmoProxyComponent.Index"/>).</summary>
+    ConvexColliderShape,
+}
+
+/// <summary>
+/// The pure-data binding of an edit-time gizmo proxy (Wave 8b): a standalone handle entity the
+/// editor materializes over component-local spatial data of <see cref="Target"/>, so that data
+/// becomes selectable and draggable through the ordinary selection + gizmo path. The proxy entity
+/// carries this component plus <c>TransformComponent</c> (kept at the bound shape's world centre
+/// by <c>ProxySyncSystem</c>, so the gizmo's pivot/handles work unchanged), a mesh
+/// <c>DrawComponent</c> (the distinct outline visual, world-space on Main) and a self-set
+/// <c>VisibleComponent</c>.
+///
+/// <para><b>Standalone, transient, never written back into.</b> Like every editor overlay entity
+/// it is never <c>ChildOfComponent</c>-parented (<c>HierarchySystem.DisposeOrphans</c> is live in
+/// Edit) and is absent from the serializer registry (despawned on deselect / mode exit / target
+/// death). Crucially, dragging a proxy does <b>not</b> persist the proxy's own transform — the
+/// gizmo routes the drag into a <c>ColliderEditCommand</c> against <see cref="Target"/>'s bound
+/// component field, through the coalescing undo transaction. An undo command recorded against the
+/// transient proxy would dangle the moment the proxy despawns; the bound component on the game
+/// entity is the durable thing.</para>
+/// </summary>
+public struct GizmoProxyComponent
+{
+    /// <summary>The game entity whose component field this proxy edits.</summary>
+    public Entity Target;
+
+    /// <summary>Which spatial field of <see cref="Target"/> the proxy is bound to.</summary>
+    public ProxyBindingKind Kind;
+
+    /// <summary>
+    /// Reserved sub-element index for bindings that address one element of a collection —
+    /// a future per-vertex convex handle or a spline control point (road tool, Waves D/F) would
+    /// carry the element's ordinal here. Whole-shape bindings use -1.
+    /// </summary>
+    public int Index;
+
+    public GizmoProxyComponent(Entity target, ProxyBindingKind kind, int index = -1)
+    {
+        Target = target;
+        Kind = kind;
+        Index = index;
+    }
+}

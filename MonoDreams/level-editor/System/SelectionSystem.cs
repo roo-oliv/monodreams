@@ -7,6 +7,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Selection;
 using MonoDreams.State;
 
@@ -41,13 +42,29 @@ namespace MonoDreams.LevelEditor.System;
 /// so the system assigns each candidate a stable <see cref="EditorIdComponent"/> the first time it
 /// sees it (a monotonic counter = first-seen / creation order) and breaks ties by MAX id — the
 /// later-seen entity, which an undisturbed scene renders last. See <see cref="PickTopmost(int,float,int,bool,int,float,int)"/>.</para>
+///
+/// <para><b>Gizmo proxies join the SAME pick (Wave 8b), as border-only candidates.</b> Collider
+/// proxy entities (<see cref="GizmoProxyComponent"/>) carry no <c>SpriteInfoComponent</c>, so they
+/// are folded into the pick as a second candidate source with the SAME rank + depth + id ordering
+/// (never a second pick path): rank = Main (they are world-space outlines), depth = their
+/// <c>DrawComponent.LayerDepth</c> (drawn on top of game sprites, so they win where they visibly
+/// overlap), id = the same <see cref="EditorIdComponent"/> tiebreak. Their hit-test is the shape's
+/// <b>border</b> within a <c>1/Camera.Zoom</c>-scaled tolerance — never the fill — so a collider
+/// that covers its entity's sprite doesn't make the sprite unselectable: click the outline to grab
+/// the proxy, click inside to pick the entity.</para>
 /// </summary>
 [With(typeof(SpriteInfoComponent), typeof(TransformComponent), typeof(DrawComponent), typeof(VisibleComponent))]
 public sealed class SelectionSystem : AEntitySetSystem<GameState>
 {
+    /// <summary>How close (in screen pixels, divided by zoom for world units) a click must land to
+    /// a proxy's border to pick it. Generous enough to grab a 2px outline comfortably.</summary>
+    public const float ProxyBorderPickTolerancePixels = 8f;
+
     private readonly World _world;
+    private readonly Camera? _camera;
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _selectedSet;
+    private readonly EntitySet _proxySet;
     private int _nextEditorId;
 
     // Per-frame pick state (no per-frame allocation in the hot path).
@@ -60,14 +77,21 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
     private int _bestId;
     private Entity _best;
 
-    public SelectionSystem(World world)
+    /// <param name="world">The world to pick in.</param>
+    /// <param name="camera">The Main-pass camera, used to scale the proxy border pick tolerance by
+    /// <c>1/Zoom</c> (constant on-screen grab width). Null (the pre-8b signature) falls back to a
+    /// zoom of 1 — sprite picking is unaffected either way.</param>
+    public SelectionSystem(World world, Camera? camera = null)
         : base(world.GetEntities()
             .With<SpriteInfoComponent>().With<TransformComponent>()
             .With<DrawComponent>().With<VisibleComponent>().AsSet())
     {
         _world = world;
+        _camera = camera;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
+        _proxySet = world.GetEntities()
+            .With<GizmoProxyComponent>().With<TransformComponent>().With<DrawComponent>().AsSet();
     }
 
     protected override void PreUpdate(GameState state)
@@ -129,6 +153,10 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
     {
         if (!_picking) return;
 
+        // Gizmo proxies are sprite-less candidates evaluated through the SAME ordering as the
+        // sprite set above, before the pick is decided.
+        EvaluateProxyCandidates();
+
         // Clear the previous selection (single-select). Materialize first — mutating components
         // while iterating an EntitySet is unsafe.
         ClearSelection();
@@ -136,6 +164,40 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
         if (_hasBest)
             _best.Set(new SelectedComponent());
         // else: click on empty space → selection stays cleared.
+    }
+
+    /// <summary>
+    /// Folds the collider gizmo proxies (Wave 8b) into the current pick: each live-target proxy
+    /// whose shape <b>border</b> lies under the world cursor competes through the same
+    /// rank + depth + id rule as the sprite candidates (rank = Main; depth = the proxy's on-top
+    /// overlay depth; id = the shared <see cref="EditorIdComponent"/> tiebreak).
+    /// </summary>
+    private void EvaluateProxyCandidates()
+    {
+        var invZoom = _camera != null && _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
+        var tolerance = ProxyBorderPickTolerancePixels * invZoom;
+        var rank = TargetRank(RenderTargetID.Main); // proxies are world-space outlines on Main
+
+        foreach (var proxy in _proxySet.GetEntities())
+        {
+            var binding = proxy.Get<GizmoProxyComponent>();
+            if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, out var outline)) continue;
+            if (!ProxyGeometry.BorderContains(outline, _worldPoint, tolerance)) continue;
+
+            if (!proxy.Has<EditorIdComponent>())
+                proxy.Set(new EditorIdComponent(_nextEditorId++));
+            var id = proxy.Get<EditorIdComponent>().Id;
+            var depth = proxy.Get<DrawComponent>().LayerDepth;
+
+            if (Beats(rank, depth, id, _hasBest, _bestRank, _bestDepth, _bestId))
+            {
+                _hasBest = true;
+                _bestRank = rank;
+                _bestDepth = depth;
+                _bestId = id;
+                _best = proxy;
+            }
+        }
     }
 
     private void ClearSelection()
@@ -197,6 +259,7 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
     {
         _cursorSet.Dispose();
         _selectedSet.Dispose();
+        _proxySet.Dispose();
         base.Dispose();
     }
 }

@@ -17,6 +17,12 @@ namespace MonoDreams.System.Debug;
 /// red = active, green = passive, gray = disabled.
 /// Development only — allocates per-frame (ToArray, transient entities) and is not
 /// intended for production builds.
+///
+/// <para>Coexists with the level-editor's collider gizmo proxies (<c>ProxySyncSystem</c>): this
+/// system is the global diagnostic (thin outlines for EVERY collider, behind the static flag,
+/// selection-unaware); the proxy is the edit affordance (a thicker cyan outline over the SELECTED
+/// entity's colliders only, draggable, independent of this flag). In Edit the proxy sync keeps the
+/// selected entity's convex <c>WorldVertices</c> fresh, so the two outlines stay coherent.</para>
 /// </summary>
 public class ColliderDebugSystem : ISystem<GameState>
 {

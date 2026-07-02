@@ -5,10 +5,12 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.State;
@@ -48,6 +50,18 @@ namespace MonoDreams.LevelEditor.System;
 /// (<see cref="GizmoTransform"/>) is space-agnostic, so move / rotate / scale all work — the only
 /// difference is which coordinate pair feeds it. <c>Main</c>-target entities keep the world-space
 /// path (cursor <c>WorldPosition</c>, overlays on Main, <c>1/Camera.Zoom</c> handle sizing).</para>
+///
+/// <para><b>Proxy targets write back into the bound component, never the proxy (Wave 8b).</b> When
+/// the selected entity is a collider gizmo proxy (<see cref="GizmoProxyComponent"/>), the drag is
+/// mechanically identical — same handle hit-test at the proxy's pivot, same coalescing transaction,
+/// one undo step per drag — but each frame pushes a <see cref="ColliderEditCommand"/> against the
+/// proxy's BOUND game entity (shifting <c>BoxColliderComponent.Bounds</c>, or translating every
+/// <c>ConvexColliderComponent.ModelVertices</c> entry via the inverse-transformed world delta)
+/// instead of a <see cref="TransformEditCommand"/>: the proxy is transient (despawned on deselect),
+/// so a command recorded against it would dangle, and its transform is re-derived from the collider
+/// by <c>ProxySyncSystem</c> anyway. Only the <b>move</b> tool applies to proxies this wave (the
+/// active tool is forced to Move; scale-resize is a documented follow-up); grid-snap quantizes the
+/// shape's world reference point (box top-left / convex centroid) like a move-drag's position.</para>
 /// </summary>
 public sealed class GizmoSystem : ISystem<GameState>
 {
@@ -80,6 +94,15 @@ public sealed class GizmoSystem : ISystem<GameState>
     private Vector2 _dragStartPivot; // the world pivot at drag-start; stable rotate/scale centre
     private Vector2 _beforePosition, _beforeScale, _beforeOrigin;
     private float _beforeRotation;
+
+    // Proxy drag state (Wave 8b): the write-back target is the proxy's BOUND game entity and its
+    // collider field, snapshotted immutably at drag-start (same recompute-from-start design).
+    private bool _dragIsProxy;
+    private Entity _dragOwner;
+    private ProxyBindingKind _dragBindingKind;
+    private Rectangle _beforeBounds;
+    private Vector2[]? _beforeVertices;
+    private Vector2 _dragStartRefWorld; // box top-left / convex centroid, world, at drag-start
 
     public bool IsEnabled { get; set; } = true;
 
@@ -117,6 +140,11 @@ public sealed class GizmoSystem : ISystem<GameState>
         ref readonly var transform = ref target.Get<TransformComponent>();
         var pivot = transform.WorldPosition;
 
+        // A collider proxy edits component-local spatial data: only Move applies this wave, so the
+        // active tool is forced to Move regardless of the toolbar selection (rotate/scale handles
+        // would imply an edit the write-back cannot express yet — documented follow-up).
+        var tool = target.Has<GizmoProxyComponent>() ? GizmoTool.Move : gizmo.Tool;
+
         // Target-aware space: Main-target entities are world-space (cursor WorldPosition, overlays
         // on Main, handles sized by 1/Zoom); UI/HUD/Scroll-target entities are screen-space (their
         // transforms are virtual coordinates → cursor VirtualPosition, overlays on their own
@@ -128,18 +156,18 @@ public sealed class GizmoSystem : ISystem<GameState>
         if (!TryGetCursor(out var cursor))
         {
             EnsureOverlays();
-            UpdateOverlayMeshes(target, gizmo.Tool, pivot, invZoom, space);
+            UpdateOverlayMeshes(target, tool, pivot, invZoom, space);
             return;
         }
 
         var cursorPoint = worldSpace ? cursor.WorldPosition : cursor.VirtualPosition;
-        ProcessDrag(target, gizmo, cursor, cursorPoint, pivot, invZoom);
+        ProcessDrag(target, tool, cursor, cursorPoint, pivot, invZoom);
 
         EnsureOverlays();
-        UpdateOverlayMeshes(target, gizmo.Tool, pivot, invZoom, space);
+        UpdateOverlayMeshes(target, tool, pivot, invZoom, space);
     }
 
-    private void ProcessDrag(Entity target, in GizmoStateComponent gizmo, in CursorInputComponent cursor,
+    private void ProcessDrag(Entity target, GizmoTool tool, in CursorInputComponent cursor,
         Vector2 cursorPoint, Vector2 pivot, float invZoom)
     {
         if (_dragging)
@@ -159,9 +187,9 @@ public sealed class GizmoSystem : ISystem<GameState>
         // are frozen at their last inside-the-viewport values there (a toolbar click must not
         // grab the gizmo).
         if (!cursor.LeftButtonPressed || cursor.OutsideViewport) return;
-        if (!HandleHit(gizmo.Tool, pivot, cursorPoint, invZoom)) return;
+        if (!HandleHit(tool, pivot, cursorPoint, invZoom)) return;
 
-        BeginDrag(target, gizmo.Tool, cursorPoint, pivot);
+        BeginDrag(target, tool, cursorPoint, pivot);
     }
 
     /// <summary>
@@ -179,6 +207,15 @@ public sealed class GizmoSystem : ISystem<GameState>
 
     private void BeginDrag(Entity target, GizmoTool tool, Vector2 cursorWorld, Vector2 pivot)
     {
+        // A proxy drag writes back into the bound collider field — snapshot that binding first;
+        // an unsnapshottable binding (owner died / lost the collider) starts no drag at all.
+        _dragIsProxy = target.Has<GizmoProxyComponent>();
+        if (_dragIsProxy && !TrySnapshotProxyBinding(target))
+        {
+            _dragIsProxy = false;
+            return;
+        }
+
         ref readonly var t = ref target.Get<TransformComponent>();
         _dragging = true;
         _dragTool = tool;
@@ -192,8 +229,51 @@ public sealed class GizmoSystem : ISystem<GameState>
         _history.BeginTransaction();
     }
 
+    /// <summary>Snapshots the proxy's bound collider field at drag-start (the immutable "before"
+    /// every drag frame recomputes from) plus the shape's world reference point — the box's world
+    /// top-left / the convex world centroid — which the snapped move delta is measured against.</summary>
+    private bool TrySnapshotProxyBinding(Entity proxyEntity)
+    {
+        var binding = proxyEntity.Get<GizmoProxyComponent>();
+        var owner = binding.Target;
+        if (!owner.IsAlive || !owner.Has<TransformComponent>()) return false;
+        var ownerTransform = owner.Get<TransformComponent>();
+
+        switch (binding.Kind)
+        {
+            case ProxyBindingKind.BoxColliderBounds:
+                if (!owner.Has<BoxColliderComponent>()) return false;
+                var box = owner.Get<BoxColliderComponent>();
+                _beforeBounds = box.Bounds;
+                _dragStartRefWorld = ownerTransform.WorldPosition + new Vector2(box.Bounds.X, box.Bounds.Y);
+                break;
+
+            case ProxyBindingKind.ConvexColliderShape:
+                if (!owner.Has<ConvexColliderComponent>()) return false;
+                var convex = owner.Get<ConvexColliderComponent>();
+                if (convex.ModelVertices == null || convex.ModelVertices.Length < 3) return false;
+                _beforeVertices = (Vector2[])convex.ModelVertices.Clone();
+                _dragStartRefWorld = ProxyGeometry.Centroid(
+                    ProxyGeometry.ConvexWorldVertices(ownerTransform, convex));
+                break;
+
+            default:
+                return false;
+        }
+
+        _dragOwner = owner;
+        _dragBindingKind = binding.Kind;
+        return true;
+    }
+
     private void ApplyDragEdit(Entity target, Vector2 currentCursorWorld)
     {
+        if (_dragIsProxy)
+        {
+            ApplyProxyDragEdit(currentCursorWorld);
+            return;
+        }
+
         if (!target.IsAlive || !target.Has<TransformComponent>()) return;
 
         // Use the drag-START pivot as the rotate/scale centre so it stays fixed through the drag
@@ -210,10 +290,58 @@ public sealed class GizmoSystem : ISystem<GameState>
         _history.Push(TransformEditCommand.FromCurrent(target, afterPos, afterRot, afterScale, afterOrigin));
     }
 
+    /// <summary>
+    /// The proxy write-back (Wave 8b): recompute the shape's world reference point from the
+    /// immutable drag-start state through the SAME move math (and snap semantics) a transform drag
+    /// uses, then push a <see cref="ColliderEditCommand"/> against the bound game entity — one per
+    /// frame, coalesced by the open transaction into one undo step on release.
+    /// </summary>
+    private void ApplyProxyDragEdit(Vector2 currentCursorWorld)
+    {
+        if (!_dragOwner.IsAlive) return;
+
+        var (afterRef, _, _, _) = GizmoTransform.Compute(
+            GizmoTool.Move,
+            _dragStartRefWorld, 0f, Vector2.One, Vector2.Zero,
+            _dragStartPivot, _dragStartCursorWorld, currentCursorWorld,
+            SnapStep(), 0f);
+        var worldDelta = afterRef - _dragStartRefWorld;
+
+        switch (_dragBindingKind)
+        {
+            case ProxyBindingKind.BoxColliderBounds:
+            {
+                if (!_dragOwner.Has<BoxColliderComponent>()) return;
+                // Bounds is an int Rectangle: the world delta rounds to whole units by nature.
+                var after = new Rectangle(
+                    _beforeBounds.X + (int)MathF.Round(worldDelta.X),
+                    _beforeBounds.Y + (int)MathF.Round(worldDelta.Y),
+                    _beforeBounds.Width, _beforeBounds.Height);
+                _history.Push(ColliderEditCommand.ForBox(_dragOwner, after));
+                break;
+            }
+            case ProxyBindingKind.ConvexColliderShape:
+            {
+                if (_beforeVertices == null) return;
+                if (!_dragOwner.Has<ConvexColliderComponent>() || !_dragOwner.Has<TransformComponent>()) return;
+                // Translate the WORLD outline by the delta: model vertices shift by the
+                // inverse-transformed delta (rotation/scale honored, IgnoreTransformRotation kept).
+                var convex = _dragOwner.Get<ConvexColliderComponent>();
+                var modelDelta = ProxyGeometry.WorldDeltaToModelDelta(
+                    _dragOwner.Get<TransformComponent>(), convex.IgnoreTransformRotation, worldDelta);
+                var after = new Vector2[_beforeVertices.Length];
+                for (var i = 0; i < after.Length; i++) after[i] = _beforeVertices[i] + modelDelta;
+                _history.Push(ColliderEditCommand.ForConvex(_dragOwner, after));
+                break;
+            }
+        }
+    }
+
     private void EndDrag()
     {
         _dragging = false;
         _dragTarget = default;
+        ClearProxyDragState();
         // Commit the accumulated transaction → exactly one history entry for the whole drag. An
         // empty transaction (no movement at all) commits nothing.
         _history.CommitTransaction();
@@ -223,7 +351,15 @@ public sealed class GizmoSystem : ISystem<GameState>
     {
         _dragging = false;
         _dragTarget = default;
+        ClearProxyDragState();
         if (_history.InTransaction) _history.CancelTransaction();
+    }
+
+    private void ClearProxyDragState()
+    {
+        _dragIsProxy = false;
+        _dragOwner = default;
+        _beforeVertices = null;
     }
 
     private float SnapStep()
@@ -320,6 +456,15 @@ public sealed class GizmoSystem : ISystem<GameState>
     {
         var thickness = OutlinePixelThickness * invZoom;
         var color = Color.Yellow;
+
+        // A selected collider proxy outlines its bound shape (the same border the pick tested),
+        // so the selection feedback traces the thing being edited.
+        if (target.Has<GizmoProxyComponent>())
+        {
+            var binding = target.Get<GizmoProxyComponent>();
+            if (ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, out var shape))
+                return new PolygonOutlineMeshGenerator(shape, thickness, color, closed: true).Generate();
+        }
 
         if (target.Has<SpriteInfoComponent>())
         {

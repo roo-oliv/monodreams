@@ -41,8 +41,9 @@ namespace MonoDreams.LevelEditor.Composition;
 /// <list type="number">
 ///   <item><see cref="ModeToggle"/> — after input (flips RunMode in place, works in both modes).</item>
 ///   <item><see cref="SceneReader"/> — with/after the level-load group (message-driven).</item>
-///   <item><see cref="EditorCommands"/> then <see cref="Gizmo"/> — after the frozen logic block,
-///   <b>before</b> <c>HierarchySystem</c> (the edit must propagate to world space this frame).</item>
+///   <item><see cref="EditorCommands"/> then <see cref="Gizmo"/> then <see cref="ProxySync"/> —
+///   after the frozen logic block, <b>before</b> <c>HierarchySystem</c> (the edit must propagate
+///   to world space this frame; the proxies re-derive from the same frame's write-back).</item>
 ///   <item><see cref="Toolbar"/> — after camera-follow (button mesh prep + click dispatch).</item>
 ///   <item><see cref="CameraNav"/> — <b>before</b> <c>CursorPositionSystem</c> (the camera
 ///   mutation this frame is what the cursor's world position derives from).</item>
@@ -125,8 +126,9 @@ public sealed class EditorOverlay
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested);
         Gizmo = new GizmoSystem(world, camera, History);
+        ProxySync = new ProxySyncSystem(world, camera);
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
-        Selection = new SelectionSystem(world);
+        Selection = new SelectionSystem(world, camera);
 
         // Self-sufficient cursor (Wave 8a): a screen with no cursor pipeline (InfiniteRunner) asks
         // the overlay to bring its own — the input/position systems plus a minimal invisible
@@ -202,6 +204,12 @@ public sealed class EditorOverlay
 
     /// <summary>The transform gizmo (Edit-guarded). Weave before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> Gizmo { get; }
+
+    /// <summary>The collider gizmo-proxy sync (Edit-guarded): spawns/places/despawns the
+    /// standalone proxy entities over the selected entity's collider shapes. Weave right after
+    /// <see cref="Gizmo"/> (so the same frame's collider write-back is what the proxies re-derive
+    /// from), before <c>HierarchySystem</c>.</summary>
+    public ISystem<GameState> ProxySync { get; }
 
     /// <summary>Button mesh prep + toolbar clicks (native-pixel hit-test). Weave after camera-follow.</summary>
     public ISystem<GameState> Toolbar { get; }

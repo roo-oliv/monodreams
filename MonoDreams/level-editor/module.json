@@ -8,6 +8,8 @@
     "rendering-text",
     "ui",
     "cursor",
+    "collision",
+    "physics",
     "level-loading"
   ],
   "platforms": ["desktop", "web"],
