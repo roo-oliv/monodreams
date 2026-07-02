@@ -7,6 +7,8 @@ using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Demos.UI;
+using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -31,6 +33,14 @@ public class DemoLauncherScreen : IGameScreen
     private readonly Dictionary<RenderTargetID, RenderTarget2D> _renderTargets;
     private readonly BitmapFont _font;
 
+    // The universal editor overlay (null when editorEnabled is false) and the retained pipeline
+    // registries the editor's systems panel binds to (see DemoEditor).
+    private readonly bool _editorEnabled;
+    private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private DemoEditor? _editor;
+
     private ScreenController? _screenController;
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -38,13 +48,14 @@ public class DemoLauncherScreen : IGameScreen
     public World World => _world;
 
     public DemoLauncherScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ViewportManager viewportManager, SpriteBatch spriteBatch)
+        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
         _camera = camera;
         _viewportManager = viewportManager;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -58,6 +69,14 @@ public class DemoLauncherScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.Overlay.BindPipelines(_updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(DemoLauncherScreen), _updatePipeline, _drawPipeline);
+        }
     }
 
     public void Load(ScreenController screenController, ContentManager content)
@@ -169,36 +188,112 @@ public class DemoLauncherScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        return new SequentialSystem<GameState>(
-            new CursorInputSystem(_world),
+        var cursorInputSystem = new CursorInputSystem(_world);
+
+        // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers —
+        // the launcher menu is a scene like any other.
+        _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game);
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+
+        // ---- Weave the update pipeline through the registrar. With the editor off every entry
+        // is RunNormally/pass-through and the order matches the pre-editor screen exactly. ----
+        var p = _updatePipeline;
+        p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            // The Demos host runs no keyboard-action mapping of its own; the editor brings its
+            // default key surface (F1 toggle, Delete, Z/Y, Home) — composed only under the flag.
+            p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
+            p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
+            // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
+            p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
+        }
+        // The auto-layout solver is the menu's content placement: RunNormally, or booting
+        // straight into Edit would show an unlaid-out menu.
+        p.Add("layout", new SequentialSystem<GameState>(
             new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager),
-            new DemoButtonInteractionSystem(_world),
-            new HierarchySystem(_world),
-            new CursorPositionSystem(_world, _camera, _viewportManager));
+            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
+        // Menu button interaction FREEZES in Edit: a click there belongs to the editor, never to
+        // a screen transition (which would tear this screen down mid-editing). F1 re-arms it.
+        p.Add("ui.interaction", new DemoButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
+        if (_editor != null)
+        {
+            // Delete/undo/redo, then the gizmo — BEFORE HierarchySystem so a transform edit
+            // propagates to world space the same frame; the proxy sync re-derives from the same
+            // frame's write-back. All Edit-guarded internally.
+            p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Overlay.Gizmo, EditTimeBehavior.RunNormally);
+            p.Add("editor.proxySync", _editor.Overlay.ProxySync, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+        }
+        p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
+            EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.shell", _editor.Overlay.Shell, EditTimeBehavior.RunNormally);
+            if (_editor.Overlay.EditorOpDriver != null)
+                p.Add("editor.opDriver", _editor.Overlay.EditorOpDriver, EditTimeBehavior.RunNormally);
+        }
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        return new SequentialSystem<GameState>(
-            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-            new TextPrepSystem(_world, pixelPerfectRendering: false),
-            new MeshPrepSystem(_world),
-            // ButtonMeshPrepSystem must run AFTER MeshPrepSystem: button outlines are
-            // baked in world coords and clear WorldMatrix to identity.
-            new ButtonMeshPrepSystem(_world),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.UI, _renderTargets[RenderTargetID.UI]),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]),
-            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
-            {
-                RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
-                RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
-                RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-            }));
+        // The launcher's own content is text + button/cursor meshes. With the editor composed,
+        // the sprite prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded
+        // while editing actually previews; the demo DrawLayerMap has no Y-sorted layer, so
+        // YSortSystem passes depths through — documented graceful degradation.
+        var prepDrawSystems = _editorEnabled
+            ? new SequentialSystem<GameState>(
+                new CullingSystem(_world, _camera),
+                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
+                new YSortSystem(_world, _camera, _layers),
+                new TextPrepSystem(_world, pixelPerfectRendering: false),
+                new MeshPrepSystem(_world),
+                // ButtonMeshPrepSystem must run AFTER MeshPrepSystem: button outlines are
+                // baked in world coords and clear WorldMatrix to identity.
+                new ButtonMeshPrepSystem(_world))
+            : new SequentialSystem<GameState>(
+                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
+                new TextPrepSystem(_world, pixelPerfectRendering: false),
+                new MeshPrepSystem(_world),
+                new ButtonMeshPrepSystem(_world));
+
+        var renderLayers = new List<RenderLayer>
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.Overlay.ChromeLayer);
+
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
+        p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
+        p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),
+            EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()

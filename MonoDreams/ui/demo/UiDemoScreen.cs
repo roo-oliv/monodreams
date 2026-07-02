@@ -9,11 +9,13 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Demos;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
 using MonoDreams.Input;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -121,6 +123,14 @@ public class UiDemoScreen : IGameScreen
     private bool _showBounds = true;     // Layout tab: bounds-overlay toggle state
     private int _tabIndex = 0;           // start on Layout (section "a"): the auto-layout showcase
 
+    // The universal editor overlay (null when editorEnabled is false) and the retained pipeline
+    // registries the editor's systems panel binds to (see DemoEditor).
+    private readonly bool _editorEnabled;
+    private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private DemoEditor? _editor;
+
     // Layout-tab handles, captured in BuildLayoutTab and driven each frame by Tick():
     // the root (re-centred in the content area), the two example containers (shared Gap +
     // animated cross-axis alignment), and the numeric gap field.
@@ -166,13 +176,14 @@ public class UiDemoScreen : IGameScreen
     public World World => _world;
 
     public UiDemoScreen(GraphicsDevice graphicsDevice, ContentManager content, MonoDreams.Component.Camera camera,
-        ViewportManager viewportManager, SpriteBatch spriteBatch)
+        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
         _camera = camera;
         _viewportManager = viewportManager;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -198,6 +209,14 @@ public class UiDemoScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.Overlay.BindPipelines(_updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(UiDemoScreen), _updatePipeline, _drawPipeline);
+        }
     }
 
     public void Load(ScreenController screenController, ContentManager content)
@@ -1304,11 +1323,18 @@ public class UiDemoScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        return new SequentialSystem<GameState>(
-            new UiNavInputSystem(_up, _down, _left, _right, _next, _prev, _activate),
-            new CursorInputSystem(_world),
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager),
+        var cursorInputSystem = new CursorInputSystem(_world);
+
+        // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
+        _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game);
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+
+        // The whole widget interaction block freezes in Edit: a click/keystroke belongs to the
+        // editor (selection / gizmo / chrome), never to focus nav, text input, tabs, or the
+        // overlay widgets. F1 (Play) or the systems panel re-arms it.
+        var widgetSystems = new SequentialSystem<GameState>(
             new DemoButtonInteractionSystem(_world),   // drives the HUD header's back/exit chrome
             // Focus navigation, scoped to the topmost open overlay's group (modal trapping).
             new UIFocusSystem(_world, _up, _down, _left, _right, _next, _prev, _activate, ComputeActiveGroup),
@@ -1322,42 +1348,112 @@ public class UiDemoScreen : IGameScreen
             new DialogSystem(_world),
             new DropdownSystem(_world),
             new ComboboxSystem(_world),
-            new ScrollViewSystem(_world),
-            new HierarchySystem(_world),
-            // After Hierarchy so the bounds overlay reads fresh WorldPositions.
-            new LayoutDebugSystem(_world, _font, _camera, RenderTargetID.Main),
-            new CursorPositionSystem(_world, _camera, _viewportManager),
-            // After CursorPositionSystem (needs the cursor's fresh world/virtual position) and before
-            // the draw pipeline: swaps the cursor mesh to the hand over a Link button, arrow otherwise.
-            new CursorHoverSystem(_world),
-            new UiDemoShortcutSystem(this));
+            new ScrollViewSystem(_world));
+
+        // ---- Weave the update pipeline through the registrar. With the editor off every gate
+        // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
+        var p = _updatePipeline;
+        // Keyboard focus-nav input is Play-only, frozen with the widgets it drives.
+        p.Add("demoInput", new UiNavInputSystem(_up, _down, _left, _right, _next, _prev, _activate),
+            EditTimeBehavior.Freeze);
+        p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
+            p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
+            p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
+        }
+        p.Add("layout", new SequentialSystem<GameState>(
+            new IntrinsicSizingSystem(_world),
+            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
+        p.Add("ui.interaction", widgetSystems, EditTimeBehavior.Freeze);
+        if (_editor != null)
+        {
+            p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Overlay.Gizmo, EditTimeBehavior.RunNormally);
+            p.Add("editor.proxySync", _editor.Overlay.ProxySync, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
+        // After Hierarchy so the bounds overlay reads fresh WorldPositions.
+        p.Add("layoutDebug", new LayoutDebugSystem(_world, _font, _camera, RenderTargetID.Main),
+            EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+        }
+        p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
+            EditTimeBehavior.RunNormally);
+        // After CursorPositionSystem (needs the cursor's fresh world/virtual position) and before
+        // the draw pipeline: swaps the cursor mesh to the hand over a Link button, arrow otherwise.
+        // Play-only cursor cosmetics (in Edit the OS pointer is the visible pointer).
+        p.Add("cursorHover", new CursorHoverSystem(_world), EditTimeBehavior.Freeze);
+        // Escape/shortcut handling would tear the screen down mid-editing — Play only.
+        p.Add("demoShortcuts", new UiDemoShortcutSystem(this), EditTimeBehavior.Freeze);
+        if (_editor != null)
+        {
+            p.Add("editor.shell", _editor.Overlay.Shell, EditTimeBehavior.RunNormally);
+            if (_editor.Overlay.EditorOpDriver != null)
+                p.Add("editor.opDriver", _editor.Overlay.EditorOpDriver, EditTimeBehavior.RunNormally);
+        }
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        return new SequentialSystem<GameState>(
-            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-            new TextPrepSystem(_world, pixelPerfectRendering: false),
-            new MeshPrepSystem(_world),
-            new ButtonMeshPrepSystem(_world),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.UI, _renderTargets[RenderTargetID.UI]),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]),
-            // Scroll pass: renders every Scroll-target entity (the rows under ContentRoot) into the
-            // scroll render target. No camera (screen-space, identity); projection from the target size.
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.Scroll, _scrollTarget!),
-            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
-            {
-                RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
-                RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
-                RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-                // The scroll viewport composites over the Main box at its virtual rect (after Main/UI/HUD).
-                RenderLayer.Overlay(_scrollTarget!, _scrollVirtualBounds),
-            }));
+        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
+        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
+        // (No demo entity carries SpriteInfoComponent, so CullingSystem never touches the
+        // manually-toggled tab/overlay meshes.)
+        var prepDrawSystems = _editorEnabled
+            ? new SequentialSystem<GameState>(
+                new CullingSystem(_world, _camera),
+                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
+                new YSortSystem(_world, _camera, _layers),
+                new TextPrepSystem(_world, pixelPerfectRendering: false),
+                new MeshPrepSystem(_world),
+                new ButtonMeshPrepSystem(_world))
+            : new SequentialSystem<GameState>(
+                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
+                new TextPrepSystem(_world, pixelPerfectRendering: false),
+                new MeshPrepSystem(_world),
+                new ButtonMeshPrepSystem(_world));
+
+        var renderLayers = new List<RenderLayer>
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+            // The scroll viewport composites over the Main box at its virtual rect (after Main/UI/HUD).
+            RenderLayer.Overlay(_scrollTarget!, _scrollVirtualBounds),
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.Overlay.ChromeLayer);
+
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
+        p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
+        p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+        // Scroll pass: renders every Scroll-target entity (the rows under ContentRoot) into the
+        // scroll render target. No camera (screen-space, identity); projection from the target size.
+        p.Add("renderScroll", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Scroll, _scrollTarget!), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),
+            EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()

@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
@@ -27,12 +28,20 @@ public class Game1 : Game
     private ScreenController _screenController = null!;
 
     private readonly HeadlessOptions _headless;
+    private readonly bool _editor;
     private ScreenshotCaptureSystem? _screenshotCapture;
     private int _frame;
 
     public Game1(string[]? args = null)
     {
         _headless = HeadlessOptions.Parse(args);
+        // The editor run configuration: `--editor` launch arg or MONODREAMS_EDITOR=1 env var.
+        // When active, every demo screen composes the editor overlay and the host boots straight
+        // into Edit mode (no F1 needed). Honoured under --headless too: headless Demos renders
+        // every frame (the observe-and-self-verify channel), so an editor-flagged headless run
+        // captures the shell in its PNGs — the editor's own self-verification path. The flag-off
+        // headless contract (HeadlessDemoTests) is untouched.
+        _editor = EditorRunFlag.IsEnabled(args, Environment.GetEnvironmentVariable);
 
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
@@ -110,16 +119,30 @@ public class Game1 : Game
         _runner = new DefaultParallelRunner(1);
         _screenController = new ScreenController(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
 
+        // Under the editor run flag EVERY demo screen composes the editor overlay (the editor is
+        // host- and screen-agnostic — a demo is a scene like any level). Each screen brings its
+        // own cursor pipeline, so the overlay never doubles it; keys come from the engine's
+        // DefaultEditorKeys via the DemoEditor helper.
         _screenController.RegisterScreen(DemoScreens.Launcher,
-            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(DemoScreens.Camera,
-            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(DemoScreens.Physics,
-            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner));
+            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor));
         _screenController.RegisterScreen(DemoScreens.Dialogue,
-            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(DemoScreens.Ui,
-            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
+
+        if (_editor)
+        {
+            // Boot straight into Edit (F1 still toggles). GameState still CONSTRUCTS as Play —
+            // this is an explicit host-level opt-in mutation, so unflagged runs are untouched.
+            _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
+            Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): demo screens compose the editor overlay; booting in Edit mode.");
+            if (_headless.Enabled)
+                Logger.Info("Editor flag + --headless: the editor shell renders into the captured frames (observe-and-self-verify).");
+        }
 
         // Headless jumps straight to the requested screen, skipping the launcher menu.
         _screenController.LoadScreen(_headless.Enabled ? _headless.Screen : DemoScreens.Launcher);
