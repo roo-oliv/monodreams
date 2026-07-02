@@ -486,10 +486,17 @@ for a host with no action mapping) or degrades gracefully (no Y-sorted
 layer ⇒ selection picks on the final source-derived depth). The recipe
 for wiring a new host/screen is the level-editor overview's "Adding the
 editor to a screen/host" section. The registrar
-is also the live inspection surface: the editor's systems panel lists
-every entry of both pipelines — name, policy, enabled state — and toggles
-any of them at runtime through `SetEnabled`, so the per-system edit-mode
-declaration is visible and adjustable while the game runs.
+is also the live inspection surface — and it owns the hierarchy: composite
+blocks are registrar groups (`AddGroup`) with named children, built and
+gate-wrapped by the registrar itself (DefaultEcs composites hide their
+children, so a screen must never pre-build an opaque composite for
+anything it wants inspectable). The editor's systems panel renders that
+tree — every entry of both pipelines, groups indented above their
+children, name, policy, enabled state (tri-state on groups: all/none/
+mixed) — and toggles any of them at runtime through `SetEnabled` (leaf =
+both-modes master switch; group = cascade over its descendant leaves), so
+the per-system edit-mode declaration is visible and adjustable while the
+game runs.
 
 ### Aspirational direction
 

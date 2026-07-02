@@ -28,8 +28,11 @@ sensitive: true
 > registrar (the overlay supplies its own cursor pipeline to a cursor-less screen), selection and
 > the gizmo are **target-aware** (UI/HUD-target entities hit-test/drag in virtual space; across
 > targets the composite order wins), and the **systems panel** (`SystemsPanelSystem` +
-> `SystemsPanelLayout`) in the right strip lists every registrar entry (update + draw, in order,
-> name + policy + checkbox) and toggles it live via `SetEnabled`; and the Wave-8b **collider
+> `SystemsPanelLayout`) in the right strip renders the registrar **tree** (update + draw, in order,
+> name + policy + checkbox; registrar groups — `AddGroup` with named, auto-prefixed children —
+> render indented above their children with **tri-state** checkboxes: all/none/mixed, the mixed
+> state drawn as the Gmail/Material minus bar) and toggles any row live via `SetEnabled`
+> (group click = Gmail cascade: checked/indeterminate → all off, unchecked → all on); and the Wave-8b **collider
 > gizmo proxies** — colliders are component-local spatial data, not entities, so in Edit
 > `ProxySyncSystem` (entry `editor.proxySync`) materializes standalone, per-frame-re-derived
 > proxy entities (`GizmoProxyComponent` bindings) over the selected entity's collider shapes;
@@ -117,11 +120,14 @@ policies, the runner's overlay providing its own cursor pipeline):
 10. **Toolbar + systems panel** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes,
    then `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical pixels — the chrome
    is native-resolution) against the button bounds and fires a clicked button's
-   `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap); then
-   `SystemsPanelSystem` (the right strip) lists every registrar entry of both pipelines — name +
-   policy + enabled checkbox — hit-tests `ScreenPosition`, scrolls on the wheel, and flips a
-   clicked entry via `EditorPipelineRegistrar.SetEnabled` (a both-modes master switch; the panel
-   refuses to disable its own entry).
+   `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap) — the two
+   are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`
+   (the right strip) renders the registrar tree of both pipelines — groups indented above their
+   children, name + policy + checkbox, tri-state on groups (all/none/mixed; mixed = the minus
+   bar) — hit-tests `ScreenPosition`, scrolls on the wheel, and flips a clicked row via
+   `EditorPipelineRegistrar.SetEnabled` (leaf = a both-modes master switch; group = the Gmail
+   cascade over its descendant leaves; the panel refuses to disable its own entry or any
+   ancestor group of it).
 11. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
    it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
    margins, which mutes selection picks, gizmo drag-starts, and camera-nav zoom/pan there.

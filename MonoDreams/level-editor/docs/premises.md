@@ -423,36 +423,62 @@ matches expected, and that the driver requested exit exactly once).
 **Depends on:** cursor — `CursorInputSystem` (the `SkipHardwareRead` seam); foundation — input replay
 (the auto-exit-on-drain the session-hold guards against).
 
-## The pipeline registrar is the composition seam: named, ordered, gate-wrapped, runtime-toggleable
+## The pipeline registrar is the composition seam: named, ordered, gate-wrapped, runtime-toggleable — and it owns the hierarchy
 
 A screen composes its update (and draw) pipeline through
-`EditorPipelineRegistrar.Add(name, system, policy, enabledInEditByDefault?)`, which wraps **every**
-entry in a `GatedSystem` per its declared `EditTimeBehavior` (a `RunNormally` gate is a pass-through,
-so uniform wrapping costs two boolean checks and buys a uniform toggle handle) and **retains** the
-ordered entry list at runtime — name, policy, gate + child refs, current enabled state — exposing
-`Entries` / `SetEnabled(name, bool)` / `GetEntry`. `SetEnabled(false)` flips the gate's own
-`IsEnabled`: a master kill switch that stops the child in **both** modes, orthogonal to the per-mode
-policy; unknown names throw loudly (listing what is registered). The edit-mode default is declared at
-the **registration site**, never by an interface/attribute on the system type — the same engine
-system may be frozen in one game's editor and live in another's, so baking the policy into the type
-would force one game's choice on all (ECS purity: the decision to run belongs to the assembler).
-Today `enabledInEditByDefault` must agree with the policy's Edit column (a contradiction throws;
-honouring it needs the runtime per-mode policy override, a deliberate systems-panel follow-up — a
-silently-recorded no-effect declaration would be worse). The registry lives on the screen (fields)
-and is bound onto the `EditorOverlay` via `BindPipelines` — the seam the systems panel enumerates
-and toggles.
+`EditorPipelineRegistrar.Add(name, system, policy, enabledInEditByDefault?)` for single systems and
+`AddGroup(name, policy, children, kind?, runner?)` for composite blocks. The registrar wraps
+**every** entry in a `GatedSystem` per its declared `EditTimeBehavior` (a `RunNormally` gate is a
+pass-through, so uniform wrapping costs two boolean checks and buys a uniform toggle handle) and
+**retains** the entry tree at runtime — name, policy, gate + child refs, parent/children/depth,
+current enabled state — exposing `Entries` (flattened pre-order: a group immediately precedes its
+children), `Roots` (the tree), `SetEnabled(name, bool)`, `GetEnabledState(name)`, `GetEntry`.
+**Groups: screens never pre-build opaque composites for anything they want visible.** DefaultEcs
+`SequentialSystem`/`ParallelSystem` do not expose children post-construction, so a pre-built
+composite registered as one entry hides its systems from the panel. `AddGroup` inverts that: the
+screen registers NAMED children (auto-prefixed — `"logic"` + `"movement"` → `"logic.movement"`;
+arbitrary nesting; a childless group throws) and the registrar builds the composite itself
+(`SequentialSystem`, or `ParallelSystem` with a required runner for
+`PipelineCompositeKind.Parallel`) over the children's gates, wrapped in ONE gate carrying the
+group's policy — exactly where the old opaque composite's gate sat, so run-mode behaviour is
+unchanged by a migration (a `Freeze` group still freezes the whole block in Edit).
+**Enabled semantics: the toggle axis lives on the LEAVES.** A leaf's `SetEnabled(false)` flips its
+own gate's `IsEnabled`: a master kill switch that stops that system in **both** modes, orthogonal to
+the per-mode policy. A group has no toggle state of its own: its `EnabledState` is **derived** from
+its descendant leaves (all → `On`, none → `Off`, some → `Mixed` — the tri-state the panel renders),
+and `SetEnabled` on a group **cascades** to every descendant leaf. The group's own gate enforces the
+group *policy* only — the toggle seam never flips it, so the derived state can never claim "enabled"
+while a hidden group switch blocks everything. Unknown names throw loudly (listing what is
+registered). The edit-mode default is declared at the **registration site**, never by an
+interface/attribute on the system type — the same engine system may be frozen in one game's editor
+and live in another's, so baking the policy into the type would force one game's choice on all (ECS
+purity: the decision to run belongs to the assembler). Today `enabledInEditByDefault` must agree
+with the policy's Edit column (a contradiction throws; honouring it needs the runtime per-mode
+policy override, a deliberate follow-up — a silently-recorded no-effect declaration would be worse).
+The registry lives on the screen (fields) and is bound onto the `EditorOverlay` via `BindPipelines`
+— the seam the systems panel enumerates and toggles. Nothing in the reference compositions stays
+opaque: every composite block of every screen (Examples + Demos) is a group with named children.
 
-**Why:** the systems-panel wave needs a live, ordered, named view of the real pipeline with a toggle
-per entry; and the plain game screen + the editor screen must share ONE composition path (the
-`--editor` run flag just flips which entries are added), or their gate matrices silently diverge.
-**Breaks:** without the retained registry the panel has nothing to bind to; per-screen ad-hoc
-`GatedSystem` wrapping lets the editor screen and the flagged game screen drift apart; a toggle that
-only worked in one mode would let a "disabled" system keep running in the other.
+**Why:** the systems-panel needs a live, ordered, named view of the real pipeline with a toggle per
+entry — and the user's direct feedback ("not all systems appear to enable and disable, some appear
+condensed") showed that any pre-built composite is a blind spot; the plain game screen + the editor
+screen must share ONE composition path (the `--editor` run flag just flips which entries are
+added), or their gate matrices silently diverge.
+**Breaks:** without the retained registry the panel has nothing to bind to; a pre-built composite
+hides ~11 systems behind one row (the original complaint); per-screen ad-hoc `GatedSystem` wrapping
+lets the editor screen and the flagged game screen drift apart; a toggle that only worked in one
+mode would let a "disabled" system keep running in the other; a group gate used as the toggle axis
+would lie through the derived tri-state.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorPipelineRegistrarTests.cs` (Freeze skips in Edit /
 runs in Play; RunNormally runs in both; `SetEnabled(false)` stops a system in BOTH modes — including
 a Freeze entry in Play; enumeration + execution preserve registration order; unknown name throws
 loudly; duplicate name / add-after-build / contradicting edit-default throw; the entry exposes
-policy + gate + child refs).
+policy + gate + child refs; groups: a Freeze group builds one gate around a Sequential composite and
+freezes all children in Edit, Parallel kind runs all children and throws without a runner, a
+childless group throws, nested groups prefix names / track depth / flatten pre-order, duplicate
+child names throw while the same local name under another group is fine, a leaf toggle stops exactly
+that system, a group toggle cascades to all descendant leaves, `GetEnabledState` derives
+all/none/mixed through nesting, and the group gate's own `IsEnabled` is never the toggle axis).
 **Depends on:** foundation — "Edit-time behaviour is a per-system policy honoured by `GatedSystem`".
 
 ## The editor run flag opts game screens into the overlay and boots RunMode = Edit; default off is byte-identical
@@ -528,37 +554,56 @@ behavior is protected by the entire pre-existing suite.
 flag opts game screens into the overlay"; foundation — "Edit-time behaviour is a per-system policy
 honoured by `GatedSystem`".
 
-## The systems panel lists every registrar entry and toggles it through the registrar
+## The systems panel renders the registrar tree with tri-state group checkboxes and toggles it through the registrar
 
 The systems panel — the Wave-8a resident of the shell's right strip — lists EVERY entry of BOTH
-bound pipelines (update, then draw), in execution order, as `name + policy tag + checkbox`: the
-policy tag is the registration-site edit-mode declaration shown live (`[freeze]` = off in Edit by
-policy; `RunNormally` renders untagged), and the checkbox is the entry's current runtime toggle.
-A click on a row flips the entry via `EditorPipelineRegistrar.SetEnabled` — the gate's **master
-switch**, stopping the child in both modes — so "we want follow active, but collision maybe not" is
-one click while editing. The panel is chrome: native-pixel rows on `RenderTargetID.Editor` (no
-`VisibleComponent`), laid out by the pure `SystemsPanelLayout`, hit-testing the cursor's raw
-`ScreenPosition`, hidden in Play by the chrome pass and interaction-inert there by its own Edit
-guard. It scrolls by whole lines on the mouse wheel over the strip (scrolled-out rows are parked
-off-screen — a partial line would bleed over the top/bottom bars, which share the target). It binds
-lazily through `EditorOverlay.BindPipelines` and builds its rows once (entries are fixed after
-`Build()`). One protection: the panel **refuses to disable its own entry** — its gate off means no
-update, no hit-test, and no UI path back.
+bound pipelines (update, then draw), in execution order, as `name + policy tag + checkbox`. Since
+the registrar owns the hierarchy, the listing is a **tree**: the flattened pre-order enumeration
+puts a group row immediately above its children, each row indented by `Depth`
+(`SystemsPanelLayout.IndentPerDepth`); child rows show their `LocalName` (the indentation conveys
+the group) and repeat the policy tag only when their declared policy **differs** from their
+group's (`[freeze]` = off in Edit by policy; `RunNormally` renders untagged). A LEAF checkbox is
+two-state (filled = enabled, empty = disabled). A GROUP checkbox is **tri-state**, derived from its
+descendant leaves (`PipelineEnabledState`): all → filled, none → empty, mixed → filled with a dark
+**minus bar** over it (the Gmail/Material indeterminate mark — a dedicated fill-only bar entity at
+`EditorChromeBuilder.CheckboxMarkDepth`, visible only while Mixed). Clicking any row flips it via
+`EditorPipelineRegistrar.SetEnabled` with the **Gmail click convention**: checked or indeterminate →
+everything under it off; unchecked → everything on (for a leaf this degenerates to the plain
+toggle) — so "freeze the whole logic block" and "just silence the spawner" are both one click while
+editing. The panel is chrome: native-pixel rows on `RenderTargetID.Editor` (no `VisibleComponent`),
+laid out by the pure `SystemsPanelLayout`, hit-testing the cursor's raw `ScreenPosition`, hidden in
+Play by the chrome pass and interaction-inert there by its own Edit guard. It scrolls by whole
+lines on the mouse wheel over the strip (scrolled-out rows — bars included — are parked off-screen;
+a partial line would bleed over the top/bottom bars, which share the target). It binds lazily
+through `EditorOverlay.BindPipelines` and builds its rows once (entries are fixed after `Build()`).
+One protection: the panel **refuses to disable its own entry AND any ancestor group of it** — its
+gate off (directly, or as cascade collateral) means no update, no hit-test, and no UI path back.
+Collapse/expand of group rows is a deliberate non-feature for now: the wheel scroll covers the
+reference compositions' row counts (a follow-up if trees grow much deeper).
 
-**Why:** direct user directive — "we should be able to see the ECS systems pipeline and manually
-activate or deactivate them"; the registrar (Wave 6) was built as exactly this binding seam.
+**Why:** direct user directives — "we should be able to see the ECS systems pipeline and manually
+activate or deactivate them", then "I'd like a way for all systems to be displayed, even when some
+are nested in a sub pipeline … activate/deactivate the whole sub pipeline or system by system
+(would need a partial checkbox … like Gmail/Material UI that puts a minus sign within the
+checkbox)"; the registrar's group support was built as exactly this binding seam.
 **Breaks:** toggling outside the registrar (e.g. mutating the child's own `IsEnabled`) fights game
 logic that drives the same flag and bypasses the one documented seam; hit-testing `VirtualPosition`
 makes the strip's rows dead (the chrome sits where the virtual mapping is null); partial-line
-scroll bleeds rows over the toolbar; a self-disabling panel bricks the editor UI for the session.
+scroll bleeds rows over the toolbar; a self-disabling panel — or an ancestor cascade that disables
+it — bricks the editor UI for the session; a two-state group checkbox would lie about a
+partially-disabled block.
 **Tests:** `MonoDreams.Tests/LevelEditor/SystemsPanelTests.cs` (rows mirror both pipelines' entries
 + policy tags; checkboxes reflect live enabled state; a row click calls `SetEnabled` and the gated
 system actually stops in both modes — side-effect counter — and a second click re-arms it; inert in
 Play; wheel scroll in whole clamped lines; scrolled-out rows parked; the panel refuses to disable
-itself).
-**Depends on:** this file — "The pipeline registrar is the composition seam" (the binding), "The
-editor shell insets the game viewport and renders its chrome at native resolution" (the strip, the
-`ScreenPosition` rule, the no-`VisibleComponent` rule).
+itself; tree rows render groups before children with depth-indented checkboxes and local-name
+labels; the group checkbox maps On/Mixed/Off to filled / filled-with-minus-bar / empty; a group
+click follows the Gmail convention — Mixed or On → all off, Off → all on; a leaf click inside a
+group toggles only that leaf; the panel refuses to toggle an ancestor group of its own entry while
+the sibling leaf stays toggleable).
+**Depends on:** this file — "The pipeline registrar is the composition seam" (the binding + the
+derived tri-state), "The editor shell insets the game viewport and renders its chrome at native
+resolution" (the strip, the `ScreenPosition` rule, the no-`VisibleComponent` rule).
 
 ## Collider shapes are edited through standalone gizmo proxies; write-back targets the bound component, through the undo history
 
