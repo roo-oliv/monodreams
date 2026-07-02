@@ -462,6 +462,16 @@ would cascade-dispose them when their host entity is deleted. Deletion is
 modeled as an undo command that snapshots the disposed sub-graph, not a
 bare `entity.Dispose()`.
 
+**The editor shell is a compositing concern, not a pipeline fork.** In
+`Edit` the game composite renders into a smaller centered viewport
+(`ViewportManager.SetViewportInset` — deliberately the same object that
+inverts the mouse mapping, so picking follows for free) and the editor
+chrome renders around it at native window resolution
+(`RenderTargetID.Editor` + `RenderLayer.Native`). The game pipeline itself
+is untouched — same passes, same targets — and in `Play` the inset is zero
+and the chrome layer resolves to null: byte-identical to a screen without
+the editor. Details: the `rendering` and `level-editor` premises.
+
 ### Aspirational direction
 
 The reserved `RunPartial` / `RuntimeEditable` policies are placeholders

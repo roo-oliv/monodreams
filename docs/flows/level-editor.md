@@ -7,19 +7,23 @@ sensitive: true
 
 # Level-editor frame: the game pipeline, gated by run state
 
-> **Status: Wave 6 (Wave A complete + composition seam).** Live today: the run-state gate in
-> `foundation` (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`); the scene round-trip
-> (Wave 3); the Wave-4a interactive substrate — `SelectionSystem` (click-to-pick),
-> `EditorHistory` bounded undo/redo with drag-coalescing, the `EditorModeToggleSystem`
-> RunMode flip, and the create/delete/transform commands; the Wave-4b interaction layer —
-> the transform **gizmo** (`GizmoSystem` + `GizmoStateComponent` + the pure `GizmoTransform`
-> math) and the engine-native **toolbar** (`ToolbarSystem` + `EditorToolbarBuilder` on the
-> HUD target); the Wave-5 **headless editor-op channel**; post-Wave-A **camera navigation**
-> (`CameraNavSystem`); and the Wave-6 **composition seam** (`Composition/`):
-> `EditorPipelineRegistrar` (named, gate-wrapped, runtime-toggleable pipeline entries),
-> `EditorOverlay` (the whole editor block as reusable hooks), and `EditorRunFlag`
-> (`--editor` / `MONODREAMS_EDITOR=1` — game screens compose the overlay and boot in Edit).
-> Anything not yet built is marked **(planned, Wave N)**.
+> **Status: Wave 7 (Wave A complete + composition seam + Blender-style shell).** Live today:
+> the run-state gate in `foundation` (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`);
+> the scene round-trip (Wave 3); the Wave-4a interactive substrate — `SelectionSystem`
+> (click-to-pick), `EditorHistory` bounded undo/redo with drag-coalescing, the
+> `EditorModeToggleSystem` RunMode flip, and the create/delete/transform commands; the Wave-4b
+> interaction layer — the transform **gizmo** (`GizmoSystem` + `GizmoStateComponent` + the pure
+> `GizmoTransform` math) and the engine-native **toolbar** (`ToolbarSystem`); the Wave-5
+> **headless editor-op channel**; post-Wave-A **camera navigation** (`CameraNavSystem`); the
+> Wave-6 **composition seam** (`Composition/`): `EditorPipelineRegistrar` (named, gate-wrapped,
+> runtime-toggleable pipeline entries), `EditorOverlay` (the whole editor block as reusable
+> hooks), and `EditorRunFlag` (`--editor` / `MONODREAMS_EDITOR=1` — game screens compose the
+> overlay and boot in Edit); and the Wave-7 **Blender-style shell** — in Edit the game
+> composite is inset into a centered viewport (`ViewportManager.SetViewportInset`) with the
+> chrome (top toolbar bar, right panel strip, bottom strip — `EditorChromeBuilder` /
+> `EditorChromeLayout`) rendered at **native window resolution** around it
+> (`RenderTargetID.Editor` + `EditorChromeRenderSystem` + `RenderLayer.Native`), synced by
+> `EditorShellSystem`. Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -52,7 +56,8 @@ In `Edit`, three kinds of entities coexist in one world:
    moves them.
 2. **Editor-overlay entities** — the selection highlight + the transform gizmo handles (the
    `GizmoSystem`'s outline + active-tool handle mesh entities, tagged `GizmoOverlayComponent`,
-   Wave 4b) and the toolbar buttons (on the HUD target, Wave 4b). These are **standalone** —
+   Wave 4b) and the shell chrome — panel backgrounds + toolbar buttons on the native-resolution
+   `Editor` target, laid out in physical pixels (Wave 7). These are **standalone** —
    never `ChildOfComponent`-parented to a game entity — so `HierarchySystem.DisposeOrphans` (live in
    Edit) cannot cascade-dispose them. The gizmo/outline meshes set `VisibleComponent` themselves
    (`CullingSystem` only visits `SpriteInfoComponent` entities). Selection tags the picked **game**
@@ -79,15 +84,24 @@ the flag pinned on, and the `--editor` run flag turns it on for `ScreenName.Game
    world space so the preview is correct *this* frame (it must run in both modes).
 8. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
-9. **Toolbar** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the toolbar button meshes, then
-   `ToolbarSystem` hit-tests the cursor's `VirtualPosition` against the button bounds, fires a clicked
-   button's `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap), and
-   hides the toolbar in Play.
-10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move.
-11. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
-   at the **end** of the draw pipeline (after `YSortSystem`) so it picks on the final post-Y-sort
-   depth this frame; the toolbar draws on the HUD target (screen-space), the gizmo/selection
-   overlay on Main (world-space, sized by `1/Camera.Zoom`).
+9. **Toolbar** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes, then
+   `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical pixels — the chrome is
+   native-resolution) against the button bounds and fires a clicked button's
+   `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap).
+10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
+   it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
+   margins, which mutes selection picks, gizmo drag-starts, and camera-nav zoom/pan there.
+11. **Shell sync** (`RunNormally`, after `CursorDrawPrepSystem`) — `EditorShellSystem` makes the
+   viewport inset, the chrome layout (relayout on window resize), and the cursor swap (OS
+   pointer shown + game cursor sprite hidden in Edit; both reverted in Play) track `RunMode`;
+   its `Dispose` clears the inset + re-hides the OS pointer so a screen swap never leaks the shell.
+12. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
+   at the **end** of the draw prep (after `YSortSystem`) so it picks on the final post-Y-sort
+   depth this frame; the gizmo/selection overlay draws on Main (world-space, sized by
+   `1/Camera.Zoom`); the chrome renders through `EditorChromeRenderSystem` (a screen-space
+   `MasterRenderSystem` pass over `RenderTargetID.Editor` into a native-resolution target,
+   Edit-only) and `RenderLayer.Native` composites it 1:1 over the whole window, above the game
+   layers (it resolves to null and is skipped in Play).
 
 ## Invariants
 
@@ -110,8 +124,13 @@ the ones this flow leans on:
   empty-stack undo/redo is a no-op (Wave 4a). The gizmo drives this: drag-start opens the
   transaction, each frame pushes a `TransformEditCommand`, release commits → one entry (Wave 4b).
 - The gizmo applies a quantized (snap-on) or raw (snap-off) world-space transform edit honoring
-  `Origin`; the toolbar (on the HUD target, never Main) drives the SAME shared `EditorHistory` /
-  `SceneSerializer` / `GizmoStateComponent`, never a second instance (Wave 4b).
+  `Origin`; the toolbar (on the native-resolution Editor target, never Main) drives the SAME
+  shared `EditorHistory` / `SceneSerializer` / `GizmoStateComponent`, never a second instance
+  (Wave 4b, retargeted Wave 7).
+- The shell's viewport inset lives on the `ViewportManager` (single source of truth): FinalDraw
+  compositing and `ScaleMouseToVirtualCoordinates` follow the same rectangle, so world picking
+  needs no extra math and margin clicks map to null (chrome hit-tests `ScreenPosition`); zero
+  inset = the historical full-window letterbox, byte-identical (Wave 7).
 - Native scenes load via a dedicated `LoadSceneRequest`, never `LoadLevelRequest` (which is
   LDtk-coupled) (Wave 3).
 
@@ -140,3 +159,14 @@ the ones this flow leans on:
 - **Scene load clobbered** (Wave 3) — loading a native scene through
   `LoadLevelRequest` triggers the unconditional LDtk `Content.Load` + `Remove<CurrentLevelComponent>`.
   Use the dedicated `LoadSceneRequest`.
+- **Shell leaked onto the next screen** (Wave 7) — the `ViewportManager` and the host `Game`
+  outlive a screen; swapping screens while in Edit without `EditorShellSystem.Dispose` running
+  leaves the menu inset into a corner with a visible OS pointer. The dispose restore is the guard.
+- **Chrome hit-test in virtual coordinates** (Wave 7) — the chrome sits in the margins where the
+  virtual mapping is null and `VirtualPosition` is frozen; hit-testing it (the pre-Wave-7 toolbar
+  behavior) makes buttons dead or misfiring. Chrome hit-tests raw `ScreenPosition`; world systems
+  gate on `CursorInputComponent.OutsideViewport` instead.
+- **Chrome carrying `VisibleComponent`** (Wave 7) — it would pull the mesh chrome into
+  `MeshPrepSystem`'s query, which overwrites `DrawComponent.WorldMatrix` and double-offsets
+  meshes whose vertices are baked at absolute pixel positions. Chrome entities carry no
+  `VisibleComponent` (only the Main pass consults it).

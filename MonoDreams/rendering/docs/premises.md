@@ -117,8 +117,11 @@ own samplers), so they share one letterboxed viewport and never stretch or
 spill into the bars; `RenderLayer.Overlay` places a target in a
 sub-rectangle given in HUD virtual coordinates, mapped into that same
 `DestinationRectangle` — so an overlay aligns with HUD chrome drawn at
-those coordinates. The screen owns the list, so it decides which targets
-exist, their order, and where each lands.
+those coordinates; `RenderLayer.Native` composites a provider-resolved
+target 1:1 over the whole window (native resolution, no aspect-fit — the
+editor shell's chrome layer), skipping the layer when the provider returns
+null (how chrome contributes nothing outside Edit). The screen owns the
+list, so it decides which targets exist, their order, and where each lands.
 
 **Why:** the compositor is the natural seam for screen layout — overlays
 (minimap, CCTV), and eventually tiled splitscreen — without touching the
@@ -203,7 +206,12 @@ forever.
 
 `RenderTargetID.Main` is camera-transformed and respects culling.
 `RenderTargetID.UI` and `RenderTargetID.HUD` are screen-space and always
-render. Only Main consults `VisibleComponent`.
+render. Only Main consults `VisibleComponent`. The later additions follow
+the screen-space behavior: `RenderTargetID.Scroll` (virtual-space overlay,
+see its own premise) and `RenderTargetID.Editor` (the editor shell's
+chrome at **native window resolution**, composited 1:1 by
+`RenderLayer.Native` — entities on it lay out in physical screen pixels,
+never virtual coordinates).
 
 **Why:** UI and HUD are always-on-screen by definition. Culling them
 would mean checking against the *screen* frustum, which is a degenerate
@@ -212,9 +220,49 @@ adding `.With<VisibleComponent>()` to the Main-target query.
 **Breaks:** putting a Main-target entity on UI/HUD by mistake skips
 camera transforms — the entity renders at its world coordinates,
 unscaled by zoom. The reverse (UI on Main) gets culled away when the
-camera moves.
+camera moves. Authoring Editor-target content in virtual coordinates
+renders it at the wrong scale/position (the Editor layer is never
+aspect-fit).
 **Tests:** none yet.
 **Depends on:** —
+
+## The viewport inset moves compositing and mouse mapping together
+
+`ViewportManager.SetViewportInset(left, top, right, bottom)` reserves chrome
+margins (the editor shell) around the game viewport: the aspect-fit
+`DestinationRectangle` — and the pixel-perfect rectangle — are computed
+inside the remaining centered sub-rectangle, and
+`ScaleMouseToVirtualCoordinates` inverts that **same** rectangle. Because the
+`ViewportManager` is the single source of truth, the final-draw compositing
+and the cursor's virtual/world mapping can never disagree: a click inside the
+inset viewport maps to the correct virtual point with no extra math, and a
+click in the margins maps to `null` (`CursorPositionSystem` then flags
+`CursorInputComponent.OutsideViewport`; chrome consumes the click in screen
+space). An all-zero inset (the default, and `ClearViewportInset`) is
+**byte-identical** to the historical full-window letterbox, so every screen
+that never sets an inset is untouched. `IntegerScale` and
+`PixelPerfectDestinationRectangle` recalculate lazily like
+`DestinationRectangle` (a read after a resize/inset change is never stale) —
+and `Recalculate` must assign their backing fields directly (reading the lazy
+properties inside it recurses).
+
+**Why:** the Wave-7 editor shell renders the game scaled-down in the center
+with chrome around it; splitting the inset across two owners (compositor vs
+mouse mapping) would desync every world pick by the margin offsets — the
+exact class of bug the aspect-fit HUD premise exists for.
+**Breaks:** an inset applied to `DestinationRectangle` but not to the mouse
+inverse shifts all picking by (left, top); a non-restored inset (screen swap
+without cleanup) letterboxes the next screen into a corner; a stale
+`PixelPerfectDestinationRectangle` composites the Main layer one
+resize/inset behind.
+**Tests:** `MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (zero-inset =
+legacy rect + legacy mouse mapping; set+clear restores; inset rect centered
+and aspect-correct in the available area; mouse maps inside / nulls in the
+margins; resize recomputes; pixel-perfect uses the available area; negative
+margins throw; oversized margins clamp).
+**Depends on:** "The HUD layer is aspect-fit, not screen-stretched (cursor
+depends on it)"; level-editor — "The editor shell insets the game viewport
+and renders its chrome at native resolution".
 
 ## `MasterRenderSystem` samples per draw type: sprites/meshes PointClamp, text LinearClamp
 
