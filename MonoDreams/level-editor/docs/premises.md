@@ -551,6 +551,59 @@ itself).
 editor shell insets the game viewport and renders its chrome at native resolution" (the strip, the
 `ScreenPosition` rule, the no-`VisibleComponent` rule).
 
+## Collider shapes are edited through standalone gizmo proxies; write-back targets the bound component, through the undo history
+
+Colliders are **not** entities — `BoxColliderComponent.Bounds` (an entity-relative rectangle) and
+`ConvexColliderComponent.ModelVertices` (local-space vertices; `WorldVertices` is derived) are
+component-local spatial data on the game entity, so neither the selection (which picks rendered
+sprites) nor the transform gizmo (which edits `TransformComponent`) can grab them directly. The
+Wave-8b mechanism: when the selected entity carries collider components in Edit, `ProxySyncSystem`
+materializes one **standalone proxy entity per collider** — `GizmoProxyComponent` is the pure-data
+binding descriptor `(target entity, ProxyBindingKind, reserved index)`; the proxy carries a
+`TransformComponent` kept at the shape's world centre, a cyan outline mesh (vertices baked
+relative to that transform, `1/Zoom`-thick, on Main at depth 0.998) and a self-set
+`VisibleComponent` — re-derived from the bound component **every frame** (cheap: selected entity
+only) and despawned on deselect / mode exit / target death. Proxies join the **same** pick
+(`SelectionSystem` folds them in through the same rank+depth+id ordering, hit-testing only the
+shape's **border** within `8px/Zoom` so a sprite-covering collider never shadows its entity) and
+the **same** gizmo drag (move handle at the proxy pivot; the tool is forced to Move for proxies).
+The write-back never touches the proxy's own transform: each drag frame pushes a
+`ColliderEditCommand` (before/after snapshot of `Bounds` or `ModelVertices`) against the **bound
+game entity**, inside the coalescing transaction — one drag = one undo step — and the convex
+write-back refreshes `WorldVertices` + `BroadPhaseAABB` in the same command (physics is frozen in
+Edit; nothing else would). `ProxySyncSystem` also refreshes the selected entity's convex
+`WorldVertices` per frame so the `ColliderDebugSystem` outline (which coexists as the global,
+selection-unaware diagnostic) tracks edits instead of drifting. The binding kind is the
+generalization seam: a future spline-control-point binding (the road tool, Waves D/F) or a
+per-vertex convex handle is another `ProxyBindingKind` + a `ProxyGeometry` derivation case + a
+write-back case — never a second proxy mechanism.
+
+**Why:** the user clicked the red collider debug outlines and couldn't drag them (the outlines are
+unselectable per-frame visualization entities with no back-link); restructuring colliders as child
+entities was explicitly deferred to an engine RFC (`docs/level-editor/roadmap.md`) because
+collision is a per-frame hot path — proxies deliver the editing affordance without touching the
+collision data model. Commands must target the game entity because proxies are transient: an undo
+entry recorded against a despawned proxy would dangle.
+**Breaks:** a `TransformEditCommand` against the proxy makes undo a no-op after deselect (dangling
+entity) and never moves the collider; fill-based proxy hit-testing makes a collider-covered sprite
+unselectable while its proxy exists; skipping the `UpdateWorldVertices` refresh leaves a stale
+`BroadPhaseAABB` (contacts silently missed back in Play — the collision premise) and a debug
+outline frozen at the pre-edit shape; a `ChildOf`-parented proxy is cascade-disposed by the live
+`DisposeOrphans`.
+**Tests:** `MonoDreams.Tests/LevelEditor/ProxyTests.cs` (lifecycle: one proxy per collider on
+select, despawn on deselect / mode exit / target death, standalone + survives a HierarchySystem
+frame, selecting a proxy keeps the family; sync: owner transform move re-derives the proxy and
+refreshes convex world data; write-back: box drag shifts `Bounds` by the delta and convex drag
+translates all `ModelVertices` + refreshes `WorldVertices`/`BroadPhaseAABB`, owner transform
+untouched, one drag = one undo step, undo restores the exact prior shape, redo re-applies;
+selection: border click picks the proxy through the same pick path, inside click picks the owner;
+pure inverse-transform delta math).
+**Depends on:** collision — "`ConvexColliderComponent.BroadPhaseAABB` must be refreshed when
+vertices change"; this file — "Editor-overlay entities are standalone; delete snapshots the
+disposed sub-graph" (the standalone rule), "Bounded undo with drag-coalescing" (the transaction),
+"Selection picks MAX final `LayerDepth` with a selection-owned tiebreak" (the ordering proxies
+join).
+
 ## See also
 
 - `docs/CORE_TENETS.md` — "The editor is part of the game" + the interaction matrix.

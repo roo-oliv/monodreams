@@ -153,6 +153,29 @@ to see the ECS systems pipeline and manually activate or deactivate them". Shipp
   natural follow-up so the panel can express "on in Edit, off in Play" instead of the both-modes
   master switch.
 
+### Wave 8b — collider gizmo proxies (component-local spatial data)
+
+Direct user feedback: clicking a collider's red debug outline did nothing — colliders are
+component data (`BoxColliderComponent.Bounds`, `ConvexColliderComponent.ModelVertices`), not
+entities, so nothing in the selection/gizmo path could grab them. Shipped:
+
+- **Edit-time gizmo proxies.** `ProxySyncSystem` (entry `editor.proxySync`, woven after
+  `editor.gizmo`) materializes one standalone proxy entity per collider on the selected entity —
+  `GizmoProxyComponent` is the binding descriptor `(target, ProxyBindingKind, reserved index)` —
+  as a cyan world-space outline re-derived every frame; proxies despawn on deselect / mode exit /
+  target death. They are picked through the SAME selection ordering (border-only hit-test, so a
+  sprite-covering collider never shadows its entity) and dragged through the SAME gizmo path
+  (move tool); the write-back is a `ColliderEditCommand` against the **bound game entity**
+  (shift `Bounds` / translate all `ModelVertices` via the inverse-transformed world delta,
+  refreshing `WorldVertices` + `BroadPhaseAABB`), coalesced to one undo step per drag.
+- **The generalization seam for later waves.** A new editable spatial field is a new
+  `ProxyBindingKind` + a `ProxyGeometry` derivation case + a write-back case: the **road tool's
+  spline control points (Waves D/F) should reuse this mechanism** (kind = control point,
+  `Index` = the point's ordinal) rather than inventing per-tool handle plumbing.
+- **Deferred:** per-vertex convex editing (the `Index` field is reserved for it); scale-tool
+  resize of `Bounds`; drag-by-border (dragging currently grabs the move handle at the shape's
+  centre, like any entity).
+
 ---
 
 ## Wave B — scatter tool (entity brush)
@@ -296,6 +319,62 @@ spline `sources[]` descriptor, rendered as a mesh `DrawComponent` through the ex
   limit — `DrawComponent.Get16BitIndices()` already handles this for procedural meshes).
 
 ---
+
+## Engine RFC — colliders as child entities with their own Transform (deferred)
+
+> Status: **deferred, not rejected.** Raised during Wave 8b (collider gizmo proxies). The
+> current shipped alternative is the proxy mechanism above; this RFC records the deeper
+> restructuring, its costs, and the criteria under which it should be (re)evaluated — so a
+> future session decides on evidence, not by re-deriving the debate.
+
+**Proposal.** Model each collider as a **child entity** carrying its own `TransformComponent` +
+a shape component, `ChildOf`-parented to the game entity, instead of collider components with
+embedded spatial fields (`BoxColliderComponent.Bounds` offsets, `ConvexColliderComponent`'s
+local vertices + per-frame `WorldVertices` derivation).
+
+**Motivation.**
+- **Authoring-model match with the Blender source.** In Blender a collider is an object (with
+  its own transform) parented to the visual — the exporter flattens that into component fields
+  today. Collider-as-entity would round-trip the source structure 1:1.
+- **Universal gizmo without proxies.** A collider entity has a real `TransformComponent`, so
+  the existing selection + gizmo + `TransformEditCommand` path would edit it directly — the
+  whole Wave-8b proxy layer (binding descriptor, sync system, `ColliderEditCommand`) becomes
+  unnecessary, and per-vertex/sub-shape handles become child entities too.
+- **One spatial model.** `WorldVertices`' documented root-level-entity limitation (it reads the
+  local `Position`, not `WorldPosition`) disappears — the hierarchy math is `HierarchySystem`'s,
+  not the collision module's.
+
+**Costs.**
+- **Collision hot-path indirection.** Detection currently iterates `ColliderTagComponent`
+  entities and reads collider + transform off the SAME entity, updating `WorldVertices` in
+  place with local-position math. Collider children add per-collider entity indirection
+  (parent-chain `WorldMatrix` walks, cache-unfriendly hops) inside the tightest per-frame loop
+  in the engine, and the resolution write-back gets harder: contacts must correct the
+  **parent's** position/velocity from a hit on the **child's** shape.
+- **Migration.** Both level parsers (LDtk, Blender), the factories, the scene serializers, the
+  debug system, and every `Has<BoxColliderComponent>()` query in game code change shape; the
+  one-collider-of-each-type-per-entity premise becomes a children-set contract.
+- **Lifecycle coupling.** `DisposeOrphans` cascade rules, undo delete-snapshots, and the scene
+  writer's membership closure all now include collider children — mostly free (the sub-graph
+  machinery exists), but every path must be re-verified.
+
+**Decision criteria (measure before committing).**
+- **Benchmark the hot path with indirection**: `WorldVertices` update + SAT narrowphase for a
+  representative scene (hundreds of active convex colliders) in both models — component-local
+  (today) vs child-entity (parent-chain world matrix per collider per frame). Collision is a
+  per-frame hot path: accept the restructuring only if the regression is negligible at target
+  entity counts (or recoverable via caching that doesn't reintroduce the split spatial model).
+- **Resolution correctness**: a worked design for child-shape → parent-body position/velocity
+  correction (including the freeze-flags gap already documented in the collision premises).
+- **Editing pull**: if Waves D–F's sub-element editing (spline control points, per-vertex
+  handles) makes the proxy layer grow past a couple of binding kinds, the balance shifts toward
+  native child entities; if proxies stay small, the hot path keeps winning.
+
+**Current alternative (shipped, Wave 8b).** Edit-time gizmo proxies: transient standalone
+handle entities bound to `(entity, component, field)` by `GizmoProxyComponent`, synced from the
+component every frame, writing back through `ColliderEditCommand` + the undo history. Zero
+collision-runtime cost (proxies exist only while selected in Edit), zero data-model migration —
+the trade is a thin editor-side indirection layer, which is exactly what this RFC would delete.
 
 ## Cross-wave invariants (the things that must keep holding)
 

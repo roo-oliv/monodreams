@@ -29,8 +29,13 @@ sensitive: true
 > the gizmo are **target-aware** (UI/HUD-target entities hit-test/drag in virtual space; across
 > targets the composite order wins), and the **systems panel** (`SystemsPanelSystem` +
 > `SystemsPanelLayout`) in the right strip lists every registrar entry (update + draw, in order,
-> name + policy + checkbox) and toggles it live via `SetEnabled`. Anything not yet built is marked
-> **(planned, Wave N)**.
+> name + policy + checkbox) and toggles it live via `SetEnabled`; and the Wave-8b **collider
+> gizmo proxies** — colliders are component-local spatial data, not entities, so in Edit
+> `ProxySyncSystem` (entry `editor.proxySync`) materializes standalone, per-frame-re-derived
+> proxy entities (`GizmoProxyComponent` bindings) over the selected entity's collider shapes;
+> they join the same selection pick (border-only hit-test) and the same gizmo drag (move tool),
+> writing back into the bound component via `ColliderEditCommand` through the coalescing undo
+> transaction. Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -63,13 +68,17 @@ In `Edit`, three kinds of entities coexist in one world:
    moves them.
 2. **Editor-overlay entities** — the selection highlight + the transform gizmo handles (the
    `GizmoSystem`'s outline + active-tool handle mesh entities, tagged `GizmoOverlayComponent`,
-   Wave 4b) and the shell chrome — panel backgrounds + toolbar buttons on the native-resolution
-   `Editor` target, laid out in physical pixels (Wave 7). These are **standalone** —
+   Wave 4b), the shell chrome — panel backgrounds + toolbar buttons on the native-resolution
+   `Editor` target, laid out in physical pixels (Wave 7) — and the collider gizmo proxies (cyan
+   outline entities tagged `GizmoProxyComponent`, one per collider on the selected entity,
+   Wave 8b). These are **standalone** —
    never `ChildOfComponent`-parented to a game entity — so `HierarchySystem.DisposeOrphans` (live in
-   Edit) cannot cascade-dispose them. The gizmo/outline meshes set `VisibleComponent` themselves
+   Edit) cannot cascade-dispose them. The gizmo/outline/proxy meshes set `VisibleComponent` themselves
    (`CullingSystem` only visits `SpriteInfoComponent` entities). Selection tags the picked **game**
    entity with `SelectedComponent` (a transient marker, not an overlay entity); the gizmo reads that
-   tag to draw the overlay around it.
+   tag to draw the overlay around it. A proxy is the one overlay entity that IS selectable — clicking
+   its border tags it `SelectedComponent` so the gizmo can drag it — but a drag writes back into the
+   bound game entity's collider component, never into the proxy.
 3. **Transient input entities** — the cursor, positioned by the live `CursorInputSystem` →
    `CursorPositionSystem` pair the editor reads for hit-testing and dragging.
 
@@ -88,12 +97,18 @@ policies, the runner's overlay providing its own cursor pipeline):
 6. **Gizmo** (Edit-guarded) — `GizmoSystem` reads `SelectedComponent`, hit-tests the active handle, and
    on a drag opens a coalescing transaction and pushes a `TransformEditCommand` per frame (one undo step
    on release). It runs **before** `HierarchySystem` so the edit propagates the same frame, and rebuilds
-   the standalone overlay meshes (outline + handle) each frame.
-7. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
+   the standalone overlay meshes (outline + handle) each frame. When the selected entity is a collider
+   proxy the tool is forced to Move and each drag frame pushes a `ColliderEditCommand` against the
+   proxy's bound game entity instead (Wave 8b).
+7. **Proxy sync** (Edit-guarded, Wave 8b) — `ProxySyncSystem` spawns/places/despawns the collider
+   proxies for the selected entity, re-deriving each from its bound component (so it tracks both this
+   frame's gizmo write-back and owner moves), and refreshes the selected entity's convex
+   `WorldVertices` (physics is frozen — the debug outline would otherwise go stale).
+8. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
    world space so the preview is correct *this* frame (it must run in both modes).
-8. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
+9. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
-9. **Toolbar + systems panel** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes,
+10. **Toolbar + systems panel** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes,
    then `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical pixels — the chrome
    is native-resolution) against the button bounds and fires a clicked button's
    `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap); then
@@ -101,14 +116,14 @@ policies, the runner's overlay providing its own cursor pipeline):
    policy + enabled checkbox — hit-tests `ScreenPosition`, scrolls on the wheel, and flips a
    clicked entry via `EditorPipelineRegistrar.SetEnabled` (a both-modes master switch; the panel
    refuses to disable its own entry).
-10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
+11. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
    it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
    margins, which mutes selection picks, gizmo drag-starts, and camera-nav zoom/pan there.
-11. **Shell sync** (`RunNormally`, after `CursorDrawPrepSystem`) — `EditorShellSystem` makes the
+12. **Shell sync** (`RunNormally`, after `CursorDrawPrepSystem`) — `EditorShellSystem` makes the
    viewport inset, the chrome layout (relayout on window resize), and the cursor swap (OS
    pointer shown + game cursor sprite hidden in Edit; both reverted in Play) track `RunMode`;
    its `Dispose` clears the inset + re-hides the OS pointer so a screen swap never leaks the shell.
-12. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
+13. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
    at the **end** of the draw prep (after `YSortSystem`) so it picks on the final post-Y-sort
    depth this frame; the gizmo/selection overlay draws on Main (world-space, sized by
    `1/Camera.Zoom`); the chrome renders through `EditorChromeRenderSystem` (a screen-space
@@ -143,6 +158,10 @@ the ones this flow leans on:
   `Origin`; the toolbar (on the native-resolution Editor target, never Main) drives the SAME
   shared `EditorHistory` / `SceneSerializer` / `GizmoStateComponent`, never a second instance
   (Wave 4b, retargeted Wave 7).
+- Collider shapes are edited through standalone gizmo proxies bound by `GizmoProxyComponent`;
+  the drag writes back into the bound game entity's component (`ColliderEditCommand`, one undo
+  step per drag, convex writes refresh `WorldVertices`/`BroadPhaseAABB`), never into the
+  transient proxy; proxies hit-test their border only (Wave 8b).
 - The shell's viewport inset lives on the `ViewportManager` (single source of truth): FinalDraw
   compositing and `ScaleMouseToVirtualCoordinates` follow the same rectangle, so world picking
   needs no extra math and margin clicks map to null (chrome hit-tests `ScreenPosition`); zero
@@ -186,3 +205,8 @@ the ones this flow leans on:
   `MeshPrepSystem`'s query, which overwrites `DrawComponent.WorldMatrix` and double-offsets
   meshes whose vertices are baked at absolute pixel positions. Chrome entities carry no
   `VisibleComponent` (only the Main pass consults it).
+- **Undo recorded against a proxy** (Wave 8b) — a `TransformEditCommand` targeting the proxy
+  entity dangles the moment the proxy despawns (deselect/mode exit) and never moves the collider.
+  Proxy drags must push `ColliderEditCommand` against the bound game entity. Symmetrically, a
+  convex write-back that skips `UpdateWorldVertices` leaves a stale `BroadPhaseAABB` — contacts
+  are silently missed after returning to Play (the collision premise).
