@@ -154,18 +154,29 @@ public static class GameTestRunner
     /// Runs the Demos host headless on a single demo screen for a fixed number of
     /// frames, then collects its log + screenshots. Mirrors <see cref="RunAsync"/>
     /// but targets the observe-and-self-verify path from issue #28.
+    /// <paramref name="environment"/> adds extra process environment variables (e.g.
+    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). Unless the caller sets it,
+    /// <c>MONODREAMS_EDITOR</c> is pinned off so a developer's exported flag can never
+    /// perturb the flag-off headless contract these runs assert.
     /// </summary>
     public static Task<GameTestResult> RunDemosAsync(
         string screen,
         int frames,
         int captureEvery = 0,
         int sampleEvery = 30,
-        int timeoutSeconds = 120)
+        int timeoutSeconds = 120,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var debugDir = CreateDebugDir();
         var args = $"run --project MonoDreams.Demos -- --headless --screen {screen} --frames {frames} " +
                    $"--exit --capture-every {captureEvery} --sample-every {sampleEvery}";
-        return RunProcessAsync(args, debugDir, timeoutSeconds);
+
+        var env = new Dictionary<string, string> { ["MONODREAMS_EDITOR"] = "0" };
+        if (environment != null)
+            foreach (var (key, value) in environment)
+                env[key] = value;
+
+        return RunProcessAsync(args, debugDir, timeoutSeconds, env);
     }
 
     private static string CreateDebugDir()
