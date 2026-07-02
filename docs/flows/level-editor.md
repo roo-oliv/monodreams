@@ -7,7 +7,7 @@ sensitive: true
 
 # Level-editor frame: the game pipeline, gated by run state
 
-> **Status: Wave 7 (Wave A complete + composition seam + Blender-style shell).** Live today:
+> **Status: Wave 8a (universal overlay + systems panel).** Live today:
 > the run-state gate in `foundation` (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`);
 > the scene round-trip (Wave 3); the Wave-4a interactive substrate — `SelectionSystem`
 > (click-to-pick), `EditorHistory` bounded undo/redo with drag-coalescing, the
@@ -23,7 +23,14 @@ sensitive: true
 > chrome (top toolbar bar, right panel strip, bottom strip — `EditorChromeBuilder` /
 > `EditorChromeLayout`) rendered at **native window resolution** around it
 > (`RenderTargetID.Editor` + `EditorChromeRenderSystem` + `RenderLayer.Native`), synced by
-> `EditorShellSystem`. Anything not yet built is marked **(planned, Wave N)**.
+> `EditorShellSystem`; and the Wave-8a **universal overlay + systems panel** — under the run flag
+> EVERY Examples screen (menu + infinite runner included) composes the overlay through the
+> registrar (the overlay supplies its own cursor pipeline to a cursor-less screen), selection and
+> the gizmo are **target-aware** (UI/HUD-target entities hit-test/drag in virtual space; across
+> targets the composite order wins), and the **systems panel** (`SystemsPanelSystem` +
+> `SystemsPanelLayout`) in the right strip lists every registrar entry (update + draw, in order,
+> name + policy + checkbox) and toggles it live via `SetEnabled`. Anything not yet built is marked
+> **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -69,7 +76,9 @@ In `Edit`, three kinds of entities coexist in one world:
 Per frame, in pipeline order (the reference assembly is the shared composition in
 `LoadLevelExampleGameScreen` behind its `editorEnabled` flag, built through the
 `EditorPipelineRegistrar` and the `EditorOverlay` hooks; `LevelEditorScreen` is that screen with
-the flag pinned on, and the `--editor` run flag turns it on for `ScreenName.Game`):
+the flag pinned on, and the `--editor` run flag turns it on for **every** registered screen —
+`LevelSelectionScreen` and `InfiniteRunnerScreen` weave the same hooks with their own per-screen
+policies, the runner's overlay providing its own cursor pipeline):
 
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
 2. **Mode toggle** (`RunNormally`) — `EditorModeToggleSystem` flips `RunMode` in place on the toggle key.
@@ -84,10 +93,14 @@ the flag pinned on, and the `--editor` run flag turns it on for `ScreenName.Game
    world space so the preview is correct *this* frame (it must run in both modes).
 8. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
-9. **Toolbar** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes, then
-   `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical pixels — the chrome is
-   native-resolution) against the button bounds and fires a clicked button's
-   `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap).
+9. **Toolbar + systems panel** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes,
+   then `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical pixels — the chrome
+   is native-resolution) against the button bounds and fires a clicked button's
+   `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap); then
+   `SystemsPanelSystem` (the right strip) lists every registrar entry of both pipelines — name +
+   policy + enabled checkbox — hit-tests `ScreenPosition`, scrolls on the wheel, and flips a
+   clicked entry via `EditorPipelineRegistrar.SetEnabled` (a both-modes master switch; the panel
+   refuses to disable its own entry).
 10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
    it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
    margins, which mutes selection picks, gizmo drag-starts, and camera-nav zoom/pan there.
@@ -119,7 +132,10 @@ the ones this flow leans on:
   `DisposeOrphans` can't reap them; the gizmo/outline meshes self-set `VisibleComponent`; delete
   snapshots the disposed sub-graph for undo (Wave 4a — `DeleteEntityCommand`).
 - Selection picks MAX final post-Y-sort `DrawComponent.LayerDepth` with a selection-owned
-  tiebreak (`EditorIdComponent`), read after `YSortSystem` this frame (Wave 4a).
+  tiebreak (`EditorIdComponent`), read after `YSortSystem` this frame (Wave 4a) — target-aware
+  since Wave 8a: UI/HUD-target sprites hit-test `VirtualPosition` (their transforms are virtual
+  coordinates), the composite order ranks across targets (UI/HUD above Main), and the gizmo drags
+  such an entity in virtual space with its overlays on the entity's own target.
 - Undo is bounded (FIFO eviction past the cap) with drag-coalescing (one drag = one entry);
   empty-stack undo/redo is a no-op (Wave 4a). The gizmo drives this: drag-start opens the
   transaction, each frame pushes a `TransformEditCommand`, release commits → one entry (Wave 4b).

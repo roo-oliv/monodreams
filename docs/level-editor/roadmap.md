@@ -128,7 +128,30 @@ Shipped under `MonoDreams/level-editor/Composition/`:
   composition path, no duplicated pipeline definition. Deferred: the web head's flag (browsers
   have no args/env — needs a query-string switch via JS interop) and the InfiniteRunner overlay
   (no cursor pipeline; runner systems mutate transforms outside the Freeze block — needs its own
-  policy-matrix pass).
+  policy-matrix pass). *(Both InfiniteRunner deferrals resolved in Wave 8a — see below; the web
+  flag remains open.)*
+
+### Wave 8a — universal overlay + systems panel
+
+Direct user feedback: "the editor shouldn't care what screen we're using" and "we should be able
+to see the ECS systems pipeline and manually activate or deactivate them". Shipped:
+
+- **Universal overlay.** Under the run flag EVERY Examples screen composes the `EditorOverlay`
+  through the registrar — `LevelSelectionScreen` (menu policies: `ui.interaction` Freeze so a
+  click belongs to the editor; `layout` RunNormally, it is the menu's content placement) and
+  `InfiniteRunnerScreen` (whole simulation block Freeze; the overlay provides its own cursor
+  pipeline via `provideCursorPipeline` — the Wave-6 blocker) included. Screens without sprite
+  prep gain the cull → sprite-prep → Y-sort chain under the flag so loaded scenes preview.
+- **Target-aware selection + gizmo.** UI/HUD-target sprites hit-test the cursor's
+  `VirtualPosition` (their transforms are virtual coordinates) and, on overlap, the composite
+  order wins (Main < UI < HUD < Scroll); the gizmo drags a UI/HUD-target entity in virtual space
+  with its overlays on the entity's own target (move/rotate/scale — the math is space-agnostic).
+- **Systems panel** (`SystemsPanelSystem` + pure `SystemsPanelLayout`, in the shell's right
+  strip): every registrar entry of BOTH pipelines, in order, as name + policy tag + live enabled
+  checkbox; a row click toggles via `SetEnabled`; wheel scrolls whole lines; the panel refuses to
+  disable its own entry. The per-mode runtime policy override (Wave-6 deferral) remains the
+  natural follow-up so the panel can express "on in Edit, off in Play" instead of the both-modes
+  master switch.
 
 ---
 

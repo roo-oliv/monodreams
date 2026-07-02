@@ -472,6 +472,21 @@ is untouched — same passes, same targets — and in `Play` the inset is zero
 and the chrome layer resolves to null: byte-identical to a screen without
 the editor. Details: the `rendering` and `level-editor` premises.
 
+**The editor is screen-agnostic, and the pipeline is inspectable.** The
+editor does not care which screen is running — under the editor run flag
+every screen (a menu as much as a level) builds its pipelines through the
+`EditorPipelineRegistrar` and composes the `EditorOverlay` over its own
+world, declaring its own per-system edit policies at the registration
+site (e.g. a menu freezes its button interaction in `Edit` so clicks
+belong to the editor; a runner freezes its whole simulation block). Where
+a screen lacks a prerequisite, the overlay supplies it (its own cursor
+pipeline for a cursor-less screen) or degrades gracefully (no Y-sorted
+layer ⇒ selection picks on the final source-derived depth). The registrar
+is also the live inspection surface: the editor's systems panel lists
+every entry of both pipelines — name, policy, enabled state — and toggles
+any of them at runtime through `SetEnabled`, so the per-system edit-mode
+declaration is visible and adjustable while the game runs.
+
 ### Aspirational direction
 
 The reserved `RunPartial` / `RuntimeEditable` policies are placeholders

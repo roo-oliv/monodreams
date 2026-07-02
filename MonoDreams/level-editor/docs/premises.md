@@ -208,32 +208,48 @@ and `MonoDreams.Tests/LevelEditor/GizmoTests.cs` (`DragCoalescingTest` — the g
 pre-drag transform, redo re-applies the whole drag).
 **Depends on:** —.
 
-## Selection picks MAX final `LayerDepth` with a selection-owned tiebreak
+## Selection picks MAX final `LayerDepth` with a selection-owned tiebreak, target-aware
 
-Click-to-select picks the **topmost** sprite under the cursor — the one the renderer draws
-frontmost, i.e. **MAX final post-Y-sort `DrawComponent.LayerDepth`**. The selection system reads
-that depth **after** `YSortSystem` has run this frame (it is ordered at the end of the draw pipeline,
-after prep + Y-sort), mirroring `MasterRenderSystem`, which sorts on the same final depth. For an
-**exact-depth tie**, selection cannot use the renderer's tiebreak (its per-frame insertion index is
-private), so it owns a deterministic one: each candidate gets a stable monotonic `EditorIdComponent`
-the first time the selection system sees it (first-seen / creation order), and the larger id — the
-later-seen entity, which an undisturbed scene draws last — wins the tie. Hit-testing honors the
-sprite's world-space rotation, scale, origin and offset (it inverts the exact draw transform), and a
-click on empty space clears the selection. Single-select for Wave A (marquee/multi-select is a later
-extension). The system is Edit-guarded (inert in Play).
+Click-to-select picks the **topmost** sprite under the cursor — the one the composite shows
+frontmost. Candidates are hit-tested in their own coordinate space (Wave 8a): a **Main**-target
+sprite is world-space and tests the cursor's `WorldPosition`; a **UI/HUD/Scroll**-target sprite is
+screen-space (its transform is virtual coordinates) and tests the cursor's `VirtualPosition` — the
+letterbox-scaled, pre-camera coordinate that never desyncs from on-screen UI when the camera moves.
+**Editor**-target entities (the editor's own chrome) are never candidates. When candidates from
+different targets overlap under the cursor, the **final composite order wins** (Main below UI below
+HUD below Scroll — `FinalDrawSystem`'s layer order), because that is what the designer sees on top;
+within a target the key is **MAX final post-Y-sort `DrawComponent.LayerDepth`**, read **after**
+`YSortSystem` has run this frame (selection is ordered at the end of the draw prep), mirroring
+`MasterRenderSystem`, which sorts on the same final depth. For an **exact-depth tie**, selection
+cannot use the renderer's tiebreak (its per-frame insertion index is private), so it owns a
+deterministic one: each candidate gets a stable monotonic `EditorIdComponent` the first time the
+selection system sees it (first-seen / creation order), and the larger id — the later-seen entity,
+which an undisturbed scene draws last — wins the tie. Hit-testing honors the sprite's rotation,
+scale, origin and offset (it inverts the exact draw transform), and a click on empty space clears
+the selection. Single-select for Wave A (marquee/multi-select is a later extension). The system is
+Edit-guarded (inert in Play).
 
-**Why:** the selected entity must be the one the designer sees on top; matching the render front means
-reading the same final depth the renderer sorts on, and the tie must break on a key selection can
-observe (the renderer's index can't be).
+**Why:** the selected entity must be the one the designer sees on top; on-screen UI lives on the
+UI/HUD targets in virtual space (hit-testing it with the camera-relative world point would desync
+the pick the moment the camera moves), and those targets composite above the world — so target
+rank precedes depth; within a target, matching the render front means reading the same final depth
+the renderer sorts on, and the tie must break on a key selection can observe (the renderer's index
+can't be).
 **Breaks:** picking the back sprite of an overlapping stack (reading source depth, or pre-Y-sort
-depth); a non-deterministic / unstable pick on an exact-depth tie; a rotated/scaled sprite mis-picked
-because the hit-test ignored its transform.
+depth); a UI/HUD sprite unpickable (or mis-picked) after a camera pan because it was tested in
+world space; a world sprite stealing the pick from the HUD element drawn over it; the editor
+selecting its own chrome; a non-deterministic / unstable pick on an exact-depth tie; a
+rotated/scaled sprite mis-picked because the hit-test ignored its transform.
 **Tests:** `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`SelectionTopmostTest` — stacked sprites
 on different depths, click selects MAX final depth, click-empty clears, hit-test honors
 rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by the selection-owned
-`EditorId` tiebreak, deterministically).
+`EditorId` tiebreak, deterministically; `SelectionTargetAware*` — UI sprite picked via
+`VirtualPosition`, Main via `WorldPosition`, HUD wins an overlap with Main regardless of raw depth,
+Editor-target never a candidate, the pure cross-target rule; `GizmoTests.GizmoUiTargetTest` — the
+gizmo drags a HUD-target entity in virtual space and its overlays follow the entity's target).
 **Depends on:** rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` →
-`MasterRenderSystem` derive + sort on final `DrawComponent.LayerDepth`).
+`MasterRenderSystem` derive + sort on final `DrawComponent.LayerDepth`) and the `FinalDrawSystem`
+layer order (Main, UI, HUD, then screen-space overlays).
 
 ## The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit, honoring Origin
 
@@ -466,6 +482,74 @@ default is Play, flag-on composition yields Edit, flag-off stays Play).
 **Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
 constructed default this flag deliberately does not change); this file — "The pipeline registrar is
 the composition seam".
+
+## The editor overlay is universal: under the run flag, every screen composes it
+
+The editor is **screen-agnostic**: under the editor run flag, EVERY Examples screen — the
+level-selection menu and the infinite runner included, not just the game screen — builds its
+pipelines through the `EditorPipelineRegistrar` and composes the `EditorOverlay` over its own
+world/camera/layers. A menu is as editable a scene as a level. The overlay is **self-sufficient**
+where a screen lacks a prerequisite: a screen with no cursor pipeline (the runner is keyboard-only)
+asks the overlay to provide one (`provideCursorPipeline: true` → the overlay's own
+`CursorInputSystem`/`CursorPositionSystem` + a minimal invisible cursor entity — no textures, since
+the OS pointer is the visible pointer in Edit); a screen with no sprite prep gains the
+cull → sprite-prep → Y-sort chain under the flag so loaded scenes preview; a screen whose
+`DrawLayerMap` has no Y-sorted layer degrades gracefully (Y-sort passes depths through and
+selection picks on the final source-derived `LayerDepth`). Per-screen edit policies are declared at
+the registration site: the menu freezes `ui.interaction` in Edit (a click belongs to the editor,
+never to a screen transition — F1 or the systems panel re-arms it) but keeps `layout` live (the
+auto-layout solver is the menu's content placement; freezing it would boot an unlaid-out menu under
+`--editor`); the runner freezes its whole simulation block (movement/gravity/treadmill/spawner/
+collision/cleanup/score all mutate transforms per frame). With the flag off, no screen constructs
+anything editor-related and every pipeline is behaviourally identical to its pre-editor shape.
+
+**Why:** direct user directive — "the editor shouldn't care what screen we're using, if it's a menu
+or anything else"; and one shared composition path per screen prevents the per-screen gate matrices
+from silently drifting.
+**Breaks:** a screen outside the overlay is invisible to the editor (the original complaint: no
+editor on the menu); an overlay composed without the cursor pipeline on a cursor-less screen makes
+selection/gizmo/toolbar read a cursor that never updates; menu buttons live in Edit navigate away
+mid-editing, tearing the screen down under the editor.
+**Tests:** `MonoDreams.Tests/IntegrationTests/UniversalOverlayTests.cs` (LevelSelection + runner
+under `MONODREAMS_EDITOR=1` log their composed `editor.*` entries — the runner's including the
+overlay-provided `editor.cursorInput`/`editor.cursorPosition`; the menu run exits through the
+editor-op channel, the runner through replay auto-exit); flag-off behavior is protected by the
+entire pre-existing suite.
+**Depends on:** this file — "The pipeline registrar is the composition seam" and "The editor run
+flag opts game screens into the overlay"; foundation — "Edit-time behaviour is a per-system policy
+honoured by `GatedSystem`".
+
+## The systems panel lists every registrar entry and toggles it through the registrar
+
+The systems panel — the Wave-8a resident of the shell's right strip — lists EVERY entry of BOTH
+bound pipelines (update, then draw), in execution order, as `name + policy tag + checkbox`: the
+policy tag is the registration-site edit-mode declaration shown live (`[freeze]` = off in Edit by
+policy; `RunNormally` renders untagged), and the checkbox is the entry's current runtime toggle.
+A click on a row flips the entry via `EditorPipelineRegistrar.SetEnabled` — the gate's **master
+switch**, stopping the child in both modes — so "we want follow active, but collision maybe not" is
+one click while editing. The panel is chrome: native-pixel rows on `RenderTargetID.Editor` (no
+`VisibleComponent`), laid out by the pure `SystemsPanelLayout`, hit-testing the cursor's raw
+`ScreenPosition`, hidden in Play by the chrome pass and interaction-inert there by its own Edit
+guard. It scrolls by whole lines on the mouse wheel over the strip (scrolled-out rows are parked
+off-screen — a partial line would bleed over the top/bottom bars, which share the target). It binds
+lazily through `EditorOverlay.BindPipelines` and builds its rows once (entries are fixed after
+`Build()`). One protection: the panel **refuses to disable its own entry** — its gate off means no
+update, no hit-test, and no UI path back.
+
+**Why:** direct user directive — "we should be able to see the ECS systems pipeline and manually
+activate or deactivate them"; the registrar (Wave 6) was built as exactly this binding seam.
+**Breaks:** toggling outside the registrar (e.g. mutating the child's own `IsEnabled`) fights game
+logic that drives the same flag and bypasses the one documented seam; hit-testing `VirtualPosition`
+makes the strip's rows dead (the chrome sits where the virtual mapping is null); partial-line
+scroll bleeds rows over the toolbar; a self-disabling panel bricks the editor UI for the session.
+**Tests:** `MonoDreams.Tests/LevelEditor/SystemsPanelTests.cs` (rows mirror both pipelines' entries
++ policy tags; checkboxes reflect live enabled state; a row click calls `SetEnabled` and the gated
+system actually stops in both modes — side-effect counter — and a second click re-arms it; inert in
+Play; wheel scroll in whole clamped lines; scrolled-out rows parked; the panel refuses to disable
+itself).
+**Depends on:** this file — "The pipeline registrar is the composition seam" (the binding), "The
+editor shell insets the game viewport and renders its chrome at native resolution" (the strip, the
+`ScreenPosition` rule, the no-`VisibleComponent` rule).
 
 ## See also
 
