@@ -432,9 +432,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (_editor != null)
         {
             // Delete/undo/redo, then the gizmo — BEFORE HierarchySystem so a transform edit
-            // propagates to world space the same frame. Both Edit-guarded internally.
+            // propagates to world space the same frame. Both Edit-guarded internally. The collider
+            // proxy sync follows the gizmo so the proxies re-derive from this frame's write-back.
             p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
             p.Add("editor.gizmo", _editor.Gizmo, EditTimeBehavior.RunNormally);
+            p.Add("editor.proxySync", _editor.ProxySync, EditTimeBehavior.RunNormally);
         }
         // HierarchySystem stays LIVE in Edit (RunNormally) — editor edits propagate this frame.
         p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);

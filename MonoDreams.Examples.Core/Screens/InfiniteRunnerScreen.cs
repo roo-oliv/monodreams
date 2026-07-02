@@ -390,6 +390,9 @@ public class InfiniteRunnerScreen : IGameScreen
         {
             p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
             p.Add("editor.gizmo", _editor.Gizmo, EditTimeBehavior.RunNormally);
+            // The collider proxy sync follows the gizmo so the proxies re-derive from this
+            // frame's write-back.
+            p.Add("editor.proxySync", _editor.ProxySync, EditTimeBehavior.RunNormally);
         }
         p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
