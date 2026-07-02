@@ -39,6 +39,15 @@ namespace MonoDreams.LevelEditor.System;
 /// <para><b>Edit-guarded, registered RunNormally.</b> Inert in Play (it tears its overlays down and
 /// returns early), active in Edit. It must run in the Update phase, before <c>HierarchySystem</c>,
 /// so an edit propagates to world space the same frame.</para>
+///
+/// <para><b>Target-aware space (Wave 8a).</b> A selected entity whose render target is
+/// <c>UI</c>/<c>HUD</c>/<c>Scroll</c> lives in <b>virtual</b> (screen-space) coordinates, not world
+/// space: for those the gizmo reads the cursor's <c>VirtualPosition</c>, draws its overlays on the
+/// entity's own target (so outline + handles composite exactly over it), and sizes handles with no
+/// zoom compensation (screen-space passes have no camera). The transform math
+/// (<see cref="GizmoTransform"/>) is space-agnostic, so move / rotate / scale all work — the only
+/// difference is which coordinate pair feeds it. <c>Main</c>-target entities keep the world-space
+/// path (cursor <c>WorldPosition</c>, overlays on Main, <c>1/Camera.Zoom</c> handle sizing).</para>
 /// </summary>
 public sealed class GizmoSystem : ISystem<GameState>
 {
@@ -107,30 +116,38 @@ public sealed class GizmoSystem : ISystem<GameState>
         ref readonly var gizmo = ref GetGizmoState();
         ref readonly var transform = ref target.Get<TransformComponent>();
         var pivot = transform.WorldPosition;
-        var invZoom = _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
+
+        // Target-aware space: Main-target entities are world-space (cursor WorldPosition, overlays
+        // on Main, handles sized by 1/Zoom); UI/HUD/Scroll-target entities are screen-space (their
+        // transforms are virtual coordinates → cursor VirtualPosition, overlays on their own
+        // target, no zoom compensation — screen-space passes have no camera).
+        var space = OverlaySpace(target);
+        var worldSpace = space == RenderTargetID.Main;
+        var invZoom = worldSpace && _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
 
         if (!TryGetCursor(out var cursor))
         {
             EnsureOverlays();
-            UpdateOverlayMeshes(target, gizmo.Tool, pivot, invZoom);
+            UpdateOverlayMeshes(target, gizmo.Tool, pivot, invZoom, space);
             return;
         }
 
-        ProcessDrag(target, gizmo, cursor, pivot, invZoom);
+        var cursorPoint = worldSpace ? cursor.WorldPosition : cursor.VirtualPosition;
+        ProcessDrag(target, gizmo, cursor, cursorPoint, pivot, invZoom);
 
         EnsureOverlays();
-        UpdateOverlayMeshes(target, gizmo.Tool, pivot, invZoom);
+        UpdateOverlayMeshes(target, gizmo.Tool, pivot, invZoom, space);
     }
 
     private void ProcessDrag(Entity target, in GizmoStateComponent gizmo, in CursorInputComponent cursor,
-        Vector2 pivot, float invZoom)
+        Vector2 cursorPoint, Vector2 pivot, float invZoom)
     {
         if (_dragging)
         {
             // Apply the live edit from the drag-start cursor → current cursor so snapping is stable
             // and floating error does not accumulate frame-to-frame (the target is recomputed from
             // the immutable drag-start state each frame, not stacked on the previous frame's result).
-            ApplyDragEdit(target, cursor.WorldPosition);
+            ApplyDragEdit(target, cursorPoint);
 
             if (cursor.LeftButtonReleased || !cursor.LeftButton)
                 EndDrag();
@@ -138,12 +155,26 @@ public sealed class GizmoSystem : ISystem<GameState>
         }
 
         // Not dragging: a press over the active handle starts a drag. A press over the editor
-        // chrome / letterbox margins never starts one — WorldPosition is frozen at its last
-        // inside-the-viewport value there (a toolbar click must not grab the gizmo).
+        // chrome / letterbox margins never starts one — the cursor's world AND virtual positions
+        // are frozen at their last inside-the-viewport values there (a toolbar click must not
+        // grab the gizmo).
         if (!cursor.LeftButtonPressed || cursor.OutsideViewport) return;
-        if (!HandleHit(gizmo.Tool, pivot, cursor.WorldPosition, invZoom)) return;
+        if (!HandleHit(gizmo.Tool, pivot, cursorPoint, invZoom)) return;
 
-        BeginDrag(target, gizmo.Tool, cursor.WorldPosition, pivot);
+        BeginDrag(target, gizmo.Tool, cursorPoint, pivot);
+    }
+
+    /// <summary>
+    /// The coordinate space (as a render target) the selected entity — and therefore the gizmo
+    /// overlay — lives in: the sprite's target when it has one, else the draw target, else Main.
+    /// The editor's own chrome target never hosts a selection; map it to Main defensively.
+    /// </summary>
+    private static RenderTargetID OverlaySpace(Entity target)
+    {
+        var space = RenderTargetID.Main;
+        if (target.Has<SpriteInfoComponent>()) space = target.Get<SpriteInfoComponent>().Target;
+        else if (target.Has<DrawComponent>()) space = target.Get<DrawComponent>().Target;
+        return space == RenderTargetID.Editor ? RenderTargetID.Main : space;
     }
 
     private void BeginDrag(Entity target, GizmoTool tool, Vector2 cursorWorld, Vector2 pivot)
@@ -260,16 +291,20 @@ public sealed class GizmoSystem : ISystem<GameState>
         _overlaysCreated = false;
     }
 
-    private void UpdateOverlayMeshes(Entity target, GizmoTool tool, Vector2 pivot, float invZoom)
+    private void UpdateOverlayMeshes(Entity target, GizmoTool tool, Vector2 pivot, float invZoom,
+        RenderTargetID space)
     {
-        // Selection outline: the sprite's world-space rendered quad, stroked. Falls back to a small
-        // box around the pivot when the entity has no sprite bounds (e.g. a mesh-only entity).
-        SetMesh(_outline, BuildOutline(target, pivot, invZoom));
+        // Selection outline: the sprite's rendered quad (world- or virtual-space, matching the
+        // entity), stroked. Falls back to a small box around the pivot when the entity has no
+        // sprite bounds (e.g. a mesh-only entity). Overlays draw on the entity's own target so
+        // they composite exactly over it (a virtual-space outline on Main would land wherever the
+        // camera happens to look).
+        SetMesh(_outline, BuildOutline(target, pivot, invZoom), space);
         // Active-tool handle.
-        SetMesh(_handle, BuildHandle(tool, pivot, invZoom));
+        SetMesh(_handle, BuildHandle(tool, pivot, invZoom), space);
     }
 
-    private static void SetMesh(Entity e, MeshData mesh)
+    private static void SetMesh(Entity e, MeshData mesh, RenderTargetID space)
     {
         ref var dc = ref e.Get<DrawComponent>();
         dc.Type = DrawElementType.Mesh;
@@ -278,7 +313,7 @@ public sealed class GizmoSystem : ISystem<GameState>
         dc.PrimitiveType = mesh.PrimitiveType;
         dc.WorldMatrix = Matrix.Identity;
         dc.LayerDepth = OverlayLayerDepth;
-        dc.Target = RenderTargetID.Main;
+        dc.Target = space;
     }
 
     private static MeshData BuildOutline(Entity target, Vector2 pivot, float invZoom)
