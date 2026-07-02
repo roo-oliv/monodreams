@@ -585,20 +585,6 @@ public class DialogueDemoScreen : IGameScreen
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
-        // The demo simulation freezes in Edit: movement, NPC triggers, both dialogue engines,
-        // reactions/portraits, the text reveal, and the demo shortcuts (Escape = back) all
-        // mutate the scene (or tear the screen down) per frame.
-        var logicSystems = new SequentialSystem<GameState>(
-            new PlayerMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight, PlayerSpeed,
-                PlayerBodyRadius, 2f * PlayerBodyRadius, () => _dialogueActive),
-            new NpcInteractionSystem(_world, _player, npcTargets, _interact, InteractRange, () => _dialogueActive),
-            cowDialogue,   // node "Start" → fixed bottom box; routes by node ownership
-            birdDialogue,  // node "Bird"  → over-head anchored balloon
-            reactionSystem,
-            portraitSystem,
-            new TextUpdateSystem(_world),                        // advance the reveal animation
-            new DialogueDemoShortcutSystem(this));
-
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
         var p = _updatePipeline;
@@ -611,13 +597,30 @@ public class DialogueDemoScreen : IGameScreen
             p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
-        p.Add("layout", new SequentialSystem<GameState>(
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
         // Demo UI interaction FREEZES in Edit: a click belongs to the editor, never to
         // back / exit (which would tear the screen down mid-editing).
         p.Add("ui.interaction", new DemoButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
-        p.Add("logic", logicSystems, EditTimeBehavior.Freeze);
+        // The demo simulation freezes in Edit: movement, NPC triggers, both dialogue engines,
+        // reactions/portraits, the text reveal, and the demo shortcuts (Escape = back) all
+        // mutate the scene (or tear the screen down) per frame. One Freeze gate on the group.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("movement", new PlayerMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight,
+                PlayerSpeed, PlayerBodyRadius, 2f * PlayerBodyRadius, () => _dialogueActive));
+            g.Add("npcInteraction", new NpcInteractionSystem(
+                _world, _player, npcTargets, _interact, InteractRange, () => _dialogueActive));
+            g.Add("dialogueCow", cowDialogue);   // node "Start" → fixed bottom box; routes by node ownership
+            g.Add("dialogueBird", birdDialogue); // node "Bird"  → over-head anchored balloon
+            g.Add("reactions", reactionSystem);
+            g.Add("portraits", portraitSystem);
+            g.Add("textUpdate", new TextUpdateSystem(_world)); // advance the reveal animation
+            g.Add("shortcuts", new DialogueDemoShortcutSystem(this));
+        });
         if (_editor != null)
         {
             p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
@@ -627,7 +630,11 @@ public class DialogueDemoScreen : IGameScreen
         p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -645,25 +652,6 @@ public class DialogueDemoScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
-        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
-        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
-        // (No demo entity carries SpriteInfoComponent, so CullingSystem never touches the
-        // manually-toggled prompt/mark meshes.)
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new YSortSystem(_world, _camera, _layers),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world))
-            : new SequentialSystem<GameState>(
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world));
-
         var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
@@ -675,7 +663,20 @@ public class DialogueDemoScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
+        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
+        // (No demo entity carries SpriteInfoComponent, so CullingSystem never touches the
+        // manually-toggled prompt/mark meshes.)
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

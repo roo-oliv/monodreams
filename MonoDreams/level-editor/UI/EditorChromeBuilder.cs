@@ -55,6 +55,9 @@ public sealed class EditorChromeBuilder
     public static readonly Color LabelColor = new(235, 235, 240);
     // Systems-panel accents (the panel reuses this single palette site).
     public static readonly Color CheckboxOnFill = new(96, 168, 112);
+    /// <summary>The indeterminate minus bar drawn over a Mixed group checkbox (dark, so it reads
+    /// against <see cref="CheckboxOnFill"/> — the Gmail/Material partial-selection mark).</summary>
+    public static readonly Color CheckboxMixedMark = new(26, 26, 31);
     public static readonly Color HeaderLabelColor = new(150, 150, 162);
     public static readonly Color DisabledLabelColor = new(140, 140, 150);
 
@@ -62,6 +65,8 @@ public sealed class EditorChromeBuilder
     // Public so sibling chrome builders (the systems panel) stack onto the same bands.
     public const float PanelDepth = 0.1f;
     public const float ButtonDepth = 0.5f;
+    /// <summary>The mixed-state minus bar sits above its checkbox, below the labels.</summary>
+    public const float CheckboxMarkDepth = 0.55f;
     public const float LabelDepth = 0.6f;
 
     private readonly World _world;

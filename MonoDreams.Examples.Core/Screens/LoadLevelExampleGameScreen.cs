@@ -220,14 +220,17 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var cursorInputSystem = new CursorInputSystem(_world);
         var editorOpActive = _editor?.HasEditorOpPlan == true;
 
-        ISystem<GameState> inputSystems;
+        // The input block is registered as a registrar GROUP below (children visible in the
+        // systems panel); only the composite KIND depends on the run configuration. Historical
+        // shapes preserved exactly: replay = Sequential(cursor, replay, mapping); editor-op
+        // without replay = Sequential(cursor, mapping); plain run = Parallel(cursor, mapping).
+        var inputKind = PipelineCompositeKind.Parallel;
         if (replaySystem != null)
         {
             inputMappingSystem.SkipHardwareRead = true;
             // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
             if (editorOpActive) cursorInputSystem.SkipHardwareRead = true;
-            inputSystems = new SequentialSystem<GameState>(
-                cursorInputSystem, replaySystem, inputMappingSystem);
+            inputKind = PipelineCompositeKind.Sequential;
             // Hold the session open: a coexisting keyboard replay's auto-exit-on-drain defers to
             // the editor-op driver, which owns the exit.
             if (_editor?.SuppressReplayAutoExit != null)
@@ -238,12 +241,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Editor-op channel without a keyboard replay: still skip the hardware cursor read so
             // the injected state survives, and run input mapping normally.
             cursorInputSystem.SkipHardwareRead = true;
-            inputSystems = new SequentialSystem<GameState>(cursorInputSystem, inputMappingSystem);
-        }
-        else
-        {
-            inputSystems = new ParallelSystem<GameState>(_parallelRunner,
-                cursorInputSystem, inputMappingSystem);
+            inputKind = PipelineCompositeKind.Sequential;
         }
 
         var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
@@ -354,27 +352,59 @@ public class LoadLevelExampleGameScreen : IGameScreen
         entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content, _layers));
         entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content, _layers));
 
-        var levelLoadSystems = new SequentialSystem<GameState>(
-            new LevelLoadRequestSystem(_world, _content),
-            blenderParser,
-            new LDtkTileParserSystem(_world, _content),
-            new LDtkEntityParserSystem(_world),
-            entitySpawnSystem);
+        // Hierarchy system must run AFTER logic systems modify transforms
+        // but BEFORE any systems read world transforms (camera, rendering, etc.)
+        var hierarchySystem = new HierarchySystem(_world);
 
-        // Collision pipeline must run sequentially (movement → velocity → detect → resolve → commit)
-        // Individual systems keep their internal _parallelRunner for entity-level parallelism
-        var logicSystems = new SequentialSystem<GameState>(
-            new MovementSystem(_world, _parallelRunner),
-            new OrbSystem(_world),
-            new StopMotionEffectSystem(_world),
-            new TransformVelocitySystem(_world, _parallelRunner),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, GameCollisionHelper.Create),
-            new TransformPhysicalCollisionResolutionSystem(_world),
-            new TransformCommitSystem(_world, _parallelRunner),
-            new TextUpdateSystem(_world), // Logic only
-            new NPCInteractionSystem(_world),
-            new ZoneDialogueTriggerSystem(_world),
-            new DialogueSystem(
+        var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
+
+        // Cursor position must update AFTER camera has moved to avoid 1-frame lag
+        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
+
+        // ---- Weave the update pipeline through the registrar (the §4 interaction matrix). ----
+        // Every entry is gate-wrapped by name+policy; composite blocks are registrar GROUPS with
+        // named children (the registrar builds the composite), so the systems panel sees and
+        // toggles every system. With the editor off, RunMode never leaves Play and every gate is
+        // a pass-through, so the pipeline behaves exactly as before.
+        var p = _updatePipeline;
+        p.AddGroup("input", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("cursor", cursorInputSystem);
+            if (replaySystem != null) g.Add("replay", replaySystem);
+            g.Add("mapping", inputMappingSystem);
+        }, inputKind, _parallelRunner);
+        if (_editor != null)
+            // Flips RunMode in place (works in both modes) — right after input reads the key edge.
+            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
+        p.AddGroup("levelLoad", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("requests", new LevelLoadRequestSystem(_world, _content));
+            g.Add("blender", blenderParser);
+            g.Add("ldtkTiles", new LDtkTileParserSystem(_world, _content));
+            g.Add("ldtkEntities", new LDtkEntityParserSystem(_world));
+            g.Add("entitySpawn", entitySpawnSystem);
+        });
+        if (_editor != null)
+            // Native-scene loading (LoadSceneRequest) — with the level-load group, message-driven.
+            p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+        // Game logic + physics + dialogue — FROZEN in Edit (runs only in Play; the group's single
+        // Freeze gate skips all children, exactly like the old opaque composite). The collision
+        // chain must stay sequential (movement → velocity → detect → resolve → commit); individual
+        // systems keep their internal _parallelRunner for entity-level parallelism.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("movement", new MovementSystem(_world, _parallelRunner));
+            g.Add("orbs", new OrbSystem(_world));
+            g.Add("stopMotion", new StopMotionEffectSystem(_world));
+            g.Add("velocity", new TransformVelocitySystem(_world, _parallelRunner));
+            g.Add("collisionDetect",
+                new TransformCollisionDetectionSystem<CollisionMessage>(_world, GameCollisionHelper.Create));
+            g.Add("collisionResolve", new TransformPhysicalCollisionResolutionSystem(_world));
+            g.Add("transformCommit", new TransformCommitSystem(_world, _parallelRunner));
+            g.Add("textUpdate", new TextUpdateSystem(_world)); // Logic only
+            g.Add("npcInteraction", new NPCInteractionSystem(_world));
+            g.Add("zoneDialogue", new ZoneDialogueTriggerSystem(_world));
+            g.Add("dialogue", new DialogueSystem(
                 _world,
                 _content.Load<Texture2D>("Dialouge UI/dialog box medium"),
                 _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt"),
@@ -391,33 +421,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
                     _content.Load<YarnProgram>("Dialogues/hello_world"),
                     _content.Load<YarnProgram>("Dialogues/boldo")
                 },
-                nameof(EntityType.Interface))
+                nameof(EntityType.Interface)));
             // ... other game logic systems
-        );
-
-        // Hierarchy system must run AFTER logic systems modify transforms
-        // but BEFORE any systems read world transforms (camera, rendering, etc.)
-        var hierarchySystem = new HierarchySystem(_world);
-
-        var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
-
-        // Cursor position must update AFTER camera has moved to avoid 1-frame lag
-        var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
-
-        // ---- Weave the update pipeline through the registrar (the §4 interaction matrix). ----
-        // Every entry is gate-wrapped by name+policy; with the editor off, RunMode never leaves
-        // Play and every gate is a pass-through, so the pipeline behaves exactly as before.
-        var p = _updatePipeline;
-        p.Add("input", inputSystems, EditTimeBehavior.RunNormally);
-        if (_editor != null)
-            // Flips RunMode in place (works in both modes) — right after input reads the key edge.
-            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
-        p.Add("levelLoad", levelLoadSystems, EditTimeBehavior.RunNormally);
-        if (_editor != null)
-            // Native-scene loading (LoadSceneRequest) — with the level-load group, message-driven.
-            p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
-        // Game logic + physics + dialogue — FROZEN in Edit (runs only in Play).
-        p.Add("logic", logicSystems, EditTimeBehavior.Freeze);
+        });
         if (_editor != null)
         {
             // Delete/undo/redo, then the gizmo — BEFORE HierarchySystem so a transform edit
@@ -434,10 +440,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (_editor != null)
         {
             // Toolbar mesh prep + clicks (hidden in Play), the systems panel (after the toolbar,
-            // whose woven mesh prep bakes its checkbox meshes), then edit-time camera navigation —
+            // whose mesh prep bakes its checkbox meshes), then edit-time camera navigation —
             // BEFORE CursorPositionSystem so the camera mutation this frame is what the cursor's
             // world position derives from (no one-frame lag).
-            p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.ToolbarMeshPrep);
+                g.Add("clicks", _editor.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -460,20 +470,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
-
-        // Systems that prepare DrawComponent based on state (can often be parallel)
-        var prepDrawSystems = new SequentialSystem<GameState>( // Or parallel if clearing is handled carefully
-            // Optional: A system to clear all DrawComponents first?
-            // new ClearDrawComponentSystem(_world),
-            new CullingSystem(_world, _camera),
-            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
-            new YSortSystem(_world, _camera, _layers),
-            new TextPrepSystem(_world, pixelPerfectRendering),
-            new MeshPrepSystem(_world),
-            new ColliderDebugSystem(_world),
-            new SpriteDebugSystem(_world)
-            // ... other systems preparing DrawElements (UI, particles, etc.)
-        );
 
         // One render pass per view: the world (Main) through the camera, plus screen-space
         // UI and HUD. Compose more instances for minimaps / splitscreen / CCTV / portals.
@@ -507,7 +503,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // The DrawComponent prep chain, as a group with named children (panel-visible).
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering));
+            g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("colliderDebug", new ColliderDebugSystem(_world));
+            g.Add("spriteDebug", new SpriteDebugSystem(_world));
+            // ... other systems preparing DrawElements (UI, particles, etc.)
+        });
         if (_editor != null)
             // Selection runs at the END of the prep phase so it reads the FINAL post-YSort
             // DrawComponent.LayerDepth computed THIS frame. The cursor's click edge (set in the

@@ -31,6 +31,17 @@ public static class SystemsPanelLayout
     /// <summary>Gap between the checkbox and the row label, px.</summary>
     public const int CheckboxGap = 8;
 
+    /// <summary>Horizontal indent per tree depth level, px: a group's children shift one step
+    /// right of the group row (the registrar's <c>EditorPipelineEntry.Depth</c>).</summary>
+    public const int IndentPerDepth = 14;
+
+    /// <summary>The indeterminate (mixed) minus bar inside a group checkbox, px (the
+    /// Gmail/Material partial-selection mark).</summary>
+    public const int MinusBarWidth = 8;
+
+    /// <summary>See <see cref="MinusBarWidth"/>.</summary>
+    public const int MinusBarHeight = 2;
+
     /// <summary>Lines scrolled per mouse-wheel notch (a notch = 120 wheel units).</summary>
     public const int LinesPerNotch = 3;
 
@@ -63,14 +74,23 @@ public static class SystemsPanelLayout
         return new Rectangle(content.X, content.Y + visibleIndex * RowHeight, content.Width, RowHeight);
     }
 
-    /// <summary>The checkbox square inside an entry row's line rectangle, vertically centered.</summary>
-    public static Rectangle CheckboxRect(Rectangle line) => new(
-        line.X, line.Y + (RowHeight - CheckboxSize) / 2, CheckboxSize, CheckboxSize);
+    /// <summary>The checkbox square inside an entry row's line rectangle, vertically centered
+    /// and indented <paramref name="depth"/> tree levels.</summary>
+    public static Rectangle CheckboxRect(Rectangle line, int depth = 0) => new(
+        line.X + depth * IndentPerDepth, line.Y + (RowHeight - CheckboxSize) / 2,
+        CheckboxSize, CheckboxSize);
+
+    /// <summary>The indeterminate minus bar, centered inside a checkbox rectangle.</summary>
+    public static Rectangle MinusBarRect(Rectangle checkbox) => new(
+        checkbox.X + (CheckboxSize - MinusBarWidth) / 2,
+        checkbox.Y + (CheckboxSize - MinusBarHeight) / 2,
+        MinusBarWidth, MinusBarHeight);
 
     /// <summary>Top-left of an entry row's label (after the checkbox), vertically centered for
-    /// a label of <paramref name="labelHeight"/> px.</summary>
-    public static Vector2 LabelPosition(Rectangle line, float labelHeight) => new(
-        line.X + CheckboxSize + CheckboxGap, line.Y + (RowHeight - labelHeight) / 2f);
+    /// a label of <paramref name="labelHeight"/> px, indented <paramref name="depth"/> levels.</summary>
+    public static Vector2 LabelPosition(Rectangle line, float labelHeight, int depth = 0) => new(
+        line.X + depth * IndentPerDepth + CheckboxSize + CheckboxGap,
+        line.Y + (RowHeight - labelHeight) / 2f);
 
     /// <summary>Top-left of a section header label (no checkbox indent).</summary>
     public static Vector2 HeaderPosition(Rectangle line, float labelHeight) => new(

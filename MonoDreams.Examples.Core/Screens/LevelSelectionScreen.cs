@@ -326,13 +326,6 @@ public class LevelSelectionScreen : IGameScreen
             if (_editor.HasEditorOpPlan) cursorInputSystem.SkipHardwareRead = true;
         }
 
-        // Layout systems must run before UI systems to position elements
-        var layoutSystems = new SequentialSystem<GameState>(
-            new IntrinsicSizingSystem(_world),     // Measure content sizes via callbacks
-            new AutoLayoutSystem(_world, _viewportManager),  // Calculate and apply layout
-            new LayoutDebugSystem(_world, _font, _camera)   // Debug visualization (toggle with LayoutDebugSystem.Enabled)
-        );
-
         // Hierarchy system must run AFTER any systems that modify transforms
         // but BEFORE any systems read world transforms (rendering, etc.)
         var hierarchySystem = new HierarchySystem(_world);
@@ -355,8 +348,15 @@ public class LevelSelectionScreen : IGameScreen
         }
         // The auto-layout solver is the menu's content placement (the level-parser analogue):
         // RunNormally, or booting straight into Edit would show an unlaid-out menu. Trade-off:
-        // layout-managed transforms are solver-owned, so they are not gizmo-editable.
-        p.Add("layout", layoutSystems, EditTimeBehavior.RunNormally);
+        // layout-managed transforms are solver-owned, so they are not gizmo-editable. Layout
+        // systems must run before UI systems to position elements.
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world)); // measure via callbacks
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager)); // calc + apply
+            // Debug visualization (toggle with LayoutDebugSystem.Enabled).
+            g.Add("debug", new LayoutDebugSystem(_world, _font, _camera));
+        });
         // Menu button interaction FREEZES in Edit: a click there belongs to the editor (selection
         // / gizmo / chrome), never to a screen transition. F1 (Play) or the systems panel re-arms it.
         p.Add("ui.interaction", new ButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
@@ -374,7 +374,11 @@ public class LevelSelectionScreen : IGameScreen
         p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.ToolbarMeshPrep);
+                g.Add("clicks", _editor.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -391,20 +395,6 @@ public class LevelSelectionScreen : IGameScreen
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
-
-        // The menu's own content is text + button meshes, so it needs only TextPrepSystem. With
-        // the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added so a
-        // native scene loaded/pasted while editing actually previews (self-sufficient overlay);
-        // the menu's DrawLayerMap has no Y-sorted layer, so YSortSystem passes depths through and
-        // selection picks on the final (source-derived) LayerDepth — documented degradation.
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
-                new YSortSystem(_world, _camera, _layers),
-                new TextPrepSystem(_world, pixelPerfectRendering))
-            : new SequentialSystem<GameState>(
-                new TextPrepSystem(_world, pixelPerfectRendering));
 
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
@@ -435,7 +425,21 @@ public class LevelSelectionScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // The menu's own content is text + button meshes, so it needs only TextPrepSystem. With
+        // the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added so a
+        // native scene loaded/pasted while editing actually previews (self-sufficient overlay);
+        // the menu's DrawLayerMap has no Y-sorted layer, so YSortSystem passes depths through and
+        // selection picks on the final (source-derived) LayerDepth — documented degradation.
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled)
+            {
+                g.Add("culling", new CullingSystem(_world, _camera));
+                g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering));
+                g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            }
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
         p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);

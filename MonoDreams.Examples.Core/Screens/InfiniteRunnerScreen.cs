@@ -324,56 +324,31 @@ public class InfiniteRunnerScreen : IGameScreen
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
 
-        ISystem<GameState> inputSystems;
         if (replaySystem != null)
         {
             inputMappingSystem.SkipHardwareRead = true;
-            inputSystems = new SequentialSystem<GameState>(replaySystem, inputMappingSystem);
             // Hold the session open: a coexisting keyboard replay's auto-exit-on-drain defers to
             // the editor-op driver, which owns the exit.
             if (_editor?.SuppressReplayAutoExit != null)
                 replaySystem.SuppressAutoExit = _editor.SuppressReplayAutoExit;
         }
-        else
-        {
-            inputSystems = inputMappingSystem;
-        }
-
-        var runnerMovement = new MonoDreams.Examples.System.Runner.RunnerMovementSystem(_world);
-        var treadmillScroll = new MonoDreams.Examples.System.Runner.TreadmillScrollSystem(_world);
-        var runnerSpawner = new MonoDreams.Examples.System.Runner.RunnerSpawnerSystem(_world);
-        var runnerCollisionHandler = new MonoDreams.Examples.System.Runner.RunnerCollisionHandlerSystem(_world);
-        var gameOver = new MonoDreams.Examples.System.Runner.GameOverSystem(_world, _game, _font);
-        var offScreenCleanup = new MonoDreams.Examples.System.Runner.OffScreenCleanupSystem(_world);
-        var scoreDisplay = new MonoDreams.Examples.System.Runner.ScoreDisplaySystem(_world);
 
         var entitySpawnSystem = new MonoDreams.System.EntitySpawn.EntitySpawnSystem(_world, null, _renderTargets);
         entitySpawnSystem.RegisterEntityFactory("Charm", new MonoDreams.Examples.EntityFactory.CharmFactory(_layers));
         entitySpawnSystem.RegisterEntityFactory("Obstacle", new MonoDreams.Examples.EntityFactory.ObstacleFactory(_layers));
 
-        var logicSystems = new SequentialSystem<GameState>(
-            entitySpawnSystem,
-            runnerMovement,
-            new GravitySystem(_world, _parallelRunner, RunnerConstants.WorldGravity, RunnerConstants.MaxFallVelocity),
-            treadmillScroll,
-            runnerSpawner,
-            new TransformVelocitySystem(_world, _parallelRunner),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateRunnerCollision),
-            new TransformPhysicalCollisionResolutionSystem(_world),
-            runnerCollisionHandler,
-            new TransformCommitSystem(_world, _parallelRunner),
-            gameOver,
-            offScreenCleanup,
-            scoreDisplay
-        );
-
         var hierarchySystem = new HierarchySystem(_world);
 
-        // ---- Weave the update pipeline through the registrar. With the editor off, RunMode
-        // never leaves Play and every gate is a pass-through, so the pipeline behaves exactly
-        // as the pre-editor SequentialSystem(input, logic, hierarchy). ----
+        // ---- Weave the update pipeline through the registrar. Composite blocks are registrar
+        // GROUPS with named children (panel-visible). With the editor off, RunMode never leaves
+        // Play and every gate is a pass-through, so the pipeline behaves exactly as the
+        // pre-editor SequentialSystem(input, logic, hierarchy). ----
         var p = _updatePipeline;
-        p.Add("input", inputSystems, EditTimeBehavior.RunNormally);
+        p.AddGroup("input", EditTimeBehavior.RunNormally, g =>
+        {
+            if (replaySystem != null) g.Add("replay", replaySystem);
+            g.Add("mapping", inputMappingSystem);
+        });
         if (_editor != null)
         {
             // The overlay-provided cursor pipeline (the runner has none): raw mouse state now,
@@ -384,8 +359,25 @@ public class InfiniteRunnerScreen : IGameScreen
         }
         // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
         // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every
-        // frame and would run the scene out from under the gizmo.
-        p.Add("logic", logicSystems, EditTimeBehavior.Freeze);
+        // frame and would run the scene out from under the gizmo. One Freeze gate on the group.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("entitySpawn", entitySpawnSystem);
+            g.Add("movement", new MonoDreams.Examples.System.Runner.RunnerMovementSystem(_world));
+            g.Add("gravity", new GravitySystem(_world, _parallelRunner,
+                RunnerConstants.WorldGravity, RunnerConstants.MaxFallVelocity));
+            g.Add("treadmillScroll", new MonoDreams.Examples.System.Runner.TreadmillScrollSystem(_world));
+            g.Add("spawner", new MonoDreams.Examples.System.Runner.RunnerSpawnerSystem(_world));
+            g.Add("velocity", new TransformVelocitySystem(_world, _parallelRunner));
+            g.Add("collisionDetect",
+                new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateRunnerCollision));
+            g.Add("collisionResolve", new TransformPhysicalCollisionResolutionSystem(_world));
+            g.Add("collisionHandler", new MonoDreams.Examples.System.Runner.RunnerCollisionHandlerSystem(_world));
+            g.Add("transformCommit", new TransformCommitSystem(_world, _parallelRunner));
+            g.Add("gameOver", new MonoDreams.Examples.System.Runner.GameOverSystem(_world, _game, _font));
+            g.Add("offScreenCleanup", new MonoDreams.Examples.System.Runner.OffScreenCleanupSystem(_world));
+            g.Add("scoreDisplay", new MonoDreams.Examples.System.Runner.ScoreDisplaySystem(_world));
+        });
         if (_editor != null)
         {
             p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
@@ -397,7 +389,11 @@ public class InfiniteRunnerScreen : IGameScreen
         p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.ToolbarMeshPrep);
+                g.Add("clicks", _editor.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
             // The overlay's cursor projection — AFTER camera-nav so the camera mutation this
@@ -414,23 +410,6 @@ public class InfiniteRunnerScreen : IGameScreen
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = MonoDreams.Examples.Settings.SettingsManager.Instance.Settings.PixelPerfectRendering;
-
-        // The runner's own content is meshes + HUD text. With the editor composed, the sprite
-        // prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded/pasted while
-        // editing actually previews (self-sufficient overlay); the runner's DrawLayerMap has no
-        // Y-sorted layer, so YSortSystem passes depths through and selection picks on the final
-        // (source-derived) LayerDepth — documented degradation.
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
-                new YSortSystem(_world, _camera, _layers),
-                new MeshPrepSystem(_world),
-                new TextPrepSystem(_world, pixelPerfectRendering))
-            : new SequentialSystem<GameState>(
-                new MeshPrepSystem(_world),
-                new TextPrepSystem(_world, pixelPerfectRendering)
-            );
 
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
@@ -459,7 +438,22 @@ public class InfiniteRunnerScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // The runner's own content is meshes + HUD text. With the editor composed, the sprite
+        // prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded/pasted while
+        // editing actually previews (self-sufficient overlay); the runner's DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through and selection picks on the final
+        // (source-derived) LayerDepth — documented degradation.
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled)
+            {
+                g.Add("culling", new CullingSystem(_world, _camera));
+                g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering));
+                g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            }
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
         p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);

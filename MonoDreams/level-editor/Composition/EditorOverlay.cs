@@ -45,7 +45,8 @@ namespace MonoDreams.LevelEditor.Composition;
 ///   <item><see cref="EditorCommands"/> then <see cref="Gizmo"/> then <see cref="ProxySync"/> —
 ///   after the frozen logic block, <b>before</b> <c>HierarchySystem</c> (the edit must propagate
 ///   to world space this frame; the proxies re-derive from the same frame's write-back).</item>
-///   <item><see cref="Toolbar"/> — after camera-follow (button mesh prep + click dispatch).</item>
+///   <item><see cref="ToolbarMeshPrep"/> then <see cref="ToolbarClicks"/> (the
+///   <c>editor.toolbar</c> group) — after camera-follow (button mesh prep, then click dispatch).</item>
 ///   <item><see cref="CameraNav"/> — <b>before</b> <c>CursorPositionSystem</c> (the camera
 ///   mutation this frame is what the cursor's world position derives from).</item>
 ///   <item><see cref="Shell"/> — after <c>CursorDrawPrepSystem</c> (syncs the viewport inset +
@@ -158,9 +159,11 @@ public sealed class EditorOverlay
         // whose target the screen composites 1:1 above the game layers via ChromeLayer.
         Chrome = new EditorChromeBuilder(world, toolbarFont);
         Chrome.Build(viewportManager.ScreenWidth, viewportManager.ScreenHeight);
-        Toolbar = new SequentialSystem<GameState>(
-            new ButtonMeshPrepSystem(world),
-            new ToolbarSystem(world, DispatchToolbarAction));
+        // Exposed as two hooks (not one opaque composite) so the screen registers them as the
+        // named children of an `editor.toolbar` registrar group — every system stays visible and
+        // individually toggleable in the systems panel.
+        ToolbarMeshPrep = new ButtonMeshPrepSystem(world);
+        ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction);
         // The systems panel (Wave 8a) binds lazily to the pipelines the screen hands over via
         // BindPipelines — they don't exist yet while the overlay itself is being constructed.
         SystemsPanel = new SystemsPanelSystem(world, viewportManager, toolbarFont,
@@ -212,13 +215,19 @@ public sealed class EditorOverlay
     /// from), before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> ProxySync { get; }
 
-    /// <summary>Button mesh prep + toolbar clicks (native-pixel hit-test). Weave after camera-follow.</summary>
-    public ISystem<GameState> Toolbar { get; }
+    /// <summary>The chrome button mesh prep. Weave with <see cref="ToolbarClicks"/> as the
+    /// children of an <c>editor.toolbar</c> registrar group (mesh prep first), after
+    /// camera-follow.</summary>
+    public ISystem<GameState> ToolbarMeshPrep { get; }
+
+    /// <summary>The toolbar click dispatch (native-pixel hit-test). Weave right after
+    /// <see cref="ToolbarMeshPrep"/> (see there).</summary>
+    public ISystem<GameState> ToolbarClicks { get; }
 
     /// <summary>The systems panel in the shell's right strip: lists every bound registrar entry
-    /// (update + draw) with its policy and a live enabled toggle. Weave after <see cref="Toolbar"/>
-    /// (the woven mesh prep bakes its checkbox meshes). Requires <see cref="BindPipelines"/> —
-    /// until then it idles.</summary>
+    /// (update + draw, groups indented, tri-state group checkboxes) with its policy and a live
+    /// enabled toggle. Weave after the <c>editor.toolbar</c> group (whose mesh prep bakes its
+    /// checkbox meshes). Requires <see cref="BindPipelines"/> — until then it idles.</summary>
     public ISystem<GameState> SystemsPanel { get; }
 
     /// <summary>Editor pan/zoom/frame (Edit-guarded). Weave before <c>CursorPositionSystem</c>.</summary>

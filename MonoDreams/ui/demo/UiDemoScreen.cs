@@ -1331,25 +1331,6 @@ public class UiDemoScreen : IGameScreen
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
-        // The whole widget interaction block freezes in Edit: a click/keystroke belongs to the
-        // editor (selection / gizmo / chrome), never to focus nav, text input, tabs, or the
-        // overlay widgets. F1 (Play) or the systems panel re-arms it.
-        var widgetSystems = new SequentialSystem<GameState>(
-            new DemoButtonInteractionSystem(_world),   // drives the HUD header's back/exit chrome
-            // Focus navigation, scoped to the topmost open overlay's group (modal trapping).
-            new UIFocusSystem(_world, _up, _down, _left, _right, _next, _prev, _activate, ComputeActiveGroup),
-            new ButtonVisualSystem(_world, _theme),
-            new ToggleSwitchSystem(_world),
-            new TextInputSystem(_world),
-            new TabSystem(_world),
-            new UiDemoTickSystem(this),  // sets ScrollViewComponent.Enabled before ScrollViewSystem reads it
-            // Overlay widget systems (show/hide + focus-gate): mirror TabSystem; modal focus is the
-            // ComputeActiveGroup accessor above, not these systems.
-            new DialogSystem(_world),
-            new DropdownSystem(_world),
-            new ComboboxSystem(_world),
-            new ScrollViewSystem(_world));
-
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
         var p = _updatePipeline;
@@ -1363,10 +1344,32 @@ public class UiDemoScreen : IGameScreen
             p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
-        p.Add("layout", new SequentialSystem<GameState>(
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
-        p.Add("ui.interaction", widgetSystems, EditTimeBehavior.Freeze);
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
+        // The whole widget interaction block freezes in Edit: a click/keystroke belongs to the
+        // editor (selection / gizmo / chrome), never to focus nav, text input, tabs, or the
+        // overlay widgets. F1 (Play) or the systems panel re-arms it. One Freeze gate on the group.
+        p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("buttons", new DemoButtonInteractionSystem(_world)); // the HUD header's back/exit chrome
+            // Focus navigation, scoped to the topmost open overlay's group (modal trapping).
+            g.Add("focus", new UIFocusSystem(
+                _world, _up, _down, _left, _right, _next, _prev, _activate, ComputeActiveGroup));
+            g.Add("buttonVisuals", new ButtonVisualSystem(_world, _theme));
+            g.Add("toggles", new ToggleSwitchSystem(_world));
+            g.Add("textInput", new TextInputSystem(_world));
+            g.Add("tabs", new TabSystem(_world));
+            g.Add("tick", new UiDemoTickSystem(this)); // sets ScrollViewComponent.Enabled before ScrollViewSystem reads it
+            // Overlay widget systems (show/hide + focus-gate): mirror TabSystem; modal focus is the
+            // ComputeActiveGroup accessor above, not these systems.
+            g.Add("dialogs", new DialogSystem(_world));
+            g.Add("dropdowns", new DropdownSystem(_world));
+            g.Add("combobox", new ComboboxSystem(_world));
+            g.Add("scrollView", new ScrollViewSystem(_world));
+        });
         if (_editor != null)
         {
             p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
@@ -1379,7 +1382,11 @@ public class UiDemoScreen : IGameScreen
             EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -1403,25 +1410,6 @@ public class UiDemoScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
-        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
-        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
-        // (No demo entity carries SpriteInfoComponent, so CullingSystem never touches the
-        // manually-toggled tab/overlay meshes.)
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new YSortSystem(_world, _camera, _layers),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world))
-            : new SequentialSystem<GameState>(
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world));
-
         var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
@@ -1435,7 +1423,20 @@ public class UiDemoScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
+        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
+        // (No demo entity carries SpriteInfoComponent, so CullingSystem never touches the
+        // manually-toggled tab/overlay meshes.)
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

@@ -212,9 +212,11 @@ public class DemoLauncherScreen : IGameScreen
         }
         // The auto-layout solver is the menu's content placement: RunNormally, or booting
         // straight into Edit would show an unlaid-out menu.
-        p.Add("layout", new SequentialSystem<GameState>(
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
         // Menu button interaction FREEZES in Edit: a click there belongs to the editor, never to
         // a screen transition (which would tear this screen down mid-editing). F1 re-arms it.
         p.Add("ui.interaction", new DemoButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
@@ -230,7 +232,11 @@ public class DemoLauncherScreen : IGameScreen
         p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -248,26 +254,6 @@ public class DemoLauncherScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // The launcher's own content is text + button/cursor meshes. With the editor composed,
-        // the sprite prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded
-        // while editing actually previews; the demo DrawLayerMap has no Y-sorted layer, so
-        // YSortSystem passes depths through — documented graceful degradation.
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new YSortSystem(_world, _camera, _layers),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                // ButtonMeshPrepSystem must run AFTER MeshPrepSystem: button outlines are
-                // baked in world coords and clear WorldMatrix to identity.
-                new ButtonMeshPrepSystem(_world))
-            : new SequentialSystem<GameState>(
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world));
-
         var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
@@ -279,7 +265,21 @@ public class DemoLauncherScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // The launcher's own content is text + button/cursor meshes. With the editor composed,
+        // the sprite prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded
+        // while editing actually previews; the demo DrawLayerMap has no Y-sorted layer, so
+        // YSortSystem passes depths through — documented graceful degradation.
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            // ButtonMeshPrepSystem must run AFTER MeshPrepSystem: button outlines are
+            // baked in world coords and clear WorldMatrix to identity.
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

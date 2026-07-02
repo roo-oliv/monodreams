@@ -884,29 +884,38 @@ public class CameraDemoScreen : IGameScreen
             p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
-        p.Add("layout", new SequentialSystem<GameState>(
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
         // Demo UI interaction FREEZES in Edit: a click belongs to the editor, never to a mode
         // switch / back / exit (which would tear the screen down mid-editing).
-        p.Add("ui.interaction", new SequentialSystem<GameState>(
-            new DemoButtonInteractionSystem(_world),
-            new ToggleSwitchSystem(_world)), EditTimeBehavior.Freeze);
+        p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("buttons", new DemoButtonInteractionSystem(_world));
+            g.Add("toggles", new ToggleSwitchSystem(_world));
+        });
         // The demo simulation freezes in Edit: ball movement, mode shortcuts, and corner
         // priority all mutate transforms/targets per frame.
-        p.Add("logic", new SequentialSystem<GameState>(
-            new PlayerBallMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight, BallRadius, MoveSpeed),
-            new CameraDemoInputSystem(this),
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("ballMovement", new PlayerBallMovementSystem(
+                _world, BoundaryHalfWidth, BoundaryHalfHeight, BallRadius, MoveSpeed));
+            g.Add("demoInput", new CameraDemoInputSystem(this));
             // Runs after the ball moved and after mode switches, before the follow
             // system, so the right target is active when the camera resolves.
-            new CornerPrioritySystem(this)), EditTimeBehavior.Freeze);
+            g.Add("cornerPriority", new CornerPrioritySystem(this));
+        });
         // In Edit the editor owns the camera (editor.cameraNav): follow + lag-zoom freeze, or
         // they would fight the editor's pan/zoom every frame.
-        p.Add("cameraFollow", new SequentialSystem<GameState>(
-            new CameraFollowSystem(_world, _camera),
+        p.AddGroup("cameraFollow", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("follow", new CameraFollowSystem(_world, _camera));
             // Runs after the follow system so it reads this frame's resolved
             // camera position when measuring the lag behind the red dot.
-            new CameraLagZoomSystem(_world, _camera, this)), EditTimeBehavior.Freeze);
+            g.Add("lagZoom", new CameraLagZoomSystem(_world, _camera, this));
+        });
         if (_editor != null)
         {
             p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
@@ -916,7 +925,11 @@ public class CameraDemoScreen : IGameScreen
         p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -939,25 +952,6 @@ public class CameraDemoScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // The demo's own content is meshes + text. With the editor composed, the sprite prep
-        // chain (cull → sprite prep → Y-sort) is added so a native scene loaded while editing
-        // actually previews; the demo DrawLayerMap has no Y-sorted layer, so YSortSystem passes
-        // depths through — documented graceful degradation. (No demo entity carries
-        // SpriteInfoComponent, so CullingSystem never touches the manually-toggled meshes.)
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new YSortSystem(_world, _camera, _layers),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world))
-            : new SequentialSystem<GameState>(
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world));
-
         // Composite the targets onto the screen; the minimap lands in its bottom-right box and
         // the editor chrome (when composed) sits topmost at native resolution.
         var renderLayers = new List<RenderLayer>
@@ -972,7 +966,20 @@ public class CameraDemoScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // The demo's own content is meshes + text. With the editor composed, the sprite prep
+        // chain (cull → sprite prep → Y-sort) is added so a native scene loaded while editing
+        // actually previews; the demo DrawLayerMap has no Y-sorted layer, so YSortSystem passes
+        // depths through — documented graceful degradation. (No demo entity carries
+        // SpriteInfoComponent, so CullingSystem never touches the manually-toggled meshes.)
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
         // World view through the main camera, plus screen-space UI/HUD passes.

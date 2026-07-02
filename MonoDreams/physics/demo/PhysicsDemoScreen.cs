@@ -612,23 +612,6 @@ public class PhysicsDemoScreen : IGameScreen
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
-        // Reference physics pipeline order (per docs/CORE_TENETS.md §5):
-        //   Movement → Velocity → Detection → Resolution → Commit
-        // Movement here is gravity-only; ball↔ball/ball↔wall bouncing is the
-        // custom resolution stage that subscribes to CollisionMessage.
-        // The WHOLE simulation freezes in Edit — it would bounce the balls out from under the
-        // designer (and the gizmo) every frame.
-        var logicSystems = new SequentialSystem<GameState>(
-            new PhysicsDemoInputSystem(this),
-            new GatedGravitySystem(_world, _runner, this),
-            new BallRestSystem(_world, this),
-            new GatedVelocitySystem(_world, _runner, this),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateCollisionMessage),
-            new BallBounceSystem(_world, this),
-            new BallSpeedClampSystem(_world, MaxBallSpeed),
-            new FlashSystem(_world),
-            new TransformCommitSystem(_world, _runner));
-
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
         var p = _updatePipeline;
@@ -639,16 +622,38 @@ public class PhysicsDemoScreen : IGameScreen
             p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
-        p.Add("layout", new SequentialSystem<GameState>(
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager)), EditTimeBehavior.RunNormally);
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
         // Demo UI interaction FREEZES in Edit: a click belongs to the editor, never to a
         // toggle / text field / back / exit (which would tear the screen down mid-editing).
-        p.Add("ui.interaction", new SequentialSystem<GameState>(
-            new DemoButtonInteractionSystem(_world),
-            new TextInputSystem(_world),
-            new ToggleSwitchSystem(_world)), EditTimeBehavior.Freeze);
-        p.Add("logic", logicSystems, EditTimeBehavior.Freeze);
+        p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("buttons", new DemoButtonInteractionSystem(_world));
+            g.Add("textInput", new TextInputSystem(_world));
+            g.Add("toggles", new ToggleSwitchSystem(_world));
+        });
+        // Reference physics pipeline order (per docs/CORE_TENETS.md §5):
+        //   Movement → Velocity → Detection → Resolution → Commit
+        // Movement here is gravity-only; ball↔ball/ball↔wall bouncing is the
+        // custom resolution stage that subscribes to CollisionMessage.
+        // The WHOLE simulation freezes in Edit — it would bounce the balls out from under the
+        // designer (and the gizmo) every frame. One Freeze gate on the group.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("demoInput", new PhysicsDemoInputSystem(this));
+            g.Add("gravity", new GatedGravitySystem(_world, _runner, this));
+            g.Add("rest", new BallRestSystem(_world, this));
+            g.Add("velocity", new GatedVelocitySystem(_world, _runner, this));
+            g.Add("collisionDetect",
+                new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateCollisionMessage));
+            g.Add("bounce", new BallBounceSystem(_world, this));
+            g.Add("speedClamp", new BallSpeedClampSystem(_world, MaxBallSpeed));
+            g.Add("flash", new FlashSystem(_world));
+            g.Add("transformCommit", new TransformCommitSystem(_world, _runner));
+        });
         if (_editor != null)
         {
             p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
@@ -658,7 +663,11 @@ public class PhysicsDemoScreen : IGameScreen
         p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            p.Add("editor.toolbar", _editor.Overlay.Toolbar, EditTimeBehavior.RunNormally);
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+            });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
         }
@@ -676,23 +685,6 @@ public class PhysicsDemoScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
-        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
-        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
-        var prepDrawSystems = _editorEnabled
-            ? new SequentialSystem<GameState>(
-                new CullingSystem(_world, _camera),
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new YSortSystem(_world, _camera, _layers),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world))
-            : new SequentialSystem<GameState>(
-                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-                new TextPrepSystem(_world, pixelPerfectRendering: false),
-                new MeshPrepSystem(_world),
-                new ButtonMeshPrepSystem(_world));
-
         var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
@@ -704,7 +696,18 @@ public class PhysicsDemoScreen : IGameScreen
 
         // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
         var p = _drawPipeline;
-        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
+        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
         if (_editor != null)
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

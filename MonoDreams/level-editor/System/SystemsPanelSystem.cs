@@ -26,6 +26,16 @@ namespace MonoDreams.LevelEditor.System;
 /// in <b>both</b> modes), so a gamedev can watch the ECS pipeline and turn systems on/off live —
 /// e.g. re-enable a Freeze-gated collision block while editing, or silence a debug draw system.
 ///
+/// <para><b>The tree (registrar groups).</b> The flattened <c>Entries</c> enumeration includes
+/// registrar groups and their children in pre-order; the panel renders one row per entry,
+/// indented by <see cref="EditorPipelineEntry.Depth"/> (child rows show their
+/// <see cref="EditorPipelineEntry.LocalName"/> — the indentation conveys the group — and repeat
+/// the policy tag only when it differs from their group's). A group row's checkbox is
+/// <b>tri-state</b> (<see cref="PipelineEnabledState"/>): filled = every descendant leaf enabled,
+/// empty = none, filled with a dark <b>minus bar</b> = mixed (the Gmail/Material indeterminate
+/// mark). Clicking a group cascades with the Gmail convention: checked or indeterminate → all
+/// descendants off; unchecked → all on. Leaf rows keep their two-state toggle.</para>
+///
 /// <para><b>Chrome, native pixels.</b> Rows are ordinary chrome entities on
 /// <c>RenderTargetID.Editor</c> (checkboxes are fill-only <see cref="SimpleButtonComponent"/>
 /// meshes prepped by the woven <c>ButtonMeshPrepSystem</c>; labels are
@@ -50,7 +60,8 @@ namespace MonoDreams.LevelEditor.System;
 /// built once. The row entities are owned by this system (private visuals, like the gizmo's
 /// overlay entities — no other system reads them, so they carry no dedicated component).</para>
 ///
-/// <para><b>Self-protection.</b> The row for this system's own entry (the panel itself) ignores
+/// <para><b>Self-protection.</b> The row for this system's own entry (the panel itself) — and
+/// any ANCESTOR group of it, whose cascade would disable the panel as collateral — ignores
 /// clicks: disabling the panel through the panel would stop its own update — including its
 /// hit-test — leaving no UI path to re-enable it. Every other entry, including
 /// <c>editor.renderChrome</c> (which blanks the whole chrome while the rows keep hit-testing, so
@@ -75,6 +86,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
         public EditorPipelineRegistrar? Registrar;
         public Entity LabelEntity;
         public Entity CheckboxEntity; // default (dead) for headers
+        public Entity MarkEntity;     // the mixed-state minus bar; default (dead) except for groups
     }
 
     private readonly List<Line> _lines = new();
@@ -140,9 +152,9 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     private void BuildSection(string header, EditorPipelineRegistrar registrar)
     {
         _lines.Add(new Line { Label = header, LabelEntity = CreateLabel(header) });
-        foreach (var entry in registrar.Entries)
+        foreach (var entry in registrar.Entries) // flattened pre-order: a group, then its children
         {
-            var label = entry.Name + PolicySuffix(entry.Policy);
+            var label = LineLabel(entry);
             _lines.Add(new Line
             {
                 Label = label,
@@ -150,8 +162,22 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
                 Registrar = registrar,
                 LabelEntity = CreateLabel(label),
                 CheckboxEntity = CreateCheckbox(),
+                // Only groups can be Mixed, so only their rows carry the minus-bar mark.
+                MarkEntity = entry.IsGroup ? CreateMinusBar() : default,
             });
         }
+    }
+
+    /// <summary>An entry row's label: a child shows its LOCAL name (the indentation conveys the
+    /// group) and inherits its group's policy context — the tag repeats only when the child's
+    /// declared policy differs from its parent's.</summary>
+    public static string LineLabel(EditorPipelineEntry entry)
+    {
+        var name = entry.Parent == null ? entry.Name : entry.LocalName;
+        var tag = entry.Parent != null && entry.Policy == entry.Parent.Policy
+            ? string.Empty
+            : PolicySuffix(entry.Policy);
+        return name + tag;
     }
 
     /// <summary>The policy tag rendered after an entry's name. <c>RunNormally</c> is the default
@@ -202,6 +228,25 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
         return box;
     }
 
+    /// <summary>The Gmail/Material indeterminate mark: a small fill-only bar drawn over a group's
+    /// checkbox, made visible (dark against the on-fill) only while the group is Mixed.</summary>
+    private Entity CreateMinusBar()
+    {
+        var bar = _world.CreateEntity();
+        bar.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        bar.Set(new SimpleButtonComponent
+        {
+            Size = new Vector2(SystemsPanelLayout.MinusBarWidth, SystemsPanelLayout.MinusBarHeight),
+            LineThickness = 0f, // fill-only
+            Color = Color.Transparent,
+            FillColor = Color.Transparent, // ReflectState fills it while the group is Mixed
+            Target = RenderTargetID.Editor,
+            LayerDepth = EditorChromeBuilder.CheckboxMarkDepth,
+        });
+        // NOTE: no VisibleComponent (chrome rule), no ToolbarButtonComponent.
+        return bar;
+    }
+
     /// <summary>Scroll + hover + click. Returns the hovered line index (or -1).</summary>
     private int HandleInteraction(Rectangle panel)
     {
@@ -233,10 +278,24 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     private void ToggleLine(Line line)
     {
         if (line.Entry == null || line.Registrar == null) return; // headers don't toggle
-        // Never let the panel disable itself: its own gate off = no update = no hit-test = no
-        // way back from the UI. Every other entry stays toggleable.
-        if (ReferenceEquals(line.Entry.System, this)) return;
-        line.Registrar.SetEnabled(line.Entry.Name, !line.Entry.IsEnabled);
+        // Never let the panel disable itself — nor cascade itself off through an ancestor group:
+        // its own gate off = no update = no hit-test = no way back from the UI. Every other entry
+        // stays toggleable.
+        if (ContainsPanel(line.Entry)) return;
+        // Gmail/Material click semantics: checked OR indeterminate → all off; unchecked → all on.
+        // For a leaf the same rule degenerates to the plain two-state toggle.
+        line.Registrar.SetEnabled(line.Entry.Name, line.Entry.EnabledState == PipelineEnabledState.Off);
+    }
+
+    /// <summary>Whether <paramref name="entry"/> IS this panel's entry, or is a group whose
+    /// descendants include it (so a cascade would disable the panel as collateral).</summary>
+    private bool ContainsPanel(EditorPipelineEntry entry)
+    {
+        if (!entry.IsGroup) return ReferenceEquals(entry.System, this);
+        foreach (var child in entry.Children)
+            if (ContainsPanel(child))
+                return true;
+        return false;
     }
 
     private void PositionLines(Rectangle panel)
@@ -252,6 +311,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
             {
                 Park(line.LabelEntity);
                 if (line.CheckboxEntity.IsAlive) Park(line.CheckboxEntity);
+                if (line.MarkEntity.IsAlive) Park(line.MarkEntity);
                 continue;
             }
 
@@ -262,9 +322,15 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
             }
             else
             {
-                var checkbox = SystemsPanelLayout.CheckboxRect(rect);
+                var depth = line.Entry.Depth;
+                var checkbox = SystemsPanelLayout.CheckboxRect(rect, depth);
                 Place(line.CheckboxEntity, new Vector2(checkbox.X, checkbox.Y));
-                Place(line.LabelEntity, SystemsPanelLayout.LabelPosition(rect, labelHeight));
+                if (line.MarkEntity.IsAlive)
+                {
+                    var bar = SystemsPanelLayout.MinusBarRect(checkbox);
+                    Place(line.MarkEntity, new Vector2(bar.X, bar.Y));
+                }
+                Place(line.LabelEntity, SystemsPanelLayout.LabelPosition(rect, labelHeight, depth));
             }
         }
 
@@ -284,12 +350,26 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
                 continue;
             }
 
+            // Tri-state visuals: On = filled, Off = empty, Mixed (groups) = filled with the dark
+            // minus bar over it (the Gmail/Material indeterminate mark).
+            var state = line.Entry.EnabledState;
             ref var box = ref line.CheckboxEntity.Get<SimpleButtonComponent>();
-            box.FillColor = line.Entry.IsEnabled ? EditorChromeBuilder.CheckboxOnFill : Color.Transparent;
+            box.FillColor = state == PipelineEnabledState.Off
+                ? Color.Transparent
+                : EditorChromeBuilder.CheckboxOnFill;
+            if (line.MarkEntity.IsAlive)
+            {
+                ref var mark = ref line.MarkEntity.Get<SimpleButtonComponent>();
+                mark.FillColor = state == PipelineEnabledState.Mixed
+                    ? EditorChromeBuilder.CheckboxMixedMark
+                    : Color.Transparent;
+            }
 
             var color = i == hoveredIndex
                 ? Color.White
-                : line.Entry.IsEnabled ? EditorChromeBuilder.LabelColor : EditorChromeBuilder.DisabledLabelColor;
+                : state != PipelineEnabledState.Off
+                    ? EditorChromeBuilder.LabelColor
+                    : EditorChromeBuilder.DisabledLabelColor;
             SetLabelColor(line.LabelEntity, color);
         }
     }
@@ -316,6 +396,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
         {
             if (line.LabelEntity.IsAlive) line.LabelEntity.Dispose();
             if (line.CheckboxEntity.IsAlive) line.CheckboxEntity.Dispose();
+            if (line.MarkEntity.IsAlive) line.MarkEntity.Dispose();
         }
         _lines.Clear();
         _cursorSet.Dispose();
