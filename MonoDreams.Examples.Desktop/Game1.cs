@@ -142,15 +142,13 @@ public class Game1 : Game
         }
 #endif
 
-        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
-        // Under the editor run flag the plain game screen composes the editor overlay too (same
-        // composition path as LevelEditorScreen, which pins the flag on for the menu Edit button).
+        // Under the editor run flag EVERY screen composes the editor overlay (Wave 8a: the editor
+        // is screen-agnostic — the menu and the runner are scenes like any level). The runner has
+        // no cursor pipeline of its own, so its overlay brings one (provideCursorPipeline inside
+        // the screen); LevelEditorScreen pins the flag on for the menu's per-level Edit button.
+        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
-        // InfiniteRunner deliberately does NOT compose the overlay yet: it runs no cursor
-        // pipeline (CursorInputSystem/CursorPositionSystem) and its runner systems mutate
-        // transforms outside a Freeze-gated logic block, so it needs its own policy-matrix pass
-        // before the editor is meaningful there (documented follow-up).
-        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(ScreenName.LevelEditor, () => new LevelEditorScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
         if (_editor)

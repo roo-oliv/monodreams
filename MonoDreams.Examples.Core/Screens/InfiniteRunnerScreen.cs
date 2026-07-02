@@ -17,6 +17,7 @@ using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Runner;
 using MonoDreams.Examples.System;
 using MonoDreams.Input;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Message;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
@@ -31,6 +32,23 @@ using MonoDreams.System.Physics;
 
 namespace MonoDreams.Examples.Screens;
 
+/// <summary>
+/// The infinite-runner reference game. Like every Examples screen since Wave 8a, its pipelines
+/// are built through the <see cref="EditorPipelineRegistrar"/> and, when <c>editorEnabled</c> is
+/// true (the <c>--editor</c> / <c>MONODREAMS_EDITOR=1</c> run flag), the <see cref="EditorOverlay"/>
+/// is composed over this screen's own world — the editor is screen-agnostic. This screen runs
+/// <b>no cursor pipeline of its own</b> (the runner is keyboard-only), so the overlay is asked to
+/// provide one (<c>provideCursorPipeline: true</c>): its own <c>CursorInputSystem</c> /
+/// <c>CursorPositionSystem</c> plus a minimal invisible cursor entity — that was this screen's
+/// documented editor blocker. The whole runner logic block (movement, gravity, treadmill scroll,
+/// spawner, collisions, off-screen cleanup, score) is <c>Freeze</c>-gated: those systems mutate
+/// transforms every frame and would run entities out from under the gizmo in Edit. With the flag
+/// off nothing editor-related is constructed and the pipeline is behaviourally identical.
+///
+/// <para>Note: the runner has no camera-follow — its camera is fixed at construction. In Edit the
+/// camera-nav owns the camera (pan/zoom/frame); returning to Play resumes from wherever editing
+/// left the camera (nothing re-pins it), which is the editor previewing exactly what changed.</para>
+/// </summary>
 public class InfiniteRunnerScreen : IGameScreen
 {
     private readonly Game _game;
@@ -48,8 +66,16 @@ public class InfiniteRunnerScreen : IGameScreen
     private InputMappingSystem _inputMappingSystem;
 #endif
 
+    // Wave 8a: the universal editor overlay (null when editorEnabled is false) and the retained
+    // pipeline registries the systems panel binds to.
+    private readonly bool _editorEnabled;
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private EditorOverlay _editor;
+
     public InfiniteRunnerScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
+        bool editorEnabled = false)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -58,6 +84,7 @@ public class InfiniteRunnerScreen : IGameScreen
         _viewportManager = viewportManager;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -73,6 +100,14 @@ public class InfiniteRunnerScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.BindPipelines(_updatePipeline, _drawPipeline);
+            LoadLevelExampleGameScreen.LogEditorComposition(nameof(InfiniteRunnerScreen), _updatePipeline, _drawPipeline);
+        }
     }
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -252,6 +287,40 @@ public class InfiniteRunnerScreen : IGameScreen
             ["Orb"] = InputState.Orb, ["Exit"] = InputState.Exit,
             ["Interact"] = InputState.Interact,
         };
+        if (_editorEnabled)
+        {
+            // Editor replay-action names, mapped only when the overlay is composed so a plain
+            // Play screen's replay surface is unchanged.
+            actionMap["Editor"] = InputState.Editor;
+            actionMap["Delete"] = InputState.Delete;
+            actionMap["Undo"] = InputState.Undo;
+            actionMap["Redo"] = InputState.Redo;
+            actionMap["Frame"] = InputState.Frame;
+        }
+
+        // The editor overlay (Wave 8a), built over THIS screen's world/camera/layers. The runner
+        // has no cursor pipeline (keyboard-only game), so the overlay provides its own
+        // (provideCursorPipeline: true) — cursor input/position systems + a minimal invisible
+        // cursor entity. Chrome uses the same PPMondwest font as every other screen's shell.
+        if (_editorEnabled)
+        {
+            var chromeFont = _content.Load<MonoGame.Extended.BitmapFonts.BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+            _editor = new EditorOverlay(
+                _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
+                _viewportManager,
+                new EditorInputBindings(
+                    toggleEditRequested: _ => InputState.Editor.JustPressed(),
+                    deleteRequested: _ => InputState.Delete.JustPressed(),
+                    undoRequested: _ => InputState.Undo.JustPressed(),
+                    redoRequested: _ => InputState.Redo.JustPressed(),
+                    frameRequested: _ => InputState.Frame.JustPressed()),
+                debugDir,
+                requestExit: _game.Exit,
+                setOsCursorVisible: visible => _game.IsMouseVisible = visible,
+                provideCursorPipeline: true);
+            // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+            if (_editor.HasEditorOpPlan) _editor.CursorInput.SkipHardwareRead = true;
+        }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
 
@@ -260,6 +329,10 @@ public class InfiniteRunnerScreen : IGameScreen
         {
             inputMappingSystem.SkipHardwareRead = true;
             inputSystems = new SequentialSystem<GameState>(replaySystem, inputMappingSystem);
+            // Hold the session open: a coexisting keyboard replay's auto-exit-on-drain defers to
+            // the editor-op driver, which owns the exit.
+            if (_editor?.SuppressReplayAutoExit != null)
+                replaySystem.SuppressAutoExit = _editor.SuppressReplayAutoExit;
         }
         else
         {
@@ -296,21 +369,65 @@ public class InfiniteRunnerScreen : IGameScreen
 
         var hierarchySystem = new HierarchySystem(_world);
 
-        return new SequentialSystem<GameState>(
-            inputSystems,
-            logicSystems,
-            hierarchySystem
-        );
+        // ---- Weave the update pipeline through the registrar. With the editor off, RunMode
+        // never leaves Play and every gate is a pass-through, so the pipeline behaves exactly
+        // as the pre-editor SequentialSystem(input, logic, hierarchy). ----
+        var p = _updatePipeline;
+        p.Add("input", inputSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            // The overlay-provided cursor pipeline (the runner has none): raw mouse state now,
+            // world/virtual projection later (after camera-nav).
+            p.Add("editor.cursorInput", _editor.CursorInput, EditTimeBehavior.RunNormally);
+            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
+            p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+        }
+        // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
+        // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every
+        // frame and would run the scene out from under the gizmo.
+        p.Add("logic", logicSystems, EditTimeBehavior.Freeze);
+        if (_editor != null)
+        {
+            p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Gizmo, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
+            // The overlay's cursor projection — AFTER camera-nav so the camera mutation this
+            // frame is what the cursor's world position derives from (no one-frame lag).
+            p.Add("editor.cursorPosition", _editor.CursorPosition, EditTimeBehavior.RunNormally);
+            p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
+            if (_editor.EditorOpDriver != null)
+                p.Add("editor.opDriver", _editor.EditorOpDriver, EditTimeBehavior.RunNormally);
+        }
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = MonoDreams.Examples.Settings.SettingsManager.Instance.Settings.PixelPerfectRendering;
 
-        var prepDrawSystems = new SequentialSystem<GameState>(
-            new MeshPrepSystem(_world),
-            new TextPrepSystem(_world, pixelPerfectRendering)
-        );
+        // The runner's own content is meshes + HUD text. With the editor composed, the sprite
+        // prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded/pasted while
+        // editing actually previews (self-sufficient overlay); the runner's DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through and selection picks on the final
+        // (source-derived) LayerDepth — documented degradation.
+        var prepDrawSystems = _editorEnabled
+            ? new SequentialSystem<GameState>(
+                new CullingSystem(_world, _camera),
+                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
+                new YSortSystem(_world, _camera, _layers),
+                new MeshPrepSystem(_world),
+                new TextPrepSystem(_world, pixelPerfectRendering))
+            : new SequentialSystem<GameState>(
+                new MeshPrepSystem(_world),
+                new TextPrepSystem(_world, pixelPerfectRendering)
+            );
 
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
@@ -319,12 +436,15 @@ public class InfiniteRunnerScreen : IGameScreen
         var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
             RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-        });
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.ChromeLayer);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers);
 
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
@@ -334,14 +454,20 @@ public class InfiniteRunnerScreen : IGameScreen
             IsEnabled = replayPlan?.Screenshots ?? false
         };
 
-        return new SequentialSystem<GameState>(
-            prepDrawSystems,
-            mainPass,
-            uiPass,
-            hudPass,
-            finalDrawToScreenSystem,
-            screenshotSystem
-        );
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+        p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
+        p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", finalDrawToScreenSystem, EditTimeBehavior.RunNormally);
+        p.Add("screenshots", screenshotSystem, EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()

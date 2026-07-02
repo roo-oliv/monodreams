@@ -9,12 +9,17 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Examples.Component.UI;
+using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Settings;
 using MonoDreams.Examples.System;
 using MonoDreams.Extension;
+using MonoDreams.Input;
+using MonoDreams.LevelEditor.Composition;
+using MonoDreams.Platform;
 using MonoDreams.System;
 using MonoDreams.System.Cursor;
+using MonoDreams.System.Debug;
 using MonoDreams.System.Draw;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.Renderer;
@@ -28,7 +33,22 @@ using MonoGame.Extended.BitmapFonts;
 namespace MonoDreams.Examples.Screens;
 
 /// <summary>
-/// Screen for selecting which level to load.
+/// Screen for selecting which level to load. Like every Examples screen since Wave 8a, its
+/// pipelines are built through the <see cref="EditorPipelineRegistrar"/> (each entry named +
+/// run-state-gated) and, when <c>editorEnabled</c> is true (the <c>--editor</c> /
+/// <c>MONODREAMS_EDITOR=1</c> run flag), the <see cref="EditorOverlay"/> is composed over this
+/// screen's own world — the editor is screen-agnostic; a menu is as editable a scene as a level.
+/// With the flag off nothing editor-related is constructed and the pipeline is behaviourally
+/// identical to the pre-editor screen (RunMode never leaves Play; the gates are pass-throughs).
+///
+/// <para><b>Menu-specific edit policies:</b> <c>ui.interaction</c> (the button click →
+/// screen-transition system) is <c>Freeze</c> — in Edit a click belongs to the editor (selection /
+/// gizmo / chrome), so menu buttons must not fire mid-editing; flip to Play (F1) to use the menu,
+/// or re-enable the entry live from the systems panel. <c>layout</c> stays <c>RunNormally</c>:
+/// the auto-layout solver is the menu's content placement (the analogue of the game screen's level
+/// parsers, which also run in Edit) — freezing it would boot an unlaid-out menu under
+/// <c>--editor</c>. Consequence: layout-managed transforms are owned by the solver and are not
+/// gizmo-editable (documented degradation until menu editing is sprite-based).</para>
 /// </summary>
 public class LevelSelectionScreen : IGameScreen
 {
@@ -44,8 +64,16 @@ public class LevelSelectionScreen : IGameScreen
     private readonly BitmapFont _font;
     private readonly DrawLayerMap _layers;
 
+    // Wave 8a: the universal editor overlay (null when editorEnabled is false) and the retained
+    // pipeline registries the systems panel binds to.
+    private readonly bool _editorEnabled;
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private EditorOverlay _editor;
+
     public LevelSelectionScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
+        bool editorEnabled = false)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -54,6 +82,7 @@ public class LevelSelectionScreen : IGameScreen
         _viewportManager = viewportManager;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
@@ -70,6 +99,14 @@ public class LevelSelectionScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.BindPipelines(_updatePipeline, _drawPipeline);
+            LoadLevelExampleGameScreen.LogEditorComposition(nameof(LevelSelectionScreen), _updatePipeline, _drawPipeline);
+        }
     }
 
     private ScreenController? _screenController;
@@ -263,18 +300,37 @@ public class LevelSelectionScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var inputSystems = new CursorInputSystem(_world);
+        var cursorInputSystem = new CursorInputSystem(_world);
+
+        // The editor overlay (Wave 8a): built over THIS screen's world/camera/layers — the menu is
+        // a scene like any other. The chrome uses the same PPMondwest font as the game screen's
+        // chrome (the content pipeline caches it) so the shell reads identically everywhere.
+        if (_editorEnabled)
+        {
+            var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+                ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
+            var chromeFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+            _editor = new EditorOverlay(
+                _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
+                _viewportManager,
+                new EditorInputBindings(
+                    toggleEditRequested: _ => InputState.Editor.JustPressed(),
+                    deleteRequested: _ => InputState.Delete.JustPressed(),
+                    undoRequested: _ => InputState.Undo.JustPressed(),
+                    redoRequested: _ => InputState.Redo.JustPressed(),
+                    frameRequested: _ => InputState.Frame.JustPressed()),
+                debugDir,
+                requestExit: _game.Exit,
+                setOsCursorVisible: visible => _game.IsMouseVisible = visible);
+            // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+            if (_editor.HasEditorOpPlan) cursorInputSystem.SkipHardwareRead = true;
+        }
 
         // Layout systems must run before UI systems to position elements
         var layoutSystems = new SequentialSystem<GameState>(
             new IntrinsicSizingSystem(_world),     // Measure content sizes via callbacks
             new AutoLayoutSystem(_world, _viewportManager),  // Calculate and apply layout
             new LayoutDebugSystem(_world, _font, _camera)   // Debug visualization (toggle with LayoutDebugSystem.Enabled)
-        );
-
-        var uiSystems = new SequentialSystem<GameState>(
-            new ButtonInteractionSystem(_world),
-            new ButtonMeshPrepSystem(_world)
         );
 
         // Hierarchy system must run AFTER any systems that modify transforms
@@ -284,23 +340,69 @@ public class LevelSelectionScreen : IGameScreen
         // Cursor position must update after layout/UI to use current camera state
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
-        return new SequentialSystem<GameState>(
-            inputSystems,
-            layoutSystems,  // Layout before UI interaction
-            uiSystems,
-            hierarchySystem,                  // Entity hierarchy + transform dirty flag propagation
-            cursorLateUpdateSystem,           // Cursor position updates after camera
-            new CursorDrawPrepSystem(_world)  // Draw prep after position is finalized
-        );
+        // ---- Weave the update pipeline through the registrar. With the editor off every entry
+        // is RunNormally/pass-through and the order matches the pre-editor screen exactly. ----
+        var p = _updatePipeline;
+        p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            // The menu runs no keyboard mapping of its own; the editor needs its key surface
+            // (F1 toggle, Delete, Z/Y, Home) — composed only under the flag.
+            p.Add("editor.keys", new InputMappingSystem(_world), EditTimeBehavior.RunNormally);
+            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
+            // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
+            p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+        }
+        // The auto-layout solver is the menu's content placement (the level-parser analogue):
+        // RunNormally, or booting straight into Edit would show an unlaid-out menu. Trade-off:
+        // layout-managed transforms are solver-owned, so they are not gizmo-editable.
+        p.Add("layout", layoutSystems, EditTimeBehavior.RunNormally);
+        // Menu button interaction FREEZES in Edit: a click there belongs to the editor (selection
+        // / gizmo / chrome), never to a screen transition. F1 (Play) or the systems panel re-arms it.
+        p.Add("ui.interaction", new ButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
+        // The button meshes keep rebuilding in Edit — the menu must keep rendering while edited.
+        p.Add("ui.buttonMeshPrep", new ButtonMeshPrepSystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            // Delete/undo/redo, then the gizmo — BEFORE HierarchySystem so a transform edit
+            // propagates to world space the same frame. Both Edit-guarded internally.
+            p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Gizmo, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
+        }
+        p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
+        p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
+        if (_editor?.EditorOpDriver != null)
+            p.Add("editor.opDriver", _editor.EditorOpDriver, EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = SettingsManager.Instance.Settings.PixelPerfectRendering;
 
-        var prepDrawSystems = new SequentialSystem<GameState>(
-            new TextPrepSystem(_world, pixelPerfectRendering)
-        );
+        // The menu's own content is text + button meshes, so it needs only TextPrepSystem. With
+        // the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added so a
+        // native scene loaded/pasted while editing actually previews (self-sufficient overlay);
+        // the menu's DrawLayerMap has no Y-sorted layer, so YSortSystem passes depths through and
+        // selection picks on the final (source-derived) LayerDepth — documented degradation.
+        var prepDrawSystems = _editorEnabled
+            ? new SequentialSystem<GameState>(
+                new CullingSystem(_world, _camera),
+                new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering),
+                new YSortSystem(_world, _camera, _layers),
+                new TextPrepSystem(_world, pixelPerfectRendering))
+            : new SequentialSystem<GameState>(
+                new TextPrepSystem(_world, pixelPerfectRendering));
 
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
@@ -309,20 +411,40 @@ public class LevelSelectionScreen : IGameScreen
         var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
             RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-        });
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.ChromeLayer);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers);
 
-        return new SequentialSystem<GameState>(
-            prepDrawSystems,
-            mainPass,
-            uiPass,
-            hudPass,
-            finalDrawToScreenSystem
-        );
+        // Debug screenshot capture (parity with the other screens): off unless a replay plan asks
+        // for screenshots, so a normal run is unaffected.
+        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
+        var replayPlan = InputReplayPlan.TryLoad(debugDir);
+        var screenshotSystem = new ScreenshotCaptureSystem(_graphicsDevice, captureIntervalSeconds: 2.0f, debugDir)
+        {
+            IsEnabled = replayPlan?.Screenshots ?? false
+        };
+
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        p.Add("drawPrep", prepDrawSystems, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+        p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
+        p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", finalDrawToScreenSystem, EditTimeBehavior.RunNormally);
+        p.Add("screenshots", screenshotSystem, EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()

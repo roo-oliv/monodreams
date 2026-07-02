@@ -121,7 +121,22 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
         // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
         // panel enumerates/toggles at runtime.
-        _editor?.BindPipelines(_updatePipeline, _drawPipeline);
+        if (_editor != null)
+        {
+            _editor.BindPipelines(_updatePipeline, _drawPipeline);
+            LogEditorComposition(nameof(LoadLevelExampleGameScreen), _updatePipeline, _drawPipeline);
+        }
+    }
+
+    /// <summary>Logs the composed editor pipeline (entry names, in order) — the observable
+    /// contract the universal-overlay integration tests assert per screen.</summary>
+    internal static void LogEditorComposition(string screenName,
+        EditorPipelineRegistrar updatePipeline, EditorPipelineRegistrar drawPipeline)
+    {
+        Logger.Info(
+            $"[level-editor] Editor overlay composed on {screenName}: " +
+            $"update=[{string.Join(", ", updatePipeline.Entries.Select(e => e.Name))}] " +
+            $"draw=[{string.Join(", ", drawPipeline.Entries.Select(e => e.Name))}]");
     }
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -427,10 +442,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
         p.Add("cameraFollow", cameraFollowSystem, EditTimeBehavior.Freeze);
         if (_editor != null)
         {
-            // Toolbar mesh prep + clicks (hidden in Play), then edit-time camera navigation —
+            // Toolbar mesh prep + clicks (hidden in Play), the systems panel (after the toolbar,
+            // whose woven mesh prep bakes its checkbox meshes), then edit-time camera navigation —
             // BEFORE CursorPositionSystem so the camera mutation this frame is what the cursor's
             // world position derives from (no one-frame lag).
             p.Add("editor.toolbar", _editor.Toolbar, EditTimeBehavior.RunNormally);
+            p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
