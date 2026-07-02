@@ -1,10 +1,15 @@
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.State;
 using Xunit;
+using GameCamera = MonoDreams.Component.Camera;
 
 namespace MonoDreams.Tests.LevelEditor;
 
@@ -169,5 +174,71 @@ public class GizmoTests
         history.Redo();
         Assert.Equal(targets[^1], entity.Get<TransformComponent>().Position);
         Assert.Equal(1, history.Count);
+    }
+
+    // ---- GizmoUiTargetTest (Wave 8a): a UI/HUD-target entity lives in virtual space — the gizmo
+    // reads the cursor's VirtualPosition and draws its overlays on the entity's own target ----
+
+    [Fact]
+    public void GizmoUiTargetTest_MoveDragsInVirtualSpace_AndOverlaysFollowTheTarget()
+    {
+        using var world = new World();
+        var history = new EditorHistory(world);
+        // The camera is looking somewhere else entirely with a non-1 zoom: a virtual-space drag
+        // must be unaffected by it (screen-space passes have no camera).
+        var camera = new GameCamera(800, 600) { Zoom = 2f, Position = new Vector2(9000, 9000) };
+
+        // A selected HUD-target sprite at virtual (100, 100).
+        var entity = world.CreateEntity();
+        entity.Set(new TransformComponent(new Vector2(100, 100)));
+        entity.Set(new SpriteInfoComponent
+        {
+            Source = new Rectangle(0, 0, 10, 10),
+            Size = new Vector2(10, 10),
+            Target = RenderTargetID.HUD,
+        });
+        entity.Set(new SelectedComponent());
+
+        // The cursor: the WORLD position is far away (the camera moved); only the VIRTUAL
+        // position addresses the entity. Press exactly on the pivot = the move handle's centre.
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent
+        {
+            WorldPosition = new Vector2(9000, 9000),
+            VirtualPosition = new Vector2(100, 100),
+            LeftButton = true,
+            LeftButtonPressed = true,
+        });
+
+        using var gizmo = new GizmoSystem(world, camera, history);
+        var edit = new GameState(new GameTime()) { RunMode = RunMode.Edit };
+        gizmo.Update(edit); // press: grabs the move handle at the virtual pivot
+
+        // The overlay entities draw on the entity's own target (HUD), not Main.
+        using var overlays = world.GetEntities().With<GizmoOverlayComponent>().AsSet();
+        var overlayCount = 0;
+        foreach (var overlay in overlays.GetEntities())
+        {
+            overlayCount++;
+            Assert.Equal(RenderTargetID.HUD, overlay.Get<DrawComponent>().Target);
+        }
+        Assert.Equal(2, overlayCount); // outline + handle
+
+        // Drag +30/+10 in VIRTUAL coordinates (the world position stays wherever the camera is).
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.VirtualPosition = new Vector2(130, 110);
+        gizmo.Update(edit);
+
+        // Release → the move applied the raw virtual delta, one undo step.
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(edit);
+
+        Assert.Equal(new Vector2(130, 110), entity.Get<TransformComponent>().Position);
+        Assert.Equal(1, history.Count);
+        history.Undo();
+        Assert.Equal(new Vector2(100, 100), entity.Get<TransformComponent>().Position);
     }
 }

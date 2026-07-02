@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MonoDreams.Input;
+using MonoDreams.LevelEditor.Channel;
 using MonoDreams.State;
 
 namespace MonoDreams.Tests;
@@ -126,15 +127,27 @@ public static class GameTestRunner
 
     /// <summary>
     /// Runs the Examples host headless under an input-replay plan and collects its log.
+    /// <paramref name="environment"/> adds extra process environment variables (e.g.
+    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). <paramref name="editorOpPlan"/> drops an
+    /// <c>editor_op_plan.json</c> into the debug dir — the headless editor-op channel; useful on
+    /// screens without an <c>InputReplaySystem</c> (the menu), where the op driver owns the exit.
     /// </summary>
-    public static async Task<GameTestResult> RunAsync(InputReplayPlan plan, int timeoutSeconds = 30)
+    public static async Task<GameTestResult> RunAsync(InputReplayPlan plan, int timeoutSeconds = 30,
+        IReadOnlyDictionary<string, string>? environment = null, EditorOpPlan? editorOpPlan = null)
     {
         var debugDir = CreateDebugDir();
 
         var replayJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(Path.Combine(debugDir, "input_replay.json"), replayJson);
 
-        return await RunProcessAsync("run --project MonoDreams.Examples.Desktop -- --headless", debugDir, timeoutSeconds);
+        if (editorOpPlan != null)
+        {
+            var opJson = JsonSerializer.Serialize(editorOpPlan, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
+        }
+
+        return await RunProcessAsync("run --project MonoDreams.Examples.Desktop -- --headless", debugDir,
+            timeoutSeconds, environment);
     }
 
     /// <summary>
@@ -162,7 +175,8 @@ public static class GameTestRunner
         return debugDir;
     }
 
-    private static async Task<GameTestResult> RunProcessAsync(string arguments, string debugDir, int timeoutSeconds)
+    private static async Task<GameTestResult> RunProcessAsync(string arguments, string debugDir, int timeoutSeconds,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var repoRoot = FindRepoRoot();
 
@@ -177,6 +191,9 @@ public static class GameTestRunner
             CreateNoWindow = true,
         };
         psi.Environment["MONODREAMS_DEBUG_DIR"] = debugDir;
+        if (environment != null)
+            foreach (var (key, value) in environment)
+                psi.Environment[key] = value;
 
         using var process = Process.Start(psi)!;
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));

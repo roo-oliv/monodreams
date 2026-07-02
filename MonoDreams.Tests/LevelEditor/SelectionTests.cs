@@ -15,19 +15,24 @@ namespace MonoDreams.Tests.LevelEditor;
 /// <summary>
 /// Protects the level-editor premise "Selection picks MAX final <c>LayerDepth</c> with a
 /// selection-owned tiebreak" via the named tests <c>SelectionTopmostTest</c> and
-/// <c>SelectionOrderingTest</c>. Pure logic: hand-built entities + a hand-driven
+/// <c>SelectionOrderingTest</c>, plus the Wave-8a target-aware branch
+/// (<c>SelectionTargetAwareTest</c>: UI/HUD-target sprites hit-test the cursor's
+/// <c>VirtualPosition</c>, Main-target the <c>WorldPosition</c>, and across targets the
+/// composite order wins — UI/HUD above Main). Pure logic: hand-built entities + a hand-driven
 /// <see cref="SelectionSystem.Update"/> frame; no GraphicsDevice (selection reads
 /// <c>DrawComponent.LayerDepth</c>, which the test sets directly to mimic the post-YSort value).
 /// </summary>
 public class SelectionTests
 {
-    private static Entity MakeCursor(World world, Vector2 worldPoint, bool leftPressed)
+    private static Entity MakeCursor(World world, Vector2 worldPoint, bool leftPressed,
+        Vector2? virtualPoint = null)
     {
         var cursor = world.CreateEntity();
         cursor.Set(new CursorControllerComponent(CursorType.Default));
         cursor.Set(new CursorInputComponent
         {
             WorldPosition = worldPoint,
+            VirtualPosition = virtualPoint ?? worldPoint,
             LeftButtonPressed = leftPressed,
             LeftButton = leftPressed,
         });
@@ -37,7 +42,8 @@ public class SelectionTests
     /// <summary>A 10×10 sprite at <paramref name="position"/> (origin top-left), already "rendered"
     /// (Visible + a DrawComponent whose LayerDepth stands in for the post-YSort final depth).</summary>
     private static Entity MakeSprite(World world, Vector2 position, float finalDepth,
-        float rotation = 0f, Vector2? scale = null, Vector2? origin = null, int size = 10)
+        float rotation = 0f, Vector2? scale = null, Vector2? origin = null, int size = 10,
+        RenderTargetID target = RenderTargetID.Main)
     {
         var e = world.CreateEntity();
         e.Set(new TransformComponent(position, rotation, scale, origin));
@@ -46,9 +52,9 @@ public class SelectionTests
             Source = new Rectangle(0, 0, size, size),
             Size = new Vector2(size, size),
             Origin = origin ?? Vector2.Zero,
-            Target = RenderTargetID.Main,
+            Target = target,
         });
-        e.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main, LayerDepth = finalDepth });
+        e.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = target, LayerDepth = finalDepth });
         e.Set(new VisibleComponent());
         return e;
     }
@@ -182,6 +188,98 @@ public class SelectionTests
         Assert.False(SelectionSystem.PickTopmost(0.2f, 99, hasBest: true, bestDepth: 0.5f, bestId: 0)); // lower depth
         Assert.True(SelectionSystem.PickTopmost(0.5f, 5, hasBest: true, bestDepth: 0.5f, bestId: 3));  // tie → larger id
         Assert.False(SelectionSystem.PickTopmost(0.5f, 3, hasBest: true, bestDepth: 0.5f, bestId: 5)); // tie → smaller id loses
+    }
+
+    // ---- SelectionTargetAwareTest: UI/HUD-target sprites hit-test VirtualPosition; Main-target
+    // sprites hit-test WorldPosition; on overlap the composited-above target (UI/HUD) wins ----
+
+    [Fact]
+    public void SelectionTargetAware_UiSprite_IsPickedViaVirtualPosition()
+    {
+        using var world = new World();
+
+        // A UI-target sprite at virtual (50,50). The camera has "moved": the cursor's world point
+        // is far away — only the VirtualPosition is over the sprite. The world point must NOT be
+        // used for a screen-space candidate.
+        var ui = MakeSprite(world, new Vector2(50, 50), finalDepth: 0.5f, target: RenderTargetID.UI);
+        MakeCursor(world, worldPoint: new Vector2(5000, 5000), leftPressed: true,
+            virtualPoint: new Vector2(55, 55));
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Equal(ui, Selected(world));
+    }
+
+    [Fact]
+    public void SelectionTargetAware_MainSprite_IsPickedViaWorldPosition()
+    {
+        using var world = new World();
+
+        // A Main-target sprite at world (300,300); the virtual point is elsewhere. World-space
+        // candidates keep the world-space path.
+        var main = MakeSprite(world, new Vector2(300, 300), finalDepth: 0.5f);
+        MakeCursor(world, worldPoint: new Vector2(305, 305), leftPressed: true,
+            virtualPoint: new Vector2(10, 10));
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Equal(main, Selected(world));
+    }
+
+    [Fact]
+    public void SelectionTargetAware_WhenWorldAndUiOverlap_TheUiSpriteWins()
+    {
+        using var world = new World();
+
+        // Both sprites are under the cursor (world point over the Main sprite, virtual point over
+        // the HUD sprite). The HUD sprite has a LOWER per-target depth, but HUD composites ABOVE
+        // Main in the final draw — the composite order, not the raw depth, decides what the
+        // designer sees on top, so the HUD sprite must win.
+        var main = MakeSprite(world, new Vector2(0, 0), finalDepth: 0.9f);
+        var hud = MakeSprite(world, new Vector2(0, 0), finalDepth: 0.1f, target: RenderTargetID.HUD);
+        MakeCursor(world, worldPoint: new Vector2(5, 5), leftPressed: true,
+            virtualPoint: new Vector2(5, 5));
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Equal(hud, Selected(world));
+        Assert.False(main.Has<SelectedComponent>());
+    }
+
+    [Fact]
+    public void SelectionTargetAware_EditorChrome_IsNeverACandidate()
+    {
+        using var world = new World();
+
+        // An Editor-target sprite (the chrome's own target) under the cursor is not selectable.
+        MakeSprite(world, new Vector2(0, 0), finalDepth: 0.9f, target: RenderTargetID.Editor);
+        MakeCursor(world, new Vector2(5, 5), leftPressed: true);
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Null(Selected(world));
+    }
+
+    [Fact]
+    public void SelectionTargetAware_CrossTargetPickRule_IsDeterministic()
+    {
+        // The pure cross-target rule: composite rank first, then depth, then id.
+        var main = SelectionSystem.TargetRank(RenderTargetID.Main);
+        var ui = SelectionSystem.TargetRank(RenderTargetID.UI);
+        var hud = SelectionSystem.TargetRank(RenderTargetID.HUD);
+        Assert.True(main < ui && ui < hud);                       // composite stacking order
+        Assert.True(SelectionSystem.TargetRank(RenderTargetID.Editor) < 0); // chrome: never a candidate
+
+        // A higher rank beats a higher depth on a lower rank (UI sits above Main on screen).
+        Assert.True(SelectionSystem.PickTopmost(ui, 0.1f, 0, hasBest: true, bestTargetRank: main, bestDepth: 0.9f, bestId: 99));
+        Assert.False(SelectionSystem.PickTopmost(main, 0.9f, 99, hasBest: true, bestTargetRank: ui, bestDepth: 0.1f, bestId: 0));
+        // Same rank falls back to the single-target rule (depth, then id).
+        Assert.True(SelectionSystem.PickTopmost(ui, 0.8f, 0, hasBest: true, bestTargetRank: ui, bestDepth: 0.5f, bestId: 99));
+        Assert.True(SelectionSystem.PickTopmost(ui, 0.5f, 5, hasBest: true, bestTargetRank: ui, bestDepth: 0.5f, bestId: 3));
     }
 
     [Fact]
