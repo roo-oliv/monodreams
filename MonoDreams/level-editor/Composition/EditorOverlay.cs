@@ -2,9 +2,12 @@
 using System;
 using DefaultEcs;
 using DefaultEcs.System;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
@@ -15,6 +18,7 @@ using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.System.Cursor;
 using MonoDreams.System.Draw;
 using MonoDreams.UI;
 using MonoGame.Extended.BitmapFonts;
@@ -73,7 +77,13 @@ public sealed class EditorOverlay
     /// editor key predicates; <paramref name="debugDirectory"/> is probed for a headless
     /// <c>editor_op_plan.json</c>; <paramref name="requestExit"/> lets the headless driver end the
     /// session (wire the host's <c>Game.Exit</c>); <paramref name="setOsCursorVisible"/> lets the
-    /// shell show the OS pointer while editing (wire <c>v =&gt; game.IsMouseVisible = v</c>).
+    /// shell show the OS pointer while editing (wire <c>v =&gt; game.IsMouseVisible = v</c>);
+    /// <paramref name="provideCursorPipeline"/> makes the overlay <b>self-sufficient on a screen
+    /// with no cursor pipeline</b> (e.g. the infinite runner): it constructs its own
+    /// <see cref="CursorInput"/> / <see cref="CursorPosition"/> systems and a minimal invisible
+    /// cursor entity (no textures — in Edit the OS pointer is the visible pointer, and in Play the
+    /// entity renders nothing), which every editor system reads. Screens that already run the
+    /// cursor pipeline leave it false — the overlay must never double the cursor.
     /// </summary>
     public EditorOverlay(
         World world,
@@ -88,6 +98,7 @@ public sealed class EditorOverlay
         string debugDirectory,
         Action? requestExit = null,
         Action<bool>? setOsCursorVisible = null,
+        bool provideCursorPipeline = false,
         string sceneFileName = DefaultSceneFileName)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -117,6 +128,27 @@ public sealed class EditorOverlay
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
         Selection = new SelectionSystem(world);
 
+        // Self-sufficient cursor (Wave 8a): a screen with no cursor pipeline (InfiniteRunner) asks
+        // the overlay to bring its own — the input/position systems plus a minimal invisible
+        // cursor entity (the OS pointer is the visible pointer in Edit; the entity has no texture,
+        // so it renders nothing in Play either). CursorPositionSystem's query needs all four
+        // components, hence the empty sprite DrawComponent (null texture = skipped by the renderer).
+        if (provideCursorPipeline)
+        {
+            CursorInput = new CursorInputSystem(world);
+            CursorPosition = new CursorPositionSystem(world, camera, viewportManager);
+            var cursor = world.CreateEntity();
+            cursor.Set(new CursorControllerComponent(CursorType.Default));
+            cursor.Set(new CursorInputComponent());
+            cursor.Set(new TransformComponent(Vector2.Zero));
+            cursor.Set(new DrawComponent
+            {
+                Type = DrawElementType.Sprite,
+                Target = RenderTargetID.HUD,
+                LayerDepth = 1.0f,
+            });
+        }
+
         // The Blender-style shell (Wave 7): native-resolution chrome (panel backgrounds + the
         // toolbar, on RenderTargetID.Editor, laid out in physical pixels), the shell system that
         // syncs the viewport inset + cursor swap with the run mode, and the chrome render pass
@@ -126,6 +158,10 @@ public sealed class EditorOverlay
         Toolbar = new SequentialSystem<GameState>(
             new ButtonMeshPrepSystem(world),
             new ToolbarSystem(world, DispatchToolbarAction));
+        // The systems panel (Wave 8a) binds lazily to the pipelines the screen hands over via
+        // BindPipelines — they don't exist yet while the overlay itself is being constructed.
+        SystemsPanel = new SystemsPanelSystem(world, viewportManager, toolbarFont,
+            () => (UpdatePipeline, DrawPipeline));
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
@@ -170,8 +206,25 @@ public sealed class EditorOverlay
     /// <summary>Button mesh prep + toolbar clicks (native-pixel hit-test). Weave after camera-follow.</summary>
     public ISystem<GameState> Toolbar { get; }
 
+    /// <summary>The systems panel in the shell's right strip: lists every bound registrar entry
+    /// (update + draw) with its policy and a live enabled toggle. Weave after <see cref="Toolbar"/>
+    /// (the woven mesh prep bakes its checkbox meshes). Requires <see cref="BindPipelines"/> —
+    /// until then it idles.</summary>
+    public ISystem<GameState> SystemsPanel { get; }
+
     /// <summary>Editor pan/zoom/frame (Edit-guarded). Weave before <c>CursorPositionSystem</c>.</summary>
     public ISystem<GameState> CameraNav { get; }
+
+    /// <summary>The overlay-owned <c>CursorInputSystem</c> when the screen asked for a
+    /// self-sufficient cursor pipeline (<c>provideCursorPipeline: true</c>), else null. Weave with
+    /// the screen's input group; set <c>SkipHardwareRead</c> when a headless editor-op plan is
+    /// active (see <see cref="HasEditorOpPlan"/>).</summary>
+    public CursorInputSystem? CursorInput { get; }
+
+    /// <summary>The overlay-owned <c>CursorPositionSystem</c> (see <see cref="CursorInput"/>), else
+    /// null. Weave after <see cref="CameraNav"/> — the camera mutation this frame is what the
+    /// cursor's world position derives from.</summary>
+    public ISystem<GameState>? CursorPosition { get; }
 
     /// <summary>The native-resolution chrome entities (panels + toolbar) and their layout;
     /// relayouted by <see cref="Shell"/> on window resize.</summary>

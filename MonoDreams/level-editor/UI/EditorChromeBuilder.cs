@@ -53,11 +53,16 @@ public sealed class EditorChromeBuilder
     public static readonly Color ButtonHoverFill = new(76, 76, 94);
     public static readonly Color ButtonOutline = new(150, 150, 162);
     public static readonly Color LabelColor = new(235, 235, 240);
+    // Systems-panel accents (the panel reuses this single palette site).
+    public static readonly Color CheckboxOnFill = new(96, 168, 112);
+    public static readonly Color HeaderLabelColor = new(150, 150, 162);
+    public static readonly Color DisabledLabelColor = new(140, 140, 150);
 
-    // Depths within the Editor target: panels behind buttons behind labels.
-    private const float PanelDepth = 0.1f;
-    private const float ButtonDepth = 0.5f;
-    private const float LabelDepth = 0.6f;
+    // Depths within the Editor target: panels behind buttons/checkboxes behind labels.
+    // Public so sibling chrome builders (the systems panel) stack onto the same bands.
+    public const float PanelDepth = 0.1f;
+    public const float ButtonDepth = 0.5f;
+    public const float LabelDepth = 0.6f;
 
     private readonly World _world;
     private readonly BitmapFont? _font;
