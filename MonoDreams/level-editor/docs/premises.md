@@ -483,38 +483,47 @@ default is Play, flag-on composition yields Edit, flag-off stays Play).
 constructed default this flag deliberately does not change); this file — "The pipeline registrar is
 the composition seam".
 
-## The editor overlay is universal: under the run flag, every screen composes it
+## The editor overlay is universal: under the run flag, every screen of every host composes it
 
-The editor is **screen-agnostic**: under the editor run flag, EVERY Examples screen — the
-level-selection menu and the infinite runner included, not just the game screen — builds its
-pipelines through the `EditorPipelineRegistrar` and composes the `EditorOverlay` over its own
-world/camera/layers. A menu is as editable a scene as a level. The overlay is **self-sufficient**
-where a screen lacks a prerequisite: a screen with no cursor pipeline (the runner is keyboard-only)
-asks the overlay to provide one (`provideCursorPipeline: true` → the overlay's own
-`CursorInputSystem`/`CursorPositionSystem` + a minimal invisible cursor entity — no textures, since
-the OS pointer is the visible pointer in Edit); a screen with no sprite prep gains the
-cull → sprite-prep → Y-sort chain under the flag so loaded scenes preview; a screen whose
-`DrawLayerMap` has no Y-sorted layer degrades gracefully (Y-sort passes depths through and
+The editor is **host- and screen-agnostic**: under the editor run flag, EVERY screen of EVERY host
+— the Examples menu, game screen, and infinite runner; the Demos launcher and all four module demo
+screens — builds its pipelines through the `EditorPipelineRegistrar` and composes the
+`EditorOverlay` over its own world/camera/layers. A menu or a demo is as editable a scene as a
+level. The overlay is **self-sufficient** where a screen or host lacks a prerequisite: a screen
+with no cursor pipeline (the runner is keyboard-only) asks the overlay to provide one
+(`provideCursorPipeline: true` → the overlay's own `CursorInputSystem`/`CursorPositionSystem` + a
+minimal invisible cursor entity — no textures, since the OS pointer is the visible pointer in
+Edit); a host with no keyboard-action mapping layer (Demos) uses the engine's `DefaultEditorKeys`
+(F1/Delete/Z/Y/Home, entry `editor.keys`) instead of inventing edge detection; a screen with no
+sprite prep gains the cull → sprite-prep → Y-sort chain under the flag so loaded scenes preview; a
+screen whose `DrawLayerMap` has no Y-sorted layer (or that creates a minimal map just for the seam,
+like Demos' `DemoEditor.CreateLayers`) degrades gracefully (Y-sort passes depths through and
 selection picks on the final source-derived `LayerDepth`). Per-screen edit policies are declared at
-the registration site: the menu freezes `ui.interaction` in Edit (a click belongs to the editor,
-never to a screen transition — F1 or the systems panel re-arms it) but keeps `layout` live (the
-auto-layout solver is the menu's content placement; freezing it would boot an unlaid-out menu under
-`--editor`); the runner freezes its whole simulation block (movement/gravity/treadmill/spawner/
-collision/cleanup/score all mutate transforms per frame). With the flag off, no screen constructs
-anything editor-related and every pipeline is behaviourally identical to its pre-editor shape.
+the registration site: menus and demo UIs freeze `ui.interaction` in Edit (a click belongs to the
+editor, never to a screen transition — F1 or the systems panel re-arms it) but keep `layout` live
+(the auto-layout solver is the screen's content placement; freezing it would boot an unlaid-out
+screen under `--editor`); simulations freeze whole (the runner's treadmill block, the physics
+demo's ball pipeline, the camera demo's follow/lag-zoom/hit camera writers). With the flag off, no
+screen constructs anything editor-related and every pipeline is behaviourally identical to its
+pre-editor shape. The recipe a new host/screen follows is `overview.md` § "Adding the editor to a
+screen/host"; the composed pipeline is observable via the `EditorOverlay.LogComposition` log line.
 
 **Why:** direct user directive — "the editor shouldn't care what screen we're using, if it's a menu
-or anything else"; and one shared composition path per screen prevents the per-screen gate matrices
-from silently drifting.
-**Breaks:** a screen outside the overlay is invisible to the editor (the original complaint: no
-editor on the menu); an overlay composed without the cursor pipeline on a cursor-less screen makes
-selection/gizmo/toolbar read a cursor that never updates; menu buttons live in Edit navigate away
-mid-editing, tearing the screen down under the editor.
+or anything else" (and, post-hands-on, "I can see the editor in Examples but not on Demos" — a host
+outside the composition path is the same gap one screen up); one shared composition path per screen
+prevents the per-screen gate matrices from silently drifting.
+**Breaks:** a screen (or host) outside the overlay is invisible to the editor (the original
+complaints: no editor on the menu; no editor on Demos); an overlay composed without the cursor
+pipeline on a cursor-less screen makes selection/gizmo/toolbar read a cursor that never updates;
+menu buttons live in Edit navigate away mid-editing, tearing the screen down under the editor.
 **Tests:** `MonoDreams.Tests/IntegrationTests/UniversalOverlayTests.cs` (LevelSelection + runner
 under `MONODREAMS_EDITOR=1` log their composed `editor.*` entries — the runner's including the
 overlay-provided `editor.cursorInput`/`editor.cursorPosition`; the menu run exits through the
-editor-op channel, the runner through replay auto-exit); flag-off behavior is protected by the
-entire pre-existing suite.
+editor-op channel, the runner through replay auto-exit);
+`MonoDreams.Tests/IntegrationTests/DemosEditorOverlayTests.cs` (all five Demos screens under
+`MONODREAMS_EDITOR=1` log their composed `editor.*` entries headless, and a flag-off Demos run
+composes nothing — with `RunDemosAsync` pinning the env flag off unless a test opts in); flag-off
+behavior is protected by the entire pre-existing suite.
 **Depends on:** this file — "The pipeline registrar is the composition seam" and "The editor run
 flag opts game screens into the overlay"; foundation — "Edit-time behaviour is a per-system policy
 honoured by `GatedSystem`".

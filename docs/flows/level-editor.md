@@ -35,7 +35,13 @@ sensitive: true
 > proxy entities (`GizmoProxyComponent` bindings) over the selected entity's collider shapes;
 > they join the same selection pick (border-only hit-test) and the same gizmo drag (move tool),
 > writing back into the bound component via `ColliderEditCommand` through the coalescing undo
-> transaction. Anything not yet built is marked **(planned, Wave N)**.
+> transaction; and the post-Wave-8b **cross-host wiring** — the universal overlay now spans
+> hosts: every Demos screen (the launcher + the four module demo screens) composes it under the
+> same run flag, pairing the overlay with the engine's `DefaultEditorKeys` default keyboard
+> surface (for hosts without their own action mapping; the Demos host honours the flag under
+> `--headless`, so the shell lands in the captured self-verification frames). The step-by-step
+> recipe any new host/screen follows is `MonoDreams/level-editor/docs/overview.md` § "Adding
+> the editor to a screen/host". Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
