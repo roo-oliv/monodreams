@@ -3,6 +3,7 @@ using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework.Content;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Channel;
@@ -14,6 +15,7 @@ using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.System.Draw;
 using MonoDreams.UI;
 using MonoGame.Extended.BitmapFonts;
 
@@ -25,8 +27,9 @@ namespace MonoDreams.LevelEditor.Composition;
 /// game — no second world, renderer, or data model). It encapsulates the shared editor
 /// infrastructure (<see cref="Registry"/> + <see cref="Serializer"/> + bounded
 /// <see cref="History"/> + the single gizmo-state entity), constructs every editor system, builds
-/// the HUD toolbar entities, wires the toolbar dispatch to those same shared instances, and loads
-/// the headless editor-op channel when a plan is present.
+/// the native-resolution editor chrome (panels + toolbar on <c>RenderTargetID.Editor</c>), wires
+/// the toolbar dispatch to those same shared instances, and loads the headless editor-op channel
+/// when a plan is present.
 ///
 /// <para><b>The screen weaves; the overlay supplies.</b> Editor systems interleave with the game
 /// pipeline at specific points (the ordering invariants of Waves 4–5), so the overlay exposes
@@ -39,11 +42,15 @@ namespace MonoDreams.LevelEditor.Composition;
 ///   <item><see cref="Toolbar"/> — after camera-follow (button mesh prep + click dispatch).</item>
 ///   <item><see cref="CameraNav"/> — <b>before</b> <c>CursorPositionSystem</c> (the camera
 ///   mutation this frame is what the cursor's world position derives from).</item>
+///   <item><see cref="Shell"/> — after <c>CursorDrawPrepSystem</c> (syncs the viewport inset +
+///   chrome layout + cursor swap with the run mode; hides the game cursor sprite in Edit).</item>
 ///   <item><see cref="EditorOpDriver"/> (when present) — <b>last</b>, after the cursor late
 ///   update, so its injected cursor is the final word the gizmo/toolbar read.</item>
 /// </list>
 /// <para>Draw-side: <see cref="Selection"/> goes after the prep/YSort group and before the render
-/// passes (it must read the FINAL post-YSort <c>DrawComponent.LayerDepth</c> of this frame).</para>
+/// passes (it must read the FINAL post-YSort <c>DrawComponent.LayerDepth</c> of this frame);
+/// <see cref="ChromeRender"/> goes after the game render passes and before final draw, and
+/// <see cref="ChromeLayer"/> is appended after the game layers in the final-draw list.</para>
 ///
 /// <para>The woven pipeline owns system disposal (gates forward <c>Dispose</c>); the overlay
 /// itself holds no disposable state beyond world entities, which die with the world.</para>
@@ -61,10 +68,12 @@ public sealed class EditorOverlay
 
     /// <summary>
     /// Builds the overlay over the screen's own world/camera/layers. <paramref name="toolbarFont"/>
-    /// labels the toolbar buttons; <paramref name="input"/> supplies the game's editor key
-    /// predicates; <paramref name="debugDirectory"/> is probed for a headless
+    /// labels the toolbar buttons; <paramref name="graphicsDevice"/>/<paramref name="spriteBatch"/>
+    /// back the native-resolution chrome render pass; <paramref name="input"/> supplies the game's
+    /// editor key predicates; <paramref name="debugDirectory"/> is probed for a headless
     /// <c>editor_op_plan.json</c>; <paramref name="requestExit"/> lets the headless driver end the
-    /// session (wire the host's <c>Game.Exit</c>).
+    /// session (wire the host's <c>Game.Exit</c>); <paramref name="setOsCursorVisible"/> lets the
+    /// shell show the OS pointer while editing (wire <c>v =&gt; game.IsMouseVisible = v</c>).
     /// </summary>
     public EditorOverlay(
         World world,
@@ -72,10 +81,13 @@ public sealed class EditorOverlay
         DrawLayerMap layers,
         ContentManager content,
         BitmapFont toolbarFont,
+        GraphicsDevice graphicsDevice,
+        SpriteBatch spriteBatch,
         ViewportManager viewportManager,
         EditorInputBindings input,
         string debugDirectory,
         Action? requestExit = null,
+        Action<bool>? setOsCursorVisible = null,
         string sceneFileName = DefaultSceneFileName)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -105,12 +117,18 @@ public sealed class EditorOverlay
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
         Selection = new SelectionSystem(world);
 
-        // The engine-native toolbar (HUD target): build the button entities now, then the click
-        // system + the per-frame button mesh prep, dispatching into the SAME shared instances.
-        new EditorToolbarBuilder(world, toolbarFont).Build(viewportManager: viewportManager);
+        // The Blender-style shell (Wave 7): native-resolution chrome (panel backgrounds + the
+        // toolbar, on RenderTargetID.Editor, laid out in physical pixels), the shell system that
+        // syncs the viewport inset + cursor swap with the run mode, and the chrome render pass
+        // whose target the screen composites 1:1 above the game layers via ChromeLayer.
+        Chrome = new EditorChromeBuilder(world, toolbarFont);
+        Chrome.Build(viewportManager.ScreenWidth, viewportManager.ScreenHeight);
         Toolbar = new SequentialSystem<GameState>(
             new ButtonMeshPrepSystem(world),
             new ToolbarSystem(world, DispatchToolbarAction));
+        Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible);
+        ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
+        ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
         // cost in a normal run. The driver holds the session open (requests exit only after its
@@ -149,11 +167,29 @@ public sealed class EditorOverlay
     /// <summary>The transform gizmo (Edit-guarded). Weave before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> Gizmo { get; }
 
-    /// <summary>Button mesh prep + toolbar clicks/visibility. Weave after camera-follow.</summary>
+    /// <summary>Button mesh prep + toolbar clicks (native-pixel hit-test). Weave after camera-follow.</summary>
     public ISystem<GameState> Toolbar { get; }
 
     /// <summary>Editor pan/zoom/frame (Edit-guarded). Weave before <c>CursorPositionSystem</c>.</summary>
     public ISystem<GameState> CameraNav { get; }
+
+    /// <summary>The native-resolution chrome entities (panels + toolbar) and their layout;
+    /// relayouted by <see cref="Shell"/> on window resize.</summary>
+    public EditorChromeBuilder Chrome { get; }
+
+    /// <summary>The shell sync system: viewport inset + chrome relayout + cursor swap track the
+    /// run mode. Weave after <c>CursorDrawPrepSystem</c> (it hides the game cursor sprite the
+    /// same frame in Edit).</summary>
+    public ISystem<GameState> Shell { get; }
+
+    /// <summary>The native-resolution chrome render pass (screen-space, Edit-only; owns the
+    /// resize-tracked Editor target). Weave into the DRAW pipeline after the game render passes,
+    /// before final draw.</summary>
+    public EditorChromeRenderSystem ChromeRender { get; }
+
+    /// <summary>The final-draw layer compositing <see cref="ChromeRender"/>'s target 1:1 over the
+    /// whole window. Append it AFTER the game layers (topmost); it self-skips outside Edit.</summary>
+    public RenderLayer ChromeLayer { get; }
 
     /// <summary>The headless editor-op driver; null when no <c>editor_op_plan.json</c> is present.
     /// Weave LAST (after the cursor late update) so its injected cursor is the final word.</summary>

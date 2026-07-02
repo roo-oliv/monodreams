@@ -70,6 +70,10 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
             if (!input.LeftButtonPressed) return; // only act on the press edge
+            // A press over the editor chrome / letterbox margins is not a world click:
+            // WorldPosition is frozen at its last inside-the-viewport value there, so picking
+            // (or clearing the selection) from it would act on a stale point.
+            if (input.OutsideViewport) return;
             _picking = true;
             _worldPoint = input.WorldPosition;
             return;

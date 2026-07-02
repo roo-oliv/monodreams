@@ -263,34 +263,81 @@ the world pivot).
 **Depends on:** rendering — `MeshPrepSystem` / `MasterRenderSystem` render a mesh `DrawComponent` on
 Main through the camera; foundation — `HierarchySystem.DisposeOrphans` (why overlays are standalone).
 
-## The editor toolbar's buttons drive the same shared editor instances; the toolbar is on UI/HUD, hidden in Play
+## The editor toolbar's buttons drive the same shared editor instances; the chrome is native-resolution on the Editor target, hidden in Play
 
-The engine-native toolbar (built with `AutoLayoutBuilder` + the engine's `SimpleButtonComponent` /
-`ButtonMeshPrepSystem`, no ImGui) lives on the **HUD** render target (screen-space, never Main), and
-each button carries a `ToolbarButtonComponent` binding a click to an `EditorToolbarAction`.
-`ToolbarSystem` hit-tests the cursor's `VirtualPosition` (the screen-space, pre-camera coordinate)
-against the button bounds and hands the action to a game-supplied dispatch — which wires Save through
+The engine-native toolbar (the engine's `SimpleButtonComponent` / `ButtonMeshPrepSystem` /
+`DynamicTextComponent` primitives, no ImGui) lives on the **Editor** render target — a target at
+native window resolution composited 1:1 over the whole window (never Main, never the virtual-res
+HUD) — inside the shell's top bar, with buttons sized in physical pixels and each carrying a
+`ToolbarButtonComponent` binding a click to an `EditorToolbarAction`. `ToolbarSystem` hit-tests
+the cursor's raw `ScreenPosition` (hardware pixels — the chrome sits in the margins where the
+virtual mapping is null and `VirtualPosition` is frozen) against the button `Bounds` and hands
+the action to a game-supplied dispatch — which wires Save through
 `SceneWriter.Save(world, file, camera, layers)` (the **same** `SceneSerializer`), Load by publishing a
 `LoadSceneRequest` (handled by the registered `SceneReaderSystem`), Undo/Redo on the **same**
 `EditorHistory`, snap-toggle flipping the shared `GizmoStateComponent.SnapEnabled`, and tool-select
 setting the shared `GizmoStateComponent.Tool`. There is exactly one `EditorHistory` / one gizmo-state
 entity — the toolbar never constructs a second. The toolbar is Edit-guarded (inert clicks in Play) and
-hidden in Play (the HUD pass does not cull on `VisibleComponent`, so the system blanks the buttons'
-mesh + label in Play and restores them in Edit).
+hidden in Play by construction: the Editor chrome pass renders nothing outside Edit and its
+final-draw layer resolves to null (skipped), so no per-entity mesh/label blanking exists anymore.
 
-**Why:** the contract item 14 (toolbar on UI/HUD, web-capable, no ImGui) + the handoff "pass the SAME
-`_history`/`_sceneSerializer`/`_camera`/`_layers` instances — do not construct a second
-`EditorHistory`"; a second history would split undo state and a Main-target toolbar would scroll with
-the world camera.
-**Breaks:** a toolbar that news up its own history (its undo button can't reverse the gizmo's edits);
-a toolbar on Main that desyncs from the cursor when the camera moves; a toolbar that stays visible /
-clickable in Play.
+**Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
+"the editor tools shouldn't overlay the game screen but be placed around it … highres and
+readable, independent from the game resolution or fonts": the old HUD-virtual toolbar was
+authored at 800×600 and upscaled — blurry and low-contrast over light levels. A second history
+would split undo state; a Main-target toolbar would scroll with the world camera.
+**Breaks:** a toolbar that news up its own history (its undo button can't reverse the gizmo's
+edits); hit-testing `VirtualPosition` (frozen in the margins — buttons dead or misfiring); a
+toolbar that stays clickable in Play.
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`ToolbarWiringTest` — tool-select sets the
 tool, snap-toggle flips the flag, Save invokes `SceneWriter` through a fake `IPlatformServices`, Load
-publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack undo is a no-op).
-**Depends on:** ui — `AutoLayoutBuilder` / `SimpleButtonComponent` / `ButtonMeshPrepSystem`; cursor —
-`CursorInputComponent.VirtualPosition`; level-editor — "Bounded undo with drag-coalescing", "Scene
+publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack undo is a no-op);
+`MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (native `ScreenPosition` hit-test dispatches in
+Edit, misses outside the bounds, inert in Play).
+**Depends on:** ui — `SimpleButtonComponent` / `ButtonMeshPrepSystem`; cursor —
+`CursorInputComponent.ScreenPosition`; level-editor — "The editor shell insets the game viewport
+and renders its chrome at native resolution", "Bounded undo with drag-coalescing", "Scene
 round-trip reconstructs from registered components, not factories".
+
+## The editor shell insets the game viewport and renders its chrome at native resolution
+
+In `RunMode.Edit` the game composite (Main/UI/HUD layers) renders into a **smaller centered
+viewport** with chrome margins reserved around it (Blender-style: top toolbar bar, right panel
+strip — the Wave-8 systems panel's home — and a thin bottom strip; `EditorChromeLayout` owns the
+numbers), while the chrome itself renders on `RenderTargetID.Editor` — a render target at
+**native window resolution**, recreated on resize (`EditorChromeRenderSystem`), composited 1:1
+over the whole window via `RenderLayer.Native`, with opaque dark panel backgrounds so it reads
+over any level. The inset lives on the `ViewportManager` (`SetViewportInset` /
+`ClearViewportInset`) — the **single source of truth** — so FinalDraw compositing and
+`ScaleMouseToVirtualCoordinates` follow the same rectangle: clicks inside the inset viewport map
+to correct world positions with no extra math, clicks in the margins map to null
+(`CursorInputComponent.OutsideViewport` is set, muting selection picks / gizmo drag-starts /
+camera-nav zoom+pan) and are consumed by the chrome in screen space against `ScreenPosition`.
+`EditorShellSystem` syncs everything with the run mode each frame (inset, chrome relayout on
+window resize, cursor swap: OS pointer over chrome in Edit, game cursor sprite in Play) and its
+`Dispose` restores both (the `ViewportManager` and host `Game` outlive the screen). In Play — or
+with the editor not composed — the inset is zero and the composite is the historical full-window
+letterbox, **byte-identical**. Chrome entities carry no `VisibleComponent` (only the Main pass
+consults it; its presence would pull mesh chrome into `MeshPrepSystem`, which overwrites the
+identity `WorldMatrix` their absolute-pixel vertices require).
+
+**Why:** the Wave-7 user directives — "the game screen … rendered in the center … the editor
+tools … placed around it, just like in Blender" and "highres and readable, independent from the
+game resolution or fonts". Keeping the inset on the `ViewportManager` is what makes the mouse
+mapping follow the smaller game viewport automatically.
+**Breaks:** an inset applied only to compositing (not mouse mapping) desyncs every world pick by
+the margin offsets; chrome on the virtual-resolution HUD is upscaled and blurry again; a leaked
+inset (no dispose restore) squeezes the next screen into a corner; `VisibleComponent` on chrome
+double-offsets the panel meshes.
+**Tests:** `MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (inset math centered/aspect-correct,
+zero-inset = legacy letterbox byte-identical, set+clear restores, resize recomputes, mouse maps
+inside / nulls in margins, pixel-perfect uses the available area);
+`MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (panels cover exactly the inset margins,
+native-pixel button bounds, relayout on resize, shell sync Edit/Play + dispose restore,
+`OutsideViewport` press never picks).
+**Depends on:** rendering — "The viewport inset moves compositing and mouse mapping together",
+"Three render targets, two behaviors"; cursor — `CursorPositionSystem` sets `OutsideViewport`;
+foundation — "Default RunMode=Play" (the flag-off/Play path must stay byte-identical).
 
 ## Editor camera navigation pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation
 

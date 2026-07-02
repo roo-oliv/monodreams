@@ -96,6 +96,15 @@ public sealed class CameraNavSystem : ISystem<GameState>
 
     private void Pan(in CursorInputComponent cursor)
     {
+        // Over the editor chrome / letterbox margins the virtual position is frozen, so a pan
+        // there can't track anyway — re-anchor instead, preventing a delta spike when the cursor
+        // re-enters the viewport mid-drag.
+        if (cursor.OutsideViewport)
+        {
+            _panning = false;
+            return;
+        }
+
         // Track the virtual cursor across frames so the pan delta is in virtual (pre-camera) pixels,
         // independent of the screen→virtual letterbox scale and correct for the injected headless cursor.
         if (cursor.MiddleButton)
@@ -119,6 +128,9 @@ public sealed class CameraNavSystem : ISystem<GameState>
 
     private void Zoom(in CursorInputComponent cursor)
     {
+        // Scrolling over the chrome margins belongs to the chrome (e.g. the Wave-8 panel), not
+        // the world camera.
+        if (cursor.OutsideViewport) return;
         if (cursor.ScrollWheelDelta == 0) return;
         // MonoGame's ScrollWheelValue moves in 120-unit notches; sign = direction (up/in is positive).
         var notches = cursor.ScrollWheelDelta / 120;

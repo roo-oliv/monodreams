@@ -198,7 +198,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (_editorEnabled)
         {
             _editor = new EditorOverlay(
-                _world, _camera, _layers, _content, promptFont, _viewportManager,
+                _world, _camera, _layers, _content, promptFont, _graphicsDevice, _spriteBatch,
+                _viewportManager,
                 new EditorInputBindings(
                     toggleEditRequested: _ => InputState.Editor.JustPressed(),
                     deleteRequested: _ => InputState.Delete.JustPressed(),
@@ -206,7 +207,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
                     redoRequested: _ => InputState.Redo.JustPressed(),
                     frameRequested: _ => InputState.Frame.JustPressed()),
                 debugDir,
-                requestExit: _game.Exit);
+                requestExit: _game.Exit,
+                // The shell shows the OS cursor over the chrome margins while editing.
+                setOsCursorVisible: visible => _game.IsMouseVisible = visible);
         }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
@@ -432,6 +435,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // The Blender-style shell sync: viewport inset + native chrome layout + cursor swap
+            // track the run mode. AFTER CursorDrawPrepSystem so hiding the game cursor sprite in
+            // Edit takes effect the same frame (the prep would otherwise re-stamp its texture).
+            p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
         if (_editor?.EditorOpDriver != null)
             // The headless editor-op driver — LAST, after the cursor late update, so its injected
             // cursor is the final word the gizmo/toolbar read. Plan-gated: only present when an
@@ -468,13 +476,18 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        // Final system composites the render targets onto the back buffer.
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        // Final system composites the render targets onto the back buffer. With the editor
+        // composed, the native-resolution chrome layer goes on top — it resolves to null (and is
+        // skipped) outside Edit, so Play compositing is identical to a screen without the editor.
+        var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
             RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-        });
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.ChromeLayer);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers);
 
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
@@ -495,6 +508,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
         p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
         p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // The native-resolution chrome pass (Editor target). Edit-only internally: outside
+            // Edit it renders nothing and its final-draw layer resolves to null (skipped).
+            p.Add("editor.renderChrome", _editor.ChromeRender, EditTimeBehavior.RunNormally);
         p.Add("finalDraw", finalDrawToScreenSystem, EditTimeBehavior.RunNormally);
         p.Add("screenshots", screenshotSystem, EditTimeBehavior.RunNormally);
 

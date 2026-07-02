@@ -144,6 +144,11 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
             input.VirtualPosition = _injectedVirtual;
             input.ScreenPosition = _injectedVirtual;
             input.Delta = input.WorldPosition - input.PreviousWorldPosition;
+            // The injected cursor addresses world coordinates directly — it is by definition
+            // "inside the game viewport", even though the un-mapped ScreenPosition it carries
+            // may fall in the chrome margins (CursorPositionSystem runs before this driver and
+            // would otherwise leave a stale OutsideViewport=true that muted the injected press).
+            input.OutsideViewport = false;
 
             input.LeftButton = _leftDown;
             input.LeftButtonPressed = _leftDown && !prevLeft;

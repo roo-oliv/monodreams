@@ -137,8 +137,10 @@ public sealed class GizmoSystem : ISystem<GameState>
             return;
         }
 
-        // Not dragging: a press over the active handle starts a drag.
-        if (!cursor.LeftButtonPressed) return;
+        // Not dragging: a press over the active handle starts a drag. A press over the editor
+        // chrome / letterbox margins never starts one — WorldPosition is frozen at its last
+        // inside-the-viewport value there (a toolbar click must not grab the gizmo).
+        if (!cursor.LeftButtonPressed || cursor.OutsideViewport) return;
         if (!HandleHit(gizmo.Tool, pivot, cursor.WorldPosition, invZoom)) return;
 
         BeginDrag(target, gizmo.Tool, cursor.WorldPosition, pivot);
