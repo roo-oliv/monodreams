@@ -56,8 +56,11 @@ namespace MonoDreams.LevelEditor.Composition;
 /// </list>
 /// <para>Draw-side: <see cref="Selection"/> goes after the prep/YSort group and before the render
 /// passes (it must read the FINAL post-YSort <c>DrawComponent.LayerDepth</c> of this frame);
-/// <see cref="ChromeRender"/> goes after the game render passes and before final draw, and
-/// <see cref="ChromeLayer"/> is appended after the game layers in the final-draw list.</para>
+/// <see cref="OverlayPrep"/> goes right after it (the overlay visuals bake from the frame's final
+/// camera + selection, in screen pixels on the Editor target — see
+/// <c>EditorOverlayPrepSystem</c>); <see cref="ChromeRender"/> goes after the game render passes
+/// and before final draw, and <see cref="ChromeLayer"/> is appended after the game layers in the
+/// final-draw list.</para>
 ///
 /// <para>The woven pipeline owns system disposal (gates forward <c>Dispose</c>); the overlay
 /// itself holds no disposable state beyond world entities, which die with the world.</para>
@@ -128,8 +131,11 @@ public sealed class EditorOverlay
         EditorCommands = new EditorCommandSystem(
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested);
-        Gizmo = new GizmoSystem(world, camera, History);
-        ProxySync = new ProxySyncSystem(world, camera);
+        var gizmo = new GizmoSystem(world, camera, History, viewportManager);
+        var proxySync = new ProxySyncSystem(world, camera, viewportManager);
+        Gizmo = gizmo;
+        ProxySync = proxySync;
+        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync);
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
         Selection = new SelectionSystem(world, camera);
 
@@ -140,7 +146,7 @@ public sealed class EditorOverlay
         // components, hence the empty sprite DrawComponent (null texture = skipped by the renderer).
         if (provideCursorPipeline)
         {
-            CursorInput = new CursorInputSystem(world);
+            CursorInput = new CursorInputSystem(world, viewportManager);
             CursorPosition = new CursorPositionSystem(world, camera, viewportManager);
             var cursor = world.CreateEntity();
             cursor.Set(new EditorInfrastructureComponent()); // survives a transport Restart
@@ -221,6 +227,13 @@ public sealed class EditorOverlay
     /// <see cref="Gizmo"/> (so the same frame's collider write-back is what the proxies re-derive
     /// from), before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> ProxySync { get; }
+
+    /// <summary>The editor overlays' draw-phase emission pass: bakes the gizmo + proxy VISUALS
+    /// (selection outline, tool handle, collider outlines) in screen pixels on the
+    /// native-resolution Editor target, from the frame's FINAL camera and selection. Weave into
+    /// the DRAW pipeline right after <see cref="Selection"/> (entry <c>editor.overlayPrep</c>),
+    /// before the render passes.</summary>
+    public ISystem<GameState> OverlayPrep { get; }
 
     /// <summary>The chrome button mesh prep. Weave with <see cref="ToolbarClicks"/> as the
     /// children of an <c>editor.toolbar</c> registrar group (mesh prep first), after

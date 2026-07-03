@@ -604,7 +604,7 @@ public class PhysicsDemoScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var cursorInputSystem = new CursorInputSystem(_world);
+        var cursorInputSystem = new CursorInputSystem(_world, _viewportManager);
 
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
@@ -708,7 +708,10 @@ public class PhysicsDemoScreen : IGameScreen
             g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
         });
         if (_editor != null)
+        {
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
+            p.Add("editor.overlayPrep", _editor.Overlay.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
         p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

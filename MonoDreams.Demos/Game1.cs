@@ -77,7 +77,11 @@ public class Game1 : Game
 
         // OS-window resize is a desktop concern; a web head sizes from the host page.
 #if !MONODREAMS_WEB
-        Window.ClientSizeChanged += (_, _) => InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        Window.ClientSizeChanged += (_, _) =>
+        {
+            if (!ApplyEditorHiDpi())
+                InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        };
 #endif
     }
 
@@ -150,13 +154,40 @@ public class Game1 : Game
         base.Initialize();
     }
 
+    private bool _hiDpiApplied;
+
     protected override void Update(GameTime gameTime)
     {
+        // First-frame HiDPI application (see ApplyEditorHiDpi): the OS window has its real size
+        // only once the run loop starts, so Initialize is too early to measure it.
+        if (!_hiDpiApplied)
+        {
+            _hiDpiApplied = true;
+            ApplyEditorHiDpi();
+        }
+
         // Q exits the app from any screen; ESC is handled per-screen (typically
         // "back to launcher" inside a demo screen).
         if (!_headless.Enabled && Keyboard.GetState().IsKeyDown(Keys.Q))
             Exit();
         _screenController.Update(gameTime);
+    }
+
+    /// <summary>
+    /// Editor runs render at DEVICE resolution (macOS Retina: the stock DesktopGL backbuffer is
+    /// logical-size and OS-upscaled ~2× — blurry chrome/overlays). Applied on the first Update
+    /// and re-applied on resize; returns whether the device-resolution path took over the
+    /// renderer sizing. Headless runs keep the fixed virtual-size backbuffer (the capture
+    /// contract).
+    /// </summary>
+    private bool ApplyEditorHiDpi()
+    {
+        if (!_editor || _headless.Enabled) return false;
+        var result = EditorHiDpi.TryEnable(this);
+        if (!result.Applied) return false;
+        _viewportManager.DevicePixelRatio = result.Scale;
+        InitializeRenderer(result.Width, result.Height);
+        return true;
     }
 
     protected override void Draw(GameTime gameTime)

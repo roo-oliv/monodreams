@@ -291,7 +291,7 @@ public class LevelSelectionScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var cursorInputSystem = new CursorInputSystem(_world);
+        var cursorInputSystem = new CursorInputSystem(_world, _viewportManager);
 
         // The editor overlay (Wave 8a): built over THIS screen's world/camera/layers — the menu is
         // a scene like any other. The chrome uses the same PPMondwest font as the game screen's
@@ -431,7 +431,12 @@ public class LevelSelectionScreen : IGameScreen
             g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
         });
         if (_editor != null)
+        {
             p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+            // The overlay visuals (gizmo handles / selection outline / proxy outlines) bake in
+            // screen pixels on the Editor target from the frame's FINAL camera + selection.
+            p.Add("editor.overlayPrep", _editor.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
         p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
         p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
         p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);

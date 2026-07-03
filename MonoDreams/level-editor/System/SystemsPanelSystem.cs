@@ -96,6 +96,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
 
     // Last-applied layout inputs, so rows are repositioned only when something changed.
     private int _laidOutWidth, _laidOutHeight, _laidOutScroll = -1;
+    private float _laidOutScale;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -123,17 +124,22 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
 
         if (!_built && !TryBuild()) return;
 
-        var panel = EditorChromeLayout.RightPanel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight);
+        // The DPR scales the panel's point-based metrics on a HiDPI backbuffer (same physical
+        // size, denser pixels) — see EditorChromeLayout.
+        var scale = _viewportManager.DevicePixelRatio;
+        var panel = EditorChromeLayout.RightPanel(
+            _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
 
         // Interaction first (scroll may shift the layout this same frame), then position, then
         // reflect the live enabled state onto the visuals.
-        var hovered = HandleInteraction(panel);
+        var hovered = HandleInteraction(panel, scale);
 
-        _scroll = SystemsPanelLayout.ClampScroll(_scroll, _lines.Count, panel);
+        _scroll = SystemsPanelLayout.ClampScroll(_scroll, _lines.Count, panel, scale);
         if (_laidOutWidth != _viewportManager.ScreenWidth ||
             _laidOutHeight != _viewportManager.ScreenHeight ||
-            _laidOutScroll != _scroll)
-            PositionLines(panel);
+            _laidOutScroll != _scroll ||
+            _laidOutScale != scale)
+            PositionLines(panel, scale);
 
         ReflectState(hovered);
     }
@@ -251,7 +257,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     }
 
     /// <summary>Scroll + hover + click. Returns the hovered line index (or -1).</summary>
-    private int HandleInteraction(Rectangle panel)
+    private int HandleInteraction(Rectangle panel, float scale)
     {
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -261,14 +267,14 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
 
             if (input.ScrollWheelDelta != 0)
                 _scroll = SystemsPanelLayout.ClampScroll(
-                    _scroll + SystemsPanelLayout.ScrollLines(input.ScrollWheelDelta), _lines.Count, panel);
+                    _scroll + SystemsPanelLayout.ScrollLines(input.ScrollWheelDelta), _lines.Count, panel, scale);
 
-            var visible = SystemsPanelLayout.VisibleLineCount(panel);
+            var visible = SystemsPanelLayout.VisibleLineCount(panel, scale);
             for (var i = 0; i < _lines.Count; i++)
             {
                 var vi = i - _scroll;
                 if (vi < 0 || vi >= visible) continue;
-                if (!SystemsPanelLayout.LineRect(panel, vi).Contains(point)) continue;
+                if (!SystemsPanelLayout.LineRect(panel, vi, scale).Contains(point)) continue;
 
                 if (input.LeftButtonReleased) ToggleLine(_lines[i]);
                 return i;
@@ -301,10 +307,10 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
         return false;
     }
 
-    private void PositionLines(Rectangle panel)
+    private void PositionLines(Rectangle panel, float scale)
     {
-        var visible = SystemsPanelLayout.VisibleLineCount(panel);
-        var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale;
+        var visible = SystemsPanelLayout.VisibleLineCount(panel, scale);
+        var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
 
         for (var i = 0; i < _lines.Count; i++)
         {
@@ -318,28 +324,31 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
                 continue;
             }
 
-            var rect = SystemsPanelLayout.LineRect(panel, vi);
+            var rect = SystemsPanelLayout.LineRect(panel, vi, scale);
             if (line.Entry == null)
             {
-                Place(line.LabelEntity, SystemsPanelLayout.HeaderPosition(rect, labelHeight));
+                PlaceLabel(line.LabelEntity, SystemsPanelLayout.HeaderPosition(rect, labelHeight, scale), scale);
             }
             else
             {
                 var depth = line.Entry.Depth;
-                var checkbox = SystemsPanelLayout.CheckboxRect(rect, depth);
+                var checkbox = SystemsPanelLayout.CheckboxRect(rect, depth, scale);
                 Place(line.CheckboxEntity, new Vector2(checkbox.X, checkbox.Y));
+                Resize(line.CheckboxEntity, checkbox);
                 if (line.MarkEntity.IsAlive)
                 {
-                    var bar = SystemsPanelLayout.MinusBarRect(checkbox);
+                    var bar = SystemsPanelLayout.MinusBarRect(checkbox, scale);
                     Place(line.MarkEntity, new Vector2(bar.X, bar.Y));
+                    Resize(line.MarkEntity, bar);
                 }
-                Place(line.LabelEntity, SystemsPanelLayout.LabelPosition(rect, labelHeight, depth));
+                PlaceLabel(line.LabelEntity, SystemsPanelLayout.LabelPosition(rect, labelHeight, depth, scale), scale);
             }
         }
 
         _laidOutWidth = _viewportManager.ScreenWidth;
         _laidOutHeight = _viewportManager.ScreenHeight;
         _laidOutScroll = _scroll;
+        _laidOutScale = scale;
     }
 
     private void ReflectState(int hoveredIndex)
@@ -391,6 +400,22 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
         ref var transform = ref entity.Get<TransformComponent>();
         transform.Position = position;
         entity.NotifyChanged<TransformComponent>();
+    }
+
+    /// <summary>Places a label and keeps its glyph scale in step with the DPR (same physical
+    /// size, denser pixels — see <c>EditorChromeBuilder.Relayout</c>).</summary>
+    private static void PlaceLabel(Entity label, Vector2 position, float scale)
+    {
+        Place(label, position);
+        ref var text = ref label.Get<DynamicTextComponent>();
+        text.Scale = EditorChromeBuilder.LabelScale * scale;
+    }
+
+    /// <summary>Sizes a checkbox/minus-bar mesh to its DPR-scaled rectangle.</summary>
+    private static void Resize(Entity entity, Rectangle rect)
+    {
+        ref var visual = ref entity.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(rect.Width, rect.Height);
     }
 
     public void Dispose()

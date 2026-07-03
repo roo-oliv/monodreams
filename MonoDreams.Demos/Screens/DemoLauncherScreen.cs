@@ -188,7 +188,7 @@ public class DemoLauncherScreen : IGameScreen
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
-        var cursorInputSystem = new CursorInputSystem(_world);
+        var cursorInputSystem = new CursorInputSystem(_world, _viewportManager);
 
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers —
         // the launcher menu is a scene like any other.
@@ -281,7 +281,12 @@ public class DemoLauncherScreen : IGameScreen
             g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
         });
         if (_editor != null)
+        {
             p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
+            // The overlay visuals (gizmo handles / selection outline / proxy outlines) bake in
+            // screen pixels on the Editor target from the frame's FINAL camera + selection.
+            p.Add("editor.overlayPrep", _editor.Overlay.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
         p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

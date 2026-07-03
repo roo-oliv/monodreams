@@ -107,6 +107,19 @@ public class ViewportManager
         set { if (_screenHeight != value) { _screenHeight = value; MarkDirty(); } }
     }
 
+    /// <summary>
+    /// Device pixels per window LOGICAL point (Flutter's devicePixelRatio) — 1 unless the host
+    /// enabled a device-resolution backbuffer behind a scaled window (macOS Retina under the
+    /// editor run flag; see the level-editor module's <c>EditorHiDpi</c>). When it is >1,
+    /// <see cref="ScreenWidth"/>/<see cref="ScreenHeight"/> are DEVICE pixels while OS mouse
+    /// coordinates stay logical, so <c>CursorInputSystem</c> multiplies the raw mouse position by
+    /// this ratio — keeping the invariant that <c>ScreenPosition</c>, chrome layout/hit-tests, and
+    /// the backbuffer all share one space (device pixels). Chrome layout (e.g.
+    /// <c>EditorChromeLayout</c>) multiplies its point-based metrics by this ratio so on-screen
+    /// physical sizes stay constant while gaining pixel density.
+    /// </summary>
+    public float DevicePixelRatio { get; set; } = 1f;
+
     /// <summary>Whether a viewport inset (reserved chrome margins) is currently active.</summary>
     public bool HasViewportInset => _insetLeft != 0 || _insetTop != 0 || _insetRight != 0 || _insetBottom != 0;
 

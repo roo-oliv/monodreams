@@ -13,6 +13,7 @@ using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Renderer;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.System;
@@ -22,13 +23,23 @@ namespace MonoDreams.LevelEditor.System;
 /// handles plus a selection outline around the entity tagged <c>SelectedComponent</c>, and turns a
 /// drag on the active handle into a transform edit that is <b>one undo step per drag</b>.
 ///
-/// <para><b>Overlay entities are standalone.</b> The handles + outline are mesh entities the gizmo
-/// creates and owns (tagged <see cref="GizmoOverlayComponent"/>); they are <b>never</b>
-/// <c>ChildOf</c>-parented to the selected game entity (<c>HierarchySystem.DisposeOrphans</c> runs
-/// in Edit and would cascade-dispose them) and they set <c>VisibleComponent</c> themselves
-/// (<c>CullingSystem</c> only visits <c>SpriteInfoComponent</c> entities). They draw world-space on
-/// <c>Main</c> so the handles track the entity; handle sizes are scaled by <c>1/Camera.Zoom</c> for
-/// constant on-screen size.</para>
+/// <para><b>Overlay entities are standalone, native-resolution chrome.</b> The handles + outline
+/// are mesh entities the gizmo creates and owns (tagged <see cref="GizmoOverlayComponent"/>); they
+/// are <b>never</b> <c>ChildOf</c>-parented to the selected game entity
+/// (<c>HierarchySystem.DisposeOrphans</c> runs in Edit and would cascade-dispose them). Their
+/// visuals are emitted by <see cref="EmitOverlays"/> — called from the DRAW pipeline (via
+/// <c>EditorOverlayPrepSystem</c>, after <c>SelectionSystem</c>, before the render passes) so they
+/// read the frame's FINAL camera and selection — in <b>screen pixels</b> on the native-resolution
+/// <c>RenderTargetID.Editor</c> target: world geometry is projected through the pure
+/// <see cref="OverlayProjection"/> (camera view matrix → aspect-fit destination mapping), sizes
+/// are virtual-pixel constants scaled by the aspect-fit factor only (never the camera zoom — the
+/// projection replaces the old <c>1/Zoom</c> world-space compensation with the same apparent
+/// size), and every mesh is clipped to the game viewport rectangle
+/// (<see cref="OverlayMeshClip"/>) so nothing draws over the letterbox bars; the shell's opaque
+/// panels sit above the overlay depth band and cover the chrome margins. Per the chrome rule the
+/// overlay entities carry <b>no</b> <c>VisibleComponent</c> (the Editor pass renders every
+/// matching entity; its presence would pull them into <c>MeshPrepSystem</c>, which overwrites the
+/// identity <c>WorldMatrix</c> the screen-baked vertices require).</para>
 ///
 /// <para><b>Drag → one undo step.</b> On the press edge over a handle the gizmo snapshots the
 /// before-transform and calls <c>EditorHistory.BeginTransaction()</c>; each drag frame it computes
@@ -52,12 +63,13 @@ namespace MonoDreams.LevelEditor.System;
 ///
 /// <para><b>Target-aware space (Wave 8a).</b> A selected entity whose render target is
 /// <c>UI</c>/<c>HUD</c>/<c>Scroll</c> lives in <b>virtual</b> (screen-space) coordinates, not world
-/// space: for those the gizmo reads the cursor's <c>VirtualPosition</c>, draws its overlays on the
-/// entity's own target (so outline + handles composite exactly over it), and sizes handles with no
-/// zoom compensation (screen-space passes have no camera). The transform math
+/// space: for those the gizmo reads the cursor's <c>VirtualPosition</c> and hit-tests handles with
+/// no zoom compensation (screen-space passes have no camera). The transform math
 /// (<see cref="GizmoTransform"/>) is space-agnostic, so move / rotate / scale all work — the only
 /// difference is which coordinate pair feeds it. <c>Main</c>-target entities keep the world-space
-/// path (cursor <c>WorldPosition</c>, overlays on Main, <c>1/Camera.Zoom</c> handle sizing).</para>
+/// path (cursor <c>WorldPosition</c>, <c>1/Camera.Zoom</c> handle hit-test sizing). The VISUALS
+/// always land on the Editor target; the entity's own space only selects which
+/// <see cref="OverlayProjection"/> factory maps them to the screen.</para>
 ///
 /// <para><b>Proxy targets write back into the bound component, never the proxy (Wave 8b).</b> When
 /// the selected entity is a collider gizmo proxy (<see cref="GizmoProxyComponent"/>), the drag is
@@ -73,18 +85,26 @@ namespace MonoDreams.LevelEditor.System;
 /// </summary>
 public sealed class GizmoSystem : ISystem<GameState>
 {
-    /// <summary>On-screen handle/outline sizing constants (in screen pixels; divided by zoom for world units).</summary>
+    /// <summary>Handle/outline sizing constants in VIRTUAL pixels: hit-tests divide by zoom for
+    /// world units (unchanged); visuals scale by the aspect-fit factor via
+    /// <see cref="OverlayProjection.ToScreenSize"/> — same apparent size, rasterized natively.</summary>
     private const float MoveHandlePixelRadius = 9f;
     private const float ScaleHandlePixelRadius = 7f;
     private const float ScaleHandlePixelDistance = 48f;
     private const float RotateRingPixelRadius = 40f;
     private const float RotateRingPixelTolerance = 7f;
     private const float OutlinePixelThickness = 2f;
-    private const float OverlayLayerDepth = 0.999f; // draw on top of game sprites on Main
+
+    /// <summary>The gizmo overlays' depth band on the Editor target: above the proxy outlines
+    /// (<see cref="ProxySyncSystem.ProxyLayerDepth"/>), below the shell's opaque panels
+    /// (<c>EditorChromeBuilder.PanelDepth</c> = 0.1) — so the panels clip the overlays wherever
+    /// the chrome margins are.</summary>
+    public const float OverlayLayerDepth = 0.04f;
 
     private readonly World _world;
     private readonly Camera _camera;
     private readonly EditorHistory _history;
+    private readonly ViewportManager? _viewportManager;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _gizmoStateSet;
     private readonly EntitySet _cursorSet;
@@ -114,11 +134,16 @@ public sealed class GizmoSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
-    public GizmoSystem(World world, Camera camera, EditorHistory history)
+    /// <param name="viewportManager">Supplies the aspect-fit destination the overlay visuals are
+    /// projected into (see <see cref="OverlayProjection"/>). Null (world-free unit tests) degrades
+    /// to the identity aspect-fit — screen == virtual.</param>
+    public GizmoSystem(World world, Camera camera, EditorHistory history,
+        ViewportManager? viewportManager = null)
     {
         _world = world;
         _camera = camera;
         _history = history;
+        _viewportManager = viewportManager;
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
@@ -128,21 +153,20 @@ public sealed class GizmoSystem : ISystem<GameState>
     {
         if (!IsEnabled) return;
 
-        // Edit-guarded: inert in Play. Tear the overlays down so they don't linger when editing exits.
+        // Edit-guarded: inert in Play. (The overlay visuals are owned by EmitOverlays — the
+        // draw-phase emission pass — which tears them down when editing exits.)
         if (state.RunMode != RunMode.Edit)
         {
             if (_dragging) CancelDrag();
-            HideOverlays();
             WriteClaim(false);
             return;
         }
 
         if (!TryGetSelected(out var target))
         {
-            // Nothing selected — finish any in-flight drag and hide the overlays. No selection
-            // means no handles, so nothing to claim: the selection pass owns every press.
+            // Nothing selected — finish any in-flight drag. No selection means no handles, so
+            // nothing to claim: the selection pass owns every press.
             if (_dragging) CancelDrag();
-            HideOverlays();
             WriteClaim(false);
             return;
         }
@@ -156,10 +180,10 @@ public sealed class GizmoSystem : ISystem<GameState>
         // would imply an edit the write-back cannot express yet — documented follow-up).
         var tool = target.Has<GizmoProxyComponent>() ? GizmoTool.Move : gizmo.Tool;
 
-        // Target-aware space: Main-target entities are world-space (cursor WorldPosition, overlays
-        // on Main, handles sized by 1/Zoom); UI/HUD/Scroll-target entities are screen-space (their
-        // transforms are virtual coordinates → cursor VirtualPosition, overlays on their own
-        // target, no zoom compensation — screen-space passes have no camera).
+        // Target-aware space: Main-target entities are world-space (cursor WorldPosition, handle
+        // hit-tests sized by 1/Zoom); UI/HUD/Scroll-target entities are screen-space (their
+        // transforms are virtual coordinates → cursor VirtualPosition, no zoom compensation —
+        // screen-space passes have no camera).
         var space = OverlaySpace(target);
         var worldSpace = space == RenderTargetID.Main;
         var invZoom = worldSpace && _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
@@ -167,8 +191,6 @@ public sealed class GizmoSystem : ISystem<GameState>
         if (!TryGetCursor(out var cursor))
         {
             WriteClaim(false);
-            EnsureOverlays();
-            UpdateOverlayMeshes(target, tool, pivot, invZoom, space);
             return;
         }
 
@@ -179,9 +201,37 @@ public sealed class GizmoSystem : ISystem<GameState>
         // under a handle that lies outside the selected sprite's bounds. Written every Edit frame
         // (set or cleared), so it cannot go stale while the gizmo runs.
         WriteClaim(ProcessDrag(target, tool, cursor, cursorPoint, pivot, invZoom));
+    }
+
+    /// <summary>
+    /// Emits (or hides) the overlay VISUALS for this frame — the selection outline + active-tool
+    /// handle — in screen pixels on the native-resolution Editor target. Called from the DRAW
+    /// pipeline (the <c>editor.overlayPrep</c> entry, via <c>EditorOverlayPrepSystem</c>) after
+    /// <c>SelectionSystem</c> and after the frame's camera is final, so the overlays never lag a
+    /// camera pan/zoom or a same-frame selection change. Geometry is projected through the pure
+    /// <see cref="OverlayProjection"/> and clipped to the game viewport rectangle
+    /// (<see cref="OverlayMeshClip"/>).
+    /// </summary>
+    public void EmitOverlays(GameState state)
+    {
+        if (!IsEnabled || state.RunMode != RunMode.Edit || !TryGetSelected(out var target))
+        {
+            HideOverlays();
+            return;
+        }
+
+        ref readonly var gizmo = ref GetGizmoState();
+        var tool = target.Has<GizmoProxyComponent>() ? GizmoTool.Move : gizmo.Tool;
+        var pivot = target.Get<TransformComponent>().WorldPosition;
+        var space = OverlaySpace(target);
+        // The scale handle's SOURCE-space offset mirrors the hit-test's (world units ÷ zoom /
+        // virtual units), so its visual is projected from the exact point HandleHit tests.
+        var invZoom = space == RenderTargetID.Main && _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
+        var projection = OverlayProjection.For(space, _camera, _viewportManager);
 
         EnsureOverlays();
-        UpdateOverlayMeshes(target, tool, pivot, invZoom, space);
+        SetMesh(_outline, OverlayMeshClip.ClipToRect(BuildOutline(target, pivot, projection), projection.Viewport));
+        SetMesh(_handle, OverlayMeshClip.ClipToRect(BuildHandle(tool, pivot, invZoom, projection), projection.Viewport));
     }
 
     /// <summary>Advances the drag lifecycle for this frame. Returns whether the gizmo owns the
@@ -441,15 +491,17 @@ public sealed class GizmoSystem : ISystem<GameState>
         var e = _world.CreateEntity();
         e.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         e.Set(new GizmoOverlayComponent());
-        e.Set(new TransformComponent()); // identity — vertices are baked in world space
+        e.Set(new TransformComponent()); // identity — vertices are baked in screen space
         e.Set(new DrawComponent
         {
             Type = DrawElementType.Mesh,
-            Target = RenderTargetID.Main,
+            Target = RenderTargetID.Editor, // native-resolution overlay, under the chrome panels
             LayerDepth = OverlayLayerDepth,
             WorldMatrix = Matrix.Identity,
         });
-        e.Set(new VisibleComponent()); // CullingSystem won't tag this (no SpriteInfoComponent)
+        // NO VisibleComponent — the chrome rule: the Editor pass renders every matching entity,
+        // and its presence would pull the mesh into MeshPrepSystem, which overwrites the identity
+        // WorldMatrix the screen-baked vertices require (the Wave-7 double-offset trap).
         return e;
     }
 
@@ -461,20 +513,7 @@ public sealed class GizmoSystem : ISystem<GameState>
         _overlaysCreated = false;
     }
 
-    private void UpdateOverlayMeshes(Entity target, GizmoTool tool, Vector2 pivot, float invZoom,
-        RenderTargetID space)
-    {
-        // Selection outline: the sprite's rendered quad (world- or virtual-space, matching the
-        // entity), stroked. Falls back to a small box around the pivot when the entity has no
-        // sprite bounds (e.g. a mesh-only entity). Overlays draw on the entity's own target so
-        // they composite exactly over it (a virtual-space outline on Main would land wherever the
-        // camera happens to look).
-        SetMesh(_outline, BuildOutline(target, pivot, invZoom), space);
-        // Active-tool handle.
-        SetMesh(_handle, BuildHandle(tool, pivot, invZoom), space);
-    }
-
-    private static void SetMesh(Entity e, MeshData mesh, RenderTargetID space)
+    private static void SetMesh(Entity e, MeshData mesh)
     {
         ref var dc = ref e.Get<DrawComponent>();
         dc.Type = DrawElementType.Mesh;
@@ -483,12 +522,15 @@ public sealed class GizmoSystem : ISystem<GameState>
         dc.PrimitiveType = mesh.PrimitiveType;
         dc.WorldMatrix = Matrix.Identity;
         dc.LayerDepth = OverlayLayerDepth;
-        dc.Target = space;
+        dc.Target = RenderTargetID.Editor;
     }
 
-    private static MeshData BuildOutline(Entity target, Vector2 pivot, float invZoom)
+    /// <summary>The selection outline, in screen pixels: the sprite's rendered quad (or the bound
+    /// collider shape for a proxy), projected corner-by-corner and stroked at native resolution.
+    /// Falls back to a small box around the pivot when the entity has no sprite bounds.</summary>
+    private static MeshData BuildOutline(Entity target, Vector2 pivot, in OverlayProjection projection)
     {
-        var thickness = OutlinePixelThickness * invZoom;
+        var thickness = projection.ToScreenSize(OutlinePixelThickness);
         var color = Color.Yellow;
 
         // A selected collider proxy outlines its bound shape (the same border the pick tested),
@@ -497,62 +539,78 @@ public sealed class GizmoSystem : ISystem<GameState>
         {
             var binding = target.Get<GizmoProxyComponent>();
             if (ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, out var shape))
-                return new PolygonOutlineMeshGenerator(shape, thickness, color, closed: true).Generate();
+                return new PolygonOutlineMeshGenerator(
+                    Project(shape, projection), thickness, color, closed: true).Generate();
         }
 
         if (target.Has<SpriteInfoComponent>())
         {
             var corners = GizmoTransform.SpriteWorldQuad(
                 target.Get<TransformComponent>(), target.Get<SpriteInfoComponent>());
-            return new PolygonOutlineMeshGenerator(corners, thickness, color, closed: true).Generate();
+            return new PolygonOutlineMeshGenerator(
+                Project(corners, projection), thickness, color, closed: true).Generate();
         }
 
-        // No sprite bounds: a small box around the pivot.
-        var half = 16f * invZoom;
+        // No sprite bounds: a small box around the pivot (constant screen size).
+        var center = projection.ToScreen(pivot);
+        var half = projection.ToScreenSize(16f);
         var box = new[]
         {
-            pivot + new Vector2(-half, -half), pivot + new Vector2(half, -half),
-            pivot + new Vector2(half, half),   pivot + new Vector2(-half, half),
+            center + new Vector2(-half, -half), center + new Vector2(half, -half),
+            center + new Vector2(half, half),   center + new Vector2(-half, half),
         };
         return new PolygonOutlineMeshGenerator(box, thickness, color, closed: true).Generate();
     }
 
-    private static MeshData BuildHandle(GizmoTool tool, Vector2 pivot, float invZoom)
+    /// <summary>The active tool's handle, in screen pixels around the projected pivot — constant
+    /// on-screen size at every camera zoom (the projection scales sizes by the aspect-fit factor
+    /// only).</summary>
+    private static MeshData BuildHandle(GizmoTool tool, Vector2 pivot, float invZoom, in OverlayProjection projection)
     {
+        var center = projection.ToScreen(pivot);
         switch (tool)
         {
             case GizmoTool.Move:
             {
-                var r = MoveHandlePixelRadius * invZoom;
-                var arm = MoveHandlePixelRadius * 2.4f * invZoom;
-                var th = OutlinePixelThickness * invZoom;
+                var r = projection.ToScreenSize(MoveHandlePixelRadius);
+                var arm = projection.ToScreenSize(MoveHandlePixelRadius * 2.4f);
+                var th = projection.ToScreenSize(OutlinePixelThickness);
                 return new CompositeMeshGenerator()
-                    .Add(new LineMeshGenerator(pivot, pivot + new Vector2(arm, 0f), th, Color.OrangeRed))
-                    .Add(new LineMeshGenerator(pivot, pivot + new Vector2(0f, -arm), th, Color.LimeGreen))
-                    .Add(new CircleMeshGenerator(pivot, r, Color.White, 18))
+                    .Add(new LineMeshGenerator(center, center + new Vector2(arm, 0f), th, Color.OrangeRed))
+                    .Add(new LineMeshGenerator(center, center + new Vector2(0f, -arm), th, Color.LimeGreen))
+                    .Add(new CircleMeshGenerator(center, r, Color.White, 18))
                     .Generate();
             }
             case GizmoTool.Rotate:
             {
-                var ring = RotateRingPixelRadius * invZoom;
-                var th = RotateRingPixelTolerance * 0.6f * invZoom;
-                return new CircleOutlineMeshGenerator(pivot, ring, th, Color.DeepSkyBlue, 28).Generate();
+                var ring = projection.ToScreenSize(RotateRingPixelRadius);
+                var th = projection.ToScreenSize(RotateRingPixelTolerance * 0.6f);
+                return new CircleOutlineMeshGenerator(center, ring, th, Color.DeepSkyBlue, 28).Generate();
             }
             case GizmoTool.Scale:
             {
-                var handlePos = ScaleHandlePosition(pivot, invZoom);
-                var r = ScaleHandlePixelRadius * invZoom;
-                var th = OutlinePixelThickness * invZoom;
+                // Projected from the SAME source-space point HandleHit tests, so the visual and
+                // the grab region can never diverge (any camera transform included).
+                var handlePos = projection.ToScreen(ScaleHandlePosition(pivot, invZoom));
+                var r = projection.ToScreenSize(ScaleHandlePixelRadius);
+                var th = projection.ToScreenSize(OutlinePixelThickness);
                 var box = new Rectangle(
                     (int)(handlePos.X - r), (int)(handlePos.Y - r), (int)(r * 2f), (int)(r * 2f));
                 return new CompositeMeshGenerator()
-                    .Add(new LineMeshGenerator(pivot, handlePos, th, Color.Gold))
+                    .Add(new LineMeshGenerator(center, handlePos, th, Color.Gold))
                     .Add(new FilledRectangleMeshGenerator(box, Color.Gold))
                     .Generate();
             }
             default:
                 return new MeshData();
         }
+    }
+
+    private static Vector2[] Project(Vector2[] points, in OverlayProjection projection)
+    {
+        var result = new Vector2[points.Length];
+        for (var i = 0; i < points.Length; i++) result[i] = projection.ToScreen(points[i]);
+        return result;
     }
 
     // ---- Lookups ----

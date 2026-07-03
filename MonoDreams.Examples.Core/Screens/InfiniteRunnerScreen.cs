@@ -463,7 +463,12 @@ public class InfiniteRunnerScreen : IGameScreen
             g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
         });
         if (_editor != null)
+        {
             p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+            // The overlay visuals (gizmo handles / selection outline / proxy outlines) bake in
+            // screen pixels on the Editor target from the frame's FINAL camera + selection.
+            p.Add("editor.overlayPrep", _editor.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
         p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
         p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
         p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);

@@ -33,10 +33,14 @@ namespace MonoDreams.LevelEditor.UI;
 /// record the last laid-out size so callers can detect staleness cheaply.</para>
 ///
 /// <para><b>Text choice.</b> Labels use the screen's BitmapFont (PPMondwest, a 48px source) at
-/// <see cref="LabelScale"/> = 1/3 → ≈16px glyphs rendered directly at native resolution and
+/// <see cref="LabelScale"/> = 1/3 → ≈16-point glyphs rendered directly at native resolution and
 /// linear-filtered by the render pass — crisp at any window size because the chrome never gets
-/// rescaled after rendering. Limit: it is still a downscaled bitmap font, not a vector font; a
-/// dedicated small font asset would be marginally crisper (documented follow-up).</para>
+/// rescaled after rendering. On a HiDPI backbuffer (<c>Relayout</c>'s device-pixel-ratio) the
+/// glyph scale multiplies by the DPR — e.g. 48px source → 32 device px at DPR 2, the same
+/// 16-point physical size with double the pixel density (a 1.5 divisor instead of the integer 3;
+/// strictly sharper than rendering 16 px and letting the OS upscale it). Limit: it is still a
+/// downscaled bitmap font, not a vector font; a dedicated small font export per DPR bucket would
+/// be marginally crisper (documented follow-up).</para>
 /// </summary>
 public sealed class EditorChromeBuilder
 {
@@ -88,6 +92,10 @@ public sealed class EditorChromeBuilder
 
     /// <summary>See <see cref="LaidOutWidth"/>.</summary>
     public int LaidOutHeight { get; private set; }
+
+    /// <summary>The device-pixel-ratio the chrome was last laid out for (see
+    /// <see cref="Relayout"/>; 0 until <see cref="Build"/>).</summary>
+    public float LaidOutScale { get; private set; }
 
     public EditorChromeBuilder(World world, BitmapFont font)
         : this(world, label => font.MeasureString(label).Width * LabelScale)
@@ -152,23 +160,25 @@ public sealed class EditorChromeBuilder
 
     /// <summary>
     /// Recomputes every panel/button/label position and size for a new window size (native-pixel
-    /// layout must track the window). Idempotent for an unchanged size.
+    /// layout must track the window) and device-pixel ratio (<paramref name="scale"/> — metrics
+    /// and label glyphs scale with it so the chrome keeps its physical size on a HiDPI
+    /// backbuffer; see <c>EditorChromeLayout</c>). Idempotent for unchanged inputs.
     /// </summary>
-    public void Relayout(int screenWidth, int screenHeight)
+    public void Relayout(int screenWidth, int screenHeight, float scale = 1f)
     {
         if (!_built) throw new InvalidOperationException("Build the editor chrome before Relayout.");
 
-        PlacePanel(_topBar, EditorChromeLayout.TopBar(screenWidth));
-        PlacePanel(_rightPanel, EditorChromeLayout.RightPanel(screenWidth, screenHeight));
-        PlacePanel(_bottomBar, EditorChromeLayout.BottomBar(screenWidth, screenHeight));
+        PlacePanel(_topBar, EditorChromeLayout.TopBar(screenWidth, scale));
+        PlacePanel(_rightPanel, EditorChromeLayout.RightPanel(screenWidth, screenHeight, scale));
+        PlacePanel(_bottomBar, EditorChromeLayout.BottomBar(screenWidth, screenHeight, scale));
 
         var widths = new int[_buttons.Length];
         for (var i = 0; i < _buttons.Length; i++)
-            widths[i] = EditorChromeLayout.ButtonWidth(_measureLabel(_buttons[i].label));
-        var rects = EditorChromeLayout.ButtonRow(widths);
+            widths[i] = EditorChromeLayout.ButtonWidth(_measureLabel(_buttons[i].label) * scale, scale);
+        var rects = EditorChromeLayout.ButtonRow(widths, scale);
 
-        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale;
-        var labelOffsetY = (EditorChromeLayout.ButtonHeight - labelHeight) / 2f;
+        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
+        var labelOffsetY = (EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale) - labelHeight) / 2f;
         for (var i = 0; i < _buttonEntities.Count; i++)
         {
             var bounds = rects[i];
@@ -177,12 +187,18 @@ public sealed class EditorChromeBuilder
             button.Bounds = bounds;
             ref var visual = ref _buttonEntities[i].Get<SimpleButtonComponent>();
             visual.Size = new Vector2(bounds.Width, bounds.Height);
+            // Label glyphs scale with the DPR: same physical size, denser pixels (see the class
+            // doc's Text choice — at scale 1 this is the historical 1/3 downscale).
+            ref var text = ref _labelEntities[i].Get<DynamicTextComponent>();
+            text.Scale = LabelScale * scale;
             PlaceEntity(_labelEntities[i],
-                new Vector2(bounds.X + EditorChromeLayout.ButtonPaddingX, bounds.Y + labelOffsetY));
+                new Vector2(bounds.X + EditorChromeLayout.Px(EditorChromeLayout.ButtonPaddingX, scale),
+                    bounds.Y + labelOffsetY));
         }
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
+        LaidOutScale = scale;
     }
 
     // NOTE: chrome entities deliberately carry NO VisibleComponent. It is only load-bearing on

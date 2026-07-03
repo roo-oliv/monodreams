@@ -68,12 +68,16 @@ public sealed class EditorShellSystem : ISystem<GameState>
     {
         if (!IsEnabled) return;
 
-        // Native chrome tracks the window: relayout when the size changed (or on entry).
+        // Native chrome tracks the window AND the device-pixel ratio: relayout when either
+        // changed (or on entry). The DPR scales the chrome's point-based metrics so its physical
+        // size is stable on a device-resolution (HiDPI) backbuffer — see EditorChromeLayout.
+        var scale = _viewportManager.DevicePixelRatio;
         if (_chrome.LaidOutWidth != _viewportManager.ScreenWidth ||
-            _chrome.LaidOutHeight != _viewportManager.ScreenHeight)
-            _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight);
+            _chrome.LaidOutHeight != _viewportManager.ScreenHeight ||
+            _chrome.LaidOutScale != scale)
+            _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
 
-        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset;
+        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(scale);
         _viewportManager.SetViewportInset(left, top, right, bottom); // no-op when unchanged
 
         // One pointer at a time, in both transport states: the OS cursor (it must reach the

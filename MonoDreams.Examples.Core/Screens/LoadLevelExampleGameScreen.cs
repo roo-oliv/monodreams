@@ -226,7 +226,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
-        var cursorInputSystem = new CursorInputSystem(_world);
+        var cursorInputSystem = new CursorInputSystem(_world, _viewportManager);
         var editorOpActive = _editor?.HasEditorOpPlan == true;
 
         // The input block is registered as a registrar GROUP below (children visible in the
@@ -525,7 +525,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Selection runs at the END of the prep phase so it reads the FINAL post-YSort
             // DrawComponent.LayerDepth computed THIS frame. The cursor's click edge (set in the
             // update phase) survives into the draw call, so picking is in-frame. Edit-guarded.
+        {
             p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+            // The overlay visuals (gizmo handles / selection outline / proxy outlines) bake in
+            // screen pixels on the Editor target from the frame's FINAL camera + selection.
+            p.Add("editor.overlayPrep", _editor.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
         p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
         p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
         p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);

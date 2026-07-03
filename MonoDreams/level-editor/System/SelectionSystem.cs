@@ -56,9 +56,10 @@ namespace MonoDreams.LevelEditor.System;
 /// <para><b>Gizmo proxies join the SAME pick (Wave 8b), as border-only candidates.</b> Collider
 /// proxy entities (<see cref="GizmoProxyComponent"/>) carry no <c>SpriteInfoComponent</c>, so they
 /// are folded into the pick as a second candidate source with the SAME rank + depth + id ordering
-/// (never a second pick path): rank = Main (they are world-space outlines), depth = their
-/// <c>DrawComponent.LayerDepth</c> (drawn on top of game sprites, so they win where they visibly
-/// overlap), id = the same <see cref="EditorIdComponent"/> tiebreak. Their hit-test is the shape's
+/// (never a second pick path): rank = Main (they are world-space outlines), depth =
+/// <see cref="ProxyBorderPickDepth"/> (a constant "drawn on top of game sprites" rank — the
+/// outline VISUAL renders on the Editor overlay layer above the whole scene, so they win where
+/// they visibly overlap), id = the same <see cref="EditorIdComponent"/> tiebreak. Their hit-test is the shape's
 /// <b>border</b> within a <c>1/Camera.Zoom</c>-scaled tolerance — never the fill — so a collider
 /// that covers its entity's sprite doesn't make the sprite unselectable: click the outline to grab
 /// the proxy, click inside to pick the entity.</para>
@@ -72,6 +73,14 @@ public sealed class SelectionSystem : ISystem<GameState>
     /// <summary>How close (in screen pixels, divided by zoom for world units) a click must land to
     /// a proxy's border to pick it. Generous enough to grab a 2px outline comfortably.</summary>
     public const float ProxyBorderPickTolerancePixels = 8f;
+
+    /// <summary>The depth a proxy candidate competes with in the pick — the "drawn on top of the
+    /// game sprites" rank the proxies have always had. A CONSTANT, deliberately decoupled from
+    /// the proxy's <c>DrawComponent.LayerDepth</c>: the visual now lives in the Editor target's
+    /// low overlay band (<c>ProxySyncSystem.ProxyLayerDepth</c>, under the chrome panels), where
+    /// the raw value would lose to any game sprite even though the outline visibly draws above
+    /// them all.</summary>
+    public const float ProxyBorderPickDepth = 0.998f;
 
     private readonly World _world;
     private readonly Camera? _camera;
@@ -215,7 +224,7 @@ public sealed class SelectionSystem : ISystem<GameState>
             if (!proxy.Has<EditorIdComponent>())
                 proxy.Set(new EditorIdComponent(_nextEditorId++));
             var id = proxy.Get<EditorIdComponent>().Id;
-            var depth = proxy.Get<DrawComponent>().LayerDepth;
+            var depth = ProxyBorderPickDepth; // constant — see its doc (visual depth is Editor-band)
 
             if (Beats(rank, depth, id, _hasBest, _bestRank, _bestDepth, _bestId))
             {

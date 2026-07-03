@@ -89,7 +89,25 @@ public class Game1 : Game
     
     private void OnWindowResize(object sender, EventArgs e)
     {
-        InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        if (!ApplyEditorHiDpi())
+            InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+    }
+
+    /// <summary>
+    /// Editor runs render at DEVICE resolution (macOS Retina: the stock DesktopGL backbuffer is
+    /// logical-size and OS-upscaled ~2× — blurry chrome/overlays). Applied on the FIRST Update —
+    /// not in Initialize, where MonoGame's window still has its pre-resize default size — and
+    /// re-applied on every resize; returns whether the device-resolution path took over the
+    /// renderer sizing.
+    /// </summary>
+    private bool ApplyEditorHiDpi()
+    {
+        if (!_editor || _headless) return false;
+        var result = EditorHiDpi.TryEnable(this);
+        if (!result.Applied) return false;
+        _viewportManager.DevicePixelRatio = result.Scale;
+        InitializeRenderer(result.Width, result.Height);
+        return true;
     }
     
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
@@ -181,8 +199,18 @@ public class Game1 : Game
         base.Initialize();
     }
 
+    private bool _hiDpiApplied;
+
     protected override void Update(GameTime gameTime)
     {
+        // First-frame HiDPI application (see ApplyEditorHiDpi): the OS window has its real size
+        // only once the run loop starts, so Initialize is too early to measure it.
+        if (!_hiDpiApplied)
+        {
+            _hiDpiApplied = true;
+            ApplyEditorHiDpi();
+        }
+
 #if DEBUG
         _debugInspector?.HandleInput();
 #endif

@@ -56,7 +56,7 @@ public class EditorShellTests
     public void ChromeLayout_PanelsCoverExactlyTheInsetMargins()
     {
         const int w = 1600, h = 900;
-        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset;
+        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset();
 
         var topBar = EditorChromeLayout.TopBar(w);
         var rightPanel = EditorChromeLayout.RightPanel(w, h);
@@ -256,7 +256,7 @@ public class EditorShellTests
         shell.Update(Edit());
 
         Assert.True(vm.HasViewportInset);
-        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset;
+        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset();
         // The inset viewport lives inside the reserved margins.
         var dest = vm.DestinationRectangle;
         Assert.True(dest.X >= left && dest.Y >= top);
@@ -358,5 +358,105 @@ public class EditorShellTests
         // Neither picked the sprite nor cleared the existing selection.
         Assert.False(sprite.Has<SelectedComponent>());
         Assert.True(selectedBefore.Has<SelectedComponent>());
+    }
+
+    // ---- Device-pixel-ratio (HiDPI): point metrics scale; hit-test space == render space ----
+
+    [Fact]
+    public void ChromeLayout_AtDpr2_DoublesEveryPointMetric()
+    {
+        const int w = 3840, h = 2160; // a 1920×1080-point window on a 2× (Retina) backbuffer
+
+        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(2f);
+        Assert.Equal((0, 88, 560, 48), (left, top, right, bottom));
+
+        Assert.Equal(new Rectangle(0, 0, w, 88), EditorChromeLayout.TopBar(w, 2f));
+        Assert.Equal(new Rectangle(w - 560, 88, 560, h - 88 - 48), EditorChromeLayout.RightPanel(w, h, 2f));
+        Assert.Equal(new Rectangle(0, h - 48, w, 48), EditorChromeLayout.BottomBar(w, h, 2f));
+
+        // Button row: margins/gaps/heights double; widths are caller-scaled.
+        var rects = EditorChromeLayout.ButtonRow(new[] { 100, 120 }, 2f);
+        Assert.Equal(new Rectangle(20, (88 - 60) / 2, 100, 60), rects[0]);
+        Assert.Equal(rects[0].Right + 16, rects[1].X);
+    }
+
+    [Fact]
+    public void ChromeLayout_DefaultScale_IsThePreDprLayout()
+    {
+        // Byte-identical back-compat: scale 1 reproduces the historical numbers.
+        Assert.Equal((0, 44, 280, 24), EditorChromeLayout.ViewportInset());
+        Assert.Equal(EditorChromeLayout.TopBar(1600), EditorChromeLayout.TopBar(1600, 1f));
+    }
+
+    [Fact]
+    public void SystemsPanelLayout_AtDpr2_ScalesRowsAndCheckboxes()
+    {
+        var panel = new Rectangle(3280, 88, 560, 2024);
+
+        // Rows are 44 px tall (22 points × 2) inside the padded content area.
+        var content = SystemsPanelLayout.ContentArea(panel, 2f);
+        Assert.Equal(panel.X + 20, content.X);
+        Assert.Equal(panel.Y + 16, content.Y);
+        var line0 = SystemsPanelLayout.LineRect(panel, 0, 2f);
+        Assert.Equal(44, line0.Height);
+        Assert.Equal(SystemsPanelLayout.LineRect(panel, 1, 2f).Y, line0.Y + 44);
+
+        // Checkbox 24×24 (12 points × 2), centered in the row.
+        var checkbox = SystemsPanelLayout.CheckboxRect(line0, 0, 2f);
+        Assert.Equal(24, checkbox.Width);
+        Assert.Equal(24, checkbox.Height);
+        Assert.Equal(line0.Y + (44 - 24) / 2, checkbox.Y);
+    }
+
+    [Fact]
+    public void ShellAtDpr2_ChromeHitTestSpace_EqualsChromeRenderSpace()
+    {
+        // THE HiDPI invariant: ScreenPosition (device pixels — CursorInputSystem multiplies the
+        // raw mouse by DevicePixelRatio), the chrome layout, and the backbuffer all share ONE
+        // space. A pointer physically over a button must hit its Bounds at any DPR.
+        using var world = new World();
+        MakeCursor(world);
+        var vm = new ViewportManager(null, 800, 600)
+        {
+            ScreenWidth = 3840, ScreenHeight = 2160, DevicePixelRatio = 2f,
+        };
+        var chrome = new EditorChromeBuilder(world, Measure);
+        chrome.Build(1, 1); // stale — the shell relayouts with the real size AND scale
+        using var shell = new EditorShellSystem(world, vm, chrome, null);
+
+        shell.Update(Edit());
+        Assert.Equal(2f, chrome.LaidOutScale);
+
+        // The inset the shell applied is the DPR-scaled one (88-px top bar, not 44).
+        Assert.True(vm.HasViewportInset);
+        Assert.True(vm.DestinationRectangle.Y >= 88);
+
+        // Every button renders inside the scaled top bar, and a device-pixel click at its centre
+        // hits: bounds (hit-test) == visual size/position (render), in the same device space.
+        using var buttons = world.GetEntities().With<ToolbarButtonComponent>().AsSet();
+        var dispatched = new List<EditorToolbarAction>();
+        using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a));
+        var topBar = EditorChromeLayout.TopBar(3840, 2f);
+        Entity first = default;
+        foreach (var button in buttons.GetEntities())
+        {
+            ref readonly var tb = ref button.Get<ToolbarButtonComponent>();
+            Assert.True(topBar.Contains(tb.Bounds), $"button {tb.Bounds} escapes the scaled top bar");
+            ref readonly var visual = ref button.Get<SimpleButtonComponent>();
+            Assert.Equal(tb.Bounds.Width, (int)visual.Size.X);
+            Assert.Equal(tb.Bounds.Height, (int)visual.Size.Y);
+            if (first == default) first = button;
+        }
+
+        using var cursors = world.GetEntities().With<CursorInputComponent>().AsSet();
+        foreach (var cursor in cursors.GetEntities())
+        {
+            ref var input = ref cursor.Get<CursorInputComponent>();
+            var bounds = first.Get<ToolbarButtonComponent>().Bounds;
+            input.ScreenPosition = new Vector2(bounds.Center.X, bounds.Center.Y);
+            input.LeftButtonReleased = true;
+        }
+        toolbar.Update(Edit());
+        Assert.Single(dispatched);
     }
 }

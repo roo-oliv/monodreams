@@ -177,7 +177,7 @@ public class GizmoTests
     }
 
     // ---- GizmoUiTargetTest (Wave 8a): a UI/HUD-target entity lives in virtual space — the gizmo
-    // reads the cursor's VirtualPosition and draws its overlays on the entity's own target ----
+    // reads the cursor's VirtualPosition; its overlay VISUALS land on the native Editor target ----
 
     [Fact]
     public void GizmoUiTargetTest_MoveDragsInVirtualSpace_AndOverlaysFollowTheTarget()
@@ -214,14 +214,18 @@ public class GizmoTests
         using var gizmo = new GizmoSystem(world, camera, history);
         var edit = new GameState(new GameTime()) { RunMode = RunMode.Edit };
         gizmo.Update(edit); // press: grabs the move handle at the virtual pivot
+        gizmo.EmitOverlays(edit); // the draw-phase visual emission (editor.overlayPrep)
 
-        // The overlay entities draw on the entity's own target (HUD), not Main.
+        // The overlay VISUALS land on the native-resolution Editor target (screen-baked meshes,
+        // no VisibleComponent — the chrome rule); the entity's HUD space only selected the
+        // virtual→screen projection.
         using var overlays = world.GetEntities().With<GizmoOverlayComponent>().AsSet();
         var overlayCount = 0;
         foreach (var overlay in overlays.GetEntities())
         {
             overlayCount++;
-            Assert.Equal(RenderTargetID.HUD, overlay.Get<DrawComponent>().Target);
+            Assert.Equal(RenderTargetID.Editor, overlay.Get<DrawComponent>().Target);
+            Assert.False(overlay.Has<VisibleComponent>());
         }
         Assert.Equal(2, overlayCount); // outline + handle
 

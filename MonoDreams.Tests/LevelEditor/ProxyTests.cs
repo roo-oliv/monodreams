@@ -86,12 +86,14 @@ public class ProxyTests
             if (binding.Kind == ProxyBindingKind.BoxColliderBounds) sawBox = true;
             if (binding.Kind == ProxyBindingKind.ConvexColliderShape) sawConvex = true;
 
-            // Standalone overlay rules: never ChildOf-parented, self-set VisibleComponent,
-            // world-space mesh on Main.
+            // Standalone overlay rules: never ChildOf-parented; the VISUAL is native-resolution
+            // chrome — a screen-baked mesh on the Editor target, NO VisibleComponent (the chrome
+            // rule: its presence would pull the mesh into MeshPrepSystem, which would overwrite
+            // the identity WorldMatrix the screen-baked vertices require).
             Assert.False(proxy.Has<ChildOfComponent>());
-            Assert.True(proxy.Has<VisibleComponent>());
+            Assert.False(proxy.Has<VisibleComponent>());
             Assert.True(proxy.Has<TransformComponent>());
-            Assert.Equal(RenderTargetID.Main, proxy.Get<DrawComponent>().Target);
+            Assert.Equal(RenderTargetID.Editor, proxy.Get<DrawComponent>().Target);
         }
         Assert.True(sawBox);
         Assert.True(sawConvex);
