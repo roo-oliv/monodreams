@@ -17,10 +17,12 @@ namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
 /// Protects the level-editor premise "The editor shell insets the game viewport and renders its
-/// chrome at native resolution" (Wave 7): the pure chrome layout (panels cover exactly the
-/// reserved margins; the toolbar row sits inside the top bar), the builder's native-pixel
-/// entities + relayout-on-resize, the toolbar's native <c>ScreenPosition</c> hit-test (dispatch
-/// in Edit, inert in Play), the shell system's run-mode sync (viewport inset + cursor swap +
+/// chrome at native resolution" (Wave 7; transport model since the F1 retirement): the pure
+/// chrome layout (panels cover exactly the reserved margins; the toolbar row sits inside the top
+/// bar), the builder's native-pixel entities + relayout-on-resize, the toolbar's native
+/// <c>ScreenPosition</c> hit-test (editing buttons dispatch while Paused and are inert while
+/// Playing; the transport buttons dispatch in both — see <c>EditorTransportTests</c>), the shell
+/// system's CONSTANT composition (viewport inset + cursor applied in both transport states +
 /// dispose restore), and the margin-click guard (<c>OutsideViewport</c> presses never pick).
 /// Pure logic — no GraphicsDevice: the builder takes the injected label-measure seam and the
 /// <see cref="ViewportManager"/> never dereferences its <c>Game</c>.
@@ -184,7 +186,7 @@ public class EditorShellTests
         input.LeftButtonReleased = true;
 
         var dispatched = new List<EditorToolbarAction>();
-        using var toolbar = new ToolbarSystem(world, dispatched.Add);
+        using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a));
         toolbar.Update(Edit());
 
         Assert.Equal(new[] { EditorToolbarAction.Save }, dispatched);
@@ -203,15 +205,18 @@ public class EditorShellTests
         input.LeftButtonReleased = true;
 
         var dispatched = new List<EditorToolbarAction>();
-        using var toolbar = new ToolbarSystem(world, dispatched.Add);
+        using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a));
         toolbar.Update(Edit());
 
         Assert.Empty(dispatched);
     }
 
     [Fact]
-    public void ToolbarSystem_InPlay_IsInert()
+    public void ToolbarSystem_WhilePlaying_EditingButtonsAreInert()
     {
+        // Transport model: the toolbar stays live in Play, but the EDITING buttons (Save, tools,
+        // undo…) dispatch only while Paused — a click belongs to the game while Playing. The
+        // transport buttons' both-modes dispatch is covered in EditorTransportTests.
         using var world = new World();
         MakeButton(world, EditorToolbarAction.Save, new Rectangle(100, 7, 80, 30));
         var cursor = MakeCursor(world);
@@ -221,7 +226,7 @@ public class EditorShellTests
         input.LeftButtonReleased = true;
 
         var dispatched = new List<EditorToolbarAction>();
-        using var toolbar = new ToolbarSystem(world, dispatched.Add);
+        using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a));
         toolbar.Update(Play());
 
         Assert.Empty(dispatched);
@@ -241,7 +246,7 @@ public class EditorShellTests
     }
 
     [Fact]
-    public void ShellSystem_Edit_SetsTheInset_RelayoutsChrome_AndSwapsToTheOsCursor()
+    public void ShellSystem_SetsTheInset_RelayoutsChrome_AndSwapsToTheOsCursor()
     {
         using var world = new World();
         var cursor = MakeCursor(world);
@@ -265,8 +270,10 @@ public class EditorShellTests
     }
 
     [Fact]
-    public void ShellSystem_Play_ClearsTheInset_AndRestoresTheGameCursor()
+    public void ShellSystem_StaysComposedWhilePlaying()
     {
+        // Transport model: the shell never collapses — Playing runs the game inside the inset
+        // viewport with the chrome (and the OS pointer) still up.
         using var world = new World();
         var cursor = MakeCursor(world);
         var (shell, vm, _, osCursor) = MakeShell(world);
@@ -275,9 +282,9 @@ public class EditorShellTests
         shell.Update(Edit());
         shell.Update(Play());
 
-        Assert.False(vm.HasViewportInset);
-        Assert.False(osCursor());
-        Assert.True(cursor.Get<CursorControllerComponent>().IsVisible);
+        Assert.True(vm.HasViewportInset);
+        Assert.True(osCursor());
+        Assert.False(cursor.Get<CursorControllerComponent>().IsVisible);
     }
 
     [Fact]

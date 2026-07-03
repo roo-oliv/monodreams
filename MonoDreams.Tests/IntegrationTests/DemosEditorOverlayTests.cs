@@ -34,8 +34,8 @@ public class DemosEditorOverlayTests
         // The screen composed the overlay: its composition log lists the editor.* entries of BOTH
         // pipelines (update: mode toggle / gizmo / systems panel; draw: selection / chrome pass).
         result.AssertLogContains($"Editor overlay composed on {screenName}");
-        result.AssertLogContains("editor.modeToggle");
         result.AssertLogContains("editor.keys");
+        result.AssertLogContains("editor.cameraNav");
         result.AssertLogContains("editor.gizmo");
         result.AssertLogContains("editor.systemsPanel");
         result.AssertLogContains("editor.selection");

@@ -32,8 +32,8 @@ namespace MonoDreams.Tests.LevelEditor;
 /// + <see cref="SceneWriter"/>, the shared <see cref="EditorHistory"/>), composed in-process over a real
 /// <c>World</c>. The cursor is driven entirely by the <see cref="EditorOpReplaySystem"/> editor-op
 /// channel, which injects <see cref="CursorInputComponent"/> state (<see cref="CursorInputSystem"/> is
-/// run with <c>SkipHardwareRead = true</c> so the injected state survives), toggles the run mode, and
-/// fires toolbar actions.
+/// run with <c>SkipHardwareRead = true</c> so the injected state survives), drives the transport
+/// (Pause = Edit), and fires toolbar actions.
 ///
 /// <para>This is the in-process form of the <c>GameTestRunner</c>-style headless run: the Examples
 /// headless host early-returns from <c>Draw</c> (where <see cref="SelectionSystem"/> is ordered), so the
@@ -141,8 +141,8 @@ public class HeadlessEditorOpTests
             var loadRequests = new List<LoadSceneRequest>();
             world.Subscribe((in LoadSceneRequest r) => loadRequests.Add(r));
 
-            // The toolbar-action dispatch closure — same shape as LevelEditorScreen.DispatchToolbarAction.
-            Action<EditorToolbarAction> dispatch = action =>
+            // The toolbar-action dispatch closure — same shape as EditorOverlay.DispatchToolbarAction.
+            Action<EditorToolbarAction, GameState> dispatch = (action, _) =>
             {
                 switch (action)
                 {
@@ -162,8 +162,9 @@ public class HeadlessEditorOpTests
                 }
             };
 
-            // ---- The scripted editor-op plan: enter Edit, click the sprite (selects + grabs the move
-            //      handle at the pivot), drag it +40,+24 over three frames, release, then undo, then save. ----
+            // ---- The scripted editor-op plan: pause the transport (enter Edit), click the sprite
+            //      (selects + grabs the move handle at the pivot), drag it +40,+24 over three
+            //      frames, release, then undo, then save. ----
             var dragEnd = new Vector2(40f, 24f);
             var exitCount = 0;
             var plan = new EditorOpPlan
@@ -172,7 +173,7 @@ public class HeadlessEditorOpTests
                 TailFrames = 1,
                 Ops = new List<EditorOp>
                 {
-                    new() { Frame = 0, Kind = EditorOpKind.ToggleMode },               // Play → Edit
+                    new() { Frame = 0, Kind = EditorOpKind.Pause },                    // transport: Paused (Edit)
                     new() { Frame = 0, Kind = EditorOpKind.MoveCursor, X = 0f, Y = 0f },// hover the pivot
                     new() { Frame = 1, Kind = EditorOpKind.LeftDown, X = 0f, Y = 0f },  // press: select + grab handle
                     new() { Frame = 2, Kind = EditorOpKind.LeftDown, X = 16f, Y = 10f },// drag

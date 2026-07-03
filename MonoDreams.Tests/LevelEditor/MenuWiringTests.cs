@@ -14,17 +14,15 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the editor-menu-wiring contract: the level-selection menu's per-level <b>Edit</b> button
-/// publishes a <see cref="ScreenTransitionRequest"/> targeting <see cref="ScreenName.LevelEditor"/>
-/// with that level's id — reusing the existing transition path (the handler then stashes a
-/// <c>RequestedLevelComponent</c> and loads the editor screen, which boots with that level's content).
-///
-/// <para>Asserted at the message/handler level (no full UI render): a hand-built <c>LevelSelector</c>
-/// button + a hovered, just-released cursor driven through the real <see cref="ButtonInteractionSystem"/>,
-/// asserting the published message. This is the same generalized path the Play / InfiniteRunner buttons
-/// use — only the button's <c>TargetScreen</c> data differs.</para>
+/// Protects the menu-wiring contract after the entry-path removal: the level-selection menu has
+/// ONLY Play buttons (a level button publishes a <see cref="ScreenTransitionRequest"/> for the
+/// game screen; the runner button routes via its <c>TargetScreen</c>) — the editor is entered
+/// exclusively through the <c>--editor</c> / <c>MONODREAMS_EDITOR=1</c> run configuration and
+/// driven by the transport (see <c>EditorTransportTests</c>). The per-level "Edit" buttons and
+/// <c>ScreenName.LevelEditor</c> are gone; their absence is compile-enforced (the constant no
+/// longer exists), and this file keeps the generalized transition path covered.
 /// </summary>
-public class EditorMenuWiringTests
+public class MenuWiringTests
 {
     private static Entity MakeButton(World world, string levelName, string targetScreen)
     {
@@ -55,27 +53,8 @@ public class EditorMenuWiringTests
     }
 
     [Fact]
-    public void EditButton_Publishes_LevelEditorTransition_WithLevelId()
-    {
-        using var world = new World();
-        MakeButton(world, levelName: "Blender_Level", targetScreen: ScreenName.LevelEditor);
-        MakeCursorOverButton(world);
-
-        ScreenTransitionRequest? published = null;
-        world.Subscribe((in ScreenTransitionRequest r) => published = r);
-
-        using var system = new ButtonInteractionSystem(world);
-        system.Update(new GameState(new GameTime()));
-
-        Assert.NotNull(published);
-        Assert.Equal(ScreenName.LevelEditor, published!.Value.ScreenName);
-        Assert.Equal("Blender_Level", published.Value.LevelIdentifier);
-    }
-
-    [Fact]
     public void PlayButton_DefaultsToGameScreen_WhenTargetUnset()
     {
-        // Sanity that the generalized resolution is unchanged: an empty TargetScreen still routes to Game.
         using var world = new World();
         MakeButton(world, levelName: "Level_0", targetScreen: null);
         MakeCursorOverButton(world);
@@ -89,5 +68,24 @@ public class EditorMenuWiringTests
         Assert.NotNull(published);
         Assert.Equal(ScreenName.Game, published!.Value.ScreenName);
         Assert.Equal("Level_0", published.Value.LevelIdentifier);
+    }
+
+    [Fact]
+    public void Button_WithATargetScreen_RoutesThere()
+    {
+        // The same generalized resolution the removed Edit buttons used to piggyback on: only the
+        // TargetScreen data differs (the runner button is the remaining user).
+        using var world = new World();
+        MakeButton(world, levelName: null, targetScreen: ScreenName.InfiniteRunner);
+        MakeCursorOverButton(world);
+
+        ScreenTransitionRequest? published = null;
+        world.Subscribe((in ScreenTransitionRequest r) => published = r);
+
+        using var system = new ButtonInteractionSystem(world);
+        system.Update(new GameState(new GameTime()));
+
+        Assert.NotNull(published);
+        Assert.Equal(ScreenName.InfiniteRunner, published!.Value.ScreenName);
     }
 }

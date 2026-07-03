@@ -197,10 +197,10 @@ public class SystemsPanelTests
         Assert.True(update.IsEnabled("editor.systemsPanel"));
     }
 
-    // ---- Inert in Play ----
+    // ---- Live in BOTH transport states (the panel is how you inspect the running pipeline) ----
 
     [Fact]
-    public void SystemsPanel_InPlay_IsInert()
+    public void SystemsPanel_WhilePlaying_StaysInteractive()
     {
         using var world = new World();
         var cursor = MakeCursor(world);
@@ -215,9 +215,9 @@ public class SystemsPanelTests
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
-        panel.Update(Play()); // Edit-guarded: the click must not toggle
+        panel.Update(Play()); // transport model: toggling while the game runs is the point
 
-        Assert.True(update.IsEnabled("logic"));
+        Assert.False(update.IsEnabled("logic"));
     }
 
     // ---- Scroll: whole clamped lines via the wheel over the panel ----
