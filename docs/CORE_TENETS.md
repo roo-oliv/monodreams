@@ -407,14 +407,36 @@ field as `none yet`; introducing architectural tests is on the backlog.
 ## 9. The editor is part of the game
 
 The level editor is **not a separate application** and **not a separate
-renderer** — it is an in-game *mode* of the running game. There is one
-world, one `Camera`, and one draw stack
+renderer** — it is the running game under an editor run configuration.
+There is one world, one `Camera`, and one draw stack
 (`CullingSystem → SpritePrepSystem → YSortSystem → MeshPrepSystem →
 TextPrepSystem → MasterRenderSystem`); the editor previews exactly what
 the player sees because it runs that same pipeline. What changes between
 playing and editing is not *which* pipeline runs but *which systems in
 it are allowed to run* — a **run-state contract** the engine codifies in
-`foundation`.
+`foundation` — and the run state is driven by a **transport**, not a
+mode-toggle key.
+
+**The transport model.** Under the editor run flag (`--editor` /
+`MONODREAMS_EDITOR=1` — the ONLY way into the editor) the shell, chrome,
+and editor systems are **always composed and visible**; no key toggles
+the editor away. The designer drives the game like a media player through
+the toolbar's left-most transport buttons (or the headless
+`Play`/`Pause`/`Restart` editor ops), owned by `EditorTransport`:
+**Paused** = `RunMode.Edit` (game logic Freeze-gated, editing tools
+live — the boot state under the flag), **Playing** = `RunMode.Play`
+(the game runs inside the inset viewport; the shell stays up and the
+transport buttons + systems panel stay interactive, but the editing
+tools are inert — a click in the viewport belongs to the game), and
+**Restart** = return the world to the state of the original load:
+clear the undo history, remove the world-level level components
+(`CurrentLevelComponent` — the LDtk parsers react to its *added* event),
+dispose every scene entity (editor infrastructure — entities tagged
+`EditorInfrastructureComponent` — the cursor pipeline, and
+screen-`KeepAlive`-named infrastructure survive), re-run the screen's
+recorded `Reload`, and land Paused. **Unsaved live edits are discarded
+by Restart** — the standard play-mode trade-off; Save first to keep
+them.
 
 **The run-state contract.** `GameState.RunMode` is one of `Play`
 (default) or `Edit`. A system opts into run-state awareness by being
@@ -426,9 +448,11 @@ child: `RunNormally` runs in both modes; `Freeze` runs in `Play` only;
 finer semantics deferred). Editor tooling is **ECS systems over this
 gated game pipeline** — selection, gizmo, undo-apply, scene save/load,
 and the toolbar are ordinary systems registered alongside the game's,
-made inert in `Play` by an Edit guard. There is no parallel editor data
-model: a scene round-trips by serializing the entities' components, not
-by re-running factories.
+made inert while Playing by an Edit guard (the transport chrome —
+toolbar transport buttons + systems panel — deliberately stays live in
+both states). There is no parallel editor data model: a scene
+round-trips by serializing the entities' components, not by re-running
+factories.
 
 **Key invariant — default `Play` + opt-in gating leaves every existing
 screen byte-identical.** `RunMode` defaults to `Play`, and only a system
@@ -462,15 +486,17 @@ would cascade-dispose them when their host entity is deleted. Deletion is
 modeled as an undo command that snapshots the disposed sub-graph, not a
 bare `entity.Dispose()`.
 
-**The editor shell is a compositing concern, not a pipeline fork.** In
-`Edit` the game composite renders into a smaller centered viewport
-(`ViewportManager.SetViewportInset` — deliberately the same object that
-inverts the mouse mapping, so picking follows for free) and the editor
-chrome renders around it at native window resolution
-(`RenderTargetID.Editor` + `RenderLayer.Native`). The game pipeline itself
-is untouched — same passes, same targets — and in `Play` the inset is zero
-and the chrome layer resolves to null: byte-identical to a screen without
-the editor. Details: the `rendering` and `level-editor` premises.
+**The editor shell is a compositing concern, not a pipeline fork.** With
+the editor composed, the game composite renders into a smaller centered
+viewport (`ViewportManager.SetViewportInset` — deliberately the same
+object that inverts the mouse mapping, so picking follows for free) and
+the editor chrome renders around it at native window resolution
+(`RenderTargetID.Editor` + `RenderLayer.Native`). The shell is
+**constant across transport states** — it never collapses while Playing.
+The game pipeline itself is untouched — same passes, same targets — and
+without the run flag nothing editor-related is constructed: zero inset,
+no chrome layer, byte-identical to a screen without the editor. Details:
+the `rendering` and `level-editor` premises.
 
 **The editor is host- and screen-agnostic, and the pipeline is
 inspectable.** The editor does not care which host or screen is running —

@@ -99,10 +99,12 @@ Two usability gaps surfaced once the substrate was exercised, closed without a n
   ~(1275,-530)) reachable. Edit-guarded; ordered before `CursorPositionSystem`. The editor owns the
   camera in `Edit` (`CameraFollowSystem` stays `Freeze`-gated), which is what made this an editor
   responsibility rather than a play-pipeline one.
-- **Menu entry into the editor.** The reference menu reaches the editor through the existing
-  `ScreenTransitionRequest` path — a per-level "Edit" button publishes
-  `ScreenTransitionRequest(ScreenName.LevelEditor, levelId)`, reusing the generalized transition
-  handler (no new screen-swap plumbing, no `Game1` hand-editing).
+- **Menu entry into the editor — RETIRED by the transport model.** The per-level "Edit" buttons,
+  `ScreenName.LevelEditor`, and `LevelEditorScreen` are gone: the run flag is the ONLY door, the
+  editor is always visible under it, and `EditorTransport` (toolbar Play/Pause + Restart, headless
+  `Play`/`Pause`/`Restart` ops) owns `RunMode` — Restart rebuilds the scene from the
+  screen-recorded original load request and discards unsaved edits (see the transport premise in
+  `MonoDreams/level-editor/docs/premises.md`).
 
 ### Wave 6 — composition seam (registrar + overlay + run flag)
 
@@ -122,10 +124,10 @@ Shipped under `MonoDreams/level-editor/Composition/`:
   driver, the HUD toolbar + its dispatch) as reusable, individually-woven hooks over the
   screen's own world. `BindPipelines` hands it the screen's registrars for the panel.
 - **`EditorRunFlag`** — `--editor` launch arg / `MONODREAMS_EDITOR=1` env var (Rider run
-  configuration friendly): the desktop head registers `ScreenName.Game` with
-  `editorEnabled: true` and boots `ScreenController.State.RunMode = Edit` (no F1 needed).
-  `LevelEditorScreen` collapsed to `LoadLevelExampleGameScreen` with the flag pinned on — one
-  composition path, no duplicated pipeline definition. Deferred: the web head's flag (browsers
+  configuration friendly): the desktop head registers every screen with `editorEnabled: true` and
+  boots the transport Paused (`ScreenController.State.RunMode = Edit`). One composition path, no
+  duplicated pipeline definition. (The interim `LevelEditorScreen` subclass and the F1 toggle were
+  later retired by the transport model.) Deferred: the web head's flag (browsers
   have no args/env — needs a query-string switch via JS interop) and the InfiniteRunner overlay
   (no cursor pipeline; runner systems mutate transforms outside the Freeze block — needs its own
   policy-matrix pass). *(Both InfiniteRunner deferrals resolved in Wave 8a — see below; the web

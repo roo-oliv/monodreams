@@ -6,7 +6,7 @@
 > Read this before changing the editor screen, its overlay entities, or the
 > scene save/load path.
 >
-> **Status: Wave 5 (complete) + post-Wave-A editor usability.** The run-state
+> **Status: Wave 5 (complete) + post-Wave-A editor usability + the transport model.** The run-state
 > premise (Wave 1), the three serialization premises (Wave 2 — registry opt-in,
 > AssetKey-not-live-texture, SOURCE-not-derived sort fields), the scene
 > round-trip premise (Wave 3 — membership closure + the `LoadSceneRequest`
@@ -18,8 +18,10 @@
 > editor-op channel (injected cursor state survives the input pass; the op
 > channel holds the session open), and the post-Wave-A camera-navigation
 > invariant (pan/zoom/frame-scene drive the camera directly, Edit-guarded,
-> ordered before the cursor's world-pos derivation) are all live below. No
-> premise here ships `Tests: none yet`.
+> ordered before the cursor's world-pos derivation) are all live below, plus the
+> **transport model** (the editor is always-on under the run flag; Play/Pause +
+> Restart replace the retired F1 mode toggle; Restart rebuilds from the original
+> load and discards unsaved edits). No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -311,7 +313,7 @@ the world pivot).
 **Depends on:** rendering — `MeshPrepSystem` / `MasterRenderSystem` render a mesh `DrawComponent` on
 Main through the camera; foundation — `HierarchySystem.DisposeOrphans` (why overlays are standalone).
 
-## The editor toolbar's buttons drive the same shared editor instances; the chrome is native-resolution on the Editor target, hidden in Play
+## The editor toolbar's buttons drive the same shared editor instances; the chrome is native-resolution on the Editor target, always on while the editor is composed
 
 The engine-native toolbar (the engine's `SimpleButtonComponent` / `ButtonMeshPrepSystem` /
 `DynamicTextComponent` primitives, no ImGui) lives on the **Editor** render target — a target at
@@ -320,23 +322,30 @@ HUD) — inside the shell's top bar, with buttons sized in physical pixels and e
 `ToolbarButtonComponent` binding a click to an `EditorToolbarAction`. `ToolbarSystem` hit-tests
 the cursor's raw `ScreenPosition` (hardware pixels — the chrome sits in the margins where the
 virtual mapping is null and `VirtualPosition` is frozen) against the button `Bounds` and hands
-the action to a game-supplied dispatch — which wires Save through
+the action plus the frame's `GameState` to a dispatch supplied by the overlay — which wires the
+left-most TRANSPORT buttons (Play/Pause — one toggle whose label `ToolbarSystem` syncs with the
+state — and Restart) through the shared `EditorTransport`, Save through
 `SceneWriter.Save(world, file, camera, layers)` (the **same** `SceneSerializer`), Load by publishing a
 `LoadSceneRequest` (handled by the registered `SceneReaderSystem`), Undo/Redo on the **same**
 `EditorHistory`, snap-toggle flipping the shared `GizmoStateComponent.SnapEnabled`, and tool-select
 setting the shared `GizmoStateComponent.Tool`. There is exactly one `EditorHistory` / one gizmo-state
-entity — the toolbar never constructs a second. The toolbar is Edit-guarded (inert clicks in Play) and
-hidden in Play by construction: the Editor chrome pass renders nothing outside Edit and its
-final-draw layer resolves to null (skipped), so no per-entity mesh/label blanking exists anymore.
+entity / one `EditorTransport` — the toolbar never constructs a second. Under the transport model
+the toolbar is live in BOTH transport states (the chrome pass always renders while the editor is
+composed): the transport buttons dispatch always — they are how you leave either state — while the
+EDITING buttons (tools / Save / Load / Undo / Redo / Snap) dispatch only while Paused (`Edit`) and
+render with the disabled fill while Playing (an undo racing live physics would be surprising; a
+viewport click belongs to the game).
 
 **Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
 "the editor tools shouldn't overlay the game screen but be placed around it … highres and
 readable, independent from the game resolution or fonts": the old HUD-virtual toolbar was
 authored at 800×600 and upscaled — blurry and low-contrast over light levels. A second history
-would split undo state; a Main-target toolbar would scroll with the world camera.
+would split undo state; a Main-target toolbar would scroll with the world camera; the transport
+buttons must work while Playing or there is no way back to Paused.
 **Breaks:** a toolbar that news up its own history (its undo button can't reverse the gizmo's
-edits); hit-testing `VirtualPosition` (frozen in the margins — buttons dead or misfiring); a
-toolbar that stays clickable in Play.
+edits); hit-testing `VirtualPosition` (frozen in the margins — buttons dead or misfiring); editing
+buttons live while Playing (undo fighting live physics); transport buttons Edit-guarded (Playing
+becomes a one-way door).
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`ToolbarWiringTest` — tool-select sets the
 tool, snap-toggle flips the flag, Save invokes `SceneWriter` through a fake `IPlatformServices`, Load
 publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack undo is a no-op);
@@ -349,8 +358,9 @@ round-trip reconstructs from registered components, not factories".
 
 ## The editor shell insets the game viewport and renders its chrome at native resolution
 
-In `RunMode.Edit` the game composite (Main/UI/HUD layers) renders into a **smaller centered
-viewport** with chrome margins reserved around it (Blender-style: top toolbar bar, right panel
+While the editor is composed (the run flag — the shell is CONSTANT across transport states, it
+never collapses while Playing) the game composite (Main/UI/HUD layers) renders into a **smaller
+centered viewport** with chrome margins reserved around it (Blender-style: top toolbar bar, right panel
 strip — the Wave-8 systems panel's home — and a thin bottom strip; `EditorChromeLayout` owns the
 numbers), while the chrome itself renders on `RenderTargetID.Editor` — a render target at
 **native window resolution**, recreated on resize (`EditorChromeRenderSystem`), composited 1:1
@@ -361,11 +371,12 @@ over any level. The inset lives on the `ViewportManager` (`SetViewportInset` /
 to correct world positions with no extra math, clicks in the margins map to null
 (`CursorInputComponent.OutsideViewport` is set, muting selection picks / gizmo drag-starts /
 camera-nav zoom+pan) and are consumed by the chrome in screen space against `ScreenPosition`.
-`EditorShellSystem` syncs everything with the run mode each frame (inset, chrome relayout on
-window resize, cursor swap: OS pointer over chrome in Edit, game cursor sprite in Play) and its
-`Dispose` restores both (the `ViewportManager` and host `Game` outlive the screen). In Play — or
-with the editor not composed — the inset is zero and the composite is the historical full-window
-letterbox, **byte-identical**. Chrome entities carry no `VisibleComponent` (only the Main pass
+`EditorShellSystem` keeps everything applied each frame (inset, chrome relayout on window
+resize, and the pointer: the OS cursor is the one visible pointer in both transport states — it
+must reach the chrome — with the game cursor sprite hidden) and its `Dispose` restores both (the
+`ViewportManager` and host `Game` outlive the screen). With the editor not composed (no run
+flag) the inset is zero and the composite is the historical full-window letterbox,
+**byte-identical**. Chrome entities carry no `VisibleComponent` (only the Main pass
 consults it; its presence would pull mesh chrome into `MeshPrepSystem`, which overwrites the
 identity `WorldMatrix` their absolute-pixel vertices require).
 
@@ -381,8 +392,8 @@ double-offsets the panel meshes.
 zero-inset = legacy letterbox byte-identical, set+clear restores, resize recomputes, mouse maps
 inside / nulls in margins, pixel-perfect uses the available area);
 `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (panels cover exactly the inset margins,
-native-pixel button bounds, relayout on resize, shell sync Edit/Play + dispose restore,
-`OutsideViewport` press never picks).
+native-pixel button bounds, relayout on resize, the shell stays composed while Playing + dispose
+restore, `OutsideViewport` press never picks).
 **Depends on:** rendering — "The viewport inset moves compositing and mouse mapping together",
 "Three render targets, two behaviors"; cursor — `CursorPositionSystem` sets `OutsideViewport`;
 foundation — "Default RunMode=Play" (the flag-off/Play path must stay byte-identical).
@@ -431,10 +442,12 @@ when set it does **not** call `Mouse.GetState()` and does **not** overwrite any
 `CursorInputComponent` field, so an injected cursor state (world / virtual / screen position, delta,
 the left-button down + press/release edges, scroll) survives the input pass untouched. The flag
 defaults to `false`, so every existing screen is byte-identical (back-compat). Second, the editor-op
-channel — an `EditorOpPlan` (a scripted list of `MoveCursor` / `LeftDown` / `LeftUp` / `ToggleMode` /
-`ToolbarAction` ops, each on a frame index) consumed by `EditorOpReplaySystem` — injects that cursor
-state, toggles `GameState.RunMode`, and fires toolbar actions through a dispatch callback, so a test
-reproduces select → gizmo-drag → undo → save against the **real** editor systems. The driver
+channel — an `EditorOpPlan` (a scripted list of `MoveCursor` / `LeftDown` / `LeftUp` / the
+transport ops `Play` / `Pause` / `Restart` / `ToolbarAction` ops, each on a frame index) consumed by
+`EditorOpReplaySystem` — injects that cursor state, drives the transport (through the bound
+`EditorTransport`), and fires toolbar actions through a dispatch callback, so a test reproduces
+select → gizmo-drag → undo → save (and play → pause → restart) against the **real** editor
+systems. The driver
 **holds the session open**: it requests exit only after its op queue drains plus a configurable tail,
 so the input-replay channel's auto-exit-on-drain (which fires when its keyboard commands run out)
 never kills the editor-op run before its ops + the harness's assertions complete. The driver is
@@ -451,7 +464,9 @@ a per-frame cost in normal Play (the driver must be plan-gated, not always-on).
 real mouse, the editor-op channel injects a click that selects a sprite, a move-drag that moves it,
 a release that commits one undo step, an Undo that reverts it, and a Save that exports the scene
 through a fake `IPlatformServices`; asserts the entity moved then reverted and the saved scene
-matches expected, and that the driver requested exit exactly once).
+matches expected, and that the driver requested exit exactly once);
+`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs`
+(`EditorOps_PlayPauseRestart_DriveTheTransportHeadlessly`).
 **Depends on:** cursor — `CursorInputSystem` (the `SkipHardwareRead` seam); foundation — input replay
 (the auto-exit-on-drain the session-hold guards against).
 
@@ -513,33 +528,42 @@ that system, a group toggle cascades to all descendant leaves, `GetEnabledState`
 all/none/mixed through nesting, and the group gate's own `IsEnabled` is never the toggle axis).
 **Depends on:** foundation — "Edit-time behaviour is a per-system policy honoured by `GatedSystem`".
 
-## The editor run flag opts game screens into the overlay and boots RunMode = Edit; default off is byte-identical
+## The editor run flag composes the always-on editor and the transport owns RunMode
 
-The editor-everywhere run configuration — the `--editor` launch arg **or** the
-`MONODREAMS_EDITOR=1`/`true` environment variable, both settable in an IDE run configuration and
-parsed by the pure `EditorRunFlag.IsEnabled` — makes the desktop head register the plain game screen
-with `editorEnabled: true` (it composes the `EditorOverlay`: selection, gizmo, undo, toolbar, camera
-nav, scene save/load, headless channel) and sets `ScreenController.State.RunMode = RunMode.Edit` at
-boot, so the designer lands editing with **no F1 needed** (F1 still toggles). The boot mutation is an
-explicit host-level opt-in **after** construction: `GameState` still *constructs* as `Play`
-(preserving foundation's "Default `RunMode = Play` preserves all existing pipelines"). With the flag
-off — the default — screens compose **without** the overlay (nothing editor-related is constructed)
-and, because `RunMode` then never leaves `Play` and every registrar gate is a pass-through in Play,
-behave exactly as before the editor existed. `LevelEditorScreen` (the menu's per-level "Edit"
-button) is the same composition with the flag pinned on.
+The editor run configuration — the `--editor` launch arg **or** the `MONODREAMS_EDITOR=1`/`true`
+environment variable, both settable in an IDE run configuration and parsed by the pure
+`EditorRunFlag.IsEnabled` — is the **ONLY way into the editor**. It makes the host register every
+screen with `editorEnabled: true` (composing the `EditorOverlay`: selection, gizmo, undo, toolbar,
+camera nav, scene save/load, headless channel) and boots the transport **Paused**
+(`ScreenController.State.RunMode = RunMode.Edit`). From there the editor is ALWAYS visible — no
+key toggles it away (the F1 mode toggle is retired end-to-end) — and `RunMode` is flipped
+exclusively by the `EditorTransport`: the toolbar's Play/Pause + Restart buttons or the headless
+`Play`/`Pause`/`Restart` ops. The boot mutation is an explicit host-level opt-in **after**
+construction: `GameState` still *constructs* as `Play` (preserving foundation's "Default
+`RunMode = Play` preserves all existing pipelines"). With the flag off — the default — screens
+compose **without** the overlay (nothing editor-related is constructed) and, because nothing then
+ever flips `RunMode` and every registrar gate is a pass-through in Play, behave exactly as before
+the editor existed. There is no menu entry into the editor and no dedicated editor screen — the
+per-level "Edit" buttons and `LevelEditorScreen` were removed with the transport model.
 
 **Why:** the gamedev iterates by launching their normal run configuration with one flag — no
 dedicated editor build, no menu detour — and every game screen gets the editor for free through the
-one shared composition path.
+one shared composition path; a mode-toggle key made the editor a state the designer could
+accidentally leave (the direct user directive: "when the game is started in editor mode, it should
+always show the editor" — play/pause/restart replace the toggle).
 **Breaks:** a flag that defaulted on (or a boot mutation baked into `GameState`'s constructor) would
 flip every unflagged run into Edit — frozen physics, a black gameplay screen; a separate editor-only
-pipeline definition would silently drift from the game's.
+pipeline definition would silently drift from the game's; a lingering toggle key would collapse the
+shell mid-session with no transport affordance to bring it back.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorRunFlagTests.cs` (arg + env-var parse, including
 off-values and whitespace; the flag defaults off; boot run mode at the GameState level — constructed
-default is Play, flag-on composition yields Edit, flag-off stays Play).
+default is Play, flag-on composition yields Edit, flag-off stays Play);
+`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs` (boot-Paused mapping + the transport toggle
+driving Freeze-gated systems).
 **Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
 constructed default this flag deliberately does not change); this file — "The pipeline registrar is
-the composition seam".
+the composition seam", "The transport's Restart rebuilds the scene from the original load request
+and discards unsaved edits".
 
 ## The editor overlay is universal: under the run flag, every screen of every host composes it
 
@@ -550,15 +574,16 @@ screens — builds its pipelines through the `EditorPipelineRegistrar` and compo
 level. The overlay is **self-sufficient** where a screen or host lacks a prerequisite: a screen
 with no cursor pipeline (the runner is keyboard-only) asks the overlay to provide one
 (`provideCursorPipeline: true` → the overlay's own `CursorInputSystem`/`CursorPositionSystem` + a
-minimal invisible cursor entity — no textures, since the OS pointer is the visible pointer in
-Edit); a host with no keyboard-action mapping layer (Demos) uses the engine's `DefaultEditorKeys`
-(F1/Delete/Z/Y/Home, entry `editor.keys`) instead of inventing edge detection; a screen with no
+minimal invisible cursor entity — no textures, since the OS pointer is the visible pointer while
+the editor is composed); a host with no keyboard-action mapping layer (Demos) uses the engine's
+`DefaultEditorKeys` (Delete/Z/Y/Home, entry `editor.keys`) instead of inventing edge detection; a screen with no
 sprite prep gains the cull → sprite-prep → Y-sort chain under the flag so loaded scenes preview; a
 screen whose `DrawLayerMap` has no Y-sorted layer (or that creates a minimal map just for the seam,
 like Demos' `DemoEditor.CreateLayers`) degrades gracefully (Y-sort passes depths through and
 selection picks on the final source-derived `LayerDepth`). Per-screen edit policies are declared at
 the registration site: menus and demo UIs freeze `ui.interaction` in Edit (a click belongs to the
-editor, never to a screen transition — F1 or the systems panel re-arms it) but keep `layout` live
+editor, never to a screen transition — the toolbar's Play transport button or the systems panel
+re-arms it) but keep `layout` live
 (the auto-layout solver is the screen's content placement; freezing it would boot an unlaid-out
 screen under `--editor`); simulations freeze whole (the runner's treadmill block, the physics
 demo's ball pipeline, the camera demo's follow/lag-zoom/hit camera writers). With the flag off, no
@@ -692,6 +717,53 @@ vertices change"; this file — "Editor-overlay entities are standalone; delete 
 disposed sub-graph" (the standalone rule), "Bounded undo with drag-coalescing" (the transaction),
 "Selection picks MAX final `LayerDepth` with a selection-owned tiebreak" (the ordering proxies
 join).
+
+## The transport's Restart rebuilds the scene from the original load request and discards unsaved edits
+
+Under the editor run configuration the transport (`EditorTransport`, held by the `EditorOverlay`)
+is the ONE owner of `GameState.RunMode`: **Paused** = `RunMode.Edit`, **Playing** = `RunMode.Play`
+(the shell stays composed in both — the transport buttons and the systems panel remain interactive
+while the game runs in the inset viewport; the editing tools are Edit-guarded and therefore inert
+while Playing). **Restart** returns the world to the state of the ORIGINAL load, in this exact
+order: set Paused (nothing simulates over the teardown), `EditorHistory.Clear()` (the recorded
+commands reference entities about to die — replaying them in either direction would dangle),
+`world.Remove<CurrentLevelComponent>()` + `Remove<CurrentBackgroundColorComponent>()` (the LDtk
+parsers subscribe to the component **added** event — a re-publish over a still-set component fires
+*Changed* and never re-parses), dispose every scene entity, then invoke the screen-recorded
+`Reload` (each screen registers "re-publish my original load request" in `Load`: the game screen
+re-publishes `LoadLevelRequest(levelId)`, the menu re-runs its UI builder, the runner re-runs its
+create methods). Restart while Playing also lands **Paused**. **Unsaved live edits since the load
+are DISCARDED** — the standard play-mode trade-off; Save first to keep them. The survival boundary
+is exclusion by editor markers (the engine has no entity↔level association): an entity survives
+when it carries `EditorInfrastructureComponent` (every editor-owned entity — chrome, panel rows,
+gizmo overlays/proxies, the gizmo-state entity — is tagged at creation), when it is the cursor
+pipeline (`CursorControllerComponent`/`CursorInputComponent` — screen input infrastructure, not
+scene content), or when the screen's `KeepAlive` predicate names it (system-constructed screen
+infrastructure held by reference, e.g. the dialogue UI root via `DialogueStateComponent`) — keeps
+propagate DOWN the `ChildOf` chain. A Restart with no recorded `Reload` is a **loud no-op**
+(warning, nothing disposed): tearing the world down with no way to rebuild it would strand the
+designer on a blank screen.
+
+**Why:** direct user directive — the F1 toggle is retired; "play/pause and restart buttons to play
+the game, pause it or reset it" are the way the designer moves between editing and playing, and
+restart must be trustworthy: it either fully rebuilds the loaded scene or refuses loudly.
+**Breaks:** an uncleared history dangles undo entries against disposed entities (undo after
+restart crashes or silently no-ops against the wrong world); a restart that skips the
+`CurrentLevelComponent` removal never re-parses (the documented broken-hot-reload path); a sweep
+without the editor-marker exclusion disposes the chrome/panel/gizmo state (the editor UI vanishes
+on restart); disposing the cursor pipeline kills all mouse input for the session; a silent no-op
+restart (or a teardown without reload) strands a blank world.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorTransportTests.cs` (restart disposes scene entities
+and re-runs the recorded load; editor infrastructure + cursor + `KeepAlive`-named sub-graphs
+survive; unsaved-edit discard demonstrated — edit a transform through the history, restart, the
+value is back at the loaded state and undo is a no-op; the world-level components are removed;
+restart while Playing lands Paused; a reloadless restart is a loud no-op; the headless
+`Play`/`Pause`/`Restart` ops drive the same paths).
+**Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
+transport is the only mode owner); level-loading — the `LoadLevelRequest` →
+`CurrentLevelComponent`-added parse trigger this premise routes around; this file — "The editor run
+flag composes the always-on editor and the transport owns RunMode", "Bounded undo with
+drag-coalescing" (the history the restart clears).
 
 ## See also
 

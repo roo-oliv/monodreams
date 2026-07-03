@@ -242,10 +242,13 @@ run by the pipeline regardless of the mode, exactly as before the run-state mode
 existed. A screen that never wraps a system in a `GatedSystem`, or never sets
 `RunMode = Edit`, is byte-identical to its pre-run-state behaviour. The editor run
 flag (`--editor` / `MONODREAMS_EDITOR=1`) does **not** change this default: the
-host applies its boot-in-Edit as an explicit opt-in mutation of
+host applies its boot-Paused (`RunMode = Edit`) as an explicit opt-in mutation of
 `ScreenController.State.RunMode` **after** construction (the property exists for
-exactly this seam), and the flag itself defaults off (see level-editor — "The
-editor run flag opts game screens into the overlay and boots RunMode = Edit").
+exactly this seam), and the flag itself defaults off. After boot, ONLY the editor
+transport (`EditorTransport` — the toolbar's Play/Pause + Restart buttons and the
+headless transport ops) flips `RunMode`; there is no in-game toggle key, so with
+the flag off nothing ever leaves `Play` (see level-editor — "The editor run flag
+composes the always-on editor and the transport owns RunMode").
 
 **Why:** the run-state model was added to `foundation` (a sensitive domain) so the
 in-game level editor can freeze the game pipeline without forking it (see
@@ -274,7 +277,10 @@ gate also honours its own `IsEnabled` and forwards `Dispose` to the child. The
 fixed policy assignment the level editor relies on: render / input / cursor and
 `HierarchySystem` are `RunNormally` (live while editing); movement / velocity /
 physics / collision / AI / dialogue and `CameraFollowSystem` are `Freeze`; editor
-systems are `RunNormally` and Edit-guarded.
+systems are `RunNormally` and Edit-guarded. Under the transport model the mode is
+flipped exclusively by the editor transport (Paused = `Edit`, Playing = `Play`);
+the gate semantics are unchanged — only WHO flips `RunMode` changed when the F1
+mode-toggle was retired.
 
 **Why:** cornerstone of the editor design (cornerstone C2) — editor tooling is ECS
 systems over a run-state-gated game pipeline, not a separate renderer. The policy

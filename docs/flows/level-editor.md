@@ -10,8 +10,8 @@ sensitive: true
 > **Status: Wave 8a (universal overlay + systems panel).** Live today:
 > the run-state gate in `foundation` (`GameState.RunMode`, `EditTimeBehavior`, `GatedSystem`);
 > the scene round-trip (Wave 3); the Wave-4a interactive substrate — `SelectionSystem`
-> (click-to-pick), `EditorHistory` bounded undo/redo with drag-coalescing, the
-> `EditorModeToggleSystem` RunMode flip, and the create/delete/transform commands; the Wave-4b
+> (click-to-pick), `EditorHistory` bounded undo/redo with drag-coalescing, and the
+> create/delete/transform commands; the Wave-4b
 > interaction layer — the transform **gizmo** (`GizmoSystem` + `GizmoStateComponent` + the pure
 > `GizmoTransform` math) and the engine-native **toolbar** (`ToolbarSystem`); the Wave-5
 > **headless editor-op channel**; post-Wave-A **camera navigation** (`CameraNavSystem`); the
@@ -44,7 +44,16 @@ sensitive: true
 > surface (for hosts without their own action mapping; the Demos host honours the flag under
 > `--headless`, so the shell lands in the captured self-verification frames). The step-by-step
 > recipe any new host/screen follows is `MonoDreams/level-editor/docs/overview.md` § "Adding
-> the editor to a screen/host". Anything not yet built is marked **(planned, Wave N)**.
+> the editor to a screen/host"; and the **transport model** (post-Wave-A, replacing the F1 mode
+> toggle): under the run flag the editor is ALWAYS visible — `EditorTransport` owns `RunMode`
+> through the toolbar's left-most Play/Pause + Restart buttons (or the headless
+> `Play`/`Pause`/`Restart` ops): Paused = Edit, Playing = Play with the shell still composed,
+> Restart = rebuild from the screen-recorded original load (history cleared, world-level level
+> components removed, scene entities disposed — `EditorInfrastructureComponent`-tagged entities,
+> the cursor, and screen-`KeepAlive` sub-graphs survive — then `Reload`; unsaved edits DISCARDED,
+> lands Paused). `EditorModeToggleSystem`, the menu's per-level "Edit" buttons, and
+> `LevelEditorScreen` are retired; the run flag is the only door.
+> Anything not yet built is marked **(planned, Wave N)**.
 >
 > Marked **sensitive** because the flow leans on the `foundation` run-state contract: a
 > single wrong policy (render frozen in Edit, or physics left live) silently breaks either
@@ -53,8 +62,9 @@ sensitive: true
 
 The level editor does not run a pipeline of its own — it runs the **game's** pipeline with
 a run-state gate in front of each system. `GameState.RunMode` (default `Play`) is flipped to
-`Edit` to enter editing **without a screen swap** (no `Dispose`/`Load`, so all in-world state
-is preserved), and back to `Play` to resume. The editor previews exactly what the player sees
+`Edit` (transport **Paused**) **without a screen swap** (no `Dispose`/`Load`, so all in-world
+state is preserved), and back to `Play` (transport **Playing**) to resume — exclusively by the
+transport controls. The editor previews exactly what the player sees
 because it reuses the same world, the same `Camera`, and the same
 `CullingSystem → SpritePrepSystem → YSortSystem → MeshPrepSystem → TextPrepSystem →
 MasterRenderSystem` draw stack — there is no second renderer and no second scene model.
@@ -93,37 +103,41 @@ In `Edit`, three kinds of entities coexist in one world:
 
 Per frame, in pipeline order (the reference assembly is the shared composition in
 `LoadLevelExampleGameScreen` behind its `editorEnabled` flag, built through the
-`EditorPipelineRegistrar` and the `EditorOverlay` hooks; `LevelEditorScreen` is that screen with
-the flag pinned on, and the `--editor` run flag turns it on for **every** registered screen —
-`LevelSelectionScreen` and `InfiniteRunnerScreen` weave the same hooks with their own per-screen
-policies, the runner's overlay providing its own cursor pipeline):
+`EditorPipelineRegistrar` and the `EditorOverlay` hooks; the `--editor` run flag turns it on for
+**every** registered screen — `LevelSelectionScreen` and `InfiniteRunnerScreen` weave the same
+hooks with their own per-screen policies, the runner's overlay providing its own cursor
+pipeline):
 
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
-2. **Mode toggle** (`RunNormally`) — `EditorModeToggleSystem` flips `RunMode` in place on the toggle key.
-3. **Level / scene load** — `LoadLevelRequest` (LDtk/Blender) + `LoadSceneRequest` (`SceneReaderSystem`).
-4. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
-5. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`).
-6. **Gizmo** (Edit-guarded) — `GizmoSystem` reads `SelectedComponent`, hit-tests the active handle, and
+2. **Level / scene load** — `LoadLevelRequest` (LDtk/Blender) + `LoadSceneRequest` (`SceneReaderSystem`).
+   The transport's Restart re-drives this path: it removes `CurrentLevelComponent`, disposes the
+   scene entities, and re-publishes the screen-recorded original load request.
+3. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
+4. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`).
+5. **Gizmo** (Edit-guarded) — `GizmoSystem` reads `SelectedComponent`, hit-tests the active handle, and
    on a drag opens a coalescing transaction and pushes a `TransformEditCommand` per frame (one undo step
    on release). It runs **before** `HierarchySystem` so the edit propagates the same frame, and rebuilds
    the standalone overlay meshes (outline + handle) each frame. When the selected entity is a collider
    proxy the tool is forced to Move and each drag frame pushes a `ColliderEditCommand` against the
    proxy's bound game entity instead (Wave 8b). It also publishes the **click-ownership claim**
    (`GizmoStateComponent.PressClaimed`, written every Edit frame): true when the press landed on the
-   active handle or a drag is in progress — the same frame's `SelectionSystem` pass (step 13) skips a
+   active handle or a drag is in progress — the same frame's `SelectionSystem` pass (step 12) skips a
    claimed press entirely, so a handle outside the sprite's bounds never reads as click-empty/re-pick.
-7. **Proxy sync** (Edit-guarded, Wave 8b) — `ProxySyncSystem` spawns/places/despawns the collider
+6. **Proxy sync** (Edit-guarded, Wave 8b) — `ProxySyncSystem` spawns/places/despawns the collider
    proxies for the selected entity, re-deriving each from its bound component (so it tracks both this
    frame's gizmo write-back and owner moves), and refreshes the selected entity's convex
    `WorldVertices` (physics is frozen — the debug outline would otherwise go stale).
-8. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
+7. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
    world space so the preview is correct *this* frame (it must run in both modes).
-9. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
+8. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
-10. **Toolbar + systems panel** (Edit-guarded) — `ButtonMeshPrepSystem` rebuilds the chrome meshes,
-   then `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical pixels — the chrome
-   is native-resolution) against the button bounds and fires a clicked button's
-   `EditorToolbarAction` through the screen's dispatch (Save/Load/Undo/Redo/tool/snap) — the two
+9. **Toolbar + systems panel** (live in BOTH transport states) — `ButtonMeshPrepSystem` rebuilds
+   the chrome meshes, then `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical
+   pixels — the chrome is native-resolution) against the button bounds and fires a clicked
+   button's `EditorToolbarAction` + the frame's `GameState` through the overlay's dispatch: the
+   left-most TRANSPORT buttons (Play/Pause — label synced to the state — and Restart) dispatch in
+   both modes through `EditorTransport`; the editing buttons (Save/Load/Undo/Redo/tool/snap)
+   dispatch only while Paused and render dimmed while Playing — the two
    are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`
    (the right strip) renders the registrar tree of both pipelines — groups indented above their
    children, name + policy + checkbox, tri-state on groups (all/none/mixed; mixed = the minus
@@ -131,22 +145,23 @@ policies, the runner's overlay providing its own cursor pipeline):
    `EditorPipelineRegistrar.SetEnabled` (leaf = a both-modes master switch; group = the Gmail
    cascade over its descendant leaves; the panel refuses to disable its own entry or any
    ancestor group of it).
-11. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
+10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
    it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
    margins, which mutes selection picks, gizmo drag-starts, and camera-nav zoom/pan there.
-12. **Shell sync** (`RunNormally`, after `CursorDrawPrepSystem`) — `EditorShellSystem` makes the
-   viewport inset, the chrome layout (relayout on window resize), and the cursor swap (OS
-   pointer shown + game cursor sprite hidden in Edit; both reverted in Play) track `RunMode`;
-   its `Dispose` clears the inset + re-hides the OS pointer so a screen swap never leaks the shell.
-13. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
+11. **Shell** (`RunNormally`, after `CursorDrawPrepSystem`) — `EditorShellSystem` keeps the
+   viewport inset, the chrome layout (relayout on window resize), and the pointer (OS cursor
+   visible, game cursor sprite hidden) applied — CONSTANT across transport states, the shell
+   never collapses while Playing; its `Dispose` clears the inset + re-hides the OS pointer so a
+   screen swap never leaks the shell.
+12. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
    at the **end** of the draw prep (after `YSortSystem`) so it picks on the final post-Y-sort
-   depth this frame — and skips a press the gizmo claimed in step 6 (no re-pick, no click-empty
+   depth this frame — and skips a press the gizmo claimed in step 5 (no re-pick, no click-empty
    clear; the update-before-draw ordering is what makes the same-frame claim readable); the
    gizmo/selection overlay draws on Main (world-space, sized by
    `1/Camera.Zoom`); the chrome renders through `EditorChromeRenderSystem` (a screen-space
    `MasterRenderSystem` pass over `RenderTargetID.Editor` into a native-resolution target,
-   Edit-only) and `RenderLayer.Native` composites it 1:1 over the whole window, above the game
-   layers (it resolves to null and is skipped in Play).
+   always on while the editor is composed) and `RenderLayer.Native` composites it 1:1 over the
+   whole window, above the game layers (it resolves to null only when the pass is disabled).
 
 ## Invariants
 
@@ -185,6 +200,11 @@ the ones this flow leans on:
   inset = the historical full-window letterbox, byte-identical (Wave 7).
 - Native scenes load via a dedicated `LoadSceneRequest`, never `LoadLevelRequest` (which is
   LDtk-coupled) (Wave 3).
+- The transport owns `RunMode` (Paused = Edit / Playing = Play; no toggle key). Restart clears the
+  history, removes the world-level level components BEFORE re-publishing (the parsers react to
+  component-ADDED), disposes everything that is not editor infrastructure / cursor /
+  screen-`KeepAlive`, re-runs the screen-recorded load, and lands Paused — unsaved edits are
+  discarded by design.
 
 ## Load-bearing quantities
 
@@ -222,6 +242,12 @@ the ones this flow leans on:
   `MeshPrepSystem`'s query, which overwrites `DrawComponent.WorldMatrix` and double-offsets
   meshes whose vertices are baked at absolute pixel positions. Chrome entities carry no
   `VisibleComponent` (only the Main pass consults it).
+- **Restart without the teardown order** (transport model) — re-publishing the load request
+  while `CurrentLevelComponent` is still set fires the *Changed* event the parsers ignore
+  (nothing re-parses — the broken-hot-reload path); an uncleared `EditorHistory` dangles
+  commands against disposed entities; a sweep that misses an editor entity (untagged chrome)
+  makes the editor UI vanish on restart. `EditorTransport.Restart` owns the exact order —
+  never hand-roll it.
 - **Undo recorded against a proxy** (Wave 8b) — a `TransformEditCommand` targeting the proxy
   entity dangles the moment the proxy despawns (deselect/mode exit) and never moves the collider.
   Proxy drags must push `ColliderEditCommand` against the bound game entity. Symmetrically, a
