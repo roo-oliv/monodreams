@@ -1,0 +1,1223 @@
+git rebase main
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.claude/skills/implement
+
+`implement` executa um plano aprovado até virar um Pull Request aberto, e então encadeia o `/review-fix-loop`. A implementação roda dentro de um **Workflow** (`~/.claude/workflows/implement.js`) — esta invocação de skill é o opt-in explícito do usuário para a orquestração multi-agente, incluindo a autorização expressa para os agentes do workflow **commitarem e darem push na branch de trabalho** (somente nela; nunca em `main`, nunca force).
+
+Arquitetura de contexto: **waves + ledger**. O script divide o plano em ondas; cada onda é um agente *fresco* que lê o plano + o ledger de progresso, implementa só a sua fatia, verifica, commita, dá push e atualiza o ledger. Nenhum agente acumula contexto além da própria onda — esse é o substituto do `/compact` (não invocável dentro de agentes de workflow) — e um crash é retomável a partir do ledger + branch.
+
+---
+
+## Passo 1 — Parse dos argumentos
+
+- Detecte e remova o token `no-review` (alias: `noreview`, `sem-review`) → seta `NO_REVIEW`.
+- O restante é o input: texto livre, caminho de arquivo ou URL.
+
+## Passo 2 — Garantir um plano APROVADO
+
+1. Se o input é um caminho para um plano com `**Status:** APROVADO` (ou um plano aprovado **nesta sessão** via refine/plan mode) → use-o.
+2. Caso contrário (texto, URL, plano DRAFT, ou nada) → **invoque a skill `refine`** (Skill tool) com o input. O refine entrevista se necessário, decide deep-plan vs direto e termina com a aprovação final do usuário — essa aprovação vale como a confirmação para implementar; não pergunte de novo.
+3. Se o refine terminar em Cancelar, pare.
+
+Extraia do plano: caminho, branch sugerida, domínios, tier de risco, e o caminho do contrato standalone do deep-plan (`.claude/deep-plan/<branch>-<shortSha>.md`), se existir.
+
+## Passo 3 — Preflight
+
+Execute e **pare com diagnóstico claro** se algo falhar (não improvise):
+
+1. **Working tree limpa**: `git status --porcelain` vazio. Se houver mudanças não commitadas, pergunte ao usuário (stash / commitar / abortar) — nunca descarte.
+2. **Branch**: se está na `main`, crie a branch sugerida pelo plano (`git checkout -b <branch>`). Se já está numa feature branch diferente da sugerida, confirme com o usuário qual usar. Registre o nome final — todos os agentes do workflow validam contra ele.
+3. **Base atualizada**: `git fetch origin main`.
+4. **Docker**: `docker info` (testes usam TestContainers; o daemon é Colima — se estiver parado, sugira `colima start` via `!` e aguarde).
+5. **Ledger**: derive `slug` = branch com `/`→`-`; ledger em `~/.claude/implement/<slug>/ledger.md` (crie o diretório). Se o usuário deu **diretivas de execução** (restrições, "em caso de X, faça Y", avisos de armadilha — ex.: "ambiguidade de dinheiro → blocked, não decisão"), semeie o ledger agora com uma seção `## Diretivas (do usuário)` contendo-as: é o canal de injeção de contexto para dentro do workflow, e os agentes as tratam com **precedência sobre decisões autônomas**. Trabalho já feito fora do workflow (ex.: uma "Onda 0" manual) também entra aqui, marcado como concluído com os commits. Se já existir um ledger com ondas concluídas para essa branch, é uma **retomada**: o workflow continua das ondas pendentes, preservando diretivas existentes.
+
+## Passo 4 — Disparar o workflow
+
+Chame `Workflow` com `scriptPath: /Users/rodrigooliveira/.claude/workflows/implement.js` e `args` (objeto JSON real, não string):
+
+```json
+{
+  "planPath": "<caminho do plano aprovado>",
+  "branch": "<branch>",
+  "baseBranch": "main",
+  "repoRoot": "<git rev-parse --show-toplevel>",
+  "ledgerPath": "~/.claude/implement/<slug>/ledger.md (expandido)",
+  "timestamp": "<date +%Y-%m-%dT%H-%M>",
+  "deepPlanContractPath": "<caminho ou null>",
+  "prTitleHint": "<tipo(escopo): descrição em pt-br>",
+  "maxWaves": 8
+}
+```
+
+O workflow roda em background; aguarde a `<task-notification>`. Acompanhe via `/workflows` se o usuário pedir.
+
+## Passo 5 — Pós-workflow
+
+Leia o resultado e reporte ao usuário **liderando com o outcome**:
+
+- `status: "pr-opened"` → URL do PR, ondas executadas, commits, e a seção **Decisões tomadas autonomamente** (cada ponto onde um input de usuário teria sido pedido: opções consideradas + caminho escolhido + porquê — também presente na descrição do PR para o usuário revisar e pedir alterações).
+- `status: "blocked" | "verify-failed" | "blocked-gate"` → o que foi commitado/pushado até aqui, a onda/etapa travada e o motivo. **Não** encadeie o review. Se for `blocked-gate` (hook do deep-plan barrou o `gh pr create`), o caminho é completar o plan-contract — nunca instrua o token de override.
+
+Se `status: "pr-opened"` e **não** `NO_REVIEW` → **invoque a skill `review-fix-loop`** (Skill tool) com o número do PR. Ao final dela, consolide o relatório dos dois estágios numa única mensagem final.
+
+---
+
+## Contrato do workflow (o que `implement.js` garante)
+
+- **Setup**: valida a branch, semeia/retoma o ledger, divide o plano em ≤`maxWaves` ondas (por fase do plano ou por grupos lógicos de commit, per git-conventions), e commita o contrato do deep-plan em `.claude/deep-plan/` quando existir (é o artefato que o hook de PR em branch money lê).
+- **Implement**: uma onda por vez, agente fresco por onda, com retry único em caso de `blocked`. Cada onda: implementa só seu escopo → roda verify incremental (spotless, detekt, testes direcionados + ArchitectureTests dos módulos tocados) → commita (Conventional Commits pt-br) → push na branch → atualiza ledger com progresso e decisões. **Gate de fechamento**: a onda não fecha com contract item sem teste nomeado (ou justificativa explícita) nem com premissa nova em `Tests: none yet` — no PR #1065, metade dos Highs do review eram "untested X" que este gate teria pego na origem. **Dimension-row-on-mint**: quantia monetária derivada que o plano não especifica ganha dimension row retroativa no contrato + premissa testada, no mesmo commit.
+- **Verify**: `/verify` completo (inclui `clean build`) com loop de fix (≤3 tentativas), depois reconciliação `verify-plan` (Missing/Diverged/Unplanned/UntestedPremises vs Contract — o 4º bucket é o grep mecânico por `Tests: none yet` nas premissas da branch) com 1 rodada de fix; residuais viram seção explícita do PR, nunca silêncio.
+- **PR**: rebase sobre `origin/main` (re-verifica se o rebase trouxe mudanças), push, e `gh pr create` com corpo extenso em pt-br seguindo `.claude/rules/git-conventions.md` — Resumo, Plano de teste, Decisões tomadas autonomamente, e seções condicionais (payloads, rollback, tabelas) quando aplicáveis.
+- **Decisões em vez de perguntas**: agentes de workflow não têm `AskUserQuestion`. Em qualquer ponto de decisão, o agente registra as opções, escolhe a que melhor serve o plano, e segue — o registro aparece no ledger, no output do workflow e na descrição do PR.
+
+
+ARGUMENTS: (Obs before the spec: a concern is how to keep this performatic, both, at editting time and at game runtime) # Spec: brush-based authoring experience for illustrated 2D maps (MonoGame + ECS)
+
+## How to read this spec
+
+This is a **specification of intent and rationale**, not a set of implementation instructions. It describes *what needs to be true* and *why*, deliberately without prescribing data structures, classes, signatures, or order of execution.
+
+About the codebase: **assume nothing beyond the fact that this is a MonoGame game with an ECS architecture.** Everything else (serialization format, camera model, render pipeline, sprite ordering, whether any editor tooling exists at all, input handling, the notion of a "level/scene", asset loading, whether undo exists) is unknown and **must be discovered by investigating the code before proposing a solution**. Wherever this spec depends on something from the engine, that is flagged explicitly as an investigation point.
+
+First deliverable expected from this next session: **a deep dive into the codebase + a proposed implementation plan**, mapping how each requirement below fits into what already exists, and surfacing the cross-cutting decisions (listed further down) back to the human to decide. **Do not, on your own, decide what goes in now vs. later, and do not size the effort** — that is the human's call, based on your mapping.
+
+The "waves" described in the last section are **dependency/architecture seams** (where the delivery naturally splits), **not a schedule and not a recommended ordering**.
+
+---
+
+## 1. Context and goal
+
+The art-direction target is **illustrated/painterly 2D** — the visual family of games like Wytchwood and Hollow Knight. The mental model is a **diorama / pop-up book**: the scene is a free composition of illustrated "cutouts" (props, ground patches, foliage) placed in space, with depth coming from layering and from sort ordering. **It is not pixel art, not pixel-perfect, and crucially not tile-based** — there is no grid of snap-together tiles.
+
+For that reason, tile-oriented editors (Tiled, LDtk) are a poor fit for this project: their paradigm is filling a matrix, and the friction shows up precisely when the game isn't pixel art. The desired authoring experience is **dragging a cursor across the scene to "paint"**: painting the ground, scattering scenery elements, and drawing paths/roads. The goal of this delivery is to offer that experience inside our own engine.
+
+### The central realization that structures everything
+
+"Brush" here is **an input metaphor** (dragging a cursor) shared by **distinct tools whose data model and output diverge**. Treating this as a single monolithic brush system is a trap that creates rework. The three tools the metaphor covers:
+
+- **Scatter scenery** → produces **discrete ECS entities** (with variation in rotation/scale/tint and density). The output is real game entities.
+- **Paint the ground** → produces **texture/material** (a blend of layers) or large ground stamps with soft alpha that overlap. The output is pixels, not entities.
+- **Draw path/road** → **not a stamp, a spline**. The real requirement is continuity, controllable width, and corners that resolve cleanly. Modeling a road as loose stamps is where most implementations get tangled.
+
+This spec is therefore about "a stroke sampler + pluggable stamp behaviors", not a single tool.
+
+---
+
+## 2. Requirements (properties that need to be true)
+
+Each item carries the rationale, which matters more than the form.
+
+**2.1 — A single stroke-sampling input layer, feeding pluggable behaviors.**
+The drag gesture must be sampled at points along the cursor path at a controlled interval (so dragging fast doesn't leave gaps), with a notion of radius and falloff, dispatching to a *stamp behavior* per sample. Rationale: scatter and ground are the same gesture with different behaviors; separating the gesture from the effect avoids duplication and keeps input consistent across tools.
+
+**2.2 — The outputs of the three tools are divergent by nature (see section 1) and must not be forced into a single model.** Rationale: unifying the output prematurely (e.g., trying to represent ground and props with the same structure) couples decisions that should remain independent.
+
+**2.3 — Explicit "parametric vs. baked" decision.**
+For each tool it must be decided whether the stroke becomes an entity/texture immediately (simple, but the stroke is lost and not re-tweakable) or is stored as a re-evaluable operation/source. Rationale per tool: a road **wants** to be parametric (store the spline and regenerate); scatter should store at least region + seed to allow re-rolling density; ground-texture is typically baked. The common hybrid pattern is to keep an editable "source" that bakes to the runtime representation on save/export. This is the highest-impact decision in the delivery and must be resolved and justified explicitly.
+
+**2.4 — Determinism via seeded RNG (especially in scatter).**
+The result of scattering must be reproducible from a seed. Rationale: levels are versioned in git; if every brush stroke re-randomizes, the level file *churns* on every save and merges become a nightmare. A stable per-region seed = reproducible and diffable levels.
+
+**2.5 — Reuse the existing ECS; no parallel editor data model.**
+The brush must manipulate **the same components the runtime consumes**, not a separate editor data model that is later converted. Rationale: this is exactly the payoff of building your own editor instead of using LDtk/Tiled — eliminating the editor↔runtime translation boundary and the drift it causes. **Investigate how entities/components are created and mutated in this engine** so the stamp effect produces them directly.
+
+**2.6 — Integration with ordering (sorting groups + y-sort).**
+Whatever is painted must land in the correct depth grouping and feed baseline ordering (ground and road underneath; props ordered by the sprite's bottom point). Rationale: without this, ordering becomes manual correction after every stroke. **Investigate how sprite ordering is currently done** (is there a sorting layer/group? y-sort? by Z?) before defining how the brush assigns it.
+
+**2.7 — Preview with the real game camera.**
+The designer must compose while seeing the final framing (and ideally post-processing) of the game, not a generic editor view. Rationale: composition quality in this style depends heavily on seeing the real result while placing things; it's the highest-perceived-return feature. **Investigate the current camera model** to know what's needed to mirror it in the editor.
+
+**2.8 — Undo/redo with drag coalescing.**
+A brush without undo is unusable. The correct granularity is **one entire drag = one undo step**, not each sample. Rationale: it's as essential as the brushes themselves, and the wrong granularity (undo per sample) makes the tool frustrating. **Investigate whether any notion of undo/history exists today.**
+
+---
+
+## 3. What must be discovered in the codebase (do not assume)
+
+Before proposing architecture, explicitly establish:
+
+- How entities and components are represented, created, and mutated; whether there are archetypes/queries; how the runtime consumes them.
+- Whether any form of level serialization/persistence exists, in what format, and whether levels go into git.
+- What "level" / "scene" means in this engine, if the concept exists at all.
+- How sprites are loaded and drawn; how **ordering** is decided (Z, sorting layer, y-sort, submission order?).
+- Whether any **render-to-texture** path is available (relevant to the blended-ground option and to the preview).
+- The **camera** model (projection, transform, post-processing) and what's missing to reproduce it in the editor.
+- How **input** is handled.
+- Whether any **editor infrastructure** already exists (viewport, picking/selection, gizmos, UI panel) or none of it does — including whether any immediate-mode UI (e.g. ImGui) is already integrated.
+- Whether any concept of **undo/history** exists.
+
+Every gap found must become an explicit point in the plan, not a silent assumption.
+
+---
+
+## 4. Cross-cutting decisions to surface and bring back
+
+Do not decide alone; map options with trade-offs and return them to the human:
+
+- **Ground representation and how it renders**: large stamps with alpha blend vs. splatmap in a render target (perfect blend, requires a shader) vs. another approach. Coupled to 2.3 and to whether render-to-texture exists.
+- **How the road renders**: stamps-along-the-spline with alpha blend (simplest, fits the illustrated style, but seams and ordering to resolve) vs. mesh strip with tileable texture (continuous, but UV/corners are fiddly) vs. splatmap. A look decision as much as a technical one.
+- **Where the parametric "source" lives vs. the baked runtime representation** (2.3), and how save/export handles both.
+- **Where the scatter seed is stored** and at what granularity (per region? per stroke?).
+- **How the brush assigns sorting group / sort key** given whatever ordering model already exists.
+- **Editor chrome**: if nothing exists, what is the minimum viewport/UI substrate (and this interacts with everything in Wave A below).
+
+---
+
+## 5. Dependency seams ("waves")
+
+> These are the **natural breaks** I identified in the delivery — separations by dependency and by data-model divergence. **They are not a recommended order and not a sizing.** The ordering and scope of each wave is the human's decision, based on your mapping of the codebase. The dependencies described are factual (X cannot exist without Y), not preferences.
+
+- **Wave A — Authoring substrate.** Viewport with the real game-camera preview (2.7), selection/picking, transform gizmos, undo/redo with coalescing (2.8), and a load/save level round-trip. Rationale for the seam: every other wave presupposes this substrate; and part of it may already exist in the engine — investigate first.
+
+- **Wave B — Stroke-sampling layer.** The shared gesture (2.1): samples the cursor path with radius/falloff/spacing and dispatches to a stamp behavior. Dependency: the brush-like tools (scatter, ground) depend on this gesture existing.
+
+- **Wave C — Free entity placement.** Placing existing ECS entities by hand, with snapping, and with correct sorting group / y-sort assignment (2.6). Dependency: needs the substrate (A); establishes the "create entity in the scene" path that scatter reuses.
+
+- **Wave D — Scatter stamp.** A behavior that produces entities, seeded (2.4) and density-driven, with variation in rotation/scale/tint. Dependency: on the gesture (B) and the entity-creation/ordering path (C). Forces resolving the part of 2.3 about storing region + seed.
+
+- **Wave E — Ground stamp.** A behavior that produces texture/material or ground stamps. Dependency: on the gesture (B). Forces the ground representation and render decision (section 4) and, depending on it, render-to-texture.
+
+- **Wave F — Path/road tool.** Based on a **spline**, with width and corners — a **different** interaction model from the stroke sampler (editing control points/handles, not continuous stamping), so its coupling to B is weak and its coupling to the substrate A (gizmos/handles) is strong. Forces the road render decision (section 4) and tends to be intrinsically parametric (2.3).
+
+---
+
+## 6. Out of scope (scope-creep guards)
+
+- Not a tile system and not pixel-perfect.
+- Does not include art asset creation.
+- Does not prescribe data structures, classes, or signatures — these should be proposed after the deep dive.
+- Does not decide what to implement now vs. later, nor estimate size.
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.claude/skills/refine
+
+`refine` é a etapa de planejamento do pipeline `refine → implement → review-fix-loop`, mas funciona isoladamente. Ela recebe uma intenção em qualquer formato, resolve o conteúdo, decide se precisa entrevistar o usuário, escreve um plano com os artefatos de `.claude/rules/planning.md`, **decide sozinha** se o risco justifica rodar `/deep-plan`, e só então volta ao usuário para a aprovação final. O output é um arquivo de plano carimbado como APROVADO — exatamente o input que `/implement` consome.
+
+Este skill roda **inline na conversa principal** (precisa de `AskUserQuestion`); ele não dispara Workflow diretamente — no máximo invoca `/deep-plan`, que tem seu próprio Workflow.
+
+---
+
+## Fase 0 — Resolver o input
+
+Classifique o argumento e materialize a **intenção bruta** (brief):
+
+1. **Caminho de arquivo existente** → leia. Se já for um plano com `## Contract`, trate como rascunho a refinar (não como brief cru).
+2. **URL** — resolva pelo host:
+   - `github.com/.../issues/N` → `gh issue view N --repo <owner/repo> --json title,body,comments`
+   - `github.com/.../pull/N` → `gh pr view N --repo <owner/repo> --json title,body,comments`
+   - Jira (`*.atlassian.net/browse/KEY-N`) → ToolSearch `+atlassian` e use as tools do MCP Atlassian (autentique se necessário via `authenticate`).
+   - Slack (`.../archives/<channel>/p<ts>`) → ToolSearch `+slack read thread` e use `slack_read_thread`.
+   - Google Drive/Docs → ToolSearch `+drive read` e leia o conteúdo.
+   - Outra URL → ToolSearch `select:WebFetch` e busque.
+3. **Texto livre** → é o próprio brief.
+
+Eco do brief: resuma em 2–4 linhas o que entendeu que deve ser implementado e **de onde veio** (link/arquivo). Se o brief vier vazio ou a URL não resolver, pare e pergunte.
+
+## Fase 1 — Contexto do codebase
+
+Igual ao Phase 1 do deep-plan, mas mais leve:
+
+1. Liste os **domínios afetados** a partir do brief. Para cada um, leia `docs/{domain}/premises.md` e `docs/schema/{domain}.md` (se existirem) e `docs/CORE_TENETS.md`.
+2. Despache 1–3 agentes **Explore** em paralelo para mapear os arquivos/serviços/fluxos que a mudança toca (breadth "medium"; "very thorough" se o brief for vago sobre onde mexer). Você quer: pontos de wiring, guards existentes, callers, testes que cobrem o fluxo hoje.
+3. `rg`, nunca `grep -r` (escopo do repo, ignora worktrees/build).
+
+## Fase 2 — Entrevistar ou não (julgamento)
+
+Entreviste **apenas se** existir ambiguidade material: múltiplas interpretações razoáveis do escopo, invariante não declarada da qual a implementação dependerá, edge case com respostas plausíveis divergentes, ou tradeoff que muda a arquitetura (ex.: síncrono vs outbox). Use `AskUserQuestion` (até 4 perguntas por rodada, máx. ~2 rodadas — siga o roteiro de entrevista de `.claude/rules/premises.md`: "que invariantes existentes essa mudança assume?", "o que quebra em outro lugar se a premissa for falsa?").
+
+Para todo cenário que o plano decide **deferir** ("fora de escopo", "tratamos depois"), acrescente a pergunta: **"com que frequência o caso deferido dispara em produção?"** Gatilho rotineiro será re-litigado no review como se fosse gap (caso clawback do PR #1065: deferido no plano, re-aberto em review porque o gatilho era rotineiro) — ou o plano o trata, ou a justificativa do deferral entra na prosa com o dado de frequência.
+
+Se o brief é inequívoco, **diga isso em uma linha e siga** — não fabrique perguntas. O paradoxo da autocrítica do deep-plan vale aqui: cerimônia em tarefa simples ensina o usuário a ignorar o skill.
+
+## Fase 3 — Autorar o plano
+
+Escreva o plano seguindo `.claude/rules/planning.md` e `docs/planning/plan-contract.md`:
+
+- **Prosa**: contexto, abordagem escolhida (e alternativas descartadas, com 1 linha de porquê), fases de implementação se multi-fase.
+- **`## Contract`** (sempre): lista numerada de compromissos atômicos verificáveis.
+- **Interaction matrix** e **Precondition diff**: quando os gatilhos do plan-contract se aplicarem (status/lifecycle novo, state machine, registro RESERVED/PENDING longevo; método/fluxo deletado/substituído ou guard copiado).
+- **Cabeçalho de metadados** no topo do arquivo:
+
+```markdown
+# {título}
+
+**Origem:** {texto | arquivo | URL resolvida}
+**Branch sugerida:** {tipo}/{slug-kebab}   ← siga .claude/rules/git-conventions.md
+**Domínios:** {lista}
+**Tier de risco:** {direto | deep-plan} — {1 linha de justificativa}
+**Status:** DRAFT
+```
+
+Salve em `~/.claude/plans/<slug-kebab>.md`. (É o diretório que `/verify-plan` e o hook `deep-plan-pr-gate.sh` escaneiam.) Se o plan mode da sessão bloquear o Write, apresente o plano na conversa e escreva o arquivo logo após a aprovação da Fase 6.
+
+## Fase 4 — Ilustrar outcomes críticos (julgamento)
+
+Se o plano produz outcomes cuja forma concreta o usuário precisa validar — payload de API/evento novo ou alterado, fluxo de dinheiro (quem recebe quanto em que conta), antes/depois de uma mutação de dados, schema novo — **mostre o exemplo concreto** (JSON realista, tabela antes/depois, conta aritmética em centavos) e confirme com `AskUserQuestion`. Pule quando o outcome é óbvio pelo próprio contrato (refactor sem mudança de comportamento, fix pontual).
+
+## Fase 5 — Tier de risco: deep-plan ou direto (decisão autônoma)
+
+Decida **sozinha** — não pergunte — e declare a decisão com justificativa de 1–2 linhas. Rode `/deep-plan` (via Skill tool, passando o caminho do plano como intent file) quando **qualquer** um valer:
+
+1. **Regra do deep-plan Phase 0**: domínio money (`paymentgateway`, `storecredit`, `billing`, `debtsettlement`, `cohort`, `payout`, `notary`) **e** a mudança adiciona/modifica status/lifecycle de entidade, introduz state machine, cria registro RESERVED/PENDING longevo, ou substitui fluxo/método existente.
+2. **Likelihood de bug high/crítico** por outros vetores: ordering assíncrono novo (listener/outbox/webhook), concorrência/locking, migration com backfill de dados money, refactor que cruza ≥3 módulos/domínios, ou mudança em cálculo monetário (rounding, rateio, caps).
+
+Caso contrário, siga direto. Em dúvida genuína entre tiers em domínio money, prefira deep-plan (false-heavy é barato; false-light embarca o gap).
+
+Quando o deep-plan rodar: use a opção "Write artifacts into the plan" dele para fundir o contrato refutado no arquivo do plano, e **anote no cabeçalho** `**Tier de risco:** deep-plan (rodado — contrato fundido)`. GAPs residuais viram itens explícitos da aprovação na Fase 6, nunca silenciosamente aceitos. O contrato standalone que o deep-plan grava em `.claude/deep-plan/<branch>-<shortSha>.md` será commitado pela wave 1 do `/implement` (é o que o hook de PR lê).
+
+## Fase 6 — Aprovação final (sempre)
+
+Independente do tier, **volte ao usuário** com `AskUserQuestion`:
+
+- Resumo do plano em ≤10 linhas: o que muda, contract size, tier de risco, GAPs residuais do deep-plan (se houver), branch sugerida.
+- Opções: **Aprovar** / **Ajustar** (colete o ajuste, volte à Fase 3) / **Cancelar**.
+
+Na aprovação, atualize o cabeçalho para `**Status:** APROVADO — refine {data}` e termine reportando:
+
+```
+Plano aprovado: ~/.claude/plans/<slug>.md
+Branch sugerida: feat/<slug>
+Próximo passo: /implement ~/.claude/plans/<slug>.md
+```
+
+Quando invocada **pelo `/implement`**, a aprovação daqui já vale como a confirmação final — o implement não pergunta de novo.
+
+---
+
+## Regras
+
+- **Enumere do codebase, não da memória** — wiring points e guards no Contract vêm de grep/Explore, não de recall.
+- **Não escolha silenciosamente entre alternativas** — interpretações concorrentes vão para a entrevista (Fase 2) ou aparecem como alternativa descartada na prosa.
+- **Plano mínimo que resolve** — nada especulativo no contrato; cada item rastreia ao brief.
+- **Tier honesto** — não rode deep-plan em typo fix; não light-passe lifecycle money.
+
+
+ARGUMENTS: The user invoked /implement with the spec below. It is a SPECIFICATION OF INTENT, not an approved plan — its explicit first deliverable is "a deep dive into the codebase + a proposed implementation plan, mapping how each requirement fits what exists, and surfacing the cross-cutting decisions back to the human to decide." The human says NOT to decide scope (now-vs-later) or size the effort alone — those are the human's calls. There is also a pre-spec performance concern: "how to keep this performatic, both at editing time and at game runtime." Treat this as a high-risk, multi-domain change (rendering, level-loading, ECS, input, new editor tooling) that almost certainly warrants /deep-plan and explicit decision-surfacing to the user before any implementation. Investigate the real codebase (do not assume) per Section 3, map each requirement (2.1–2.8) to existing modules, and bring back the Section-4 cross-cutting decisions as questions.
+
+=== FULL SPEC ===
+
+(Obs before the spec: a concern is how to keep this performatic, both, at editing time and at game runtime)
+
+# Spec: brush-based authoring experience for illustrated 2D maps (MonoGame + ECS)
+
+## How to read this spec
+
+This is a **specification of intent and rationale**, not a set of implementation instructions. It describes *what needs to be true* and *why*, deliberately without prescribing data structures, classes, signatures, or order of execution.
+
+About the codebase: **assume nothing beyond the fact that this is a MonoGame game with an ECS architecture.** Everything else (serialization format, camera model, render pipeline, sprite ordering, whether any editor tooling exists at all, input handling, the notion of a "level/scene", asset loading, whether undo exists) is unknown and **must be discovered by investigating the code before proposing a solution**. Wherever this spec depends on something from the engine, that is flagged explicitly as an investigation point.
+
+First deliverable expected from this next session: **a deep dive into the codebase + a proposed implementation plan**, mapping how each requirement below fits into what already exists, and surfacing the cross-cutting decisions (listed further down) back to the human to decide. **Do not, on your own, decide what goes in now vs. later, and do not size the effort** — that is the human's call, based on your mapping.
+
+The "waves" described in the last section are **dependency/architecture seams** (where the delivery naturally splits), **not a schedule and not a recommended ordering**.
+
+## 1. Context and goal
+
+The art-direction target is **illustrated/painterly 2D** — the visual family of games like Wytchwood and Hollow Knight. The mental model is a **diorama / pop-up book**: the scene is a free composition of illustrated "cutouts" (props, ground patches, foliage) placed in space, with depth coming from layering and from sort ordering. **It is not pixel art, not pixel-perfect, and crucially not tile-based** — there is no grid of snap-together tiles.
+
+For that reason, tile-oriented editors (Tiled, LDtk) are a poor fit for this project: their paradigm is filling a matrix, and the friction shows up precisely when the game isn't pixel art. The desired authoring experience is **dragging a cursor across the scene to "paint"**: painting the ground, scattering scenery elements, and drawing paths/roads. The goal of this delivery is to offer that experience inside our own engine.
+
+### The central realization that structures everything
+
+"Brush" here is **an input metaphor** (dragging a cursor) shared by **distinct tools whose data model and output diverge**. Treating this as a single monolithic brush system is a trap that creates rework. The three tools the metaphor covers:
+
+- **Scatter scenery** → produces **discrete ECS entities** (with variation in rotation/scale/tint and density). The output is real game entities.
+- **Paint the ground** → produces **texture/material** (a blend of layers) or large ground stamps with soft alpha that overlap. The output is pixels, not entities.
+- **Draw path/road** → **not a stamp, a spline**. The real requirement is continuity, controllable width, and corners that resolve cleanly. Modeling a road as loose stamps is where most implementations get tangled.
+
+This spec is therefore about "a stroke sampler + pluggable stamp behaviors", not a single tool.
+
+## 2. Requirements (properties that need to be true)
+
+**2.1 — A single stroke-sampling input layer, feeding pluggable behaviors.** The drag gesture must be sampled at points along the cursor path at a controlled interval (so dragging fast doesn't leave gaps), with a notion of radius and falloff, dispatching to a *stamp behavior* per sample. Rationale: scatter and ground are the same gesture with different behaviors; separating the gesture from the effect avoids duplication and keeps input consistent across tools.
+
+**2.2 — The outputs of the three tools are divergent by nature (see section 1) and must not be forced into a single model.** Rationale: unifying the output prematurely couples decisions that should remain independent.
+
+**2.3 — Explicit "parametric vs. baked" decision.** For each tool it must be decided whether the stroke becomes an entity/texture immediately (simple, but the stroke is lost and not re-tweakable) or is stored as a re-evaluable operation/source. A road wants to be parametric (store the spline and regenerate); scatter should store at least region + seed to allow re-rolling density; ground-texture is typically baked. The common hybrid pattern is to keep an editable "source" that bakes to the runtime representation on save/export. This is the highest-impact decision and must be resolved and justified explicitly.
+
+**2.4 — Determinism via seeded RNG (especially in scatter).** The result of scattering must be reproducible from a seed. Rationale: levels are versioned in git; if every brush stroke re-randomizes, the level file churns on every save and merges become a nightmare. A stable per-region seed = reproducible and diffable levels.
+
+**2.5 — Reuse the existing ECS; no parallel editor data model.** The brush must manipulate the same components the runtime consumes, not a separate editor data model that is later converted. Investigate how entities/components are created and mutated in this engine so the stamp effect produces them directly.
+
+**2.6 — Integration with ordering (sorting groups + y-sort).** Whatever is painted must land in the correct depth grouping and feed baseline ordering (ground and road underneath; props ordered by the sprite's bottom point). Investigate how sprite ordering is currently done before defining how the brush assigns it.
+
+**2.7 — Preview with the real game camera.** The designer must compose while seeing the final framing (and ideally post-processing) of the game, not a generic editor view. Investigate the current camera model to know what's needed to mirror it in the editor.
+
+**2.8 — Undo/redo with drag coalescing.** A brush without undo is unusable. The correct granularity is one entire drag = one undo step, not each sample. Investigate whether any notion of undo/history exists today.
+
+## 3. What must be discovered in the codebase (do not assume)
+
+- How entities and components are represented, created, and mutated; archetypes/queries; how the runtime consumes them.
+- Whether any form of level serialization/persistence exists, in what format, and whether levels go into git.
+- What "level" / "scene" means in this engine, if the concept exists at all.
+- How sprites are loaded and drawn; how ordering is decided (Z, sorting layer, y-sort, submission order?).
+- Whether any render-to-texture path is available.
+- The camera model (projection, transform, post-processing) and what's missing to reproduce it in the editor.
+- How input is handled.
+- Whether any editor infrastructure already exists (viewport, picking/selection, gizmos, UI panel) or none — including whether any immediate-mode UI (e.g. ImGui) is already integrated.
+- Whether any concept of undo/history exists.
+
+Every gap found must become an explicit point in the plan, not a silent assumption.
+
+## 4. Cross-cutting decisions to surface and bring back
+
+- **Ground representation and how it renders**: large stamps with alpha blend vs. splatmap in a render target (perfect blend, requires a shader) vs. another approach. Coupled to 2.3 and to whether render-to-texture exists.
+- **How the road renders**: stamps-along-the-spline with alpha blend vs. mesh strip with tileable texture vs. splatmap. A look decision as much as a technical one.
+- **Where the parametric "source" lives vs. the baked runtime representation** (2.3), and how save/export handles both.
+- **Where the scatter seed is stored** and at what granularity (per region? per stroke?).
+- **How the brush assigns sorting group / sort key** given whatever ordering model already exists.
+- **Editor chrome**: if nothing exists, what is the minimum viewport/UI substrate.
+
+## 5. Dependency seams ("waves") — NOT an order, NOT a sizing
+
+- **Wave A — Authoring substrate.** Viewport with real game-camera preview (2.7), selection/picking, transform gizmos, undo/redo with coalescing (2.8), load/save level round-trip. Every other wave presupposes this; part may already exist — investigate.
+- **Wave B — Stroke-sampling layer.** The shared gesture (2.1): samples cursor path with radius/falloff/spacing, dispatches to a stamp behavior.
+- **Wave C — Free entity placement.** Placing existing ECS entities by hand, with snapping, with correct sorting group / y-sort assignment (2.6). Establishes the "create entity in the scene" path scatter reuses.
+- **Wave D — Scatter stamp.** Behavior producing entities, seeded (2.4) and density-driven, with rotation/scale/tint variation. Forces the region+seed part of 2.3.
+- **Wave E — Ground stamp.** Behavior producing texture/material or ground stamps. Forces the ground representation/render decision and possibly render-to-texture.
+- **Wave F — Path/road tool.** Spline-based, width and corners — a different interaction model (editing control points/handles, not continuous stamping); weak coupling to B, strong coupling to substrate A (gizmos/handles). Forces the road render decision; intrinsically parametric.
+
+## 6. Out of scope
+
+- Not a tile system, not pixel-perfect.
+- No art asset creation.
+- Does not prescribe data structures, classes, or signatures.
+- Does not decide what to implement now vs. later, nor estimate size.
+
+---
+
+Base directory for this skill: /Users/rodrigooliveira/.warp/worktrees/monodreams/feat/level-editor/.claude/skills/deep-plan
+
+`deep-plan` is `deep-review` run **before** code exists. Where deep-review takes a *diff* and emits *findings*, deep-plan takes a *design intent* (plan-mode prose) + the *live codebase* and emits a **filled, refuted plan-contract** — the four artifacts in the repo's plan-contract spec (`docs/agents/skills-config.md` › Docs layout › Planning; default `docs/planning/plan-contract.md`): Contract block, Interaction matrix, dimension table, Precondition diff — with every matrix cell answered, every derived quantity's base tagged, and every guard copy diffed. That artifact is exactly what `/verify-plan` later reconciles the implementation against.
+
+**Why it exists.** The review side is industrial (lenses + consolidator + facet enumeration). The planning side was a single pass — so the matrix ships with the columns the planner remembered and empty cells, the dimension table with the variables they happened to name, the precondition diff covering the one guard copy they recalled. The same bug class — a deferred/RESERVED record invisible downstream — shipped twice and still needed many review rounds the second time: the missing piece is institutional learning at plan time, not another reviewer. deep-plan points the same specialists that catch these bugs in a diff at the *plan*.
+
+Invocation:
+
+- `/deep-plan` — use the current plan-mode draft (the prose in this session) as the design intent.
+- `/deep-plan path/to/draft.md` — read the design intent from a file.
+- Append `cheaper` (aliases: `cheap`, `simple`, `eco`, `economy`) for tiered model routing. Default is all-Opus.
+
+This skill reads the repo's `docs/agents/skills-config.md` for everything stack-specific (where docs live, which domains are sensitive, lenses, conventions). When a section is absent it falls back to a stated default and says so in its output.
+
+---
+
+## Model Routing
+
+**Default (full):** all phases and agents use **Opus** with extended thinking.
+
+**Economy mode** (`cheaper`/`cheap`/`simple`/`eco`/`economy`) — mirrors deep-review's tiers, since the agents are the same specialists reframed:
+
+| Phase / Agent | Model | Reason |
+|---|---|---|
+| Agent 1 — Dimension Table | **Opus** (extended thinking) | Deep multi-stage reasoning; base/cap correctness |
+| Agent 2 — Caller-Enumerated Matrix Columns | **Sonnet** (extended thinking) | Structured grep + enumerate pattern |
+| Agent 3 — State-Mutation Seams | **Opus** (extended thinking) | Complex multi-path mutation logic |
+| Agent 4 — Matrix Cells / Lifecycle | **Sonnet** (extended thinking) | Sequential lifecycle against an explicit checklist |
+| Agent 5 — Failing-First Tests & Premises | **Sonnet** | Semi-structured obligation analysis |
+| Agent 6 — Refuter | **Opus** (extended thinking) | Adversarial; independence is the whole value |
+
+Consolidation (Phase 6) and the Gate always use **Opus** regardless of mode.
+
+---
+
+## Phase 0: Scope tiering
+
+Parse arguments for the **model tier** (detect and strip `cheaper`/etc.). Then classify the change — this decides whether deep-plan fans out at all.
+
+Read the repo's **Sensitive domains** (`docs/agents/skills-config.md` › Sensitive domains). A change touching ANY of them is the bug-prone class this skill exists for. **If none are listed, treat no domain as sensitive — take the light path and never block** (and say so in the output).
+
+**The self-critique paradox: do not over-critique easy tasks.** A heavy enumerate→refute→gate loop on a one-line config tweak is noise that teaches the user to ignore the skill. Tier honestly.
+
+Classify the design intent:
+
+- **TRIVIAL / NON-SENSITIVE** → **light inline pass.** The intent does not touch a Sensitive domain, or touches one only cosmetically (rename, doc, dependency bump, a single non-stateful field). No fan-out. Do Phase 1 context-gathering yourself, then fill the artifacts the change actually needs (often just the Contract block) inline, in one pass. Note explicitly: "Light pass — no sensitive-domain lifecycle change detected." (When the config lists no Sensitive domains at all, every plan takes this path — say "Light pass — no Sensitive domains configured.")
+
+- **SENSITIVE-DOMAIN + STATE/LIFECYCLE/FLOW-REPLACEMENT** → **heavy pass (Workflow).** The intent touches a Sensitive domain (config › Sensitive domains) **and** adds/modifies an entity status or lifecycle, introduces a state machine, or replaces an existing flow/method. Run the deterministic Workflow `.claude/workflows/deep-plan.js` via the Workflow tool (Phases 2–6 below execute inside it). **Always pass `args: { intent, domains, repoRoot }`** where `repoRoot` is the current worktree root (`git rev-parse --show-toplevel`) — agents scope every search to it, and resolve their role files as `${repoRoot}/.claude/skills/deep-plan/agents/…`. (Pass a normal object: the runtime delivers Workflow `args` as a JSON-encoded *string*, and `deep-plan.js` defensively `JSON.parse`s it, so no wrapper is needed — an un-parsed string silently zeroes the intent and runs the whole pass on a blank brief.) **Preflight first** (see Concurrency below): quarantine stale planning artifacts so no agent anchors on another run's file.
+
+When genuinely unsure between tiers, prefer the heavy pass for sensitive domains and say why — a false-heavy is cheap; a false-light ships the gap.
+
+---
+
+## Phase 1: Context gathering (both tiers)
+
+Gather and pass to every agent (read paths from `docs/agents/skills-config.md` › Docs layout, substituting `{domain}`/`{module}` per the configured premises pattern; if a path is absent, default to `docs/CORE_TENETS.md` + `docs/{domain}/premises.md` and say so):
+
+1. **The design intent** — the plan-mode prose (or the intent file). This is the analogue of deep-review's diff: the source of truth for *what is being proposed*. There is no diff; the codebase on disk is the *current* (pre-change) state.
+2. **The recurring-failure-modes doc** (config › Docs layout › Planning) — **mandatory when present.** Every entry whose trigger matches the change is a question the plan must answer. This is the mechanism that makes a new plan consult past lessons. If the repo has no such doc, note its absence and rely on the core tenets + premises.
+3. **The core-tenets doc** (config › Docs layout › Core tenets; default `docs/CORE_TENETS.md`) — invariants every agent checks the intent against.
+4. **Affected domains** — detect each changed/affected file's domain via **Domains** (config › Domains — path-glob → domain). For each, read its schema doc and premises (config › Docs layout).
+5. **Touched flows** — from the flows dir (config › Flows, default `docs/flows/`), read the flow doc of every flow the intent touches (frontmatter `covers:` globs). A flow doc is the dedicated core-tenet for that flow — its invariants and load-bearing quantities are exactly what the dimension table and lifecycle matrix must hold the change to.
+5. **The plan-contract spec** (config › Docs layout › Planning; default `docs/planning/plan-contract.md`) — the artifact spec the output must conform to.
+6. **The repo conventions** — `docs/agents/skills-config.md` itself plus any rules dir it points at (config › Docs layout › rules dir).
+
+**Pass to all agents:** the design intent, the recurring-failure-modes doc, the core-tenets doc, relevant schema + premises docs, the touched flow docs, the plan-contract spec, the affected-domain list. Agents have full file tools (Read, Grep, Bash) and **must use them** — unlike deep-review, the codebase is the *current* state, so an agent's job is to discover, in real code, the callers/guards/readers the intent will collide with.
+
+---
+
+## Phase 2: ENUMERATE (heavy pass)
+
+Before analysis, build the real enumeration the plan-contract needs — this is what a single planning pass skips. Two sweeps (Agent 2 owns the first, Agent 3/Agent 1 feed the second):
+
+- **Interaction-matrix columns.** Grep every site that reads or transitions the state the new record touches (the membership collection it feeds, the central create/transition method, status-from-children rollups, `findByStatus`, exhaustive `when(status)`/`switch`/`match` blocks, status-membership helpers). Each distinct reader becomes a **column**. A generic adjacent-event list is the floor, not the column set — see the plan-contract spec Artifact 2.
+- **Guard copies.** For every guard/gate/predicate the intent tightens or copies, grep **all** copies across the codebase. Each copy becomes a precondition-diff row.
+
+Output of this phase is the *column set* and the *copy set* — concrete, codebase-derived, feeding Phases 3–4.
+
+## Phase 3: ANALYZE (heavy pass)
+
+Launch the specialists. Each reads its role file under `.claude/skills/deep-plan/agents/` and produces a **structured contract slice**, not prose findings:
+
+| Agent | Role file | Owns |
+|---|---|---|
+| 1 — Dimension Table | `agents/dimension-table.md` | Artifact 4: variable→unit/base→cap→seam (money is the canonical kind; any load-bearing derived value qualifies) |
+| 2 — Caller-Enumerated Matrix Columns | `agents/matrix-columns.md` | Artifact 2 *columns* (the enumeration) |
+| 3 — State-Mutation Seams | `agents/state-mutation-seams.md` | every state-creation/mutation seam + the `require`/`check` each needs |
+| 4 — Matrix Cells / Lifecycle | `agents/lifecycle-matrix.md` | Artifact 2 *cells*: `handled`/`N/A`/`GAP` per (state × event) |
+| 5 — Failing-First Tests & Premises | `agents/test-coverage.md` | failing-first test obligations + executable-premise proposals + premise/doc drift |
+| 6 — Refuter | `agents/refuter.md` | (Phase 4 — runs against the draft only) |
+
+Agents 1 and 3 carry the **flow-specific concern** — they read the repo's **flow docs** (config › Flows) for the invariants this repo's key flows depend on and hold the change to them. The backend's flows (e.g. a `payment-pipeline` doc tagging every value's base/cap; a `dsa-lifecycle` doc listing a new status × every adjacent entity event) are the *example* of what the flow docs contain; your repo's are whatever it declares.
+
+## Phase 4: REFUTE (heavy pass) — loop-until-dry
+
+Agent 6 (the refuter) gets **only the draft contract**, not the reasoning that produced it — anchoring-free. Its job: find one unhandled scenario, one dimension/cap violation, or one wrongly-`handled` cell. Refute-or-promote. Each refutation carries an **`attacks` tag** — `resolution` (it breaks a fill/fix the draft already contains) vs `new-surface` (it names territory the draft lacks) — which the verdict aggregates per round to tell fix-attack equilibrium apart from undiscovered surface. The Workflow runs **`REFUTERS_PER_ROUND` refuters in parallel per round** (each assigned a **distinct attack lens** — quantity/dimensional · async-ordering/lifecycle · premise/invariant · completeness/wrong-cell — plus the list of already-open roots, so the N refuters cover N near-independent surfaces instead of colliding on the same targets or re-raising a known GAP), and loops until **2 consecutive rounds surface nothing new** or it hits `MAX_REFUTE_ROUNDS`; each surfaced gap reopens the relevant cell/row and forces Phase 3's owner to resolve it. Independence is the point — it breaks the cascade where planner and reviewer share a blind spot.
+
+**Resolution re-refute (when the loop ends at the round cap).** Ending at `MAX_REFUTE_ROUNDS` right after a resolve means the **final resolver patch was never attacked** — every earlier patch was re-attacked by the next round, but the last one ships unexamined. The Workflow runs **one targeted pass** (`RESOLUTION_REREFUTERS`, default 2, `ARGS.reRefuters` overrides) scoped to ONLY those final resolutions — not a full re-sweep — and integrates any break with a single resolver call. The regress ends there by design: the verdict reports the outcome ("all held" is a real signal; "N fresh, integrated" means the re-refute's own patch ships unattacked — weigh it accordingly, and reach for an independent re-run if it matters).
+
+## Phase 5: GATE (heavy pass) — programmatic completeness
+
+The Workflow's `Gate` phase flags any of:
+
+- an interaction-matrix cell that is **empty or `GAP` without written justification**;
+- a load-bearing premise (correctness-critical) with **no `require`/`check` seam or no failing-first test**;
+- a touched guard with **no per-copy precondition diff**.
+
+It runs a **bounded justify loop** (`GATE_JUSTIFY_ROUNDS`): each pass is fed the gate violations *plus* the deterministic missing-cell list (`missingCells`), so when a refuter grew the matrix with a new column/state the justify pass fills the **whole** new row/column, not just the cell the refuter named. After the loop, any residual GAP is **recorded in the result (`gate: FAIL`, `residualGaps`, `violations`) and surfaced at the top of the body — never thrown.** deep-plan never blocks (Phase 7): a throw here once lost ~3M tokens / 2h on 91 empty cells a single justify pass left after matrix growth, *before synthesize ever ran*. A flagged contract is incomparably more useful than a 0-byte output. (Seed mode keeps its own throw for the gate-detects-incompleteness test.)
+
+## Phase 6: SYNTHESIZE (heavy pass)
+
+The contract is rendered **deterministically in JS from the gated draft**, not retyped by an LLM. `renderVerdict()` builds the verdict header — a count of any **`### ⚠️ Contradiction`** themes the consolidator flagged (surfaced FIRST — the gate checks completeness, not *consistency* between two commitments, so a contract that says "source X from A" beside "source X from B" passes the gate; this leads with it); the substantive-GAP count plus its **clustering** into distinct code seams + the Síntese decision-theme count (so the headline reads ~decisions, not ~cells — most cells are one un-built surface repeated across rows); the refute-convergence status with the **per-round trajectory shape** (`[11, 11, 8]` → FLAT = surface far from exhausted, re-run; `[11, 5, 1]` → DECAYING = a round or two more would close it) plus the **final-round mix** of resolution-attacks vs new-surface (a FLAT shape with a high resolution share means the loop is *generative* — each resolver patch mints new attack surface — not that the original surface is unexplored) and the **resolution re-refute outcome**; the reframed gate verdict; and a `### ⚠️ Unresolved` list of every GAP cell + unresolved dimension violation. `renderArtifacts()` renders the four artifacts (Contract block + Interaction matrix + dimension table + Precondition diff + premises) **losslessly** — every draft row appears verbatim, with no output-token ceiling. The consolidator (`agents/consolidate.md`) writes **only** the narrative synthesis (`## Síntese` — clustering the GAPs/refutations into the BLOCKERs the planner must decide), sandwiched between the header and the artifacts. Retyping the artifacts through the LLM is exactly what dropped 16 of 70 contract items on a real run (the recurring consolidation-lossiness class); moving the render to JS removes that lossy step entirely.
+
+**The state axis is canonicalized before render** (`canonicalizeMatrixStates`, applied inside every `applyPatch`): a downstream fill/refute/justify agent paraphrases an enumerated state into a terser convention ("status=STOPLOSS" vs the verbose "StoreStopLoss.status = STOPLOSS (…)"), which `normCode`'s full-label fallback can't collapse — so on a real run the matrix DOUBLED to 18 states / 576 cells (9 / 288 real), the gate-justify pass filled ~288 phantom cells, and the GAP count read 2× the truth. The canonicalizer collapses verbose/terse variants of the same logical state (suffix-anchored loose key), remaps the cells, and merges collisions (GAP wins, so a merge never hides open work).
+
+**Three programmatic checks** still run over the rendered body — but as a **regression guard on the engine's render**, not a cure for LLM-retype lossiness (which is now gone): (1) `consolidationFidelity()` (DROP class — anchor absent everywhere), (2) `contractBlockCoverage()` (BURIED class — a commitment outside the numbered `## Contract` block; it anchors on the heading whose text *begins* with "contract", not the document title `## deep-plan contract — …`), (3) `structuralCounts()` (SHORTFALL class — a collection rendering *fewer* rows than the draft holds). With deterministic render these are always clean; a hit means `renderArtifacts` itself dropped something (an engine bug), so it is **logged + surfaced in the result, never patched by an LLM repair pass.** The narrative is `stripPreamble`-trimmed to its first heading (a model can leak task narration before it). Residuals are reported in the run result (`consolidationOmissions`, `contractBuried`, `contractBlockMissing`, `structuralCounts`, `structuralShortfalls`).
+
+---
+
+## Phase 7: Verdict (advisory-loud) and next step
+
+deep-plan **never blocks** plan finalization — plan mode is used for one-liners too, and a hard gate there needs a fragile escape hatch. Instead it surfaces residual gaps prominently, then asks what to do with `AskUserQuestion`.
+
+The **heavy (Workflow) pass already emits its own verdict header** — `## deep-plan contract — …` followed by a `### Verdict` block (contradiction count if any, substantive-GAP count + clustering, refute-convergence status + per-round trajectory shape + final-round resolution/new-surface mix + resolution re-refute outcome, reframed gate verdict) and a `### ⚠️ Unresolved` list, all rendered by `renderVerdict()`. Present that body as-is; you only add a one-line **Mode·Tier** banner above it (metadata the Workflow can't know):
+
+```markdown
+**Mode**: {Full Opus | Economy (tiered)} · **Tier**: Heavy (Workflow)
+```
+
+For a **light inline pass** (no Workflow), prepend the full header yourself:
+
+```markdown
+## deep-plan: {plan name or intent summary}
+
+**Mode**: {Full Opus | Economy (tiered)} · **Tier**: Light inline
+**Affected domains**: {list}
+**Residual GAPs**: {count — 0 means the contract is complete}
+```
+
+If there are residual GAPs, list them first, each as `⚠️ GAP: <state> × <event/variable> — <why unresolved>`.
+
+Then `AskUserQuestion` — options:
+
+1. **Write artifacts into the plan** — append the filled Contract / Matrix / Dimension table / Precondition diff to the plan file (or the in-session plan draft), replacing any hand-filled versions. When committing a standalone contract, write it to **`.claude/deep-plan/<branch>-<shortSha>.md`** (`git rev-parse --abbrev-ref HEAD` + `git rev-parse --short HEAD`) — branch+commit makes it unique per run and is exactly what the PR-gate reads.
+2. **Save gap report to file** — write to a **run-unique** path `.claude/deep-plan/<branch>-<shortSha>/report.md` (or the repo's own scratch dir — never a shared `/tmp/deep-plan-{name}.md`; a flat name in a shared temp dir is the contamination vector that wrecked a real run).
+3. **Proceed anyway** — leave the plan as-is; the GAPs are recorded in the conversation. (Used when a GAP is a deliberate, justified exclusion.)
+4. **Nothing** — keep it in the conversation output.
+
+The real choke point is downstream: the `gh pr create` PreToolUse hook (the repo's PR-gate, installed under `.claude/`) blocks sensitive-domain branches whose plan-contract is incomplete or whose `/verify-plan` is not clean. deep-plan at plan time is advisory; the hook at PR time is the gate.
+
+---
+
+## Key rules
+
+- **Enumerate from the codebase, never from memory.** The single defining difference from a one-pass planner: matrix columns and guard copies are *grepped*, not recalled. A column set that matches your memory is suspect — grep anyway.
+- **The intent is the source of truth for what is proposed; the codebase is the current state.** When the intent contradicts what the code can support, that contradiction is a finding, not something to silently reconcile.
+- **The dimension axis is king.** A load-bearing derived value with no tagged base or no cap seam is a Blocker-class gap, exactly as in deep-review. Money is the canonical case; a count, a window-bounded sum, or a ratio with the wrong base is the same bug.
+- **Refute independently.** The refuter must not see the analysis reasoning — only the draft contract. Sharing context defeats it.
+- **Tier honestly (self-critique paradox).** Don't fan out on trivial or non-sensitive plans; don't light-pass a sensitive-domain lifecycle change.
+
+---
+
+## Concurrency, contamination & search hygiene
+
+These are not optional polish — each maps to an observed failure when running deep-plan across multiple worktrees.
+
+- **Scope every search to the repo root with `rg`, never `grep -r`.** `rg` honors `.gitignore`, so it skips build output, the VCS dir, and **worktrees** — a bare `grep -r` from a worktree traverses build artifacts and every sibling worktree and has hung a run for **87 minutes**. This applies to the light inline pass too. Never read or search `/tmp`, `..`, `~`, or absolute paths outside the current repo. Keep each Bash call one simple command (a fragile `rg … | head; echo; find …` one-liner hangs on an unbalanced quote). Bound any DB/MCP query (`LIMIT`).
+
+- **Contamination guard.** Running multiple deep-plans concurrently, an agent that searches broadly can read **another run's** artifact (a stale `deep-plan-*.md`, a sibling worktree's plan-contract) and silently re-anchor the whole contract to the wrong feature (observed: an "apuração" plan came back 100% about "retention-bonus"). The workflow's `ctx()` injects a guard telling agents the inline intent is the only source of truth — reinforce it in the intent text when two live branches touch the same domain: *"this change is X, NOT Y; ignore any artifact mentioning Y."*
+
+- **Preflight quarantine.** Before a heavy run, move stale flat artifacts out of the search path: `mkdir -p ~/.deepplan-quarantine && mv /tmp/deep-plan-*.md ~/.deepplan-quarantine/ 2>/dev/null || true`. With `rg`-scoping this is belt-and-suspenders, but it's cheap insurance.
+
+- **Run-unique outputs.** Key any saved artifact by branch + short SHA (Phase 7) — `<branch>-<shortSha>` is unique per worktree+commit; append `-<unixTimestamp>` if you keep multiple runs on the same commit. (The org/repo is already encoded by the repo path.) A flat shared-temp name re-contaminates the next run. Note: unique *naming* alone is insufficient — the real fix is that agents no longer read shared temp or sibling worktrees at all (`rg`-scoping above); a uniquely-named stale file is still found by an unscoped `grep`.
+
+- **Matrix axis↔cell integrity: every (state,column) is keyed by its leading CODE (`normCode`), not its full label.** The matrix had a latent bug that only surfaced at scale: refuters/resolvers write cells under drifting label variants — `"S1"` vs `"S1 PERFORMANCE_BONUS_RETAINED"`, `"C1"` vs `"C1 RETENTION mint hook"` — and the gate keyed by exact string. A 4-refuter × 5-round run wrote cells under 68 column-labels (→ 34 codes) and 22 state-labels (→ 15 codes), so the gate saw **374 phantom-empty grid pairs** and a single 59k justify pass re-created 374 duplicates while the real analysis sat in 105 orphaned cells. The fix: `gateCheck` and `applyPatch` key cells by `normCode`, and `applyPatch` reconciles any cell's state/column code back into the axes — so the gate validates the *real* analyzed surface, label variants collapse, and the `refKey` dedup/dry-streak can finally fire. **The gate-violation count tracks refuter invocations under the bug (6→1, 6→84, 20→374); fix the data structure, don't cap the loop.**
+- **Refute breadth and depth: 4 lensed refuters/round (`REFUTERS_PER_ROUND`, `ARGS.refutersPerRound` overrides), capped at 3 rounds (`MAX_REFUTE_ROUNDS`), early-exit after 2 dry rounds (`DRY_ROUNDS_TO_STOP`).** History: a 4×5 run *did* reach the full r1+r2 cluster union in one run, but at ~1.8× cost, still no convergence (flat 16/12/15/15/15), and the 374-violation gate above — because more refuters *amplified* the then-unfixed label drift. Once that amplifier was fixed twice over (`normCode` keying + `canonicalizeMatrixStates`) and a coherent matrix was confirmed, breadth was **re-raised deliberately 2→4** — the post-mortem's own invitation. The lever is *breadth, not depth*: the FLAT `11/11/8` trajectory showed coverage-per-round (the number of distinct attack angles) was the binding constraint, and refuters run in **parallel** so breadth is ~free on wall-clock (it trades tokens for coverage); raising *rounds* (depth) just burns serial wall-clock without converging. To keep added refuters from colliding, each takes a **distinct lens** (quantity/dimension · async-ordering · premise · completeness). The ceiling is the resolver patch size (all fresh funnel into ONE patch → StructuredOutput bloat), not thinking — so it is a band, not "more is better". Each round still feeds refuters the **already-open roots** (GAP cells + unresolved violations) so they push to new territory. For *coverage* still prefer an independent re-run over raising rounds — see **One run does not exhaust** below.
+
+- **Terseness prevents crashes.** Oversized drafts make the resolver/consolidator's `StructuredOutput` call return nothing and waste the run (~600 KB observed). The schemas cap verbose fields and the prompts demand `file:line + one clause`. Don't relax that.
+
+- **The iterative resolver returns a PATCH, not the whole draft.** Re-emitting the full — and growing — draft every refute/gate round is what hit the 64k output-token ceiling: on a real run the round-5 refuter found its *strongest* refutation (a creation-time amortization gap) and the resolver then returned nothing, silently dropping it. The refute-resolve and gate-justify steps now emit only the cells/rows/premises/columns they add or change (`DRAFT_PATCH`), which `applyPatch()` merges by key. The merge is additive/override-only, so a thin or malformed patch degrades to "gate still fails", never to silent corruption. The initial **fill** is now a PATCH too (Lever 1): the matrix specialist (Agent 4) already answers every cell into the draft, so the fill no longer re-emits the matrix — it returns only the precondition rows, the Contract block, and any cells the deterministic `missingCells` check still reports missing. Re-emitting all ~N cells was the run's long pole (~35 min on a 28×14 matrix) and itself risked the StructuredOutput crash; cartesian completeness is enforced by the gate's justify loop, not by costly re-emission. `applyPatch` + `gateCheck` + `missingCells` are exercised deterministically via the script's `seedPatch` / `seedDraft` / `seedMissing` test modes.
+
+---
+
+## One run does not exhaust — the multi-run protocol
+
+A single heavy pass samples a *fraction* of the finding space, and the refute loop reaching `MAX_REFUTE_ROUNDS` is **not** a signal it found everything. The evidence across four dogfood runs of the *same* plan: r1 and r2 agreed on only ~4 core clusters while each caught 4–6 the other missed; r3 at 4×5 reached the r1+r2 union but never went dry (flat 16/12/15/15/15); r4 at half r3's budget (18 agents, ~3.1M tokens) **still surfaced 6 new confirmed premises including a blocker**. The variance lives in the refuter's *attack-angle sampling*, not in loop depth — so cranking `MAX_REFUTE_ROUNDS` buys little; an *independent* re-run buys a lot.
+
+For a high-stakes sensitive-domain plan, **run deep-plan 2+ times and union the findings**, rather than trusting one deep pass:
+
+1. Each run already writes a run-unique deliverable `.claude/deep-plan/<branch>-<shortSha>.md` (add `-<timestamp>` for same-commit re-runs). Keep them side by side.
+2. **Union, don't intersect:** a finding present in *any* run is in scope. Reconcile the Contract blocks, the matrix `GAP` cells, and the premises across runs; a commitment in run B but not run A is a real gap run A missed, not noise.
+3. **Strike revoked items — never append a revision beside the commitment it supersedes.** When a later run *overturns* an earlier decision, the union must delete or visibly strike the superseded item, not carry both. A real run opened with **7 contradictions — all 7** were a stale unioned commitment sitting beside the revision that replaced it: union debt, not new findings.
+4. **Scan the unioned document for contradictions at reconciliation time** — two commitments giving conflicting directives for the same mechanism/seam, the same check the consolidator runs in-run. The gate never catches these (completeness, not consistency), so the hand-reconciliation is the only place this happens between runs.
+5. **The first run fed with the unioned contract is the designated re-refute of the union** — not an optional extra. Contradictions it flags are the *expected output* of union debt; they render first in the verdict — resolve them before reading any other finding.
+6. Treat a run that surfaces *zero* new load-bearing findings as the real convergence signal — two such runs in a row is "dry" at the run level, the analogue of the in-run dry-streak. A cheaper leading indicator: when a run spends more of its top findings *revoking* earlier decisions than discovering new surface, the design is near its fixpoint even while the in-run refute trajectory stays FLAT.
+
+This is breadth at the *run* level: cheaper and higher-yield than raising **round depth** (`MAX_REFUTE_ROUNDS`), which the FLAT trajectory shows never converges. Per-round **breadth** (`REFUTERS_PER_ROUND`, now 4 lensed) is the one in-run knob worth raising — it adds near-independent attack surfaces per round at ~no wall-clock cost — and `ARGS.refutersPerRound` dials it per-run for an unusually large change. But for *coverage* of the finding space, an independent re-run still beats raising any in-run knob; reach for it first, and read the new run's `### Verdict` trajectory shape to decide whether another is warranted.
+
+
+ARGUMENTS: /Users/rodrigooliveira/.claude/plans/level-editor-wave-a-foundation.md
+
+This is the intent file (an APPROVED-pending plan) for the MonoDreams in-game level editor: foundation + Wave A. Repo root: /Users/rodrigooliveira/.warp/worktrees/monodreams/feat/level-editor (branch feat/level-editor, base main).
+
+Context the deep-plan must honor:
+- Two cornerstones: (C1) the editor is part of the game — an in-game mode running the real pipeline/camera; (C2) editor tooling = ECS systems + components layered on the game's systems via a NEW engine-wide system run-state model (Play/Edit run-mode on GameState + per-system edit-time policy + a GatedSystem decorator), and the ENGINE DOCS MUST codify this (a CORE_TENETS tenet + a foundation premise) because the gamedev's AI agents deliver future waves.
+- Scope is Wave A ONLY (authoring substrate) but the delivery must lay the foundation/roadmap for Waves B–F. Render-specific forks (ground splatmap-vs-stamps, road mesh-vs-stamps, scatter seed granularity) are explicitly DEFERRED — do not pull them into scope.
+- Decided: engine-native web-capable chrome (NOT ImGui); a NEW native MonoDreams scene format (there is NO save path in the engine today — the writer is the biggest gap); per-tool hybrid parametric/baked with MANDATORY bounded undo/redo.
+
+Load these as context (per .claude/CLAUDE.md): docs/CORE_TENETS.md and the per-module premises for foundation, rendering, camera, cursor, ui, level-loading, level-ldtk, level-blender. The plan's §1 lists verified codebase findings — re-verify the load-bearing ones against the live code (especially: GameState has no run-state today; SequentialSystem does not expose children; ScreenController is single-screen; no save path exists; no entity↔level association; Y-sort exists but no sorting-group concept; ImGui is desktop/DEBUG-only).
+
+Focus the adversarial refutation on the novel/load-bearing seams: (1) the system run-state model and how it interacts with EVERY existing system group (back-compat: default RunMode=Play must leave all current screens unchanged); (2) the scene serialization round-trip and entity↔scene membership (since none exists today); (3) editor-as-same-world-overlay vs the single-screen ScreenController; (4) the ECS-purity of editor systems/undo-commands. If you write artifacts back, merge the refuted contract into the plan file and update the header tier line to note deep-plan was run.
+
+---
+
+<task-notification>
+<task-id>wtmt71rrf</task-id>
+<tool-use-id>toolu_019oW6VcYEUzGcBX1Mo6HJ1q</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Dynamic workflow "Fill and adversarially refute a plan-contract (matrix, dimension table, precondition diff) from design intent + the live codebase, gating on completeness before synthesis." failed: Error: Analyze phase failed — a specialist slice is missing.
+    at &lt;anonymous&gt; (workflow.js:1158:42)
+    at processTicksAndRejections (native)</summary>
+<recovery>Agent transcripts: /Users/rodrigooliveira/.REDACTED</recovery>
+<failures>parallel[1] failed: agent({schema}): StructuredOutput retry cap (5) exceeded — 5 failed calls with no valid output</failures>
+<usage><agent_count>5</agent_count><subagent_tokens>581562</subagent_tokens><tool_uses>150</tool_uses><duration_ms>1171593</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>wd22c1686</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Dynamic workflow "Wave-based implementation of an approved plan: fresh agent per wave + persistent ledger, verify and verify-plan at the end, opens the PR with documented decisions" failed: TelemetrySafeError: agent({schema}): StructuredOutput retry cap (5) exceeded — 5 failed calls with no valid output
+    at &lt;anonymous&gt; (/$bunfs/root/src/entrypoints/cli.js:4338:2648)
+    at processTicksAndRejections (native:7:39)</summary>
+<recovery>Agent transcripts: /Users/rodrigooliveira/.REDACTED</recovery>
+<usage><agent_count>1</agent_count><subagent_tokens>73425</subagent_tokens><tool_uses>15</tool_uses><duration_ms>250026</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a053d9d269f6242f5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 1: run-state foundation" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Wave 1 is complete and verified. Here is the report.
+
+---
+
+## Wave 1 complete — in-game level editor foundation
+
+**Branch:** `feat/level-editor` (pushed to origin). Two commits on top of the deep-plan contract.
+
+### Files added/changed
+
+**Item 2 — run-state model (foundation):**
+- `MonoDreams/foundation/State/GameState.cs` — added `RunMode` enum (`Play`/`Edit`) + `GameState.RunMode` property (default `Play`). The `new GameState(GameTime)` ctor is untouched, so ScreenController.cs:31 still works.
+- `MonoDreams/foundation/System/EditTimeBehavior.cs` (new) — `EditTimeBehavior` enum (`RunNormally`/`Freeze`/`RunPartial`/`RuntimeEditable`).
+- `MonoDreams/foundation/System/GatedSystem.cs` (new) — `ISystem&lt;GameState&gt;` decorator. Reads `RunMode` + policy: `RunNormally` always runs, `Freeze` runs in Play only, reserved policies run in both (deferred). Honors its own + the child's `IsEnabled`, forwards `Dispose`. Exposes a pure static `ShouldRun(policy, mode)`.
+
+**Item 1 — module skeleton + bookkeeping:**
+- `MonoDreams/level-editor/module.json` (deps foundation/rendering/ui/cursor/level-loading; description trimmed to the schema's 120-char cap), `docs/overview.md`, `docs/premises.md`.
+- `docs/flows/level-editor.md` (new, `sensitive: true`).
+- Module count 13→14 + `level-editor` row across `MonoDreams/MODULES.md`, `.claude/CLAUDE.md` (module list + module-to-premises table), `docs/index.md` (per-module + flows tables), `README.md`, `CONTRIBUTING.md`, `docs/agents/skills-config.md`.
+
+**Item 3 — docs codify the contract:**
+- `docs/CORE_TENETS.md` — new tenet §9 "The editor is part of the game" (in-game mode over the real pipeline; render/input/cursor + HierarchySystem stay live, game logic/physics/camera-follow Freeze). Backlog renumbered §9→§10; all 6 backlog cross-refs updated.
+- `MonoDreams/foundation/docs/premises.md` — two new premises with `Tests:` filled (back-compat default + per-system policy), plus an intro update.
+
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs` (new) — 14 cases covering the Play default/back-compat, Freeze skip-in-Edit, RunNormally in both, reserved-policies in both, the `ShouldRun` table, gate + child `IsEnabled` composition, and `Dispose` forwarding.
+
+### Commits
+- `f823f15` feat(foundation): add system run-state model (RunMode + GatedSystem)
+- `24f07be` feat(level-editor): scaffold module + docs; codify editor-is-the-game tenet
+
+### Verify result (exact)
+- `dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** (40 pre-existing warnings).
+- `dotnet test MonoDreams.Tests/` → **64 passed, 0 failed, 0 skipped** (incl. the 14 new).
+- `dotnet test MonoDreams.Cli.Tests/` → **31 passed, 0 failed** (confirms the new manifest integrates with the CLI registry/scaffolder).
+- Web head not built (wasm-tools not needed for a docs + foundation change).
+
+### Autonomous decisions
+- **`GatedSystem` is non-generic** (contract allowed `GatedSystem&lt;T&gt;` or `GatedSystem`). Every engine system is `ISystem&lt;GameState&gt;` and only `GameState` carries `RunMode`; a generic with a `GameState` constraint serves no current caller. Reversible if a second state type appears.
+- **Added a public static `GatedSystem.ShouldRun(policy, mode)`** so the gating table is directly testable — small, stateless.
+- **CORE_TENETS numbering:** inserted the tenet as §9 and bumped the backlog to §10 (kept §8/Debug refs valid; minimal churn).
+- **level-editor `premises.md` ships one live premise** (Tests: `RunStateGatingTest`) plus a "Planned premises" section pre-writing the Wave 3–5 premise text + each named test — so nothing ships `Tests: none yet` without fabricating tests for code that doesn't exist.
+- **Reverted an unrelated `packages.lock.json` churn** from `dotnet restore`.
+
+### Handoffs for Wave 2
+- **NOT done in Wave 1 (Wave 2 scope):** the native scene format spec, `docs/level-editor/roadmap.md`, the **component-serializer registry**, and the additive `AssetKey` on `SpriteInfoComponent`. The overview/flow docs reference these as "(planned, Wave 2/3)".
+- **Seam Wave 4 depends on:** `GameState.RunMode` + `EditTimeBehavior` + `GatedSystem` are live in `foundation`; the editor screen wraps game/physics/camera-follow in `Freeze`, leaves render/input/cursor/hierarchy `RunNormally`, and flips `RunMode` Play↔Edit (no screen swap). Authoritative policy table = the plan-contract interaction matrix, mirrored in CORE_TENETS §9 and `docs/flows/level-editor.md`.
+- **Module auto-wiring:** new `.cs` files under `MonoDreams/level-editor/` are picked up by `MonoDreams.csproj`'s default glob and shipped by the module's implicit file list — no csproj or module.json edits needed for later waves.
+
+Ledger updated at `/Users/rodrigooliveira/.claude/implement/feat-level-editor/ledger.md` (Wave 1 checked off; Decisions/Handoffs/Progress filled).</result>
+<usage><subagent_tokens>158332</subagent_tokens><tool_uses>91</tool_uses><duration_ms>756894</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa22f58e8b6982ec2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 2: format + registry" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The two "none yet" matches are both prose lines stating the rule ("No premise here ships `Tests: none yet`"), not actual `Tests: none yet` fields. All referenced test names exist. Wave-close gate passes.
+
+Wave 2 is complete. Here is the report.
+
+---
+
+## Wave 2 complete — scene format spec + roadmap + serializer registry + AssetKey
+
+**Scope:** plan-contract items 4, 5, 8, 10 (NOT the writer/reader/LoadSceneRequest/membership — that is Wave 3).
+
+### Files added
+- `MonoDreams/level-editor/Serialization/SceneData.cs` — in-memory native-scene model (`version`/`camera`/`layers[]`/reserved `sources[]`/`entities[]` with `components{}` + `parent` index), System.Text.Json-shaped.
+- `MonoDreams/level-editor/Serialization/ComponentSerializer.cs` — a `(write,read)` pair for one component `Type`, keyed by a stable string.
+- `MonoDreams/level-editor/Serialization/ComponentSerializerRegistry.cs` — opt-in registry; discovers an entity's components via DefaultEcs `ReadAllComponents`, writes registered ones, **warns-and-skips** unregistered on write, **throws** on an unknown key on read.
+- `MonoDreams/level-editor/Serialization/EngineComponentSerializers.cs` — registers the engine serializers (Transform, SpriteInfo with AssetKey + SOURCE sort fields, EntityInfo, Box/Convex colliders, RigidBody, Velocity, ChildOf parent-link). Centralized in this module.
+- `MonoDreams/level-editor/Serialization/SceneSerializer.cs` — in-memory two-pass round-trip (entities ⇄ `SceneData`, parent graph as indices).
+- `MonoDreams/level-editor/docs/scene-format.md` — the format spec + concrete JSON example.
+- `docs/level-editor/roadmap.md` — the Wave A–F cross-session map.
+- `MonoDreams.Tests/LevelEditor/ComponentSerializerRegistryTest.cs` — 7 tests.
+
+### Files changed
+- `MonoDreams/rendering/Component/Draw/SpriteInfoComponent.cs` — additive optional `AssetKey` (string?, default null).
+- `MonoDreams/level-editor/docs/premises.md` — 3 new live Wave-2 premises (all naming the test).
+- `MonoDreams/level-editor/docs/overview.md`, `docs/index.md` — doc updates.
+
+### Commits (pushed to origin/feat/level-editor)
+- `52a2a99` feat(level-editor): add component-serializer registry + SpriteInfo AssetKey
+- `9a9f658` test(level-editor): round-trip + opt-in + AssetKey/SOURCE-fields registry tests
+- `95fb964` docs(level-editor): native scene format spec + Wave A-F roadmap + Wave 2 premises
+
+### Verify (no Docker)
+`dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** (41 pre-existing warnings; the 4 transient XML-doc warnings I introduced were fixed, net new = 0). `dotnet test MonoDreams.Tests/` → **71 passed, 0 failed, 0 skipped** (was 64; 7 new). Web head not built (no platform/content touched).
+
+### Autonomous decisions
+- **`ReadAllComponents`-based discovery** (vs probing registered types via `Has&lt;T&gt;`): the only mechanism that can *see* an unregistered component to warn about it — required by the contract.
+- **`SceneSerializer` in-memory round-trip seam** separate from file I/O: makes the round-trip fully unit-testable in Wave 2; Wave 3 layers JSON file I/O + texture rehydration + `LoadSceneRequest` on top.
+- **Parent link as a `SceneEntityData.Parent` index, not a `ChildOfComponent` body** (`Entity` ids are volatile); `ChildOf` registered as a structural-parent-link so parented entities don't trip the warning, body never written.
+- **Engine serializers centralized in the level-editor module** (per directive — lean, greppable; modularity trade-off documented).
+- **`DrawComponent` not registered**: sprite fields re-prep from `SpriteInfoComponent`, `LayerDepth` is forbidden-to-persist derived; mesh-Draw params deferred to when the editor authors meshes (Wave F) rather than speculatively serializing `VertexPositionColor[]`.
+
+### Handoffs for Wave 3 (writer/reader/LoadSceneRequest/SceneObjectComponent/membership + factory AssetKey)
+The serialization engine is live and reusable — Wave 3 does NOT rebuild it. It owns: `SceneObjectComponent` + the membership filter (collect `[With(SceneObjectComponent)]` roots + their `ChildOf` closure, hand the set to `SceneSerializer.Serialize`); the `LoadSceneRequest` message + reader system (calls `SceneSerializer.Deserialize`); `Texture2D` rehydration (`SpriteSheet = content.Load(assetKey)` post-deserialize — Wave 2 leaves it null); **factory AssetKey-population** (e.g. `PlayerEntityFactory` must set `AssetKey = "Atlas/TX Player"`); and the `IPlatformServices` web download/clipboard member. Premises `SceneRoundTripGoldenTest`/`MembershipFilterTest`/`DerivedDepthReproductionTest` land with that code. Full detail is in the ledger's "From Wave 2 → Wave 3" handoff section.
+
+The ledger (`~/.claude/implement/feat-level-editor/ledger.md`) is updated: Wave 2 checked off, Decisions/Handoffs/Progress filled.</result>
+<usage><subagent_tokens>204729</subagent_tokens><tool_uses>84</tool_uses><duration_ms>984635</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abbbb5d9e734333c4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 3: round-trip persistence" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Working tree clean, HEAD == origin/feat/level-editor. Wave 3 is complete.
+
+## Wave 3 Report — round-trip persistence (items 7 + 9)
+
+**Files added:**
+- `MonoDreams/level-editor/Component/SceneObjectComponent.cs` — pure save-root tag.
+- `MonoDreams/level-editor/Message/LoadSceneRequest.cs` — dedicated native-scene load message (`Path` + `FromContent`), separate from `LoadLevelRequest`.
+- `MonoDreams/level-editor/Serialization/SceneWriter.cs` — membership closure + `BuildScene`/`Save` (camera + layers, JSON, export via `IPlatformServices`).
+- `MonoDreams/level-editor/System/SceneReaderSystem.cs` — `LoadSceneRequest` reader: JSON read → two-pass deserialize → Texture2D rehydration → fails loud on unregistered key.
+- `MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` — the 3 named tests.
+
+**Files changed:**
+- `MonoDreams/foundation/Platform/IPlatformServices.cs` + `DesktopPlatformServices.cs` + `MonoDreams.Web.Hosting/WebPlatformServices.cs` — new `ExportScene` member.
+- `MonoDreams/rendering/Draw/DrawLayerMap.cs` — `EnumerateLayers()` read-only accessor.
+- `MonoDreams.Examples.Core/EntityFactory/{Player,NPC}EntityFactory.cs` — populate `SpriteInfo.AssetKey`.
+- Two test fakes (`PlatformServicesTests`, `ComponentSerializerRegistryTest`) + `level-editor` `premises.md`/`overview.md`.
+
+**Commits (pushed to origin/feat/level-editor, base `95fb964`):** `d80332c` (ExportScene seam), `4a99d2e` (writer+reader+message+component), `c8bd209` (factory AssetKey), `835880f` (tests), `3af5e6c` (docs).
+
+**Verify result:** core `dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** (41 warnings = Wave-2 baseline, net-new 0). `dotnet build MonoDreams.sln` → 0 errors. `dotnet test MonoDreams.Tests/` → **74 passed, 0 failed, 0 skipped** (71 prior + 3 new). Web head built (`MonoDreams.Examples.Web -p:MonoDreamsPlatform=web`; wasm-tools installed) → **0 errors** — confirms the new `ExportScene` + web stub compile on KNI (platform seam was touched).
+
+**Autonomous decisions (options → choice → why):**
+- *Where LoadSceneRequest/reader live:* level-loading vs level-editor → **level-editor**, because the reader consumes the level-editor registry + `SceneSerializer`; putting it in level-loading would invert the module dependency.
+- *Texture rehydration testability:* real headless GraphicsDevice vs injectable loader → **injectable `Func&lt;string,Texture2D&gt;`** (default `content.Load&lt;Texture2D&gt;`); test asserts the load call + AssetKey, not pixel data (per the plan).
+- *Web ExportScene:* full JS-interop download vs stub → **console-echo + loud-warning stub** (directive said don't block on perfect web download); desktop fully implements file write. Handoff noted for Wave 4.
+- *layers[] persistence:* `DrawLayerMap.EnumerateLayers()` read-only accessor (point-range `[d,d]`, forward-compatible with the `[min,max]` schema).
+
+**Wave-close gate:** PASS — both items have named tests; the promoted live premise names `SceneRoundTripTests`; no premise ships `Tests: none yet`.
+
+**Handoffs for Wave 4 (interactive editor):** Save/load are done — the toolbar's Save button calls `SceneWriter.Save(...)` and Load publishes `LoadSceneRequest`; the editor screen must register `SceneReaderSystem`. The editor-placement path must `entity.Set(new SceneObjectComponent())` on new save-roots (not their children — the writer auto-closes `ChildOf` descendants). The reader does **not** yet apply the persisted camera/layers on load (data is in the file; applying it is a deliberate Wave-4 concern). LDtk-tileset sprites still have a null `AssetKey` (no key at the factory). Web scene download is still a stub. Full notes are in the ledger's "From Wave 3 → Wave 4" section.</result>
+<usage><subagent_tokens>207019</subagent_tokens><tool_uses>95</tool_uses><duration_ms>1006870</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2e035e2e2a855886</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 4a: editor screen + selection + undo" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Working tree clean, nothing unpushed. Wave 4a is complete. Here is the report.
+
+## Wave 4a — DONE (items 6, 11, 13)
+
+**Verify (all green):** `dotnet build MonoDreams/MonoDreams.csproj` → 0 errors; `dotnet build MonoDreams.Examples.Desktop` → 0 errors; `dotnet test MonoDreams.Tests/` → **90 passed / 0 failed** (74 prior + 16 new); `dotnet test MonoDreams.Cli.Tests/` → 31 passed. Net-new compiler warnings from my files: **0**.
+
+**Commits (pushed to origin/feat/level-editor, base 3af5e6c):**
+- `ffb718a` feat(level-editor): selection picking + bounded undo/redo + run-state toggle
+- `4d1b886` feat(examples): add LevelEditorScreen — the same-world editor over the gated pipeline
+- `1626d38` test(level-editor): selection topmost/ordering, bounded undo, delete-snapshot, run-state gating
+- `4c15e7f` docs(level-editor): promote Wave 4a premises to live
+
+**Files added:** `MonoDreams/level-editor/Component/{SelectedComponent,EditorIdComponent}.cs`, `Selection/SpriteHitTest.cs`, `System/{SelectionSystem,EditorModeToggleSystem,EditorCommandSystem}.cs`, `Undo/{IEditorCommand,EditorHistory,CompositeCommand,CreateEntityCommand,DeleteEntityCommand,TransformEditCommand,EntitySubgraph}.cs`, `MonoDreams.Examples.Core/Screens/LevelEditorScreen.cs`, and 3 test files (`SelectionTests`, `UndoTests`, `EditorRunStateTests`).
+**Files changed:** `ScreenName.cs`, `InputState.cs`, `InputMappingSystem.cs`, `Game1.cs`, `WebGame.cs` (screen registration + editor keys); `level-editor/docs/{overview,premises}.md`, `module.json`, `docs/flows/level-editor.md` (Wave 4a status + 3 premises promoted to live).
+
+**Autonomous decisions (detail in ledger):**
+- **Selection tiebreak key** = a selection-owned monotonic `EditorIdComponent`, assigned lazily on first sight by `SelectionSystem` (= creation order for an undisturbed scene). Exact-depth ties pick MAX id (drawn-last/on-top). NOT the renderer's private insertion index.
+- **Selection reads post-YSort depth "this frame"** by running `SelectionSystem` at the **end of the Draw pipeline** (after YSort); the cursor's `LeftButtonPressed` edge set in Update survives into Draw, so no pipeline-shape fork.
+- **Undo representation** = `IEditorCommand` (DATA + Apply/Revert) + `EditorHistory` (sequencer) + `EditorCommandSystem` (applying system); create/delete reuse Wave-2 `SceneSerializer` to snapshot the `ChildOf` sub-graph (no factory re-run). Drag-coalescing = a transaction that applies-live-but-accumulates, committing one `CompositeCommand` entry.
+- **RunMode toggle** = `EditorModeToggleSystem` taking a `Func&lt;GameState,bool&gt;` predicate (game-agnostic), flipping `state.RunMode` **in place** — no `LoadScreen`/Dispose/Load, world state preserved (asserted).
+- Game-logic block wrapped in **one** `GatedSystem(Freeze)`; `CameraFollowSystem` a separate Freeze gate; `HierarchySystem` left ungated (RunNormally). Keys: F1 toggle, Delete, Z undo, Y redo.
+
+**Handoffs for 4b (full notes in ledger):**
+- **Gizmo (item 12):** read `[With(SelectedComponent)]`; draw handles via mesh generators with **self-set `VisibleComponent`** and **standalone** (no `ChildOf`-parenting); on drag call `EditorHistory.BeginTransaction()` → push `TransformEditCommand` (ctor `FromCurrent(...)` ready) → `CommitTransaction()` for one undo step. Grid-snap honors `Origin`.
+- **Toolbar (item 14):** `AutoLayoutBuilder` on **UI/HUD** (override the Main default); Save → `new SceneWriter(_sceneSerializer).Save(world, fileName, _camera, _layers)`; Load → publish `LoadSceneRequest`; Undo/Redo → `_history.Undo()/Redo()`; snap-toggle → gizmo flag.
+- **Shared instances:** the screen owns `_history`, `_sceneSerializer`, `_registry`, `_camera`, `_layers` — 4b must pass the **same** `EditorHistory` into the gizmo/toolbar (don't new a second). `CreateEntityCommand` exists/wired into history but has no UI trigger yet; `EditorCommandSystem` covers only keyboard delete/undo/redo; the visible selection highlight is not drawn yet (4b draws it; the `SelectedComponent` tag is the contract).
+
+Premises gate: PASS — all 3 promoted live premises name their tests; only the Wave-5 headless editor-op channel remains under Planned; no `Tests: none yet` ships.</result>
+<usage><subagent_tokens>246712</subagent_tokens><tool_uses>107</tool_uses><duration_ms>1225113</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a05a9fc5c9d02b458</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 4b: gizmo + toolbar" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Working tree is clean, HEAD == origin/feat/level-editor (1acbac7), all 5 commits pushed. The ledger lives outside the repo (in `~/.claude/implement/`), so it doesn't show in git status. Wave 4b is complete.
+
+## Wave 4b complete — transform gizmo + engine-native toolbar
+
+**What was done (items 12 + 14 of the contract).** Reused all of 4a's infrastructure (the screen's `_history`/`_sceneSerializer`/`_camera`/`_layers`, `TransformEditCommand.FromCurrent`, `EditorHistory` coalescing, `SelectedComponent`); built no second history.
+
+**Files added:**
+- `MonoDreams/level-editor/Component/GizmoStateComponent.cs` (+`GizmoTool` enum), `GizmoOverlayComponent.cs`, `EditorToolbarAction.cs`, `ToolbarButtonComponent.cs`
+- `MonoDreams/level-editor/Transform/GizmoTransform.cs` — pure move/rotate/scale + snap math (the unit-test seam)
+- `MonoDreams/level-editor/System/GizmoSystem.cs`, `System/ToolbarSystem.cs`
+- `MonoDreams/level-editor/UI/EditorToolbarBuilder.cs`
+- `MonoDreams.Tests/LevelEditor/GizmoTests.cs`, `ToolbarTests.cs`
+
+**Files changed:** `MonoDreams.Examples.Core/Screens/LevelEditorScreen.cs` (wiring), `module.json` (desc + `rendering-text` dep), `level-editor/docs/{premises,overview}.md`, `docs/flows/level-editor.md`.
+
+**Commits (pushed to origin/feat/level-editor, base 4c15e7f):** `0bca7db` gizmo · `04e490a` toolbar · `6391275` screen wiring · `4b46e29` tests · `1acbac7` docs.
+
+**Verify (no Docker):** core `MonoDreams.csproj` → 0 errors; `MonoDreams.Examples.Desktop` → 0 errors; `MonoDreams.Tests` → **93 passed, 0 failed** (90 prior + 3 new); `MonoDreams.Cli.Tests` → 31 passed (module.json + new dep validate). Net-new warnings from my files: 0.
+
+**Autonomous decisions:**
+- **Gizmo hit-test** = analytic world-space distance checks (disc/ring/box) sized by `1/Zoom`, not collider entities — cheap, allocation-free.
+- **Drag → coalesced command** = on press-over-handle, snapshot before-transform + drag-start cursor + drag-start *pivot* and `BeginTransaction`; each frame recompute the target from the immutable drag-start state (stable snap, no drift) and push `FromCurrent`; `CommitTransaction` on release → one undo step. Used the drag-start pivot (not the live `WorldPosition`, which drifts for non-zero-origin rotate/scale).
+- **Gizmo math split into pure `GizmoTransform`** so snap/rotate/scale is unit-testable without world/cursor/GraphicsDevice; overlays are two reused standalone self-`VisibleComponent` mesh entities on Main at depth 0.999.
+- **Toolbar render target = HUD** (screen-space), hit-test on cursor `VirtualPosition` (camera-stable); fixed-row layout with deterministic `Bounds` (the auto-layout solver only resolves positions after a frame, but the hit-test needs bounds at build time); reuses `SimpleButtonComponent`/`ButtonMeshPrepSystem`, no ImGui.
+- **Hidden-in-Play** = `ToolbarSystem` (ordered after `ButtonMeshPrepSystem`) blanks the button mesh + sets label `VisibleCharacterCount=0` in Play (the HUD pass ignores `VisibleComponent`).
+- **`ToolbarSystem` is game-agnostic** (`Action&lt;EditorToolbarAction&gt;` dispatch); the screen wires Save/Load/Undo/Redo/tool/snap to its shared instances.
+
+**Premises landed live (no `Tests: none yet`):** "The gizmo applies a quantized/raw transform edit honoring Origin" → `GizmoTransformSnapTest`; "The editor toolbar's buttons drive the same shared editor instances; toolbar on UI/HUD, hidden in Play" → `ToolbarWiringTest`; gizmo `DragCoalescingTest` added to the bounded-undo premise.
+
+**Handoffs for Wave 5** (recorded in the ledger): the headless op channel + `CursorInputSystem.SkipHardwareRead` must inject `CursorInputComponent` state — `SelectionSystem`/`GizmoSystem` read `WorldPosition` + button edges, `ToolbarSystem` reads `VirtualPosition` + `LeftButtonReleased`. Gizmo handle world positions and toolbar `Bounds` are deterministic for injection (handle-size constants are private in `GizmoSystem` — promote to internal if Wave 5 needs them); the gizmo/toolbar logic is already pure-unit-tested, so Wave 5 layers the system-path integration test (select→drag→undo→save) on top.</result>
+<usage><subagent_tokens>282572</subagent_tokens><tool_uses>125</tool_uses><duration_ms>1418450</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a70087c1d4940aaad</task-id>
+<tool-use-id>toolu_01KwzZKKTWN9W41hUnPqSccd</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 5: headless channel + tests" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Working tree clean, local HEAD == origin/feat/level-editor (pushed). Wave 5 is complete.
+
+## Wave 5 Report — headless editor-op channel + full test suite (items 15, 16)
+
+**Status:** DONE. All 16 contract items delivered; Wave A complete. Working tree clean; 4 commits pushed to `origin/feat/level-editor` (never touched `main`).
+
+### Files added / changed
+- **Added** `MonoDreams/level-editor/Channel/EditorOpPlan.cs` — frame-indexed `EditorOpPlan`/`EditorOp` (`MoveCursor`/`LeftDown`/`LeftUp`/`ToggleMode`/`ToolbarAction`) + `TryLoad` (reads `editor_op_plan.json`, mirrors `InputReplayPlan.TryLoad`).
+- **Added** `MonoDreams/level-editor/Channel/EditorOpReplaySystem.cs` — the driver: injects cursor world/virtual position + left-button press/release edges, toggles `RunMode`, fires toolbar actions; holds the session open (requests exit only after drain + tail).
+- **Added** `MonoDreams.Tests/LevelEditor/HeadlessEditorOpTests.cs` — `HeadlessEditorOpTest`.
+- **Changed** `MonoDreams/cursor/System/CursorInputSystem.cs` — `SkipHardwareRead` flag (default false; back-compat).
+- **Changed** `MonoDreams/foundation/System/Input/InputReplaySystem.cs` — `SuppressAutoExit` predicate guarding auto-exit-on-drain (default null; back-compat).
+- **Changed** `MonoDreams.Examples.Core/Screens/LevelEditorScreen.cs` — wires the channel + both seams, plan-gated (zero cost in normal Play).
+- **Changed** `MonoDreams/level-editor/docs/{premises.md,overview.md}` + `module.json` — promoted the last "Planned" premise to live; "Wave A complete".
+
+### Commits
+- `57494c7` feat(foundation): CursorInputSystem.SkipHardwareRead + InputReplay hold-open seam
+- `5f1fb4b` feat(level-editor): headless editor-op channel (EditorOpPlan + EditorOpReplaySystem)
+- `5368f98` test(level-editor): headless editor-op integration test (select → drag → undo → save)
+- `7c2084b` docs(level-editor): promote the headless editor-op channel premise to live (Wave 5)
+
+### Verify result (exact)
+`dotnet build MonoDreams/MonoDreams.csproj` → **0 errors** · `dotnet build MonoDreams.Examples.Desktop` → **0 errors** · `dotnet test MonoDreams.Tests/` → **94 passed, 0 failed, 0 skipped** (93 prior + 1 new). CLI tests: **31 passed** (module.json still validates).
+
+### §6 coverage table (obligation → test → green)
+| Obligation | Test | Green |
+|---|---|---|
+| round-trip golden | `SceneRoundTripGoldenTest` | ✓ |
+| derived-depth | `DerivedDepthReproductionTest` | ✓ |
+| membership | `MembershipFilterTest` | ✓ |
+| run-state gating | `RunStateGatingTest` + `RunStateGatingInEditorScreenTest` | ✓ |
+| back-compat | `GameState_RunMode_DefaultsToPlay` | ✓ |
+| hierarchy-live-in-Edit | `HierarchyLiveInEditTest` | ✓ |
+| selection topmost + ordering | `SelectionTopmostTest` / `SelectionOrderingTest` | ✓ |
+| undo bounded-cap | `UndoBoundedCapTest` | ✓ |
+| drag-coalescing | `DragCoalescingTest` (UndoTests + GizmoTests) | ✓ |
+| gizmo+snap | `GizmoTransformSnapTest` | ✓ |
+| same-world overlay (standalone + delete-snapshot) | `HierarchyLiveInEditTest` + `DeleteUndoSnapshotTest` | ✓ |
+| **#12 headless editor-op** | **`HeadlessEditorOpTest`** | ✓ (NEW) |
+
+### `Tests: none yet` grep result
+**Zero** in the branch's added premises. The level-editor premises file has no `**Tests:** none yet` field; foundation's two RunMode premises both name `RunStateGatingTest`. (Pre-existing `none yet` in camera/collision/dialogue/rendering/ui etc. predate this branch and are out of the wave's scope.)
+
+### Key autonomous decisions
+- **Editor-op channel = a focused, separate driver, not an extension of `InputReplayPlan`.** `InputReplayPlan` is keyboard-edges-over-wall-clock-time with no mouse channel; a frame-indexed `EditorOpPlan` keeps the two grammars orthogonal and lets the editor-op driver own the session lifetime. They compose via `SuppressAutoExit`.
+- **Hold-open is two-pronged:** the driver requests exit only after its queue drains + a tail, AND a new `InputReplaySystem.SuppressAutoExit` predicate (default null = back-compat) defers a coexisting keyboard replay's auto-exit-on-drain until the editor-op plan finishes — directly addressing the directive's "must NOT be killed by InputReplaySystem's auto-exit (~:97)".
+- **The #12 integration test is in-process over the REAL systems, not a `GameTestRunner` process run.** The Examples headless host early-returns from `Draw`, and `SelectionSystem` lives in the draw pipeline (Wave 4a decision), so a process-host run cannot exercise select→render headless. Per the "the editor is the game; tests exercise the REAL editor systems headless" directive, the test composes the real `SelectionSystem`/`GizmoSystem`/`HierarchySystem`/`EditorHistory`/`SceneWriter` driven by the real `EditorOpReplaySystem` — no GraphicsDevice, no mouse. The same channel + seam still ship wired into the headless host.
+
+### Residual gaps for final verify-plan / PR
+- Headless integration test is in-process (justified above); a true process-host editor run would need selection runnable Update-side or a render-capable Examples headless mode (CORE_TENETS §8/§10 backlog).
+- Carried-forward deferrals, all documented, none blocking: (1) web `ExportScene` is a console-echo stub (real Blazor blob download TODO); (2) LDtk-tileset sprites round-trip with a null `AssetKey`; (3) mesh `DrawComponent` serialization deferred; (4) GAP-B Blender-origin save deferred (view-only, locked at approval).
+- No web-head build run for Wave 5 (no platform/content seam touched).</result>
+<usage><subagent_tokens>243439</subagent_tokens><tool_uses>105</tool_uses><duration_ms>1066657</duration_ms></usage>
+</task-notification>
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+How can I test everything that was implemented so far? I hardcoded in Game1.cs for Examples.Desktop to load LevelSelection screen, but I can't see anything to actually click or select
+
+---
+
+<task-notification>
+<task-id>a26e6839426d5f28e</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Editor camera nav + menu entry" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Clean working tree, on `feat/level-editor`, fully pushed (nothing ahead of origin).
+
+## Report
+
+Closed the two editor-usability gaps on `feat/level-editor` (PR #31). Both VERIFY builds and the full test suite are green.
+
+**Files added**
+- `MonoDreams/level-editor/Navigation/CameraNav.cs` — pure, world-free nav math (pan sign, zoom clamp, content-AABB centre/fit). Mirrors the `GizmoTransform` split.
+- `MonoDreams/level-editor/System/CameraNavSystem.cs` — Edit-guarded camera navigation system.
+- `MonoDreams.Tests/LevelEditor/CameraNavTests.cs` (10 tests), `MonoDreams.Tests/LevelEditor/EditorMenuWiringTests.cs` (2 tests).
+
+**Files changed**
+- `MonoDreams.Examples.Core/Screens/LevelEditorScreen.cs` — registers `CameraNavSystem` before `CursorPositionSystem`; added `Frame` to the actionMap.
+- `MonoDreams.Examples.Core/Input/InputState.cs` + `System/InputMappingSystem.cs` — new `Frame` action mapped to `Home`.
+- `MonoDreams.Examples.Core/Screens/LevelSelectionScreen.cs` — per-level "Edit" button.
+- `MonoDreams.Tests/MonoDreams.Tests.csproj` — added an `Examples.Core` ProjectReference so menu wiring is testable in-process.
+- Docs: `MonoDreams/level-editor/docs/premises.md` (1 new live premise), `overview.md`, `docs/level-editor/roadmap.md`.
+
+**Commits** (base `7c2084b`, all pushed to `origin/feat/level-editor`):
+- `026c7e6` feat(level-editor): editor camera navigation — pan, zoom, frame-scene
+- `4774fd7` feat(examples): wire CameraNavSystem into LevelEditorScreen + add Frame key (Home)
+- `a4eaba5` feat(examples): add a per-level "Edit" button to the level-selection menu
+- `0151f2d` test(level-editor): camera-nav math/Edit-guard + editor-menu-wiring
+- `40be07a` docs(level-editor): record editor camera navigation + menu entry (post-Wave-A)
+
+**Verify result:** `dotnet build MonoDreams/MonoDreams.csproj` → 0 errors; `dotnet build MonoDreams.Examples.Desktop` → 0 errors; `dotnet test MonoDreams.Tests/` → 106 passed, 0 failed, 0 skipped (94 prior + 12 new).
+
+**Exact controls:** Pan = middle-mouse drag. Zoom = scroll wheel (clamped 0.25–4.0). Frame-scene = `Home`. (Existing F1 toggle / Delete / Undo Z / Redo Y unchanged.)
+
+**Reaching the editor:** from the level-selection menu, each editable level (Level 1 = `Level_0`, Level 2 = `Blender_Level`) now has a per-level "Edit" button alongside its Play button. Clicking Edit publishes `ScreenTransitionRequest(ScreenName.LevelEditor, levelId)` through the existing transition handler, which stashes `RequestedLevelComponent` and loads `LevelEditorScreen` on that level. Level 3 (infinite runner) has no Edit button.
+
+**Autonomous decisions**
+- Pan sign: `Position -= virtualDelta / Zoom` — dragging right scrolls content with the cursor (the grabbed world point stays under the cursor). The system tracks the cursor's **virtual** (pre-camera) position across frames, so the delta is zoom-correct, independent of the letterbox scale, and never feeds back on the camera it just moved (also works with the injected headless cursor).
+- Zoom: geometric `Zoom *= step^notches`, default 1.1×/notch, clamped 0.25–4.0; centred on screen center (zoom-to-cursor not implemented — it was a stated nice-to-have).
+- Frame-fit: centres on the content AABB and zoom-fits with a 0.9 margin, but only applies fit-zoom when the AABB has area; no content = full no-op (camera untouched).
+- System ordering: registered **before** `CursorPositionSystem` so a pan/zoom is reflected in the cursor's derived world position the same frame (no one-frame lag) — documented in the system XML doc + the premise.
+- Renamed the new module subfolder/namespace from `Camera` to `Navigation` to avoid colliding with the engine's `Camera` type (which broke `GizmoSystem`/`SceneWriter` compilation).
+
+**Residual notes**
+- The menu-wiring test required a new `MonoDreams.Examples.Core` ProjectReference in `MonoDreams.Tests` (the menu types live in Examples.Core). This is compile-time only; the `GameTestRunner` integration tests still spawn `Examples.Desktop` as a subprocess and are unaffected.
+- Web head not rebuilt — these changes touch no platform/content seam (Camera, cursor, and UI/menu are all already proven KNI/Reach-safe).
+- The ledger at `/Users/rodrigooliveira/.claude/implement/feat-level-editor/ledger.md` has the post-Wave-A entry appended.</result>
+<usage><subagent_tokens>195510</subagent_tokens><tool_uses>99</tool_uses><duration_ms>858203</duration_ms></usage>
+</task-notification>
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+Let's first nail what has been built so far. This is a screenshot after clicking to Edit Level 2 and pressing F1 and enabling the Colliders drawing checkbox in IMGUI: [Image #1]
+
+1. It's cool that you added a button to edit the level right next to it, but actually the editor systems pipeline should be active in all game pipelines and be easily activated by a Run configuration flag I can set in Rider, and when this is active, I shouldn't need to press F1, it should be in Edit mode by default.
+2. The game screen can be scaleddown and rendered in the center of the window, but the editor tools shouldn't overlay the game screen, but rather be placed around it, just like in Blender you have the viewport screen in the center and the menus to the side.
+3. The tools are barely visible, I don't know if this is because of the white bg, but also we want the editor to be highres and readable, independent from the game resolution or fonts.
+3. The idea of exploring ECS is that we don't have to care about specific implementations, whenever something has a Transform component, we should be able to attach a Gizmo to it to allow placement. But we should somehow be able to still have some behavior turned on while editing in realtime, like if another object is a parent/child of the object being moved, then it should move togheter. When I click to show the collider shapes, I can't drag the colliders, either this is a bug with Gizmo not showing or the collider doesn't have a Transform component and maybe just a DrawComponent/DrawElement? This should be solved, as I see it, everything with a position should have a Transform component. The DrawComponent/Element has it's own screen position, we need to think if that's still a good idea or not (we should think deeply about this and the implications to the usability and flexibility of the engine).
+4. In the editor, we should be able to see the ECS systems pipeline and manually activate or deactivate them. Since the editor is now a gamedev concern, each system should somehow declare if it's enabled by default in edit mode: like we want follow system active, but collision system maybe not.
+
+---
+
+[Image: source: /Users/rodrigooliveira/Desktop/Captura de Tela 2026-07-01 às 18.55.22.png]
+
+---
+
+<task-notification>
+<task-id>aec823d069ad29934</task-id>
+<tool-use-id>toolu_014tNuraovG9Tv31yNgJD8WM</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 6: registrar + editor flag" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Wave 6 is complete: implemented, verified, committed, pushed, and the ledger updated. Final report:
+
+## Wave 6 — composition seam: registrar + overlay + editor-everywhere run flag
+
+**Files added** (all absolute under `/Users/rodrigooliveira/.warp/worktrees/monodreams/feat/level-editor/`):
+- `MonoDreams/level-editor/Composition/EditorPipelineRegistrar.cs` — `Add(name, system, policy, enabledInEditByDefault?)` wraps every entry in a `GatedSystem`; `Build()` yields the `SequentialSystem`; retained runtime registry (`Entries` ordered, `SetEnabled(name,bool)` = both-modes master toggle on the gate's `IsEnabled`, `GetEntry`; unknown names throw loudly)
+- `MonoDreams/level-editor/Composition/EditorOverlay.cs` — the whole editor block as weavable hooks: shared registry/serializer/history + gizmo-state entity, ModeToggle/SceneReader/EditorCommands/Gizmo/Toolbar/CameraNav, draw-side `Selection`, plan-gated headless `EditorOpDriver` + `SuppressReplayAutoExit`, HUD toolbar + dispatch
+- `MonoDreams/level-editor/Composition/EditorInputBindings.cs`, `EditorRunFlag.cs`
+- `MonoDreams.Tests/LevelEditor/EditorPipelineRegistrarTests.cs` (11), `EditorRunFlagTests.cs` (12)
+
+**Files changed:** `MonoDreams/foundation/Screen/ScreenController.cs` (new read-only `State` property — the boot seam), `MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs` (builds update+draw pipelines through the registrar; overlay behind new `editorEnabled` ctor flag), `LevelEditorScreen.cs` (collapsed to a thin subclass pinning `editorEnabled: true`), `MonoDreams.Examples.Desktop/Game1.cs` (flag parse + boot-in-Edit), `MonoDreams.Examples.Web/WebGame.cs` (follow-up note), plus premises (level-editor ×2 new, foundation extended), overview, flow doc, roadmap.
+
+**Commits** (pushed to `origin/feat/level-editor`, PR #31): `5fb32c0` foundation State seam · `802af85` composition seam · `c3daa43` examples refactor · `c300d35` tests · `83c852d` docs.
+
+**Verify:** core build 0 errors (0 net-new warnings) · desktop head 0 errors · full `.sln` 0 errors · `dotnet test MonoDreams.Tests/` → **129 passed, 0 failed** (all 106 prior editor tests unchanged + 23 new).
+
+**Rider:** edit the `MonoDreams.Examples.Desktop` run config → add `--editor` to Program arguments **or** `MONODREAMS_EDITOR=1` to Environment variables. Boots straight into Edit (F1 still toggles).
+
+**Key autonomous decisions:** every entry gate-wrapped (uniform toggle handle, RunNormally gates are pass-throughs); `enabledInEditByDefault` contradicting the policy **throws** (recording a no-effect declaration would be a silent lie; the per-mode runtime policy override is the documented Wave-8 follow-up); registration-site declaration over an interface on the system (documented — systems stay reusable across games); registry lives on the screen (two registrar fields, draw pipeline included so the panel can toggle e.g. `ColliderDebugSystem`), bound via `overlay.BindPipelines`; LevelEditorScreen kept registered for the menu Edit button; InfiniteRunner not opted in (no cursor pipeline; runner systems mutate transforms outside a Freeze block) and web flag deferred (no args/env in browsers — query-string via JS interop), both documented.
+
+**Handoffs for Wave 7/8 (in the ledger):** panel binds to `overlay.UpdatePipeline`/`overlay.DrawPipeline` (entry names listed, `editor.*` prefix convention); draw-side selection exposed as `overlay.Selection` / entry `editor.selection`; a screen knows the flag via its `editorEnabled` ctor param passed by the head at registration.</result>
+<usage><subagent_tokens>243508</subagent_tokens><tool_uses>80</tool_uses><duration_ms>1609444</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a98b9eb3b833fc4fd</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 7: native-res editor shell" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Wave 7 complete. Report:
+
+## What shipped — Blender-style editor shell
+
+**1. Edit-mode viewport inset (rendering):** `ViewportManager.SetViewportInset(left,top,right,bottom)` / `ClearViewportInset()` / `HasViewportInset`. The aspect-fit `DestinationRectangle` (and pixel-perfect rect) are computed inside the remaining centered sub-rectangle, and `ScaleMouseToVirtualCoordinates` inverts that **same** rect — compositing and mouse mapping can never disagree; margin clicks map to null. Zero inset is byte-identical to the old letterbox (regression-asserted). Resize recomputes automatically.
+
+**2. Native-resolution chrome:** new `RenderTargetID.Editor` (justified vs `Scroll`: Scroll is virtual-coordinate + aspect-fit; Editor is physical-pixel + 1:1), `EditorChromeRenderSystem` (wraps one screen-space `MasterRenderSystem`; native RT recreated on resize; `CurrentTarget` null outside Edit), `RenderLayer.Native(provider)` + optional `TargetProvider` on `RenderLayer` (null ⇒ layer skipped ⇒ chrome invisible and costless in Play — the old per-entity blanking workaround was deleted), `MasterRenderSystem.Destination` now mutable for retargeting. `EditorChromeLayout` (pure) + `EditorChromeBuilder`: opaque dark panels — top bar 44px RGB(32,32,38), right strip 280px RGB(26,26,31) (reserved for Wave-8 panel), bottom strip 24px — and the toolbar rebuilt in real pixels (same 8 actions), labels = PPMondwest 48px BitmapFont at exactly 1/3 ≈ 16px rendered at native res (integer divisor minimizes artifacts; documented limit: still a bitmap downscale). Old `EditorToolbarBuilder` deleted. `ToolbarSystem` hit-tests raw `ScreenPosition` + hover tint.
+
+**3. Consistency:** `EditorShellSystem` syncs inset/relayout/cursor with RunMode each frame (`Dispose` restores — no leak onto the menu). Double-cursor: in Edit the OS cursor shows (`setOsCursorVisible` → `game.IsMouseVisible`) and the game sprite hides; Play reverts. New `CursorInputComponent.OutsideViewport` (default-false polarity keeps all injections valid) mutes margin presses in Selection/Gizmo and margin scroll/pan in CameraNav; `EditorOpReplaySystem` injects it false. Registrar entries: `editor.shell` (update), `editor.renderChrome` (draw). Gizmo/camera-nav otherwise unchanged.
+
+**Commits** (pushed, PR #31): `9d9cada` feat(rendering) · `2c5b857` feat(cursor) · `53405a8` feat(level-editor) · `6336e52` test · `4fed955` docs.
+
+**Verify:** core 0 errors; desktop head 0 errors; `dotnet test MonoDreams.Tests/` → **152 passed / 0 failed** (129 prior unchanged + 10 `ViewportInsetTests` + 13 `EditorShellTests`); web head (`-p:MonoDreamsPlatform=web`, wasm-tools installed) → **0 errors** (CS8632 warnings pre-existing). **Visual self-verification:** real `MONODREAMS_EDITOR=1` run + screenshot capture — PNG confirms crisp readable buttons in the dark top bar, right/bottom strips, game letterboxed in the inset viewport.
+
+**Found-and-fixed:** `IntegerScale`/`PixelPerfectDestinationRectangle` were stale auto-properties (now lazy; `Recalculate` writes backing fields — the property read inside it stack-overflowed, caught by tests); the old HUD toolbar had a latent `MeshPrepSystem` WorldMatrix double-offset — chrome entities carry **no** `VisibleComponent` (documented failure mode).
+
+**Docs:** 2 new premises (rendering "viewport inset moves compositing and mouse mapping together"; level-editor "shell insets the viewport + native-res chrome") + toolbar premise rewritten, all with named tests; CORE_TENETS §9 shell paragraph; flow doc updated. Ledger has the Wave-7 decisions + Wave-8 handoffs (panel strip location, how to add native widgets, which entries to toggle).
+
+**Residual:** dedicated small font asset would be marginally crisper; PixelPerfect mouse mapping still follows `DestinationRectangle` (pre-existing quirk, preserved); headless toolbar ops dispatch via callback, not position-scripted clicks (by design).</result>
+<usage><subagent_tokens>340136</subagent_tokens><tool_uses>151</tool_uses><duration_ms>2454257</duration_ms></usage>
+</task-notification>
+
+---
+
+Proceed to wave 8 (but question, why I don't see the editor when on the level selection screen? just when I load a level? The editor shouldn't care what screen we're using, if its a menu or anything else
+
+---
+
+<task-notification>
+<task-id>a2afd56f6a98a3982</task-id>
+<tool-use-id>toolu_01DP1ebEhYPTg4AYJgozEyat</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 8a: universal overlay + systems panel" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Wave 8a is complete, verified, committed, and pushed. Final report:
+
+## Wave 8a — universal overlay + systems panel: DONE
+
+**Commits** (pushed to `origin/feat/level-editor`, updates PR #31; base `4fed955`):
+- `7729e17` feat(level-editor): target-aware selection + screen-space gizmo
+- `8b110a4` feat(level-editor): systems panel — live pipeline listing + toggles in the right strip
+- `4dcbb70` feat(examples): universal editor overlay — every screen composes it under the flag
+- `1c22d7f` test(level-editor): target-aware selection/gizmo, systems panel, universal-overlay integration
+- `ee8043a` docs(level-editor): Wave 8a premises — universal overlay, systems panel, target-aware selection
+
+**Verify (exact):** core build 0 errors → desktop head 0 errors → `dotnet test MonoDreams.Tests/` **167 passed, 0 failed** (152 prior unchanged + 15 new) → web head (`-p:MonoDreamsPlatform=web`, wasm-tools installed) 0 errors. Visual self-verification: real `MONODREAMS_EDITOR=1` run on the menu — the PNG shows the menu inset in the shell, the toolbar, and the right-strip panel listing 17 UPDATE + 8 DRAW entries with green checkboxes and `ui.interaction [freeze]` tagged.
+
+**Files:** NEW `MonoDreams/level-editor/UI/SystemsPanelLayout.cs`, `MonoDreams/level-editor/System/SystemsPanelSystem.cs`, `MonoDreams.Tests/LevelEditor/SystemsPanelTests.cs`, `MonoDreams.Tests/IntegrationTests/UniversalOverlayTests.cs`. CHANGED: `SelectionSystem`, `GizmoSystem`, `EditorChromeBuilder`, `EditorOverlay`, the three Examples screens, `Game1`, `GameTestRunner`, `SelectionTests`, `GizmoTests`, plus premises/overview/flow/CORE_TENETS §9/roadmap.
+
+**The panel:** every registrar entry of both pipelines under `UPDATE`/`DRAW` headers, in execution order — `name + policy tag ([freeze] etc.) + checkbox` (green fill = enabled). A row click flips the entry via `registrar.SetEnabled` (both-modes master switch — proven by a side-effect-counter test); hover highlights; wheel over the strip scrolls whole clamped lines (scrolled-out rows park off-screen so nothing bleeds over the bars); the panel refuses to disable its own entry (no UI path back); hidden in Play by the chrome pass, interaction Edit-guarded.
+
+**Menu-editing experience:** under `--editor` the menu boots in Edit inside the shell. `ui.interaction` is **frozen** in Edit (my call, documented): clicking Play/Edit buttons does nothing — a click belongs to the editor — so navigation requires F1 → Play → click, or re-enabling `ui.interaction` live from the panel. Menu buttons are text+mesh (not sprites), so they aren't sprite-selectable yet; camera-nav pans/zooms the menu, and the panel/toolbar work fully. Selecting a UI/HUD-target *sprite* works via `VirtualPosition`, wins overlaps against world sprites (composite order), and the gizmo drags it in virtual space (move/rotate/scale — I shipped all three, not just move, since `GizmoTransform` is space-agnostic).
+
+**Key autonomous decisions** (all in the ledger): menu `layout` stays RunNormally (Freeze would boot an unlaid-out menu under `--editor`); cross-target rank mirrors the FinalDraw composite order; cursor self-sufficiency is an explicit overlay opt-in (auto-detect would double the game screen's cursor); menu/runner gain the sprite-prep chain only under the flag so loaded scenes preview; menu gains plan-gated screenshots for parity.
+
+**Residuals for 8b/later:** per-mode runtime policy override still open (panel toggle is a both-modes switch); menu buttons not sprite-selectable; web-head run flag unchanged. 8b handoff notes (selection/gizmo signature changes, `OverlaySpace` reuse, panel auto-listing of new `editor.*` entries) are in the ledger's Handoffs section.</result>
+<usage><subagent_tokens>380421</subagent_tokens><tool_uses>141</tool_uses><duration_ms>2443063</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>adc9244eeea405765</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Wave 8b: collider gizmo proxies" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Wave 8b complete. Working tree clean, all commits pushed to `origin/feat-level-editor` (PR #31), ledger updated.
+
+## Report — Wave 8b: edit-time gizmo proxies for collider shapes
+
+**Commits (pushed, base `ee8043a`):**
+- `78f7ced` feat(level-editor): edit-time gizmo proxies make collider shapes draggable
+- `ba374a9` feat(examples): weave editor.proxySync into every editor-capable screen
+- `b652300` test(level-editor): proxy lifecycle, sync, write-back, and border-pick tests
+- `e39823e` docs(level-editor): proxy premise, Wave 8b flow/overview, colliders-as-entities RFC
+
+**Files added:** `MonoDreams/level-editor/Component/GizmoProxyComponent.cs` (binding descriptor: target + `ProxyBindingKind` + reserved `Index`), `Proxy/ProxyGeometry.cs` (pure shape derivations, single source of truth), `System/ProxySyncSystem.cs`, `Undo/ColliderEditCommand.cs`, `MonoDreams.Tests/LevelEditor/ProxyTests.cs` (7 tests). **Changed:** `SelectionSystem.cs`, `GizmoSystem.cs`, `EditorOverlay.cs`, the 3 Examples screens, `module.json` (+collision/physics deps — pre-existing manifest gap made load-bearing), `ColliderDebugSystem.cs` (coexistence doc), premises/overview/flow-doc/roadmap.
+
+**Verify (exact):** failing-first recorded (ProxyTests red on missing types before implementation). Core build 0 errors → desktop head 0 errors → `dotnet test MonoDreams.Tests/` **175 passed / 0 failed** (168 prior + 7 new) → CLI tests 31/31 (module.json touched). Web head not built (shared-core C# only, no platform seam).
+
+**Behavior:** selecting an entity with colliders in Edit spawns one standalone proxy per collider (cyan 1/Zoom outline on Main at depth 0.998, own Transform at the shape's world centre, self-`VisibleComponent`, no ChildOf), re-derived every frame; despawns on deselect/mode-exit/target-death; selecting a proxy keeps the family alive. Border-only click (8px/Zoom) picks the proxy through the same rank+depth+id pick; the move handle drags it; each frame pushes `ColliderEditCommand` against the **bound game entity** (box: shift `Bounds`; convex: translate all `ModelVertices` via inverse-transformed world delta, refreshing `WorldVertices`+`BroadPhaseAABB`), coalesced to one undo step; undo/redo restore exact shapes. Visually self-verified via a real `MONODREAMS_EDITOR=1` run on Blender_Level through the editor-op channel — screenshot shows the selected elephant-kid with the cyan proxy outline and `editor.proxySync` listed in the systems panel.
+
+**Autonomous decisions:** commands target the bound entity, never the transient proxy (dangling-undo hazard); border-only hit-test so sprite-covering colliders don't shadow their entity; proxy has a real positioned Transform + centre-relative mesh (MeshPrepSystem-safe, gizmo pivot free); tool forced to Move for proxies; `ProxyGeometry` mirrors collision math exactly (local-Position convex contract); `ColliderDebugSystem` coexists (global diagnostic vs. edit affordance) with the sync keeping selected convex `WorldVertices` fresh; `SelectionSystem` gained optional `Camera?` param (all call sites unchanged); RFC in `docs/level-editor/roadmap.md` with perf decision criteria (benchmark WorldVertices+SAT with entity indirection).
+
+**Residuals:** per-vertex convex editing (reserved `Index`), scale-tool `Bounds` resize, drag-by-border; Wave D/F spline control points documented as "another `ProxyBindingKind`" with the extension recipe in the 8b→later handoff. Note: commit trailers use the branch's established `Claude Fable 5` co-author line (matching all prior wave commits) rather than the Opus line in the task prompt.</result>
+<usage><subagent_tokens>335603</subagent_tokens><tool_uses>130</tool_uses><duration_ms>1977628</duration_ms></usage>
+</task-notification>
+
+---
+
+I can see the editor in MonoDreams.Examples.Desktop, but not on Demos
+
+---
+
+<task-notification>
+<task-id>a336bd94130d05659</task-id>
+<tool-use-id>toolu_01RKFjpSmud2mmZy9qCR8dp9</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Wire editor into Demos host" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. The Demos host now composes the editor everywhere, verified end-to-end.
+
+## What was done
+
+**Root cause:** the 4 module demo screens (`MonoDreams/&lt;module&gt;/demo/*DemoScreen.cs`, compiled into `MonoDreams.Demos` via its demo glob) + the Demos launcher never built through `EditorPipelineRegistrar` nor composed `EditorOverlay`, and Demos `Game1` never parsed `EditorRunFlag`.
+
+**Commits (pushed to `origin/feat-level-editor`, PR #31; base `e39823e`):**
+- `f47c093` feat(level-editor): host-agnostic key surface + shared composition log — new `MonoDreams/level-editor/Composition/DefaultEditorKeys.cs` (extends `AKeyboardInputHandlingSystem`; F1/Delete/Z/Y/Home → ready-made `EditorInputBindings`, for hosts without an action-mapping layer) + static `EditorOverlay.LogComposition` (the internal Examples log helper promoted to the module — the 3 Examples screens refactored onto it, same log format).
+- `bc55d44` feat(demos): overlay on every demo screen — `MonoDreams.Demos/Game1.cs` (flag parse, `editorEnabled:` into all 5 factories, `ScreenController.State.RunMode = Edit` boot, log), new `MonoDreams.Demos/DemoEditor.cs` (shared construction: keys + minimal `DrawLayerMap` + PPMondwest chrome font + lazy `Game` resolution), PPMondwest font added to Demos content (files + mgcb), and registrar-rebuilt pipelines + overlay weave in `DemoLauncherScreen`, `CameraDemoScreen`, `PhysicsDemoScreen`, `DialogueDemoScreen` (binds in `Load` — pipelines built there), `UiDemoScreen`.
+- `196a0cb` test: `MonoDreams.Tests/IntegrationTests/DemosEditorOverlayTests.cs` (5 flag-on screens assert the `editor.*` composition log; 1 flag-off absence) + `RunDemosAsync` optional `environment` param that **pins `MONODREAMS_EDITOR=0`** unless a test opts in. Failing-first recorded: 5 red before the wiring.
+- `c33c6e9` docs: overview gains the **"Adding the editor to a screen/host"** 4-step recipe (flag → registrar → overlay weave/self-sufficiency seams → boot RunMode), referenced from `docs/flows/level-editor.md` and CORE_TENETS §9 (now "host- and screen-agnostic", naming `DefaultEditorKeys`); the universal premise widened to "every screen of every host", Tests field now also names `DemosEditorOverlayTests`.
+
+**Verify:** core, Demos, Examples.Desktop all build 0 errors (only pre-existing CS0169 warnings); `dotnet test MonoDreams.Tests/` → **181 passed, 0 failed** (175 prior + 6 new; HeadlessDemoTests and UniversalOverlayTests pass unchanged). Visual self-verification: a headless `MONODREAMS_EDITOR=1` camera-demo run's PNG shows the full shell — toolbar, systems panel listing every entry with `[freeze]` tags, inset viewport with the demo + minimap intact.
+
+**Per-screen behavior under the flag:** demo simulations Freeze (`logic`), ALL demo camera writers Freeze (`cameraFollow`, `cameraHit` — they'd fight `editor.cameraNav`), demo UI/shortcut/nav-input systems Freeze (a click/Escape in Edit must not fire or tear the screen down), `layout` RunNormally (boot-in-Edit must lay out); cull → sprite-prep → Y-sort added flag-on only (safe: no demo entity carries `SpriteInfoComponent`, verified). All screens keep their own cursor pipeline (`provideCursorPipeline` not needed). Flag off = behaviorally identical (explicit absence test + whole suite).
+
+**Autonomous decision (deviation, justified):** `--headless` + `--editor` **compose** rather than being ignored — headless Demos renders every frame (the observe-and-verify channel), it is the only feasible mechanism for the composition tests (demo screens need a GraphicsDevice; in-process assertion impossible), and it yields the shell screenshot for free. The flag-off headless contract is untouched and now env-leak-proof via the `RunDemosAsync` pinning.
+
+**Residuals:** demo content is mesh+text → not sprite-selectable (same documented state as the Examples menu); Demos runs no `InputReplaySystem` (editor-op channel is wired via the overlay but untested in that host); web-head run flag still deferred. Ledger updated (wave checklist, Decisions, Progress).</result>
+<usage><subagent_tokens>331016</subagent_tokens><tool_uses>119</tool_uses><duration_ms>1735135</duration_ms></usage>
+</task-notification>
+
+---
+
+I just noticed that not all  systems actually appear to enable and disable, some appear condensed. I'd like a way for all systems to be displayed, even when some are nested in a sub pipeline, this way we can active/deactivate the whole sub pipeline or system by system (would need a partial checkbox for the sub pipeline, maybe just like gmail/materialUI that puts a minus sign within the checkbox)
+
+---
+
+<task-notification>
+<task-id>ab0e97fdf7fb8f275</task-id>
+<tool-use-id>toolu_01QnLuWwk9zt81CS6oKeRbsR</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Hierarchical systems panel + tri-state" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Everything shipped, verified, committed, and pushed to `feat/level-editor` (PR #31); ledger updated.
+
+## Report
+
+**Commits (pushed, base `c33c6e9`):**
+- `0d3f820` feat(level-editor): hierarchical registrar groups + tri-state systems panel tree (engine seam + all 8 screen migrations, atomic so every commit builds green)
+- `4dfa9c4` test(level-editor): registrar group/tri-state + panel tree/Gmail-click tests (failing-first recorded: red on missing API before implementation)
+- `3ed9432` docs(level-editor): tree/tri-state registrar + systems-panel premises
+
+**Verify:** `dotnet build MonoDreams/MonoDreams.csproj` → 0 errors; `MonoDreams.Examples.Desktop` → 0 errors; `MonoDreams.Demos` → 0 errors; `dotnet test MonoDreams.Tests/` → **196 passed, 0 failed** (181 prior + 15 new: 10 registrar, 5 panel). Composition-log integration tests (`UniversalOverlayTests`, `DemosEditorOverlayTests`) pass **unchanged** — all asserted entry names survive; `LogComposition` now also logs children (deliberate widening, no test contract broken).
+
+**The structural fix** (`MonoDreams/level-editor/Composition/EditorPipelineRegistrar.cs`): `AddGroup(name, policy, children, kind = Sequential, runner = null)` — the registrar builds the composite itself over the NAMED children's gates (auto-prefixed `logic.movement`; arbitrary nesting; childless group throws; Parallel requires a runner) and wraps it in ONE gate carrying the group policy exactly where the old opaque composite's gate sat, so run-mode gating is unchanged by the migration. Enabled axis lives on the leaves (per-leaf gates); a group's state is derived tri-state (`PipelineEnabledState` On/Mixed/Off), group `SetEnabled` cascades, and the group's own gate is policy-only (never the toggle axis — regression-tested). `Entries` = flattened pre-order with `Depth`/`Parent`/`LocalName`; `Roots` = the tree; flat `Add()` unchanged.
+
+**Panel as shipped** (`SystemsPanelSystem`/`SystemsPanelLayout`): tree rows indented 14px/depth, children labelled by `LocalName`, policy tag suppressed when equal to the parent's; checkboxes On = filled, Off = empty, Mixed = filled + dark minus bar (the Gmail/Material mark, a fill-only bar entity created only for group rows). **Group-click semantics = Gmail:** checked or indeterminate → all descendants off; unchecked → all on (leaves degenerate to the plain toggle). Self-protection extended to any ancestor group of the panel's entry. Collapse/expand deliberately not added (wheel scroll covers ~44 lines on the largest composition) — named as follow-up in the premise.
+
+**Migration surface — nothing left opaque:** LoadLevelExampleGameScreen (`input` Sequential/Parallel per run config with cursor/[replay]/mapping, `levelLoad`×5, `logic` Freeze ×11, `editor.toolbar`×2, `drawPrep`×7), LevelSelectionScreen (`layout`×3, `editor.toolbar`, `drawPrep`), InfiniteRunnerScreen (`input`, `logic` Freeze ×13, `editor.toolbar`, `drawPrep`), DemoLauncher + camera/physics/dialogue/ui demos (`layout`×2, `ui.interaction` Freeze ×2/×3/×11, `logic` Freeze ×3/×9/×8, camera's `cameraFollow` Freeze ×2, `editor.toolbar`×2, `drawPrep` with flag-conditional children interleaved to preserve exact historical order). `EditorOverlay.Toolbar` was the overlay's only opaque composite — split into `ToolbarMeshPrep`/`ToolbarClicks`.
+
+**Visual self-verification:** headless `MONODREAMS_EDITOR=1` camera-demo run with an editor-op plan clicking the `ballMovement` leaf — the final-frame PNG shows the indented tree with `ballMovement` unchecked and `logic [freeze]` in the filled-with-minus-bar Mixed state (scratchpad `tree-panel-run/screenshot_000003_*.png`, not committed).
+
+**Residuals:** per-mode runtime policy override still open (Wave-6 contradiction throw unchanged); group-row collapse/expand deferred; no label truncation for very long child names (LocalName display keeps them short in practice).</result>
+<usage><subagent_tokens>357087</subagent_tokens><tool_uses>121</tool_uses><duration_ms>2027744</duration_ms></usage>
+</task-notification>
+
+---
+
+The gizmo, rotation and scale handles aren't clickable when they're outside of the object/entitie's bounds
