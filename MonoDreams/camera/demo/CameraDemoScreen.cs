@@ -881,7 +881,6 @@ public class CameraDemoScreen : IGameScreen
         if (_editor != null)
         {
             p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
-            p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
         p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>

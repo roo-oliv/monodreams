@@ -204,9 +204,8 @@ public class DemoLauncherScreen : IGameScreen
         if (_editor != null)
         {
             // The Demos host runs no keyboard-action mapping of its own; the editor brings its
-            // default key surface (F1 toggle, Delete, Z/Y, Home) — composed only under the flag.
+            // default key surface (Delete, Z/Y, Home) — composed only under the flag.
             p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
-            p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
@@ -218,7 +217,8 @@ public class DemoLauncherScreen : IGameScreen
             g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
         });
         // Menu button interaction FREEZES in Edit: a click there belongs to the editor, never to
-        // a screen transition (which would tear this screen down mid-editing). F1 re-arms it.
+        // a screen transition (which would tear this screen down mid-editing). The toolbar's
+        // Play transport button re-arms it.
         p.Add("ui.interaction", new DemoButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
         if (_editor != null)
         {

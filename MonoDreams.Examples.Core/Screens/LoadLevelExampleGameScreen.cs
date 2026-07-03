@@ -58,12 +58,11 @@ namespace MonoDreams.Examples.Screens;
 /// <c>RunNormally</c>/<c>Freeze</c> gate is a pass-through in Play — the screen behaves exactly
 /// as it did before the editor existed.
 ///
-/// <para>The editor flag arrives two ways: the menu's per-level "Edit" button loads
-/// <see cref="LevelEditorScreen"/> (this screen with the overlay always on), and the
-/// <c>--editor</c> / <c>MONODREAMS_EDITOR=1</c> run configuration (see
-/// <see cref="EditorRunFlag"/>) makes the host register even <c>ScreenName.Game</c> with the
-/// overlay and boot <see cref="GameState.RunMode"/> in <see cref="RunMode.Edit"/> (no F1 needed;
-/// F1 still toggles).</para>
+/// <para>The editor arrives ONE way: the <c>--editor</c> / <c>MONODREAMS_EDITOR=1</c> run
+/// configuration (see <see cref="EditorRunFlag"/>) makes the host register every screen with the
+/// overlay and boot the transport Paused (<see cref="RunMode.Edit"/>). The editor is then always
+/// visible; the toolbar's Play/Pause + Restart buttons (<see cref="EditorTransport"/>) drive the
+/// game — Restart re-publishes the level recorded in <c>Load</c> and discards unsaved edits.</para>
 ///
 /// <para>The retained registrars (<see cref="EditorPipelineRegistrar"/>) are bound onto the
 /// overlay (<c>BindPipelines</c>) — the seam the editor's systems panel will enumerate and
@@ -158,12 +157,24 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (requestedLevel != null)
         {
             // Load the requested level
-            _world.Publish(new LoadLevelRequest(requestedLevel.LevelIdentifier));
+            var levelId = requestedLevel.LevelIdentifier;
+            _world.Publish(new LoadLevelRequest(levelId));
+
+            if (_editor != null)
+                // The transport's Restart re-publishes this exact load request (the screen records
+                // what it loaded); the transport clears CurrentLevelComponent + disposes the scene
+                // entities first, so the parsers re-parse from scratch. Unsaved edits are discarded.
+                _editor.Transport.Reload = () => _world.Publish(new LoadLevelRequest(levelId));
 
             // Remove the service so it doesn't interfere with future screen loads
             screenController.Game.Services.RemoveService(typeof(RequestedLevelComponent));
         }
 
+        if (_editor != null)
+            // Screen infrastructure the restart sweep must keep: DialogueSystem creates its UI
+            // sub-graph once at construction and holds it by reference — its root carries
+            // DialogueStateComponent, and keeps propagate to ChildOf descendants.
+            _editor.Transport.KeepAlive = e => e.Has<MonoDreams.Dialogue.DialogueStateComponent>();
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()
@@ -186,7 +197,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             // Editor replay-action names, mapped only when the overlay is composed so a plain
             // Play screen's replay surface is unchanged.
-            actionMap["Editor"] = InputState.Editor;
             actionMap["Delete"] = InputState.Delete;
             actionMap["Undo"] = InputState.Undo;
             actionMap["Redo"] = InputState.Redo;
@@ -205,7 +215,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 _world, _camera, _layers, _content, promptFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
                 new EditorInputBindings(
-                    toggleEditRequested: _ => InputState.Editor.JustPressed(),
                     deleteRequested: _ => InputState.Delete.JustPressed(),
                     undoRequested: _ => InputState.Undo.JustPressed(),
                     redoRequested: _ => InputState.Redo.JustPressed(),
@@ -373,9 +382,6 @@ public class LoadLevelExampleGameScreen : IGameScreen
             if (replaySystem != null) g.Add("replay", replaySystem);
             g.Add("mapping", inputMappingSystem);
         }, inputKind, _parallelRunner);
-        if (_editor != null)
-            // Flips RunMode in place (works in both modes) — right after input reads the key edge.
-            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
         p.AddGroup("levelLoad", EditTimeBehavior.RunNormally, g =>
         {
             g.Add("requests", new LevelLoadRequestSystem(_world, _content));

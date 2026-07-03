@@ -39,8 +39,9 @@ public class Game1 : Game
     {
         _headless = args?.Contains("--headless") ?? false;
         // The editor run configuration: `--editor` launch arg or MONODREAMS_EDITOR=1 env var
-        // (both settable in a Rider run configuration). When active, game screens compose the
-        // editor overlay and the game boots straight into Edit mode (no F1 needed).
+        // (both settable in a Rider run configuration) — THE way into the editor. When active,
+        // every screen composes the editor overlay, the shell is always visible, and the
+        // transport boots Paused (the toolbar's Play/Pause + Restart buttons drive the game).
         _editor = EditorRunFlag.IsEnabled(args, Environment.GetEnvironmentVariable);
 
         // Load settings first
@@ -145,16 +146,16 @@ public class Game1 : Game
         // Under the editor run flag EVERY screen composes the editor overlay (Wave 8a: the editor
         // is screen-agnostic — the menu and the runner are scenes like any level). The runner has
         // no cursor pipeline of its own, so its overlay brings one (provideCursorPipeline inside
-        // the screen); LevelEditorScreen pins the flag on for the menu's per-level Edit button.
+        // the screen). The run flag is the ONLY way into the editor (transport model).
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
         _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
-        _screenController.RegisterScreen(ScreenName.LevelEditor, () => new LevelEditorScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
 
         if (_editor)
         {
-            // Boot straight into Edit (F1 still toggles). GameState still CONSTRUCTS as Play —
-            // this is an explicit host-level opt-in mutation, so unflagged runs are untouched.
+            // Boot the transport Paused (RunMode.Edit); the toolbar's Play/Pause + Restart
+            // buttons drive it from here. GameState still CONSTRUCTS as Play — this is an
+            // explicit host-level opt-in mutation, so unflagged runs are untouched.
             _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
             Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): game screens compose the editor overlay; booting in Edit mode.");
         }

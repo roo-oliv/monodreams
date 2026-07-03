@@ -1341,7 +1341,6 @@ public class UiDemoScreen : IGameScreen
         if (_editor != null)
         {
             p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
-            p.Add("editor.modeToggle", _editor.Overlay.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
         }
         p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
@@ -1351,7 +1350,8 @@ public class UiDemoScreen : IGameScreen
         });
         // The whole widget interaction block freezes in Edit: a click/keystroke belongs to the
         // editor (selection / gizmo / chrome), never to focus nav, text input, tabs, or the
-        // overlay widgets. F1 (Play) or the systems panel re-arms it. One Freeze gate on the group.
+        // overlay widgets. The toolbar's Play transport button or the systems panel re-arms it.
+        // One Freeze gate on the group.
         p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
         {
             g.Add("buttons", new DemoButtonInteractionSystem(_world)); // the HUD header's back/exit chrome

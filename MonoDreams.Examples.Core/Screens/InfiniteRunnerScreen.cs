@@ -131,6 +131,17 @@ public class InfiniteRunnerScreen : IGameScreen
         CreateSpawnPoint();
         CreateScoreHUD(content);
         Logger.Info("InfiniteRunner screen loaded.");
+
+        if (_editor != null)
+            // The transport's Restart re-runs exactly this load (the sweep disposed the runner
+            // entities — treadmill, player, spawn point, HUD, and everything the spawner added).
+            _editor.Transport.Reload = () =>
+            {
+                CreateTreadmill();
+                CreatePlayer();
+                CreateSpawnPoint();
+                CreateScoreHUD(content);
+            };
     }
 
     private void CreateTreadmill()
@@ -291,7 +302,6 @@ public class InfiniteRunnerScreen : IGameScreen
         {
             // Editor replay-action names, mapped only when the overlay is composed so a plain
             // Play screen's replay surface is unchanged.
-            actionMap["Editor"] = InputState.Editor;
             actionMap["Delete"] = InputState.Delete;
             actionMap["Undo"] = InputState.Undo;
             actionMap["Redo"] = InputState.Redo;
@@ -309,7 +319,6 @@ public class InfiniteRunnerScreen : IGameScreen
                 _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
                 new EditorInputBindings(
-                    toggleEditRequested: _ => InputState.Editor.JustPressed(),
                     deleteRequested: _ => InputState.Delete.JustPressed(),
                     undoRequested: _ => InputState.Undo.JustPressed(),
                     redoRequested: _ => InputState.Redo.JustPressed(),
@@ -354,7 +363,6 @@ public class InfiniteRunnerScreen : IGameScreen
             // The overlay-provided cursor pipeline (the runner has none): raw mouse state now,
             // world/virtual projection later (after camera-nav).
             p.Add("editor.cursorInput", _editor.CursorInput, EditTimeBehavior.RunNormally);
-            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
         }
         // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,

@@ -42,9 +42,10 @@ namespace MonoDreams.Examples.Screens;
 /// identical to the pre-editor screen (RunMode never leaves Play; the gates are pass-throughs).
 ///
 /// <para><b>Menu-specific edit policies:</b> <c>ui.interaction</c> (the button click →
-/// screen-transition system) is <c>Freeze</c> — in Edit a click belongs to the editor (selection /
-/// gizmo / chrome), so menu buttons must not fire mid-editing; flip to Play (F1) to use the menu,
-/// or re-enable the entry live from the systems panel. <c>layout</c> stays <c>RunNormally</c>:
+/// screen-transition system) is <c>Freeze</c> — while the transport is Paused a click belongs to
+/// the editor (selection / gizmo / chrome), so menu buttons must not fire mid-editing; press the
+/// toolbar's Play transport button to use the menu, or re-enable the entry live from the systems
+/// panel. <c>layout</c> stays <c>RunNormally</c>:
 /// the auto-layout solver is the menu's content placement (the analogue of the game screen's level
 /// parsers, which also run in Edit) — freezing it would boot an unlaid-out menu under
 /// <c>--editor</c>. Consequence: layout-managed transforms are owned by the solver and are not
@@ -134,6 +135,11 @@ public class LevelSelectionScreen : IGameScreen
 
         // Create level selection UI
         CreateLevelSelectionUI();
+
+        if (_editor != null)
+            // The transport's Restart rebuilds the menu from scratch: the sweep disposed the UI
+            // entities (the cursor survives), so re-running the builder IS the original load.
+            _editor.Transport.Reload = CreateLevelSelectionUI;
     }
 
     [Subscribe]
@@ -159,15 +165,12 @@ public class LevelSelectionScreen : IGameScreen
         // Create button style
         var buttonStyle = ButtonStyle.WithColors(darkBrown, terracotta, mutedBrown);
 
-        // Create entities first. Each editable level is a row of [Play | Edit]: Play loads the level
-        // into the game screen; Edit boots the in-game LevelEditorScreen on the SAME level (reusing the
-        // existing ScreenTransitionRequest → RequestedLevelComponent path). Level 3 is the infinite
-        // runner, not a level file, so it has no Edit affordance.
+        // Create entities first. Play buttons only — the editor is entered exclusively through the
+        // --editor / MONODREAMS_EDITOR=1 run configuration (the transport model), never via a menu
+        // button. Level 3 is the infinite runner, not a level file.
         var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, _layers.GetDepth(DrawLayer.Title));
         var play1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
-        var edit1 = CreateButtonEntity("Edit", _font, 0, "Level_0", true, buttonStyle, ScreenName.LevelEditor);
         var play2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
-        var edit2 = CreateButtonEntity("Edit", _font, 1, "Blender_Level", true, buttonStyle, ScreenName.LevelEditor);
         var play3 = CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner);
 
         // Create UI using auto layout with slots
@@ -187,20 +190,8 @@ public class LevelSelectionScreen : IGameScreen
                 .Direction(LayoutDirection.Vertical)
                 .Gap(50)
                 .AlignCross(CrossAxisAlignment.Center)
-                .AddContainer(row => row
-                    .Name("Level1Row")
-                    .Direction(LayoutDirection.Horizontal)
-                    .Gap(20)
-                    .AlignCross(CrossAxisAlignment.Center)
-                    .AddSlot(slot => slot.Attach(play1.container).MeasureWith(_ => play1.size))
-                    .AddSlot(slot => slot.Attach(edit1.container).MeasureWith(_ => edit1.size)))
-                .AddContainer(row => row
-                    .Name("Level2Row")
-                    .Direction(LayoutDirection.Horizontal)
-                    .Gap(20)
-                    .AlignCross(CrossAxisAlignment.Center)
-                    .AddSlot(slot => slot.Attach(play2.container).MeasureWith(_ => play2.size))
-                    .AddSlot(slot => slot.Attach(edit2.container).MeasureWith(_ => edit2.size)))
+                .AddSlot(slot => slot.Attach(play1.container).MeasureWith(_ => play1.size))
+                .AddSlot(slot => slot.Attach(play2.container).MeasureWith(_ => play2.size))
                 .AddSlot(slot => slot.Attach(play3.container).MeasureWith(_ => play3.size))
             )
             .Build();
@@ -314,7 +305,6 @@ public class LevelSelectionScreen : IGameScreen
                 _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
                 new EditorInputBindings(
-                    toggleEditRequested: _ => InputState.Editor.JustPressed(),
                     deleteRequested: _ => InputState.Delete.JustPressed(),
                     undoRequested: _ => InputState.Undo.JustPressed(),
                     redoRequested: _ => InputState.Redo.JustPressed(),
@@ -340,9 +330,8 @@ public class LevelSelectionScreen : IGameScreen
         if (_editor != null)
         {
             // The menu runs no keyboard mapping of its own; the editor needs its key surface
-            // (F1 toggle, Delete, Z/Y, Home) — composed only under the flag.
+            // (Delete, Z/Y, Home) — composed only under the flag.
             p.Add("editor.keys", new InputMappingSystem(_world), EditTimeBehavior.RunNormally);
-            p.Add("editor.modeToggle", _editor.ModeToggle, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
         }
@@ -357,8 +346,9 @@ public class LevelSelectionScreen : IGameScreen
             // Debug visualization (toggle with LayoutDebugSystem.Enabled).
             g.Add("debug", new LayoutDebugSystem(_world, _font, _camera));
         });
-        // Menu button interaction FREEZES in Edit: a click there belongs to the editor (selection
-        // / gizmo / chrome), never to a screen transition. F1 (Play) or the systems panel re-arms it.
+        // Menu button interaction FREEZES while Paused (Edit): a click there belongs to the editor
+        // (selection / gizmo / chrome), never to a screen transition. The toolbar's Play transport
+        // button or the systems panel re-arms it.
         p.Add("ui.interaction", new ButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
         // The button meshes keep rebuilding in Edit — the menu must keep rendering while edited.
         p.Add("ui.buttonMeshPrep", new ButtonMeshPrepSystem(_world), EditTimeBehavior.RunNormally);

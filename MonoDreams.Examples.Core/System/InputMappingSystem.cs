@@ -22,8 +22,7 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
         (InputState.Orb, Keys.RightShift),
         (InputState.Exit, Keys.Escape),
         (InputState.Interact, Keys.E),
-        // Editor controls (the LevelEditorScreen reads these; harmless on the play screens).
-        (InputState.Editor, Keys.F1),     // toggle Play↔Edit
+        // Editor controls (read by the editor overlay under the run flag; harmless in plain Play).
         (InputState.Delete, Keys.Delete),
         (InputState.Undo, Keys.Z),
         (InputState.Redo, Keys.Y),

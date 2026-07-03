@@ -37,7 +37,7 @@ public class Game1 : Game
         _headless = HeadlessOptions.Parse(args);
         // The editor run configuration: `--editor` launch arg or MONODREAMS_EDITOR=1 env var.
         // When active, every demo screen composes the editor overlay and the host boots straight
-        // into Edit mode (no F1 needed). Honoured under --headless too: headless Demos renders
+        // the transport Paused (RunMode.Edit). Honoured under --headless too: headless Demos renders
         // every frame (the observe-and-self-verify channel), so an editor-flagged headless run
         // captures the shell in its PNGs — the editor's own self-verification path. The flag-off
         // headless contract (HeadlessDemoTests) is untouched.
@@ -136,7 +136,7 @@ public class Game1 : Game
 
         if (_editor)
         {
-            // Boot straight into Edit (F1 still toggles). GameState still CONSTRUCTS as Play —
+            // Boot the transport Paused (RunMode.Edit). GameState still CONSTRUCTS as Play —
             // this is an explicit host-level opt-in mutation, so unflagged runs are untouched.
             _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
             Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): demo screens compose the editor overlay; booting in Edit mode.");
