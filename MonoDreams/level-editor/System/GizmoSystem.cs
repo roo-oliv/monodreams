@@ -439,6 +439,7 @@ public sealed class GizmoSystem : ISystem<GameState>
     private Entity CreateOverlayEntity()
     {
         var e = _world.CreateEntity();
+        e.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         e.Set(new GizmoOverlayComponent());
         e.Set(new TransformComponent()); // identity — vertices are baked in world space
         e.Set(new DrawComponent
@@ -589,6 +590,7 @@ public sealed class GizmoSystem : ISystem<GameState>
             return e;
         // No state entity registered — create one with defaults so the gizmo still works standalone.
         var created = _world.CreateEntity();
+        created.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         created.Set(GizmoStateComponent.Default);
         return created;
     }

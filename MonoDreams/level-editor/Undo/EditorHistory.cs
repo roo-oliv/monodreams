@@ -132,6 +132,19 @@ public sealed class EditorHistory
         _undo.AddLast(command);
     }
 
+    /// <summary>
+    /// Drops every retained entry (undo + redo) and any open transaction WITHOUT applying or
+    /// reverting anything. For the transport's Restart: the recorded commands reference entities
+    /// the restart is about to dispose, so replaying them in either direction would dangle —
+    /// the history simply forgets them (the discarded-unsaved-edits contract).
+    /// </summary>
+    public void Clear()
+    {
+        _transaction = null;
+        _undo.Clear();
+        _redo.Clear();
+    }
+
     private void AddEntry(IEditorCommand command)
     {
         _undo.AddLast(command);

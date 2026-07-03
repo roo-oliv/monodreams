@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
@@ -43,9 +44,9 @@ namespace MonoDreams.LevelEditor.System;
 /// by the pure <see cref="SystemsPanelLayout"/> inside <see cref="EditorChromeLayout.RightPanel"/>
 /// and hit-tested against the cursor's raw <see cref="CursorInputComponent.ScreenPosition"/> —
 /// never <c>VirtualPosition</c>, which is frozen over the chrome margins. Per the chrome rule the
-/// row entities carry <b>no</b> <c>VisibleComponent</c>. Visibility in Play is owned by the chrome
-/// render pass (it contributes nothing outside Edit); this system's own Edit guard makes the
-/// interaction inert there.</para>
+/// row entities carry <b>no</b> <c>VisibleComponent</c>. Under the transport model the panel is
+/// live in BOTH transport states — watching and toggling the pipeline while the game is Playing
+/// is exactly what it is for.</para>
 ///
 /// <para><b>Scroll.</b> When the list overflows the strip, the mouse wheel over the panel scrolls
 /// it by whole lines (<see cref="SystemsPanelLayout.LinesPerNotch"/> per notch); scrolled-out rows
@@ -55,7 +56,7 @@ namespace MonoDreams.LevelEditor.System;
 ///
 /// <para><b>Binding.</b> The registrars are bound onto the overlay only after the screen finishes
 /// building its pipelines (<c>EditorOverlay.BindPipelines</c>), so this system takes a lazy
-/// provider and builds its rows on the first Edit frame where both registrars are present.
+/// provider and builds its rows on the first frame where both registrars are present.
 /// Entries are fixed after <c>Build()</c> (the registrar refuses later additions), so the rows are
 /// built once. The row entities are owned by this system (private visuals, like the gizmo's
 /// overlay entities — no other system reads them, so they carry no dedicated component).</para>
@@ -117,9 +118,8 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
-        // Edit-guarded: the chrome pass already hides the visuals in Play; this keeps the
-        // interaction (toggles, scroll) inert there too.
-        if (state.RunMode != RunMode.Edit) return;
+        // Transport model: the panel stays interactive in BOTH transport states — inspecting and
+        // toggling the live pipeline while the game is Playing is the point of the panel.
 
         if (!_built && !TryBuild()) return;
 
@@ -194,6 +194,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     private Entity CreateLabel(string label)
     {
         var text = _world.CreateEntity();
+        text.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         text.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
         text.Set(new DynamicTextComponent
         {
@@ -213,6 +214,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     private Entity CreateCheckbox()
     {
         var box = _world.CreateEntity();
+        box.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         box.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
         box.Set(new SimpleButtonComponent
         {
@@ -233,6 +235,7 @@ public sealed class SystemsPanelSystem : ISystem<GameState>
     private Entity CreateMinusBar()
     {
         var bar = _world.CreateEntity();
+        bar.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         bar.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
         bar.Set(new SimpleButtonComponent
         {

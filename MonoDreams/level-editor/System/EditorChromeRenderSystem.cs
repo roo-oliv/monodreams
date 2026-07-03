@@ -18,12 +18,14 @@ namespace MonoDreams.LevelEditor.System;
 /// game layers — chrome pixels are screen pixels, never rescaled, so panels and labels stay crisp
 /// regardless of the game's virtual resolution.
 ///
-/// <para><b>Hidden in Play.</b> Outside <see cref="RunMode.Edit"/> (or when disabled) the pass
-/// does not run and <see cref="CurrentTarget"/> is null, which makes <c>FinalDrawSystem</c> skip
-/// the layer entirely — the chrome contributes nothing and costs nothing, with no per-entity
-/// blanking. This system does not create a parallel renderer: the actual drawing is the one
-/// game-agnostic <see cref="MasterRenderSystem"/>; this wrapper only owns the native target's
-/// resize lifecycle and the Edit gate.</para>
+/// <para><b>Always on while the editor is composed (transport model).</b> The shell never
+/// collapses — the chrome renders in BOTH transport states (Paused and Playing), since the
+/// transport buttons and the systems panel stay interactive while the game runs in the inset
+/// viewport. Only disabling the system (e.g. from the systems panel) blanks the chrome: then the
+/// pass does not run and <see cref="CurrentTarget"/> is null, which makes <c>FinalDrawSystem</c>
+/// skip the layer entirely — no per-entity blanking. This system does not create a parallel
+/// renderer: the actual drawing is the one game-agnostic <see cref="MasterRenderSystem"/>; this
+/// wrapper only owns the native target's resize lifecycle.</para>
 /// </summary>
 public sealed class EditorChromeRenderSystem : ISystem<GameState>
 {
@@ -49,15 +51,15 @@ public sealed class EditorChromeRenderSystem : ISystem<GameState>
     }
 
     /// <summary>
-    /// The chrome target to composite this frame, or null when the chrome is hidden (Play mode /
-    /// disabled) so the final-draw layer is skipped. Read via a provider (<c>RenderLayer.Native</c>)
-    /// because the target is recreated on resize.
+    /// The chrome target to composite this frame, or null when the chrome is hidden (the system
+    /// was disabled) so the final-draw layer is skipped. Read via a provider
+    /// (<c>RenderLayer.Native</c>) because the target is recreated on resize.
     /// </summary>
     public RenderTarget2D? CurrentTarget => _visible ? _target : null;
 
     public void Update(GameState state)
     {
-        if (!IsEnabled || state.RunMode != RunMode.Edit)
+        if (!IsEnabled)
         {
             _visible = false;
             return;

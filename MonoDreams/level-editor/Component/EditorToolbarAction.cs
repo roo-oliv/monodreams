@@ -12,6 +12,15 @@ namespace MonoDreams.LevelEditor.Component;
 /// </summary>
 public enum EditorToolbarAction
 {
+    /// <summary>The transport's Play/Pause toggle (one button — its label reflects the state):
+    /// Playing = <c>RunMode.Play</c> with the shell still composed, Paused = <c>RunMode.Edit</c>.
+    /// Dispatches in BOTH modes (it is how you leave either state).</summary>
+    PlayPause,
+
+    /// <summary>The transport's Restart: rebuild the scene from the original load request and land
+    /// Paused; unsaved edits are discarded. Dispatches in BOTH modes.</summary>
+    Restart,
+
     /// <summary>Select the move tool (sets <see cref="GizmoStateComponent.Tool"/> to <see cref="GizmoTool.Move"/>).</summary>
     ToolMove,
 
@@ -35,4 +44,13 @@ public enum EditorToolbarAction
 
     /// <summary>Toggle grid-snap (flips <see cref="GizmoStateComponent.SnapEnabled"/>).</summary>
     ToggleSnap,
+}
+
+/// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>
+public static class EditorToolbarActionExtensions
+{
+    /// <summary>Whether the action is a transport control (Play/Pause / Restart) — dispatched in
+    /// BOTH modes, unlike the editing actions which are Paused (Edit) only.</summary>
+    public static bool IsTransport(this EditorToolbarAction action) =>
+        action is EditorToolbarAction.PlayPause or EditorToolbarAction.Restart;
 }

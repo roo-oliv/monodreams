@@ -7,6 +7,7 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component.Cursor;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.Channel;
@@ -15,10 +16,12 @@ namespace MonoDreams.LevelEditor.Channel;
 /// The headless editor-op channel driver (Wave 5, contract item 15). It consumes an
 /// <see cref="EditorOpPlan"/> and, with <b>no real mouse</b>, drives the real editor systems:
 /// it injects cursor world/virtual position + the left-button press/release edges onto the cursor
-/// entity (which <c>CursorInputSystem.SkipHardwareRead</c> leaves untouched), toggles
-/// <see cref="GameState.RunMode"/>, and fires toolbar actions through a dispatch callback the screen
-/// supplies. A scripted press over a gizmo handle, a few drag moves, then a release reproduces exactly
-/// the gizmo drag → one undo step the unit tests prove in isolation.
+/// entity (which <c>CursorInputSystem.SkipHardwareRead</c> leaves untouched), drives the transport
+/// (<see cref="EditorOpKind.Play"/> / <see cref="EditorOpKind.Pause"/> /
+/// <see cref="EditorOpKind.Restart"/> through the bound <see cref="EditorTransport"/>), and fires
+/// toolbar actions through a dispatch callback the screen supplies. A scripted press over a gizmo
+/// handle, a few drag moves, then a release reproduces exactly the gizmo drag → one undo step the
+/// unit tests prove in isolation.
 ///
 /// <para><b>Holds the session open.</b> The driver runs first in the update pipeline and computes the
 /// left-button edges (<c>LeftButtonPressed</c>/<c>LeftButtonReleased</c>) from the previous injected
@@ -38,8 +41,9 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
     private readonly EntitySet _cursorSet;
     private readonly List<EditorOp> _ops;
     private readonly int _tailFrames;
-    private readonly Action<EditorToolbarAction>? _dispatch;
+    private readonly Action<EditorToolbarAction, GameState>? _dispatch;
     private readonly Action? _requestExit;
+    private readonly EditorTransport? _transport;
 
     private int _frame;
     private int _cursor; // index into the (frame-sorted) ops list
@@ -59,13 +63,15 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
     public EditorOpReplaySystem(
         World world,
         EditorOpPlan plan,
-        Action<EditorToolbarAction>? dispatch = null,
-        Action? requestExit = null)
+        Action<EditorToolbarAction, GameState>? dispatch = null,
+        Action? requestExit = null,
+        EditorTransport? transport = null)
     {
         _ops = (plan?.Ops ?? new List<EditorOp>()).OrderBy(o => o.Frame).ToList();
         _tailFrames = Math.Max(0, plan?.TailFrames ?? 1);
         _dispatch = dispatch;
         _requestExit = requestExit;
+        _transport = transport;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
@@ -116,13 +122,21 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
                 _injectedVirtual = new Vector2(op.X, op.Y);
                 _leftDown = false;
                 break;
-            case EditorOpKind.ToggleMode:
-                state.RunMode = state.RunMode == RunMode.Edit ? RunMode.Play : RunMode.Edit;
-                Logger.Info($"[level-editor] Editor-op toggled run mode to {state.RunMode}.");
+            case EditorOpKind.Play:
+                if (_transport != null) _transport.Play(state);
+                else { state.RunMode = RunMode.Play; Logger.Info("[level-editor] Editor-op: Playing (no transport bound)."); }
+                break;
+            case EditorOpKind.Pause:
+                if (_transport != null) _transport.Pause(state);
+                else { state.RunMode = RunMode.Edit; Logger.Info("[level-editor] Editor-op: Paused (no transport bound)."); }
+                break;
+            case EditorOpKind.Restart:
+                if (_transport != null) _transport.Restart(state);
+                else Logger.Warning("[level-editor] Editor-op: Restart requires a bound EditorTransport — op skipped.");
                 break;
             case EditorOpKind.ToolbarAction:
                 if (op.Action != null && Enum.TryParse<EditorToolbarAction>(op.Action, ignoreCase: true, out var action))
-                    _dispatch?.Invoke(action);
+                    _dispatch?.Invoke(action, state);
                 else
                     Logger.Warning($"[level-editor] Editor-op: unknown toolbar action '{op.Action}'.");
                 break;

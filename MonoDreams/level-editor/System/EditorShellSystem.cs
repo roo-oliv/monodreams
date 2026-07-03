@@ -11,36 +11,34 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
-/// Keeps the Blender-style editor shell in sync with the run mode (Wave 7). Each frame it makes
-/// three things track <see cref="GameState.RunMode"/>:
+/// Keeps the Blender-style editor shell applied while the editor is composed (Wave 7; transport
+/// model since the F1-toggle retirement): under the editor run configuration the shell is
+/// <b>constant</b> — it does not collapse when the transport is Playing, because the editor is
+/// always visible and the game simply runs inside the inset viewport. Each frame it maintains:
 ///
 /// <list type="number">
-///   <item><b>The viewport inset.</b> In Edit it applies
-///   <see cref="EditorChromeLayout.ViewportInset"/> to the <see cref="ViewportManager"/>
-///   (<c>SetViewportInset</c>), shrinking the aspect-fit game viewport into the center of the
-///   window with the chrome margins reserved around it; in Play it clears the inset — the
-///   full-window letterbox, byte-identical to a screen without the editor. Because the
-///   ViewportManager is the single source of truth, BOTH the FinalDraw compositing AND
+///   <item><b>The viewport inset.</b> It applies <see cref="EditorChromeLayout.ViewportInset"/> to
+///   the <see cref="ViewportManager"/> (<c>SetViewportInset</c>), shrinking the aspect-fit game
+///   viewport into the center of the window with the chrome margins reserved around it. Because
+///   the ViewportManager is the single source of truth, BOTH the FinalDraw compositing AND
 ///   <c>ScaleMouseToVirtualCoordinates</c> follow the same rectangle: clicks in the inset game
 ///   viewport keep mapping to correct world positions with no extra math; clicks in the margins
 ///   map outside (null) and are consumed by the chrome in screen space.</item>
 ///   <item><b>Chrome layout.</b> The native-resolution chrome (panels + toolbar) lays out in
 ///   physical pixels, so the system relayouts it whenever the window size differs from the last
-///   laid-out size while editing (covers live window resize).</item>
-///   <item><b>The cursor.</b> In Edit the OS cursor interacts with the chrome (screen space), so
-///   the host-supplied setter shows it and the in-game HUD cursor sprite is hidden (its
-///   controller's <c>IsVisible</c> plus clearing the stale draw texture) — exactly one visible
-///   pointer, the high-res OS one, which also drives the game-viewport picking since the world
-///   mapping derives from the same <c>ScreenPosition</c>. In Play both revert (game cursor
-///   sprite, OS cursor hidden). Applied on mode <i>transitions</i> only, so nothing else that
-///   drives cursor visibility is fought per frame.</item>
+///   laid-out size (covers live window resize).</item>
+///   <item><b>The cursor.</b> The OS cursor is the one visible pointer (it must reach the chrome
+///   margins, where the game cursor's position mapping nulls out) and the in-game HUD cursor
+///   sprite is hidden (its controller's <c>IsVisible</c> plus clearing the stale draw texture) —
+///   in both transport states, since the chrome is always interactive. Applied once (the shell
+///   never flips back while composed), so nothing else driving cursor visibility is fought per
+///   frame.</item>
 /// </list>
 ///
-/// <para>Reading the mode every frame (not just a toggle event) makes the shell follow every way
-/// the mode can flip: F1 (<c>EditorModeToggleSystem</c>), boot-in-Edit (<c>--editor</c>), or a
-/// headless <c>ToggleMode</c> op. <see cref="Dispose"/> clears the inset and re-hides the OS
-/// cursor — the ViewportManager and the host Game outlive the screen, so a screen swap while
-/// editing must not leak the shell onto the next screen.</para>
+/// <para>A screen without the editor composed never constructs this system, and its viewport stays
+/// the historical full-window letterbox — byte-identical. <see cref="Dispose"/> clears the inset
+/// and re-hides the OS cursor — the ViewportManager and the host Game outlive the screen, so a
+/// screen swap must not leak the shell onto the next screen.</para>
 /// </summary>
 public sealed class EditorShellSystem : ISystem<GameState>
 {
@@ -49,8 +47,7 @@ public sealed class EditorShellSystem : ISystem<GameState>
     private readonly Action<bool>? _setOsCursorVisible;
     private readonly EntitySet _cursorSet;
 
-    private bool _initialized;
-    private bool _editingApplied;
+    private bool _cursorApplied;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -71,42 +68,33 @@ public sealed class EditorShellSystem : ISystem<GameState>
     {
         if (!IsEnabled) return;
 
-        var editing = state.RunMode == RunMode.Edit;
+        // Native chrome tracks the window: relayout when the size changed (or on entry).
+        if (_chrome.LaidOutWidth != _viewportManager.ScreenWidth ||
+            _chrome.LaidOutHeight != _viewportManager.ScreenHeight)
+            _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight);
 
-        if (editing)
-        {
-            // Native chrome tracks the window: relayout when the size changed (or on entry).
-            if (_chrome.LaidOutWidth != _viewportManager.ScreenWidth ||
-                _chrome.LaidOutHeight != _viewportManager.ScreenHeight)
-                _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight);
+        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset;
+        _viewportManager.SetViewportInset(left, top, right, bottom); // no-op when unchanged
 
-            var (left, top, right, bottom) = EditorChromeLayout.ViewportInset;
-            _viewportManager.SetViewportInset(left, top, right, bottom); // no-op when unchanged
-        }
-        else
+        // One pointer at a time, in both transport states: the OS cursor (it must reach the
+        // chrome), never the game cursor sprite. Applied once — game entities created later in
+        // Load are covered because the first Update runs after Load.
+        if (!_cursorApplied)
         {
-            _viewportManager.ClearViewportInset(); // no-op when already clear
-        }
-
-        if (!_initialized || editing != _editingApplied)
-        {
-            ApplyCursorMode(editing);
-            _initialized = true;
-            _editingApplied = editing;
+            ApplyEditorCursor();
+            _cursorApplied = true;
         }
     }
 
-    private void ApplyCursorMode(bool editing)
+    private void ApplyEditorCursor()
     {
-        // One pointer at a time: the OS cursor while editing (it must reach the chrome margins,
-        // where the game cursor cannot go), the game cursor sprite while playing.
-        _setOsCursorVisible?.Invoke(editing);
+        _setOsCursorVisible?.Invoke(true);
 
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref var controller = ref cursor.Get<CursorControllerComponent>();
-            controller.IsVisible = !editing;
-            if (editing && cursor.Has<DrawComponent>())
+            controller.IsVisible = false;
+            if (cursor.Has<DrawComponent>())
             {
                 // CursorDrawPrepSystem skips invisible cursors but leaves the last texture on the
                 // DrawComponent — clear it so the sprite disappears rather than freezing in place.

@@ -40,7 +40,6 @@ namespace MonoDreams.LevelEditor.Composition;
 /// pipeline at specific points (the ordering invariants of Waves 4–5), so the overlay exposes
 /// individual hooks rather than one opaque block. Update-side weave order:</para>
 /// <list type="number">
-///   <item><see cref="ModeToggle"/> — after input (flips RunMode in place, works in both modes).</item>
 ///   <item><see cref="SceneReader"/> — with/after the level-load group (message-driven).</item>
 ///   <item><see cref="EditorCommands"/> then <see cref="Gizmo"/> then <see cref="ProxySync"/> —
 ///   after the frozen logic block, <b>before</b> <c>HierarchySystem</c> (the edit must propagate
@@ -49,8 +48,9 @@ namespace MonoDreams.LevelEditor.Composition;
 ///   <c>editor.toolbar</c> group) — after camera-follow (button mesh prep, then click dispatch).</item>
 ///   <item><see cref="CameraNav"/> — <b>before</b> <c>CursorPositionSystem</c> (the camera
 ///   mutation this frame is what the cursor's world position derives from).</item>
-///   <item><see cref="Shell"/> — after <c>CursorDrawPrepSystem</c> (syncs the viewport inset +
-///   chrome layout + cursor swap with the run mode; hides the game cursor sprite in Edit).</item>
+///   <item><see cref="Shell"/> — after <c>CursorDrawPrepSystem</c> (keeps the viewport inset +
+///   chrome layout applied and the OS pointer as the one visible cursor — the shell is constant
+///   while the editor is composed; it never collapses when the transport is Playing).</item>
 ///   <item><see cref="EditorOpDriver"/> (when present) — <b>last</b>, after the cursor late
 ///   update, so its injected cursor is the final word the gizmo/toolbar read.</item>
 /// </list>
@@ -84,9 +84,9 @@ public sealed class EditorOverlay
     /// <paramref name="provideCursorPipeline"/> makes the overlay <b>self-sufficient on a screen
     /// with no cursor pipeline</b> (e.g. the infinite runner): it constructs its own
     /// <see cref="CursorInput"/> / <see cref="CursorPosition"/> systems and a minimal invisible
-    /// cursor entity (no textures — in Edit the OS pointer is the visible pointer, and in Play the
-    /// entity renders nothing), which every editor system reads. Screens that already run the
-    /// cursor pipeline leave it false — the overlay must never double the cursor.
+    /// cursor entity (no textures — the OS pointer is the visible pointer while the editor is
+    /// composed), which every editor system reads. Screens that already run the cursor pipeline
+    /// leave it false — the overlay must never double the cursor.
     /// </summary>
     public EditorOverlay(
         World world,
@@ -120,9 +120,10 @@ public sealed class EditorOverlay
         // The single gizmo-state entity: the toolbar's tool-select / snap-toggle mutate it,
         // GizmoSystem reads it.
         _gizmoState = world.CreateEntity();
+        _gizmoState.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         _gizmoState.Set(GizmoStateComponent.Default);
 
-        ModeToggle = new EditorModeToggleSystem(input.ToggleEditRequested);
+        Transport = new EditorTransport(world, History);
         SceneReader = new SceneReaderSystem(world, Serializer, content);
         EditorCommands = new EditorCommandSystem(
             world, History, Serializer,
@@ -134,14 +135,15 @@ public sealed class EditorOverlay
 
         // Self-sufficient cursor (Wave 8a): a screen with no cursor pipeline (InfiniteRunner) asks
         // the overlay to bring its own — the input/position systems plus a minimal invisible
-        // cursor entity (the OS pointer is the visible pointer in Edit; the entity has no texture,
-        // so it renders nothing in Play either). CursorPositionSystem's query needs all four
+        // cursor entity (the OS pointer is the visible pointer under the editor; the entity has
+        // no texture, so it never renders a sprite). CursorPositionSystem's query needs all four
         // components, hence the empty sprite DrawComponent (null texture = skipped by the renderer).
         if (provideCursorPipeline)
         {
             CursorInput = new CursorInputSystem(world);
             CursorPosition = new CursorPositionSystem(world, camera, viewportManager);
             var cursor = world.CreateEntity();
+            cursor.Set(new EditorInfrastructureComponent()); // survives a transport Restart
             cursor.Set(new CursorControllerComponent(CursorType.Default));
             cursor.Set(new CursorInputComponent());
             cursor.Set(new TransformComponent(Vector2.Zero));
@@ -178,7 +180,7 @@ public sealed class EditorOverlay
         var editorOpPlan = EditorOpPlan.TryLoad(debugDirectory);
         if (editorOpPlan != null)
         {
-            var driver = new EditorOpReplaySystem(world, editorOpPlan, DispatchToolbarAction, requestExit);
+            var driver = new EditorOpReplaySystem(world, editorOpPlan, DispatchToolbarAction, requestExit, Transport);
             EditorOpDriver = driver;
             SuppressReplayAutoExit = () => !driver.IsComplete;
         }
@@ -197,8 +199,13 @@ public sealed class EditorOverlay
     /// <summary>The shared gizmo-state entity (tool / snap config).</summary>
     public Entity GizmoState => _gizmoState;
 
-    /// <summary>RunMode flip on the game's toggle key. Weave after input.</summary>
-    public ISystem<GameState> ModeToggle { get; }
+    /// <summary>The editor transport — the one owner of <see cref="GameState.RunMode"/> under the
+    /// editor run configuration (Paused = Edit, Playing = Play, Restart = rebuild from the original
+    /// load). The toolbar's Play/Pause + Restart buttons and the headless transport ops drive it;
+    /// the SCREEN registers its restart callback (<see cref="EditorTransport.Reload"/>) — and any
+    /// screen-infrastructure exclusions (<see cref="EditorTransport.KeepAlive"/>) — in
+    /// <c>Load</c>, once it knows what it loaded.</summary>
+    public EditorTransport Transport { get; }
 
     /// <summary>Native-scene loading (<c>LoadSceneRequest</c>). Weave with the level-load group.</summary>
     public ISystem<GameState> SceneReader { get; }
@@ -248,18 +255,20 @@ public sealed class EditorOverlay
     /// relayouted by <see cref="Shell"/> on window resize.</summary>
     public EditorChromeBuilder Chrome { get; }
 
-    /// <summary>The shell sync system: viewport inset + chrome relayout + cursor swap track the
-    /// run mode. Weave after <c>CursorDrawPrepSystem</c> (it hides the game cursor sprite the
-    /// same frame in Edit).</summary>
+    /// <summary>The shell system: keeps the viewport inset + chrome layout applied and the OS
+    /// pointer active while the editor is composed (the shell is constant across transport
+    /// states). Weave after <c>CursorDrawPrepSystem</c> (it hides the game cursor sprite the same
+    /// frame).</summary>
     public ISystem<GameState> Shell { get; }
 
-    /// <summary>The native-resolution chrome render pass (screen-space, Edit-only; owns the
-    /// resize-tracked Editor target). Weave into the DRAW pipeline after the game render passes,
-    /// before final draw.</summary>
+    /// <summary>The native-resolution chrome render pass (screen-space, always on while the
+    /// editor is composed; owns the resize-tracked Editor target). Weave into the DRAW pipeline
+    /// after the game render passes, before final draw.</summary>
     public EditorChromeRenderSystem ChromeRender { get; }
 
     /// <summary>The final-draw layer compositing <see cref="ChromeRender"/>'s target 1:1 over the
-    /// whole window. Append it AFTER the game layers (topmost); it self-skips outside Edit.</summary>
+    /// whole window. Append it AFTER the game layers (topmost); it self-skips only when the chrome
+    /// pass is disabled.</summary>
     public RenderLayer ChromeLayer { get; }
 
     /// <summary>The headless editor-op driver; null when no <c>editor_op_plan.json</c> is present.
@@ -312,16 +321,20 @@ public sealed class EditorOverlay
 
     /// <summary>
     /// Wires a toolbar <see cref="EditorToolbarAction"/> to concrete behaviour using the SAME
-    /// shared instances the rest of the editor uses (no second history / serializer). Tool-select
-    /// and snap-toggle mutate the single <see cref="GizmoState"/> entity; Save writes through
-    /// <see cref="SceneWriter"/> with the live camera + layers; Load publishes a
-    /// <see cref="LoadSceneRequest"/> handled by the woven <see cref="SceneReader"/>; Undo/Redo
-    /// drive <see cref="History"/>. Public so the headless channel and tests dispatch the same way.
+    /// shared instances the rest of the editor uses (no second history / serializer / transport).
+    /// Play/Pause and Restart drive the <see cref="Transport"/> (they need the frame's
+    /// <see cref="GameState"/> — the RunMode axis lives there); tool-select and snap-toggle mutate
+    /// the single <see cref="GizmoState"/> entity; Save writes through <see cref="SceneWriter"/>
+    /// with the live camera + layers; Load publishes a <see cref="LoadSceneRequest"/> handled by
+    /// the woven <see cref="SceneReader"/>; Undo/Redo drive <see cref="History"/>. Public so the
+    /// headless channel and tests dispatch the same way.
     /// </summary>
-    public void DispatchToolbarAction(EditorToolbarAction action)
+    public void DispatchToolbarAction(EditorToolbarAction action, GameState state)
     {
         switch (action)
         {
+            case EditorToolbarAction.PlayPause: Transport.TogglePlayPause(state); break;
+            case EditorToolbarAction.Restart: Transport.Restart(state); break;
             case EditorToolbarAction.ToolMove: SetGizmoTool(GizmoTool.Move); break;
             case EditorToolbarAction.ToolRotate: SetGizmoTool(GizmoTool.Rotate); break;
             case EditorToolbarAction.ToolScale: SetGizmoTool(GizmoTool.Scale); break;

@@ -51,6 +51,9 @@ public sealed class EditorChromeBuilder
     public static readonly Color BottomBarColor = new(32, 32, 38);
     public static readonly Color ButtonFill = new(52, 52, 62);
     public static readonly Color ButtonHoverFill = new(76, 76, 94);
+    /// <summary>Fill for a toolbar button that is currently inactive (the editing actions while
+    /// the transport is Playing — only Play/Pause + Restart dispatch there).</summary>
+    public static readonly Color ButtonDisabledFill = new(38, 38, 44);
     public static readonly Color ButtonOutline = new(150, 150, 162);
     public static readonly Color LabelColor = new(235, 235, 240);
     // Systems-panel accents (the panel reuses this single palette site).
@@ -101,9 +104,15 @@ public sealed class EditorChromeBuilder
         _measureLabel = measureLabel ?? throw new ArgumentNullException(nameof(measureLabel));
     }
 
-    /// <summary>The default toolbar contents — the same action set as the Wave-4b toolbar.</summary>
+    /// <summary>
+    /// The default toolbar contents: the TRANSPORT controls first (left-most — Play/Pause is one
+    /// toggle button whose label <c>ToolbarSystem</c> swaps with the state, sized here for the
+    /// wider "Pause"; Restart rebuilds the scene from the original load), then the editing tools.
+    /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] DefaultButtons =
     {
+        (EditorToolbarAction.PlayPause, "Pause"),
+        (EditorToolbarAction.Restart, "Restart"),
         (EditorToolbarAction.ToolMove, "Move"),
         (EditorToolbarAction.ToolRotate, "Rotate"),
         (EditorToolbarAction.ToolScale, "Scale"),
@@ -188,6 +197,7 @@ public sealed class EditorChromeBuilder
         // FilledRectangle-style primitive, built by ButtonMeshPrepSystem. Opaque per the
         // premultiplied-alpha mesh rule ("UI fills must be opaque").
         var panel = _world.CreateEntity();
+        panel.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         panel.Set(new TransformComponent(Vector2.Zero));
         panel.Set(new SimpleButtonComponent
         {
@@ -204,6 +214,7 @@ public sealed class EditorChromeBuilder
     private Entity CreateLabel(string label)
     {
         var text = _world.CreateEntity();
+        text.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         text.Set(new TransformComponent(Vector2.Zero));
         text.Set(new DynamicTextComponent
         {
@@ -222,6 +233,7 @@ public sealed class EditorChromeBuilder
     private Entity CreateButton(EditorToolbarAction action, Entity labelEntity)
     {
         var button = _world.CreateEntity();
+        button.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         button.Set(new TransformComponent(Vector2.Zero));
         button.Set(new SimpleButtonComponent
         {

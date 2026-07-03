@@ -7,11 +7,13 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.Composition;
 
 /// <summary>
-/// The "editor everywhere" run configuration flag: when active, a host (the desktop head's
-/// <c>Game1</c>) composes the <see cref="EditorOverlay"/> into every editor-capable game screen
-/// and boots <see cref="GameState.RunMode"/> straight into <see cref="RunMode.Edit"/> — no F1
-/// needed (F1 still toggles back to Play). When inactive (the default), screens compose without
-/// the overlay and behave exactly as before the flag existed.
+/// The "editor everywhere" run configuration flag — THE way into the editor: when active, a host
+/// (the desktop head's <c>Game1</c>) composes the <see cref="EditorOverlay"/> into every
+/// editor-capable game screen and boots the transport <b>Paused</b>
+/// (<see cref="RunMode.Edit"/>). The editor is then always visible; the toolbar's Play/Pause +
+/// Restart transport buttons (see <see cref="EditorTransport"/>) drive the game — no key toggles
+/// the editor away. When inactive (the default), screens compose without the overlay and behave
+/// exactly as before the flag existed.
 ///
 /// <para>Two equivalent switches, both settable from an IDE run configuration (e.g. Rider:
 /// "Program arguments: <c>--editor</c>" or "Environment variables:
@@ -50,7 +52,8 @@ public static class EditorRunFlag
 
     /// <summary>
     /// The run mode the host boots into: <see cref="RunMode.Edit"/> when the flag is active
-    /// (the designer lands editing, no F1 needed), <see cref="RunMode.Play"/> otherwise.
+    /// (the transport boots Paused — the designer lands editing), <see cref="RunMode.Play"/>
+    /// otherwise.
     /// </summary>
     public static RunMode InitialRunMode(bool editorEnabled) => editorEnabled ? RunMode.Edit : RunMode.Play;
 }

@@ -180,6 +180,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         // Standalone (never ChildOf-parented — DisposeOrphans is live in Edit), self-visible
         // (CullingSystem only visits sprite entities), world-space on Main.
         var proxy = _world.CreateEntity();
+        proxy.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         proxy.Set(new GizmoProxyComponent(anchor, kind));
         proxy.Set(new TransformComponent());
         proxy.Set(new DrawComponent

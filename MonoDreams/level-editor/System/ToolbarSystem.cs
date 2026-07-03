@@ -5,6 +5,7 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.State;
@@ -13,12 +14,22 @@ using MonoDreams.UI;
 namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
-/// The editor toolbar's interaction system. In <see cref="RunMode.Edit"/> it hit-tests the cursor
-/// against every <see cref="ToolbarButtonComponent"/> and, on a click (left button released over a
-/// button), hands the button's <see cref="EditorToolbarAction"/> to a dispatch callback the screen
-/// supplies — which wires Save → <c>SceneWriter</c>, Load → publish <c>LoadSceneRequest</c>,
-/// Undo/Redo → <c>EditorHistory</c>, and the tool/snap actions → the shared
-/// <see cref="GizmoStateComponent"/>. It also tracks per-button hover and tints the button fill.
+/// The editor toolbar's interaction system. It hit-tests the cursor against every
+/// <see cref="ToolbarButtonComponent"/> and, on a click (left button released over a button), hands
+/// the button's <see cref="EditorToolbarAction"/> plus the frame's <see cref="GameState"/> to a
+/// dispatch callback the composer supplies — which wires the transport (Play/Pause / Restart
+/// through <c>EditorTransport</c>), Save → <c>SceneWriter</c>, Load → publish
+/// <c>LoadSceneRequest</c>, Undo/Redo → <c>EditorHistory</c>, and the tool/snap actions → the
+/// shared <see cref="GizmoStateComponent"/>. It also tracks per-button hover, tints the button
+/// fill, and keeps the Play/Pause toggle button's label in sync with the transport state.
+///
+/// <para><b>Transport model: live in BOTH modes.</b> Under the editor run configuration the shell
+/// never collapses, so the toolbar hit-tests in both transport states. What changes with the state
+/// is which buttons are active: the TRANSPORT buttons (<see cref="EditorToolbarAction.PlayPause"/>
+/// / <see cref="EditorToolbarAction.Restart"/>) dispatch always — they are how you leave either
+/// state — while the EDITING buttons (tools / Save / Load / Undo / Redo / Snap) dispatch only
+/// while Paused (<see cref="RunMode.Edit"/>) and render with the disabled fill while Playing
+/// (in Play a click belongs to the game; an undo racing live physics would be surprising).</para>
 ///
 /// <para><b>Native screen-space hit-test (Wave 7).</b> The toolbar lives on the Editor render
 /// target — native window resolution, composited 1:1 — so button <c>Bounds</c> are physical screen
@@ -27,27 +38,21 @@ namespace MonoDreams.LevelEditor.System;
 /// viewport-inset margins where the virtual mapping is null, so <c>VirtualPosition</c> (the old
 /// HUD hit-test coordinate) would be frozen/stale there; <c>ScreenPosition</c> is always live.</para>
 ///
-/// <para><b>Game-agnostic.</b> Like <c>EditorModeToggleSystem</c> takes a predicate, this takes an
-/// <c>Action&lt;EditorToolbarAction&gt;</c> so <c>level-editor</c> needs no game type; the screen
-/// owns the concrete <c>SceneWriter</c> / history / camera / layers and supplies the dispatch.
-/// Edit-guarded (inert in Play), registered RunNormally.</para>
-///
-/// <para><b>Hidden in Play.</b> Chrome entities render only through the Editor chrome pass
-/// (<c>EditorChromeRenderSystem</c>), which contributes nothing outside Edit — so this system no
-/// longer blanks meshes/labels per entity (the Wave-4b HUD workaround); visibility is owned by
-/// the pass, interactivity by this system's Edit guard.</para>
+/// <para><b>Game-agnostic.</b> The system fires the action enum through the supplied callback so
+/// <c>level-editor</c> needs no game type; the overlay owns the concrete transport / writer /
+/// history and supplies the dispatch.</para>
 /// </summary>
 [With(typeof(ToolbarButtonComponent), typeof(TransformComponent))]
 public sealed class ToolbarSystem : AEntitySetSystem<GameState>
 {
     private readonly EntitySet _cursorSet;
-    private readonly Action<EditorToolbarAction> _dispatch;
+    private readonly Action<EditorToolbarAction, GameState> _dispatch;
 
-    private bool _active;
+    private bool _cursorPresent;
     private Vector2 _cursorPoint;
     private bool _clicked;
 
-    public ToolbarSystem(World world, Action<EditorToolbarAction> dispatch)
+    public ToolbarSystem(World world, Action<EditorToolbarAction, GameState> dispatch)
         : base(world.GetEntities().With<ToolbarButtonComponent>().With<TransformComponent>().AsSet())
     {
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
@@ -56,16 +61,13 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
 
     protected override void PreUpdate(GameState state)
     {
-        _active = false;
+        _cursorPresent = false;
         _clicked = false;
-
-        // Edit-guarded: inert clicks in Play (the chrome pass already hides the visuals there).
-        if (state.RunMode != RunMode.Edit) return;
 
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
-            _active = true;
+            _cursorPresent = true;
             _cursorPoint = input.ScreenPosition; // native-pixel hit-test (Editor target chrome)
             _clicked = input.LeftButtonReleased;  // a click = press then release over the button
             return;
@@ -74,22 +76,43 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
 
     protected override void Update(GameState state, in Entity entity)
     {
-        if (!_active) return;
-
         ref var button = ref entity.Get<ToolbarButtonComponent>();
-        var over = button.Bounds.Contains(_cursorPoint);
+
+        // The Play/Pause toggle button's label mirrors the transport state every frame.
+        if (button.Action == EditorToolbarAction.PlayPause)
+            SyncPlayPauseLabel(entity, state);
+
+        // Transport buttons are live in both modes; editing buttons only while Paused (Edit).
+        var active = state.RunMode == RunMode.Edit || button.Action.IsTransport();
+
+        var over = _cursorPresent && active && button.Bounds.Contains(_cursorPoint);
         button.IsHovered = over;
 
         // Hover tint on the engine button fill (the mesh is rebuilt by ButtonMeshPrepSystem, so
-        // the tint shows on the next prep — one frame, imperceptible).
+        // the tint shows on the next prep — one frame, imperceptible). Inactive buttons render
+        // with the disabled fill so the Playing state reads at a glance.
         if (entity.Has<SimpleButtonComponent>())
         {
             ref var visual = ref entity.Get<SimpleButtonComponent>();
-            visual.FillColor = over ? EditorChromeBuilder.ButtonHoverFill : EditorChromeBuilder.ButtonFill;
+            visual.FillColor = !active
+                ? EditorChromeBuilder.ButtonDisabledFill
+                : over ? EditorChromeBuilder.ButtonHoverFill : EditorChromeBuilder.ButtonFill;
         }
 
         if (over && _clicked)
-            _dispatch(button.Action);
+            _dispatch(button.Action, state);
+    }
+
+    private static void SyncPlayPauseLabel(in Entity button, GameState state)
+    {
+        if (!button.Has<SimpleButtonComponent>()) return;
+        var textEntity = button.Get<SimpleButtonComponent>().TextEntity;
+        if (textEntity is not { IsAlive: true } label || !label.Has<DynamicTextComponent>()) return;
+
+        ref var text = ref label.Get<DynamicTextComponent>();
+        // While Playing the button offers "Pause"; while Paused it offers "Play". The button was
+        // laid out for the wider label, so the swap never moves the row.
+        text.TextContent = state.RunMode == RunMode.Play ? "Pause" : "Play";
     }
 
     public override void Dispose()
