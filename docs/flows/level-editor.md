@@ -108,7 +108,10 @@ policies, the runner's overlay providing its own cursor pipeline):
    on release). It runs **before** `HierarchySystem` so the edit propagates the same frame, and rebuilds
    the standalone overlay meshes (outline + handle) each frame. When the selected entity is a collider
    proxy the tool is forced to Move and each drag frame pushes a `ColliderEditCommand` against the
-   proxy's bound game entity instead (Wave 8b).
+   proxy's bound game entity instead (Wave 8b). It also publishes the **click-ownership claim**
+   (`GizmoStateComponent.PressClaimed`, written every Edit frame): true when the press landed on the
+   active handle or a drag is in progress — the same frame's `SelectionSystem` pass (step 13) skips a
+   claimed press entirely, so a handle outside the sprite's bounds never reads as click-empty/re-pick.
 7. **Proxy sync** (Edit-guarded, Wave 8b) — `ProxySyncSystem` spawns/places/despawns the collider
    proxies for the selected entity, re-deriving each from its bound component (so it tracks both this
    frame's gizmo write-back and owner moves), and refreshes the selected entity's convex
@@ -137,7 +140,9 @@ policies, the runner's overlay providing its own cursor pipeline):
    its `Dispose` clears the inset + re-hides the OS pointer so a screen swap never leaks the shell.
 13. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
    at the **end** of the draw prep (after `YSortSystem`) so it picks on the final post-Y-sort
-   depth this frame; the gizmo/selection overlay draws on Main (world-space, sized by
+   depth this frame — and skips a press the gizmo claimed in step 6 (no re-pick, no click-empty
+   clear; the update-before-draw ordering is what makes the same-frame claim readable); the
+   gizmo/selection overlay draws on Main (world-space, sized by
    `1/Camera.Zoom`); the chrome renders through `EditorChromeRenderSystem` (a screen-space
    `MasterRenderSystem` pass over `RenderTargetID.Editor` into a native-resolution target,
    Edit-only) and `RenderLayer.Native` composites it 1:1 over the whole window, above the game

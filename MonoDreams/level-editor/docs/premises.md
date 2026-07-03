@@ -227,29 +227,61 @@ selection system sees it (first-seen / creation order), and the larger id — th
 which an undisturbed scene draws last — wins the tie. Hit-testing honors the sprite's rotation,
 scale, origin and offset (it inverts the exact draw transform), and a click on empty space clears
 the selection. Single-select for Wave A (marquee/multi-select is a later extension). The system is
-Edit-guarded (inert in Play).
+Edit-guarded (inert in Play), and a plain `ISystem` iterating its own candidate set — NOT an
+`AEntitySetSystem`, whose `Update` early-outs on an empty set (a scene with zero rendered sprites
+must still border-pick proxies and click-empty clear).
+
+**Click-ownership: the gizmo owns its presses.** `GizmoSystem` publishes a frame-scoped claim
+(`GizmoStateComponent.PressClaimed`) on **every** Edit frame it runs: true when the press edge
+landed on the active tool's handle (a proxy target forces the Move handle) or while a handle drag
+is in progress, false otherwise. Selection must skip a claimed press **entirely** — no re-pick, no
+click-empty clear — because the rotate ring and scale handle routinely lie OUTSIDE the selected
+sprite's bounds (and a collider proxy's centre move-handle often sits over empty space): processing
+that press as a scene click clears the selection (or re-picks an overlapped sprite) in the very
+frame the gizmo began the drag, which cancels the drag and despawns the overlays/proxies one frame
+later. **Ordering dependency:** the claim is written by the gizmo in the UPDATE pipeline and read
+by selection at the end of the DRAW pipeline, so the same frame's claim is always already written
+when selection runs; reordering selection before the gizmo would make the claim one frame stale.
+A release is never processed (selection acts only on the press edge), so releasing over empty
+space never clears; a genuine click on empty space — no handle, no sprite, no proxy border — still
+clears, and a click on another sprite away from every handle still re-picks.
 
 **Why:** the selected entity must be the one the designer sees on top; on-screen UI lives on the
 UI/HUD targets in virtual space (hit-testing it with the camera-relative world point would desync
 the pick the moment the camera moves), and those targets composite above the world — so target
 rank precedes depth; within a target, matching the render front means reading the same final depth
 the renderer sorts on, and the tie must break on a key selection can observe (the renderer's index
-can't be).
+can't be). The click-ownership claim exists because the gizmo (update pipeline) and selection
+(draw pipeline) deliberately process the SAME `LeftButtonPressed` edge each frame — without an
+explicit owner, every press on a handle outside the sprite is simultaneously a valid drag-start
+and a valid click-empty/re-pick (the user-reported "rotation and scale handles aren't clickable
+outside the entity's bounds" bug).
 **Breaks:** picking the back sprite of an overlapping stack (reading source depth, or pre-Y-sort
 depth); a UI/HUD sprite unpickable (or mis-picked) after a camera pan because it was tested in
 world space; a world sprite stealing the pick from the HUD element drawn over it; the editor
 selecting its own chrome; a non-deterministic / unstable pick on an exact-depth tie; a
-rotated/scaled sprite mis-picked because the hit-test ignored its transform.
+rotated/scaled sprite mis-picked because the hit-test ignored its transform; without the claim —
+a rotate/scale-handle press outside the sprite clears the selection and kills the drag the same
+frame, a handle press overlapping another sprite re-selects it and retargets the drag mid-flight,
+and a proxy's centre-handle press deselects the proxy and despawns the family.
 **Tests:** `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`SelectionTopmostTest` — stacked sprites
 on different depths, click selects MAX final depth, click-empty clears, hit-test honors
 rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by the selection-owned
 `EditorId` tiebreak, deterministically; `SelectionTargetAware*` — UI sprite picked via
 `VirtualPosition`, Main via `WorldPosition`, HUD wins an overlap with Main regardless of raw depth,
 Editor-target never a candidate, the pure cross-target rule; `GizmoTests.GizmoUiTargetTest` — the
-gizmo drags a HUD-target entity in virtual space and its overlays follow the entity's target).
+gizmo drags a HUD-target entity in virtual space and its overlays follow the entity's target);
+click-ownership: `GizmoTests.ClickOwnershipTest_*` (rotate/scale handle press outside the sprite
+bounds keeps the selection and the drag completes as one undo step; a handle press over another
+sprite does not re-pick; held-drag frames and a spurious mid-drag press never re-pick or clear;
+release never clears; genuine click-empty still clears; a press on another sprite away from every
+handle still re-selects) and `ProxyTests.ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags`
+(the proxy variant, in a sprite-less world — also protecting the plain-`ISystem` rule).
 **Depends on:** rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` →
 `MasterRenderSystem` derive + sort on final `DrawComponent.LayerDepth`) and the `FinalDrawSystem`
-layer order (Main, UI, HUD, then screen-space overlays).
+layer order (Main, UI, HUD, then screen-space overlays); this file — "The gizmo applies a
+quantized (snap-on) or raw (snap-off) transform edit, honoring Origin" (the drag whose ownership
+the claim protects).
 
 ## The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit, honoring Origin
 
@@ -650,7 +682,10 @@ frame, selecting a proxy keeps the family; sync: owner transform move re-derives
 refreshes convex world data; write-back: box drag shifts `Bounds` by the delta and convex drag
 translates all `ModelVertices` + refreshes `WorldVertices`/`BroadPhaseAABB`, owner transform
 untouched, one drag = one undo step, undo restores the exact prior shape, redo re-applies;
-selection: border click picks the proxy through the same pick path, inside click picks the owner;
+selection: border click picks the proxy through the same pick path, inside click picks the owner,
+and `ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags` — pressing
+the selected proxy's centre move-handle is claimed by the gizmo, so the same frame's selection
+pass neither deselects the proxy nor despawns the family, and the drag completes;
 pure inverse-transform delta math).
 **Depends on:** collision — "`ConvexColliderComponent.BroadPhaseAABB` must be refreshed when
 vertices change"; this file — "Editor-overlay entities are standalone; delete snapshots the
