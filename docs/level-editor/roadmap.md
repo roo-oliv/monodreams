@@ -180,6 +180,17 @@ entities, so nothing in the selection/gizmo path could grab them. Shipped:
 
 ---
 
+> **Waves B–F superseded (2026-07-03).** The sections below are the original
+> sketch, kept for history. The **binding design for the next waves** is
+> [`waves-b-f-design-review.md`](waves-b-f-design-review.md), which re-letters
+> the waves (B = stroke-sampling input layer, C = free entity placement,
+> D = scatter brush, E = ground paint, F = road/spline tool) and **resolves the
+> deferred render forks**: ground = alpha stamps into persistent render-target
+> canvas chunks (splatmap shader deferred as a named future upgrade); road =
+> stamps along the spline baked into the ground canvas (the UV-textured mesh
+> strip deferred as a named `rendering` framework change); scatter seed =
+> per-stroke. Start any B–F implementation from that doc.
+
 ## Wave B — scatter tool (entity brush)
 
 **Goal.** Paint many entities along a stroke (the "scatter" brush metaphor): a brush
