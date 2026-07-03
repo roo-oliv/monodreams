@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "ef8965e3d9bd",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ef/8965e3d9bd/0/metadata.json",
+      "transcript": "/ef/8965e3d9bd/0/full.jsonl",
+      "context": "/ef/8965e3d9bd/0/context.md",
+      "content_hash": "/ef/8965e3d9bd/0/content_hash.txt",
+      "prompt": "/ef/8965e3d9bd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 29088,
+    "cache_read_tokens": 3914628,
+    "output_tokens": 14646,
+    "api_call_count": 9
+  }
+}
