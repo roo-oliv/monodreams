@@ -272,7 +272,7 @@ rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by t
 `EditorId` tiebreak, deterministically; `SelectionTargetAware*` — UI sprite picked via
 `VirtualPosition`, Main via `WorldPosition`, HUD wins an overlap with Main regardless of raw depth,
 Editor-target never a candidate, the pure cross-target rule; `GizmoTests.GizmoUiTargetTest` — the
-gizmo drags a HUD-target entity in virtual space and its overlays follow the entity's target);
+gizmo drags a HUD-target entity in virtual space; its overlay VISUALS land on the Editor layer);
 click-ownership: `GizmoTests.ClickOwnershipTest_*` (rotate/scale handle press outside the sprite
 bounds keeps the selection and the drag completes as one undo step; a handle press over another
 sprite does not re-pick; held-drag frames and a spurious mid-drag press never re-pick or clear;
@@ -297,21 +297,27 @@ Rotate and scale pivot about the entity's <b>world pivot</b> (the world location
 the local `Origin` field is preserved unchanged through every edit. The math is separated from
 `GizmoSystem` (which owns only the drag lifecycle + the overlay meshes) so it is unit-testable
 without a world, a cursor, or a GraphicsDevice. The gizmo + selection-highlight overlay entities are
-standalone (never `ChildOf`-parented) and set `VisibleComponent` themselves, drawing world-space on
-Main with handle sizes scaled by `1/Camera.Zoom` for constant on-screen size.
+standalone (never `ChildOf`-parented); their VISUALS are native-resolution chrome — screen-baked by
+`EmitOverlays` (the `editor.overlayPrep` draw entry) on the Editor target through `OverlayProjection`
+with fit-scaled (never zoom-scaled) sizes and **no** `VisibleComponent` (the chrome rule) — while the
+handle HIT-TESTS stay world-space, sized `constant/Camera.Zoom` so the grab region matches the
+constant on-screen visual.
 
 **Why:** the contract's derived-value rows "grid-snap quantum applied world-space, honor origin" and
 the editor-overlay-standalone rule; a designer dragging with snap on must land on grid lines, and a
 rotate/scale must spin/grow about the entity's pivot rather than translate it.
 **Breaks:** a snap-off drag that quantizes (or vice versa) surprises the designer; a rotate/scale that
 moves the entity (pivoting about the wrong point) or that mutates `Origin`; an overlay parented to the
-selected entity gets cascade-disposed on delete; a mesh overlay with no self-`VisibleComponent` never
-renders.
+selected entity gets cascade-disposed on delete; a `VisibleComponent` on an overlay pulls it into
+`MeshPrepSystem`, which overwrites the identity `WorldMatrix` its screen-baked vertices require.
 **Tests:** `MonoDreams.Tests/LevelEditor/GizmoTests.cs` (`GizmoTransformSnapTest` — move/rotate/scale
 with snap off = raw delta and snap on = quantized; rotate and scale preserve `Origin` and pivot about
-the world pivot).
-**Depends on:** rendering — `MeshPrepSystem` / `MasterRenderSystem` render a mesh `DrawComponent` on
-Main through the camera; foundation — `HierarchySystem.DisposeOrphans` (why overlays are standalone).
+the world pivot); `MonoDreams.Tests/LevelEditor/OverlayProjectionTests.cs` (emission space/target/
+zoom-invariance/clipping).
+**Depends on:** rendering — `MasterRenderSystem` renders a mesh `DrawComponent` per target; this file
+— "The editor shell insets the game viewport and renders its chrome at native resolution" (the
+Editor layer + the device-pixel space the visuals bake in); foundation —
+`HierarchySystem.DisposeOrphans` (why overlays are standalone).
 
 ## The editor toolbar's buttons drive the same shared editor instances; the chrome is native-resolution on the Editor target, always on while the editor is composed
 
@@ -320,8 +326,9 @@ The engine-native toolbar (the engine's `SimpleButtonComponent` / `ButtonMeshPre
 native window resolution composited 1:1 over the whole window (never Main, never the virtual-res
 HUD) — inside the shell's top bar, with buttons sized in physical pixels and each carrying a
 `ToolbarButtonComponent` binding a click to an `EditorToolbarAction`. `ToolbarSystem` hit-tests
-the cursor's raw `ScreenPosition` (hardware pixels — the chrome sits in the margins where the
-virtual mapping is null and `VirtualPosition` is frozen) against the button `Bounds` and hands
+the cursor's `ScreenPosition` (backbuffer **device** pixels — the raw mouse × the viewport
+manager's `DevicePixelRatio`; the chrome sits in the margins where the virtual mapping is null
+and `VirtualPosition` is frozen) against the button `Bounds` and hands
 the action plus the frame's `GameState` to a dispatch supplied by the overlay — which wires the
 left-most TRANSPORT buttons (Play/Pause — one toggle whose label `ToolbarSystem` syncs with the
 state — and Restart) through the shared `EditorTransport`, Save through
@@ -380,22 +387,59 @@ flag) the inset is zero and the composite is the historical full-window letterbo
 consults it; its presence would pull mesh chrome into `MeshPrepSystem`, which overwrites the
 identity `WorldMatrix` their absolute-pixel vertices require).
 
+**Device pixels are the shell's one space (HiDPI).** On macOS Retina, MonoGame DesktopGL creates
+its window without `SDL_WINDOW_ALLOW_HIGHDPI`, so the stock backbuffer is LOGICAL-point-sized and
+the OS upscales it ~2× — even "native" chrome was blurred by that upscale. Under the editor run
+flag the desktop hosts call `EditorHiDpi.TryEnable` (first Update + every resize): it re-backs
+the window's GL surface at device resolution (AppKit `wantsBestResolutionOpenGLSurface`) and
+widens `PresentationParameters` to `window points × backingScaleFactor` **without**
+`ApplyChanges` (which would grow the OS window). From then on ONE invariant holds:
+`ViewportManager.ScreenWidth/Height`, chrome layout/hit-test rectangles, and
+`CursorInputComponent.ScreenPosition` are all **backbuffer device pixels** —
+`ViewportManager.DevicePixelRatio` carries the ratio, `CursorInputSystem` multiplies the raw
+(logical) mouse by it, and every chrome layout metric (`EditorChromeLayout` /
+`SystemsPanelLayout` point constants, and the label glyph scale `LabelScale × DPR`) is scaled by
+it so the chrome keeps its physical on-screen size while gaining pixel density. DPR 1 (every
+non-editor / non-mac / kill-switched run, `MONODREAMS_EDITOR_HIDPI=0`) is byte-identical to the
+pre-DPR behavior. The **editor overlays** (gizmo handles, selection outline, collider-proxy
+outlines) share the shell's native-resolution Editor target instead of the virtual-resolution
+Main target: `EditorOverlayPrepSystem` (draw-pipeline entry `editor.overlayPrep`, after
+`editor.selection`) projects their world/virtual geometry to screen pixels through the pure
+`OverlayProjection` (camera view matrix → aspect-fit destination; sizes scale by the fit factor,
+**never** the camera zoom — replacing the old `1/Zoom` compensation with the same apparent size)
+and clips every mesh to the game viewport rectangle (`OverlayMeshClip`); they occupy the low
+depth band (proxy 0.02 < gizmo 0.04 < panels 0.1) so the opaque chrome panels cover them over
+the margins. Hit-testing is untouched — world/virtual space, exactly as before.
+
 **Why:** the Wave-7 user directives — "the game screen … rendered in the center … the editor
 tools … placed around it, just like in Blender" and "highres and readable, independent from the
-game resolution or fonts". Keeping the inset on the `ViewportManager` is what makes the mouse
-mapping follow the smaller game viewport automatically.
+game resolution or fonts" — plus the follow-up directive "the editor should be rendered at the
+native screen resolution … like Flutter … this applies to the in-game overlays: the gizmos, and
+entity boundaries": the overlays used to rasterize at the game's virtual resolution on Main and
+get upscaled (chunky), and on Retina even the chrome was OS-upscaled 2×. Keeping the inset on
+the `ViewportManager` is what makes the mouse mapping follow the smaller game viewport
+automatically; keeping ONE device-pixel space is what keeps chrome hit-tests aligned at any DPR.
 **Breaks:** an inset applied only to compositing (not mouse mapping) desyncs every world pick by
 the margin offsets; chrome on the virtual-resolution HUD is upscaled and blurry again; a leaked
 inset (no dispose restore) squeezes the next screen into a corner; `VisibleComponent` on chrome
-double-offsets the panel meshes.
+double-offsets the panel meshes; unscaled chrome metrics at DPR 2 halve the toolbar's physical
+size and desync every chrome hit-test from the pointer; overlay sizes scaled by zoom fatten or
+vanish the handles as the camera zooms; unclipped overlays draw gizmo lines over the letterbox
+bars.
 **Tests:** `MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (inset math centered/aspect-correct,
 zero-inset = legacy letterbox byte-identical, set+clear restores, resize recomputes, mouse maps
 inside / nulls in margins, pixel-perfect uses the available area);
 `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (panels cover exactly the inset margins,
 native-pixel button bounds, relayout on resize, the shell stays composed while Playing + dispose
-restore, `OutsideViewport` press never picks).
+restore, `OutsideViewport` press never picks; DPR: scale-2 metrics double, scale-1 is the pre-DPR
+layout byte-identically, chrome hit-test space == chrome render space at DPR 2);
+`MonoDreams.Tests/LevelEditor/OverlayProjectionTests.cs` (world→screen through camera + inset
+destination, virtual space ignores the camera, zoom moves geometry but never emitted sizes,
+viewport clipping, gizmo handle size constant across zoom on the Editor target, proxy outline
+screen-baked at the expected pixels).
 **Depends on:** rendering — "The viewport inset moves compositing and mouse mapping together",
-"Three render targets, two behaviors"; cursor — `CursorPositionSystem` sets `OutsideViewport`;
+"Three render targets, two behaviors" (+ `ViewportManager.DevicePixelRatio`); cursor —
+`CursorInputSystem` (ScreenPosition × DPR) and `CursorPositionSystem` (sets `OutsideViewport`);
 foundation — "Default RunMode=Play" (the flag-off/Play path must stay byte-identical).
 
 ## Editor camera navigation pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation
@@ -671,12 +715,18 @@ sprites) nor the transform gizmo (which edits `TransformComponent`) can grab the
 Wave-8b mechanism: when the selected entity carries collider components in Edit, `ProxySyncSystem`
 materializes one **standalone proxy entity per collider** — `GizmoProxyComponent` is the pure-data
 binding descriptor `(target entity, ProxyBindingKind, reserved index)`; the proxy carries a
-`TransformComponent` kept at the shape's world centre, a cyan outline mesh (vertices baked
-relative to that transform, `1/Zoom`-thick, on Main at depth 0.998) and a self-set
-`VisibleComponent` — re-derived from the bound component **every frame** (cheap: selected entity
-only) and despawned on deselect / mode exit / target death. Proxies join the **same** pick
-(`SelectionSystem` folds them in through the same rank+depth+id ordering, hit-testing only the
-shape's **border** within `8px/Zoom` so a sprite-covering collider never shadows its entity) and
+`TransformComponent` kept at the shape's **world** centre (the gizmo pivot / selection anchor)
+and a cyan outline VISUAL emitted separately by `ProxySyncSystem.EmitOverlays` (the
+`editor.overlayPrep` draw entry): screen-baked on the native-resolution Editor target at depth
+0.02, projected through `OverlayProjection`, fit-scaled (never zoom-scaled) stroke, clipped to
+the game viewport, **no** `VisibleComponent` (the chrome rule — `MeshPrepSystem` would overwrite
+the identity `WorldMatrix` the screen-baked vertices require); transform placement and visual
+both re-derive from the bound component **every frame** (cheap: selected entity only), so they
+cannot diverge, and the proxies despawn on deselect / mode exit / target death. Proxies join the
+**same** pick (`SelectionSystem` folds them in through the same rank+depth+id ordering, at the
+constant `ProxyBorderPickDepth` — decoupled from the visual's Editor-band depth — hit-testing
+only the shape's **border** within `8px/Zoom` so a sprite-covering collider never shadows its
+entity) and
 the **same** gizmo drag (move handle at the proxy pivot; the tool is forced to Move for proxies).
 The write-back never touches the proxy's own transform: each drag frame pushes a
 `ColliderEditCommand` (before/after snapshot of `Bounds` or `ModelVertices`) against the **bound

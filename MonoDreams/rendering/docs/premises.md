@@ -244,7 +244,13 @@ that never sets an inset is untouched. `IntegerScale` and
 `PixelPerfectDestinationRectangle` recalculate lazily like
 `DestinationRectangle` (a read after a resize/inset change is never stale) —
 and `Recalculate` must assign their backing fields directly (reading the lazy
-properties inside it recurses).
+properties inside it recurses). The same single-source-of-truth rule extends
+to `DevicePixelRatio` (default 1): when a host renders a device-resolution
+backbuffer behind a logically-scaled window (macOS Retina under the editor
+run flag — the level-editor module's `EditorHiDpi`), `ScreenWidth/Height`
+are DEVICE pixels and `CursorInputSystem` multiplies the raw (logical) mouse
+by this ratio, so `ScaleMouseToVirtualCoordinates` keeps inverting the same
+space it composites in — at DPR 1 everything is byte-identical.
 
 **Why:** the Wave-7 editor shell renders the game scaled-down in the center
 with chrome around it; splitting the inset across two owners (compositor vs

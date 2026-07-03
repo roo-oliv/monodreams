@@ -92,8 +92,12 @@ In `Edit`, three kinds of entities coexist in one world:
    outline entities tagged `GizmoProxyComponent`, one per collider on the selected entity,
    Wave 8b). These are **standalone** —
    never `ChildOfComponent`-parented to a game entity — so `HierarchySystem.DisposeOrphans` (live in
-   Edit) cannot cascade-dispose them. The gizmo/outline/proxy meshes set `VisibleComponent` themselves
-   (`CullingSystem` only visits `SpriteInfoComponent` entities). Selection tags the picked **game**
+   Edit) cannot cascade-dispose them. The gizmo/outline/proxy VISUALS are native-resolution chrome:
+   screen-baked meshes on the `Editor` target, emitted by the draw-phase `editor.overlayPrep` pass
+   (`EditorOverlayPrepSystem` → `GizmoSystem.EmitOverlays` / `ProxySyncSystem.EmitOverlays`) through
+   the pure `OverlayProjection`, clipped to the game viewport (`OverlayMeshClip`), and carrying **no**
+   `VisibleComponent` (the chrome rule — `MeshPrepSystem` would overwrite their identity
+   `WorldMatrix`). Selection tags the picked **game**
    entity with `SelectedComponent` (a transient marker, not an overlay entity); the gizmo reads that
    tag to draw the overlay around it. A proxy is the one overlay entity that IS selectable — clicking
    its border tags it `SelectedComponent` so the gizmo can drag it — but a drag writes back into the
@@ -116,8 +120,9 @@ pipeline):
 4. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`).
 5. **Gizmo** (Edit-guarded) — `GizmoSystem` reads `SelectedComponent`, hit-tests the active handle, and
    on a drag opens a coalescing transaction and pushes a `TransformEditCommand` per frame (one undo step
-   on release). It runs **before** `HierarchySystem` so the edit propagates the same frame, and rebuilds
-   the standalone overlay meshes (outline + handle) each frame. When the selected entity is a collider
+   on release). It runs **before** `HierarchySystem` so the edit propagates the same frame; its overlay
+   VISUALS (outline + handle) are emitted later, by the draw pipeline's `editor.overlayPrep` pass, from
+   the frame's final camera + selection. When the selected entity is a collider
    proxy the tool is forced to Move and each drag frame pushes a `ColliderEditCommand` against the
    proxy's bound game entity instead (Wave 8b). It also publishes the **click-ownership claim**
    (`GizmoStateComponent.PressClaimed`, written every Edit frame): true when the press landed on the
@@ -132,8 +137,9 @@ pipeline):
 8. **Camera** — `CameraFollowSystem` (`Freeze`); in `Edit` the editor drives `Camera.Position`/
    `Zoom` directly.
 9. **Toolbar + systems panel** (live in BOTH transport states) — `ButtonMeshPrepSystem` rebuilds
-   the chrome meshes, then `ToolbarSystem` hit-tests the cursor's raw `ScreenPosition` (physical
-   pixels — the chrome is native-resolution) against the button bounds and fires a clicked
+   the chrome meshes, then `ToolbarSystem` hit-tests the cursor's `ScreenPosition` (backbuffer
+   device pixels — the raw mouse × `ViewportManager.DevicePixelRatio`; the chrome is
+   native-resolution) against the button bounds and fires a clicked
    button's `EditorToolbarAction` + the frame's `GameState` through the overlay's dispatch: the
    left-most TRANSPORT buttons (Play/Pause — label synced to the state — and Restart) dispatch in
    both modes through `EditorTransport`; the editing buttons (Save/Load/Undo/Redo/tool/snap)
@@ -156,12 +162,17 @@ pipeline):
 12. **Render** (`RunNormally`) — the full draw stack, unchanged in both modes. `SelectionSystem` runs
    at the **end** of the draw prep (after `YSortSystem`) so it picks on the final post-Y-sort
    depth this frame — and skips a press the gizmo claimed in step 5 (no re-pick, no click-empty
-   clear; the update-before-draw ordering is what makes the same-frame claim readable); the
-   gizmo/selection overlay draws on Main (world-space, sized by
-   `1/Camera.Zoom`); the chrome renders through `EditorChromeRenderSystem` (a screen-space
-   `MasterRenderSystem` pass over `RenderTargetID.Editor` into a native-resolution target,
-   always on while the editor is composed) and `RenderLayer.Native` composites it 1:1 over the
-   whole window, above the game layers (it resolves to null only when the pass is disabled).
+   clear; the update-before-draw ordering is what makes the same-frame claim readable); right
+   after it, `editor.overlayPrep` (`EditorOverlayPrepSystem`) bakes the gizmo/selection/proxy
+   overlay VISUALS in screen pixels on the Editor target — projected through `OverlayProjection`
+   from the frame's FINAL camera + selection (sizes scale with the aspect-fit factor, never the
+   camera zoom) and clipped to the game viewport rectangle; the chrome renders through
+   `EditorChromeRenderSystem` (a screen-space `MasterRenderSystem` pass over
+   `RenderTargetID.Editor` into a native-resolution — device-pixel, under the editor HiDPI path —
+   target, always on while the editor is composed) and `RenderLayer.Native` composites it 1:1
+   over the whole window, above the game layers (it resolves to null only when the pass is
+   disabled). Within the Editor target the overlays occupy the low depth band (proxy 0.02 <
+   gizmo 0.04 < panels 0.1), so the opaque panels cover them over the chrome margins.
 
 ## Invariants
 
@@ -176,13 +187,14 @@ the ones this flow leans on:
   entities drifting while editing.
 - Default `RunMode = Play` + opt-in gating ⇒ existing screens unchanged.
 - Editor-overlay entities are standalone (no `ChildOfComponent`) so the live
-  `DisposeOrphans` can't reap them; the gizmo/outline meshes self-set `VisibleComponent`; delete
+  `DisposeOrphans` can't reap them; the gizmo/outline/proxy visuals are Editor-target chrome with
+  NO `VisibleComponent` (the chrome rule); delete
   snapshots the disposed sub-graph for undo (Wave 4a — `DeleteEntityCommand`).
 - Selection picks MAX final post-Y-sort `DrawComponent.LayerDepth` with a selection-owned
   tiebreak (`EditorIdComponent`), read after `YSortSystem` this frame (Wave 4a) — target-aware
   since Wave 8a: UI/HUD-target sprites hit-test `VirtualPosition` (their transforms are virtual
   coordinates), the composite order ranks across targets (UI/HUD above Main), and the gizmo drags
-  such an entity in virtual space with its overlays on the entity's own target.
+  such an entity in virtual space (the overlay visuals always land on the Editor layer).
 - Undo is bounded (FIFO eviction past the cap) with drag-coalescing (one drag = one entry);
   empty-stack undo/redo is a no-op (Wave 4a). The gizmo drives this: drag-start opens the
   transaction, each frame pushes a `TransformEditCommand`, release commits → one entry (Wave 4b).
