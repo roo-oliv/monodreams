@@ -19,6 +19,16 @@ namespace MonoDreams.LevelEditor.System;
 /// selects the <b>topmost</b> — the one the renderer draws frontmost — clearing any prior
 /// selection. A click on empty space clears the selection.
 ///
+/// <para><b>Click-ownership: the gizmo's presses are skipped.</b> A press the gizmo claimed
+/// (<see cref="GizmoStateComponent.PressClaimed"/> — the press landed on the active tool's handle,
+/// or a handle drag is in progress) is not processed at all: no re-pick, no click-empty clear.
+/// Rotate/scale handles (and a collider proxy's centre move-handle) routinely lie outside the
+/// selected sprite's bounds, so without the claim the same frame's selection pass would clear the
+/// selection (or re-pick an overlapped sprite) and kill the drag the gizmo just began. Ordering
+/// dependency: <c>GizmoSystem</c> writes the claim in the UPDATE pipeline, this system reads it at
+/// the end of the DRAW pipeline — the same frame's claim is always already written. Releases are
+/// never processed (only the press edge is), so releasing over empty space never clears.</para>
+///
 /// <para><b>Target-aware hit-testing (Wave 8a).</b> Candidates live in two coordinate spaces:
 /// <c>Main</c>-target sprites are world-space (drawn through the camera), so they hit-test against
 /// <see cref="CursorInputComponent.WorldPosition"/>; <c>UI</c>/<c>HUD</c>/<c>Scroll</c>-target
@@ -53,8 +63,11 @@ namespace MonoDreams.LevelEditor.System;
 /// that covers its entity's sprite doesn't make the sprite unselectable: click the outline to grab
 /// the proxy, click inside to pick the entity.</para>
 /// </summary>
-[With(typeof(SpriteInfoComponent), typeof(TransformComponent), typeof(DrawComponent), typeof(VisibleComponent))]
-public sealed class SelectionSystem : AEntitySetSystem<GameState>
+/// <remarks>A plain <see cref="ISystem{T}"/> iterating its own candidate set — deliberately NOT an
+/// <c>AEntitySetSystem</c>, whose <c>Update</c> early-outs entirely when the set is empty: in a
+/// scene with zero rendered sprites (e.g. a fresh scene holding only collider entities) that
+/// early-out would silently disable proxy border-picking and click-empty clearing.</remarks>
+public sealed class SelectionSystem : ISystem<GameState>
 {
     /// <summary>How close (in screen pixels, divided by zoom for world units) a click must land to
     /// a proxy's border to pick it. Generous enough to grab a 2px outline comfortably.</summary>
@@ -62,10 +75,14 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
 
     private readonly World _world;
     private readonly Camera? _camera;
+    private readonly EntitySet _spriteSet;
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _proxySet;
+    private readonly EntitySet _gizmoStateSet;
     private int _nextEditorId;
+
+    public bool IsEnabled { get; set; } = true;
 
     // Per-frame pick state (no per-frame allocation in the hot path).
     private bool _picking;
@@ -82,26 +99,48 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
     /// <c>1/Zoom</c> (constant on-screen grab width). Null (the pre-8b signature) falls back to a
     /// zoom of 1 — sprite picking is unaffected either way.</param>
     public SelectionSystem(World world, Camera? camera = null)
-        : base(world.GetEntities()
-            .With<SpriteInfoComponent>().With<TransformComponent>()
-            .With<DrawComponent>().With<VisibleComponent>().AsSet())
     {
         _world = world;
         _camera = camera;
+        _spriteSet = world.GetEntities()
+            .With<SpriteInfoComponent>().With<TransformComponent>()
+            .With<DrawComponent>().With<VisibleComponent>().AsSet();
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _proxySet = world.GetEntities()
             .With<GizmoProxyComponent>().With<TransformComponent>().With<DrawComponent>().AsSet();
+        _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
     }
 
-    protected override void PreUpdate(GameState state)
+    public void Update(GameState state)
     {
+        if (!IsEnabled) return;
+
         _picking = false;
         _hasBest = false;
 
         // Edit-guarded: inert in Play.
         if (state.RunMode != RunMode.Edit) return;
 
+        ArmPickFromCursor();
+        if (!_picking) return;
+
+        // Sprite candidates first, then the sprite-less proxy candidates, through ONE ordering.
+        foreach (var entity in _spriteSet.GetEntities())
+            EvaluateSpriteCandidate(entity);
+        EvaluateProxyCandidates();
+
+        // Clear the previous selection (single-select). Materialize first — mutating components
+        // while iterating an EntitySet is unsafe.
+        ClearSelection();
+
+        if (_hasBest)
+            _best.Set(new SelectedComponent());
+        // else: click on empty space → selection stays cleared.
+    }
+
+    private void ArmPickFromCursor()
+    {
         // Read the single cursor (the editor screen creates exactly one).
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -111,6 +150,14 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
             // WorldPosition AND VirtualPosition are frozen at their last inside-the-viewport
             // values there, so picking (or clearing the selection) would act on a stale point.
             if (input.OutsideViewport) return;
+            // Click-ownership: a press the gizmo claimed — it landed on the active tool's handle,
+            // or a handle drag is in progress — is not a scene click either. Rotate/scale handles
+            // (and a collider proxy's centre move-handle) routinely lie OUTSIDE the selected
+            // sprite's bounds; processing that press here would read as click-empty and clear the
+            // selection (or re-pick an overlapped sprite) in the very frame the drag began,
+            // killing the drag. Same-frame read is safe: GizmoSystem writes the claim in the
+            // UPDATE pipeline; this system runs at the end of the DRAW pipeline.
+            if (GizmoClaimedPress()) return;
             _picking = true;
             _worldPoint = input.WorldPosition;
             _virtualPoint = input.VirtualPosition;
@@ -118,10 +165,8 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
         }
     }
 
-    protected override void Update(GameState state, in Entity entity)
+    private void EvaluateSpriteCandidate(in Entity entity)
     {
-        if (!_picking) return;
-
         // Assign a stable selection-owned tiebreak id the first time this candidate is seen.
         if (!entity.Has<EditorIdComponent>())
             entity.Set(new EditorIdComponent(_nextEditorId++));
@@ -147,23 +192,6 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
             _bestId = id;
             _best = entity;
         }
-    }
-
-    protected override void PostUpdate(GameState state)
-    {
-        if (!_picking) return;
-
-        // Gizmo proxies are sprite-less candidates evaluated through the SAME ordering as the
-        // sprite set above, before the pick is decided.
-        EvaluateProxyCandidates();
-
-        // Clear the previous selection (single-select). Materialize first — mutating components
-        // while iterating an EntitySet is unsafe.
-        ClearSelection();
-
-        if (_hasBest)
-            _best.Set(new SelectedComponent());
-        // else: click on empty space → selection stays cleared.
     }
 
     /// <summary>
@@ -198,6 +226,16 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
                 _best = proxy;
             }
         }
+    }
+
+    /// <summary>Whether the gizmo claimed this frame's left press (see
+    /// <see cref="GizmoStateComponent.PressClaimed"/>). No gizmo-state entity — e.g. a
+    /// selection-only composition — means no claim.</summary>
+    private bool GizmoClaimedPress()
+    {
+        foreach (var e in _gizmoStateSet.GetEntities())
+            return e.Get<GizmoStateComponent>().PressClaimed;
+        return false;
     }
 
     private void ClearSelection()
@@ -255,11 +293,12 @@ public sealed class SelectionSystem : AEntitySetSystem<GameState>
         return id > bestId; // exact-depth tie → larger id (seen later / drawn last) wins
     }
 
-    public override void Dispose()
+    public void Dispose()
     {
+        _spriteSet.Dispose();
         _cursorSet.Dispose();
         _selectedSet.Dispose();
         _proxySet.Dispose();
-        base.Dispose();
+        _gizmoStateSet.Dispose();
     }
 }

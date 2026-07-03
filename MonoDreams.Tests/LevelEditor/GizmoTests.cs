@@ -241,4 +241,270 @@ public class GizmoTests
         history.Undo();
         Assert.Equal(new Vector2(100, 100), entity.Get<TransformComponent>().Position);
     }
+
+    // ---- ClickOwnershipTest (bugfix): the gizmo claims its presses, so a handle press that lands
+    // OUTSIDE the selected sprite's bounds (rotate ring, scale handle) must NOT be treated as
+    // click-empty (clearing the selection and killing the drag) or as a click on another sprite
+    // (re-picking it mid-drag) by the same frame's selection pass. Frames are driven in the real
+    // pipeline order: GizmoSystem (update pipeline) BEFORE SelectionSystem (end of draw pipeline).
+
+    private static Entity MakeSprite(World world, Vector2 position, float finalDepth, int size = 10)
+    {
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(position));
+        e.Set(new SpriteInfoComponent
+        {
+            Source = new Rectangle(0, 0, size, size),
+            Size = new Vector2(size, size),
+            Target = RenderTargetID.Main,
+        });
+        e.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main, LayerDepth = finalDepth });
+        e.Set(new VisibleComponent());
+        return e;
+    }
+
+    private static Entity MakeCursor(World world, Vector2 worldPoint, bool pressed)
+    {
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent
+        {
+            WorldPosition = worldPoint,
+            VirtualPosition = worldPoint,
+            LeftButton = pressed,
+            LeftButtonPressed = pressed,
+        });
+        return cursor;
+    }
+
+    private static void MakeGizmoState(World world, GizmoTool tool)
+    {
+        var state = GizmoStateComponent.Default;
+        state.Tool = tool;
+        world.CreateEntity().Set(state);
+    }
+
+    private static Entity? Selected(World world)
+    {
+        using var set = world.GetEntities().With<SelectedComponent>().AsSet();
+        foreach (var e in set.GetEntities()) return e;
+        return null;
+    }
+
+    /// <summary>One editor frame in the real pipeline order: the gizmo runs in the UPDATE pipeline,
+    /// selection at the END of the DRAW pipeline — the same frame sees both.</summary>
+    private static void Frame(GameState state, GizmoSystem gizmo, SelectionSystem selection)
+    {
+        gizmo.Update(state);
+        selection.Update(state);
+    }
+
+    private static GameState Edit() => new(new GameTime()) { RunMode = RunMode.Edit };
+
+    [Fact]
+    public void ClickOwnershipTest_RotateHandlePressOutsideSpriteBounds_SelectionSurvivesAndDragCompletes()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        MakeGizmoState(world, GizmoTool.Rotate);
+
+        // A selected 10x10 sprite at (100,100). The rotate ring (radius 40) lies far OUTSIDE it.
+        var entity = MakeSprite(world, new Vector2(100, 100), finalDepth: 0.5f);
+        entity.Set(new SelectedComponent());
+
+        // Press exactly on the ring, at pivot + (40, 0) = (140, 100) — empty space, no sprite there.
+        var cursor = MakeCursor(world, new Vector2(140, 100), pressed: true);
+        var edit = Edit();
+        Frame(edit, gizmo, selection);
+
+        // THE BUG: the same frame's selection pass treated the handle press as click-empty and
+        // cleared the selection, killing the drag the gizmo had just begun.
+        Assert.Equal(entity, Selected(world));
+
+        // Held frame: sweep 90 degrees about the pivot (ray +X -> ray +Y).
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(100, 140);
+        input.VirtualPosition = input.WorldPosition;
+        Frame(edit, gizmo, selection);
+        Assert.Equal(entity, Selected(world));
+
+        // Release: the drag completed as ONE undo step and the rotation stuck.
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        Frame(edit, gizmo, selection);
+
+        Assert.Equal(entity, Selected(world));
+        Assert.Equal(MathHelper.PiOver2, entity.Get<TransformComponent>().Rotation, 3);
+        Assert.Equal(1, history.Count);
+    }
+
+    [Fact]
+    public void ClickOwnershipTest_ScaleHandlePressOutsideSpriteBounds_SelectionSurvives()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        MakeGizmoState(world, GizmoTool.Scale);
+
+        var entity = MakeSprite(world, new Vector2(100, 100), finalDepth: 0.5f);
+        entity.Set(new SelectedComponent());
+
+        // The scale handle sits diagonally at pivot + (48, -48) = (148, 52) — outside the sprite.
+        var cursor = MakeCursor(world, new Vector2(148, 52), pressed: true);
+        var edit = Edit();
+        Frame(edit, gizmo, selection);
+        Assert.Equal(entity, Selected(world));
+
+        // Drag +1 scale unit along X -> uniform factor 2; release -> one undo step.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(148 + GizmoTransform.ScaleDragUnit, 52);
+        input.VirtualPosition = input.WorldPosition;
+        Frame(edit, gizmo, selection);
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        Frame(edit, gizmo, selection);
+
+        Assert.Equal(entity, Selected(world));
+        Assert.Equal(new Vector2(2f, 2f), entity.Get<TransformComponent>().Scale);
+        Assert.Equal(1, history.Count);
+    }
+
+    [Fact]
+    public void ClickOwnershipTest_HandlePressOverAnotherSprite_DoesNotRepick()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        MakeGizmoState(world, GizmoTool.Rotate);
+
+        // A is selected; sprite B happens to sit exactly under A's rotate ring at (140, 100).
+        var a = MakeSprite(world, new Vector2(100, 100), finalDepth: 0.5f);
+        var b = MakeSprite(world, new Vector2(135, 95), finalDepth: 0.5f);
+        a.Set(new SelectedComponent());
+
+        var cursor = MakeCursor(world, new Vector2(140, 100), pressed: true);
+        var edit = Edit();
+        Frame(edit, gizmo, selection);
+
+        // The handle press must not re-select B mid-drag (the second-order variant of the bug:
+        // the drag would retarget to B with A's drag-start snapshot).
+        Assert.Equal(a, Selected(world));
+        Assert.False(b.Has<SelectedComponent>());
+
+        // The drag proceeds on A; B is untouched.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(100, 140);
+        input.VirtualPosition = input.WorldPosition;
+        Frame(edit, gizmo, selection);
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        Frame(edit, gizmo, selection);
+
+        Assert.Equal(a, Selected(world));
+        Assert.Equal(MathHelper.PiOver2, a.Get<TransformComponent>().Rotation, 3);
+        Assert.Equal(0f, b.Get<TransformComponent>().Rotation);
+        Assert.Equal(new Vector2(135, 95), b.Get<TransformComponent>().Position);
+    }
+
+    [Fact]
+    public void ClickOwnershipTest_DragContinuation_NeverRepicksOrClears()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        MakeGizmoState(world, GizmoTool.Move);
+
+        var a = MakeSprite(world, new Vector2(100, 100), finalDepth: 0.5f);
+        var b = MakeSprite(world, new Vector2(295, 295), finalDepth: 0.5f);
+        a.Set(new SelectedComponent());
+
+        // Grab the move handle at A's pivot.
+        var cursor = MakeCursor(world, new Vector2(100, 100), pressed: true);
+        var edit = Edit();
+        Frame(edit, gizmo, selection);
+        Assert.Equal(a, Selected(world));
+
+        // Held frame: the cursor crosses onto sprite B — no press edge, nothing may change.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(300, 300);
+        input.VirtualPosition = input.WorldPosition;
+        Frame(edit, gizmo, selection);
+        Assert.Equal(a, Selected(world));
+
+        // A spurious press edge mid-drag (injected channels can produce one) over sprite B: the
+        // in-progress drag owns it — no re-pick, no clear.
+        input.LeftButtonPressed = true;
+        Frame(edit, gizmo, selection);
+        Assert.Equal(a, Selected(world));
+        Assert.False(b.Has<SelectedComponent>());
+
+        // Release over empty space: a release must NEVER clear the selection.
+        input.LeftButtonPressed = false;
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        input.WorldPosition = new Vector2(500, 500);
+        input.VirtualPosition = input.WorldPosition;
+        Frame(edit, gizmo, selection);
+
+        Assert.Equal(a, Selected(world));
+        Assert.Equal(new Vector2(500, 500), a.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(295, 295), b.Get<TransformComponent>().Position);
+        Assert.Equal(1, history.Count); // the whole drag is still exactly one undo step
+    }
+
+    [Fact]
+    public void ClickOwnershipTest_GenuineClickEmpty_StillClears()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        MakeGizmoState(world, GizmoTool.Move);
+
+        var entity = MakeSprite(world, new Vector2(100, 100), finalDepth: 0.5f);
+        entity.Set(new SelectedComponent());
+
+        // (500,500) is on no handle (move handle radius 9 at the pivot) and on no sprite: the
+        // claim must not over-reach — a genuine click on empty space still clears.
+        MakeCursor(world, new Vector2(500, 500), pressed: true);
+        Frame(Edit(), gizmo, selection);
+
+        Assert.Null(Selected(world));
+    }
+
+    [Fact]
+    public void ClickOwnershipTest_ClickAnotherSpriteAwayFromHandles_Reselects()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        MakeGizmoState(world, GizmoTool.Move);
+
+        var a = MakeSprite(world, new Vector2(100, 100), finalDepth: 0.5f);
+        var b = MakeSprite(world, new Vector2(300, 300), finalDepth: 0.5f);
+        a.Set(new SelectedComponent());
+
+        // A press over sprite B, far from any of A's handles, is an ordinary re-pick.
+        MakeCursor(world, new Vector2(305, 305), pressed: true);
+        Frame(Edit(), gizmo, selection);
+
+        Assert.Equal(b, Selected(world));
+        Assert.False(a.Has<SelectedComponent>());
+    }
 }

@@ -42,6 +42,14 @@ namespace MonoDreams.LevelEditor.System;
 /// returns early), active in Edit. It must run in the Update phase, before <c>HierarchySystem</c>,
 /// so an edit propagates to world space the same frame.</para>
 ///
+/// <para><b>Click-ownership.</b> The gizmo publishes a frame-scoped claim
+/// (<see cref="GizmoStateComponent.PressClaimed"/>) on every Edit frame: true when the press edge
+/// landed on the active tool's handle or while a drag is in progress, false otherwise.
+/// <c>SelectionSystem</c> (end of the draw pipeline, same frame) skips a claimed press entirely —
+/// otherwise a handle that lies outside the selected sprite's bounds (the rotate ring, the scale
+/// handle, a proxy's centre move-handle) would read as click-empty and clear the selection in the
+/// very frame the drag began, cancelling the drag one frame later.</para>
+///
 /// <para><b>Target-aware space (Wave 8a).</b> A selected entity whose render target is
 /// <c>UI</c>/<c>HUD</c>/<c>Scroll</c> lives in <b>virtual</b> (screen-space) coordinates, not world
 /// space: for those the gizmo reads the cursor's <c>VirtualPosition</c>, draws its overlays on the
@@ -125,14 +133,17 @@ public sealed class GizmoSystem : ISystem<GameState>
         {
             if (_dragging) CancelDrag();
             HideOverlays();
+            WriteClaim(false);
             return;
         }
 
         if (!TryGetSelected(out var target))
         {
-            // Nothing selected — finish any in-flight drag and hide the overlays.
+            // Nothing selected — finish any in-flight drag and hide the overlays. No selection
+            // means no handles, so nothing to claim: the selection pass owns every press.
             if (_dragging) CancelDrag();
             HideOverlays();
+            WriteClaim(false);
             return;
         }
 
@@ -155,23 +166,40 @@ public sealed class GizmoSystem : ISystem<GameState>
 
         if (!TryGetCursor(out var cursor))
         {
+            WriteClaim(false);
             EnsureOverlays();
             UpdateOverlayMeshes(target, tool, pivot, invZoom, space);
             return;
         }
 
         var cursorPoint = worldSpace ? cursor.WorldPosition : cursor.VirtualPosition;
-        ProcessDrag(target, tool, cursor, cursorPoint, pivot, invZoom);
+        // Click-ownership: publish whether the gizmo owns this frame's press (a handle was hit on
+        // the press edge, or a drag is in progress) so the SAME frame's selection pass — which
+        // runs later, at the end of the draw pipeline — neither re-picks nor click-empty-clears
+        // under a handle that lies outside the selected sprite's bounds. Written every Edit frame
+        // (set or cleared), so it cannot go stale while the gizmo runs.
+        WriteClaim(ProcessDrag(target, tool, cursor, cursorPoint, pivot, invZoom));
 
         EnsureOverlays();
         UpdateOverlayMeshes(target, tool, pivot, invZoom, space);
     }
 
-    private void ProcessDrag(Entity target, GizmoTool tool, in CursorInputComponent cursor,
+    /// <summary>Advances the drag lifecycle for this frame. Returns whether the gizmo owns the
+    /// cursor's left press this frame (the click-ownership claim the selection pass honors).</summary>
+    private bool ProcessDrag(Entity target, GizmoTool tool, in CursorInputComponent cursor,
         Vector2 cursorPoint, Vector2 pivot, float invZoom)
     {
         if (_dragging)
         {
+            // The drag is bound to the entity it grabbed. If the selection moved elsewhere
+            // mid-drag (Delete/undo/a headless op — a click cannot: the claim suppresses it),
+            // the drag's premise is gone; cancel exactly like a cleared selection.
+            if (target != _dragTarget)
+            {
+                CancelDrag();
+                return false;
+            }
+
             // Apply the live edit from the drag-start cursor → current cursor so snapping is stable
             // and floating error does not accumulate frame-to-frame (the target is recomputed from
             // the immutable drag-start state each frame, not stacked on the previous frame's result).
@@ -179,17 +207,22 @@ public sealed class GizmoSystem : ISystem<GameState>
 
             if (cursor.LeftButtonReleased || !cursor.LeftButton)
                 EndDrag();
-            return;
+            // The (possibly just-ended) drag owned this frame's cursor: even a spurious same-frame
+            // press edge belongs to the gizmo, never to the selection pass.
+            return true;
         }
 
         // Not dragging: a press over the active handle starts a drag. A press over the editor
         // chrome / letterbox margins never starts one — the cursor's world AND virtual positions
         // are frozen at their last inside-the-viewport values there (a toolbar click must not
         // grab the gizmo).
-        if (!cursor.LeftButtonPressed || cursor.OutsideViewport) return;
-        if (!HandleHit(tool, pivot, cursorPoint, invZoom)) return;
+        if (!cursor.LeftButtonPressed || cursor.OutsideViewport) return false;
+        if (!HandleHit(tool, pivot, cursorPoint, invZoom)) return false;
 
         BeginDrag(target, tool, cursorPoint, pivot);
+        // Claim even when BeginDrag refused (an unsnapshottable proxy binding): the press landed
+        // on a handle, so it must not fall through to selection as a click-empty / re-pick.
+        return true;
     }
 
     /// <summary>
@@ -548,14 +581,25 @@ public sealed class GizmoSystem : ISystem<GameState>
         return false;
     }
 
-    private ref readonly GizmoStateComponent GetGizmoState()
+    private ref readonly GizmoStateComponent GetGizmoState() => ref GetGizmoStateEntity().Get<GizmoStateComponent>();
+
+    private Entity GetGizmoStateEntity()
     {
         foreach (var e in _gizmoStateSet.GetEntities())
-            return ref e.Get<GizmoStateComponent>();
+            return e;
         // No state entity registered — create one with defaults so the gizmo still works standalone.
         var created = _world.CreateEntity();
         created.Set(GizmoStateComponent.Default);
-        return ref created.Get<GizmoStateComponent>();
+        return created;
+    }
+
+    /// <summary>Publishes the click-ownership claim onto the shared gizmo-state entity (see
+    /// <see cref="GizmoStateComponent.PressClaimed"/>). Written every frame the gizmo runs, so the
+    /// claim is exactly as fresh as the drag state it mirrors.</summary>
+    private void WriteClaim(bool claimed)
+    {
+        ref var gizmoState = ref GetGizmoStateEntity().Get<GizmoStateComponent>();
+        gizmoState.PressClaimed = claimed;
     }
 
     public void Dispose()

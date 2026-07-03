@@ -20,10 +20,12 @@ public enum GizmoTool
 
 /// <summary>
 /// The gizmo's configuration — pure data on a single editor-owned state entity that the toolbar
-/// mutates and <c>GizmoSystem</c> reads. ECS purity: this carries only the persistent settings
-/// (which tool is active, whether grid-snap is on, the grid step); the transient per-drag
-/// accumulation lives in <c>GizmoSystem</c>'s private fields (it is hot-path frame state, not data
-/// other systems read), and the visible handle/highlight overlays are separate standalone entities.
+/// mutates and <c>GizmoSystem</c> reads. ECS purity: this carries the persistent settings
+/// (which tool is active, whether grid-snap is on, the grid step) plus the one piece of per-frame
+/// gizmo state another system must observe — the <see cref="PressClaimed"/> click-ownership flag;
+/// the rest of the transient per-drag accumulation lives in <c>GizmoSystem</c>'s private fields
+/// (hot-path frame state no other system reads), and the visible handle/highlight overlays are
+/// separate standalone entities.
 ///
 /// <para>The toolbar drives this: a tool-select button sets <see cref="Tool"/>, the snap toggle
 /// flips <see cref="SnapEnabled"/>. <c>GizmoSystem</c> never owns a second copy — it reads this one
@@ -31,6 +33,20 @@ public enum GizmoTool
 /// </summary>
 public struct GizmoStateComponent
 {
+    /// <summary>
+    /// Click-ownership claim (frame-scoped): true while the gizmo owns the cursor's left press —
+    /// the press edge landed on the active tool's handle (a proxy target forces the Move handle),
+    /// or a handle drag is in progress. <c>GizmoSystem</c> writes it on <b>every</b> Edit frame it
+    /// runs (set or cleared, so it cannot go stale while the gizmo is running); <c>SelectionSystem</c>
+    /// reads it the <b>same frame</b> and skips a claimed press entirely — no re-pick, no
+    /// click-empty clear. Without the claim, pressing a rotate/scale handle that lies outside the
+    /// selected sprite's bounds reads as a click on empty space and clears the selection in the
+    /// same frame the drag began, killing the drag (and despawning gizmo overlays / collider
+    /// proxies). The same-frame read is safe by pipeline ordering: the gizmo runs in the UPDATE
+    /// pipeline, selection at the end of the DRAW pipeline.
+    /// </summary>
+    public bool PressClaimed;
+
     /// <summary>The active transform tool (move / rotate / scale).</summary>
     public GizmoTool Tool;
 

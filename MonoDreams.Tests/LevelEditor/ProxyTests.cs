@@ -372,6 +372,86 @@ public class ProxyTests
         Assert.False(boxProxy.Has<SelectedComponent>());
     }
 
+    // ---- Click-ownership (bugfix): pressing the selected proxy's move handle — the shape's world
+    // centre, which is neither on the proxy's border nor (here) over any sprite — must not be
+    // treated as click-empty by the same frame's selection pass (which would deselect, despawn the
+    // family via ProxySyncSystem, and kill the drag). Frames run in the real pipeline order:
+    // gizmo -> proxy sync (update pipeline), then selection (end of draw pipeline). ----
+
+    [Fact]
+    public void ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var sync = new ProxySyncSystem(world, camera);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
+        world.CreateEntity().Set(GizmoStateComponent.Default); // shared editor state (tool = Move)
+
+        void Frame(GameState state, Entity cursorEntity)
+        {
+            gizmo.Update(state);
+            sync.Update(state);
+            selection.Update(state);
+            // A real frame's press edge lasts one frame.
+            ref var input = ref cursorEntity.Get<CursorInputComponent>();
+            input.LeftButtonPressed = false;
+            input.LeftButtonReleased = false;
+        }
+
+        // A sprite-less owner (a pure trigger volume): its box collider covers EMPTY space —
+        // world rect (110,120)-(140,160) — the harshest variant of the reported bug.
+        var owner = world.CreateEntity();
+        owner.Set(new TransformComponent(new Vector2(100, 100)));
+        owner.Set(new BoxColliderComponent(new Rectangle(10, 20, 30, 40)));
+        owner.Set(new SelectedComponent());
+
+        var cursor = CreateCursor(world, new Vector2(0, 0), pressed: false);
+        var edit = Edit();
+        Frame(edit, cursor);
+        Assert.Equal(1, proxies.Count);
+        Entity boxProxy = default;
+        foreach (var proxy in proxies.GetEntities()) boxProxy = proxy;
+
+        // Border press: selection moves onto the proxy (8b behavior preserved), family stays alive.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.WorldPosition = new Vector2(110, 140); // left edge of the world rect
+        input.LeftButton = true;
+        input.LeftButtonPressed = true;
+        Frame(edit, cursor);
+        Assert.True(boxProxy.Has<SelectedComponent>());
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        Frame(edit, cursor);
+        Assert.True(boxProxy.IsAlive);
+        Assert.True(boxProxy.Has<SelectedComponent>());
+
+        // Press the proxy's move handle at the shape's world centre (125, 140): 15/20 units away
+        // from every border edge (outside the 8px border pick) and over no sprite. THE BUG: the
+        // selection pass treated this press as click-empty, deselecting the proxy — the family
+        // despawned and the drag died.
+        input.WorldPosition = new Vector2(125, 140);
+        input.LeftButton = true;
+        input.LeftButtonPressed = true;
+        Frame(edit, cursor);
+        Assert.True(boxProxy.Has<SelectedComponent>());
+        Assert.Equal(1, proxies.Count);
+
+        // Drag by (40, 10) and release: the write-back lands in Bounds, one undo step.
+        input.WorldPosition = new Vector2(165, 150);
+        Frame(edit, cursor);
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        Frame(edit, cursor);
+
+        Assert.Equal(new Rectangle(50, 30, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(1, history.Count);
+        Assert.True(boxProxy.IsAlive);
+        Assert.True(boxProxy.Has<SelectedComponent>());
+    }
+
     // ---- Pure geometry: the world→model delta honors rotation/scale (and IgnoreTransformRotation) ----
 
     [Fact]
