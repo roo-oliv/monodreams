@@ -1,17 +1,24 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DefaultEcs;
+using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
+using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Message;
 using MonoDreams.State;
+using MonoDreams.System;
+using MonoDreams.System.Collision;
+using MonoDreams.System.Physics;
 using Xunit;
 using GameCamera = MonoDreams.Component.Camera;
 
@@ -106,7 +113,11 @@ public class ColliderActionTests
         Assert.True(entity.Has<BoxColliderComponent>());
         var box = entity.Get<BoxColliderComponent>();
         Assert.Equal(new Rectangle(-16, -12, 32, 12), box.Bounds);
-        Assert.False(box.Passive);
+        // A footprint is a PASSIVE static blocker (ColliderDefaults.FootprintPassive): Passive=true
+        // = "does not initiate a collision", so a static prop blocks the player without being pushed
+        // by resolution. (The Slice-2 assertion here was Assert.False — it asserted the wrong thing:
+        // a Passive=false footprint drifts when the player walks into it. Bug 2 fix, Slice 3.5.)
+        Assert.True(box.Passive);
         Assert.True(box.Enabled);
         Assert.Equal(1, history.Count);
 
@@ -134,6 +145,7 @@ public class ColliderActionTests
         Assert.True(entity.Has<ConvexColliderComponent>());
         var convex = entity.Get<ConvexColliderComponent>();
         Assert.Equal(ColliderDefaults.FootprintHexagon(FeetOriginSprite()), convex.ModelVertices);
+        Assert.True(convex.Passive); // a footprint is a passive static blocker (Bug 2 fix, Slice 3.5)
         // The fresh collider's derived world data reflects the entity's transform (physics is
         // frozen in Edit — the command refreshes it itself).
         Assert.Equal(new Vector2(50 + -8, 50 + -12), convex.WorldVertices[0]);
@@ -141,6 +153,63 @@ public class ColliderActionTests
 
         history.Undo();
         Assert.False(entity.Has<ConvexColliderComponent>());
+    }
+
+    // ---- Bug 2 behaviour: an editor-added footprint blocks an active body without drifting ----
+
+    /// <summary>
+    /// The footprint the <c>+Box</c> action adds is a PASSIVE static blocker: an active body walking
+    /// into it is stopped, and the footprint owner is NOT pushed by the resolution (mirrors the
+    /// walkable-island milestone's building-footprint blocking assertion). Before the Bug 2 fix the
+    /// footprint was <c>Passive=false</c> → it initiated a collision and DRIFTED away from the player.
+    /// Drives the REAL collision + physics pipeline in-process (no window).
+    /// </summary>
+    [Fact]
+    public void AddBoxFootprint_IsPassiveStaticBlocker_BlocksActiveBodyWithoutDrifting()
+    {
+        using var world = new World();
+        using var runner = new DefaultParallelRunner(1);
+        var (commands, _) = NewCommands(world);
+
+        // Detection auto-tags colliders on their component-ADDED event, so it must exist BEFORE any
+        // collider is created (mirrors the real screen + the milestone).
+        var velocity = new TransformVelocitySystem(world, runner);
+        var detect = new TransformCollisionDetectionSystem<CollisionMessage>(world, MilestoneCollision.Create);
+        var resolve = new TransformPhysicalCollisionResolutionSystem(world);
+        var commit = new TransformCommitSystem(world, runner);
+
+        // A static prop at (200,0) with a feet-origin sprite → footprint world box x∈[184,216],
+        // y∈[-12,0]. The +Box action gives it a passive footprint (Bug 2 fix).
+        var prop = world.CreateEntity();
+        prop.Set(new EntityInfoComponent("Prop", "tree"));
+        prop.Set(new TransformComponent(new Vector2(200, 0)));
+        prop.Set(FeetOriginSprite());
+        prop.Set(new SelectedComponent());
+        commands.AddBoxCollider(Edit());
+        Assert.True(prop.Get<BoxColliderComponent>().Passive); // the fix under test
+
+        // An ACTIVE player box moving right, straddling the footprint's y-band.
+        var player = world.CreateEntity();
+        player.Set(new EntityInfoComponent("Player"));
+        player.Set(new TransformComponent(new Vector2(100, 0)));
+        player.Set(new BoxColliderComponent(new Rectangle(-8, -8, 16, 16))); // non-passive
+        player.Set(new VelocityComponent(new Vector2(15, 0)));
+
+        // Time = 1s so a velocity of v moves v units per stepped frame.
+        var play = new GameState(new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(1))) { RunMode = RunMode.Play };
+        for (var i = 0; i < 15; i++)
+        {
+            velocity.Update(play);
+            detect.Update(play);
+            resolve.Update(play);
+            commit.Update(play);
+        }
+
+        var playerX = player.Get<TransformComponent>().Position.X;
+        Assert.True(playerX < 184, $"player should be blocked before the footprint's left edge (184), was X={playerX}");
+        Assert.True(playerX > 100, $"player should have advanced from its start (walked toward the prop), was X={playerX}");
+        // The static footprint never moved (a Passive=false footprint would have drifted right).
+        Assert.Equal(new Vector2(200, 0), prop.Get<TransformComponent>().Position);
     }
 
     // ---- Remove: snapshots restore the component field-for-field ----

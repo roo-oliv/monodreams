@@ -604,4 +604,100 @@ public class SceneRoundTripTests
             Assert.Equal(new Vector2(200, 300), reloaded.Get<TransformComponent>().Position);
         });
     }
+
+    // ---- Bug 1 (Slice 3.5): a reloaded scene re-saves identically — load → edit → save is a fixed point ----
+
+    /// <summary>
+    /// The core iterate-on-a-level loop. <see cref="SceneObjectComponent"/> is transient editor state
+    /// (never serialized), so a freshly reloaded scene carries no save-root tags; the reader must
+    /// <b>re-tag each reconstructed scene root</b> or the next Save (which only writes tagged roots +
+    /// their closure) writes an empty scene and silently loses every edit made since loading.
+    ///
+    /// <para>Mixed content (a placed prop, a boundary with baked segment children, a trigger) → save →
+    /// reload via <see cref="LoadSceneRequest"/> → edit a loaded entity's transform → save again. The
+    /// second save must equal the first (same 3 authored roots, boundary bake child still excluded)
+    /// PLUS the edit. Before the fix the second save is EMPTY (0 entities) — this test fails.</para>
+    /// </summary>
+    [Fact]
+    public void ReloadedSceneReTagsRoots_LoadEditSaveIsAFixedPoint()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            var edit = new GameState(new GameTime()) { RunMode = RunMode.Edit };
+
+            // ---- BUILD + SAVE #1 ----
+            using var world1 = new World();
+            using var bake1 = new MonoDreams.LevelEditor.System.BoundaryBakeSystem(world1);
+
+            var prop = world1.CreateEntity();
+            prop.Set(new SceneObjectComponent());
+            prop.Set(new EntityInfoComponent("Prop", "tree"));
+            prop.Set(new TransformComponent(new Vector2(120, 80)));
+            prop.Set(new SpriteInfoComponent
+            {
+                AssetKey = "Atlas/tree", Size = new Vector2(16, 32),
+                Target = RenderTargetID.Main, LayerDepth = 0.5f,
+            });
+
+            var trigger = MonoDreams.LevelEditor.Assets.TriggerFactory.Create(world1,
+                new MonoDreams.LevelEditor.Assets.TriggerType("evidence", "Evidence", new Vector2(48, 48)),
+                new Vector2(300, 50), "evidence_01");
+            trigger.Set(new SceneObjectComponent());
+
+            var boundary = world1.CreateEntity();
+            boundary.Set(new SceneObjectComponent());
+            boundary.Set(new EntityInfoComponent("Boundary", "boundary_01"));
+            boundary.Set(new TransformComponent(new Vector2(200, 300)));
+            boundary.Set(new MonoDreams.LevelEditor.Component.BoundaryComponent(
+                new[] { new Vector2(-40, 0), new Vector2(0, 0), new Vector2(40, 20) }, 24f));
+            bake1.Update(edit); // 2 baked segment children (never serialized)
+
+            var save1Serializer = new SceneSerializer(NewEngineRegistry());
+            new SceneWriter(save1Serializer).Save(world1, SceneFileName, camera: null, layers: null);
+            var save1 = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName])!;
+            Assert.Equal(3, save1.Entities.Count); // prop + trigger + boundary
+            Assert.DoesNotContain(save1.Entities, e => e.Components.ContainsKey(EngineComponentSerializers.ConvexColliderKey));
+
+            // ---- RELOAD onto a fresh world ----
+            using var world2 = new World();
+            using var bake2 = new MonoDreams.LevelEditor.System.BoundaryBakeSystem(world2);
+            using var reader = new SceneReaderSystem(world2, new SceneSerializer(NewEngineRegistry()),
+                content: null, loadTexture: new TextureLoadSpy().Load);
+            world2.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+            bake2.Update(edit); // regenerate the baked children
+
+            // The reader re-tagged the 3 authored roots (without the fix this is 0 → save #2 empty).
+            Assert.Equal(3, CollectEntitiesWith<SceneObjectComponent>(world2).Count);
+            // The baked children exist but are NOT tagged (bake products never serialize).
+            var baked = CollectEntitiesWith<MonoDreams.LevelEditor.Component.BakedProductComponent>(world2);
+            Assert.Equal(2, baked.Count);
+            Assert.DoesNotContain(baked, e => e.Has<SceneObjectComponent>());
+
+            // ---- EDIT a loaded entity's transform ----
+            var loadedProp = CollectEntitiesWith<SpriteInfoComponent>(world2)
+                .Single(e => e.Has<EntityInfoComponent>() && e.Get<EntityInfoComponent>().Type == "Prop");
+            loadedProp.Set(new TransformComponent(new Vector2(999, 111)));
+
+            // ---- SAVE #2 ----
+            var save2Serializer = new SceneSerializer(NewEngineRegistry());
+            new SceneWriter(save2Serializer).Save(world2, SceneFileName, camera: null, layers: null);
+            var save2 = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName])!;
+
+            // FIXED POINT: same root set (3, NOT 0), boundary bake child still excluded.
+            Assert.Equal(save1.Entities.Count, save2.Entities.Count);
+            Assert.Equal(3, save2.Entities.Count);
+            Assert.DoesNotContain(save2.Entities, e => e.Components.ContainsKey(EngineComponentSerializers.ConvexColliderKey));
+            Assert.Single(save2.Entities, e => e.Components.ContainsKey(EngineComponentSerializers.BoundaryKey));
+
+            // The edit PERSISTED: the prop's serialized transform is the new position.
+            var savedProp = save2.Entities.Single(e =>
+                e.Components.TryGetValue(EngineComponentSerializers.EntityInfoKey, out var info)
+                && info.GetProperty("type").GetString() == "Prop");
+            var pos = savedProp.Components[EngineComponentSerializers.TransformKey]
+                .GetProperty("position").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+            Assert.Equal(999f, pos[0]);
+            Assert.Equal(111f, pos[1]);
+        });
+    }
 }
