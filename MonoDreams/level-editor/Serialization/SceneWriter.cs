@@ -108,6 +108,14 @@ public sealed class SceneWriter(SceneSerializer serializer)
         List<Entity> result,
         HashSet<Entity> seen)
     {
+        // Bake products (e.g. a boundary's segment colliders) are NEVER serialized — even inside a
+        // tagged root's ChildOf closure. The durable truth is the authoring source (the polyline),
+        // and the products regenerate on load; re-serializing them would double-count on the next
+        // load and bake stale run state into the file. (The 'bake products never scene-serialize'
+        // invariant, first applied here — Slice 3.) Skipping the subtree is correct because a bake
+        // product is always a LEAF or a sub-tree of derived entities, never an authored ancestor.
+        if (entity.Has<BakedProductComponent>()) return;
+
         if (!seen.Add(entity)) return; // already included (e.g. a child that is also tagged)
         result.Add(entity);
 

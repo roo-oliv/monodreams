@@ -33,6 +33,7 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
     private readonly KeyState _frame = new();
     private readonly KeyState _orderForward = new();
     private readonly KeyState _orderBack = new();
+    private readonly KeyState _commit = new();
     private readonly List<(AInputState inputState, Keys)> _mapping;
 
     public DefaultEditorKeys()
@@ -45,6 +46,7 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
             (_frame, Keys.Home),
             (_orderForward, Keys.PageUp),
             (_orderBack, Keys.PageDown),
+            (_commit, Keys.Enter), // the boundary tool's commit
         ];
         Bindings = new EditorInputBindings(
             deleteRequested: _ => _delete.JustPressed(),
@@ -52,7 +54,8 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
             redoRequested: _ => _redo.JustPressed(),
             frameRequested: _ => _frame.JustPressed(),
             orderForwardRequested: _ => _orderForward.JustPressed(),
-            orderBackRequested: _ => _orderBack.JustPressed());
+            orderBackRequested: _ => _orderBack.JustPressed(),
+            commitRequested: _ => _commit.JustPressed());
     }
 
     public override List<(AInputState inputState, Keys)> InputMapping => _mapping;

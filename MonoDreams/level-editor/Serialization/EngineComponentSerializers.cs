@@ -53,6 +53,7 @@ public static class EngineComponentSerializers
     public const string RigidBodyKey = "core.RigidBody";
     public const string VelocityKey = "core.Velocity";
     public const string ChildOfKey = "core.ChildOf";
+    public const string BoundaryKey = "core.Boundary";
 
     /// <summary>Registers every engine serializer on <paramref name="registry"/>. Call once at init.</summary>
     public static void RegisterEngineComponents(this ComponentSerializerRegistry registry)
@@ -66,6 +67,7 @@ public static class EngineComponentSerializers
         registry.Register(ConvexColliderKey, typeof(ConvexColliderComponent), WriteConvexCollider, ReadConvexCollider);
         registry.Register(RigidBodyKey, typeof(RigidBodyComponent), WriteRigidBody, ReadRigidBody);
         registry.Register(VelocityKey, typeof(VelocityComponent), WriteVelocity, ReadVelocity);
+        registry.Register(BoundaryKey, typeof(LevelEditor.Component.BoundaryComponent), WriteBoundary, ReadBoundary);
 
         // The structural parent link is captured as SceneEntityData.Parent, not a component body —
         // register it so a parented entity never trips the unregistered-component warning.
@@ -292,6 +294,31 @@ public static class EngineComponentSerializers
     {
         var dto = json.Deserialize<VelocityDto>()!;
         e.Set(new VelocityComponent(ToVec(dto.Current)) { Last = ToVec(dto.Last) });
+    }
+
+    // ---- BoundaryComponent (freeform boundary polyline; the segment colliders are baked, never serialized) ----
+
+    private sealed class BoundaryDto
+    {
+        [JsonPropertyName("points")] public float[][] Points { get; set; } = Array.Empty<float[]>();
+        [JsonPropertyName("thickness")] public float Thickness { get; set; } =
+            LevelEditor.Component.BoundaryComponent.DefaultThickness;
+    }
+
+    private static JsonElement WriteBoundary(Entity e)
+    {
+        var b = e.Get<LevelEditor.Component.BoundaryComponent>();
+        return JsonSerializer.SerializeToElement(new BoundaryDto
+        {
+            Points = (b.Points ?? Array.Empty<Vector2>()).Select(Vec).ToArray(),
+            Thickness = b.Thickness,
+        });
+    }
+
+    private static void ReadBoundary(Entity e, JsonElement json)
+    {
+        var dto = json.Deserialize<BoundaryDto>()!;
+        e.Set(new LevelEditor.Component.BoundaryComponent(dto.Points.Select(ToVec).ToArray(), dto.Thickness));
     }
 
     // ---- ChildOfComponent: structural-link stub (body is empty; the link is SceneEntityData.Parent) ----

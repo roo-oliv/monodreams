@@ -74,6 +74,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private readonly World _world;
     private readonly AssetCatalog _catalog;
     private readonly IReadOnlyList<PaletteBand> _bands;
+    private readonly IReadOnlyList<TriggerType> _triggerTypes;
     private readonly FileAssetTextureLoader _textures;
     private readonly SceneSerializer _serializer;
     private readonly EditorHistory _history;
@@ -96,7 +97,19 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         public (int Row, int X) Flowed;
     }
 
+    // A trigger-type button (island-authoring Slice 3), flowed in the SAME item grid after the
+    // sprite items (a "Triggers section" — prefixed labels distinguish them).
+    private sealed class TriggerButton
+    {
+        public required TriggerType Type;
+        public Entity Button;
+        public Entity Label;
+        public int Width;
+        public (int Row, int X) Flowed;
+    }
+
     private readonly List<ItemButton> _items = new();
+    private readonly List<TriggerButton> _triggerItems = new();
     private readonly List<(int Index, Entity Button, Entity Label)> _bandButtons = new();
     private Entity _emptyHint;
     private bool _built;
@@ -106,6 +119,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private float _laidOutScale;
 
     private int _armedIndex = -1;
+    private int _armedTrigger = -1;
     private int _bandIndex;
     private Entity _ghost;
     private bool _ghostAlive;
@@ -126,12 +140,14 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         EditorHistory history,
         ViewportManager? viewportManager = null,
         BitmapFont? font = null,
-        Func<GameState, bool>? cancelRequested = null)
+        Func<GameState, bool>? cancelRequested = null,
+        IReadOnlyList<TriggerType>? triggerTypes = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _bands = bands ?? throw new ArgumentNullException(nameof(bands));
         if (bands.Count == 0) throw new ArgumentException("The palette needs at least one layer band.", nameof(bands));
+        _triggerTypes = triggerTypes ?? Array.Empty<TriggerType>();
         _textures = textures ?? throw new ArgumentNullException(nameof(textures));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _history = history ?? throw new ArgumentNullException(nameof(history));
@@ -185,9 +201,42 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     {
         if (index < 0 || index >= _catalog.Entries.Count) return;
         _armedIndex = index;
+        _armedTrigger = -1; // sprite item and trigger arming are mutually exclusive
         SetMode(EditorToolMode.Place);
         Logger.Info($"[level-editor] Palette: armed '{_catalog.Entries[index].Id}' " +
                     $"on band '{SelectedBand.Name}'.");
+    }
+
+    /// <summary>The armed trigger type (island-authoring §5.3), or null when a sprite item is armed
+    /// (or nothing). The trigger overlay reads this to draw the placement ghost box.</summary>
+    public TriggerType? ArmedTrigger =>
+        _armedTrigger >= 0 && _armedTrigger < _triggerTypes.Count ? _triggerTypes[_armedTrigger] : null;
+
+    /// <summary>Arms the trigger type whose <see cref="TriggerType.Prefix"/> matches (the headless
+    /// <c>trigger:&lt;prefix&gt;</c> op). Returns false (loud) for an unknown prefix.</summary>
+    public bool ArmTrigger(string prefix)
+    {
+        for (var i = 0; i < _triggerTypes.Count; i++)
+        {
+            if (!string.Equals(_triggerTypes[i].Prefix, prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            ArmTriggerByIndex(i);
+            return true;
+        }
+        Logger.Warning($"[level-editor] Palette: no trigger type '{prefix}' to arm.");
+        return false;
+    }
+
+    /// <summary>Arms the trigger type at <paramref name="index"/>: mode flips to
+    /// <see cref="EditorToolMode.Place"/>; a click places the zone (no sprite ghost — the trigger
+    /// overlay draws the box preview).</summary>
+    public void ArmTriggerByIndex(int index)
+    {
+        if (index < 0 || index >= _triggerTypes.Count) return;
+        _armedTrigger = index;
+        _armedIndex = -1;
+        DespawnGhost(); // triggers use the trigger-overlay box ghost, not the sprite ghost
+        SetMode(EditorToolMode.Place);
+        Logger.Info($"[level-editor] Palette: armed trigger '{_triggerTypes[index].Prefix}'.");
     }
 
     /// <summary>Disarms placement back to <see cref="EditorToolMode.SelectTransform"/> (Escape /
@@ -195,6 +244,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     public void Disarm()
     {
         _armedIndex = -1;
+        _armedTrigger = -1;
         SetMode(EditorToolMode.SelectTransform);
         DespawnGhost();
     }
@@ -230,10 +280,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             // Self-heal the shared mode: Place with nothing armed (e.g. a stale state after a
             // failed headless arm) falls back to SelectTransform so no tool family is muted.
-            if (GetMode() == EditorToolMode.Place && _armedIndex < 0)
+            if (GetMode() == EditorToolMode.Place && _armedIndex < 0 && _armedTrigger < 0)
                 SetMode(EditorToolMode.SelectTransform);
 
-            if (_cancelRequested?.Invoke(state) == true && _armedIndex >= 0)
+            if (_cancelRequested?.Invoke(state) == true && (_armedIndex >= 0 || _armedTrigger >= 0))
                 Disarm();
 
             hovered = HandleInteraction(state);
@@ -303,6 +353,16 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 return (-1, i);
             }
 
+            // Triggers section (flowed in the same grid; hovered index offset by the item count).
+            for (var j = 0; j < _triggerItems.Count; j++)
+            {
+                if (!PaletteLayout.TryItemRect(strip, _triggerItems[j].Flowed, _triggerItems[j].Width,
+                        _scroll, out var rect, scale)) continue;
+                if (!rect.Contains(point)) continue;
+                if (input.LeftButtonReleased) ArmTriggerByIndex(j);
+                return (-1, _items.Count + j);
+            }
+
             return (-1, -1);
         }
         return (-1, -1);
@@ -318,6 +378,15 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
     private void UpdateGhostAndPlace(GameState state)
     {
+        // Trigger placement (island-authoring §5.3): no sprite ghost — the trigger overlay draws
+        // the box preview — so just place on a viewport click.
+        if (_armedTrigger >= 0)
+        {
+            DespawnGhost();
+            PlaceTriggerOnClick();
+            return;
+        }
+
         if (_armedIndex < 0)
         {
             DespawnGhost();
@@ -382,6 +451,40 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                     $"({position.X:0.##}, {position.Y:0.##}).");
     }
 
+    /// <summary>Places a trigger zone on a viewport left-click at the snapped cursor position: one
+    /// <see cref="CreateEntityCommand"/> (one undo step, auto-tagged) wrapping
+    /// <see cref="TriggerFactory"/>, with a scene-unique auto-numbered identity. Repeated clicks keep
+    /// placing until disarmed.</summary>
+    private void PlaceTriggerOnClick()
+    {
+        var type = _triggerTypes[_armedTrigger];
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            if (input.OutsideViewport || !input.LeftButtonPressed) return;
+            PlaceTrigger(type, PlacementPosition(input.WorldPosition));
+            return; // single cursor
+        }
+    }
+
+    private void PlaceTrigger(TriggerType type, Vector2 position)
+    {
+        var name = TriggerFactory.NextName(_world, type.Prefix);
+        var created = default(Entity);
+        _history.Push(new CreateEntityCommand(_world, _serializer,
+            w =>
+            {
+                created = TriggerFactory.Create(w, type, position, name);
+                return created;
+            }));
+
+        ClearSelection();
+        if (created.IsAlive) created.Set(new SelectedComponent());
+
+        Logger.Info($"[level-editor] Placed trigger '{type.Prefix}:{name}' at " +
+                    $"({position.X:0.##}, {position.Y:0.##}).");
+    }
+
     private void ClearSelection()
     {
         List<Entity>? toClear = null;
@@ -443,11 +546,22 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             _items.Add(new ItemButton { Entry = entry, Button = CreateButton(label), Label = label });
         }
 
-        if (_catalog.Entries.Count == 0)
+        // Triggers section (island-authoring §5.3): flowed in the same grid, after the sprite items.
+        foreach (var type in _triggerTypes)
+        {
+            var label = CreateLabel(TriggerLabel(type));
+            _triggerItems.Add(new TriggerButton { Type = type, Button = CreateButton(label), Label = label });
+        }
+
+        if (_catalog.Entries.Count == 0 && _triggerItems.Count == 0)
             _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
 
         _built = true;
     }
+
+    /// <summary>A trigger button's strip label: a leading marker so the Triggers section reads at a
+    /// glance amid the sprite items.</summary>
+    public static string TriggerLabel(TriggerType type) => $"[T] {type.Label}";
 
     /// <summary>An item's strip label: <c>folder/name</c> so the folder grouping reads at a
     /// glance (entries are already sorted folder-first).</summary>
@@ -498,6 +612,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     {
         var rows = 0;
         foreach (var item in _items) rows = Math.Max(rows, item.Flowed.Row + 1);
+        foreach (var trigger in _triggerItems) rows = Math.Max(rows, trigger.Flowed.Row + 1);
         return rows;
     }
 
@@ -514,22 +629,40 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         for (var i = 0; i < _bandButtons.Count; i++)
             PlaceButton(_bandButtons[i].Button, _bandButtons[i].Label, bandRects[i], labelHeight, scale);
 
-        // Item flow grid, scrolled by whole rows.
-        var itemWidths = new int[_items.Count];
+        // Item flow grid, scrolled by whole rows. Sprite items and trigger buttons flow TOGETHER in
+        // one grid (triggers appended after the sprite items — the "Triggers section").
+        var total = _items.Count + _triggerItems.Count;
+        var widths = new int[total];
         for (var i = 0; i < _items.Count; i++)
         {
-            itemWidths[i] = PaletteLayout.ButtonWidth(
+            widths[i] = PaletteLayout.ButtonWidth(
                 _measureLabel(_items[i].Label.Get<DynamicTextComponent>().TextContent) * scale, scale);
-            _items[i].Width = itemWidths[i];
+            _items[i].Width = widths[i];
         }
-        var flow = PaletteLayout.Flow(itemWidths, content.Width, scale);
+        for (var j = 0; j < _triggerItems.Count; j++)
+        {
+            var w = PaletteLayout.ButtonWidth(
+                _measureLabel(_triggerItems[j].Label.Get<DynamicTextComponent>().TextContent) * scale, scale);
+            widths[_items.Count + j] = w;
+            _triggerItems[j].Width = w;
+        }
+        var flow = PaletteLayout.Flow(widths, content.Width, scale);
         for (var i = 0; i < _items.Count; i++)
         {
             _items[i].Flowed = flow[i];
-            if (PaletteLayout.TryItemRect(strip, flow[i], itemWidths[i], _scroll, out var rect, scale))
+            if (PaletteLayout.TryItemRect(strip, flow[i], widths[i], _scroll, out var rect, scale))
                 PlaceButton(_items[i].Button, _items[i].Label, rect, labelHeight, scale);
             else
                 ParkButton(_items[i].Button, _items[i].Label);
+        }
+        for (var j = 0; j < _triggerItems.Count; j++)
+        {
+            var idx = _items.Count + j;
+            _triggerItems[j].Flowed = flow[idx];
+            if (PaletteLayout.TryItemRect(strip, flow[idx], widths[idx], _scroll, out var rect, scale))
+                PlaceButton(_triggerItems[j].Button, _triggerItems[j].Label, rect, labelHeight, scale);
+            else
+                ParkButton(_triggerItems[j].Button, _triggerItems[j].Label);
         }
 
         if (_emptyHint.IsAlive)
@@ -604,6 +737,19 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                         ? EditorChromeBuilder.ButtonHoverFill
                         : EditorChromeBuilder.ButtonFill;
         }
+
+        for (var j = 0; j < _triggerItems.Count; j++)
+        {
+            var hoverIndex = _items.Count + j;
+            ref var visual = ref _triggerItems[j].Button.Get<SimpleButtonComponent>();
+            visual.FillColor = !editing
+                ? EditorChromeBuilder.ButtonDisabledFill
+                : j == _armedTrigger
+                    ? ArmedItemFill
+                    : hovered.Item == hoverIndex
+                        ? EditorChromeBuilder.ButtonHoverFill
+                        : EditorChromeBuilder.ButtonFill;
+        }
     }
 
     // ---- Shared gizmo-state access (mirrors GizmoSystem's fallback) ----
@@ -639,9 +785,15 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (item.Button.IsAlive) item.Button.Dispose();
             if (item.Label.IsAlive) item.Label.Dispose();
         }
+        foreach (var trigger in _triggerItems)
+        {
+            if (trigger.Button.IsAlive) trigger.Button.Dispose();
+            if (trigger.Label.IsAlive) trigger.Label.Dispose();
+        }
         if (_emptyHint.IsAlive) _emptyHint.Dispose();
         _bandButtons.Clear();
         _items.Clear();
+        _triggerItems.Clear();
         _cursorSet.Dispose();
         _gizmoStateSet.Dispose();
         _selectedSet.Dispose();

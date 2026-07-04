@@ -114,7 +114,8 @@ public sealed class EditorOverlay
         bool provideCursorPipeline = false,
         string sceneFileName = DefaultSceneFileName,
         AssetCatalog? assetCatalog = null,
-        IReadOnlyList<PaletteBand>? paletteBands = null)
+        IReadOnlyList<PaletteBand>? paletteBands = null,
+        IReadOnlyList<TriggerType>? triggerTypes = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -151,7 +152,23 @@ public sealed class EditorOverlay
         var proxySync = new ProxySyncSystem(world, camera, viewportManager);
         Gizmo = gizmo;
         ProxySync = proxySync;
-        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync);
+
+        // The freeform boundary tool + its message-driven bake (island-authoring Slice 3). The bake
+        // runs in BOTH run modes (a shipped game loading a native scene with a boundary must bake it
+        // too — §S2); the tool is Edit-guarded. The trigger overlay draws Edit-only tinted outlines
+        // for placed trigger zones + the palette's placement ghost.
+        var boundaryTool = new BoundaryToolSystem(
+            world, camera, History, Serializer, viewportManager,
+            commitRequested: input.CommitRequested, cancelRequested: input.CancelRequested);
+        _boundaryTool = boundaryTool;
+        BoundaryTool = boundaryTool;
+        BoundaryBake = new BoundaryBakeSystem(world);
+        // The armed-trigger provider reads the palette lazily (it is constructed below).
+        var triggerOverlay = new TriggerOverlaySystem(world, camera, viewportManager,
+            () => Palette?.ArmedTrigger);
+        TriggerOverlay = triggerOverlay;
+
+        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay);
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
         Selection = new SelectionSystem(world, camera);
 
@@ -203,7 +220,7 @@ public sealed class EditorOverlay
         {
             Palette = new PalettePlacementSystem(
                 world, assetCatalog, paletteBands, AssetTextures, Serializer, History,
-                viewportManager, toolbarFont, input.CancelRequested);
+                viewportManager, toolbarFont, input.CancelRequested, triggerTypes);
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -259,6 +276,28 @@ public sealed class EditorOverlay
     /// <see cref="Gizmo"/> (so the same frame's collider write-back is what the proxies re-derive
     /// from), before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> ProxySync { get; }
+
+    // The concrete boundary tool: the toolbar dispatch (ToolBoundary) and the named boundary ops
+    // call its Begin/Commit/Cancel directly.
+    private readonly BoundaryToolSystem _boundaryTool;
+
+    /// <summary>The freeform boundary tool (Edit-guarded; island-authoring §5.2): lays a polyline,
+    /// Enter/double-click commits, Escape/right-click cancels. Weave into the UPDATE pipeline after
+    /// <c>CursorPositionSystem</c> (entry <c>editor.boundary</c>) so a lay click reads this frame's
+    /// cursor world position; its overlay VISUALS are emitted by <see cref="OverlayPrep"/>.</summary>
+    public ISystem<GameState> BoundaryTool { get; }
+
+    /// <summary>The message-driven boundary bake (island-authoring §5.2): reacts to a
+    /// <c>BoundaryComponent</c> being added/changed and generates one thin convex quad collider per
+    /// polyline edge as <c>ChildOf</c> bake products (never serialized). Weave with the level-load
+    /// group (entry <c>editor.boundaryBake</c>), <c>RunNormally</c> — it bakes in BOTH run modes
+    /// (a scene-loading participant, not Edit-only tooling).</summary>
+    public ISystem<GameState> BoundaryBake { get; }
+
+    /// <summary>The trigger-zone overlay (island-authoring §5.3): draws Edit-only tinted outlines
+    /// for placed trigger zones + the palette's placement ghost. Its VISUALS are emitted by
+    /// <see cref="OverlayPrep"/>; no separate weave needed (its own <c>Update</c> is a no-op).</summary>
+    public ISystem<GameState> TriggerOverlay { get; }
 
     /// <summary>The editor overlays' draw-phase emission pass: bakes the gizmo + proxy VISUALS
     /// (selection outline, tool handle, collider outlines) in screen pixels on the
@@ -424,7 +463,16 @@ public sealed class EditorOverlay
             case EditorToolbarAction.ColliderAddConvex: _editorCommands.AddConvexCollider(state); break;
             case EditorToolbarAction.ColliderRemove: _editorCommands.RemoveCollider(state); break;
             case EditorToolbarAction.VertexAdd: _editorCommands.AddVertex(state); break;
+            case EditorToolbarAction.ToolBoundary: BeginBoundary(); break;
         }
+    }
+
+    /// <summary>Enters the boundary tool (island-authoring §5.2) — a radio with the transform tools:
+    /// disarm the palette first (so its Place mode + ghost stand down), then begin the lay.</summary>
+    private void BeginBoundary()
+    {
+        Palette?.Disarm();
+        _boundaryTool.BeginBoundary();
     }
 
     /// <summary>The authoring-vs-runtime save guard: Save dispatches only while the transport is
@@ -448,6 +496,34 @@ public sealed class EditorOverlay
         const string bandPrefix = "band:";
         const string orderPrefix = "order:";
         const string colliderPrefix = "collider:";
+        const string boundaryPrefix = "boundary:";
+        const string triggerPrefix = "trigger:";
+
+        if (name.StartsWith(boundaryPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var op = name.Substring(boundaryPrefix.Length).ToLowerInvariant();
+            switch (op)
+            {
+                case "begin": BeginBoundary(); break;
+                case "commit": _boundaryTool.CommitBoundary(); break;
+                case "cancel": _boundaryTool.CancelBoundary(); break;
+                default:
+                    Logger.Warning($"[level-editor] Editor-op '{name}': expected boundary:begin|commit|cancel.");
+                    break;
+            }
+            return;
+        }
+
+        if (name.StartsWith(triggerPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Palette == null)
+            {
+                Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
+                return;
+            }
+            Palette.ArmTrigger(name.Substring(triggerPrefix.Length));
+            return;
+        }
 
         if (name.StartsWith(palettePrefix, StringComparison.OrdinalIgnoreCase))
         {

@@ -136,6 +136,8 @@ public sealed class EditorChromeBuilder
         (EditorToolbarAction.ColliderAddConvex, "+Poly"),
         (EditorToolbarAction.ColliderRemove, "-Col"),
         (EditorToolbarAction.VertexAdd, "+Vtx"),
+        // Island-authoring Slice 3: the freeform boundary tool (a radio with the transform tools).
+        (EditorToolbarAction.ToolBoundary, "Bound"),
     };
 
     /// <summary>

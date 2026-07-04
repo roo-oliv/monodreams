@@ -52,15 +52,19 @@ public sealed class ColliderComponentCommand : IEditorCommand
     }
 
     /// <summary>Adds a <c>BoxColliderComponent</c> with <paramref name="bounds"/> and the
-    /// component's construction defaults (all layers, physical, enabled).</summary>
-    public static ColliderComponentCommand AddBox(Entity entity, Rectangle bounds) =>
-        new(entity, isBox: true, isAdd: true, bounds, null, false, new[] { -1 }, false, true);
+    /// component's construction defaults (all layers, enabled). <paramref name="passive"/> is the
+    /// physical-vs-trigger flag: <c>false</c> (default) blocks (a footprint); <c>true</c> is a
+    /// sensor that fires collision messages without blocking (a trigger zone — island-authoring
+    /// §5.3).</summary>
+    public static ColliderComponentCommand AddBox(Entity entity, Rectangle bounds, bool passive = false) =>
+        new(entity, isBox: true, isAdd: true, bounds, null, false, new[] { -1 }, passive, true);
 
     /// <summary>Adds a <c>ConvexColliderComponent</c> with <paramref name="modelVertices"/>
-    /// (cloned) and the component's construction defaults.</summary>
-    public static ColliderComponentCommand AddConvex(Entity entity, Vector2[] modelVertices) =>
+    /// (cloned) and the component's construction defaults. <paramref name="passive"/> selects the
+    /// physical-vs-trigger flag (see <see cref="AddBox"/>).</summary>
+    public static ColliderComponentCommand AddConvex(Entity entity, Vector2[] modelVertices, bool passive = false) =>
         new(entity, isBox: false, isAdd: true, Rectangle.Empty,
-            (Vector2[])modelVertices.Clone(), false, new[] { -1 }, false, true);
+            (Vector2[])modelVertices.Clone(), false, new[] { -1 }, passive, true);
 
     /// <summary>Removes the entity's live <c>BoxColliderComponent</c>, snapshotting every field
     /// so undo restores it exactly.</summary>

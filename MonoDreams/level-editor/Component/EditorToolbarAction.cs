@@ -69,6 +69,12 @@ public enum EditorToolbarAction
     /// <summary>Insert a vertex into the selection's convex collider (edge midpoint —
     /// <c>EditorCommandSystem.AddVertex</c>). Headless alias: <c>collider:addVertex</c>.</summary>
     VertexAdd,
+
+    /// <summary>Enter the freeform boundary tool (island-authoring §5.2): clicks lay polyline
+    /// vertices, Enter / double-click commits, Escape cancels (<c>BoundaryToolSystem.BeginBoundary</c>).
+    /// A radio with the transform tools over <c>EditorToolMode</c>. Headless aliases:
+    /// <c>boundary:begin</c> / <c>boundary:commit</c> / <c>boundary:cancel</c>.</summary>
+    ToolBoundary,
 }
 
 /// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>

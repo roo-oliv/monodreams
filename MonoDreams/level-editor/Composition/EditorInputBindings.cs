@@ -23,7 +23,8 @@ public sealed class EditorInputBindings(
     Func<GameState, bool> frameRequested,
     Func<GameState, bool>? cancelRequested = null,
     Func<GameState, bool>? orderForwardRequested = null,
-    Func<GameState, bool>? orderBackRequested = null)
+    Func<GameState, bool>? orderBackRequested = null,
+    Func<GameState, bool>? commitRequested = null)
 {
     /// <summary>Deletes the selected entity (reversible, via the shared history).</summary>
     public Func<GameState, bool> DeleteRequested { get; } =
@@ -52,4 +53,8 @@ public sealed class EditorInputBindings(
 
     /// <summary>Keyboard nudge for Send back (e.g. PageDown). Optional.</summary>
     public Func<GameState, bool>? OrderBackRequested { get; } = orderBackRequested;
+
+    /// <summary>Commits the in-progress boundary lay — the boundary tool's Enter (a double-click
+    /// always commits too). Optional; the toolbar/headless <c>boundary:commit</c> also works.</summary>
+    public Func<GameState, bool>? CommitRequested { get; } = commitRequested;
 }
