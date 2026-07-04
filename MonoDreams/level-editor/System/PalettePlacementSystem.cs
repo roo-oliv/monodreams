@@ -1,0 +1,649 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using DefaultEcs;
+using DefaultEcs.System;
+using Microsoft.Xna.Framework;
+using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
+using MonoDreams.LevelEditor.Assets;
+using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.Transform;
+using MonoDreams.LevelEditor.UI;
+using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Renderer;
+using MonoDreams.State;
+using MonoDreams.UI;
+using MonoGame.Extended.BitmapFonts;
+
+namespace MonoDreams.LevelEditor.System;
+
+/// <summary>
+/// The editor's <b>asset palette + placement</b> system (island-authoring plan §3, adopting the
+/// wave-repass Wave-C design): the shell's bottom strip lists every <see cref="AssetCatalog"/>
+/// entry as a native-resolution text button (grouped by folder in the sort; wheel-over-strip
+/// scrolls whole rows) beside a <b>layer-band selector</b> built from the screen-supplied
+/// <see cref="PaletteBand"/>s. Clicking an item <b>arms</b> it — the shared
+/// <see cref="GizmoStateComponent.Mode"/> flips to <see cref="EditorToolMode.Place"/> (selection
+/// and the transform gizmo go dormant, §S1) and a semi-transparent <b>ghost</b> preview follows
+/// the cursor's world position (snap-quantized via the shared snap settings; hidden while the
+/// pointer is outside the game viewport). A viewport click <b>places</b>: one
+/// <see cref="CreateEntityCommand"/> wrapping <see cref="SpritePropFactory"/> (one undo step,
+/// auto-tagged <c>SceneObjectComponent</c>, sub-graph snapshot — all existing machinery), and the
+/// placed entity lands auto-selected. Repeated clicks keep placing; <b>Escape or right-click
+/// disarms</b> back to <see cref="EditorToolMode.SelectTransform"/> (as does picking a transform
+/// tool on the toolbar — the radio).
+///
+/// <para><b>Chrome, native pixels.</b> The strip rows are ordinary chrome entities on
+/// <c>RenderTargetID.Editor</c> (fill+outline <see cref="SimpleButtonComponent"/> meshes prepped by
+/// the already-woven <c>ButtonMeshPrepSystem</c>; labels at
+/// <see cref="EditorChromeBuilder.LabelScale"/>), laid out by the pure <see cref="PaletteLayout"/>
+/// inside <see cref="EditorChromeLayout.BottomBar"/> and hit-tested against the cursor's raw
+/// <c>ScreenPosition</c>. Per the chrome rule they carry <b>no</b> <c>VisibleComponent</c> and no
+/// <c>ToolbarButtonComponent</c> (<c>ToolbarSystem</c> must not hit-test them). Scrolled-out rows
+/// park off-screen (<see cref="SystemsPanelLayout.ParkedPosition"/>) with their labels blanked.</para>
+///
+/// <para><b>The ghost is editor infrastructure, never scene content.</b> It carries
+/// <see cref="EditorInfrastructureComponent"/> (survives a transport Restart) and never
+/// <c>SceneObjectComponent</c>, so it cannot be saved, deleted-with-undo, or swept as scene
+/// content; it despawns on disarm / mode exit. It is a plain Main-target sprite, so the REAL
+/// pipeline previews it exactly as the placed prop will render (culling manages its
+/// <c>VisibleComponent</c>).</para>
+///
+/// <para><b>Edit-guarded.</b> Like selection/gizmo, the palette is an editing tool: while the
+/// transport is Playing it neither hit-tests nor places, its item buttons render with the disabled
+/// fill, and the ghost despawns (the armed selection is kept, so pausing resumes where you were).
+/// Weave AFTER <c>CursorPositionSystem</c> (entry <c>editor.palette</c>) — the ghost must follow
+/// THIS frame's cursor world position, lag-free.</para>
+///
+/// <para><b>Headless-drivable.</b> <see cref="Arm(string)"/> / <see cref="Disarm"/> /
+/// <see cref="SelectBand(string)"/> are public: the overlay's named-action dispatch routes the
+/// op-plan actions <c>palette:&lt;entryId&gt;</c> / <c>palette:none</c> / <c>band:&lt;name&gt;</c>
+/// here, so a scripted plan can arm an item and click-place with no real mouse.</para>
+/// </summary>
+public sealed class PalettePlacementSystem : ISystem<GameState>
+{
+    /// <summary>The ghost preview's tint (semi-transparent white — premultiplied).</summary>
+    public static readonly Color GhostColor = Color.White * 0.55f;
+
+    /// <summary>The fill of the armed item's button (the palette's "active" accent).</summary>
+    public static readonly Color ArmedItemFill = EditorChromeBuilder.CheckboxOnFill;
+
+    private readonly World _world;
+    private readonly AssetCatalog _catalog;
+    private readonly IReadOnlyList<PaletteBand> _bands;
+    private readonly FileAssetTextureLoader _textures;
+    private readonly SceneSerializer _serializer;
+    private readonly EditorHistory _history;
+    private readonly ViewportManager? _viewportManager;
+    private readonly BitmapFont? _font;
+    private readonly Func<string, float> _measureLabel;
+    private readonly Func<GameState, bool>? _cancelRequested;
+
+    private readonly EntitySet _cursorSet;
+    private readonly EntitySet _gizmoStateSet;
+    private readonly EntitySet _selectedSet;
+
+    // Chrome entities (built lazily once; parked/positioned per layout pass).
+    private sealed class ItemButton
+    {
+        public required AssetCatalogEntry Entry;
+        public Entity Button;
+        public Entity Label;
+        public int Width;
+        public (int Row, int X) Flowed;
+    }
+
+    private readonly List<ItemButton> _items = new();
+    private readonly List<(int Index, Entity Button, Entity Label)> _bandButtons = new();
+    private Entity _emptyHint;
+    private bool _built;
+
+    private int _scroll;
+    private int _laidOutWidth, _laidOutHeight, _laidOutScroll = -1;
+    private float _laidOutScale;
+
+    private int _armedIndex = -1;
+    private int _bandIndex;
+    private Entity _ghost;
+    private bool _ghostAlive;
+
+    public bool IsEnabled { get; set; } = true;
+
+    /// <param name="viewportManager">Supplies the window size for the strip layout. Null (unit
+    /// tests) = no chrome is built; arming/ghost/placement still work (the headless form).</param>
+    /// <param name="font">The chrome label font; null (unit tests) = layout-only labels.</param>
+    /// <param name="cancelRequested">The screen's Escape predicate (optional — right-click always
+    /// disarms).</param>
+    public PalettePlacementSystem(
+        World world,
+        AssetCatalog catalog,
+        IReadOnlyList<PaletteBand> bands,
+        FileAssetTextureLoader textures,
+        SceneSerializer serializer,
+        EditorHistory history,
+        ViewportManager? viewportManager = null,
+        BitmapFont? font = null,
+        Func<GameState, bool>? cancelRequested = null)
+    {
+        _world = world ?? throw new ArgumentNullException(nameof(world));
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _bands = bands ?? throw new ArgumentNullException(nameof(bands));
+        if (bands.Count == 0) throw new ArgumentException("The palette needs at least one layer band.", nameof(bands));
+        _textures = textures ?? throw new ArgumentNullException(nameof(textures));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        _history = history ?? throw new ArgumentNullException(nameof(history));
+        _viewportManager = viewportManager;
+        _font = font;
+        _measureLabel = font != null
+            ? label => font.MeasureString(label).Width * EditorChromeBuilder.LabelScale
+            : label => label.Length * 7f; // layout-only approximation (tests run no text prep)
+        _cancelRequested = cancelRequested;
+
+        _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
+        _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
+        _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
+    }
+
+    /// <summary>The armed catalog entry, or null while disarmed.</summary>
+    public AssetCatalogEntry? ArmedEntry =>
+        _armedIndex >= 0 && _armedIndex < _catalog.Entries.Count ? _catalog.Entries[_armedIndex] : null;
+
+    /// <summary>The selected layer band the next placement targets.</summary>
+    public PaletteBand SelectedBand => _bands[_bandIndex];
+
+    /// <summary>Whether the ghost preview entity currently exists.</summary>
+    public bool HasGhost => _ghostAlive && _ghost.IsAlive;
+
+    /// <summary>The ghost preview entity (default when none) — exposed for tests/tooling.</summary>
+    public Entity Ghost => HasGhost ? _ghost : default;
+
+    /// <summary>Arms the palette item with the given <see cref="AssetCatalogEntry.Id"/> or full
+    /// <c>file:</c> AssetKey (the headless <c>palette:&lt;id&gt;</c> op). Returns false (loud) for
+    /// an unknown id.</summary>
+    public bool Arm(string idOrAssetKey)
+    {
+        if (_catalog.TryGet(idOrAssetKey, out var entry))
+        {
+            for (var i = 0; i < _catalog.Entries.Count; i++)
+            {
+                if (!ReferenceEquals(_catalog.Entries[i], entry)) continue;
+                ArmByIndex(i);
+                return true;
+            }
+        }
+
+        Logger.Warning($"[level-editor] Palette: no catalog entry '{idOrAssetKey}' to arm.");
+        return false;
+    }
+
+    /// <summary>Arms the item at <paramref name="index"/> into the catalog's entry list: the shared
+    /// mode flips to <see cref="EditorToolMode.Place"/> and the ghost appears under the cursor.</summary>
+    public void ArmByIndex(int index)
+    {
+        if (index < 0 || index >= _catalog.Entries.Count) return;
+        _armedIndex = index;
+        SetMode(EditorToolMode.Place);
+        Logger.Info($"[level-editor] Palette: armed '{_catalog.Entries[index].Id}' " +
+                    $"on band '{SelectedBand.Name}'.");
+    }
+
+    /// <summary>Disarms placement back to <see cref="EditorToolMode.SelectTransform"/> (Escape /
+    /// right-click / the headless <c>palette:none</c> op) and despawns the ghost.</summary>
+    public void Disarm()
+    {
+        _armedIndex = -1;
+        SetMode(EditorToolMode.SelectTransform);
+        DespawnGhost();
+    }
+
+    /// <summary>Selects the layer band by name (case-insensitive; the headless
+    /// <c>band:&lt;name&gt;</c> op). Returns false (loud) for an unknown band.</summary>
+    public bool SelectBand(string name)
+    {
+        for (var i = 0; i < _bands.Count; i++)
+        {
+            if (!string.Equals(_bands[i].Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+            _bandIndex = i;
+            return true;
+        }
+
+        Logger.Warning($"[level-editor] Palette: no layer band '{name}'.");
+        return false;
+    }
+
+    public void Update(GameState state)
+    {
+        if (!IsEnabled) return;
+
+        if (!_built && _viewportManager != null) BuildChrome();
+
+        // Edit-guarded: while Playing the palette neither hit-tests nor places, and the ghost
+        // despawns (a click in the viewport belongs to the game). The armed selection is kept so
+        // pausing resumes where the designer was; the chrome renders dimmed.
+        var editing = state.RunMode == RunMode.Edit;
+        (int Band, int Item) hovered = (-1, -1);
+
+        if (editing)
+        {
+            // Self-heal the shared mode: Place with nothing armed (e.g. a stale state after a
+            // failed headless arm) falls back to SelectTransform so no tool family is muted.
+            if (GetMode() == EditorToolMode.Place && _armedIndex < 0)
+                SetMode(EditorToolMode.SelectTransform);
+
+            if (_cancelRequested?.Invoke(state) == true && _armedIndex >= 0)
+                Disarm();
+
+            hovered = HandleInteraction(state);
+            UpdateGhostAndPlace(state);
+        }
+        else
+        {
+            DespawnGhost();
+        }
+
+        if (_built)
+        {
+            var scale = _viewportManager!.DevicePixelRatio;
+            var strip = EditorChromeLayout.BottomBar(
+                _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            _scroll = PaletteLayout.ClampScroll(_scroll, TotalRows(), strip, scale);
+            if (_laidOutWidth != _viewportManager.ScreenWidth ||
+                _laidOutHeight != _viewportManager.ScreenHeight ||
+                _laidOutScroll != _scroll ||
+                _laidOutScale != scale)
+                PositionChrome(strip, scale);
+            ReflectState(hovered, editing);
+        }
+    }
+
+    // ---- Strip interaction (raw ScreenPosition, like the toolbar / systems panel) ----
+
+    private (int Band, int Item) HandleInteraction(GameState state)
+    {
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+
+            // Right-click disarms from anywhere (viewport or chrome) — the standard escape hatch.
+            if (input.RightButtonPressed && _armedIndex >= 0)
+                Disarm();
+
+            if (!_built) return (-1, -1);
+
+            var scale = _viewportManager!.DevicePixelRatio;
+            var strip = EditorChromeLayout.BottomBar(
+                _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            if (!strip.Contains(point)) return (-1, -1);
+
+            if (input.ScrollWheelDelta != 0)
+                _scroll = PaletteLayout.ClampScroll(
+                    _scroll + PaletteLayout.ScrollRows(input.ScrollWheelDelta), TotalRows(), strip, scale);
+
+            // Band selector row.
+            for (var i = 0; i < _bandButtons.Count; i++)
+            {
+                var bounds = _bandButtons[i].Button.Get<SimpleButtonComponent>();
+                var rect = ButtonRect(_bandButtons[i].Button, bounds);
+                if (!rect.Contains(point)) continue;
+                if (input.LeftButtonReleased) _bandIndex = _bandButtons[i].Index;
+                return (i, -1);
+            }
+
+            // Item flow grid.
+            for (var i = 0; i < _items.Count; i++)
+            {
+                if (!PaletteLayout.TryItemRect(strip, _items[i].Flowed, _items[i].Width, _scroll,
+                        out var rect, scale)) continue;
+                if (!rect.Contains(point)) continue;
+                if (input.LeftButtonReleased) ArmByIndex(i);
+                return (-1, i);
+            }
+
+            return (-1, -1);
+        }
+        return (-1, -1);
+    }
+
+    private static Rectangle ButtonRect(Entity button, in SimpleButtonComponent visual)
+    {
+        var position = button.Get<TransformComponent>().Position;
+        return new Rectangle((int)position.X, (int)position.Y, (int)visual.Size.X, (int)visual.Size.Y);
+    }
+
+    // ---- Ghost + place ----
+
+    private void UpdateGhostAndPlace(GameState state)
+    {
+        if (_armedIndex < 0)
+        {
+            DespawnGhost();
+            return;
+        }
+
+        var entry = _catalog.Entries[_armedIndex];
+        var band = SelectedBand;
+        var texture = _textures.Load(entry.AssetKey); // lazy + memoized; magenta when missing
+
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+
+            EnsureGhost(entry, band, texture);
+            if (input.OutsideViewport)
+            {
+                // The pointer is over chrome/margins: WorldPosition is stale there, so hide the
+                // ghost off-screen (culling drops its VisibleComponent) instead of freezing it.
+                Park(_ghost);
+            }
+            else
+            {
+                var position = PlacementPosition(input.WorldPosition);
+                Place(_ghost, position);
+
+                if (input.LeftButtonPressed)
+                    PlaceProp(entry, band, position, texture);
+            }
+            return; // single cursor
+        }
+    }
+
+    private Vector2 PlacementPosition(Vector2 cursorWorld)
+    {
+        ref readonly var gizmo = ref GetGizmoStateEntity().Get<GizmoStateComponent>();
+        return gizmo.SnapEnabled && gizmo.GridStep > 0f
+            ? GizmoTransform.Snap(cursorWorld, gizmo.GridStep)
+            : cursorWorld;
+    }
+
+    /// <summary>One placement = one <see cref="CreateEntityCommand"/> through the shared history
+    /// (one undo step; the command tags <c>SceneObjectComponent</c> + snapshots the sub-graph) +
+    /// auto-select of the created root. Repeated clicks keep placing until disarmed.</summary>
+    private void PlaceProp(AssetCatalogEntry entry, PaletteBand band, Vector2 position,
+        Microsoft.Xna.Framework.Graphics.Texture2D? texture)
+    {
+        var created = default(Entity);
+        _history.Push(new CreateEntityCommand(_world, _serializer,
+            w =>
+            {
+                created = SpritePropFactory.Create(w, entry, band, position, texture);
+                return created;
+            }));
+
+        // Auto-select (selection is dormant in Place mode, so nothing fights this): clear the old
+        // selection, tag the new root. The gizmo shows its handles once the palette disarms.
+        ClearSelection();
+        if (created.IsAlive) created.Set(new SelectedComponent());
+
+        Logger.Info($"[level-editor] Placed '{entry.Id}' on band '{band.Name}' at " +
+                    $"({position.X:0.##}, {position.Y:0.##}).");
+    }
+
+    private void ClearSelection()
+    {
+        List<Entity>? toClear = null;
+        foreach (var e in _selectedSet.GetEntities())
+            (toClear ??= new List<Entity>()).Add(e);
+        if (toClear == null) return;
+        foreach (var e in toClear)
+            if (e.IsAlive && e.Has<SelectedComponent>())
+                e.Remove<SelectedComponent>();
+    }
+
+    private void EnsureGhost(AssetCatalogEntry entry, PaletteBand band,
+        Microsoft.Xna.Framework.Graphics.Texture2D? texture)
+    {
+        if (!_ghostAlive || !_ghost.IsAlive)
+        {
+            _ghost = _world.CreateEntity();
+            _ghost.Set(new EditorInfrastructureComponent()); // never scene content; survives Restart
+            _ghost.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+            _ghost.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main });
+            _ghost.Set(new SpriteInfoComponent());
+            // NO SceneObjectComponent (never serialized) and no VisibleComponent (CullingSystem
+            // owns it — the ghost is an ordinary Main-target sprite the real pipeline previews).
+            _ghostAlive = true;
+        }
+
+        var source = SpritePropFactory.SourceRect(entry, texture);
+        ref var sprite = ref _ghost.Get<SpriteInfoComponent>();
+        sprite.SpriteSheet = texture;
+        sprite.AssetKey = null; // the ghost is not a save-candidate; keep it key-less
+        sprite.Source = source;
+        sprite.Size = new Vector2(source.Width, source.Height);
+        sprite.Color = GhostColor;
+        sprite.Target = RenderTargetID.Main;
+        sprite.LayerDepth = band.LayerDepth;
+        sprite.YSortOffset = 0f;
+        sprite.Origin = band.YSorted ? SpritePropFactory.FeetOrigin(source) : Vector2.Zero;
+    }
+
+    private void DespawnGhost()
+    {
+        if (_ghostAlive && _ghost.IsAlive) _ghost.Dispose();
+        _ghostAlive = false;
+    }
+
+    // ---- Chrome build / layout / state ----
+
+    private void BuildChrome()
+    {
+        for (var i = 0; i < _bands.Count; i++)
+        {
+            var label = CreateLabel(_bands[i].Name);
+            _bandButtons.Add((i, CreateButton(label), label));
+        }
+
+        foreach (var entry in _catalog.Entries)
+        {
+            var label = CreateLabel(ItemLabel(entry));
+            _items.Add(new ItemButton { Entry = entry, Button = CreateButton(label), Label = label });
+        }
+
+        if (_catalog.Entries.Count == 0)
+            _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
+
+        _built = true;
+    }
+
+    /// <summary>An item's strip label: <c>folder/name</c> so the folder grouping reads at a
+    /// glance (entries are already sorted folder-first).</summary>
+    public static string ItemLabel(AssetCatalogEntry entry) =>
+        string.IsNullOrEmpty(entry.Folder) ? entry.Label : $"{entry.Folder}/{entry.Label}";
+
+    private Entity CreateLabel(string label)
+    {
+        var text = _world.CreateEntity();
+        text.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        text.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        text.Set(new DynamicTextComponent
+        {
+            Target = RenderTargetID.Editor,
+            LayerDepth = EditorChromeBuilder.LabelDepth,
+            TextContent = label,
+            Font = _font!,
+            Color = EditorChromeBuilder.LabelColor,
+            Scale = EditorChromeBuilder.LabelScale,
+            IsRevealed = true,
+            VisibleCharacterCount = 0, // blanked while parked; the layout pass reveals it
+        });
+        // NOTE: no VisibleComponent — chrome rule (see EditorChromeBuilder).
+        return text;
+    }
+
+    private Entity CreateButton(Entity labelEntity)
+    {
+        var button = _world.CreateEntity();
+        button.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        button.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        button.Set(new SimpleButtonComponent
+        {
+            Size = Vector2.One, // the layout pass sets the real size
+            LineThickness = 1f,
+            Color = EditorChromeBuilder.ButtonOutline,
+            FillColor = EditorChromeBuilder.ButtonFill,
+            TextEntity = labelEntity,
+            Target = RenderTargetID.Editor,
+            LayerDepth = EditorChromeBuilder.ButtonDepth,
+        });
+        // NOTE: no VisibleComponent (chrome rule) and no ToolbarButtonComponent (the palette owns
+        // its own hit-testing; ToolbarSystem must not dispatch for these).
+        return button;
+    }
+
+    private int TotalRows()
+    {
+        var rows = 0;
+        foreach (var item in _items) rows = Math.Max(rows, item.Flowed.Row + 1);
+        return rows;
+    }
+
+    private void PositionChrome(Rectangle strip, float scale)
+    {
+        var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
+        var content = PaletteLayout.ContentArea(strip, scale);
+
+        // Band selector header row.
+        var bandWidths = new int[_bandButtons.Count];
+        for (var i = 0; i < _bandButtons.Count; i++)
+            bandWidths[i] = PaletteLayout.ButtonWidth(_measureLabel(_bands[i].Name) * scale, scale);
+        var bandRects = PaletteLayout.BandRow(strip, bandWidths, scale);
+        for (var i = 0; i < _bandButtons.Count; i++)
+            PlaceButton(_bandButtons[i].Button, _bandButtons[i].Label, bandRects[i], labelHeight, scale);
+
+        // Item flow grid, scrolled by whole rows.
+        var itemWidths = new int[_items.Count];
+        for (var i = 0; i < _items.Count; i++)
+        {
+            itemWidths[i] = PaletteLayout.ButtonWidth(
+                _measureLabel(_items[i].Label.Get<DynamicTextComponent>().TextContent) * scale, scale);
+            _items[i].Width = itemWidths[i];
+        }
+        var flow = PaletteLayout.Flow(itemWidths, content.Width, scale);
+        for (var i = 0; i < _items.Count; i++)
+        {
+            _items[i].Flowed = flow[i];
+            if (PaletteLayout.TryItemRect(strip, flow[i], itemWidths[i], _scroll, out var rect, scale))
+                PlaceButton(_items[i].Button, _items[i].Label, rect, labelHeight, scale);
+            else
+                ParkButton(_items[i].Button, _items[i].Label);
+        }
+
+        if (_emptyHint.IsAlive)
+        {
+            PlaceLabel(_emptyHint, new Vector2(content.X,
+                content.Y + EditorChromeLayout.Px(PaletteLayout.HeaderHeight, scale)
+                          + (EditorChromeLayout.Px(PaletteLayout.RowHeight, scale) - labelHeight) / 2f), scale);
+        }
+
+        _laidOutWidth = _viewportManager!.ScreenWidth;
+        _laidOutHeight = _viewportManager.ScreenHeight;
+        _laidOutScroll = _scroll;
+        _laidOutScale = scale;
+    }
+
+    private void PlaceButton(Entity button, Entity label, Rectangle rect, float labelHeight, float scale)
+    {
+        Place(button, new Vector2(rect.X, rect.Y));
+        ref var visual = ref button.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(rect.Width, rect.Height);
+        PlaceLabel(label, new Vector2(
+            rect.X + EditorChromeLayout.Px(PaletteLayout.ButtonPaddingX, scale),
+            rect.Y + (rect.Height - labelHeight) / 2f), scale);
+    }
+
+    private void ParkButton(Entity button, Entity label)
+    {
+        Park(button);
+        Park(label);
+        ref var text = ref label.Get<DynamicTextComponent>();
+        text.VisibleCharacterCount = 0; // parked labels render nothing (cheaper than re-prepping)
+    }
+
+    private void PlaceLabel(Entity label, Vector2 position, float scale)
+    {
+        Place(label, position);
+        ref var text = ref label.Get<DynamicTextComponent>();
+        text.Scale = EditorChromeBuilder.LabelScale * scale;
+        text.VisibleCharacterCount = int.MaxValue;
+    }
+
+    private static void Park(Entity entity) => Place(entity, SystemsPanelLayout.ParkedPosition);
+
+    private static void Place(Entity entity, Vector2 position)
+    {
+        // Palette entities are standalone (no parent), so WorldPosition derives from Position.
+        ref var transform = ref entity.Get<TransformComponent>();
+        transform.Position = position;
+        entity.NotifyChanged<TransformComponent>();
+    }
+
+    private void ReflectState((int Band, int Item) hovered, bool editing)
+    {
+        for (var i = 0; i < _bandButtons.Count; i++)
+        {
+            ref var visual = ref _bandButtons[i].Button.Get<SimpleButtonComponent>();
+            visual.FillColor = _bandButtons[i].Index == _bandIndex
+                ? ArmedItemFill
+                : hovered.Band == i && editing
+                    ? EditorChromeBuilder.ButtonHoverFill
+                    : EditorChromeBuilder.ButtonFill;
+        }
+
+        for (var i = 0; i < _items.Count; i++)
+        {
+            ref var visual = ref _items[i].Button.Get<SimpleButtonComponent>();
+            visual.FillColor = !editing
+                ? EditorChromeBuilder.ButtonDisabledFill
+                : i == _armedIndex
+                    ? ArmedItemFill
+                    : hovered.Item == i
+                        ? EditorChromeBuilder.ButtonHoverFill
+                        : EditorChromeBuilder.ButtonFill;
+        }
+    }
+
+    // ---- Shared gizmo-state access (mirrors GizmoSystem's fallback) ----
+
+    private EditorToolMode GetMode() => GetGizmoStateEntity().Get<GizmoStateComponent>().Mode;
+
+    private void SetMode(EditorToolMode mode)
+    {
+        ref var state = ref GetGizmoStateEntity().Get<GizmoStateComponent>();
+        state.Mode = mode;
+    }
+
+    private Entity GetGizmoStateEntity()
+    {
+        foreach (var e in _gizmoStateSet.GetEntities())
+            return e;
+        var created = _world.CreateEntity();
+        created.Set(new EditorInfrastructureComponent());
+        created.Set(GizmoStateComponent.Default);
+        return created;
+    }
+
+    public void Dispose()
+    {
+        DespawnGhost();
+        foreach (var (_, button, label) in _bandButtons)
+        {
+            if (button.IsAlive) button.Dispose();
+            if (label.IsAlive) label.Dispose();
+        }
+        foreach (var item in _items)
+        {
+            if (item.Button.IsAlive) item.Button.Dispose();
+            if (item.Label.IsAlive) item.Label.Dispose();
+        }
+        if (_emptyHint.IsAlive) _emptyHint.Dispose();
+        _bandButtons.Clear();
+        _items.Clear();
+        _cursorSet.Dispose();
+        _gizmoStateSet.Dispose();
+        _selectedSet.Dispose();
+    }
+}

@@ -81,7 +81,11 @@ public enum EditorOpKind
     /// <summary>Transport: rebuild the scene from the original load request and land Paused
     /// (unsaved edits discarded) — requires a transport bound to the driver.</summary>
     Restart,
-    /// <summary>Fire a toolbar action by name (Save / Load / Undo / Redo / ToolMove / ToolRotate / ToolScale / ToggleSnap).</summary>
+    /// <summary>Fire an editor action by name: a toolbar action (Save / Load / Undo / Redo /
+    /// ToolMove / ToolRotate / ToolScale / ToggleSnap), or — when the composition routes ops
+    /// through the overlay's named dispatch — a palette op: <c>palette:&lt;entryId&gt;</c> arms a
+    /// catalog item (e.g. <c>"palette:Island/props/tree01.png"</c>), <c>palette:none</c> disarms,
+    /// <c>band:&lt;name&gt;</c> selects a layer band.</summary>
     ToolbarAction,
 }
 

@@ -31,8 +31,12 @@ public static class EditorChromeLayout
     /// <summary>Right panel strip width — the systems panel's home, logical points.</summary>
     public const int RightPanelWidth = 280;
 
-    /// <summary>Bottom status strip height, logical points.</summary>
-    public const int BottomBarHeight = 24;
+    /// <summary>Bottom strip height, logical points — the asset palette's home (island-authoring
+    /// plan §3): a band-selector header row plus a few scrollable rows of palette item buttons
+    /// (see <see cref="PaletteLayout"/>). Constant whether or not a screen supplies a palette, so
+    /// every consumer of the inset (shell, chrome, mouse mapping) stays in lockstep by
+    /// construction — a screen without a palette simply shows the empty strip.</summary>
+    public const int BottomBarHeight = 104;
 
     /// <summary>No left strip today (kept as an explicit 0 so the inset shape is symmetrical).</summary>
     public const int LeftPanelWidth = 0;

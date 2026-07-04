@@ -42,6 +42,7 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
     private readonly List<EditorOp> _ops;
     private readonly int _tailFrames;
     private readonly Action<EditorToolbarAction, GameState>? _dispatch;
+    private readonly Action<string, GameState>? _dispatchNamed;
     private readonly Action? _requestExit;
     private readonly EditorTransport? _transport;
 
@@ -60,16 +61,24 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
     /// <summary>Whether the op queue has fully drained (all ops applied + the tail elapsed).</summary>
     public bool IsComplete => _drainedAtFrame >= 0 && _frame > _drainedAtFrame + _tailFrames;
 
+    /// <param name="dispatchNamed">Optional STRING-action dispatch. When supplied it receives every
+    /// <see cref="EditorOpKind.ToolbarAction"/> op's raw <see cref="EditorOp.Action"/> string —
+    /// including the palette ops <c>palette:&lt;entryId&gt;</c> / <c>palette:none</c> /
+    /// <c>band:&lt;name&gt;</c> that no enum member can carry (see
+    /// <c>EditorOverlay.DispatchNamedAction</c>). When null, the historical enum-parse path over
+    /// <paramref name="dispatch"/> applies unchanged.</param>
     public EditorOpReplaySystem(
         World world,
         EditorOpPlan plan,
         Action<EditorToolbarAction, GameState>? dispatch = null,
         Action? requestExit = null,
-        EditorTransport? transport = null)
+        EditorTransport? transport = null,
+        Action<string, GameState>? dispatchNamed = null)
     {
         _ops = (plan?.Ops ?? new List<EditorOp>()).OrderBy(o => o.Frame).ToList();
         _tailFrames = Math.Max(0, plan?.TailFrames ?? 1);
         _dispatch = dispatch;
+        _dispatchNamed = dispatchNamed;
         _requestExit = requestExit;
         _transport = transport;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
@@ -135,10 +144,24 @@ public sealed class EditorOpReplaySystem : ISystem<GameState>
                 else Logger.Warning("[level-editor] Editor-op: Restart requires a bound EditorTransport — op skipped.");
                 break;
             case EditorOpKind.ToolbarAction:
-                if (op.Action != null && Enum.TryParse<EditorToolbarAction>(op.Action, ignoreCase: true, out var action))
+                if (op.Action == null)
+                {
+                    Logger.Warning("[level-editor] Editor-op: ToolbarAction op without an action name.");
+                }
+                else if (_dispatchNamed != null)
+                {
+                    // The named dispatch owns the full string grammar (enum actions + the palette
+                    // ops like "palette:<id>" / "band:<name>") — see EditorOverlay.DispatchNamedAction.
+                    _dispatchNamed(op.Action, state);
+                }
+                else if (Enum.TryParse<EditorToolbarAction>(op.Action, ignoreCase: true, out var action))
+                {
                     _dispatch?.Invoke(action, state);
+                }
                 else
+                {
                     Logger.Warning($"[level-editor] Editor-op: unknown toolbar action '{op.Action}'.");
+                }
                 break;
         }
     }

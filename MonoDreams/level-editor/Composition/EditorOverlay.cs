@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using DefaultEcs;
 using DefaultEcs.System;
@@ -10,6 +11,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Message;
@@ -90,6 +92,11 @@ public sealed class EditorOverlay
     /// cursor entity (no textures — the OS pointer is the visible pointer while the editor is
     /// composed), which every editor system reads. Screens that already run the cursor pipeline
     /// leave it false — the overlay must never double the cursor.
+    /// <paramref name="assetCatalog"/> + <paramref name="paletteBands"/> (both screen-supplied —
+    /// the module stays game-agnostic) switch on the asset <see cref="Palette"/> in the shell's
+    /// bottom strip: the catalog lists the drop-folder art, the bands map the palette's layer
+    /// selector onto the SCREEN's <c>DrawLayerMap</c> depths. Omit both on screens without
+    /// authoring (menus, demos) — the strip just stays empty.
     /// </summary>
     public EditorOverlay(
         World world,
@@ -105,7 +112,9 @@ public sealed class EditorOverlay
         Action? requestExit = null,
         Action<bool>? setOsCursorVisible = null,
         bool provideCursorPipeline = false,
-        string sceneFileName = DefaultSceneFileName)
+        string sceneFileName = DefaultSceneFileName,
+        AssetCatalog? assetCatalog = null,
+        IReadOnlyList<PaletteBand>? paletteBands = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -127,7 +136,13 @@ public sealed class EditorOverlay
         _gizmoState.Set(GizmoStateComponent.Default);
 
         Transport = new EditorTransport(world, History);
-        SceneReader = new SceneReaderSystem(world, Serializer, content);
+
+        // The file-asset texture loader is always composed (a loaded scene can carry file: keys
+        // whether or not this screen shows a palette); textures load lazily, and a missing file
+        // shows the magenta placeholder instead of an invisible sprite.
+        AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
+        SceneReader = new SceneReaderSystem(world, Serializer, content,
+            fileTextureLoader: AssetTextures.Load);
         EditorCommands = new EditorCommandSystem(
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested);
@@ -180,13 +195,24 @@ public sealed class EditorOverlay
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
 
+        // The asset palette + placement (island-authoring Slice 1): only when the screen supplies
+        // both the catalog (the drop-folder scan) and its layer-band map — the module never
+        // guesses a game's layers. Lives in the shell's bottom strip.
+        if (assetCatalog != null && paletteBands is { Count: > 0 })
+        {
+            Palette = new PalettePlacementSystem(
+                world, assetCatalog, paletteBands, AssetTextures, Serializer, History,
+                viewportManager, toolbarFont, input.CancelRequested);
+        }
+
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
         // cost in a normal run. The driver holds the session open (requests exit only after its
         // ops drain), and SuppressReplayAutoExit lets a coexisting keyboard replay defer to it.
         var editorOpPlan = EditorOpPlan.TryLoad(debugDirectory);
         if (editorOpPlan != null)
         {
-            var driver = new EditorOpReplaySystem(world, editorOpPlan, DispatchToolbarAction, requestExit, Transport);
+            var driver = new EditorOpReplaySystem(world, editorOpPlan, DispatchToolbarAction, requestExit,
+                Transport, dispatchNamed: DispatchNamedAction);
             EditorOpDriver = driver;
             SuppressReplayAutoExit = () => !driver.IsComplete;
         }
@@ -252,6 +278,18 @@ public sealed class EditorOverlay
 
     /// <summary>Editor pan/zoom/frame (Edit-guarded). Weave before <c>CursorPositionSystem</c>.</summary>
     public ISystem<GameState> CameraNav { get; }
+
+    /// <summary>The file-asset texture loader behind <c>file:</c> AssetKeys (lazy, memoized,
+    /// magenta placeholder for a missing file). Always composed — the scene reader rehydrates
+    /// through it whether or not the screen shows a palette.</summary>
+    public FileAssetTextureLoader AssetTextures { get; }
+
+    /// <summary>The asset palette + placement system (bottom strip; ghost + click-place through
+    /// the snapshotting create command); null unless the screen supplied an
+    /// <see cref="AssetCatalog"/> + <see cref="PaletteBand"/> map. Weave as
+    /// <c>editor.palette</c> AFTER <c>CursorPositionSystem</c> (the ghost follows this frame's
+    /// cursor world position).</summary>
+    public PalettePlacementSystem? Palette { get; }
 
     /// <summary>The overlay-owned <c>CursorInputSystem</c> when the screen asked for a
     /// self-sufficient cursor pipeline (<c>provideCursorPipeline: true</c>), else null. Weave with
@@ -337,10 +375,14 @@ public sealed class EditorOverlay
     /// shared instances the rest of the editor uses (no second history / serializer / transport).
     /// Play/Pause and Restart drive the <see cref="Transport"/> (they need the frame's
     /// <see cref="GameState"/> — the RunMode axis lives there); tool-select and snap-toggle mutate
-    /// the single <see cref="GizmoState"/> entity; Save writes through <see cref="SceneWriter"/>
-    /// with the live camera + layers; Load publishes a <see cref="LoadSceneRequest"/> handled by
-    /// the woven <see cref="SceneReader"/>; Undo/Redo drive <see cref="History"/>. Public so the
-    /// headless channel and tests dispatch the same way.
+    /// the single <see cref="GizmoState"/> entity (a tool-select also disarms the palette — the
+    /// tool buttons are a radio over <see cref="EditorToolMode"/>); Save writes through
+    /// <see cref="SceneWriter"/> with the live camera + layers — <b>blocked, loudly, while the
+    /// transport is Playing</b> (<see cref="IsSaveBlocked"/>: saving mid-simulation would bake
+    /// transient run state, e.g. a mid-air player, into the scene; the toolbar renders the button
+    /// dimmed there and this guard closes the headless/dispatch path too); Load publishes a
+    /// <see cref="LoadSceneRequest"/> handled by the woven <see cref="SceneReader"/>; Undo/Redo
+    /// drive <see cref="History"/>. Public so the headless channel and tests dispatch the same way.
     /// </summary>
     public void DispatchToolbarAction(EditorToolbarAction action, GameState state)
     {
@@ -353,6 +395,13 @@ public sealed class EditorOverlay
             case EditorToolbarAction.ToolScale: SetGizmoTool(GizmoTool.Scale); break;
             case EditorToolbarAction.ToggleSnap: ToggleGizmoSnap(); break;
             case EditorToolbarAction.Save:
+                if (IsSaveBlocked(state))
+                {
+                    Logger.Warning(
+                        "[level-editor] Save is blocked while the transport is Playing — saving " +
+                        "mid-simulation would bake transient run state into the scene. Pause first.");
+                    break;
+                }
                 new SceneWriter(Serializer).Save(_world, _sceneFileName, _camera, _layers);
                 break;
             case EditorToolbarAction.Load:
@@ -363,11 +412,65 @@ public sealed class EditorOverlay
         }
     }
 
+    /// <summary>The authoring-vs-runtime save guard: Save dispatches only while the transport is
+    /// Paused (<see cref="RunMode.Edit"/>). Pure — named by the save-guard premise and its test.</summary>
+    public static bool IsSaveBlocked(GameState state) => state.RunMode == RunMode.Play;
+
+    /// <summary>
+    /// The STRING-action dispatch the headless channel routes <c>ToolbarAction</c> ops through:
+    /// <c>palette:&lt;entryId&gt;</c> arms a palette item, <c>palette:none</c> (or a bare
+    /// <c>palette:</c>) disarms, <c>band:&lt;name&gt;</c> selects a layer band, and anything else
+    /// parses as a plain <see cref="EditorToolbarAction"/> into
+    /// <see cref="DispatchToolbarAction"/> — so every scripted editor action shares one grammar.
+    /// Loud on unknown names / a palette op without a composed palette.
+    /// </summary>
+    public void DispatchNamedAction(string name, GameState state)
+    {
+        const string palettePrefix = "palette:";
+        const string bandPrefix = "band:";
+
+        if (name.StartsWith(palettePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Palette == null)
+            {
+                Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
+                return;
+            }
+            var id = name.Substring(palettePrefix.Length);
+            if (string.IsNullOrEmpty(id) || string.Equals(id, "none", StringComparison.OrdinalIgnoreCase))
+                Palette.Disarm();
+            else
+                Palette.Arm(id);
+            return;
+        }
+
+        if (name.StartsWith(bandPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Palette == null)
+                Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
+            else
+                Palette.SelectBand(name.Substring(bandPrefix.Length));
+            return;
+        }
+
+        if (Enum.TryParse<EditorToolbarAction>(name, ignoreCase: true, out var action))
+            DispatchToolbarAction(action, state);
+        else
+            Logger.Warning($"[level-editor] Editor-op: unknown action '{name}'.");
+    }
+
     private void SetGizmoTool(GizmoTool tool)
     {
         if (!_gizmoState.IsAlive) return;
         ref var state = ref _gizmoState.Get<GizmoStateComponent>();
         state.Tool = tool;
+        // The tool buttons are a radio over the coarse modality (§S1): picking a transform tool
+        // leaves Place mode, which also despawns the ghost via the palette.
+        if (state.Mode != EditorToolMode.SelectTransform)
+        {
+            if (Palette != null) Palette.Disarm();
+            else state.Mode = EditorToolMode.SelectTransform;
+        }
     }
 
     private void ToggleGizmoSnap()
