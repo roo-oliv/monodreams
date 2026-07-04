@@ -874,6 +874,39 @@ nothing armed mutes every tool family (the palette self-heals it back to `Select
 **Depends on:** this file — "Selection picks MAX final `LayerDepth` with a selection-owned
 tiebreak, target-aware" (the claim rule this composes with).
 
+## The palette hold-drag multi-stamps at arc-length spacing, coalesced into one undo step
+
+While a palette sprite item is armed in `Place` mode, a **hold-drag** stamps the prop repeatedly:
+the press stamps one and opens a coalescing transaction (`EditorHistory.BeginTransaction`), holding
++ dragging stamps more — one per `GizmoStateComponent.StampSpacing` of **arc-length** travelled,
+sampled by the pure `Brush/StrokeSampler` (which carries the leftover fractional distance between
+frames, so spacing is exact regardless of frame rate or cursor speed) — and the release commits the
+whole stroke as **exactly one** `CommitTransaction` history entry (one undo removes every stamp of
+the drag). A **single click** (press then release with no drag) is the degenerate case: one stamp,
+one undo step. This is the plain embryo of the future scatter brush — no jitter, no seed; each stamp
+is an ordinary `CreateEntityCommand` (auto-tagged `SceneObjectComponent`, sub-graph snapshot). A
+non-positive `StampSpacing` disables multi-stamp (a click still places one). Stamps that
+snap-collapse onto the previous position (snap on + spacing < grid) are skipped so identical props
+never stack in one cell; the last stamp is auto-selected on release. Any interruption of an open
+stroke (disarm, Escape/right-click, entering Play, dispose) **commits** it — the placed stamps are
+real edits, and an abandoned open transaction on the shared history would break the next
+`BeginTransaction`. Triggers (island §5.3) stay single-click, not multi-stamped.
+
+**Why:** dressing large areas (grass tufts, stones) one click at a time is the bottleneck the
+scatter brush will eventually solve; arc-length spacing is the minimal, jitter-free first step, and
+coalescing keeps one drag = one undo step (the gizmo's drag-coalescing contract, reused).
+**Breaks:** un-coalesced stamps make one drag N undo steps; frame-rate-dependent spacing clumps
+stamps where the cursor moved slowly; an abandoned open transaction throws on the next drag; stacking
+identical props in one grid cell when snap collapses the spacing.
+**Tests:** `MonoDreams.Tests/LevelEditor/StrokeSamplerTests.cs` (even spacing, diagonal, leftover
+carry-over, disable/short-segment no-op) and `MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`MultiStampTest_HoldDragStampsAtSpacingAndCoalescesToOneUndoStep` — a scripted hold-drag stamps at
+the expected spacing, nothing is committed mid-drag, the release is one undo step that one undo
+reverses whole; `PlacementTest_SingleClickIsOneUndoStepAutoSelectAndRepeat` — a single click still
+places one, one undo step, auto-selected).
+**Depends on:** this file — "Bounded undo with drag-coalescing" (the transaction pattern) and
+"Viewport presses belong to exactly one tool family" (multi-stamp acts only in `Place`).
+
 ## `file:` AssetKeys load drop-folder art at runtime and graduate to content keys at ship
 
 A placed prop's `SpriteInfoComponent.AssetKey` may use the `file:` scheme

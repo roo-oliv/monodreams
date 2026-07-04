@@ -8,6 +8,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Assets;
+using MonoDreams.LevelEditor.Brush;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.Transform;
@@ -123,6 +124,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private int _bandIndex;
     private Entity _ghost;
     private bool _ghostAlive;
+
+    // Multi-stamp hold-drag state (Slice 4): a stroke coalesces all its stamps into one undo step.
+    private bool _stamping;
+    private Vector2 _lastStampWorld;    // the raw cursor world of the last stamp (arc-length anchor)
+    private Vector2? _lastPlacedSnapped; // the last stamped (snapped) position — snap-collapse dedupe
+    private Entity _lastStampCreated;   // auto-selected when the stroke ends
 
     public bool IsEnabled { get; set; } = true;
 
@@ -243,6 +250,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// right-click / the headless <c>palette:none</c> op) and despawns the ghost.</summary>
     public void Disarm()
     {
+        EndStroke(); // commit an in-flight multi-stamp stroke before standing down
         _armedIndex = -1;
         _armedTrigger = -1;
         SetMode(EditorToolMode.SelectTransform);
@@ -291,6 +299,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
         else
         {
+            EndStroke(); // commit any open multi-stamp stroke before the palette goes inert
             DespawnGhost();
         }
 
@@ -413,9 +422,22 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 var position = PlacementPosition(input.WorldPosition);
                 Place(_ghost, position);
 
+                // Multi-stamp hold-drag (Slice 4): the press begins a coalesced stroke stamping one
+                // prop; holding + dragging stamps more at StampSpacing arc-length intervals; the
+                // release commits the whole stroke as ONE undo step. A single click (press with no
+                // drag) = one stamp = one undo step.
                 if (input.LeftButtonPressed)
-                    PlaceProp(entry, band, position, texture);
+                    BeginStroke(entry, band, position, input.WorldPosition, texture);
+                else if (_stamping && input.LeftButton)
+                    ContinueStroke(entry, band, input.WorldPosition, texture);
             }
+
+            // A release — or the button no longer held (e.g. it went up over the chrome margins) —
+            // ends the stroke, committing the coalesced transaction even when the pointer left the
+            // viewport mid-drag.
+            if (_stamping && (input.LeftButtonReleased || !input.LeftButton))
+                EndStroke();
+
             return; // single cursor
         }
     }
@@ -428,12 +450,43 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             : cursorWorld;
     }
 
-    /// <summary>One placement = one <see cref="CreateEntityCommand"/> through the shared history
-    /// (one undo step; the command tags <c>SceneObjectComponent</c> + snapshots the sub-graph) +
-    /// auto-select of the created root. Repeated clicks keep placing until disarmed.</summary>
-    private void PlaceProp(AssetCatalogEntry entry, PaletteBand band, Vector2 position,
+    /// <summary>Opens a coalesced stroke (one undo step for the whole hold-drag, the gizmo's
+    /// <c>BeginTransaction</c>/<c>CommitTransaction</c> pattern) and stamps the first prop at the
+    /// press position.</summary>
+    private void BeginStroke(AssetCatalogEntry entry, PaletteBand band, Vector2 firstPosition,
+        Vector2 cursorWorld, Microsoft.Xna.Framework.Graphics.Texture2D? texture)
+    {
+        _history.BeginTransaction();
+        _stamping = true;
+        _lastPlacedSnapped = null;
+        StampAt(entry, band, firstPosition, texture);
+        _lastStampWorld = cursorWorld;
+    }
+
+    /// <summary>Stamps any additional props the cursor's travel since the last stamp has earned
+    /// (arc-length spacing via <see cref="StrokeSampler"/>), inside the open stroke transaction. A
+    /// non-positive <see cref="GizmoStateComponent.StampSpacing"/> disables multi-stamp (only the
+    /// press stamp lands — the classic single-click).</summary>
+    private void ContinueStroke(AssetCatalogEntry entry, PaletteBand band, Vector2 cursorWorld,
         Microsoft.Xna.Framework.Graphics.Texture2D? texture)
     {
+        var spacing = GetGizmoStateEntity().Get<GizmoStateComponent>().StampSpacing;
+        if (spacing <= 0f) return;
+        var points = StrokeSampler.Sample(_lastStampWorld, cursorWorld, spacing);
+        if (points.Count == 0) return;
+        foreach (var raw in points)
+            StampAt(entry, band, PlacementPosition(raw), texture);
+        _lastStampWorld = points[points.Count - 1];
+    }
+
+    /// <summary>One stamp = one <see cref="CreateEntityCommand"/> pushed into the open stroke
+    /// transaction (the command tags <c>SceneObjectComponent</c> + snapshots the sub-graph). Skips
+    /// a stamp that snap-collapses onto the previous one (snap on + spacing &lt; grid) so identical
+    /// props never stack in one cell.</summary>
+    private void StampAt(AssetCatalogEntry entry, PaletteBand band, Vector2 position,
+        Microsoft.Xna.Framework.Graphics.Texture2D? texture)
+    {
+        if (_lastPlacedSnapped.HasValue && _lastPlacedSnapped.Value == position) return;
         var created = default(Entity);
         _history.Push(new CreateEntityCommand(_world, _serializer,
             w =>
@@ -441,14 +494,26 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 created = SpritePropFactory.Create(w, entry, band, position, texture);
                 return created;
             }));
-
-        // Auto-select (selection is dormant in Place mode, so nothing fights this): clear the old
-        // selection, tag the new root. The gizmo shows its handles once the palette disarms.
-        ClearSelection();
-        if (created.IsAlive) created.Set(new SelectedComponent());
+        _lastPlacedSnapped = position;
+        if (created.IsAlive) _lastStampCreated = created;
 
         Logger.Info($"[level-editor] Placed '{entry.Id}' on band '{band.Name}' at " +
                     $"({position.X:0.##}, {position.Y:0.##}).");
+    }
+
+    /// <summary>Ends the multi-stamp stroke: commit the coalesced transaction (one undo step for
+    /// the whole drag) and auto-select the last stamp (selection is dormant in Place mode, so
+    /// nothing fights this) so the gizmo shows its handles once the palette disarms. A no-op when
+    /// no stroke is open.</summary>
+    private void EndStroke()
+    {
+        if (!_stamping) return;
+        _stamping = false;
+        if (_history.InTransaction) _history.CommitTransaction();
+        ClearSelection();
+        if (_lastStampCreated.IsAlive) _lastStampCreated.Set(new SelectedComponent());
+        _lastStampCreated = default;
+        _lastPlacedSnapped = null;
     }
 
     /// <summary>Places a trigger zone on a viewport left-click at the snapped cursor position: one
@@ -774,6 +839,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
     public void Dispose()
     {
+        EndStroke(); // never leave an open transaction on the shared history
         DespawnGhost();
         foreach (var (_, button, label) in _bandButtons)
         {

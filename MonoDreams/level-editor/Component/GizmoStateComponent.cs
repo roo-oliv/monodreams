@@ -104,8 +104,21 @@ public struct GizmoStateComponent
     /// value disables rotation snapping.</summary>
     public float RotationStepRadians;
 
+    /// <summary>
+    /// The minimum world-unit distance between successive stamps of a palette <b>hold-drag</b>
+    /// (island-authoring Slice 4 multi-stamp — the embryo of the future scatter brush). While a
+    /// palette item is armed in <see cref="EditorToolMode.Place"/>, holding the left button and
+    /// dragging stamps the armed prop repeatedly, one stamp per <see cref="StampSpacing"/> of
+    /// arc-length travelled (a plain, jitter-free spacing — no seed). A single click still places
+    /// exactly one; a non-positive value disables the multi-stamp (a click still places one). This
+    /// lives on the shared editor-state entity beside <see cref="GridStep"/> (the natural home for
+    /// the persistent brush setting — the future BrushState fields graduate here), so the palette
+    /// reads it the same way it reads snap.
+    /// </summary>
+    public float StampSpacing;
+
     /// <summary>A sensible default: select/transform modality, move tool, snap off, a 16-unit
-    /// grid, 15° rotation step.</summary>
+    /// grid, 15° rotation step, 32-unit multi-stamp spacing.</summary>
     public static GizmoStateComponent Default => new()
     {
         Tool = GizmoTool.Move,
@@ -113,6 +126,7 @@ public struct GizmoStateComponent
         SnapEnabled = false,
         GridStep = 16f,
         RotationStepRadians = MathHelperPi / 12f, // 15 degrees
+        StampSpacing = 32f,
     };
 
     // Local constant to avoid a Microsoft.Xna.Framework dependency in this pure-data file.

@@ -58,14 +58,15 @@ public class PalettePlacementTests
     }
 
     private static void SetCursor(Entity cursor, Vector2 world, bool leftPressed = false,
-        bool leftDown = false, bool rightPressed = false, bool outsideViewport = false)
+        bool leftDown = false, bool leftReleased = false, bool rightPressed = false,
+        bool outsideViewport = false)
     {
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.WorldPosition = world;
         input.VirtualPosition = world;
         input.LeftButtonPressed = leftPressed;
-        input.LeftButton = leftDown || leftPressed;
-        input.LeftButtonReleased = false;
+        input.LeftButton = (leftDown || leftPressed) && !leftReleased;
+        input.LeftButtonReleased = leftReleased;
         input.RightButtonPressed = rightPressed;
         input.OutsideViewport = outsideViewport;
     }
@@ -293,7 +294,7 @@ public class PalettePlacementTests
     // ---- Placement ----
 
     [Fact]
-    public void PlacementTest_OneUndoStepAutoSelectAndRepeat()
+    public void PlacementTest_SingleClickIsOneUndoStepAutoSelectAndRepeat()
     {
         using var world = new World();
         MakeGizmoState(world);
@@ -304,26 +305,27 @@ public class PalettePlacementTests
         palette.ArmByIndex(0);
         palette.SelectBand("Ground");
 
-        // First press places one prop = one undo step, tagged + auto-selected.
+        // A single click = press then release. The prop is created live on the press (the stroke's
+        // open transaction applies immediately)...
         SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
         palette.Update(Edit());
-
         var placed = Assert.Single(PlacedProps(world));
-        Assert.Equal(1, history.Count);
         Assert.True(placed.Has<SceneObjectComponent>());
-        Assert.Equal(placed, Selected(world));
         Assert.Equal(new Vector2(120, 80), placed.Get<TransformComponent>().Position);
         var sprite = placed.Get<SpriteInfoComponent>();
         Assert.Equal("file:Island/props/tree01.png", sprite.AssetKey);
         Assert.Equal(0.9f, sprite.LayerDepth); // the Ground band's SOURCE depth
 
-        // Holding the button is not a press edge: nothing extra is placed.
-        SetCursor(cursor, new Vector2(140, 90), leftDown: true);
+        // ...and the release commits it as exactly one undo step + auto-selects it.
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
         palette.Update(Edit());
-        Assert.Single(PlacedProps(world));
+        Assert.Equal(1, history.Count);
+        Assert.Equal(placed, Selected(world));
 
         // A second click keeps placing (still armed), auto-select moves to the newest.
         SetCursor(cursor, new Vector2(200, 40), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(200, 40), leftReleased: true);
         palette.Update(Edit());
         Assert.Equal(2, PlacedProps(world).Count);
         Assert.Equal(2, history.Count);
@@ -338,6 +340,59 @@ public class PalettePlacementTests
         history.Undo();
         Assert.Empty(PlacedProps(world));
         Assert.False(placed.IsAlive);
+    }
+
+    [Fact]
+    public void MultiStampTest_HoldDragStampsAtSpacingAndCoalescesToOneUndoStep()
+    {
+        using var world = new World();
+        var gizmoState = MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        using var palette = MakePalette(world, history, serializer);
+
+        // Deterministic spacing, snap off, a non-Y-sorted band (positions land raw at the cursor).
+        {
+            ref var state = ref gizmoState.Get<GizmoStateComponent>();
+            state.StampSpacing = 10f;
+            state.SnapEnabled = false;
+        }
+        palette.ArmByIndex(0);
+        palette.SelectBand("Ground");
+
+        // Press stamps the first prop and opens the coalescing stroke.
+        SetCursor(cursor, new Vector2(0, 0), leftPressed: true);
+        palette.Update(Edit());
+        Assert.Single(PlacedProps(world));
+
+        // Hold-drag to x=35: arc-length spacing 10 earns stamps at x=10,20,30 (4 total).
+        SetCursor(cursor, new Vector2(35, 0), leftDown: true);
+        palette.Update(Edit());
+        Assert.Equal(4, PlacedProps(world).Count);
+
+        // Continue to x=52: the leftover 5 units carry over, so stamps land at x=40,50 (6 total).
+        SetCursor(cursor, new Vector2(52, 0), leftDown: true);
+        palette.Update(Edit());
+        Assert.Equal(6, PlacedProps(world).Count);
+
+        // Mid-drag NOTHING is committed to the history yet (the transaction is still open).
+        Assert.Equal(0, history.Count);
+
+        // Release commits the WHOLE stroke as exactly one undo step, last stamp auto-selected.
+        SetCursor(cursor, new Vector2(52, 0), leftReleased: true);
+        palette.Update(Edit());
+        Assert.Equal(1, history.Count);
+
+        var xs = new List<float>();
+        foreach (var e in PlacedProps(world)) xs.Add(e.Get<TransformComponent>().Position.X);
+        xs.Sort();
+        Assert.Equal(new[] { 0f, 10f, 20f, 30f, 40f, 50f }, xs);
+        Assert.Equal(50f, Selected(world)!.Value.Get<TransformComponent>().Position.X);
+
+        // One undo removes the entire coalesced stroke.
+        history.Undo();
+        Assert.Empty(PlacedProps(world));
+        Assert.Equal(0, history.Count);
     }
 
     [Fact]
