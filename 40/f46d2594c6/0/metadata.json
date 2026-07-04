@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "40f46d2594c6",
+  "session_id": "99588020-158e-40d6-aa8e-de0c7ddae9dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-04T11:57:54.958201Z",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "docs/level-editor/island-authoring-plan.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "9d43ae27-d290-477c-b51e-c6544df3dfdd",
+  "checkpoint_transcript_start": 1690,
+  "transcript_lines_at_start": 1690,
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 11658,
+    "cache_read_tokens": 3729402,
+    "output_tokens": 9391,
+    "api_call_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-04T11:57:54.102532Z",
+    "agent_lines": 0,
+    "human_added": 569,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 569,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-level-editor/99588020-158e-40d6-aa8e-de0c7ddae9dd.jsonl"
+}
