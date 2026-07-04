@@ -228,6 +228,17 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 new MonoDreams.LevelEditor.Assets.PaletteBand("Overhead", _layers.GetDepth(GameDrawLayer.Foreground), YSorted: false),
             };
 
+            // The trigger-zone types this game offers (island-authoring §5.3) — screen-supplied, so
+            // the level-editor module stays game-agnostic. Placing one drops a Passive box collider
+            // whose EntityInfoComponent identity (Type = prefix, Name = "<prefix>_NN") a game
+            // reaction system pattern-matches on (the ZoneDialogueTriggerSystem precedent).
+            var triggerTypes = new[]
+            {
+                new MonoDreams.LevelEditor.Assets.TriggerType("evidence", "Evidence"),
+                new MonoDreams.LevelEditor.Assets.TriggerType("talkzone", "TalkZone"),
+                new MonoDreams.LevelEditor.Assets.TriggerType("exit", "Exit"),
+            };
+
             _editor = new EditorOverlay(
                 _world, _camera, _layers, _content, promptFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
@@ -237,14 +248,15 @@ public class LoadLevelExampleGameScreen : IGameScreen
                     redoRequested: _ => InputState.Redo.JustPressed(),
                     frameRequested: _ => InputState.Frame.JustPressed(),
                     // Escape (already mapped to InputState.Exit; nothing else consumes it on this
-                    // screen) disarms the palette's Place mode.
+                    // screen) disarms the palette's Place mode AND cancels a boundary lay.
                     cancelRequested: _ => InputState.Exit.JustPressed()),
                 debugDir,
                 requestExit: _game.Exit,
                 // The shell shows the OS cursor over the chrome margins while editing.
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
                 assetCatalog: assetCatalog,
-                paletteBands: paletteBands);
+                paletteBands: paletteBands,
+                triggerTypes: triggerTypes);
         }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
@@ -413,8 +425,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
             g.Add("entitySpawn", entitySpawnSystem);
         });
         if (_editor != null)
+        {
             // Native-scene loading (LoadSceneRequest) — with the level-load group, message-driven.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+            // Boundary bake — reacts to a BoundaryComponent being added/changed (the tool's commit,
+            // a scene load, a vertex edit) and generates the segment colliders. RunNormally: a
+            // shipped game loading a native scene with a boundary must bake it too (§S2).
+            p.Add("editor.boundaryBake", _editor.BoundaryBake, EditTimeBehavior.RunNormally);
+        }
         // Game logic + physics + dialogue — FROZEN in Edit (runs only in Play; the group's single
         // Freeze gate skips all children, exactly like the old opaque composite). The collision
         // chain must stay sequential (movement → velocity → detect → resolve → commit); individual
@@ -484,6 +502,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // The asset palette + placement — AFTER CursorPositionSystem so the ghost preview
             // follows THIS frame's cursor world position (no one-frame lag). Edit-guarded.
             p.Add("editor.palette", _editor.Palette, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // The freeform boundary tool — also after CursorPositionSystem so a lay click reads
+            // this frame's cursor world position. Edit-guarded (its own Update checks the mode).
+            p.Add("editor.boundary", _editor.BoundaryTool, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
             // The Blender-style shell sync: viewport inset + native chrome layout + cursor swap
