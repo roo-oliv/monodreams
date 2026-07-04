@@ -26,7 +26,12 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
         (InputState.Delete, Keys.Delete),
         (InputState.Undo, Keys.Z),
         (InputState.Redo, Keys.Y),
-        (InputState.Frame, Keys.Home)     // frame the editor camera on all content
+        (InputState.Frame, Keys.Home),    // frame the editor camera on all content
+        // Palette ghost-rotate (Edit-only). Q is free; E doubles as Interact — safe by mode (in
+        // Edit the game's Interact is frozen; in Play the palette is inert), the Unity/Godot
+        // rotate-before-place gesture.
+        (InputState.RotateCcw, Keys.Q),
+        (InputState.RotateCw, Keys.E)
     ];
 
     public override void Update(GameState state)

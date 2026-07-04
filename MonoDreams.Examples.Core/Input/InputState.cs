@@ -22,4 +22,8 @@ public class InputState : AInputState
     public static readonly InputState Redo = new();
     /// <summary>Frames the editor camera on all renderable content — centre + zoom-fit (Edit mode only).</summary>
     public static readonly InputState Frame = new();
+    /// <summary>Rotates the armed palette ghost clockwise before stamping (Edit mode only).</summary>
+    public static readonly InputState RotateCw = new();
+    /// <summary>Rotates the armed palette ghost counter-clockwise before stamping (Edit mode only).</summary>
+    public static readonly InputState RotateCcw = new();
 }

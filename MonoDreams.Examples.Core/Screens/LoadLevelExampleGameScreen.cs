@@ -201,6 +201,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             actionMap["Undo"] = InputState.Undo;
             actionMap["Redo"] = InputState.Redo;
             actionMap["Frame"] = InputState.Frame;
+            actionMap["RotateCw"] = InputState.RotateCw;
+            actionMap["RotateCcw"] = InputState.RotateCcw;
         }
 
         var promptFont = _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
@@ -249,7 +251,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
                     frameRequested: _ => InputState.Frame.JustPressed(),
                     // Escape (already mapped to InputState.Exit; nothing else consumes it on this
                     // screen) disarms the palette's Place mode AND cancels a boundary lay.
-                    cancelRequested: _ => InputState.Exit.JustPressed()),
+                    cancelRequested: _ => InputState.Exit.JustPressed(),
+                    // Q/E rotate the armed palette ghost before stamping (road pieces / props).
+                    rotateCwRequested: _ => InputState.RotateCw.JustPressed(),
+                    rotateCcwRequested: _ => InputState.RotateCcw.JustPressed()),
                 debugDir,
                 requestExit: _game.Exit,
                 // The shell shows the OS cursor over the chrome margins while editing.

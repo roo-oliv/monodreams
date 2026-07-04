@@ -44,16 +44,18 @@ public static class SpritePropFactory
     /// Builds the standard sprite-prop stack at <paramref name="position"/> (the feet point on a
     /// Y-sorted band, the top-left otherwise — see the class doc). <paramref name="texture"/> is
     /// the lazily-loaded texture for the entry (nullable: headless tests run textureless; the
-    /// sprite then skips rendering until rehydrated).
+    /// sprite then skips rendering until rehydrated). <paramref name="rotation"/> (radians) orients
+    /// the prop — the palette's ghost-rotate (Q/E) passes the armed rotation so straight/curve road
+    /// pieces and props land oriented (Slice 4); 0 for the common axis-aligned case.
     /// </summary>
     public static Entity Create(World world, AssetCatalogEntry entry, PaletteBand band,
-        Vector2 position, Texture2D? texture)
+        Vector2 position, Texture2D? texture, float rotation = 0f)
     {
         var source = SourceRect(entry, texture);
 
         var entity = world.CreateEntity();
         entity.Set(new EntityInfoComponent(EntityInfoType, entry.Label));
-        entity.Set(new TransformComponent(position));
+        entity.Set(new TransformComponent(position, rotation));
         entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = texture,

@@ -220,7 +220,8 @@ public sealed class EditorOverlay
         {
             Palette = new PalettePlacementSystem(
                 world, assetCatalog, paletteBands, AssetTextures, Serializer, History,
-                viewportManager, toolbarFont, input.CancelRequested, triggerTypes);
+                viewportManager, toolbarFont, input.CancelRequested, triggerTypes,
+                input.RotateCwRequested, input.RotateCcwRequested);
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -493,7 +494,8 @@ public sealed class EditorOverlay
     /// <c>palette:</c>) disarms, <c>band:&lt;name&gt;</c> selects a layer band,
     /// <c>order:forward</c>/<c>order:back</c> nudge the selection's within-band order,
     /// <c>collider:addBox</c>/<c>addConvex</c>/<c>remove</c>/<c>addVertex</c>/<c>deleteVertex</c>
-    /// drive the collider authoring actions, and anything else parses as a plain
+    /// drive the collider authoring actions, <c>ghost:cw</c>/<c>ghost:ccw</c> rotate the armed
+    /// palette ghost, and anything else parses as a plain
     /// <see cref="EditorToolbarAction"/> into <see cref="DispatchToolbarAction"/> — so every
     /// scripted editor action shares one grammar. Loud on unknown names / a palette op without a
     /// composed palette.
@@ -506,6 +508,7 @@ public sealed class EditorOverlay
         const string colliderPrefix = "collider:";
         const string boundaryPrefix = "boundary:";
         const string triggerPrefix = "trigger:";
+        const string ghostPrefix = "ghost:";
 
         if (name.StartsWith(boundaryPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -530,6 +533,23 @@ public sealed class EditorOverlay
                 return;
             }
             Palette.ArmTrigger(name.Substring(triggerPrefix.Length));
+            return;
+        }
+
+        if (name.StartsWith(ghostPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Palette == null)
+            {
+                Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
+                return;
+            }
+            var dir = name.Substring(ghostPrefix.Length).ToLowerInvariant();
+            switch (dir)
+            {
+                case "cw": Palette.RotateArmedGhost(PalettePlacementSystem.GhostRotationStep); break;
+                case "ccw": Palette.RotateArmedGhost(-PalettePlacementSystem.GhostRotationStep); break;
+                default: Logger.Warning($"[level-editor] Editor-op '{name}': expected ghost:cw or ghost:ccw."); break;
+            }
             return;
         }
 

@@ -34,6 +34,8 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
     private readonly KeyState _orderForward = new();
     private readonly KeyState _orderBack = new();
     private readonly KeyState _commit = new();
+    private readonly KeyState _rotateCcw = new();
+    private readonly KeyState _rotateCw = new();
     private readonly List<(AInputState inputState, Keys)> _mapping;
 
     public DefaultEditorKeys()
@@ -47,6 +49,8 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
             (_orderForward, Keys.PageUp),
             (_orderBack, Keys.PageDown),
             (_commit, Keys.Enter), // the boundary tool's commit
+            (_rotateCcw, Keys.Q),  // rotate the armed palette ghost counter-clockwise
+            (_rotateCw, Keys.E),   // rotate the armed palette ghost clockwise
         ];
         Bindings = new EditorInputBindings(
             deleteRequested: _ => _delete.JustPressed(),
@@ -55,7 +59,9 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
             frameRequested: _ => _frame.JustPressed(),
             orderForwardRequested: _ => _orderForward.JustPressed(),
             orderBackRequested: _ => _orderBack.JustPressed(),
-            commitRequested: _ => _commit.JustPressed());
+            commitRequested: _ => _commit.JustPressed(),
+            rotateCwRequested: _ => _rotateCw.JustPressed(),
+            rotateCcwRequested: _ => _rotateCcw.JustPressed());
     }
 
     public override List<(AInputState inputState, Keys)> InputMapping => _mapping;

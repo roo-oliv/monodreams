@@ -447,6 +447,54 @@ public class PalettePlacementTests
         Assert.Equal(new[] { "palette:Island/props/tree01.png", "band:Props", "Undo" }, received);
     }
 
+    // ---- Ghost rotate (Slice 4) ----
+
+    [Fact]
+    public void GhostRotateTest_RotatesTheGhostAndBakesItIntoThePlacedEntity()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var cw = false;
+        var ccw = false;
+        using var palette = new PalettePlacementSystem(world, MakeCatalog(), Bands, MakeLoader(),
+            serializer, history, viewportManager: null, font: null, cancelRequested: null,
+            triggerTypes: null, rotateCwRequested: _ => cw, rotateCcwRequested: _ => ccw);
+
+        palette.ArmByIndex(0);
+        palette.SelectBand("Ground");
+        SetCursor(cursor, new Vector2(50, 50));
+        palette.Update(Edit());
+        Assert.Equal(0f, palette.ArmedRotation);
+        Assert.Equal(0f, palette.Ghost.Get<TransformComponent>().Rotation);
+
+        // A CW press rotates by one step; the ghost follows this frame.
+        cw = true;
+        palette.Update(Edit());
+        cw = false;
+        Assert.Equal(PalettePlacementSystem.GhostRotationStep, palette.ArmedRotation, 3);
+        Assert.Equal(PalettePlacementSystem.GhostRotationStep,
+            palette.Ghost.Get<TransformComponent>().Rotation, 3);
+
+        // Placing bakes the armed rotation into the created entity.
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+        var placed = Assert.Single(PlacedProps(world));
+        Assert.Equal(PalettePlacementSystem.GhostRotationStep,
+            placed.Get<TransformComponent>().Rotation, 3);
+
+        // CCW rotates back to 0; disarm resets the orientation for the next arm.
+        ccw = true;
+        palette.Update(Edit());
+        ccw = false;
+        Assert.Equal(0f, palette.ArmedRotation, 3);
+        palette.Disarm();
+        Assert.Equal(0f, palette.ArmedRotation);
+    }
+
     // ---- Refresh-catalog (Slice 4) ----
 
     [Fact]

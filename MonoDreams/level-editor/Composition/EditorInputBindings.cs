@@ -24,7 +24,9 @@ public sealed class EditorInputBindings(
     Func<GameState, bool>? cancelRequested = null,
     Func<GameState, bool>? orderForwardRequested = null,
     Func<GameState, bool>? orderBackRequested = null,
-    Func<GameState, bool>? commitRequested = null)
+    Func<GameState, bool>? commitRequested = null,
+    Func<GameState, bool>? rotateCwRequested = null,
+    Func<GameState, bool>? rotateCcwRequested = null)
 {
     /// <summary>Deletes the selected entity (reversible, via the shared history).</summary>
     public Func<GameState, bool> DeleteRequested { get; } =
@@ -57,4 +59,12 @@ public sealed class EditorInputBindings(
     /// <summary>Commits the in-progress boundary lay — the boundary tool's Enter (a double-click
     /// always commits too). Optional; the toolbar/headless <c>boundary:commit</c> also works.</summary>
     public Func<GameState, bool>? CommitRequested { get; } = commitRequested;
+
+    /// <summary>Rotates the armed palette ghost clockwise (e.g. E) before stamping — road pieces /
+    /// props land oriented (Slice 4). Optional; the headless <c>ghost:cw</c> op also works.</summary>
+    public Func<GameState, bool>? RotateCwRequested { get; } = rotateCwRequested;
+
+    /// <summary>Rotates the armed palette ghost counter-clockwise (e.g. Q). Optional; the headless
+    /// <c>ghost:ccw</c> op also works.</summary>
+    public Func<GameState, bool>? RotateCcwRequested { get; } = rotateCcwRequested;
 }

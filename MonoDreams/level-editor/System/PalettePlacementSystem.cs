@@ -79,6 +79,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// label (<see cref="EditorChromeBuilder.LabelDepth"/> 0.6).</summary>
     private const float ThumbnailDepth = 0.56f;
 
+    /// <summary>The per-press rotation step (radians) the ghost-rotate keys (Q/E) apply — 45°, so a
+    /// road piece reaches the four cardinal + four diagonal orientations in whole steps (Slice 4).</summary>
+    public const float GhostRotationStep = MathHelper.PiOver4;
+
     private readonly World _world;
     private readonly AssetCatalog _catalog;
     private readonly IReadOnlyList<PaletteBand> _bands;
@@ -90,6 +94,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private readonly BitmapFont? _font;
     private readonly Func<string, float> _measureLabel;
     private readonly Func<GameState, bool>? _cancelRequested;
+    private readonly Func<GameState, bool>? _rotateCwRequested;
+    private readonly Func<GameState, bool>? _rotateCcwRequested;
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _gizmoStateSet;
@@ -130,6 +136,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private int _armedIndex = -1;
     private int _armedTrigger = -1;
     private int _bandIndex;
+    private float _armedRotation; // the ghost's orientation (radians), set by Q/E; reset on disarm
     private Entity _ghost;
     private bool _ghostAlive;
 
@@ -156,7 +163,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         ViewportManager? viewportManager = null,
         BitmapFont? font = null,
         Func<GameState, bool>? cancelRequested = null,
-        IReadOnlyList<TriggerType>? triggerTypes = null)
+        IReadOnlyList<TriggerType>? triggerTypes = null,
+        Func<GameState, bool>? rotateCwRequested = null,
+        Func<GameState, bool>? rotateCcwRequested = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -172,6 +181,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             ? label => font.MeasureString(label).Width * EditorChromeBuilder.LabelScale
             : label => label.Length * 7f; // layout-only approximation (tests run no text prep)
         _cancelRequested = cancelRequested;
+        _rotateCwRequested = rotateCwRequested;
+        _rotateCcwRequested = rotateCcwRequested;
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
@@ -261,9 +272,21 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         EndStroke(); // commit an in-flight multi-stamp stroke before standing down
         _armedIndex = -1;
         _armedTrigger = -1;
+        _armedRotation = 0f; // a fresh arm starts axis-aligned
         SetMode(EditorToolMode.SelectTransform);
         DespawnGhost();
     }
+
+    /// <summary>The armed ghost's current orientation (radians) — what the next stamp bakes into the
+    /// placed prop's <c>TransformComponent.Rotation</c>.</summary>
+    public float ArmedRotation => _armedRotation;
+
+    /// <summary>Rotates the armed ghost by <paramref name="deltaRadians"/> (island-authoring
+    /// Slice 4 — the Q/E keys / the headless <c>ghost:cw</c> / <c>ghost:ccw</c> ops): the ghost
+    /// preview and every subsequent stamp of the armed item land at this orientation, so straight /
+    /// curve road pieces and props can be oriented at placement. Wrapped to (−π, π].</summary>
+    public void RotateArmedGhost(float deltaRadians) =>
+        _armedRotation = MathHelper.WrapAngle(_armedRotation + deltaRadians);
 
     /// <summary>Selects the layer band by name (case-insensitive; the headless
     /// <c>band:&lt;name&gt;</c> op). Returns false (loud) for an unknown band.</summary>
@@ -346,6 +369,14 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
             if (_cancelRequested?.Invoke(state) == true && (_armedIndex >= 0 || _armedTrigger >= 0))
                 Disarm();
+
+            // Ghost rotate (Slice 4): Q/E rotate the armed sprite ghost before stamping (triggers
+            // are axis-aligned boxes — not rotated).
+            if (_armedIndex >= 0)
+            {
+                if (_rotateCwRequested?.Invoke(state) == true) RotateArmedGhost(GhostRotationStep);
+                if (_rotateCcwRequested?.Invoke(state) == true) RotateArmedGhost(-GhostRotationStep);
+            }
 
             hovered = HandleInteraction(state);
             UpdateGhostAndPlace(state);
@@ -474,6 +505,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             {
                 var position = PlacementPosition(input.WorldPosition);
                 Place(_ghost, position);
+                _ghost.Get<TransformComponent>().Rotation = _armedRotation; // ghost-rotate (Slice 4)
 
                 // Multi-stamp hold-drag (Slice 4): the press begins a coalesced stroke stamping one
                 // prop; holding + dragging stamps more at StampSpacing arc-length intervals; the
@@ -544,7 +576,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _history.Push(new CreateEntityCommand(_world, _serializer,
             w =>
             {
-                created = SpritePropFactory.Create(w, entry, band, position, texture);
+                created = SpritePropFactory.Create(w, entry, band, position, texture, _armedRotation);
                 return created;
             }));
         _lastPlacedSnapped = position;
