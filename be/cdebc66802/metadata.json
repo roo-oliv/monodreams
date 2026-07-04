@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "becdebc66802",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "docs/level-editor/island-authoring-plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/be/cdebc66802/0/metadata.json",
+      "transcript": "/be/cdebc66802/0/full.jsonl",
+      "context": "/be/cdebc66802/0/context.md",
+      "content_hash": "/be/cdebc66802/0/content_hash.txt",
+      "prompt": "/be/cdebc66802/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 7261,
+    "cache_read_tokens": 2602425,
+    "output_tokens": 3805,
+    "api_call_count": 4
+  }
+}
