@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "6d6181298283",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/level-editor/island-authoring-plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6d/6181298283/0/metadata.json",
+      "transcript": "/6d/6181298283/0/full.jsonl",
+      "context": "/6d/6181298283/0/context.md",
+      "content_hash": "/6d/6181298283/0/content_hash.txt",
+      "prompt": "/6d/6181298283/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1482,
+    "cache_creation_tokens": 1496937,
+    "cache_read_tokens": 5824016,
+    "output_tokens": 42417,
+    "api_call_count": 15
+  }
+}
