@@ -535,4 +535,73 @@ public class SceneRoundTripTests
             Assert.True(layers.TryGetYSortRange(loadedProp.Get<SpriteInfoComponent>().LayerDepth, out _, out _));
         });
     }
+
+    /// <summary>
+    /// Island-authoring Slice 3 (§5.2): a boundary's polyline serializes into <c>entities[]</c> but
+    /// its baked segment colliders are NEVER written (the "bake products never scene-serialize"
+    /// invariant) — on reload they regenerate from the polyline (bake-on-load, in Play). The
+    /// polyline round-trips exactly.
+    /// </summary>
+    [Fact]
+    public void BoundaryBakeChildrenNeverSerialize_RegenerateOnLoadTest()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            using var world = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+            using var bake = new MonoDreams.LevelEditor.System.BoundaryBakeSystem(world);
+            var edit = new GameState(new GameTime()) { RunMode = RunMode.Edit };
+
+            // A committed boundary (a save-root) with a 3-point polyline (→ 2 baked segments).
+            var localPoints = new[] { new Vector2(-40, 0), new Vector2(0, 0), new Vector2(40, 20) };
+            var boundary = world.CreateEntity();
+            boundary.Set(new SceneObjectComponent());
+            boundary.Set(new EntityInfoComponent("Boundary", "boundary_01"));
+            boundary.Set(new TransformComponent(new Vector2(200, 300)));
+            boundary.Set(new MonoDreams.LevelEditor.Component.BoundaryComponent(localPoints, 24f));
+            bake.Update(edit);
+
+            // Baked children exist in the live world, but they are NOT tagged save-roots.
+            using (var bakedSet = world.GetEntities()
+                       .With<MonoDreams.LevelEditor.Component.BakedProductComponent>().AsSet())
+            {
+                var count = 0; foreach (var _ in bakedSet.GetEntities()) count++;
+                Assert.Equal(2, count);
+            }
+
+            new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
+            var saved = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName]);
+            // The boundary root is written (one entity, carrying the boundary component); NO baked
+            // convex-collider child appears.
+            Assert.Single(saved.Entities);
+            Assert.True(saved.Entities[0].Components.ContainsKey(
+                MonoDreams.LevelEditor.Serialization.EngineComponentSerializers.BoundaryKey));
+            Assert.DoesNotContain(saved.Entities, e => e.Components.ContainsKey(
+                MonoDreams.LevelEditor.Serialization.EngineComponentSerializers.ConvexColliderKey));
+
+            // Reload onto a fresh world with the bake system live → the segments regenerate.
+            using var loadWorld = new World();
+            using var loadBake = new MonoDreams.LevelEditor.System.BoundaryBakeSystem(loadWorld);
+            using var reader = new SceneReaderSystem(loadWorld, new SceneSerializer(NewEngineRegistry()),
+                content: null, loadTexture: new TextureLoadSpy().Load);
+            var play = new GameState(new GameTime()) { RunMode = RunMode.Play };
+            loadWorld.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+            loadBake.Update(play); // bake-on-load runs in Play too
+
+            using (var reloadedBaked = loadWorld.GetEntities()
+                       .With<MonoDreams.LevelEditor.Component.BakedProductComponent>().AsSet())
+            {
+                var count = 0; foreach (var _ in reloadedBaked.GetEntities()) count++;
+                Assert.Equal(2, count); // children regenerated
+            }
+
+            // The polyline round-tripped exactly.
+            var reloaded = CollectEntitiesWith<MonoDreams.LevelEditor.Component.BoundaryComponent>(loadWorld).Single();
+            var reloadedPoints = reloaded.Get<MonoDreams.LevelEditor.Component.BoundaryComponent>().Points;
+            Assert.Equal(localPoints, reloadedPoints);
+            Assert.Equal(24f, reloaded.Get<MonoDreams.LevelEditor.Component.BoundaryComponent>().Thickness);
+            Assert.Equal(new Vector2(200, 300), reloaded.Get<TransformComponent>().Position);
+        });
+    }
 }
