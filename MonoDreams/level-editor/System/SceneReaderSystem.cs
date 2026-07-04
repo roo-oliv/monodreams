@@ -39,6 +39,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     private readonly SceneSerializer _serializer;
     private readonly ContentManager _content;
     private readonly Func<string, Texture2D> _loadTexture;
+    private readonly Func<string, Texture2D?>? _fileTextureLoader;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -46,17 +47,23 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// Subscribes to <see cref="LoadSceneRequest"/>. <paramref name="content"/> resolves the scene's
     /// content path and rehydrates textures; pass an explicit <paramref name="loadTexture"/> only to
     /// override the default <c>content.Load&lt;Texture2D&gt;</c> (e.g. a test stub with no GraphicsDevice).
+    /// <paramref name="fileTextureLoader"/> handles <c>file:</c> asset keys (runtime-loaded PNGs from
+    /// the asset drop folder — see <see cref="Assets.FileAssetKey"/>); wire
+    /// <c>FileAssetTextureLoader.Load</c>, which returns a visible magenta placeholder (with a loud
+    /// warning) for a missing file so the entity is never silently invisible.
     /// </summary>
     public SceneReaderSystem(
         World world,
         SceneSerializer serializer,
         ContentManager content,
-        Func<string, Texture2D>? loadTexture = null)
+        Func<string, Texture2D>? loadTexture = null,
+        Func<string, Texture2D?>? fileTextureLoader = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _content = content; // may be null when an explicit loadTexture is supplied (tests)
         _loadTexture = loadTexture ?? (key => _content.Load<Texture2D>(key));
+        _fileTextureLoader = fileTextureLoader;
         _world.Subscribe<LoadSceneRequest>(On);
     }
 
@@ -114,8 +121,10 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
     /// <summary>
     /// Rehydrates the live <c>Texture2D</c> for every loaded entity whose <c>SpriteInfo.AssetKey</c>
-    /// is set, via the content loader. A sprite with a null asset key keeps a null
-    /// <c>SpriteSheet</c> (it had no re-loadable texture).
+    /// is set: <c>file:</c> keys go through the file-asset loader (which shows a magenta
+    /// placeholder for a missing file — fail loud, never invisible), everything else through the
+    /// content loader. A sprite with a null asset key keeps a null <c>SpriteSheet</c> (it had no
+    /// re-loadable texture).
     /// </summary>
     private void RehydrateTextures(List<Entity> entities)
     {
@@ -124,6 +133,18 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             if (!entity.Has<SpriteInfoComponent>()) continue;
             ref var sprite = ref entity.Get<SpriteInfoComponent>();
             if (string.IsNullOrEmpty(sprite.AssetKey)) continue;
+
+            if (Assets.FileAssetKey.IsFileKey(sprite.AssetKey))
+            {
+                if (_fileTextureLoader != null)
+                    sprite.SpriteSheet = _fileTextureLoader(sprite.AssetKey);
+                else
+                    Logger.Warning($"[level-editor] Asset key '{sprite.AssetKey}' is a file: key but " +
+                                   "no file-asset loader is composed — the sprite stays invisible. " +
+                                   "Compose the overlay's FileAssetTextureLoader (or graduate the " +
+                                   "asset to an MGCB content key).");
+                continue;
+            }
 
             try
             {
