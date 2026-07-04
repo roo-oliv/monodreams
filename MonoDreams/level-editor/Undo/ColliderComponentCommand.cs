@@ -52,16 +52,23 @@ public sealed class ColliderComponentCommand : IEditorCommand
     }
 
     /// <summary>Adds a <c>BoxColliderComponent</c> with <paramref name="bounds"/> and the
-    /// component's construction defaults (all layers, enabled). <paramref name="passive"/> is the
-    /// physical-vs-trigger flag: <c>false</c> (default) blocks (a footprint); <c>true</c> is a
-    /// sensor that fires collision messages without blocking (a trigger zone — island-authoring
-    /// §5.3).</summary>
+    /// component's construction defaults (all layers, enabled). <paramref name="passive"/> selects
+    /// the collider's <b>static-vs-active</b> role — NOT blocker-vs-trigger: <c>true</c> is a static
+    /// collider that does not initiate collisions (never moved by resolution) yet still blocks an
+    /// active body — the right choice for static level geometry (footprints, walls, boundaries) AND
+    /// trigger zones alike; <c>false</c> is an active collider that initiates and is displaced by
+    /// resolution (a moving body). A static <b>footprint</b> must therefore pass <c>true</c>
+    /// (<see cref="MonoDreams.LevelEditor.Proxy.ColliderDefaults.FootprintPassive"/>) or the prop
+    /// would drift when the player walks into it. Whether a passive collider reads as a physical
+    /// blocker or a fire-only trigger (island-authoring §5.3) is the game's <c>EntityInfoComponent</c>
+    /// classification, not this flag. The <c>false</c> default matches
+    /// <c>BoxColliderComponent</c>'s own; callers authoring static geometry pass <c>true</c>.</summary>
     public static ColliderComponentCommand AddBox(Entity entity, Rectangle bounds, bool passive = false) =>
         new(entity, isBox: true, isAdd: true, bounds, null, false, new[] { -1 }, passive, true);
 
     /// <summary>Adds a <c>ConvexColliderComponent</c> with <paramref name="modelVertices"/>
     /// (cloned) and the component's construction defaults. <paramref name="passive"/> selects the
-    /// physical-vs-trigger flag (see <see cref="AddBox"/>).</summary>
+    /// static-vs-active role (see <see cref="AddBox"/>): a static footprint passes <c>true</c>.</summary>
     public static ColliderComponentCommand AddConvex(Entity entity, Vector2[] modelVertices, bool passive = false) =>
         new(entity, isBox: false, isAdd: true, Rectangle.Empty,
             (Vector2[])modelVertices.Clone(), false, new[] { -1 }, passive, true);

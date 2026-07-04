@@ -29,6 +29,17 @@ public static class ColliderDefaults
     /// plan §5.1 top-down convention; the designer adjusts with the resize handles).</summary>
     public const float FootprintHeightFraction = 0.25f;
 
+    /// <summary>Editor-added footprints are <b>passive</b> (static world geometry) by default —
+    /// the <c>WallEntityFactory</c> idiom, verified in island-authoring Slice 3. In this engine
+    /// <c>Passive = true</c> means "does not initiate a collision": the footprint is never the
+    /// resolver's moved body, so a static prop/building <b>blocks the active player without
+    /// drifting</b> when walked into. A <c>Passive = false</c> footprint initiates collisions and
+    /// is displaced by resolution — the building would slide away from the player. (Whether a
+    /// passive collider reads as a physical blocker or a fire-only trigger is the game's
+    /// <c>EntityInfoComponent</c> classification, not this flag — see
+    /// <c>ColliderComponentCommand.AddBox</c>.)</summary>
+    public const bool FootprintPassive = true;
+
     /// <summary>The footprint for an entity with no usable sprite size: a small feet-anchored
     /// box (32 wide × 8 tall, bottom edge at the position).</summary>
     public static readonly Rectangle FallbackFootprint = new(-16, -8, 32, 8);

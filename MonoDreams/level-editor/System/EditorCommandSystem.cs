@@ -283,7 +283,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         var bounds = owner.Has<SpriteInfoComponent>()
             ? ColliderDefaults.FootprintBounds(owner.Get<SpriteInfoComponent>())
             : ColliderDefaults.FallbackFootprint;
-        _history.Push(ColliderComponentCommand.AddBox(owner, bounds));
+        // Footprints are passive static blockers (see ColliderDefaults.FootprintPassive): a static
+        // prop must block the player without being pushed by collision resolution.
+        _history.Push(ColliderComponentCommand.AddBox(owner, bounds, ColliderDefaults.FootprintPassive));
     }
 
     /// <summary>Adds the default polygon collider (a footprint-inscribed hexagon) to the
@@ -302,7 +304,8 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         var hexagon = owner.Has<SpriteInfoComponent>()
             ? ColliderDefaults.FootprintHexagon(owner.Get<SpriteInfoComponent>())
             : ColliderDefaults.FallbackHexagon();
-        _history.Push(ColliderComponentCommand.AddConvex(owner, hexagon));
+        // Footprints are passive static blockers (see ColliderDefaults.FootprintPassive).
+        _history.Push(ColliderComponentCommand.AddConvex(owner, hexagon, ColliderDefaults.FootprintPassive));
     }
 
     /// <summary>Removes the selected proxy's bound collider, or — when the selection is the
