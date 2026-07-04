@@ -135,12 +135,19 @@ the JSON through `IPlatformServices.ExportScene` (desktop file / web download). 
 **dedicated `LoadSceneRequest`** message — separate from `LoadLevelRequest` so it never triggers
 (or, on failure, clobbers) the LDtk `Content.Load` / `Remove<CurrentLevelComponent>` path —
 handled by `SceneReaderSystem` in two passes (create + deserialize each entity's components, then
-wire the parent graph from the recorded indices), after which it **rehydrates** each sprite's
-`Texture2D` from its `SpriteInfo.AssetKey` via `ContentManager.Load`. The reader **fails loud** on a
-component key in the file with no registered serializer (the registry throws; the load aborts with a
-clear message rather than silently dropping data). A re-prep + Y-sort frame after load recomputes
-`DrawComponent.LayerDepth` identically, because the SOURCE sort fields — not the derived depth — were
-persisted.
+wire the parent graph from the recorded indices). After deserialize the reader **re-tags each scene
+root** — every top-level `entities[]` entry (no in-scope parent), mirroring `CollectMembership`'s
+seed set exactly — with `SceneObjectComponent`, so **`save → load → edit → save` is a fixed point**:
+`SceneObjectComponent` is transient editor state that never serializes, so without the re-tag a
+reloaded scene has zero tagged roots and the next Save writes an empty scene, silently losing every
+edit since loading. `ChildOf` descendants are not re-tagged (the writer auto-closes them from their
+tagged ancestor), and bake products never reach the loop (they are never serialized → never in
+`entities[]`; they regenerate on load and the writer excludes them from any tagged root's closure).
+The reader then **rehydrates** each sprite's `Texture2D` from its `SpriteInfo.AssetKey` via
+`ContentManager.Load`, and **fails loud** on a component key in the file with no registered
+serializer (the registry throws; the load aborts with a clear message rather than silently dropping
+data). A re-prep + Y-sort frame after load recomputes `DrawComponent.LayerDepth` identically, because
+the SOURCE sort fields — not the derived depth — were persisted.
 
 **Why:** the round-trip must reconstruct from components, not by re-running factories (GAP-A), so
 edited state and factory sub-graphs survive; a dedicated load message keeps the native and LDtk load
@@ -149,14 +156,19 @@ unknown component turns a dropped component into a visible error rather than the
 bug.
 **Breaks:** sharing `LoadLevelRequest` would let a native-scene load clobber the LDtk
 `CurrentLevelComponent`; serializing from factories would lose edited state; a missing membership
-closure would drop a tagged root's children; persisting the derived depth would bake one camera
-frame's Y-sort into the file; swallowing an unregistered key would silently lose a designer's data.
+closure would drop a tagged root's children; **not re-tagging reloaded roots makes the next Save
+write an empty scene — the designer's whole iterate-on-a-level loop silently loses all work since
+loading**; persisting the derived depth would bake one camera frame's Y-sort into the file;
+swallowing an unregistered key would silently lose a designer's data.
 **Tests:** `MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` (`SceneRoundTripGoldenTest` — tag a
 sprite root + a `ChildOf` child, write, reload via `LoadSceneRequest`, assert Transform + `SpriteInfo`
 SOURCE sort fields + `AssetKey` + texture rehydration + parent graph + camera/layers reproduce;
 `MembershipFilterTest` — only tagged roots + their `ChildOf` closure serialize, transient/untagged
 and Blender-style entities excluded; `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
-frame recomputes the identical derived `DrawComponent.LayerDepth`).
+frame recomputes the identical derived `DrawComponent.LayerDepth`;
+`ReloadedSceneReTagsRoots_LoadEditSaveIsAFixedPoint` — save mixed content, reload, edit a loaded
+transform, re-save: the same 3 roots reproduce, the boundary bake child stays excluded, and the edit
+persists — the second save is empty without the re-tag).
 **Depends on:** level-loading — `LoadLevelRequest` is LDtk-coupled (the asymmetry this premise routes
 around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
 frame); foundation — the `IPlatformServices` portability seam.
@@ -981,18 +993,28 @@ footprint; **Remove collider** (and Delete on a whole-shape proxy) removes throu
 `ColliderComponentCommand`, whose construction-time snapshot restores the removed component
 field-for-field on undo (`Bounds`/`ModelVertices`, `ActiveLayers`, `Passive`, `Enabled`,
 `IgnoreTransformRotation`, with derived world data refreshed against the live transform). A
-sprite-less entity gets `ColliderDefaults.FallbackFootprint`.
+sprite-less entity gets `ColliderDefaults.FallbackFootprint`. An editor-added footprint is
+**`Passive = true`** (`ColliderDefaults.FootprintPassive`) — a static world blocker in the
+`WallEntityFactory` idiom: `Passive = true` means "does not initiate a collision", so the footprint
+is never moved by resolution and a static prop/building **blocks the player without drifting**. (A
+`Passive = false` footprint initiates and is displaced by resolution — the building would slide away
+when walked into. Blocker-vs-trigger is the game's `EntityInfoComponent` classification, not the
+`Passive` flag — footprints and trigger zones are both passive; see the trigger-zone premise.)
 
 **Why:** the reference games' convention — only the base blocks movement; a full-sprite default
 box would block the player on a tree's canopy, and an un-snapshotted remove would make undo
-resurrect a default collider instead of the designer's tuned one.
+resurrect a default collider instead of the designer's tuned one. Passive keeps static props static
+(the same static-blocker idiom the coastline bake and trigger zones use).
 **Breaks:** a full-height default footprint blocks walk-behind everywhere; footprint math ignoring
 `Origin`/render scale plants the box off the visible base; a remove that loses `Passive`/layers on
-undo silently turns a trigger zone into a wall.
+undo silently turns a trigger zone into a wall; **a `Passive = false` footprint drifts — the prop
+slides away from the player instead of blocking**.
 **Tests:** `MonoDreams.Tests/LevelEditor/ColliderActionTests.cs`
 (`FootprintBounds_FeetOrigin_FullWidthBottomQuarter_FeetAnchored`,
-`FootprintHexagon_InscribedInTheFootprint_AndConvex`, `AddBoxCollider_AppliesFootprintDefault_Undoable`,
-`AddConvexCollider_AppliesFootprintHexagon_Undoable`,
+`FootprintHexagon_InscribedInTheFootprint_AndConvex`, `AddBoxCollider_AppliesFootprintDefault_Undoable`
+— asserts the footprint is `Passive`, `AddConvexCollider_AppliesFootprintHexagon_Undoable` — same,
+`AddBoxFootprint_IsPassiveStaticBlocker_BlocksActiveBodyWithoutDrifting` — the real collision +
+physics pipeline: an active body is blocked and the footprint owner does not move,
 `RemoveCollider_Both_OneUndoEntry_RestoresFieldForField`,
 `RemoveCollider_ViaProxy_RemovesOnlyThatKind_ReselectsOwner`).
 **Depends on:** this file — "Y-sorted props use the feet-origin convention, factory-applied" (the
