@@ -33,6 +33,13 @@
 # Debug output (screenshots, logs, replay files) — inside build output directories only
 **/bin/**/debug/
 
+# Island placeholder art packs (itch.io licenses forbid redistribution; the repo is
+# public). The committed MANIFEST.md documents what to download and the folder layout;
+# the in-game editor's asset palette scans this folder at startup (runtime file loading,
+# file: AssetKeys — no MGCB round-trip).
+/MonoDreams.Examples.Core/Content/Island/**
+!/MonoDreams.Examples.Core/Content/Island/MANIFEST.md
+
 # NuGet
 nuget/
 *.nupkg

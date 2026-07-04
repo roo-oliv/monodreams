@@ -55,6 +55,18 @@
         </MonoGameContentReference>
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Island placeholder art (gitignored — itch.io pack licenses forbid redistribution; see
+             Content/Island/MANIFEST.md): copied RAW to the output Content dir, no MGCB round-trip.
+             The in-game editor's asset palette scans Content/Island/ at startup and loads the PNGs
+             at runtime (file: AssetKeys) — drop a file, rebuild (copy-only), it's in the palette.
+             The glob matches nothing on a fresh checkout, which is fine (empty palette + a hint). -->
+        <None Include="..\MonoDreams.Examples.Core\Content\Island\**\*"
+              Exclude="..\MonoDreams.Examples.Core\Content\Island\MANIFEST.md"
+              LinkBase="Content\Island"
+              CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
     <!-- MGCB runs out-of-process and does not inherit csproj references; surface the
          content-pipeline DLLs (Extended, LDtk, and the engine's Yarn importer in MonoDreams.dll)
          to it via /reference:. The engine dll path is the desktop build of MonoDreams. -->

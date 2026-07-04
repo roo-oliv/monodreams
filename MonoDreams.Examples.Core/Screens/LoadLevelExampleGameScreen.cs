@@ -211,6 +211,23 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // presence of a headless editor-op plan changes the cursor-input wiring below.
         if (_editorEnabled)
         {
+            // The asset palette's inputs are SCREEN-supplied (the level-editor module stays
+            // game-agnostic): the catalog scans the gitignored Content/Island/ drop folder (see
+            // its committed MANIFEST.md — the desktop head copies it raw to the output Content
+            // dir, no MGCB round-trip), and the band map projects the palette's layer selector
+            // onto THIS game's DrawLayerMap (Props = the Y-sorted Characters band → placed props
+            // get the feet-origin convention automatically).
+            var islandRoot = PlatformServices.Current.CombinePath(
+                PlatformServices.Current.BaseDirectory, _content.RootDirectory, "Island");
+            var assetCatalog = MonoDreams.LevelEditor.Assets.AssetCatalog.Scan(islandRoot, "Island");
+            var paletteBands = new[]
+            {
+                new MonoDreams.LevelEditor.Assets.PaletteBand("Ground", _layers.GetDepth(GameDrawLayer.Background), YSorted: false),
+                new MonoDreams.LevelEditor.Assets.PaletteBand("Detail", _layers.GetDepth(GameDrawLayer.Tiles), YSorted: false),
+                new MonoDreams.LevelEditor.Assets.PaletteBand("Props", _layers.GetDepth(GameDrawLayer.Characters), YSorted: true),
+                new MonoDreams.LevelEditor.Assets.PaletteBand("Overhead", _layers.GetDepth(GameDrawLayer.Foreground), YSorted: false),
+            };
+
             _editor = new EditorOverlay(
                 _world, _camera, _layers, _content, promptFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
@@ -218,11 +235,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
                     deleteRequested: _ => InputState.Delete.JustPressed(),
                     undoRequested: _ => InputState.Undo.JustPressed(),
                     redoRequested: _ => InputState.Redo.JustPressed(),
-                    frameRequested: _ => InputState.Frame.JustPressed()),
+                    frameRequested: _ => InputState.Frame.JustPressed(),
+                    // Escape (already mapped to InputState.Exit; nothing else consumes it on this
+                    // screen) disarms the palette's Place mode.
+                    cancelRequested: _ => InputState.Exit.JustPressed()),
                 debugDir,
                 requestExit: _game.Exit,
                 // The shell shows the OS cursor over the chrome margins while editing.
-                setOsCursorVisible: visible => _game.IsMouseVisible = visible);
+                setOsCursorVisible: visible => _game.IsMouseVisible = visible,
+                assetCatalog: assetCatalog,
+                paletteBands: paletteBands);
         }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
@@ -458,6 +480,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
+        if (_editor?.Palette != null)
+            // The asset palette + placement — AFTER CursorPositionSystem so the ghost preview
+            // follows THIS frame's cursor world position (no one-frame lag). Edit-guarded.
+            p.Add("editor.palette", _editor.Palette, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
             // The Blender-style shell sync: viewport inset + native chrome layout + cursor swap
