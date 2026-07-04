@@ -245,9 +245,9 @@ public sealed class SelectionSystem : ISystem<GameState>
             if (!proxy.Has<EditorIdComponent>())
                 proxy.Set(new EditorIdComponent(_nextEditorId++));
             var id = proxy.Get<EditorIdComponent>().Id;
-            // Constants — see their docs (the visual depth is Editor-band); a vertex handle
-            // outranks the shape border it rides on.
-            var depth = binding.Kind == ProxyBindingKind.ConvexVertex
+            // Constants — see their docs (the visual depth is Editor-band); a vertex handle (and the
+            // boundary thickness handle) outranks the shape/boundary border it rides near.
+            var depth = binding.Kind is ProxyBindingKind.ConvexVertex or ProxyBindingKind.BoundaryThickness
                 ? ProxyVertexPickDepth
                 : ProxyBorderPickDepth;
 

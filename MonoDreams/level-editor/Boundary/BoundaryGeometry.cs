@@ -94,6 +94,33 @@ public static class BoundaryGeometry
         return world;
     }
 
+    /// <summary>The left-hand unit normal of the first polyline edge — the same normal
+    /// <see cref="EdgeQuads"/> extrudes the band along — or <c>Vector2.Zero</c> for a
+    /// degenerate/too-short polyline.</summary>
+    public static Vector2 FirstEdgeNormal(IReadOnlyList<Vector2> points)
+    {
+        if (points == null || points.Count < MinPoints) return Vector2.Zero;
+        var edge = points[1] - points[0];
+        var length = edge.Length();
+        if (length <= 1e-4f) return Vector2.Zero;
+        return new Vector2(-edge.Y, edge.X) / length;
+    }
+
+    /// <summary>
+    /// The LOCAL-space position of the boundary's <b>thickness handle</b> (island-authoring
+    /// Slice 4): the midpoint of the first edge offset by the edge normal × <paramref name="thickness"/>/2,
+    /// so it rides the edge of the baked band. Dragging it along the normal widens/narrows the band.
+    /// Falls back to the first point for a degenerate polyline.
+    /// </summary>
+    public static Vector2 ThicknessHandleLocal(IReadOnlyList<Vector2> points, float thickness)
+    {
+        if (points == null || points.Count == 0) return Vector2.Zero;
+        var normal = FirstEdgeNormal(points);
+        if (normal == Vector2.Zero) return points[0];
+        var mid = (points[0] + points[1]) * 0.5f;
+        return mid + normal * (thickness / 2f);
+    }
+
     /// <summary>The arithmetic centroid of a point set (the boundary's pivot at commit).</summary>
     public static Vector2 Centroid(IReadOnlyList<Vector2> points)
     {

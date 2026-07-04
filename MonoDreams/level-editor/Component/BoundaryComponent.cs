@@ -32,9 +32,13 @@ public struct BoundaryComponent
     /// thickness centered on its polyline edge. Must be &gt; 0.</summary>
     public float Thickness;
 
-    /// <summary>A sensible default band width for a coastline (world units). The designer can widen
-    /// it later (a thickness handle is a Slice-4 comfort follow-up).</summary>
+    /// <summary>A sensible default band width for a coastline (world units). The designer widens it
+    /// later by dragging the Slice-4 thickness handle.</summary>
     public const float DefaultThickness = 16f;
+
+    /// <summary>The smallest band width the thickness handle allows (world units) — a positive floor
+    /// so a drag can never collapse the band to zero (which would bake no quads).</summary>
+    public const float MinThickness = 1f;
 
     public BoundaryComponent(Vector2[] points, float thickness = DefaultThickness)
     {

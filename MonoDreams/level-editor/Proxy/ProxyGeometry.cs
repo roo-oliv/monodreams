@@ -4,6 +4,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
+using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
 
 namespace MonoDreams.LevelEditor.Proxy;
@@ -80,6 +81,16 @@ public static class ProxyGeometry
                 outline = VertexHandleSquare(transform.Position + boundary.Points[index]);
                 return true;
 
+            case ProxyBindingKind.BoundaryThickness:
+                if (!target.Has<BoundaryComponent>()) return false;
+                var band = target.Get<BoundaryComponent>();
+                if (band.Points == null || band.Points.Length < BoundaryGeometry.MinPoints) return false;
+                // The thickness handle rides the band edge: first-edge midpoint + normal × t/2, local
+                // to Position (no rotation/scale).
+                outline = VertexHandleSquare(
+                    transform.Position + BoundaryGeometry.ThicknessHandleLocal(band.Points, band.Thickness));
+                return true;
+
             default:
                 return false;
         }
@@ -99,10 +110,12 @@ public static class ProxyGeometry
         };
     }
 
-    /// <summary>Whether <paramref name="kind"/> is a per-vertex handle (drawn as a
-    /// constant-on-screen square rather than a full outline).</summary>
+    /// <summary>Whether <paramref name="kind"/> is a point handle drawn as a constant-on-screen
+    /// square rather than a full outline — the per-vertex handles and the boundary thickness
+    /// handle.</summary>
     public static bool IsVertexHandle(ProxyBindingKind kind) =>
-        kind is ProxyBindingKind.ConvexVertex or ProxyBindingKind.BoundaryVertex;
+        kind is ProxyBindingKind.ConvexVertex or ProxyBindingKind.BoundaryVertex
+            or ProxyBindingKind.BoundaryThickness;
 
     /// <summary>The box collider's four world corners (TL→TR→BR→BL) — the axis-aligned AABB at
     /// <c>WorldPosition + Bounds</c>, exactly the quad <c>ColliderDebugSystem</c> outlines.</summary>

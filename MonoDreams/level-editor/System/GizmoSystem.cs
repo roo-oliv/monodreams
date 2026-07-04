@@ -9,6 +9,7 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Transform;
@@ -159,6 +160,8 @@ public sealed class GizmoSystem : ISystem<GameState>
     private Vector2 _dragStartRefWorld; // box top-left / convex centroid / vertex, world, at drag-start
     private BoxResizeHandle _dragResizeHandle; // None = a plain move drag
     private bool _convexRejectLogged; // the once-per-drag loud reject
+    private Vector2 _dragThicknessNormal; // BoundaryThickness: the edge normal the drag projects onto
+    private float _dragBeforeThickness;   // BoundaryThickness: the thickness at drag-start
 
     public bool IsEnabled { get; set; } = true;
 
@@ -443,6 +446,19 @@ public sealed class GizmoSystem : ISystem<GameState>
                 _dragStartRefWorld = ownerTransform.Position + boundary.Points[binding.Index];
                 break;
 
+            case ProxyBindingKind.BoundaryThickness:
+                if (!owner.Has<BoundaryComponent>()) return false;
+                var thicknessBoundary = owner.Get<BoundaryComponent>();
+                if (thicknessBoundary.Points == null
+                    || thicknessBoundary.Points.Length < BoundaryGeometry.MinPoints) return false;
+                _dragBeforeThickness = thicknessBoundary.Thickness;
+                // The edge normal (local == world: a boundary has no rotation/scale) the drag
+                // projects onto; the handle rides the band edge.
+                _dragThicknessNormal = BoundaryGeometry.FirstEdgeNormal(thicknessBoundary.Points);
+                _dragStartRefWorld = ownerTransform.Position
+                    + BoundaryGeometry.ThicknessHandleLocal(thicknessBoundary.Points, thicknessBoundary.Thickness);
+                break;
+
             default:
                 return false;
         }
@@ -566,6 +582,20 @@ public sealed class GizmoSystem : ISystem<GameState>
                 _history.Push(BoundaryEditCommand.For(_dragOwner, afterPoints));
                 break;
             }
+            case ProxyBindingKind.BoundaryThickness:
+            {
+                if (!_dragOwner.Has<BoundaryComponent>()) return;
+                if (_dragThicknessNormal == Vector2.Zero) return; // degenerate polyline: no edge normal
+                // The band spans ±thickness/2 about its polyline, so moving the edge handle by d
+                // along the normal changes the thickness by 2d. Clamp to a positive floor. One drag
+                // frame = one BoundaryEditCommand into the open transaction (one undo step);
+                // re-firing the bake widens/narrows the segment colliders live.
+                var deltaThickness = 2f * Vector2.Dot(worldDelta, _dragThicknessNormal);
+                var afterThickness = MathF.Max(BoundaryComponent.MinThickness,
+                    _dragBeforeThickness + deltaThickness);
+                _history.Push(BoundaryEditCommand.ForThickness(_dragOwner, afterThickness));
+                break;
+            }
         }
     }
 
@@ -595,6 +625,8 @@ public sealed class GizmoSystem : ISystem<GameState>
         _dragBindingIndex = 0;
         _dragResizeHandle = BoxResizeHandle.None;
         _convexRejectLogged = false;
+        _dragThicknessNormal = default;
+        _dragBeforeThickness = 0f;
     }
 
     private float SnapStep()

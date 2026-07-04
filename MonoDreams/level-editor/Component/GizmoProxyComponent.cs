@@ -42,6 +42,14 @@ public enum ProxyBindingKind
     /// selection of the boundary entity — a boundary IS its points, so there is no shape proxy to
     /// click through first.</summary>
     BoundaryVertex,
+
+    /// <summary>Edits <c>BoundaryComponent.Thickness</c> — the baked collision band width
+    /// (island-authoring Slice 4). A single handle (<see cref="GizmoProxyComponent.Index"/> 0) rides
+    /// the edge of the band, at the first edge's midpoint offset by the edge normal × thickness/2;
+    /// dragging it along that normal changes the thickness through a <c>BoundaryEditCommand</c>
+    /// (one drag = one undo step), which re-fires the boundary bake. Like
+    /// <see cref="BoundaryVertex"/> it materializes on PLAIN selection of the boundary.</summary>
+    BoundaryThickness,
 }
 
 /// <summary>

@@ -55,6 +55,14 @@ public class BoundaryVertexProxyTests
         return default;
     }
 
+    private static int VertexProxyCount(EntitySet set)
+    {
+        var count = 0;
+        foreach (var e in set.GetEntities())
+            if (e.Get<GizmoProxyComponent>().Kind == ProxyBindingKind.BoundaryVertex) count++;
+        return count;
+    }
+
     private static Entity MakeBoundary(World world, Vector2[] localPoints, Vector2 position)
     {
         var e = world.CreateEntity();
@@ -88,7 +96,9 @@ public class BoundaryVertexProxyTests
         boundary.Set(new SelectedComponent());
         sync.Update(Edit());
 
-        Assert.Equal(3, Proxies(proxies).Count);
+        // 3 vertex proxies (one per point) plus the single thickness handle (Slice 4) = 4 total.
+        Assert.Equal(3, VertexProxyCount(proxies));
+        Assert.Equal(4, Proxies(proxies).Count);
         for (var i = 0; i < 3; i++) Assert.True(FindProxy(proxies, i).IsAlive);
         // A vertex proxy sits at its world point.
         Assert.Equal(new Vector2(40, 0), FindProxy(proxies, 1).Get<TransformComponent>().Position);
@@ -97,7 +107,7 @@ public class BoundaryVertexProxyTests
         boundary.Remove<SelectedComponent>();
         FindProxy(proxies, 1).Set(new SelectedComponent());
         sync.Update(Edit());
-        Assert.Equal(3, Proxies(proxies).Count);
+        Assert.Equal(3, VertexProxyCount(proxies));
 
         // Deselect everything → despawn.
         foreach (var p in Proxies(proxies)) p.Remove<SelectedComponent>();

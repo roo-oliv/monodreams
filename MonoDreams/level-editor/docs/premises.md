@@ -1119,7 +1119,20 @@ entity from the membership closure **even inside the boundary root's `ChildOf` d
 polyline is the durable truth, the segments regenerate on load (bake-on-load runs in both run modes,
 `RunNormally`). Boundaries are edited via per-vertex proxies (`ProxyBindingKind.BoundaryVertex`, one
 per point) that materialise on PLAIN selection of the boundary — a boundary IS its points, so
-`SelectionSystem` also border-picks the boundary's open polyline to select it in the first place.
+`SelectionSystem` also border-picks the boundary's open polyline to select it in the first place —
+plus a single **thickness handle** (`ProxyBindingKind.BoundaryThickness`, Slice 4) riding the band
+edge (first-edge midpoint + normal × Thickness/2): dragging it along the normal changes `Thickness`
+by 2× the perpendicular move (the band spans ±Thickness/2) through one `BoundaryEditCommand`
+(one drag = one undo step, floored at `BoundaryComponent.MinThickness`), which re-fires the bake.
+
+**Whole-boundary MOVE re-bakes (Slice 4).** The gizmo moves a boundary by mutating its
+`TransformComponent` fields directly, which fires **no** component-changed event — so
+`BoundaryBakeSystem.Update` also **polls each boundary's world position every frame** and enqueues a
+re-bake when it drifts from the position it was last baked at. Without this, moving a boundary shifts
+its outline + proxies (which read `WorldPosition`) but leaves the already-baked, root-level segment
+colliders at the old spot, so a moved coastline would stop blocking where it now appears. The poll is
+`O(#boundaries)` (few, long-lived) and re-bakes only on an actual move; a static scene (including
+Play) costs a position compare and nothing else.
 
 **Why:** a coastline is deeply concave and the engine's SAT is convex-only, so a segment chain is
 the standard robust answer; §S2 (bake-never-evaluate) keeps it off the per-frame path; the
@@ -1127,17 +1140,25 @@ the standard robust answer; §S2 (bake-never-evaluate) keeps it off the per-fram
 source) and prevents double-counting / stale run state on reload. Passive (not the task's literal
 `passive=false`) is the engine's static-blocker idiom — a non-passive segment initiates and is moved
 by the resolution (it drifts when the player pushes it), which is a bug for static world geometry.
+The move-poll is required because a Transform edit is a field mutation, not an `entity.Set`, so the
+changed subscription never sees it.
 **Breaks:** evaluating the polyline per frame (the perf rule); serializing the baked children
 (double segments on the next load, baked stale state in the file); non-passive segments that drift
 when hit; a concave single collider that SAT cannot resolve; forgetting the local→world copy so a
-non-origin boundary's colliders land at the wrong place.
+non-origin boundary's colliders land at the wrong place; a moved boundary whose segments stay at the
+old position (blocks where the coastline no longer is).
 **Tests:** `MonoDreams.Tests/LevelEditor/BoundaryGeometryTests.cs` (edge-quads count / thickness /
 winding / degenerate inputs; world-projection; open-polyline border test),
 `BoundaryBakeTests.cs` (added/changed → N−1 passive convex `ChildOf` + `BakedProduct` segments;
 re-bake disposes the old; bakes in Play; empty queue is a no-op),
 `BoundaryToolTests.cs` (lay/commit/cancel lifecycle, one undo step, centroid pivot + local points,
-≥2 guard), `BoundaryVertexProxyTests.cs` (per-vertex proxies on plain selection; a drag writes one
-point; delete keeps ≥2; add inserts a midpoint), and
+≥2 guard), `BoundaryVertexProxyTests.cs` (per-vertex proxies + the thickness handle on plain
+selection; a drag writes one point; delete keeps ≥2; add inserts a midpoint),
+`BoundaryThicknessTests.cs` (the thickness handle materialises at the band edge; a drag changes
+`Thickness` in one undo step and re-fires the bake; undo reverts),
+`BoundaryBakeTests.BoundaryMove_ReBakesSegmentsAtTheNewWorldPosition` (a whole-boundary move
+re-bakes the segments at the new world position with correct collider world vertices; no drift = no
+spurious re-bake), and
 `SceneRoundTripTests.BoundaryBakeChildrenNeverSerialize_RegenerateOnLoadTest` (the boundary root
 serializes, no convex child does, children regenerate on load, polyline round-trips).
 **Depends on:** collision — SAT is convex-only, and `Passive` = "does not initiate" static geometry

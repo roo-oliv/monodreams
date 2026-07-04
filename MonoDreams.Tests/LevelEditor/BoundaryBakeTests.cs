@@ -107,6 +107,45 @@ public class BoundaryBakeTests
     }
 
     [Fact]
+    public void BoundaryMove_ReBakesSegmentsAtTheNewWorldPosition()
+    {
+        // Whole-boundary move re-bake (Slice 4): the gizmo moves a boundary by mutating its
+        // TransformComponent directly (no component-changed event), so the bake polls the position
+        // and re-bakes the segments — a moved coastline blocks at its NEW spot.
+        using var world = new World();
+        using var bake = new BoundaryBakeSystem(world);
+
+        var boundary = MakeBoundary(world,
+            new[] { new Vector2(0, 0), new Vector2(40, 0) }, new Vector2(100, 100)); // 1 edge, thickness 16
+        bake.Update(Edit());
+        var first = Assert.Single(BakedChildren(world, boundary));
+        Assert.Equal(new Vector2(100, 100), first.Get<TransformComponent>().Position);
+
+        // Move the whole boundary (mutate the Transform directly, as the gizmo does).
+        boundary.Get<TransformComponent>().Position = new Vector2(300, 250);
+        bake.Update(Edit()); // the position-poll detects the drift → re-bake
+
+        Assert.False(first.IsAlive); // the old segment was disposed
+        var moved = Assert.Single(BakedChildren(world, boundary));
+        Assert.Equal(new Vector2(300, 250), moved.Get<TransformComponent>().Position);
+
+        // The baked collider's WORLD vertices are correct at the new position (root-level collision
+        // reads the local Position field): the quad straddles x∈[300,340], y∈[242,258] (±8).
+        var collider = moved.Get<ConvexColliderComponent>();
+        collider.UpdateWorldVertices(moved.Get<TransformComponent>());
+        foreach (var v in collider.WorldVertices)
+        {
+            Assert.InRange(v.X, 299f, 341f);
+            Assert.InRange(v.Y, 241f, 259f);
+        }
+
+        // No further move → no spurious re-bake (the poll only fires on actual drift).
+        var count = bake.BakeCount;
+        bake.Update(Edit());
+        Assert.Equal(count, bake.BakeCount);
+    }
+
+    [Fact]
     public void EmptyQueue_IsANoOp()
     {
         using var world = new World();

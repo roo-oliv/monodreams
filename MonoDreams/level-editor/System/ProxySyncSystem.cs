@@ -165,6 +165,11 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         for (var i = 0; i < boundaryCount; i++)
             SyncProxy(anchor, ProxyBindingKind.BoundaryVertex, i, true);
 
+        // The single thickness handle (Slice 4): rides the band edge; exists while the boundary has
+        // at least one edge (>= MinPoints). Like the vertex handles it shows on plain selection.
+        SyncProxy(anchor, ProxyBindingKind.BoundaryThickness, 0,
+            boundaryCount >= Boundary.BoundaryGeometry.MinPoints);
+
         _stale.Clear();
         foreach (var key in _proxies.Keys)
         {
