@@ -9,6 +9,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component.Draw;
+using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.Platform;
@@ -25,9 +26,13 @@ namespace MonoDreams.LevelEditor.System;
 /// <para>It reconstructs entities from serialized components, never by re-running factories. Two
 /// passes (delegated to <see cref="SceneSerializer.Deserialize"/>): create every entity +
 /// deserialize its components, then wire the parent graph from the recorded indices. After
-/// deserialize it <b>rehydrates</b> each sprite's <c>Texture2D</c> from its
-/// <see cref="SpriteInfoComponent.AssetKey"/> via the content loader (the in-memory deserialize
-/// leaves <c>SpriteSheet</c> null on purpose — it has no <c>ContentManager</c>).</para>
+/// deserialize it <b>re-tags each scene root</b> (see <see cref="RetagSceneRoots"/>) with
+/// <see cref="SceneObjectComponent"/> — the transient save-root tag is never serialized, so
+/// without this a reloaded scene would have zero tagged roots and the next Save would write an
+/// empty scene, silently losing every edit made since loading. It then <b>rehydrates</b> each
+/// sprite's <c>Texture2D</c> from its <see cref="SpriteInfoComponent.AssetKey"/> via the content
+/// loader (the in-memory deserialize leaves <c>SpriteSheet</c> null on purpose — it has no
+/// <c>ContentManager</c>).</para>
 ///
 /// <para>It <b>fails loud</b>: a component key in the file with no registered serializer throws from
 /// the registry (the load aborts with a clear message rather than silently dropping data); the
@@ -89,6 +94,8 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             // Throws loud on an unregistered component key — do not swallow that here; let it surface.
             var created = _serializer.Deserialize(_world, scene);
 
+            RetagSceneRoots(scene, created);
+
             RehydrateTextures(created);
 
             Logger.Info($"[level-editor] Loaded scene '{path}': {created.Count} entities.");
@@ -117,6 +124,37 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         }
 
         return PlatformServices.Current.ReadAllText(path);
+    }
+
+    /// <summary>
+    /// Re-tags each reconstructed <b>scene root</b> with <see cref="SceneObjectComponent"/> so a
+    /// loaded scene re-saves identically — <c>save → load → edit → save</c> is a <b>fixed point</b>.
+    /// <see cref="SceneObjectComponent"/> is transient editor state (never registered / serialized),
+    /// so a freshly reconstructed scene carries no save-root tags; the next Save (which only writes
+    /// <c>[With(SceneObjectComponent)]</c> roots + their closure) would otherwise write an empty
+    /// scene and silently drop every edit made since loading.
+    ///
+    /// <para>A scene root is a <b>top-level <c>entities[]</c> entry</b> — one with no in-scope parent
+    /// (<see cref="SceneEntityData.Parent"/> null or out of the created range, mirroring the exact
+    /// in-scope test <see cref="SceneSerializer.Deserialize"/> uses to wire parents). This matches
+    /// <see cref="SceneWriter.CollectMembership"/> precisely: those roots seed the membership closure,
+    /// so re-tagging exactly them reproduces the same serialized set on the next Save. A
+    /// <c>ChildOf</c> descendant is deliberately NOT re-tagged (the writer auto-closes it from its
+    /// tagged ancestor). Bake products (<c>BakedProductComponent</c>, e.g. a boundary's segment
+    /// colliders) never reach this loop — they are never serialized, so they never appear in
+    /// <c>entities[]</c> / <paramref name="created"/>; they regenerate on load and the writer
+    /// excludes them from any tagged root's closure, so re-tagging cannot reintroduce them into the
+    /// save.</para>
+    /// </summary>
+    private static void RetagSceneRoots(SceneData scene, List<Entity> created)
+    {
+        for (var i = 0; i < created.Count && i < scene.Entities.Count; i++)
+        {
+            var parentIndex = scene.Entities[i].Parent;
+            var hasInScopeParent = parentIndex is { } pi && pi >= 0 && pi < created.Count;
+            if (!hasInScopeParent)
+                created[i].Set(new SceneObjectComponent());
+        }
     }
 
     /// <summary>
