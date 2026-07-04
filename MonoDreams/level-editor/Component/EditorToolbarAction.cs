@@ -44,6 +44,31 @@ public enum EditorToolbarAction
 
     /// <summary>Toggle grid-snap (flips <see cref="GizmoStateComponent.SnapEnabled"/>).</summary>
     ToggleSnap,
+
+    /// <summary>Within-band ordering (island-authoring §4.2): nudge the selection's SOURCE sort
+    /// toward the front of its layer band (the screen calls
+    /// <c>EditorCommandSystem.BringForward</c>). Headless alias: <c>order:forward</c>.</summary>
+    OrderForward,
+
+    /// <summary>Nudge the selection's SOURCE sort toward the back of its band
+    /// (<c>EditorCommandSystem.SendBack</c>). Headless alias: <c>order:back</c>.</summary>
+    OrderBack,
+
+    /// <summary>Add the footprint-default box collider to the selection (island-authoring §5.1;
+    /// <c>EditorCommandSystem.AddBoxCollider</c>). Headless alias: <c>collider:addBox</c>.</summary>
+    ColliderAddBox,
+
+    /// <summary>Add the default polygon collider (footprint hexagon) to the selection
+    /// (<c>EditorCommandSystem.AddConvexCollider</c>). Headless alias: <c>collider:addConvex</c>.</summary>
+    ColliderAddConvex,
+
+    /// <summary>Remove the selection's collider(s) — the bound one when a proxy is selected
+    /// (<c>EditorCommandSystem.RemoveCollider</c>). Headless alias: <c>collider:remove</c>.</summary>
+    ColliderRemove,
+
+    /// <summary>Insert a vertex into the selection's convex collider (edge midpoint —
+    /// <c>EditorCommandSystem.AddVertex</c>). Headless alias: <c>collider:addVertex</c>.</summary>
+    VertexAdd,
 }
 
 /// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>

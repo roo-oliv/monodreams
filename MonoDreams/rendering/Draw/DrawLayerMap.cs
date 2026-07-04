@@ -117,6 +117,50 @@ public sealed class DrawLayerMap
     }
 
     /// <summary>
+    /// Finds the layer band that CONTAINS <paramref name="depth"/> — the nearest registered layer
+    /// depth within half a layer step — and returns that band's depth, its inset [min, max] range
+    /// (the same margin math as <see cref="TryGetYSortRange"/>), and whether it is Y-sorted.
+    /// Unlike <see cref="TryGetYSortRange"/> (an exact-match lookup on the registered value), this
+    /// answers for depths that have been nudged off the band centre — the level editor's
+    /// within-band ordering (bring forward / send back) adjusts SOURCE
+    /// <c>SpriteInfoComponent.LayerDepth</c> in small steps and needs the band edges to clamp at.
+    /// False when <paramref name="depth"/> falls in no band (outside every layer's half-step).
+    /// </summary>
+    public bool TryGetBandRange(float depth, out float bandDepth, out float minDepth, out float maxDepth, out bool ySorted)
+    {
+        const float margin = 0.001f;
+        float halfStep = _step / 2f;
+
+        var found = false;
+        var bestDistance = float.MaxValue;
+        bandDepth = 0f;
+        foreach (var layerDepth in _layers.Values)
+        {
+            var distance = Math.Abs(depth - layerDepth);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bandDepth = layerDepth;
+                found = distance <= halfStep;
+            }
+        }
+
+        if (!found)
+        {
+            bandDepth = 0f;
+            minDepth = 0f;
+            maxDepth = 0f;
+            ySorted = false;
+            return false;
+        }
+
+        minDepth = bandDepth - halfStep + margin;
+        maxDepth = bandDepth + halfStep - margin;
+        ySorted = _ySortedDepths.Contains(bandDepth);
+        return true;
+    }
+
+    /// <summary>
     /// Returns the Y-sort interpolation range for a depth value, if it belongs to a Y-sorted layer.
     /// The range is slightly inset from the full layer range to prevent overlap with adjacent layers.
     /// </summary>

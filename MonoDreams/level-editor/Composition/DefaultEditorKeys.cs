@@ -31,6 +31,8 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
     private readonly KeyState _undo = new();
     private readonly KeyState _redo = new();
     private readonly KeyState _frame = new();
+    private readonly KeyState _orderForward = new();
+    private readonly KeyState _orderBack = new();
     private readonly List<(AInputState inputState, Keys)> _mapping;
 
     public DefaultEditorKeys()
@@ -41,12 +43,16 @@ public sealed class DefaultEditorKeys : AKeyboardInputHandlingSystem
             (_undo, Keys.Z),
             (_redo, Keys.Y),
             (_frame, Keys.Home),
+            (_orderForward, Keys.PageUp),
+            (_orderBack, Keys.PageDown),
         ];
         Bindings = new EditorInputBindings(
             deleteRequested: _ => _delete.JustPressed(),
             undoRequested: _ => _undo.JustPressed(),
             redoRequested: _ => _redo.JustPressed(),
-            frameRequested: _ => _frame.JustPressed());
+            frameRequested: _ => _frame.JustPressed(),
+            orderForwardRequested: _ => _orderForward.JustPressed(),
+            orderBackRequested: _ => _orderBack.JustPressed());
     }
 
     public override List<(AInputState inputState, Keys)> InputMapping => _mapping;

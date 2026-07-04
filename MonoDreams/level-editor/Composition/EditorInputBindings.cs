@@ -21,7 +21,9 @@ public sealed class EditorInputBindings(
     Func<GameState, bool> undoRequested,
     Func<GameState, bool> redoRequested,
     Func<GameState, bool> frameRequested,
-    Func<GameState, bool>? cancelRequested = null)
+    Func<GameState, bool>? cancelRequested = null,
+    Func<GameState, bool>? orderForwardRequested = null,
+    Func<GameState, bool>? orderBackRequested = null)
 {
     /// <summary>Deletes the selected entity (reversible, via the shared history).</summary>
     public Func<GameState, bool> DeleteRequested { get; } =
@@ -43,4 +45,11 @@ public sealed class EditorInputBindings(
     /// too). Optional (default null = no keyboard cancel); additive, so pre-palette call sites
     /// compile unchanged.</summary>
     public Func<GameState, bool>? CancelRequested { get; } = cancelRequested;
+
+    /// <summary>Keyboard nudge for the within-band Bring forward ordering action (e.g. PageUp).
+    /// Optional; the toolbar button always works.</summary>
+    public Func<GameState, bool>? OrderForwardRequested { get; } = orderForwardRequested;
+
+    /// <summary>Keyboard nudge for Send back (e.g. PageDown). Optional.</summary>
+    public Func<GameState, bool>? OrderBackRequested { get; } = orderBackRequested;
 }

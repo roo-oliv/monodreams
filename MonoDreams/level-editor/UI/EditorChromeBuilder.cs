@@ -129,6 +129,13 @@ public sealed class EditorChromeBuilder
         (EditorToolbarAction.Undo, "Undo"),
         (EditorToolbarAction.Redo, "Redo"),
         (EditorToolbarAction.ToggleSnap, "Snap"),
+        // Island-authoring Slice 2: within-band ordering + collider authoring on the selection.
+        (EditorToolbarAction.OrderForward, "Fwd"),
+        (EditorToolbarAction.OrderBack, "Back"),
+        (EditorToolbarAction.ColliderAddBox, "+Box"),
+        (EditorToolbarAction.ColliderAddConvex, "+Poly"),
+        (EditorToolbarAction.ColliderRemove, "-Col"),
+        (EditorToolbarAction.VertexAdd, "+Vtx"),
     };
 
     /// <summary>

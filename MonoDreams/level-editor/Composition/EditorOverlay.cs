@@ -143,9 +143,10 @@ public sealed class EditorOverlay
         AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
         SceneReader = new SceneReaderSystem(world, Serializer, content,
             fileTextureLoader: AssetTextures.Load);
-        EditorCommands = new EditorCommandSystem(
+        _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
-            input.DeleteRequested, input.UndoRequested, input.RedoRequested);
+            input.DeleteRequested, input.UndoRequested, input.RedoRequested,
+            layers, input.OrderForwardRequested, input.OrderBackRequested);
         var gizmo = new GizmoSystem(world, camera, History, viewportManager);
         var proxySync = new ProxySyncSystem(world, camera, viewportManager);
         Gizmo = gizmo;
@@ -242,8 +243,13 @@ public sealed class EditorOverlay
     /// <summary>Native-scene loading (<c>LoadSceneRequest</c>). Weave with the level-load group.</summary>
     public ISystem<GameState> SceneReader { get; }
 
-    /// <summary>Delete / undo / redo keys (Edit-guarded). Weave after logic, before <see cref="Gizmo"/>.</summary>
-    public ISystem<GameState> EditorCommands { get; }
+    // The concrete command system: the toolbar dispatch calls its selection-edit actions
+    // (ordering / collider add-remove / add vertex) directly.
+    private readonly EditorCommandSystem _editorCommands;
+
+    /// <summary>Delete / undo / redo keys plus the toolbar's selection-edit actions
+    /// (Edit-guarded). Weave after logic, before <see cref="Gizmo"/>.</summary>
+    public ISystem<GameState> EditorCommands => _editorCommands;
 
     /// <summary>The transform gizmo (Edit-guarded). Weave before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> Gizmo { get; }
@@ -409,6 +415,15 @@ public sealed class EditorOverlay
                 break;
             case EditorToolbarAction.Undo: History.Undo(); break;
             case EditorToolbarAction.Redo: History.Redo(); break;
+            // The selection-edit actions (island-authoring Slice 2) — each guards itself
+            // (Edit-only, loud) inside EditorCommandSystem, the same instance the woven
+            // editor.commands entry runs.
+            case EditorToolbarAction.OrderForward: _editorCommands.BringForward(state); break;
+            case EditorToolbarAction.OrderBack: _editorCommands.SendBack(state); break;
+            case EditorToolbarAction.ColliderAddBox: _editorCommands.AddBoxCollider(state); break;
+            case EditorToolbarAction.ColliderAddConvex: _editorCommands.AddConvexCollider(state); break;
+            case EditorToolbarAction.ColliderRemove: _editorCommands.RemoveCollider(state); break;
+            case EditorToolbarAction.VertexAdd: _editorCommands.AddVertex(state); break;
         }
     }
 
@@ -419,15 +434,20 @@ public sealed class EditorOverlay
     /// <summary>
     /// The STRING-action dispatch the headless channel routes <c>ToolbarAction</c> ops through:
     /// <c>palette:&lt;entryId&gt;</c> arms a palette item, <c>palette:none</c> (or a bare
-    /// <c>palette:</c>) disarms, <c>band:&lt;name&gt;</c> selects a layer band, and anything else
-    /// parses as a plain <see cref="EditorToolbarAction"/> into
-    /// <see cref="DispatchToolbarAction"/> — so every scripted editor action shares one grammar.
-    /// Loud on unknown names / a palette op without a composed palette.
+    /// <c>palette:</c>) disarms, <c>band:&lt;name&gt;</c> selects a layer band,
+    /// <c>order:forward</c>/<c>order:back</c> nudge the selection's within-band order,
+    /// <c>collider:addBox</c>/<c>addConvex</c>/<c>remove</c>/<c>addVertex</c>/<c>deleteVertex</c>
+    /// drive the collider authoring actions, and anything else parses as a plain
+    /// <see cref="EditorToolbarAction"/> into <see cref="DispatchToolbarAction"/> — so every
+    /// scripted editor action shares one grammar. Loud on unknown names / a palette op without a
+    /// composed palette.
     /// </summary>
     public void DispatchNamedAction(string name, GameState state)
     {
         const string palettePrefix = "palette:";
         const string bandPrefix = "band:";
+        const string orderPrefix = "order:";
+        const string colliderPrefix = "collider:";
 
         if (name.StartsWith(palettePrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -450,6 +470,35 @@ public sealed class EditorOverlay
                 Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
             else
                 Palette.SelectBand(name.Substring(bandPrefix.Length));
+            return;
+        }
+
+        if (name.StartsWith(orderPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var direction = name.Substring(orderPrefix.Length);
+            if (string.Equals(direction, "forward", StringComparison.OrdinalIgnoreCase))
+                _editorCommands.BringForward(state);
+            else if (string.Equals(direction, "back", StringComparison.OrdinalIgnoreCase))
+                _editorCommands.SendBack(state);
+            else
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected order:forward or order:back.");
+            return;
+        }
+
+        if (name.StartsWith(colliderPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var op = name.Substring(colliderPrefix.Length);
+            switch (op.ToLowerInvariant())
+            {
+                case "addbox": _editorCommands.AddBoxCollider(state); break;
+                case "addconvex": _editorCommands.AddConvexCollider(state); break;
+                case "remove": _editorCommands.RemoveCollider(state); break;
+                case "addvertex": _editorCommands.AddVertex(state); break;
+                case "deletevertex": _editorCommands.DeleteSelection(state); break;
+                default:
+                    Logger.Warning($"[level-editor] Editor-op '{name}': unknown collider op.");
+                    break;
+            }
             return;
         }
 
