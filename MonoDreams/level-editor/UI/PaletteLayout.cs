@@ -43,6 +43,11 @@ public static class PaletteLayout
     /// <summary>Horizontal label padding inside a button, logical points.</summary>
     public const int ButtonPaddingX = 6;
 
+    /// <summary>The square art-preview thumbnail's side inside a sprite item row, logical points
+    /// (Slice 4). Sits at the row's left; the label follows it. Fits inside
+    /// <see cref="ButtonHeight"/>.</summary>
+    public const int ThumbnailSize = 16;
+
     /// <summary>Rows scrolled per mouse-wheel notch (a notch = 120 wheel units).</summary>
     public const int RowsPerNotch = 1;
 
@@ -58,6 +63,50 @@ public static class PaletteLayout
     /// <summary>A button's width for a label width already measured in screen pixels.</summary>
     public static int ButtonWidth(float labelWidth, float scale = 1f) =>
         (int)MathF.Ceiling(labelWidth) + Px(ButtonPaddingX, scale) * 2;
+
+    /// <summary>The x-offset (screen pixels, from a sprite item button's left edge) where the label
+    /// starts — past the leading padding, the thumbnail box, and a gap (Slice 4). A sprite item
+    /// button always reserves the thumbnail box so the flow layout is stable whether or not the
+    /// texture resolves; a missing/magenta texture simply leaves the box blank.</summary>
+    public static int ItemLabelOffsetX(float scale = 1f) =>
+        Px(ButtonPaddingX, scale) + Px(ThumbnailSize, scale) + Px(ButtonGap, scale);
+
+    /// <summary>A sprite item button's width for a label width already measured in screen pixels —
+    /// the label offset (leading padding + thumbnail box + gap) plus the label plus trailing
+    /// padding.</summary>
+    public static int ItemWidth(float labelWidth, float scale = 1f) =>
+        ItemLabelOffsetX(scale) + (int)MathF.Ceiling(labelWidth) + Px(ButtonPaddingX, scale);
+
+    /// <summary>The square thumbnail box at the left of a sprite item button rectangle, vertically
+    /// centered.</summary>
+    public static Rectangle ItemThumbnailRect(Rectangle itemRect, float scale = 1f)
+    {
+        var size = Px(ThumbnailSize, scale);
+        return new Rectangle(
+            itemRect.X + Px(ButtonPaddingX, scale),
+            itemRect.Y + (itemRect.Height - size) / 2,
+            size, size);
+    }
+
+    /// <summary>
+    /// The destination rectangle to draw a <paramref name="sourceWidth"/>×<paramref name="sourceHeight"/>
+    /// sprite thumbnail into <paramref name="box"/>, preserving aspect and centered (Slice 4). A
+    /// degenerate source (non-positive) collapses to an empty rect at the box centre — the caller
+    /// then draws nothing (fall back to the label).
+    /// </summary>
+    public static Rectangle ThumbnailFit(Rectangle box, int sourceWidth, int sourceHeight)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0 || box.Width <= 0 || box.Height <= 0)
+            return new Rectangle(box.Center.X, box.Center.Y, 0, 0);
+
+        var fit = MathF.Min((float)box.Width / sourceWidth, (float)box.Height / sourceHeight);
+        var w = (int)MathF.Round(sourceWidth * fit);
+        var h = (int)MathF.Round(sourceHeight * fit);
+        return new Rectangle(
+            box.X + (box.Width - w) / 2,
+            box.Y + (box.Height - h) / 2,
+            w, h);
+    }
 
     /// <summary>The band-selector buttons, laid out left-to-right in the header row.</summary>
     public static Rectangle[] BandRow(Rectangle strip, IReadOnlyList<int> bandWidths, float scale = 1f)

@@ -101,4 +101,41 @@ public class PaletteLayoutTests
         // The raised BottomBarHeight (104) hosts the header + ≥3 item rows — the palette's design.
         Assert.True(PaletteLayout.VisibleRowCount(Strip()) >= 3);
     }
+
+    // ---- Thumbnails (Slice 4) ----
+
+    [Fact]
+    public void ItemButtonReservesTheThumbnailBoxAndOffsetsTheLabel()
+    {
+        // A sprite item's width = leading pad + thumbnail box + gap + label + trailing pad, and its
+        // label starts past the thumbnail box.
+        var offset = PaletteLayout.ItemLabelOffsetX();
+        Assert.Equal(
+            PaletteLayout.ButtonPaddingX + PaletteLayout.ThumbnailSize + PaletteLayout.ButtonGap,
+            offset);
+        Assert.Equal(offset + 40 + PaletteLayout.ButtonPaddingX, PaletteLayout.ItemWidth(40f));
+        // The thumbnail box is a square at the left of the item rect, vertically centered.
+        var rect = new Rectangle(100, 200, 120, 20);
+        var box = PaletteLayout.ItemThumbnailRect(rect, 1f);
+        Assert.Equal(new Rectangle(100 + PaletteLayout.ButtonPaddingX,
+            200 + (20 - PaletteLayout.ThumbnailSize) / 2, PaletteLayout.ThumbnailSize,
+            PaletteLayout.ThumbnailSize), box);
+    }
+
+    [Fact]
+    public void ThumbnailFitPreservesAspectAndCenters()
+    {
+        var box = new Rectangle(10, 10, 16, 16);
+
+        // A wide 32×16 source fits to 16×8, centered vertically in the 16×16 box.
+        var wide = PaletteLayout.ThumbnailFit(box, 32, 16);
+        Assert.Equal(new Rectangle(10, 14, 16, 8), wide);
+
+        // A square source fills the box.
+        Assert.Equal(box, PaletteLayout.ThumbnailFit(box, 48, 48));
+
+        // A degenerate source collapses to an empty rect (the caller draws nothing — label fallback),
+        // no crash / no divide-by-zero.
+        Assert.Equal(0, PaletteLayout.ThumbnailFit(box, 0, 0).Width);
+    }
 }

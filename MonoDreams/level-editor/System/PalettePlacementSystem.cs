@@ -24,8 +24,10 @@ namespace MonoDreams.LevelEditor.System;
 /// <summary>
 /// The editor's <b>asset palette + placement</b> system (island-authoring plan §3, adopting the
 /// wave-repass Wave-C design): the shell's bottom strip lists every <see cref="AssetCatalog"/>
-/// entry as a native-resolution text button (grouped by folder in the sort; wheel-over-strip
-/// scrolls whole rows) beside a <b>layer-band selector</b> built from the screen-supplied
+/// entry as a native-resolution button — a lazy-loaded art <b>thumbnail</b> (Slice 4) beside its
+/// text label, the label alone when the texture is missing/magenta — (grouped by folder in the
+/// sort; wheel-over-strip scrolls whole rows) beside a <b>layer-band selector</b> built from the
+/// screen-supplied
 /// <see cref="PaletteBand"/>s. Clicking an item <b>arms</b> it — the shared
 /// <see cref="GizmoStateComponent.Mode"/> flips to <see cref="EditorToolMode.Place"/> (selection
 /// and the transform gizmo go dormant, §S1) and a semi-transparent <b>ghost</b> preview follows
@@ -72,6 +74,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// <summary>The fill of the armed item's button (the palette's "active" accent).</summary>
     public static readonly Color ArmedItemFill = EditorChromeBuilder.CheckboxOnFill;
 
+    /// <summary>The item thumbnails' draw depth on the Editor target — above the button fill
+    /// (<see cref="EditorChromeBuilder.ButtonDepth"/> 0.5) so it shows over the button, below the
+    /// label (<see cref="EditorChromeBuilder.LabelDepth"/> 0.6).</summary>
+    private const float ThumbnailDepth = 0.56f;
+
     private readonly World _world;
     private readonly AssetCatalog _catalog;
     private readonly IReadOnlyList<PaletteBand> _bands;
@@ -94,6 +101,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         public required AssetCatalogEntry Entry;
         public Entity Button;
         public Entity Label;
+        public Entity Thumbnail; // native-res art preview sprite on the Editor target (Slice 4)
         public int Width;
         public (int Row, int X) Flowed;
     }
@@ -608,7 +616,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         foreach (var entry in _catalog.Entries)
         {
             var label = CreateLabel(ItemLabel(entry));
-            _items.Add(new ItemButton { Entry = entry, Button = CreateButton(label), Label = label });
+            _items.Add(new ItemButton
+            {
+                Entry = entry, Button = CreateButton(label), Label = label, Thumbnail = CreateThumbnail(),
+            });
         }
 
         // Triggers section (island-authoring §5.3): flowed in the same grid, after the sprite items.
@@ -673,6 +684,25 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         return button;
     }
 
+    /// <summary>A sprite item's native-resolution art thumbnail on the Editor target (Slice 4). Only
+    /// a <c>DrawComponent</c> is needed — the Editor render pass reads its sprite fields directly
+    /// (no sprite-prep runs off the Main target), so the layout pass populates Texture/Position/…
+    /// itself and blanks Texture (draws nothing) while parked or when the texture is missing.</summary>
+    private Entity CreateThumbnail()
+    {
+        var thumb = _world.CreateEntity();
+        thumb.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        thumb.Set(new DrawComponent
+        {
+            Type = DrawElementType.Sprite,
+            Target = RenderTargetID.Editor,
+            LayerDepth = ThumbnailDepth,
+            // Texture stays null until a visible row lazy-loads it (a null-texture sprite draws
+            // nothing — the label-only fallback).
+        });
+        return thumb;
+    }
+
     private int TotalRows()
     {
         var rows = 0;
@@ -700,7 +730,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         var widths = new int[total];
         for (var i = 0; i < _items.Count; i++)
         {
-            widths[i] = PaletteLayout.ButtonWidth(
+            // Sprite items reserve the thumbnail box (ItemWidth), so the flow layout is stable
+            // whether or not the texture resolves (Slice 4).
+            widths[i] = PaletteLayout.ItemWidth(
                 _measureLabel(_items[i].Label.Get<DynamicTextComponent>().TextContent) * scale, scale);
             _items[i].Width = widths[i];
         }
@@ -716,9 +748,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             _items[i].Flowed = flow[i];
             if (PaletteLayout.TryItemRect(strip, flow[i], widths[i], _scroll, out var rect, scale))
-                PlaceButton(_items[i].Button, _items[i].Label, rect, labelHeight, scale);
+                PlaceItemButton(_items[i], rect, labelHeight, scale);
             else
-                ParkButton(_items[i].Button, _items[i].Label);
+                ParkItem(_items[i]);
         }
         for (var j = 0; j < _triggerItems.Count; j++)
         {
@@ -759,6 +791,53 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Park(label);
         ref var text = ref label.Get<DynamicTextComponent>();
         text.VisibleCharacterCount = 0; // parked labels render nothing (cheaper than re-prepping)
+    }
+
+    /// <summary>Places a sprite item's button + its label (offset past the thumbnail box) + its
+    /// thumbnail (Slice 4).</summary>
+    private void PlaceItemButton(ItemButton item, Rectangle rect, float labelHeight, float scale)
+    {
+        Place(item.Button, new Vector2(rect.X, rect.Y));
+        ref var visual = ref item.Button.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(rect.Width, rect.Height);
+        PlaceLabel(item.Label, new Vector2(
+            rect.X + PaletteLayout.ItemLabelOffsetX(scale),
+            rect.Y + (rect.Height - labelHeight) / 2f), scale);
+        PlaceItemThumbnail(item, rect, scale);
+    }
+
+    private void ParkItem(ItemButton item)
+    {
+        ParkButton(item.Button, item.Label);
+        // A parked thumbnail draws nothing (and we skip the lazy texture load for scrolled-out rows).
+        item.Thumbnail.Get<DrawComponent>().Texture = null;
+    }
+
+    /// <summary>Lazily loads a visible item's texture and populates its thumbnail sprite to fit the
+    /// row's thumbnail box (aspect-preserved, native resolution). Falls back to the text label — the
+    /// thumbnail draws nothing — when the texture is missing or the magenta placeholder.</summary>
+    private void PlaceItemThumbnail(ItemButton item, Rectangle itemRect, float scale)
+    {
+        var draw = item.Thumbnail.Get<DrawComponent>();
+        var texture = _textures.Load(item.Entry.AssetKey); // lazy + memoized (only visible rows)
+        if (texture == null || ReferenceEquals(texture, _textures.Placeholder))
+        {
+            draw.Texture = null; // fall back to the label — nothing drawn
+            return;
+        }
+
+        var source = SpritePropFactory.SourceRect(item.Entry, texture);
+        var box = PaletteLayout.ItemThumbnailRect(itemRect, scale);
+        var dest = PaletteLayout.ThumbnailFit(box, source.Width, source.Height);
+
+        draw.Texture = texture;
+        draw.SourceRectangle = source;
+        draw.Position = new Vector2(dest.X, dest.Y);
+        draw.Size = new Vector2(dest.Width, dest.Height);
+        draw.Origin = Vector2.Zero;
+        draw.Rotation = 0f;
+        draw.Color = Color.White;
+        draw.LayerDepth = ThumbnailDepth;
     }
 
     private void PlaceLabel(Entity label, Vector2 position, float scale)
@@ -850,6 +929,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             if (item.Button.IsAlive) item.Button.Dispose();
             if (item.Label.IsAlive) item.Label.Dispose();
+            if (item.Thumbnail.IsAlive) item.Thumbnail.Dispose();
         }
         foreach (var trigger in _triggerItems)
         {
