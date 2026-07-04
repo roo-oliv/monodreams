@@ -355,4 +355,101 @@ public class SceneRoundTripTests
         Characters,
         Background,
     }
+
+    // ---- file: AssetKey round-trip (island-authoring Slice 1): place → save → reload ----
+
+    /// <summary>
+    /// A placed sprite prop's <c>file:</c> AssetKey (+ its sliced-region Source rect and the
+    /// feet-origin SOURCE fields) round-trips through save → reload, and rehydration routes the
+    /// <c>file:</c> key through the FILE-asset loader — never the content loader.
+    /// </summary>
+    [Fact]
+    public void FileAssetKeyRoundTripTest()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            using var sourceWorld = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+
+            // "Place" a prop exactly like the palette does: the generic factory + the save-root tag.
+            var entry = new MonoDreams.LevelEditor.Assets.AssetCatalogEntry(
+                "Island/props/sheet.png", "trunk", new Rectangle(0, 0, 32, 48), "sheet#trunk", "props");
+            var band = new MonoDreams.LevelEditor.Assets.PaletteBand("Props", 0.45f, YSorted: true);
+            var placed = MonoDreams.LevelEditor.Assets.SpritePropFactory.Create(
+                sourceWorld, entry, band, new Vector2(120, 80), texture: null);
+            placed.Set(new SceneObjectComponent()); // what CreateEntityCommand does on placement
+
+            new SceneWriter(serializer).Save(sourceWorld, SceneFileName, camera: null, layers: null);
+
+            // Reload onto a fresh world: file: keys must hit the file loader, not the content loader.
+            using var loadWorld = new World();
+            var contentSpy = new TextureLoadSpy();
+            var fileKeys = new List<string>();
+            using var reader = new SceneReaderSystem(loadWorld, new SceneSerializer(NewEngineRegistry()),
+                content: null,
+                loadTexture: contentSpy.Load,
+                fileTextureLoader: key => { fileKeys.Add(key); return null; });
+
+            loadWorld.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+
+            var loaded = CollectEntitiesWith<SpriteInfoComponent>(loadWorld).Single();
+            var sprite = loaded.Get<SpriteInfoComponent>();
+            Assert.Equal("file:Island/props/sheet.png#trunk", sprite.AssetKey);
+            Assert.Equal(new Rectangle(0, 0, 32, 48), sprite.Source); // the region rect round-trips
+            Assert.Equal(new Vector2(16f, 48f), sprite.Origin); // feet-origin SOURCE field
+            Assert.Equal(0.45f, sprite.LayerDepth);
+            Assert.Equal(new Vector2(120, 80), loaded.Get<TransformComponent>().Position);
+
+            Assert.Equal(new[] { "file:Island/props/sheet.png#trunk" }, fileKeys);
+            Assert.Empty(contentSpy.RequestedKeys); // the content loader never sees a file: key
+        });
+    }
+
+    /// <summary>
+    /// A scene referencing a <c>file:</c> asset this checkout does not have loads with the shared
+    /// magenta placeholder (through the REAL <c>FileAssetTextureLoader</c> missing-file path) —
+    /// the failed path is recorded loudly, never a silently invisible entity.
+    /// </summary>
+    [Fact]
+    public void MissingFileAssetOnReloadTest()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            using var sourceWorld = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+
+            var entry = new MonoDreams.LevelEditor.Assets.AssetCatalogEntry(
+                "Island/props/tree01.png", null, null, "tree01", "props");
+            var band = new MonoDreams.LevelEditor.Assets.PaletteBand("Ground", 0.9f, YSorted: false);
+            var placed = MonoDreams.LevelEditor.Assets.SpritePropFactory.Create(
+                sourceWorld, entry, band, Vector2.Zero, texture: null);
+            placed.Set(new SceneObjectComponent());
+
+            new SceneWriter(serializer).Save(sourceWorld, SceneFileName, camera: null, layers: null);
+
+            // Reload with the REAL file loader whose file is missing (openStream → null).
+            var placeholderRequests = 0;
+            var loader = new MonoDreams.LevelEditor.Assets.FileAssetTextureLoader(
+                openStream: _ => null,
+                decode: _ => null,
+                createPlaceholder: () => { placeholderRequests++; return null; });
+
+            using var loadWorld = new World();
+            using var reader = new SceneReaderSystem(loadWorld, new SceneSerializer(NewEngineRegistry()),
+                content: null,
+                loadTexture: new TextureLoadSpy().Load,
+                fileTextureLoader: loader.Load);
+
+            loadWorld.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+
+            // The entity loaded; the loader took the missing-file path: recorded + placeholder
+            // requested (in the real composition that placeholder is the visible magenta texture).
+            var loaded = CollectEntitiesWith<SpriteInfoComponent>(loadWorld).Single();
+            Assert.Equal("file:Island/props/tree01.png", loaded.Get<SpriteInfoComponent>().AssetKey);
+            Assert.Equal(new[] { "Island/props/tree01.png" }, loader.MissingPaths);
+            Assert.Equal(1, placeholderRequests);
+        });
+    }
 }

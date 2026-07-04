@@ -368,11 +368,11 @@ public class EditorShellTests
         const int w = 3840, h = 2160; // a 1920×1080-point window on a 2× (Retina) backbuffer
 
         var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(2f);
-        Assert.Equal((0, 88, 560, 48), (left, top, right, bottom));
+        Assert.Equal((0, 88, 560, 208), (left, top, right, bottom));
 
         Assert.Equal(new Rectangle(0, 0, w, 88), EditorChromeLayout.TopBar(w, 2f));
-        Assert.Equal(new Rectangle(w - 560, 88, 560, h - 88 - 48), EditorChromeLayout.RightPanel(w, h, 2f));
-        Assert.Equal(new Rectangle(0, h - 48, w, 48), EditorChromeLayout.BottomBar(w, h, 2f));
+        Assert.Equal(new Rectangle(w - 560, 88, 560, h - 88 - 208), EditorChromeLayout.RightPanel(w, h, 2f));
+        Assert.Equal(new Rectangle(0, h - 208, w, 208), EditorChromeLayout.BottomBar(w, h, 2f));
 
         // Button row: margins/gaps/heights double; widths are caller-scaled.
         var rects = EditorChromeLayout.ButtonRow(new[] { 100, 120 }, 2f);
@@ -383,8 +383,9 @@ public class EditorShellTests
     [Fact]
     public void ChromeLayout_DefaultScale_IsThePreDprLayout()
     {
-        // Byte-identical back-compat: scale 1 reproduces the historical numbers.
-        Assert.Equal((0, 44, 280, 24), EditorChromeLayout.ViewportInset());
+        // Byte-identical back-compat: scale 1 reproduces the point constants unscaled. (The bottom
+        // value tracks BottomBarHeight, deliberately raised 24 → 104 for the asset palette strip.)
+        Assert.Equal((0, 44, 280, 104), EditorChromeLayout.ViewportInset());
         Assert.Equal(EditorChromeLayout.TopBar(1600), EditorChromeLayout.TopBar(1600, 1f));
     }
 

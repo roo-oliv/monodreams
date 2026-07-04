@@ -5,6 +5,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.Undo;
@@ -186,6 +187,54 @@ public class ToolbarTests
             dispatch(EditorToolbarAction.Undo); // no-op (nothing left)
             Assert.Equal(0, box[0]);
             Assert.Equal(0, history.Count);
+        });
+    }
+
+    // ---- SaveGuardTest: Save is blocked while the transport is Playing (island-authoring Slice 1) ----
+
+    /// <summary>
+    /// The save-guard predicate itself (<see cref="EditorOverlay.IsSaveBlocked"/> — the exact
+    /// check <c>EditorOverlay.DispatchToolbarAction</c>'s Save case runs): blocked while Playing,
+    /// open while Paused (Edit).
+    /// </summary>
+    [Fact]
+    public void SaveGuardTest_BlockedExactlyWhilePlaying()
+    {
+        Assert.True(EditorOverlay.IsSaveBlocked(new GameState(new GameTime()) { RunMode = RunMode.Play }));
+        Assert.False(EditorOverlay.IsSaveBlocked(new GameState(new GameTime()) { RunMode = RunMode.Edit }));
+    }
+
+    /// <summary>
+    /// The guarded dispatch: a Save action arriving while the transport is Playing (a headless op,
+    /// or any dispatch path — the toolbar button already renders dimmed and inactive there) is a
+    /// loud no-op; the same dispatch while Paused exports. Mirrors the overlay's Save case,
+    /// including the REAL <see cref="EditorOverlay.IsSaveBlocked"/> guard.
+    /// </summary>
+    [Fact]
+    public void SaveGuardTest_DispatchNoOpsWhilePlayingAndSavesWhilePaused()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            using var world = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+
+            var root = world.CreateEntity();
+            root.Set(new SceneObjectComponent());
+            root.Set(new TransformComponent(new Vector2(1, 2)));
+
+            // The overlay's Save case shape: guard first, then SceneWriter.Save.
+            void DispatchSave(GameState state)
+            {
+                if (EditorOverlay.IsSaveBlocked(state)) return; // (the overlay also logs a warning)
+                new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
+            }
+
+            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Play });
+            Assert.Equal(0, fake.ExportCount); // blocked: no export while the game is running
+
+            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit });
+            Assert.Equal(1, fake.ExportCount); // paused: saves normally
         });
     }
 }
