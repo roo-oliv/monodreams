@@ -433,6 +433,16 @@ public sealed class GizmoSystem : ISystem<GameState>
                     ownerTransform, vertexCollider, binding.Index);
                 break;
 
+            case ProxyBindingKind.BoundaryVertex:
+                if (!owner.Has<BoundaryComponent>()) return false;
+                var boundary = owner.Get<BoundaryComponent>();
+                if (boundary.Points == null
+                    || binding.Index < 0 || binding.Index >= boundary.Points.Length) return false;
+                _beforeVertices = (Vector2[])boundary.Points.Clone();
+                // Boundary points are local to Position (no rotation/scale).
+                _dragStartRefWorld = ownerTransform.Position + boundary.Points[binding.Index];
+                break;
+
             default:
                 return false;
         }
@@ -540,6 +550,20 @@ public sealed class GizmoSystem : ISystem<GameState>
                     return;
                 }
                 _history.Push(ColliderEditCommand.ForConvex(_dragOwner, afterVertices));
+                break;
+            }
+            case ProxyBindingKind.BoundaryVertex:
+            {
+                if (_beforeVertices == null) return;
+                if (!_dragOwner.Has<BoundaryComponent>() || !_dragOwner.Has<TransformComponent>()) return;
+                if (_dragBindingIndex < 0 || _dragBindingIndex >= _beforeVertices.Length) return;
+                // Move ONE polyline point. A boundary has no convexity constraint (open polyline),
+                // so every result is applied; the edit re-fires the bake through BoundaryEditCommand.
+                var boundaryDelta = ProxyGeometry.WorldDeltaToModelDelta(
+                    _dragOwner.Get<TransformComponent>(), ignoreRotation: true, worldDelta);
+                var afterPoints = (Vector2[])_beforeVertices.Clone();
+                afterPoints[_dragBindingIndex] = _beforeVertices[_dragBindingIndex] + boundaryDelta;
+                _history.Push(BoundaryEditCommand.For(_dragOwner, afterPoints));
                 break;
             }
         }
@@ -669,7 +693,7 @@ public sealed class GizmoSystem : ISystem<GameState>
             var binding = target.Get<GizmoProxyComponent>();
             if (ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, binding.Index, out var shape))
             {
-                if (binding.Kind == ProxyBindingKind.ConvexVertex)
+                if (ProxyGeometry.IsVertexHandle(binding.Kind))
                 {
                     var centre = projection.ToScreen(ProxyGeometry.Centroid(shape));
                     var vHalf = projection.ToScreenSize(ProxySyncSystem.VertexHandlePixelHalfSize + 2f);
@@ -682,6 +706,18 @@ public sealed class GizmoSystem : ISystem<GameState>
                 }
                 return new PolygonOutlineMeshGenerator(
                     Project(shape, projection), thickness, color, closed: true).Generate();
+            }
+        }
+
+        // A selected boundary entity: highlight its open polyline (the thing being edited).
+        if (target.Has<MonoDreams.LevelEditor.Component.BoundaryComponent>())
+        {
+            var boundary = target.Get<MonoDreams.LevelEditor.Component.BoundaryComponent>();
+            if (boundary.Points is { Length: >= 2 })
+            {
+                var worldPoly = Boundary.BoundaryGeometry.WorldPolyline(boundary.Points, pivot);
+                return new PolygonOutlineMeshGenerator(
+                    Project(worldPoly, projection), thickness, color, closed: false).Generate();
             }
         }
 

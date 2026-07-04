@@ -154,10 +154,25 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         var vertexCount = convexFamilySelected && convexCount >= 3 ? convexCount : 0;
         for (var i = 0; i < vertexCount; i++)
             SyncProxy(anchor, ProxyBindingKind.ConvexVertex, i, true);
+
+        // Boundary vertex handles: a boundary IS its points, so the handles materialize on PLAIN
+        // selection of the boundary entity (no shape proxy to click through first). One proxy per
+        // BoundaryComponent.Points entry, re-keyed each frame so lay/add/delete/undo resize the
+        // family live.
+        var boundaryCount = 0;
+        if (anchor.Has<BoundaryComponent>())
+            boundaryCount = anchor.Get<BoundaryComponent>().Points?.Length ?? 0;
+        for (var i = 0; i < boundaryCount; i++)
+            SyncProxy(anchor, ProxyBindingKind.BoundaryVertex, i, true);
+
         _stale.Clear();
         foreach (var key in _proxies.Keys)
+        {
             if (key.Kind == ProxyBindingKind.ConvexVertex && key.Index >= vertexCount)
                 _stale.Add(key);
+            else if (key.Kind == ProxyBindingKind.BoundaryVertex && key.Index >= boundaryCount)
+                _stale.Add(key);
+        }
         foreach (var key in _stale)
         {
             if (_proxies[key].IsAlive) _proxies[key].Dispose();
@@ -193,7 +208,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, binding.Index, out var outline)) return;
 
         Vector2[] points;
-        if (binding.Kind == ProxyBindingKind.ConvexVertex)
+        if (ProxyGeometry.IsVertexHandle(binding.Kind))
         {
             // A vertex handle draws as a constant-on-screen square around the projected vertex
             // (the world-space outline square only anchors the pick — projected raw it would be

@@ -100,6 +100,7 @@ public sealed class SelectionSystem : ISystem<GameState>
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _proxySet;
+    private readonly EntitySet _boundarySet;
     private readonly EntitySet _gizmoStateSet;
     private int _nextEditorId;
 
@@ -130,6 +131,8 @@ public sealed class SelectionSystem : ISystem<GameState>
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _proxySet = world.GetEntities()
             .With<GizmoProxyComponent>().With<TransformComponent>().With<DrawComponent>().AsSet();
+        _boundarySet = world.GetEntities()
+            .With<BoundaryComponent>().With<TransformComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
     }
 
@@ -151,10 +154,11 @@ public sealed class SelectionSystem : ISystem<GameState>
         ArmPickFromCursor();
         if (!_picking) return;
 
-        // Sprite candidates first, then the sprite-less proxy candidates, through ONE ordering.
+        // Sprite candidates first, then the sprite-less proxy + boundary candidates, ONE ordering.
         foreach (var entity in _spriteSet.GetEntities())
             EvaluateSpriteCandidate(entity);
         EvaluateProxyCandidates();
+        EvaluateBoundaryCandidates();
 
         // Clear the previous selection (single-select). Materialize first — mutating components
         // while iterating an EntitySet is unsafe.
@@ -258,6 +262,46 @@ public sealed class SelectionSystem : ISystem<GameState>
         }
     }
 
+    /// <summary>
+    /// Folds freeform boundary entities (island-authoring Slice 3) into the pick: a click within
+    /// the border tolerance of a boundary's OPEN polyline selects the boundary entity itself (rank
+    /// Main; depth <see cref="ProxyBorderPickDepth"/> — the same on-top rank as a proxy border; id
+    /// the shared tiebreak). Selecting a boundary is what makes <c>ProxySyncSystem</c> spawn its
+    /// per-vertex proxies (a boundary has no shape proxy to click through first — it IS its points),
+    /// and those vertex proxies rank at the higher <see cref="ProxyVertexPickDepth"/>, so once the
+    /// boundary is selected a click near a vertex grabs the vertex, a click on the line grabs the
+    /// boundary.
+    /// </summary>
+    private void EvaluateBoundaryCandidates()
+    {
+        var invZoom = _camera != null && _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
+        var tolerance = ProxyBorderPickTolerancePixels * invZoom;
+        var rank = TargetRank(RenderTargetID.Main);
+
+        foreach (var boundary in _boundarySet.GetEntities())
+        {
+            if (!boundary.IsAlive) continue;
+            var component = boundary.Get<BoundaryComponent>();
+            if (component.Points == null || component.Points.Length < 2) continue;
+            var worldPoly = Boundary.BoundaryGeometry.WorldPolyline(
+                component.Points, boundary.Get<TransformComponent>().Position);
+            if (!Boundary.BoundaryGeometry.PolylineContains(worldPoly, _worldPoint, tolerance)) continue;
+
+            if (!boundary.Has<EditorIdComponent>())
+                boundary.Set(new EditorIdComponent(_nextEditorId++));
+            var id = boundary.Get<EditorIdComponent>().Id;
+
+            if (Beats(rank, ProxyBorderPickDepth, id, _hasBest, _bestRank, _bestDepth, _bestId))
+            {
+                _hasBest = true;
+                _bestRank = rank;
+                _bestDepth = ProxyBorderPickDepth;
+                _bestId = id;
+                _best = boundary;
+            }
+        }
+    }
+
     /// <summary>The active coarse tool mode (see <see cref="EditorToolMode"/>). No gizmo-state
     /// entity — e.g. a selection-only composition — means the default
     /// <see cref="EditorToolMode.SelectTransform"/>.</summary>
@@ -339,6 +383,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         _cursorSet.Dispose();
         _selectedSet.Dispose();
         _proxySet.Dispose();
+        _boundarySet.Dispose();
         _gizmoStateSet.Dispose();
     }
 }

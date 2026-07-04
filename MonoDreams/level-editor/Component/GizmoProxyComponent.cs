@@ -31,6 +31,17 @@ public enum ProxyBindingKind
     /// (shape or vertex) is selected, so the handles appear one click deep instead of cluttering
     /// every selection.</summary>
     ConvexVertex,
+
+    /// <summary>Edits ONE entry of <c>BoundaryComponent.Points</c> (island-authoring Slice 3 —
+    /// the freeform coastline/cliff polyline); <see cref="GizmoProxyComponent.Index"/> carries the
+    /// vertex ordinal. A drag moves that point by the (inverse-transformed) world delta through a
+    /// <c>BoundaryEditCommand</c>, which re-fires the boundary bake. Unlike
+    /// <see cref="ConvexVertex"/> there is <b>no convexity constraint</b> (a boundary is an open
+    /// polyline, not a convex hull); the delete guard keeps at least
+    /// <c>BoundaryGeometry.MinPoints</c> vertices. Boundary vertex handles materialize on PLAIN
+    /// selection of the boundary entity — a boundary IS its points, so there is no shape proxy to
+    /// click through first.</summary>
+    BoundaryVertex,
 }
 
 /// <summary>

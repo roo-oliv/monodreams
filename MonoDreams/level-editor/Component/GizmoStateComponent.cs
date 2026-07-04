@@ -34,10 +34,17 @@ public enum EditorToolMode
     /// <c>SelectionSystem</c>/<c>GizmoSystem</c> act on viewport presses.</summary>
     SelectTransform,
 
-    /// <summary>Free placement (the palette armed an item): a ghost preview follows the cursor and
-    /// a click stamps a prop through the snapshotting create command. Escape / right-click / a
-    /// transform-tool button disarms back to <see cref="SelectTransform"/>.</summary>
+    /// <summary>Free placement (the palette armed an item OR a trigger type): a ghost preview
+    /// follows the cursor and a click stamps a prop / trigger zone through the snapshotting create
+    /// command. Escape / right-click / a transform-tool button disarms back to
+    /// <see cref="SelectTransform"/>.</summary>
     Place,
+
+    /// <summary>Freeform boundary authoring (island-authoring §5.2): clicks lay polyline vertices
+    /// with a live preview line; Enter or double-click commits the whole lay as one undo step
+    /// (creating the <c>BoundaryComponent</c> authoring entity), Escape / right-click cancels. Like
+    /// <see cref="Place"/>, selection and the transform gizmo are dormant in this mode.</summary>
+    Boundary,
 
     // Reserved mode names for the later brush waves (wave-repass §S1) — added here (not
     // implemented) so the modality contract is stable: Scatter (Wave D scatter brush),

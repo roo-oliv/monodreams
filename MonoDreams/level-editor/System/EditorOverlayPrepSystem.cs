@@ -31,13 +31,24 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
 {
     private readonly GizmoSystem _gizmo;
     private readonly ProxySyncSystem _proxySync;
+    private readonly BoundaryToolSystem? _boundary;
+    private readonly TriggerOverlaySystem? _triggers;
 
     public bool IsEnabled { get; set; } = true;
 
-    public EditorOverlayPrepSystem(GizmoSystem gizmo, ProxySyncSystem proxySync)
+    /// <param name="boundary">Optional boundary tool (island-authoring Slice 3): its
+    /// <see cref="BoundaryToolSystem.EmitOverlays"/> bakes committed boundary outlines + the lay
+    /// preview into this same pass.</param>
+    /// <param name="triggers">Optional trigger overlay (Slice 3): its
+    /// <see cref="TriggerOverlaySystem.EmitOverlays"/> bakes trigger-zone outlines + the placement
+    /// ghost.</param>
+    public EditorOverlayPrepSystem(GizmoSystem gizmo, ProxySyncSystem proxySync,
+        BoundaryToolSystem? boundary = null, TriggerOverlaySystem? triggers = null)
     {
         _gizmo = gizmo ?? throw new ArgumentNullException(nameof(gizmo));
         _proxySync = proxySync ?? throw new ArgumentNullException(nameof(proxySync));
+        _boundary = boundary;
+        _triggers = triggers;
     }
 
     public void Update(GameState state)
@@ -45,6 +56,8 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
         if (!IsEnabled) return;
         _gizmo.EmitOverlays(state);
         _proxySync.EmitOverlays(state);
+        _boundary?.EmitOverlays(state);
+        _triggers?.EmitOverlays(state);
     }
 
     public void Dispose()

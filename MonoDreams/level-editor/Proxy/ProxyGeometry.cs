@@ -67,19 +67,42 @@ public static class ProxyGeometry
                 var collider = target.Get<ConvexColliderComponent>();
                 if (collider.ModelVertices == null || index < 0 || index >= collider.ModelVertices.Length)
                     return false;
-                var world = ConvexVertexWorld(transform, collider, index);
-                var h = VertexHandleWorldHalfExtent;
-                outline = new[]
-                {
-                    world + new Vector2(-h, -h), world + new Vector2(h, -h),
-                    world + new Vector2(h, h), world + new Vector2(-h, h),
-                };
+                outline = VertexHandleSquare(ConvexVertexWorld(transform, collider, index));
+                return true;
+
+            case ProxyBindingKind.BoundaryVertex:
+                if (!target.Has<BoundaryComponent>()) return false;
+                var boundary = target.Get<BoundaryComponent>();
+                if (boundary.Points == null || index < 0 || index >= boundary.Points.Length)
+                    return false;
+                // A boundary's Points are LOCAL to its Position (no rotation/scale), so the world
+                // vertex is Position + the local point.
+                outline = VertexHandleSquare(transform.Position + boundary.Points[index]);
                 return true;
 
             default:
                 return false;
         }
     }
+
+    /// <summary>A small world-space square around <paramref name="world"/> — the pick anchor a
+    /// per-vertex handle (<see cref="ProxyBindingKind.ConvexVertex"/> /
+    /// <see cref="ProxyBindingKind.BoundaryVertex"/>) hit-tests against; the visible handle size is
+    /// the constant-on-screen square the sync/gizmo draw.</summary>
+    public static Vector2[] VertexHandleSquare(Vector2 world)
+    {
+        var h = VertexHandleWorldHalfExtent;
+        return new[]
+        {
+            world + new Vector2(-h, -h), world + new Vector2(h, -h),
+            world + new Vector2(h, h), world + new Vector2(-h, h),
+        };
+    }
+
+    /// <summary>Whether <paramref name="kind"/> is a per-vertex handle (drawn as a
+    /// constant-on-screen square rather than a full outline).</summary>
+    public static bool IsVertexHandle(ProxyBindingKind kind) =>
+        kind is ProxyBindingKind.ConvexVertex or ProxyBindingKind.BoundaryVertex;
 
     /// <summary>The box collider's four world corners (TL→TR→BR→BL) — the axis-aligned AABB at
     /// <c>WorldPosition + Bounds</c>, exactly the quad <c>ColliderDebugSystem</c> outlines.</summary>

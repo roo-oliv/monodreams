@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Serialization;
@@ -144,6 +145,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
                 case ProxyBindingKind.ConvexVertex:
                     DeleteVertex(selected, owner, binding.Index);
                     return;
+                case ProxyBindingKind.BoundaryVertex:
+                    DeleteBoundaryVertex(selected, owner, binding.Index);
+                    return;
                 case ProxyBindingKind.BoxColliderBounds:
                     if (!owner.Has<BoxColliderComponent>()) return;
                     _history.Push(ColliderComponentCommand.RemoveBox(owner));
@@ -183,6 +187,29 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         // (vertex handles stay up) so the editing session continues, else to the owner.
         var shapeProxy = FindProxy(owner, ProxyBindingKind.ConvexColliderShape);
         Reselect(vertexProxy, shapeProxy.IsAlive ? shapeProxy : owner);
+    }
+
+    private void DeleteBoundaryVertex(Entity vertexProxy, Entity owner, int index)
+    {
+        if (!owner.Has<BoundaryComponent>()) return;
+        var points = owner.Get<BoundaryComponent>().Points;
+        if (points == null || index < 0 || index >= points.Length) return;
+        if (points.Length <= BoundaryGeometry.MinPoints)
+        {
+            Logger.Warning(
+                $"[level-editor] Delete boundary vertex refused: a boundary keeps at least " +
+                $"{BoundaryGeometry.MinPoints} points. Delete the boundary instead.");
+            return;
+        }
+
+        var after = new Vector2[points.Length - 1];
+        for (int i = 0, j = 0; i < points.Length; i++)
+            if (i != index)
+                after[j++] = points[i];
+        // BoundaryEditCommand re-fires the bake; the vertex proxy despawns next sync — reselect the
+        // boundary so its (resized) vertex handles stay up and the session continues.
+        _history.Push(BoundaryEditCommand.For(owner, after));
+        Reselect(vertexProxy, owner);
     }
 
     // ---- Within-band ordering (plan §4.2) ----
@@ -349,6 +376,15 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         const string action = "Add vertex";
         if (!GuardEdit(state, action)) return;
         if (!TryGetSelectionOwner(action, out var selected, out var owner)) return;
+
+        // A boundary is an open polyline (island-authoring §5.2): insert a midpoint into its Points
+        // instead of the convex ModelVertices.
+        if (owner.Has<BoundaryComponent>())
+        {
+            AddBoundaryVertex(action, selected, owner);
+            return;
+        }
+
         if (!owner.Has<ConvexColliderComponent>())
         {
             Logger.Warning($"[level-editor] {action}: the selection has no polygon collider.");
@@ -389,6 +425,43 @@ public sealed class EditorCommandSystem : ISystem<GameState>
             if (i == edgeStart) after[j++] = midpoint;
         }
         _history.Push(ColliderEditCommand.ForConvex(owner, after));
+    }
+
+    /// <summary>Inserts a point into the selection's boundary polyline: the midpoint of the edge
+    /// AFTER the selected vertex proxy, or of the longest edge otherwise. One undoable step
+    /// (re-fires the bake).</summary>
+    private void AddBoundaryVertex(string action, Entity selected, Entity owner)
+    {
+        var points = owner.Get<BoundaryComponent>().Points;
+        if (points == null || points.Length < BoundaryGeometry.MinPoints) return;
+
+        var edgeStart = -1;
+        if (selected.Has<GizmoProxyComponent>())
+        {
+            var binding = selected.Get<GizmoProxyComponent>();
+            if (binding.Kind == ProxyBindingKind.BoundaryVertex
+                && binding.Index >= 0 && binding.Index < points.Length - 1)
+                edgeStart = binding.Index;
+        }
+        if (edgeStart < 0)
+        {
+            var longest = -1f;
+            for (var i = 0; i < points.Length - 1; i++) // open polyline: no closing edge
+            {
+                var lengthSq = Vector2.DistanceSquared(points[i], points[i + 1]);
+                if (lengthSq > longest) { longest = lengthSq; edgeStart = i; }
+            }
+        }
+        if (edgeStart < 0) return;
+
+        var midpoint = (points[edgeStart] + points[edgeStart + 1]) / 2f;
+        var after = new Vector2[points.Length + 1];
+        for (int i = 0, j = 0; i < points.Length; i++)
+        {
+            after[j++] = points[i];
+            if (i == edgeStart) after[j++] = midpoint;
+        }
+        _history.Push(BoundaryEditCommand.For(owner, after));
     }
 
     // ---- Shared plumbing ----
