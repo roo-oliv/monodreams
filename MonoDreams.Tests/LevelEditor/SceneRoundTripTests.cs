@@ -452,4 +452,87 @@ public class SceneRoundTripTests
             Assert.Equal(1, placeholderRequests);
         });
     }
+
+    /// <summary>
+    /// Island-authoring Slice 2 (§4.2): a within-band ordering nudge — applied through the REAL
+    /// <c>EditorCommandSystem</c> actions — persists through save → load, because it only ever
+    /// touches the serialized SOURCE sort fields (<c>LayerDepth</c> on a plain band,
+    /// <c>YSortDepthBias</c> on a Y-sorted band).
+    /// </summary>
+    [Fact]
+    public void OrderingPersistsThroughSaveLoadTest()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            var layers = DrawLayerMap.FromEnum<TestLayer>().WithYSort(TestLayer.Characters);
+            var groundDepth = layers.GetDepth(TestLayer.Background);
+            var propsDepth = layers.GetDepth(TestLayer.Characters);
+
+            using var world = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+            var history = new MonoDreams.LevelEditor.Undo.EditorHistory(world);
+            using var commands = new MonoDreams.LevelEditor.System.EditorCommandSystem(
+                world, history, serializer,
+                deleteRequested: _ => false, undoRequested: _ => false, redoRequested: _ => false,
+                layers: layers);
+            var edit = new GameState(new GameTime()) { RunMode = RunMode.Edit };
+
+            Entity MakeProp(float depth)
+            {
+                var prop = world.CreateEntity();
+                prop.Set(new SceneObjectComponent());
+                prop.Set(new EntityInfoComponent("Prop", depth.ToString()));
+                prop.Set(new TransformComponent(new Vector2(10, 10)));
+                prop.Set(new SpriteInfoComponent
+                {
+                    Size = new Vector2(16, 16),
+                    Target = RenderTargetID.Main,
+                    LayerDepth = depth,
+                });
+                return prop;
+            }
+
+            // A ground patch nudged forward twice (LayerDepth moves)…
+            var patch = MakeProp(groundDepth);
+            patch.Set(new MonoDreams.LevelEditor.Component.SelectedComponent());
+            commands.BringForward(edit);
+            commands.BringForward(edit);
+            patch.Remove<MonoDreams.LevelEditor.Component.SelectedComponent>();
+
+            // …and a Y-sorted prop nudged back once (the BIAS moves, LayerDepth must not).
+            var prop = MakeProp(propsDepth);
+            prop.Set(new MonoDreams.LevelEditor.Component.SelectedComponent());
+            commands.SendBack(edit);
+
+            var step = MonoDreams.LevelEditor.System.EditorCommandSystem.OrderStep;
+            Assert.Equal(groundDepth + 2 * step, patch.Get<SpriteInfoComponent>().LayerDepth, 6);
+            Assert.Equal(propsDepth, prop.Get<SpriteInfoComponent>().LayerDepth);
+            Assert.Equal(-step, prop.Get<SpriteInfoComponent>().YSortDepthBias, 6);
+
+            new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: layers);
+
+            using var loadWorld = new World();
+            using var reader = new SceneReaderSystem(loadWorld, new SceneSerializer(NewEngineRegistry()),
+                content: null, loadTexture: new TextureLoadSpy().Load);
+            loadWorld.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+
+            var loadedPatch = CollectEntitiesWith<SpriteInfoComponent>(loadWorld)
+                .Single(e => e.Get<SpriteInfoComponent>().LayerDepth != propsDepth);
+            var loadedProp = CollectEntitiesWith<SpriteInfoComponent>(loadWorld)
+                .Single(e => e.Get<SpriteInfoComponent>().LayerDepth == propsDepth);
+
+            // The nudges round-trip exactly, still inside their bands.
+            Assert.Equal(patch.Get<SpriteInfoComponent>().LayerDepth,
+                loadedPatch.Get<SpriteInfoComponent>().LayerDepth);
+            Assert.True(layers.TryGetBandRange(loadedPatch.Get<SpriteInfoComponent>().LayerDepth,
+                out var band, out _, out _, out _));
+            Assert.Equal(groundDepth, band);
+
+            Assert.Equal(propsDepth, loadedProp.Get<SpriteInfoComponent>().LayerDepth);
+            Assert.Equal(-step, loadedProp.Get<SpriteInfoComponent>().YSortDepthBias, 6);
+            // The Y-sorted band membership survived (the exact-match lookup still hits).
+            Assert.True(layers.TryGetYSortRange(loadedProp.Get<SpriteInfoComponent>().LayerDepth, out _, out _));
+        });
+    }
 }
