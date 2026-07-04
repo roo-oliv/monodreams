@@ -246,7 +246,10 @@ by selection at the end of the DRAW pipeline, so the same frame's claim is alway
 when selection runs; reordering selection before the gizmo would make the claim one frame stale.
 A release is never processed (selection acts only on the press edge), so releasing over empty
 space never clears; a genuine click on empty space — no handle, no sprite, no proxy border — still
-clears, and a click on another sprite away from every handle still re-picks.
+clears, and a click on another sprite away from every handle still re-picks. Above the claim sits
+the coarser **tool modality**: selection processes viewport presses only while
+`GizmoStateComponent.Mode == SelectTransform` (see "Viewport presses belong to exactly one tool
+family" below) — in `Place` mode the palette owns every viewport press.
 
 **Why:** the selected entity must be the one the designer sees on top; on-screen UI lives on the
 UI/HUD targets in virtual space (hit-testing it with the camera-relative world point would desync
@@ -814,6 +817,103 @@ transport is the only mode owner); level-loading — the `LoadLevelRequest` →
 `CurrentLevelComponent`-added parse trigger this premise routes around; this file — "The editor run
 flag composes the always-on editor and the transport owns RunMode", "Bounded undo with
 drag-coalescing" (the history the restart clears).
+
+## Viewport presses belong to exactly one tool family: `EditorToolMode` gates selection, gizmo, and placement
+
+The shared `GizmoStateComponent` carries a coarse `EditorToolMode` (`SelectTransform` default;
+`Place`; the brush modes Scatter/GroundPaint/Road are reserved names). `SelectionSystem` and
+`GizmoSystem` process viewport presses **only** in `SelectTransform` (they early-out otherwise —
+the gizmo also cancels any in-flight drag, hides its overlays, and claims nothing); the palette's
+placement acts only in `Place`. This composes with the finer `PressClaimed` click-ownership rule,
+which keeps resolving handle-vs-scene *within* `SelectTransform`. The toolbar's transform-tool
+buttons are a radio over the modes (picking one disarms the palette back to `SelectTransform`),
+as are Escape and right-click.
+
+**Why:** with placement live, a single viewport press would otherwise be claimed by three systems
+at once — a placement click would simultaneously re-pick (or click-empty-clear) the selection and
+grab a gizmo handle. One mode field on the existing shared state entity (extend, don't
+new-component) is the unambiguous owner declaration, and mirrors the Unity/Godot convention that
+activating a brush visibly deactivates the transform gizmo.
+**Breaks:** placing a prop deselects the previous selection or drags it under the cursor;
+conversely a selection click while armed stamps an unwanted prop; a stale `Place` mode with
+nothing armed mutes every tool family (the palette self-heals it back to `SelectTransform`).
+**Tests:** `MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`ToolModalityTest_PlaceModePressNeitherSelectsNorDrags`,
+`ToolModalityTest_EscapeRestoresSelectTransform`, `ToolModalityTest_RightClickDisarms`).
+**Depends on:** this file — "Selection picks MAX final `LayerDepth` with a selection-owned
+tiebreak, target-aware" (the claim rule this composes with).
+
+## `file:` AssetKeys load drop-folder art at runtime and graduate to content keys at ship
+
+A placed prop's `SpriteInfoComponent.AssetKey` may use the `file:` scheme
+(`"file:Island/props/tree01.png"`, optional `#region` suffix for a sliced-sheet entry): the
+texture is loaded at runtime — `Texture2D.FromStream` over `TitleContainer.OpenStream`, lazy and
+memoized per PNG (`FileAssetTextureLoader`) — from the gitignored asset drop folder
+(`Content/Island/`, copied raw to the output content dir; its committed `MANIFEST.md` names the
+packs). The catalog scan (`AssetCatalog.Scan`) reads **only** the directory listing + the
+`*.slices.json` sidecars, never a PNG (`TitleContainer` cannot enumerate, so the scan is
+host-filesystem — desktop-editor-first). A **missing file at load is a loud `Logger.Warning` plus
+the shared visible magenta placeholder texture, never an invisible entity**. The region suffix
+identifies the palette entry only — loading always opens the base PNG and the region's `Source`
+rect is serialized on the sprite itself, so scenes survive sidecar changes. When art finalizes,
+assets graduate into MGCB content and `file:` keys flip to content keys — a mechanical, greppable
+migration; `file:` is the fast-iteration authoring loop, content keys are the shipping (and
+web-ready) form.
+
+**Why:** the island phase is "experiment with placeholder packs" — an MGCB round-trip per art
+experiment kills the loop, and itch licenses forbid committing the packs (so every checkout may
+be missing files, which must fail visibly, not silently).
+**Breaks:** silent-missing assets produce invisible entities that look like data loss; eager
+texture loads at scan turn startup O(catalog); shipping `file:` keys to web breaks (no directory
+scan there) — the graduation step is the exit.
+**Tests:** `MonoDreams.Tests/LevelEditor/AssetCatalogTests.cs` (scan/sidecars/lazy/missing),
+`SceneRoundTripTests.cs` (`FileAssetKeyRoundTripTest`, `MissingFileAssetOnReloadTest`).
+**Depends on:** this file — "`SpriteInfoComponent` serializes an `AssetKey`, never the live
+`Texture2D`" (this premise extends the key's grammar); level-blender — the `TitleContainer`
+content-stream premise (the same portable read seam).
+
+## Y-sorted props use the feet-origin convention, factory-applied
+
+`SpritePropFactory` (the generic palette placement factory) builds the standard renderable stack
+from a catalog entry + a **screen-supplied** `PaletteBand`; on a Y-sorted band it sets
+`SpriteInfoComponent.Origin` to the sprite's **bottom-center in source pixels** and
+`YSortOffset = 0`. The entity's `Position` is therefore where the prop *stands*: the sprite
+renders with its feet at the transform position, and `YSortSystem` (which keys on
+`WorldPosition.Y + YSortOffset`) sorts by that same feet line — the player walks behind a tree
+when above it with zero per-prop tuning. Non-Y-sorted (ground) bands keep the default top-left
+origin; their within-band order is authored (bring-forward/send-back, Slice 2). The band→depth
+mapping itself is supplied by the screen from ITS `DrawLayerMap` — the module never references a
+game's layer enum.
+
+**Why:** top-down walk-behind depends on the sort key and the visual base being the same point;
+without the convention every prop needs a hand-tuned `YSortOffset` and a mis-set one reads as the
+player clipping through the prop.
+**Breaks:** props sort by their top-left corner — the player pops in front of a building while
+visually behind it; ghost preview and placed prop disagree about where "under the cursor" is.
+**Tests:** `MonoDreams.Tests/LevelEditor/SpritePropFactoryTests.cs`
+(`FeetOriginOnYSortedBandTest`, `SpritePropStandardStackTest`, `SlicedEntrySourceRectTest`).
+**Depends on:** rendering — `YSortSystem`'s `WorldPosition.Y + YSortOffset` key; this file — "The
+serializer persists SOURCE sort fields…" (Origin/YSortOffset are SOURCE fields that round-trip).
+
+## Save is blocked while the transport is Playing
+
+`EditorOverlay.DispatchToolbarAction`'s Save case no-ops with a loud `Logger.Warning` while
+`RunMode == Play` (`EditorOverlay.IsSaveBlocked` — the toolbar already renders the Save button
+dimmed/inactive there, and this guard closes the remaining dispatch paths: the headless
+`ToolbarAction` op and any programmatic dispatch). Saving is an authoring act over the **paused**
+scene; a mid-Play save would bake transient run state — a mid-air player, in-flight velocities,
+half-resolved collisions — into the scene file as if it were authored truth. Undo/Redo/Load keep
+their existing Paused-only toolbar gating; the transport buttons stay live in both states.
+
+**Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
+is nearly free): the first mid-Play save silently corrupts a scene in a way that only shows on the
+next load.
+**Breaks:** a scene reloads with the player embedded mid-jump or props mid-physics — "the level I
+saved is not the level I authored", discovered much later.
+**Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs`
+(`SaveGuardTest_BlockedExactlyWhilePlaying`, `SaveGuardTest_DispatchNoOpsWhilePlayingAndSavesWhilePaused`).
+**Depends on:** this file — "The editor run flag composes the always-on editor and the transport
+owns RunMode" (Playing = `RunMode.Play` with the shell composed).
 
 ## See also
 

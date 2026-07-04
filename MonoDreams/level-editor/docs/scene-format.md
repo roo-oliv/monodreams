@@ -96,6 +96,19 @@ The writer persists the key; Wave 3's reader rehydrates `SpriteSheet` via
 `ContentManager.Load(assetKey)`. After deserialization (Wave 2), `SpriteSheet` is
 `null` — texture rehydration is a load-time concern the reader owns.
 
+**The `file:` scheme (island-authoring Slice 1).** An asset key may instead use the
+`file:` scheme — `"file:Island/props/tree01.png"`, with an optional `#region`
+suffix naming a sliced-sheet palette entry (e.g.
+`"file:Island/props/sheet.png#trunk"`). The reader routes `file:` keys through the
+runtime file-asset loader (`Assets/FileAssetTextureLoader` — lazy
+`Texture2D.FromStream` over the content stream; a **missing file loads a visible
+magenta placeholder with a loud warning**, never an invisible entity). The region
+suffix identifies the catalog entry only: loading always opens the base PNG, and
+the region's `source` rectangle is serialized on the sprite itself, so the scene
+survives sidecar changes. `file:` keys are the editor's fast authoring loop; when
+art finalizes they graduate to plain content keys (see the "`file:` AssetKeys…"
+premise in [`premises.md`](premises.md)).
+
 ## Concrete example
 
 A scene with a player (Transform + SpriteInfo + BoxCollider + RigidBody) and one

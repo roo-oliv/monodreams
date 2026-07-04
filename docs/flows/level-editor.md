@@ -143,7 +143,11 @@ pipeline):
    button's `EditorToolbarAction` + the frame's `GameState` through the overlay's dispatch: the
    left-most TRANSPORT buttons (Play/Pause — label synced to the state — and Restart) dispatch in
    both modes through `EditorTransport`; the editing buttons (Save/Load/Undo/Redo/tool/snap)
-   dispatch only while Paused and render dimmed while Playing — the two
+   dispatch only while Paused and render dimmed while Playing — and Save additionally guards its
+   own dispatch (`EditorOverlay.IsSaveBlocked`): a Save arriving while Playing through ANY path
+   (headless op, programmatic) is a loud no-op, so mid-simulation state is never baked into a
+   scene; a transform-tool button also disarms the palette (the tool radio over
+   `EditorToolMode`) — the two
    are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`
    (the right strip) renders the registrar tree of both pipelines — groups indented above their
    children, name + policy + checkbox, tri-state on groups (all/none/mixed; mixed = the minus
@@ -153,7 +157,22 @@ pipeline):
    ancestor group of it).
 10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
    it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
-   margins, which mutes selection picks, gizmo drag-starts, and camera-nav zoom/pan there.
+   margins, which mutes selection picks, gizmo drag-starts, camera-nav zoom/pan, and palette
+   placement there.
+10b. **Palette + placement** (Edit-guarded; `editor.palette`, right after `cursorPosition` — the
+   ghost must follow THIS frame's cursor world position; composed only when the screen supplied
+   an `AssetCatalog` + `PaletteBand` map) — `PalettePlacementSystem` lays the bottom strip out
+   (band-selector header + a wheel-scrolled flow grid of catalog-entry buttons; `ScreenPosition`
+   hit-test like the toolbar/panel). Clicking an item **arms** it: the shared
+   `GizmoStateComponent.Mode` flips to `Place` — the coarse tool modality; selection (step 12)
+   and the gizmo (step 5) early-out outside `SelectTransform`, so the placement system owns
+   every viewport press — and a tinted ghost sprite (editor infrastructure, never
+   `SceneObjectComponent`) follows the snap-quantized cursor. A viewport press **places**: one
+   `CreateEntityCommand` around `SpritePropFactory` (one undo step; auto-tagged save-root;
+   feet-origin on a Y-sorted band) + auto-select; clicks keep placing until Escape / right-click
+   / a transform-tool button disarms back to `SelectTransform`. Headless: the op-plan
+   `ToolbarAction` strings `palette:<id>` / `palette:none` / `band:<name>` route through
+   `EditorOverlay.DispatchNamedAction`.
 11. **Shell** (`RunNormally`, after `CursorDrawPrepSystem`) — `EditorShellSystem` keeps the
    viewport inset, the chrome layout (relayout on window resize), and the pointer (OS cursor
    visible, game cursor sprite hidden) applied — CONSTANT across transport states, the shell
