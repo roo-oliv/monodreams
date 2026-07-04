@@ -35,8 +35,12 @@ sensitive: true
 > (group click = Gmail cascade: checked/indeterminate → all off, unchecked → all on); and the Wave-8b **collider
 > gizmo proxies** — colliders are component-local spatial data, not entities, so in Edit
 > `ProxySyncSystem` (entry `editor.proxySync`) materializes standalone, per-frame-re-derived
-> proxy entities (`GizmoProxyComponent` bindings) over the selected entity's collider shapes;
-> they join the same selection pick (border-only hit-test) and the same gizmo drag (move tool),
+> proxy entities (`GizmoProxyComponent` bindings, keyed `(kind, index)` since island Slice 2:
+> whole-shape proxies plus per-vertex `ConvexVertex` handles while the convex family's proxy is
+> selected) over the selected entity's collider shapes;
+> they join the same selection pick (border-only hit-test) and the same gizmo drag (move tool;
+> a box proxy adds eight edge/corner RESIZE handles, a vertex proxy moves one model vertex with
+> non-convex results rejected loudly),
 > writing back into the bound component via `ColliderEditCommand` through the coalescing undo
 > transaction; and the post-Wave-8b **cross-host wiring** — the universal overlay now spans
 > hosts: every Demos screen (the launcher + the four module demo screens) composes it under the
@@ -117,20 +121,31 @@ pipeline):
    The transport's Restart re-drives this path: it removes `CurrentLevelComponent`, disposes the
    scene entities, and re-publishes the screen-recorded original load request.
 3. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
-4. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo → `EditorHistory`).
+4. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo →
+   `EditorHistory`; since island Slice 2 also the toolbar's selection-edit actions: bring
+   forward / send back — SOURCE sort-field nudges clamped inside the `DrawLayerMap` band, bias
+   not depth on Y-sorted bands — and add/remove collider with the feet-anchored footprint
+   default + add vertex; Delete is proxy-aware: a vertex proxy deletes its vertex (≥3 guard), a
+   shape proxy removes its bound collider, never the transient proxy entity).
 5. **Gizmo** (Edit-guarded) — `GizmoSystem` reads `SelectedComponent`, hit-tests the active handle, and
    on a drag opens a coalescing transaction and pushes a `TransformEditCommand` per frame (one undo step
    on release). It runs **before** `HierarchySystem` so the edit propagates the same frame; its overlay
    VISUALS (outline + handle) are emitted later, by the draw pipeline's `editor.overlayPrep` pass, from
    the frame's final camera + selection. When the selected entity is a collider
    proxy the tool is forced to Move and each drag frame pushes a `ColliderEditCommand` against the
-   proxy's bound game entity instead (Wave 8b). It also publishes the **click-ownership claim**
+   proxy's bound game entity instead (Wave 8b); a box proxy additionally hit-tests its eight
+   edge/corner resize handles first (`BoxResize` — the grabbed edge moves, the opposite edge
+   anchors, `MinSize` clamps), and a vertex proxy moves exactly one model vertex, with a drag
+   frame that would break convexity rejected loudly (island Slice 2). It also publishes the **click-ownership claim**
    (`GizmoStateComponent.PressClaimed`, written every Edit frame): true when the press landed on the
    active handle or a drag is in progress — the same frame's `SelectionSystem` pass (step 12) skips a
    claimed press entirely, so a handle outside the sprite's bounds never reads as click-empty/re-pick.
 6. **Proxy sync** (Edit-guarded, Wave 8b) — `ProxySyncSystem` spawns/places/despawns the collider
-   proxies for the selected entity, re-deriving each from its bound component (so it tracks both this
-   frame's gizmo write-back and owner moves), and refreshes the selected entity's convex
+   proxy family for the selected entity, keyed `(kind, index)`: whole-shape proxies always, plus
+   one `ConvexVertex` handle per model vertex while the convex family's own proxy is selected
+   (vertex-count changes — add/delete vertex, undo/redo — resize the family live). Each proxy
+   re-derives from its bound component (so it tracks both this
+   frame's gizmo write-back and owner moves), and the sync refreshes the selected entity's convex
    `WorldVertices` (physics is frozen — the debug outline would otherwise go stale).
 7. **Hierarchy** (`RunNormally`) — `HierarchySystem` propagates the editor's transform edits to
    world space so the preview is correct *this* frame (it must run in both modes).

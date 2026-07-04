@@ -715,9 +715,12 @@ Colliders are **not** entities — `BoxColliderComponent.Bounds` (an entity-rela
 `ConvexColliderComponent.ModelVertices` (local-space vertices; `WorldVertices` is derived) are
 component-local spatial data on the game entity, so neither the selection (which picks rendered
 sprites) nor the transform gizmo (which edits `TransformComponent`) can grab them directly. The
-Wave-8b mechanism: when the selected entity carries collider components in Edit, `ProxySyncSystem`
-materializes one **standalone proxy entity per collider** — `GizmoProxyComponent` is the pure-data
-binding descriptor `(target entity, ProxyBindingKind, reserved index)`; the proxy carries a
+Wave-8b mechanism (generalized in island Slice 2): when the selected entity carries collider
+components in Edit, `ProxySyncSystem` materializes **standalone proxy entities keyed
+`(kind, index)`** — one whole-shape proxy per collider (index 0) plus, while the convex family's
+own proxy is selected, one per-vertex proxy per `ModelVertices` entry (see the vertex-editing
+premise below) — `GizmoProxyComponent` is the pure-data
+binding descriptor `(target entity, ProxyBindingKind, index)`; the proxy carries a
 `TransformComponent` kept at the shape's **world** centre (the gizmo pivot / selection anchor)
 and a cyan outline VISUAL emitted separately by `ProxySyncSystem.EmitOverlays` (the
 `editor.overlayPrep` draw entry): screen-baked on the native-resolution Editor target at depth
@@ -731,6 +734,10 @@ constant `ProxyBorderPickDepth` — decoupled from the visual's Editor-band dept
 only the shape's **border** within `8px/Zoom` so a sprite-covering collider never shadows its
 entity) and
 the **same** gizmo drag (move handle at the proxy pivot; the tool is forced to Move for proxies).
+A selected **box** proxy additionally exposes eight **resize handles** — the box's corners and
+edge midpoints (pure `BoxResize` math), hit-tested BEFORE the centre move handle — each moving
+exactly the grabbed edge(s) of `Bounds` with the opposite edge anchored and sides clamped at
+`BoxResize.MinSize`, through the same claim + coalescing-drag path.
 The write-back never touches the proxy's own transform: each drag frame pushes a
 `ColliderEditCommand` (before/after snapshot of `Bounds` or `ModelVertices`) against the **bound
 game entity**, inside the coalescing transaction — one drag = one undo step — and the convex
@@ -738,9 +745,9 @@ write-back refreshes `WorldVertices` + `BroadPhaseAABB` in the same command (phy
 Edit; nothing else would). `ProxySyncSystem` also refreshes the selected entity's convex
 `WorldVertices` per frame so the `ColliderDebugSystem` outline (which coexists as the global,
 selection-unaware diagnostic) tracks edits instead of drifting. The binding kind is the
-generalization seam: a future spline-control-point binding (the road tool, Waves D/F) or a
-per-vertex convex handle is another `ProxyBindingKind` + a `ProxyGeometry` derivation case + a
-write-back case — never a second proxy mechanism.
+generalization seam, now proven twice (whole shapes, per-vertex handles): a future
+spline-control-point binding (the road tool, Waves D/F) is another `ProxyBindingKind` + a
+`ProxyGeometry` derivation case + a write-back case — never a second proxy mechanism.
 
 **Why:** the user clicked the red collider debug outlines and couldn't drag them (the outlines are
 unselectable per-frame visualization entities with no back-link); restructuring colliders as child
@@ -764,7 +771,12 @@ selection: border click picks the proxy through the same pick path, inside click
 and `ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags` — pressing
 the selected proxy's centre move-handle is claimed by the gizmo, so the same frame's selection
 pass neither deselects the proxy nor despawns the family, and the drag completes;
-pure inverse-transform delta math).
+pure inverse-transform delta math); `MonoDreams.Tests/LevelEditor/ProxyVertexTests.cs` (the
+`(kind, index)` family lifecycle);
+`MonoDreams.Tests/LevelEditor/BoxResizeTests.cs` (pure edge math per handle + MinSize clamp;
+system-level: each handle adjusts exactly the expected `Bounds` edge(s) through one undo step,
+undo restores the exact rect, the centre press still moves the whole box, and a resize-handle
+press is claimed so the same-frame selection pass keeps the proxy).
 **Depends on:** collision — "`ConvexColliderComponent.BroadPhaseAABB` must be refreshed when
 vertices change"; this file — "Editor-overlay entities are standalone; delete snapshots the
 disposed sub-graph" (the standalone rule), "Bounded undo with drag-coalescing" (the transaction),
@@ -914,6 +926,113 @@ saved is not the level I authored", discovered much later.
 (`SaveGuardTest_BlockedExactlyWhilePlaying`, `SaveGuardTest_DispatchNoOpsWhilePlayingAndSavesWhilePaused`).
 **Depends on:** this file — "The editor run flag composes the always-on editor and the transport
 owns RunMode" (Playing = `RunMode.Play` with the shell composed).
+
+## Within-band ordering nudges SOURCE sort fields and never breaks the band
+
+The Bring forward / Send back actions (toolbar buttons `Fwd`/`Back`, headless
+`order:forward`/`order:back`, optional PageUp/PageDown via `DefaultEditorKeys`) adjust the
+selection's overlap order INSIDE its layer band by `EditorCommandSystem.OrderStep`, resolved and
+clamped against the band the screen's `DrawLayerMap` reports (`TryGetBandRange` — a containment
+lookup that, unlike the exact-match `TryGetYSortRange`, also answers for already-nudged depths).
+On a **plain band** the nudge moves SOURCE `SpriteInfoComponent.LayerDepth`, clamped at the
+band's inset edges so a nudge can never cross into the neighboring band. On a **Y-sorted band**
+the nudge moves `SpriteInfoComponent.YSortDepthBias` (clamped to ± the band width) and **never**
+`LayerDepth`: Y-sort participation is an exact-match lookup on the registered band value
+(`TryGetYSortRange` in `YSortSystem`), so a nudged depth would silently drop the sprite out of
+Y-sorting — the class of bug where a prop stops walking-behind after one harmless-looking click.
+Each click is one `SpriteSortEditCommand` (data + apply/revert) = one undo step; a click already
+at the edge pushes nothing (no empty undo entries). Because only SOURCE fields move — never the
+per-frame-derived `DrawComponent.LayerDepth` — the ordering survives save/load through the
+existing serializer unchanged.
+
+**Why:** overlapping ground patches (grass over sand, dirt over grass — plan §4.2) need
+authorable order, and the two sort regimes have different safe knobs; picking the wrong one is
+silent until the next Y-sort or reload.
+**Breaks:** nudging `LayerDepth` on a Y-sorted band drops the sprite out of Y-sorting entirely
+(walks-behind stops working); an unclamped nudge crosses band boundaries (a ground patch drifting
+above the props band); writing the derived depth instead of the source bakes one frame's sort.
+**Tests:** `MonoDreams.Tests/LevelEditor/OrderingTests.cs`
+(`BringForward_NudgesSourceLayerDepth_OneUndoStepPerClick`, `Ordering_ClampsAtBandEdges`,
+`Ordering_OnYSortedBand_AdjustsBiasNeverLayerDepth`, `Ordering_TargetsTheOwner_WhenAProxyIsSelected`,
+`TryGetBandRange_ResolvesNudgedDepths_AndRejectsOutOfBand`) and
+`SceneRoundTripTests.OrderingPersistsThroughSaveLoadTest`.
+**Depends on:** rendering — "Layer-depth ownership pipeline" (the SOURCE→derived flow this rides)
+and `YSortSystem`'s exact-match band lookup; this file — "The serializer persists SOURCE sort
+fields, never the per-frame-derived `DrawComponent.LayerDepth`", "Bounded undo with drag-coalescing".
+
+## Prop footprints default to full width × bottom quarter, feet-anchored
+
+The **Add box collider** action creates the top-down footprint default (plan §5.1), computed
+purely by `ColliderDefaults.FootprintBounds` from the sprite's RENDERED geometry: the local quad
+relative to `Position` spans `(-Origin·s) .. (-Origin·s + Size)` (`s = Size/Source`, the
+source→render scale; `Bounds` is Transform-relative and never transform-scaled), and the
+footprint keeps its full width and bottom 25% — under the feet-origin convention
+(`Origin = (srcW/2, srcH)`) exactly `(-w/2, -h/4) .. (w/2, 0)`: the box hangs off the feet point,
+which IS the entity's `Position`, so the character collides with the base of a tree/building and
+walks behind its canopy. **Add polygon collider** starts from a hexagon inscribed in that same
+footprint; **Remove collider** (and Delete on a whole-shape proxy) removes through
+`ColliderComponentCommand`, whose construction-time snapshot restores the removed component
+field-for-field on undo (`Bounds`/`ModelVertices`, `ActiveLayers`, `Passive`, `Enabled`,
+`IgnoreTransformRotation`, with derived world data refreshed against the live transform). A
+sprite-less entity gets `ColliderDefaults.FallbackFootprint`.
+
+**Why:** the reference games' convention — only the base blocks movement; a full-sprite default
+box would block the player on a tree's canopy, and an un-snapshotted remove would make undo
+resurrect a default collider instead of the designer's tuned one.
+**Breaks:** a full-height default footprint blocks walk-behind everywhere; footprint math ignoring
+`Origin`/render scale plants the box off the visible base; a remove that loses `Passive`/layers on
+undo silently turns a trigger zone into a wall.
+**Tests:** `MonoDreams.Tests/LevelEditor/ColliderActionTests.cs`
+(`FootprintBounds_FeetOrigin_FullWidthBottomQuarter_FeetAnchored`,
+`FootprintHexagon_InscribedInTheFootprint_AndConvex`, `AddBoxCollider_AppliesFootprintDefault_Undoable`,
+`AddConvexCollider_AppliesFootprintHexagon_Undoable`,
+`RemoveCollider_Both_OneUndoEntry_RestoresFieldForField`,
+`RemoveCollider_ViaProxy_RemovesOnlyThatKind_ReselectsOwner`).
+**Depends on:** this file — "Y-sorted props use the feet-origin convention, factory-applied" (the
+Origin the math inverts); collision — `BoxColliderComponent.Bounds` is Transform-relative.
+
+## Convex colliders are vertex-edited through (kind, index) proxies; invalid shapes are rejected loudly
+
+Per-vertex editing rides the generalized proxy family: `ProxySyncSystem` keys its proxies
+`(ProxyBindingKind, index)` and materializes one `ConvexVertex` proxy per `ModelVertices` entry
+**while the convex family's own proxy (shape or vertex) is selected** — one click deeper than
+entity selection, so selecting a prop shows clean collider outlines and clicking the convex
+outline opens the vertex session (the Godot/Unity collision-shape convention; it also keeps the
+pre-Slice-2 "N proxies per selected entity" expectations intact). Dragging a vertex proxy writes
+back exactly ONE model vertex (inverse-transformed world delta) through `ColliderEditCommand` —
+one drag = one undo step, world data refreshed. **Convexity strategy: reject, loudly.** A drag
+frame whose result fails `ProxyGeometry.IsConvex` (all non-zero consecutive-edge cross products
+share a sign; collinear points allowed; zero-area loops rejected) is NOT applied — the vertex
+sticks at its last valid position and a warning logs once per drag. Auto-hulling was rejected
+because it can reorder or drop vertices mid-drag, invalidating the very `(kind, index)` binding
+being dragged and dangling the family. **Add vertex** inserts an edge midpoint (after the
+selected vertex proxy, else into the longest edge) — collinear by construction, hence always
+legal, and given shape by the next drag. **Delete on a vertex proxy deletes that vertex** —
+routed through `EditorCommandSystem`'s delete intent, never disposing the transient proxy entity
+— guarded so a convex collider keeps ≥ 3 vertices (a loud refusal at 3; removing a vertex from a
+convex polygon is itself always convex-safe), with the selection handed to the shape proxy so the
+session continues.
+
+**Why:** irregular building bases (plan §5.1) need per-vertex footprints, the collision module's
+SAT is convex-only (an invalid shape silently mis-collides), and this is the exact machinery the
+Slice-3 boundary tool and the Wave-F spline control points reuse — the binding indices must stay
+stable under editing.
+**Breaks:** applying a non-convex drag frame hands SAT a shape it cannot resolve (silent tunnel /
+phantom contacts); auto-hull mid-drag despawns or retargets the dragged handle; a 2-vertex
+"polygon" after an unguarded delete throws in the collider's own constructor paths; disposing the
+proxy entity on Delete makes Delete a non-undoable visual no-op.
+**Tests:** `MonoDreams.Tests/LevelEditor/ProxyVertexTests.cs`
+(`VertexProxies_MaterializeWhenTheConvexFamilyProxyIsSelected`, `VertexCountChange_ResizesTheFamilyLive`,
+`VertexDrag_WritesTheRightModelVertex_OneUndoStep`, `VertexDrag_RejectsNonConvexResult_KeepsLastValidShape`,
+`IsConvex_AcceptsConvexAndCollinear_RejectsConcaveAndDegenerate`,
+`VertexHandle_WinsThePick_WhereItRidesTheShapeBorder`) and
+`MonoDreams.Tests/LevelEditor/ColliderActionTests.cs`
+(`Delete_OnVertexProxy_DeletesTheVertex_WithMinThreeGuard`,
+`Delete_OnShapeProxy_RemovesTheCollider_NotTheProxyEntity`,
+`AddVertex_InsertsMidpoint_AfterSelectedVertex_OrIntoLongestEdge`).
+**Depends on:** this file — "Collider shapes are edited through standalone gizmo proxies…" (the
+family + write-back rules this extends); collision — the convex-only SAT contract and
+"`BroadPhaseAABB` must be refreshed when vertices change".
 
 ## See also
 
