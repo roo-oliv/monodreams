@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -16,21 +17,26 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
-/// Materializes and maintains the <b>edit-time gizmo proxies</b> (Wave 8b): when the selected
-/// entity in <see cref="RunMode.Edit"/> carries collider components — whose shapes are
-/// component-local spatial data, not entities — this system spawns one standalone proxy entity
-/// per collider (<see cref="GizmoProxyComponent"/> binding, <c>TransformComponent</c> at the
-/// shape's world centre, a distinct outline mesh, self-set <c>VisibleComponent</c>) so the shape
-/// becomes selectable and draggable through the ordinary selection + gizmo path. Proxies are
-/// re-derived from the bound component <b>every frame</b> (cheap — only the selected entity's
-/// colliders), so they track both the owner's transform edits and the gizmo's collider
-/// write-backs live; they despawn on deselect, mode exit, or target death.
+/// Materializes and maintains the <b>edit-time gizmo proxies</b> (Wave 8b, generalized in
+/// island-authoring Slice 2): when the selected entity in <see cref="RunMode.Edit"/> carries
+/// collider components — whose shapes are component-local spatial data, not entities — this
+/// system spawns standalone proxy entities (<see cref="GizmoProxyComponent"/> binding,
+/// <c>TransformComponent</c> at the shape's world centre, a distinct outline mesh) so the shape
+/// becomes selectable and draggable through the ordinary selection + gizmo path. The family is a
+/// <b>(kind, index) list</b> — one whole-shape proxy per collider (index 0) plus, while the
+/// convex family's own proxy is selected, one <see cref="ProxyBindingKind.ConvexVertex"/> proxy
+/// per <c>ModelVertices</c> entry (index = the vertex ordinal; the same keying a future spline
+/// control point uses). Proxies are re-derived from the bound component <b>every frame</b>
+/// (cheap — only the selected entity's colliders), so they track the owner's transform edits,
+/// the gizmo's collider write-backs, and vertex-count changes (add/delete vertex, undo/redo)
+/// live; they despawn on deselect, mode exit, or target death.
 ///
-/// <para><b>Trigger = selection, not a mode toggle.</b> The proxies appear exactly while the
-/// owning entity (or one of its own proxies — clicking a proxy keeps the family alive) is
-/// selected. No separate "collider edit mode": the selection already scopes the proxies to one
-/// entity, so there is nothing else to toggle, and the affordance sits where the designer's
-/// attention already is.</para>
+/// <para><b>Trigger = selection, not a mode toggle.</b> The whole-shape proxies appear exactly
+/// while the owning entity (or one of its own proxies — clicking a proxy keeps the family
+/// alive) is selected. The per-vertex handles appear one click deeper — while the convex
+/// SHAPE proxy (or one of its vertex proxies) is selected — so selecting an entity shows its
+/// collider outlines without vertex-handle clutter, and clicking the convex outline opens the
+/// vertex-editing session (the Godot/Unity collision-shape convention).</para>
 ///
 /// <para><b>Coexistence with <c>ColliderDebugSystem</c>.</b> The debug system stays the global
 /// diagnostic: red/green/gray thin outlines for EVERY collider, behind its own static flag,
@@ -75,6 +81,12 @@ public sealed class ProxySyncSystem : ISystem<GameState>
     /// the interactive shape reads as such.</summary>
     public const float OutlinePixelThickness = 2f;
 
+    /// <summary>The on-screen half-size (VIRTUAL pixels, aspect-fit scaled) of a
+    /// <see cref="ProxyBindingKind.ConvexVertex"/> handle's square visual — constant across
+    /// camera zoom like every overlay size (the pick anchor is the tiny world-space square in
+    /// <c>ProxyGeometry</c>; this is only how big the handle LOOKS).</summary>
+    public const float VertexHandlePixelHalfSize = 4f;
+
     /// <summary>The proxy outline color — distinct from the debug outlines (red/green/gray) and
     /// the gizmo's selection yellow.</summary>
     public static readonly Color OutlineColor = Color.Cyan;
@@ -84,11 +96,12 @@ public sealed class ProxySyncSystem : ISystem<GameState>
     private readonly ViewportManager? _viewportManager;
     private readonly EntitySet _selectedSet;
 
-    // Owned proxy entities, one per collider kind on the current anchor (created/disposed as the
-    // anchor's component set changes; rebuilt each frame while alive).
+    // Owned proxy entities, keyed (kind, index) — the Slice-2 generalization of the old
+    // one-field-per-kind pair (created/disposed as the anchor's component set and vertex count
+    // change; re-placed each frame while alive).
     private Entity _anchor;
-    private Entity _boxProxy;
-    private Entity _convexProxy;
+    private readonly Dictionary<(ProxyBindingKind Kind, int Index), Entity> _proxies = new();
+    private readonly List<(ProxyBindingKind Kind, int Index)> _stale = new();
 
     public bool IsEnabled { get; set; } = true;
 
@@ -114,7 +127,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
             return;
         }
 
-        var anchor = ResolveAnchor();
+        var anchor = ResolveAnchor(out var convexFamilySelected);
         if (anchor == default || !anchor.IsAlive || !anchor.Has<TransformComponent>())
         {
             DespawnAll();
@@ -127,14 +140,33 @@ public sealed class ProxySyncSystem : ISystem<GameState>
             _anchor = anchor;
         }
 
-        SyncProxy(ref _boxProxy, anchor, ProxyBindingKind.BoxColliderBounds,
+        var convexCount = 0;
+        if (anchor.Has<ConvexColliderComponent>())
+            convexCount = anchor.Get<ConvexColliderComponent>().ModelVertices?.Length ?? 0;
+
+        SyncProxy(anchor, ProxyBindingKind.BoxColliderBounds, 0,
             anchor.Has<BoxColliderComponent>());
-        SyncProxy(ref _convexProxy, anchor, ProxyBindingKind.ConvexColliderShape,
-            anchor.Has<ConvexColliderComponent>());
+        SyncProxy(anchor, ProxyBindingKind.ConvexColliderShape, 0, convexCount >= 3);
+
+        // Per-vertex handles: only while the convex family's own proxy (shape or vertex) is
+        // selected — one proxy per ModelVertices entry, re-keyed each frame so add/delete-vertex
+        // (and their undo/redo) grow/shrink the family live.
+        var vertexCount = convexFamilySelected && convexCount >= 3 ? convexCount : 0;
+        for (var i = 0; i < vertexCount; i++)
+            SyncProxy(anchor, ProxyBindingKind.ConvexVertex, i, true);
+        _stale.Clear();
+        foreach (var key in _proxies.Keys)
+            if (key.Kind == ProxyBindingKind.ConvexVertex && key.Index >= vertexCount)
+                _stale.Add(key);
+        foreach (var key in _stale)
+        {
+            if (_proxies[key].IsAlive) _proxies[key].Dispose();
+            _proxies.Remove(key);
+        }
 
         // Physics is frozen in Edit, so nothing refreshes the anchor's convex WorldVertices while
         // the designer moves it — keep them (and thus the red debug outline) coherent here.
-        if (anchor.Has<ConvexColliderComponent>())
+        if (anchor.Has<ConvexColliderComponent>() && convexCount > 0)
             anchor.Get<ConvexColliderComponent>().UpdateWorldVertices(anchor.Get<TransformComponent>());
     }
 
@@ -150,18 +182,36 @@ public sealed class ProxySyncSystem : ISystem<GameState>
     {
         if (!IsEnabled || state.RunMode != RunMode.Edit) return;
         var projection = OverlayProjection.For(RenderTargetID.Main, _camera, _viewportManager);
-        EmitProxyOutline(_boxProxy, projection);
-        EmitProxyOutline(_convexProxy, projection);
+        foreach (var proxy in _proxies.Values)
+            EmitProxyOutline(proxy, projection);
     }
 
     private static void EmitProxyOutline(Entity proxy, in OverlayProjection projection)
     {
         if (!proxy.IsAlive) return;
         var binding = proxy.Get<GizmoProxyComponent>();
-        if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, out var outline)) return;
+        if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, binding.Index, out var outline)) return;
 
-        var points = new Vector2[outline.Length];
-        for (var i = 0; i < outline.Length; i++) points[i] = projection.ToScreen(outline[i]);
+        Vector2[] points;
+        if (binding.Kind == ProxyBindingKind.ConvexVertex)
+        {
+            // A vertex handle draws as a constant-on-screen square around the projected vertex
+            // (the world-space outline square only anchors the pick — projected raw it would be
+            // sub-pixel at low zoom).
+            var centre = projection.ToScreen(ProxyGeometry.Centroid(outline));
+            var half = projection.ToScreenSize(VertexHandlePixelHalfSize);
+            points = new[]
+            {
+                centre + new Vector2(-half, -half), centre + new Vector2(half, -half),
+                centre + new Vector2(half, half), centre + new Vector2(-half, half),
+            };
+        }
+        else
+        {
+            points = new Vector2[outline.Length];
+            for (var i = 0; i < outline.Length; i++) points[i] = projection.ToScreen(outline[i]);
+        }
+
         var mesh = OverlayMeshClip.ClipToRect(
             new PolygonOutlineMeshGenerator(
                 points, projection.ToScreenSize(OutlinePixelThickness), OutlineColor, closed: true).Generate(),
@@ -176,39 +226,47 @@ public sealed class ProxySyncSystem : ISystem<GameState>
     /// <summary>
     /// The entity whose colliders are proxied: the selected entity itself, or — when the
     /// selection IS a proxy (the designer clicked one) — that proxy's bound target, so selecting
-    /// a proxy never despawns the family it belongs to.
+    /// a proxy never despawns the family it belongs to. <paramref name="convexFamilySelected"/>
+    /// reports whether the selection is a convex-family proxy (shape or vertex) — the trigger
+    /// for materializing the per-vertex handles.
     /// </summary>
-    private Entity ResolveAnchor()
+    private Entity ResolveAnchor(out bool convexFamilySelected)
     {
+        convexFamilySelected = false;
         foreach (var selected in _selectedSet.GetEntities())
         {
             if (!selected.IsAlive) continue;
             if (selected.Has<GizmoProxyComponent>())
             {
-                var target = selected.Get<GizmoProxyComponent>().Target;
-                return target.IsAlive ? target : default;
+                var binding = selected.Get<GizmoProxyComponent>();
+                convexFamilySelected = binding.Kind is ProxyBindingKind.ConvexColliderShape
+                    or ProxyBindingKind.ConvexVertex;
+                return binding.Target.IsAlive ? binding.Target : default;
             }
             return selected; // single-select: the first live selected entity is the one
         }
         return default;
     }
 
-    private void SyncProxy(ref Entity proxy, Entity anchor, ProxyBindingKind kind, bool shouldExist)
+    private void SyncProxy(Entity anchor, ProxyBindingKind kind, int index, bool shouldExist)
     {
+        var key = (kind, index);
+        var exists = _proxies.TryGetValue(key, out var proxy) && proxy.IsAlive;
+
         if (!shouldExist)
         {
-            if (proxy.IsAlive) proxy.Dispose();
-            proxy = default;
+            if (exists) proxy.Dispose();
+            _proxies.Remove(key);
             return;
         }
 
-        if (!proxy.IsAlive)
-            proxy = CreateProxyEntity(anchor, kind);
+        if (!exists)
+            _proxies[key] = proxy = CreateProxyEntity(anchor, kind, index);
 
-        if (!ProxyGeometry.TryGetWorldOutline(anchor, kind, out var outline))
+        if (!ProxyGeometry.TryGetWorldOutline(anchor, kind, index, out var outline))
         {
             proxy.Dispose();
-            proxy = default;
+            _proxies.Remove(key);
             return;
         }
 
@@ -218,7 +276,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         proxy.Get<TransformComponent>().Position = ProxyGeometry.Centroid(outline);
     }
 
-    private Entity CreateProxyEntity(Entity anchor, ProxyBindingKind kind)
+    private Entity CreateProxyEntity(Entity anchor, ProxyBindingKind kind, int index)
     {
         // Standalone (never ChildOf-parented — DisposeOrphans is live in Edit). The visual is a
         // screen-baked mesh on the native-resolution Editor target; NO VisibleComponent per the
@@ -227,7 +285,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         // screen-baked vertices require).
         var proxy = _world.CreateEntity();
         proxy.Set(new EditorInfrastructureComponent()); // survives a transport Restart
-        proxy.Set(new GizmoProxyComponent(anchor, kind));
+        proxy.Set(new GizmoProxyComponent(anchor, kind, index));
         proxy.Set(new TransformComponent());
         proxy.Set(new DrawComponent
         {
@@ -241,10 +299,10 @@ public sealed class ProxySyncSystem : ISystem<GameState>
 
     private void DespawnAll()
     {
-        if (_boxProxy.IsAlive) _boxProxy.Dispose();
-        if (_convexProxy.IsAlive) _convexProxy.Dispose();
-        _boxProxy = default;
-        _convexProxy = default;
+        foreach (var proxy in _proxies.Values)
+            if (proxy.IsAlive)
+                proxy.Dispose();
+        _proxies.Clear();
         _anchor = default;
     }
 

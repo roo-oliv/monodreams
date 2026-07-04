@@ -81,13 +81,28 @@ namespace MonoDreams.LevelEditor.System;
 /// the selected entity is a collider gizmo proxy (<see cref="GizmoProxyComponent"/>), the drag is
 /// mechanically identical — same handle hit-test at the proxy's pivot, same coalescing transaction,
 /// one undo step per drag — but each frame pushes a <see cref="ColliderEditCommand"/> against the
-/// proxy's BOUND game entity (shifting <c>BoxColliderComponent.Bounds</c>, or translating every
-/// <c>ConvexColliderComponent.ModelVertices</c> entry via the inverse-transformed world delta)
-/// instead of a <see cref="TransformEditCommand"/>: the proxy is transient (despawned on deselect),
-/// so a command recorded against it would dangle, and its transform is re-derived from the collider
-/// by <c>ProxySyncSystem</c> anyway. Only the <b>move</b> tool applies to proxies this wave (the
-/// active tool is forced to Move; scale-resize is a documented follow-up); grid-snap quantizes the
-/// shape's world reference point (box top-left / convex centroid) like a move-drag's position.</para>
+/// proxy's BOUND game entity (shifting <c>BoxColliderComponent.Bounds</c>, translating every
+/// <c>ConvexColliderComponent.ModelVertices</c> entry, or — for a
+/// <see cref="ProxyBindingKind.ConvexVertex"/> handle — moving ONE model vertex via the
+/// inverse-transformed world delta) instead of a <see cref="TransformEditCommand"/>: the proxy is
+/// transient (despawned on deselect), so a command recorded against it would dangle, and its
+/// transform is re-derived from the collider by <c>ProxySyncSystem</c> anyway. The active tool is
+/// forced to Move for proxies; grid-snap quantizes the shape's world reference point (box
+/// top-left / convex centroid / the vertex) like a move-drag's position.</para>
+///
+/// <para><b>Box proxies grow resize handles (island-authoring Slice 2).</b> While the selected
+/// proxy binds <c>BoxColliderComponent.Bounds</c>, eight extra handles — the box's corners and
+/// edge midpoints (<see cref="BoxResize"/>) — are hit-tested BEFORE the centre move handle; a
+/// press on one starts a resize drag that moves exactly the grabbed edge(s), opposite edges
+/// anchored, sides clamped at <see cref="BoxResize.MinSize"/>, through the same
+/// one-drag-one-undo <see cref="ColliderEditCommand"/> path.</para>
+///
+/// <para><b>Vertex drags reject non-convex results loudly.</b> A
+/// <see cref="ProxyBindingKind.ConvexVertex"/> drag frame whose target vertex position would
+/// make the polygon non-convex (<see cref="ProxyGeometry.IsConvex"/>) is NOT applied — the
+/// vertex visually sticks at its last valid position and a warning is logged once per drag.
+/// Auto-hulling instead was rejected: it can reorder or drop vertices mid-drag, invalidating the
+/// very (kind, index) binding being dragged (see the vertex-editing premise).</para>
 /// </summary>
 public sealed class GizmoSystem : ISystem<GameState>
 {
@@ -100,6 +115,10 @@ public sealed class GizmoSystem : ISystem<GameState>
     private const float RotateRingPixelRadius = 40f;
     private const float RotateRingPixelTolerance = 7f;
     private const float OutlinePixelThickness = 2f;
+    /// <summary>Box-proxy resize handles: the grab radius (hit-test, ÷ zoom for world units) and
+    /// the square visual's half-size (aspect-fit scaled, constant on screen).</summary>
+    private const float ResizeHandleHitPixelRadius = 8f;
+    private const float ResizeHandlePixelHalfSize = 5f;
 
     /// <summary>The gizmo overlays' depth band on the Editor target: above the proxy outlines
     /// (<see cref="ProxySyncSystem.ProxyLayerDepth"/>), below the shell's opaque panels
@@ -134,9 +153,12 @@ public sealed class GizmoSystem : ISystem<GameState>
     private bool _dragIsProxy;
     private Entity _dragOwner;
     private ProxyBindingKind _dragBindingKind;
+    private int _dragBindingIndex;
     private Rectangle _beforeBounds;
     private Vector2[]? _beforeVertices;
-    private Vector2 _dragStartRefWorld; // box top-left / convex centroid, world, at drag-start
+    private Vector2 _dragStartRefWorld; // box top-left / convex centroid / vertex, world, at drag-start
+    private BoxResizeHandle _dragResizeHandle; // None = a plain move drag
+    private bool _convexRejectLogged; // the once-per-drag loud reject
 
     public bool IsEnabled { get; set; } = true;
 
@@ -251,7 +273,12 @@ public sealed class GizmoSystem : ISystem<GameState>
 
         EnsureOverlays();
         SetMesh(_outline, OverlayMeshClip.ClipToRect(BuildOutline(target, pivot, projection), projection.Viewport));
-        SetMesh(_handle, OverlayMeshClip.ClipToRect(BuildHandle(tool, pivot, invZoom, projection), projection.Viewport));
+        // A box proxy's handle set = the centre move handle PLUS the eight resize squares; every
+        // other target keeps the active tool's single handle.
+        var handleMesh = TryGetBoxProxyWorldRect(target, out var boxMin, out var boxMax)
+            ? BuildBoxProxyHandles(boxMin, boxMax, pivot, projection)
+            : BuildHandle(tool, pivot, invZoom, projection);
+        SetMesh(_handle, OverlayMeshClip.ClipToRect(handleMesh, projection.Viewport));
     }
 
     /// <summary>Advances the drag lifecycle for this frame. Returns whether the gizmo owns the
@@ -287,11 +314,34 @@ public sealed class GizmoSystem : ISystem<GameState>
         // are frozen at their last inside-the-viewport values there (a toolbar click must not
         // grab the gizmo).
         if (!cursor.LeftButtonPressed || cursor.OutsideViewport) return false;
-        if (!HandleHit(tool, pivot, cursorPoint, invZoom)) return false;
 
-        BeginDrag(target, tool, cursorPoint, pivot);
+        // A box proxy's resize handles are tested BEFORE the centre move handle (they win where
+        // a small box packs them close). None found falls through to the ordinary handle test.
+        var resizeHandle = BoxResizeHandle.None;
+        if (TryGetBoxProxyWorldRect(target, out var boxMin, out var boxMax))
+            resizeHandle = BoxResize.HitTest(boxMin, boxMax, cursorPoint, ResizeHandleHitPixelRadius * invZoom);
+
+        if (resizeHandle == BoxResizeHandle.None && !HandleHit(tool, pivot, cursorPoint, invZoom))
+            return false;
+
+        BeginDrag(target, tool, cursorPoint, pivot, resizeHandle);
         // Claim even when BeginDrag refused (an unsnapshottable proxy binding): the press landed
         // on a handle, so it must not fall through to selection as a click-empty / re-pick.
+        return true;
+    }
+
+    /// <summary>The bound box collider's axis-aligned world rectangle when <paramref name="target"/>
+    /// is a box-bounds proxy with a live owner — the rect the resize handles sit on.</summary>
+    private static bool TryGetBoxProxyWorldRect(Entity target, out Vector2 min, out Vector2 max)
+    {
+        min = max = default;
+        if (!target.Has<GizmoProxyComponent>()) return false;
+        var binding = target.Get<GizmoProxyComponent>();
+        if (binding.Kind != ProxyBindingKind.BoxColliderBounds) return false;
+        if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, binding.Index, out var corners))
+            return false;
+        min = corners[0]; // TL
+        max = corners[2]; // BR
         return true;
     }
 
@@ -308,7 +358,8 @@ public sealed class GizmoSystem : ISystem<GameState>
         return space == RenderTargetID.Editor ? RenderTargetID.Main : space;
     }
 
-    private void BeginDrag(Entity target, GizmoTool tool, Vector2 cursorWorld, Vector2 pivot)
+    private void BeginDrag(Entity target, GizmoTool tool, Vector2 cursorWorld, Vector2 pivot,
+        BoxResizeHandle resizeHandle = BoxResizeHandle.None)
     {
         // A proxy drag writes back into the bound collider field — snapshot that binding first;
         // an unsnapshottable binding (owner died / lost the collider) starts no drag at all.
@@ -317,6 +368,18 @@ public sealed class GizmoSystem : ISystem<GameState>
         {
             _dragIsProxy = false;
             return;
+        }
+
+        _dragResizeHandle = _dragIsProxy ? resizeHandle : BoxResizeHandle.None;
+        _convexRejectLogged = false;
+        if (_dragResizeHandle != BoxResizeHandle.None)
+        {
+            // A resize drag's snapped reference point is the GRABBED handle (corner / edge
+            // midpoint), not the box top-left — so with snap on, the dragged edge lands on grid.
+            var ownerWorld = _dragOwner.Get<TransformComponent>().WorldPosition;
+            var min = ownerWorld + new Vector2(_beforeBounds.Left, _beforeBounds.Top);
+            var max = ownerWorld + new Vector2(_beforeBounds.Right, _beforeBounds.Bottom);
+            _dragStartRefWorld = BoxResize.HandleWorld(min, max, _dragResizeHandle);
         }
 
         ref readonly var t = ref target.Get<TransformComponent>();
@@ -360,12 +423,23 @@ public sealed class GizmoSystem : ISystem<GameState>
                     ProxyGeometry.ConvexWorldVertices(ownerTransform, convex));
                 break;
 
+            case ProxyBindingKind.ConvexVertex:
+                if (!owner.Has<ConvexColliderComponent>()) return false;
+                var vertexCollider = owner.Get<ConvexColliderComponent>();
+                if (vertexCollider.ModelVertices == null
+                    || binding.Index < 0 || binding.Index >= vertexCollider.ModelVertices.Length) return false;
+                _beforeVertices = (Vector2[])vertexCollider.ModelVertices.Clone();
+                _dragStartRefWorld = ProxyGeometry.ConvexVertexWorld(
+                    ownerTransform, vertexCollider, binding.Index);
+                break;
+
             default:
                 return false;
         }
 
         _dragOwner = owner;
         _dragBindingKind = binding.Kind;
+        _dragBindingIndex = binding.Index;
         return true;
     }
 
@@ -416,10 +490,13 @@ public sealed class GizmoSystem : ISystem<GameState>
             {
                 if (!_dragOwner.Has<BoxColliderComponent>()) return;
                 // Bounds is an int Rectangle: the world delta rounds to whole units by nature.
-                var after = new Rectangle(
-                    _beforeBounds.X + (int)MathF.Round(worldDelta.X),
-                    _beforeBounds.Y + (int)MathF.Round(worldDelta.Y),
-                    _beforeBounds.Width, _beforeBounds.Height);
+                // A resize drag moves only the grabbed edge(s); a move drag shifts the whole rect.
+                var after = _dragResizeHandle != BoxResizeHandle.None
+                    ? BoxResize.Apply(_beforeBounds, _dragResizeHandle, worldDelta)
+                    : new Rectangle(
+                        _beforeBounds.X + (int)MathF.Round(worldDelta.X),
+                        _beforeBounds.Y + (int)MathF.Round(worldDelta.Y),
+                        _beforeBounds.Width, _beforeBounds.Height);
                 _history.Push(ColliderEditCommand.ForBox(_dragOwner, after));
                 break;
             }
@@ -435,6 +512,34 @@ public sealed class GizmoSystem : ISystem<GameState>
                 var after = new Vector2[_beforeVertices.Length];
                 for (var i = 0; i < after.Length; i++) after[i] = _beforeVertices[i] + modelDelta;
                 _history.Push(ColliderEditCommand.ForConvex(_dragOwner, after));
+                break;
+            }
+            case ProxyBindingKind.ConvexVertex:
+            {
+                if (_beforeVertices == null) return;
+                if (!_dragOwner.Has<ConvexColliderComponent>() || !_dragOwner.Has<TransformComponent>()) return;
+                if (_dragBindingIndex < 0 || _dragBindingIndex >= _beforeVertices.Length) return;
+                // Move ONE model vertex by the inverse-transformed delta...
+                var vertexCollider = _dragOwner.Get<ConvexColliderComponent>();
+                var vertexDelta = ProxyGeometry.WorldDeltaToModelDelta(
+                    _dragOwner.Get<TransformComponent>(), vertexCollider.IgnoreTransformRotation, worldDelta);
+                var afterVertices = (Vector2[])_beforeVertices.Clone();
+                afterVertices[_dragBindingIndex] = _beforeVertices[_dragBindingIndex] + vertexDelta;
+                // ...rejecting (loudly, once per drag) a result that breaks convexity: the vertex
+                // sticks at its last valid position instead of applying an invalid shape. See the
+                // class doc for why auto-hulling was rejected.
+                if (!ProxyGeometry.IsConvex(afterVertices))
+                {
+                    if (!_convexRejectLogged)
+                    {
+                        _convexRejectLogged = true;
+                        Logger.Warning(
+                            "[level-editor] Vertex drag rejected: the result would make the " +
+                            "collider non-convex. The vertex stays at its last valid position.");
+                    }
+                    return;
+                }
+                _history.Push(ColliderEditCommand.ForConvex(_dragOwner, afterVertices));
                 break;
             }
         }
@@ -463,6 +568,9 @@ public sealed class GizmoSystem : ISystem<GameState>
         _dragIsProxy = false;
         _dragOwner = default;
         _beforeVertices = null;
+        _dragBindingIndex = 0;
+        _dragResizeHandle = BoxResizeHandle.None;
+        _convexRejectLogged = false;
     }
 
     private float SnapStep()
@@ -554,13 +662,27 @@ public sealed class GizmoSystem : ISystem<GameState>
         var color = Color.Yellow;
 
         // A selected collider proxy outlines its bound shape (the same border the pick tested),
-        // so the selection feedback traces the thing being edited.
+        // so the selection feedback traces the thing being edited. A vertex handle outlines as a
+        // constant-on-screen square around the vertex (its world outline is deliberately tiny).
         if (target.Has<GizmoProxyComponent>())
         {
             var binding = target.Get<GizmoProxyComponent>();
-            if (ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, out var shape))
+            if (ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, binding.Index, out var shape))
+            {
+                if (binding.Kind == ProxyBindingKind.ConvexVertex)
+                {
+                    var centre = projection.ToScreen(ProxyGeometry.Centroid(shape));
+                    var vHalf = projection.ToScreenSize(ProxySyncSystem.VertexHandlePixelHalfSize + 2f);
+                    var square = new[]
+                    {
+                        centre + new Vector2(-vHalf, -vHalf), centre + new Vector2(vHalf, -vHalf),
+                        centre + new Vector2(vHalf, vHalf), centre + new Vector2(-vHalf, vHalf),
+                    };
+                    return new PolygonOutlineMeshGenerator(square, thickness, color, closed: true).Generate();
+                }
                 return new PolygonOutlineMeshGenerator(
                     Project(shape, projection), thickness, color, closed: true).Generate();
+            }
         }
 
         if (target.Has<SpriteInfoComponent>())
@@ -624,6 +746,28 @@ public sealed class GizmoSystem : ISystem<GameState>
             default:
                 return new MeshData();
         }
+    }
+
+    /// <summary>A box proxy's handle set, in screen pixels: the centre move handle (the same
+    /// cross + disc a move drag grabs) plus the eight resize squares at the box's projected
+    /// corners and edge midpoints — drawn from the SAME <see cref="BoxResize.HandleWorld"/>
+    /// points the hit-test uses, so grab region and visual cannot diverge.</summary>
+    private static MeshData BuildBoxProxyHandles(Vector2 boxMin, Vector2 boxMax, Vector2 pivot,
+        in OverlayProjection projection)
+    {
+        var center = projection.ToScreen(pivot);
+        var r = projection.ToScreenSize(MoveHandlePixelRadius);
+        var half = projection.ToScreenSize(ResizeHandlePixelHalfSize);
+        var composite = new CompositeMeshGenerator()
+            .Add(new CircleMeshGenerator(center, r, Color.White, 18));
+        foreach (var handle in BoxResize.Handles)
+        {
+            var p = projection.ToScreen(BoxResize.HandleWorld(boxMin, boxMax, handle));
+            var square = new Rectangle(
+                (int)(p.X - half), (int)(p.Y - half), (int)(half * 2f), (int)(half * 2f));
+            composite.Add(new FilledRectangleMeshGenerator(square, Color.Gold));
+        }
+        return composite.Generate();
     }
 
     private static Vector2[] Project(Vector2[] points, in OverlayProjection projection)

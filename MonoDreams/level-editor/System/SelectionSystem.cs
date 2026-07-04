@@ -88,6 +88,12 @@ public sealed class SelectionSystem : ISystem<GameState>
     /// them all.</summary>
     public const float ProxyBorderPickDepth = 0.998f;
 
+    /// <summary>The pick depth of a <see cref="ProxyBindingKind.ConvexVertex"/> handle —
+    /// deliberately a hair above <see cref="ProxyBorderPickDepth"/>: a vertex handle sits ON the
+    /// shape's border by construction, so where they coincide the click must grab the vertex
+    /// (the finer element), deterministically, not fall to the id tiebreak.</summary>
+    public const float ProxyVertexPickDepth = 0.9985f;
+
     private readonly World _world;
     private readonly Camera? _camera;
     private readonly EntitySet _spriteSet;
@@ -229,13 +235,17 @@ public sealed class SelectionSystem : ISystem<GameState>
         foreach (var proxy in _proxySet.GetEntities())
         {
             var binding = proxy.Get<GizmoProxyComponent>();
-            if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, out var outline)) continue;
+            if (!ProxyGeometry.TryGetWorldOutline(binding.Target, binding.Kind, binding.Index, out var outline)) continue;
             if (!ProxyGeometry.BorderContains(outline, _worldPoint, tolerance)) continue;
 
             if (!proxy.Has<EditorIdComponent>())
                 proxy.Set(new EditorIdComponent(_nextEditorId++));
             var id = proxy.Get<EditorIdComponent>().Id;
-            var depth = ProxyBorderPickDepth; // constant — see its doc (visual depth is Editor-band)
+            // Constants — see their docs (the visual depth is Editor-band); a vertex handle
+            // outranks the shape border it rides on.
+            var depth = binding.Kind == ProxyBindingKind.ConvexVertex
+                ? ProxyVertexPickDepth
+                : ProxyBorderPickDepth;
 
             if (Beats(rank, depth, id, _hasBest, _bestRank, _bestDepth, _bestId))
             {

@@ -29,12 +29,20 @@ namespace MonoDreams.LevelEditor.Proxy;
 /// </summary>
 public static class ProxyGeometry
 {
+    /// <summary>The world-unit half-extent of a <see cref="ProxyBindingKind.ConvexVertex"/>
+    /// handle's pick outline (a small square around the vertex). Deliberately small: the border
+    /// pick's <c>8px/Zoom</c> tolerance is what gives the handle its comfortable grab radius —
+    /// this square only anchors the border test (and the centroid) at the vertex itself.</summary>
+    public const float VertexHandleWorldHalfExtent = 2f;
+
     /// <summary>
     /// The world-space outline polygon of the shape <paramref name="kind"/> binds on
-    /// <paramref name="target"/> — box corners (TL→TR→BR→BL) or the convex world vertices.
-    /// False when the target is dead or no longer carries the bound component.
+    /// <paramref name="target"/> — box corners (TL→TR→BR→BL), the convex world vertices, or a
+    /// small square around the <paramref name="index"/>-th convex vertex for a per-vertex
+    /// binding. False when the target is dead, no longer carries the bound component, or the
+    /// index is out of range (a stale vertex proxy after a delete).
     /// </summary>
-    public static bool TryGetWorldOutline(Entity target, ProxyBindingKind kind, out Vector2[] outline)
+    public static bool TryGetWorldOutline(Entity target, ProxyBindingKind kind, int index, out Vector2[] outline)
     {
         outline = Array.Empty<Vector2>();
         if (!target.IsAlive || !target.Has<TransformComponent>()) return false;
@@ -52,6 +60,20 @@ public static class ProxyGeometry
                 var convex = target.Get<ConvexColliderComponent>();
                 if (convex.ModelVertices == null || convex.ModelVertices.Length < 3) return false;
                 outline = ConvexWorldVertices(transform, convex);
+                return true;
+
+            case ProxyBindingKind.ConvexVertex:
+                if (!target.Has<ConvexColliderComponent>()) return false;
+                var collider = target.Get<ConvexColliderComponent>();
+                if (collider.ModelVertices == null || index < 0 || index >= collider.ModelVertices.Length)
+                    return false;
+                var world = ConvexVertexWorld(transform, collider, index);
+                var h = VertexHandleWorldHalfExtent;
+                outline = new[]
+                {
+                    world + new Vector2(-h, -h), world + new Vector2(h, -h),
+                    world + new Vector2(h, h), world + new Vector2(-h, h),
+                };
                 return true;
 
             default:
@@ -99,6 +121,47 @@ public static class ProxyGeometry
         }
 
         return result;
+    }
+
+    /// <summary>One convex model vertex mapped to world space — the same scale → rotate →
+    /// translate-by-local-<c>Position</c> math as <see cref="ConvexWorldVertices"/>, for a single
+    /// <paramref name="index"/> (a <see cref="ProxyBindingKind.ConvexVertex"/> handle's anchor).</summary>
+    public static Vector2 ConvexVertexWorld(TransformComponent transform, ConvexColliderComponent collider, int index)
+    {
+        var pos = transform.Position;
+        var rot = collider.IgnoreTransformRotation ? 0f : transform.Rotation;
+        var scale = transform.Scale;
+        var cos = MathF.Cos(rot);
+        var sin = MathF.Sin(rot);
+        var v = collider.ModelVertices[index];
+        var sx = v.X * scale.X;
+        var sy = v.Y * scale.Y;
+        return new Vector2(sx * cos - sy * sin + pos.X, sx * sin + sy * cos + pos.Y);
+    }
+
+    /// <summary>
+    /// Whether an ordered vertex loop describes a convex polygon: every consecutive edge pair
+    /// turns the same way (all non-zero cross products share one sign). Collinear triples
+    /// (zero cross) are allowed — a just-inserted edge-midpoint vertex is collinear by
+    /// construction and must be legal — but a fully degenerate loop (all collinear, zero area)
+    /// is not a polygon and returns false. This is the vertex-editing loud-reject guard: a drag
+    /// frame whose result fails this check is not applied.
+    /// </summary>
+    public static bool IsConvex(Vector2[] vertices)
+    {
+        if (vertices == null || vertices.Length < 3) return false;
+        var sign = 0f;
+        for (var i = 0; i < vertices.Length; i++)
+        {
+            var a = vertices[i];
+            var b = vertices[(i + 1) % vertices.Length];
+            var c = vertices[(i + 2) % vertices.Length];
+            var cross = (b.X - a.X) * (c.Y - b.Y) - (b.Y - a.Y) * (c.X - b.X);
+            if (MathF.Abs(cross) < 1e-6f) continue; // collinear (e.g. a fresh midpoint vertex)
+            if (sign == 0f) sign = MathF.Sign(cross);
+            else if (MathF.Sign(cross) != sign) return false;
+        }
+        return sign != 0f; // an all-collinear loop has no interior
     }
 
     /// <summary>The arithmetic centroid of a point set — the proxy's pivot (where the gizmo's

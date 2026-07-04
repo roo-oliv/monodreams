@@ -20,9 +20,17 @@ public enum ProxyBindingKind
     BoxColliderBounds,
 
     /// <summary>Edits <c>ConvexColliderComponent.ModelVertices</c> as a whole shape: a drag
-    /// translates every local-space vertex by the (inverse-transformed) world delta. Per-vertex
-    /// editing is a documented follow-up (see <see cref="GizmoProxyComponent.Index"/>).</summary>
+    /// translates every local-space vertex by the (inverse-transformed) world delta.</summary>
     ConvexColliderShape,
+
+    /// <summary>Edits ONE entry of <c>ConvexColliderComponent.ModelVertices</c> —
+    /// <see cref="GizmoProxyComponent.Index"/> carries the vertex ordinal. A drag moves that
+    /// vertex by the (inverse-transformed) world delta; a result that would make the polygon
+    /// non-convex is rejected (not applied) — the loud-reject convexity strategy (see the
+    /// vertex-editing premise). Vertex proxies materialize while the convex family's own proxy
+    /// (shape or vertex) is selected, so the handles appear one click deep instead of cluttering
+    /// every selection.</summary>
+    ConvexVertex,
 }
 
 /// <summary>
@@ -52,13 +60,14 @@ public struct GizmoProxyComponent
     public ProxyBindingKind Kind;
 
     /// <summary>
-    /// Reserved sub-element index for bindings that address one element of a collection —
-    /// a future per-vertex convex handle or a spline control point (road tool, Waves D/F) would
-    /// carry the element's ordinal here. Whole-shape bindings use -1.
+    /// Sub-element index for bindings that address one element of a collection — a
+    /// <see cref="ProxyBindingKind.ConvexVertex"/> handle (or a future spline control point,
+    /// Waves D/F) carries the element's ordinal here. Whole-shape bindings use 0; the proxy
+    /// family is keyed <c>(Kind, Index)</c> (see <c>ProxySyncSystem</c>).
     /// </summary>
     public int Index;
 
-    public GizmoProxyComponent(Entity target, ProxyBindingKind kind, int index = -1)
+    public GizmoProxyComponent(Entity target, ProxyBindingKind kind, int index = 0)
     {
         Target = target;
         Kind = kind;
