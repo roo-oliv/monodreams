@@ -53,6 +53,12 @@ namespace MonoDreams.LevelEditor.System;
 /// returns early), active in Edit. It must run in the Update phase, before <c>HierarchySystem</c>,
 /// so an edit propagates to world space the same frame.</para>
 ///
+/// <para><b>Tool modality.</b> The gizmo acts only while the shared
+/// <see cref="GizmoStateComponent.Mode"/> is <see cref="EditorToolMode.SelectTransform"/>: in
+/// <see cref="EditorToolMode.Place"/> (and the future brush modes) it cancels any in-flight drag,
+/// hides its overlays, and claims nothing — activating a placement/brush tool visibly deactivates
+/// the transform gizmo (the Unity/Godot convention; wave-repass §S1).</para>
+///
 /// <para><b>Click-ownership.</b> The gizmo publishes a frame-scoped claim
 /// (<see cref="GizmoStateComponent.PressClaimed"/>) on every Edit frame: true when the press edge
 /// landed on the active tool's handle or while a drag is in progress, false otherwise.
@@ -162,6 +168,17 @@ public sealed class GizmoSystem : ISystem<GameState>
             return;
         }
 
+        // Tool modality (island-authoring §S1): the transform gizmo owns viewport presses only in
+        // SelectTransform. In Place (and the future brush modes) it is visibly deactivated — any
+        // in-flight drag is cancelled, no handle is hit-tested, and nothing is claimed (the mode,
+        // not the claim, is what mutes the selection pass there).
+        if (GetGizmoState().Mode != EditorToolMode.SelectTransform)
+        {
+            if (_dragging) CancelDrag();
+            WriteClaim(false);
+            return;
+        }
+
         if (!TryGetSelected(out var target))
         {
             // Nothing selected — finish any in-flight drag. No selection means no handles, so
@@ -214,8 +231,11 @@ public sealed class GizmoSystem : ISystem<GameState>
     /// </summary>
     public void EmitOverlays(GameState state)
     {
-        if (!IsEnabled || state.RunMode != RunMode.Edit || !TryGetSelected(out var target))
+        if (!IsEnabled || state.RunMode != RunMode.Edit || !TryGetSelected(out var target)
+            || GetGizmoState().Mode != EditorToolMode.SelectTransform)
         {
+            // Outside SelectTransform the gizmo is visibly deactivated (§S1) — no handles, no
+            // outline — even while something stays selected.
             HideOverlays();
             return;
         }

@@ -19,6 +19,32 @@ public enum GizmoTool
 }
 
 /// <summary>
+/// The editor's coarse <b>tool modality</b> (island-authoring plan §3.1 / wave-repass §S1): which
+/// tool FAMILY owns a press in the game viewport. Exactly one mode is active at a time on the
+/// shared <see cref="GizmoStateComponent"/>; <c>SelectionSystem</c> and <c>GizmoSystem</c> process
+/// viewport presses <b>only</b> in <see cref="SelectTransform"/> (they early-out otherwise —
+/// activating a placement/brush tool visibly deactivates the transform gizmo, the Unity/Godot
+/// convention), and the placement/brush systems act only in their own mode. This composes with the
+/// finer <see cref="GizmoStateComponent.PressClaimed"/> click-ownership rule, which keeps resolving
+/// handle-vs-scene <i>within</i> <see cref="SelectTransform"/>.
+/// </summary>
+public enum EditorToolMode
+{
+    /// <summary>The default: clicks select; the transform gizmo drags. The only mode in which
+    /// <c>SelectionSystem</c>/<c>GizmoSystem</c> act on viewport presses.</summary>
+    SelectTransform,
+
+    /// <summary>Free placement (the palette armed an item): a ghost preview follows the cursor and
+    /// a click stamps a prop through the snapshotting create command. Escape / right-click / a
+    /// transform-tool button disarms back to <see cref="SelectTransform"/>.</summary>
+    Place,
+
+    // Reserved mode names for the later brush waves (wave-repass §S1) — added here (not
+    // implemented) so the modality contract is stable: Scatter (Wave D scatter brush),
+    // GroundPaint (Wave E ground canvas), Road (Wave F spline tool).
+}
+
+/// <summary>
 /// The gizmo's configuration — pure data on a single editor-owned state entity that the toolbar
 /// mutates and <c>GizmoSystem</c> reads. ECS purity: this carries the persistent settings
 /// (which tool is active, whether grid-snap is on, the grid step) plus the one piece of per-frame
@@ -50,6 +76,14 @@ public struct GizmoStateComponent
     /// <summary>The active transform tool (move / rotate / scale).</summary>
     public GizmoTool Tool;
 
+    /// <summary>The coarse tool modality (see <see cref="EditorToolMode"/>): which tool family owns
+    /// a viewport press. Selection and the gizmo act only in
+    /// <see cref="EditorToolMode.SelectTransform"/>; the palette's placement acts only in
+    /// <see cref="EditorToolMode.Place"/>. The palette system arms/disarms it; the toolbar's
+    /// transform-tool buttons reset it to <see cref="EditorToolMode.SelectTransform"/> (a radio
+    /// over the modes).</summary>
+    public EditorToolMode Mode;
+
     /// <summary>When true, a drag's world-space result is quantized to <see cref="GridStep"/>
     /// (translate snaps the position to the grid; rotate snaps to <see cref="RotationStepRadians"/>;
     /// scale snaps the scaled extent to the grid). When false the raw drag delta is applied.</summary>
@@ -63,10 +97,12 @@ public struct GizmoStateComponent
     /// value disables rotation snapping.</summary>
     public float RotationStepRadians;
 
-    /// <summary>A sensible default: move tool, snap off, a 16-unit grid, 15° rotation step.</summary>
+    /// <summary>A sensible default: select/transform modality, move tool, snap off, a 16-unit
+    /// grid, 15° rotation step.</summary>
     public static GizmoStateComponent Default => new()
     {
         Tool = GizmoTool.Move,
+        Mode = EditorToolMode.SelectTransform,
         SnapEnabled = false,
         GridStep = 16f,
         RotationStepRadians = MathHelperPi / 12f, // 15 degrees

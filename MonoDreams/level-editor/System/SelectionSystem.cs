@@ -19,6 +19,12 @@ namespace MonoDreams.LevelEditor.System;
 /// selects the <b>topmost</b> — the one the renderer draws frontmost — clearing any prior
 /// selection. A click on empty space clears the selection.
 ///
+/// <para><b>Tool modality: selection acts only in <see cref="EditorToolMode.SelectTransform"/>.</b>
+/// The coarse mode on the shared <see cref="GizmoStateComponent"/> decides which tool family owns
+/// a viewport press at all; in <see cref="EditorToolMode.Place"/> (and the future brush modes) the
+/// system is dormant — no pick and no click-empty clear, so a placement click cannot disturb the
+/// selection (the placement system auto-selects what it stamps).</para>
+///
 /// <para><b>Click-ownership: the gizmo's presses are skipped.</b> A press the gizmo claimed
 /// (<see cref="GizmoStateComponent.PressClaimed"/> — the press landed on the active tool's handle,
 /// or a handle drag is in progress) is not processed at all: no re-pick, no click-empty clear.
@@ -131,6 +137,11 @@ public sealed class SelectionSystem : ISystem<GameState>
         // Edit-guarded: inert in Play.
         if (state.RunMode != RunMode.Edit) return;
 
+        // Tool modality (island-authoring §S1): viewport presses belong to selection only in
+        // SelectTransform. In Place (and the future brush modes) the placement system owns every
+        // viewport press — no pick, no click-empty clear (a placement click must not deselect).
+        if (ActiveToolMode() != EditorToolMode.SelectTransform) return;
+
         ArmPickFromCursor();
         if (!_picking) return;
 
@@ -235,6 +246,16 @@ public sealed class SelectionSystem : ISystem<GameState>
                 _best = proxy;
             }
         }
+    }
+
+    /// <summary>The active coarse tool mode (see <see cref="EditorToolMode"/>). No gizmo-state
+    /// entity — e.g. a selection-only composition — means the default
+    /// <see cref="EditorToolMode.SelectTransform"/>.</summary>
+    private EditorToolMode ActiveToolMode()
+    {
+        foreach (var e in _gizmoStateSet.GetEntities())
+            return e.Get<GizmoStateComponent>().Mode;
+        return EditorToolMode.SelectTransform;
     }
 
     /// <summary>Whether the gizmo claimed this frame's left press (see
