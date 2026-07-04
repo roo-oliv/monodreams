@@ -447,6 +447,42 @@ public class PalettePlacementTests
         Assert.Equal(new[] { "palette:Island/props/tree01.png", "band:Props", "Undo" }, received);
     }
 
+    // ---- Refresh-catalog (Slice 4) ----
+
+    [Fact]
+    public void RefreshTest_RebuildsPaletteToIncludeANewlyDroppedAsset()
+    {
+        var root = global::System.IO.Path.Combine(
+            global::System.IO.Path.GetTempPath(),
+            "monodreams-palette-refresh-" + global::System.Guid.NewGuid().ToString("N"));
+        global::System.IO.Directory.CreateDirectory(global::System.IO.Path.Combine(root, "props"));
+        global::System.IO.File.WriteAllText(
+            global::System.IO.Path.Combine(root, "props", "tree01.png"), "png");
+        try
+        {
+            using var world = new World();
+            MakeGizmoState(world);
+            var (serializer, history) = MakeInfra(world);
+            var catalog = AssetCatalog.Scan(root, "Island");
+            using var palette = new PalettePlacementSystem(world, catalog, Bands, MakeLoader(),
+                serializer, history, viewportManager: null, font: null);
+
+            // The new asset is not in the palette yet (arming it fails).
+            Assert.False(palette.Arm("Island/props/stone.png"));
+
+            // Drop a new PNG and refresh: the palette rescans + rebuilds, so it is now armable.
+            global::System.IO.File.WriteAllText(
+                global::System.IO.Path.Combine(root, "props", "stone.png"), "png");
+            palette.Refresh();
+
+            Assert.True(palette.Arm("Island/props/stone.png"));
+        }
+        finally
+        {
+            try { global::System.IO.Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     [Fact]
     public void HeadlessPaletteOpTest_ArmByIdThenClickPlaces()
     {

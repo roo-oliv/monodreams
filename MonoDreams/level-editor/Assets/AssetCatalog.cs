@@ -36,18 +36,56 @@ public sealed class AssetCatalog
     /// <summary>The sidecar suffix appended to a PNG's file name (<c>sheet.png.slices.json</c>).</summary>
     public const string SliceSidecarSuffix = ".slices.json";
 
-    private readonly Dictionary<string, AssetCatalogEntry> _byId;
+    private Dictionary<string, AssetCatalogEntry> _byId;
+    private readonly string? _rootAbsolutePath;
+    private readonly string _keyRoot;
 
     public AssetCatalog(IReadOnlyList<AssetCatalogEntry> entries)
+        : this(entries, rootAbsolutePath: null, keyRoot: string.Empty)
     {
+    }
+
+    private AssetCatalog(IReadOnlyList<AssetCatalogEntry> entries, string? rootAbsolutePath, string keyRoot)
+    {
+        _rootAbsolutePath = rootAbsolutePath;
+        _keyRoot = keyRoot;
         Entries = entries;
-        _byId = new Dictionary<string, AssetCatalogEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in entries)
-            _byId[entry.Id] = entry;
+        _byId = BuildIndex(entries);
     }
 
     /// <summary>Every catalog entry, ordered by folder then label (deterministic across scans).</summary>
-    public IReadOnlyList<AssetCatalogEntry> Entries { get; }
+    public IReadOnlyList<AssetCatalogEntry> Entries { get; private set; }
+
+    /// <summary>Whether this catalog remembers its scan root and can <see cref="Rescan"/> live
+    /// (island-authoring Slice 4 refresh). A catalog constructed directly (a unit test) cannot.</summary>
+    public bool CanRescan => _rootAbsolutePath != null;
+
+    /// <summary>
+    /// Re-scans the drop folder this catalog was <see cref="Scan"/>ned from and replaces its
+    /// entries in place (Slice 4 refresh button), so a newly-dropped or renamed PNG appears
+    /// without an editor restart. Returns false — loud — for a catalog with no scan root
+    /// (constructed directly, e.g. in a test). The palette rebuilds its rows from the new entries.
+    /// </summary>
+    public bool Rescan()
+    {
+        if (_rootAbsolutePath == null)
+        {
+            Logger.Warning("[level-editor] Asset catalog rescan skipped: this catalog has no scan root.");
+            return false;
+        }
+
+        Entries = ScanEntries(_rootAbsolutePath, _keyRoot);
+        _byId = BuildIndex(Entries);
+        return true;
+    }
+
+    private static Dictionary<string, AssetCatalogEntry> BuildIndex(IReadOnlyList<AssetCatalogEntry> entries)
+    {
+        var byId = new Dictionary<string, AssetCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries)
+            byId[entry.Id] = entry;
+        return byId;
+    }
 
     /// <summary>Looks an entry up by its <see cref="AssetCatalogEntry.Id"/> or its full
     /// <c>file:</c> AssetKey (both accepted, case-insensitive).</summary>
@@ -66,7 +104,12 @@ public sealed class AssetCatalog
     /// content-root-relative, matching what <c>TitleContainer</c> resolves under the content dir).
     /// A missing root directory yields an empty catalog.
     /// </summary>
-    public static AssetCatalog Scan(string rootAbsolutePath, string keyRoot)
+    public static AssetCatalog Scan(string rootAbsolutePath, string keyRoot) =>
+        new(ScanEntries(rootAbsolutePath, keyRoot), rootAbsolutePath, keyRoot);
+
+    /// <summary>The ordered entry list for a drop folder (the pure scan; <see cref="Scan"/> and
+    /// <see cref="Rescan"/> share it).</summary>
+    private static List<AssetCatalogEntry> ScanEntries(string rootAbsolutePath, string keyRoot)
     {
         var entries = new List<AssetCatalogEntry>();
 
@@ -74,7 +117,7 @@ public sealed class AssetCatalog
         {
             Logger.Info($"[level-editor] Asset folder '{rootAbsolutePath}' not found — the palette " +
                         "starts empty. See Content/Island/MANIFEST.md for what to download.");
-            return new AssetCatalog(entries);
+            return entries;
         }
 
         var pngs = Directory
@@ -115,7 +158,7 @@ public sealed class AssetCatalog
 
         Logger.Info($"[level-editor] Asset catalog scanned '{rootAbsolutePath}': " +
                     $"{pngs.Count} PNG(s) → {ordered.Count} palette entries.");
-        return new AssetCatalog(ordered);
+        return ordered;
     }
 
     /// <summary>The sidecar regions of <paramref name="pngAbsolutePath"/>, or null (no sidecar, or

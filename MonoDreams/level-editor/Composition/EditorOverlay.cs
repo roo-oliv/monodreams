@@ -464,6 +464,14 @@ public sealed class EditorOverlay
             case EditorToolbarAction.ColliderRemove: _editorCommands.RemoveCollider(state); break;
             case EditorToolbarAction.VertexAdd: _editorCommands.AddVertex(state); break;
             case EditorToolbarAction.ToolBoundary: BeginBoundary(); break;
+            // Re-scan the drop folder + rebuild the palette live (island-authoring Slice 4). Loud
+            // no-op on a screen that composes no palette.
+            case EditorToolbarAction.RefreshCatalog:
+                if (Palette == null)
+                    Logger.Warning("[level-editor] RefreshCatalog: this screen composes no palette.");
+                else
+                    Palette.Refresh();
+                break;
         }
     }
 

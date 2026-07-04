@@ -138,6 +138,7 @@ public sealed class EditorChromeBuilder
         (EditorToolbarAction.VertexAdd, "+Vtx"),
         // Island-authoring Slice 3: the freeform boundary tool (a radio with the transform tools).
         (EditorToolbarAction.ToolBoundary, "Bound"),
+        (EditorToolbarAction.RefreshCatalog, "Refresh"),
     };
 
     /// <summary>

@@ -126,6 +126,20 @@ public sealed class FileAssetTextureLoader
         return texture;
     }
 
+    /// <summary>
+    /// Drops the memoized textures and the missing-file record (island-authoring Slice 4 refresh):
+    /// the next <see cref="Load"/> of any key re-opens + re-decodes its PNG, so a changed or
+    /// newly-dropped file is picked up without an editor restart. The shared magenta placeholder is
+    /// kept (it is scene-independent), and <see cref="DecodeCount"/> stays cumulative. The cached
+    /// textures are <b>not</b> disposed — already-placed props still reference them through their
+    /// <c>SpriteInfoComponent.SpriteSheet</c>; the next load decodes a fresh texture instead.
+    /// </summary>
+    public void Invalidate()
+    {
+        _cache.Clear();
+        _missing.Clear();
+    }
+
     private Texture2D? GetPlaceholder()
     {
         if (!_placeholderCreated)

@@ -280,6 +280,51 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         return false;
     }
 
+    /// <summary>
+    /// Re-scans the asset drop folder and rebuilds the palette live (island-authoring Slice 4 —
+    /// the toolbar's Refresh button / the headless <c>RefreshCatalog</c> action), so dropping a new
+    /// PNG shows up without restarting the editor. Rescans the <see cref="AssetCatalog"/>,
+    /// invalidates the texture cache (changed/new files re-decode), disarms (the armed index may no
+    /// longer be valid), disposes + rebuilds the item rows (buttons/labels/thumbnails) from the new
+    /// entries, and forces a re-layout. Bands and triggers are screen-fixed, so they are kept.
+    /// </summary>
+    public void Refresh()
+    {
+        _catalog.Rescan();
+        _textures.Invalidate();
+
+        // No chrome yet (headless / pre-first-Update): the catalog is refreshed; there are no rows
+        // to rebuild, and BuildChrome will read the fresh entries on the first Update.
+        if (!_built) return;
+
+        Disarm(); // the previously-armed item may be gone after the rescan
+
+        foreach (var item in _items)
+        {
+            if (item.Button.IsAlive) item.Button.Dispose();
+            if (item.Label.IsAlive) item.Label.Dispose();
+            if (item.Thumbnail.IsAlive) item.Thumbnail.Dispose();
+        }
+        _items.Clear();
+        if (_emptyHint.IsAlive) _emptyHint.Dispose();
+
+        foreach (var entry in _catalog.Entries)
+        {
+            var label = CreateLabel(ItemLabel(entry));
+            _items.Add(new ItemButton
+            {
+                Entry = entry, Button = CreateButton(label), Label = label, Thumbnail = CreateThumbnail(),
+            });
+        }
+
+        if (_catalog.Entries.Count == 0 && _triggerItems.Count == 0)
+            _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
+
+        _scroll = 0;
+        _laidOutScroll = -1; // force PositionChrome to re-run next Update
+        Logger.Info($"[level-editor] Palette refreshed: {_catalog.Entries.Count} item(s).");
+    }
+
     public void Update(GameState state)
     {
         if (!IsEnabled) return;

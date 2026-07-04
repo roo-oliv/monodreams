@@ -75,6 +75,12 @@ public enum EditorToolbarAction
     /// A radio with the transform tools over <c>EditorToolMode</c>. Headless aliases:
     /// <c>boundary:begin</c> / <c>boundary:commit</c> / <c>boundary:cancel</c>.</summary>
     ToolBoundary,
+
+    /// <summary>Re-scan the asset drop folder and rebuild the palette live (island-authoring
+    /// Slice 4), so a newly-dropped PNG appears without restarting the editor
+    /// (<c>PalettePlacementSystem.Refresh</c> — invalidates the texture cache too). Headless alias:
+    /// the plain enum name <c>RefreshCatalog</c>.</summary>
+    RefreshCatalog,
 }
 
 /// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>

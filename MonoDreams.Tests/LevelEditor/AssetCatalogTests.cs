@@ -86,6 +86,58 @@ public class AssetCatalogTests
     }
 
     [Fact]
+    public void RescanTest_PicksUpANewlyDroppedFile()
+    {
+        using var dir = new TempAssetDir();
+        dir.AddFile("props/tree01.png");
+
+        var catalog = AssetCatalog.Scan(dir.Root, "Island");
+        Assert.True(catalog.CanRescan);
+        Assert.Single(catalog.Entries);
+        Assert.False(catalog.TryGet("Island/props/stone.png", out _));
+
+        // Drop a new PNG and rescan: the catalog picks it up in place (Slice 4 refresh) without
+        // reconstructing — the palette holds this same instance.
+        dir.AddFile("props/stone.png");
+        Assert.True(catalog.Rescan());
+
+        Assert.Equal(2, catalog.Entries.Count);
+        Assert.True(catalog.TryGet("Island/props/stone.png", out var stone));
+        Assert.Equal("stone", stone.Label);
+    }
+
+    [Fact]
+    public void RescanTest_NoScanRootIsALoudNoOp()
+    {
+        // A directly-constructed catalog (e.g. a unit test) has no scan root → cannot rescan.
+        var catalog = new AssetCatalog(new[]
+        {
+            new AssetCatalogEntry("Island/props/a.png", null, null, "a", "props"),
+        });
+        Assert.False(catalog.CanRescan);
+        Assert.False(catalog.Rescan());
+        Assert.Single(catalog.Entries); // unchanged
+    }
+
+    [Fact]
+    public void InvalidateTest_ReDecodesAfterTheCacheIsCleared()
+    {
+        var loader = new FileAssetTextureLoader(
+            openStream: _ => new MemoryStream(new byte[] { 1 }),
+            decode: _ => null, // the decode CALL is what we count
+            createPlaceholder: () => null);
+
+        loader.Load("file:Island/props/tree01.png");
+        loader.Load("file:Island/props/tree01.png"); // memoized
+        Assert.Equal(1, loader.DecodeCount);
+
+        // A refresh clears the cache: the next load re-opens + re-decodes (picks up a changed file).
+        loader.Invalidate();
+        loader.Load("file:Island/props/tree01.png");
+        Assert.Equal(2, loader.DecodeCount);
+    }
+
+    [Fact]
     public void CatalogScanTest_MissingRootYieldsEmptyCatalog()
     {
         var catalog = AssetCatalog.Scan(
