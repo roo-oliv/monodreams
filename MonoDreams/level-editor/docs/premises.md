@@ -745,9 +745,13 @@ write-back refreshes `WorldVertices` + `BroadPhaseAABB` in the same command (phy
 Edit; nothing else would). `ProxySyncSystem` also refreshes the selected entity's convex
 `WorldVertices` per frame so the `ColliderDebugSystem` outline (which coexists as the global,
 selection-unaware diagnostic) tracks edits instead of drifting. The binding kind is the
-generalization seam, now proven twice (whole shapes, per-vertex handles): a future
-spline-control-point binding (the road tool, Waves D/F) is another `ProxyBindingKind` + a
-`ProxyGeometry` derivation case + a write-back case — never a second proxy mechanism.
+generalization seam, now proven three times (whole shapes, convex per-vertex handles, and — Slice 3
+— `ProxyBindingKind.BoundaryVertex` per `BoundaryComponent.Points` entry): a new editable spatial
+field is another `ProxyBindingKind` + a `ProxyGeometry` derivation case + a `GizmoSystem` write-back
+case (a future spline-control-point binding for the road tool, Waves D/F, is the same recipe) —
+never a second proxy mechanism. Boundary vertices differ only in that they materialise on PLAIN
+selection (a boundary IS its points — no shape proxy to click through) and carry no convexity
+constraint (an open polyline), writing back through `BoundaryEditCommand` (which re-fires the bake).
 
 **Why:** the user clicked the red collider debug outlines and couldn't drag them (the outlines are
 unselectable per-frame visualization entities with no back-link); restructuring colliders as child
@@ -833,13 +837,16 @@ drag-coalescing" (the history the restart clears).
 ## Viewport presses belong to exactly one tool family: `EditorToolMode` gates selection, gizmo, and placement
 
 The shared `GizmoStateComponent` carries a coarse `EditorToolMode` (`SelectTransform` default;
-`Place`; the brush modes Scatter/GroundPaint/Road are reserved names). `SelectionSystem` and
-`GizmoSystem` process viewport presses **only** in `SelectTransform` (they early-out otherwise —
-the gizmo also cancels any in-flight drag, hides its overlays, and claims nothing); the palette's
-placement acts only in `Place`. This composes with the finer `PressClaimed` click-ownership rule,
-which keeps resolving handle-vs-scene *within* `SelectTransform`. The toolbar's transform-tool
-buttons are a radio over the modes (picking one disarms the palette back to `SelectTransform`),
-as are Escape and right-click.
+`Place`; `Boundary` — island-authoring Slice 3; the brush modes Scatter/GroundPaint/Road are
+reserved names). `SelectionSystem` and `GizmoSystem` process viewport presses **only** in
+`SelectTransform` (they early-out otherwise — the gizmo also cancels any in-flight drag, hides its
+overlays, and claims nothing); the palette's placement acts only in `Place`; the `BoundaryToolSystem`
+lays polyline vertices only in `Boundary` (a viewport click lays a vertex, Enter/double-click
+commits, Escape/right-click cancels). This composes with the finer `PressClaimed` click-ownership
+rule, which keeps resolving handle-vs-scene *within* `SelectTransform`. The toolbar's transform-tool
+buttons AND the boundary-tool button are a radio over the modes (each disarms the others — the
+`ToolBoundary` button disarms the palette then enters `Boundary`; a transform-tool button disarms
+the palette back to `SelectTransform`), as are Escape and right-click.
 
 **Why:** with placement live, a single viewport press would otherwise be claimed by three systems
 at once — a placement click would simultaneously re-pick (or click-empty-clear) the selection and
@@ -1033,6 +1040,120 @@ proxy entity on Delete makes Delete a non-undoable visual no-op.
 **Depends on:** this file — "Collider shapes are edited through standalone gizmo proxies…" (the
 family + write-back rules this extends); collision — the convex-only SAT contract and
 "`BroadPhaseAABB` must be refreshed when vertices change".
+
+## A boundary bakes into one convex quad segment per polyline edge; bake products never serialize
+
+A freeform world boundary (island-authoring §5.2 — coastline / cliff) is a `BoundaryComponent
+{ Points[] (local to the entity's Position), Thickness }` authoring entity: **pure, serialized
+scene data** (registered `core.Boundary`, round-trips in `entities[]`), the durable truth. Its
+COLLISION is **baked, never per-frame**: `BoundaryBakeSystem` subscribes to the component being
+**added** (the boundary tool's commit, a scene load re-setting it) and **changed** (a vertex drag /
+add / delete + undo/redo, all through `entity.Set(new BoundaryComponent(...))`), enqueues the
+entity, and — only when draining that queue in `Update` — generates **one thin convex quad segment
+collider per polyline edge** (N points → N−1 quads, `BoundaryGeometry.EdgeQuads`, each of the
+component's `Thickness`, wound to the collision module's positive-shoelace convention). An empty
+queue is a no-op, so nothing evaluates a boundary in a normal frame (the §S2 bake-is-message-driven
+rule). Segments are **`ChildOf` children** of the boundary (lifecycle + grouping) and carry
+`BakedProductComponent` + a `ConvexColliderComponent` that is **`Passive = true`** — static world
+geometry (the `WallEntityFactory` idiom): a passive collider never initiates a collision so
+resolution never moves it, yet the active player is resolved out of it, so it BLOCKS while staying
+put. Root-level collision (`UpdateWorldVertices` uses the entity's LOCAL `Position`) is honoured by
+copying the boundary's world position onto each segment child and keeping the quad in the local
+frame. **Bake products NEVER scene-serialize**: `SceneWriter` excludes any `BakedProductComponent`
+entity from the membership closure **even inside the boundary root's `ChildOf` descendant set` — the
+polyline is the durable truth, the segments regenerate on load (bake-on-load runs in both run modes,
+`RunNormally`). Boundaries are edited via per-vertex proxies (`ProxyBindingKind.BoundaryVertex`, one
+per point) that materialise on PLAIN selection of the boundary — a boundary IS its points, so
+`SelectionSystem` also border-picks the boundary's open polyline to select it in the first place.
+
+**Why:** a coastline is deeply concave and the engine's SAT is convex-only, so a segment chain is
+the standard robust answer; §S2 (bake-never-evaluate) keeps it off the per-frame path; the
+"bake products never scene-serialize" invariant keeps the file honest (the durable truth is the
+source) and prevents double-counting / stale run state on reload. Passive (not the task's literal
+`passive=false`) is the engine's static-blocker idiom — a non-passive segment initiates and is moved
+by the resolution (it drifts when the player pushes it), which is a bug for static world geometry.
+**Breaks:** evaluating the polyline per frame (the perf rule); serializing the baked children
+(double segments on the next load, baked stale state in the file); non-passive segments that drift
+when hit; a concave single collider that SAT cannot resolve; forgetting the local→world copy so a
+non-origin boundary's colliders land at the wrong place.
+**Tests:** `MonoDreams.Tests/LevelEditor/BoundaryGeometryTests.cs` (edge-quads count / thickness /
+winding / degenerate inputs; world-projection; open-polyline border test),
+`BoundaryBakeTests.cs` (added/changed → N−1 passive convex `ChildOf` + `BakedProduct` segments;
+re-bake disposes the old; bakes in Play; empty queue is a no-op),
+`BoundaryToolTests.cs` (lay/commit/cancel lifecycle, one undo step, centroid pivot + local points,
+≥2 guard), `BoundaryVertexProxyTests.cs` (per-vertex proxies on plain selection; a drag writes one
+point; delete keeps ≥2; add inserts a midpoint), and
+`SceneRoundTripTests.BoundaryBakeChildrenNeverSerialize_RegenerateOnLoadTest` (the boundary root
+serializes, no convex child does, children regenerate on load, polyline round-trips).
+**Depends on:** collision — SAT is convex-only, and `Passive` = "does not initiate" static geometry
+(the `WallEntityFactory` idiom); foundation — `ChildOfComponent` + `HierarchySystem.DisposeOrphans`
+(the bake children's lifecycle); this file — "Collider shapes are edited through standalone gizmo
+proxies…" (the `(kind, index)` machinery the boundary vertices reuse), "Viewport presses belong to
+exactly one tool family" (the `Boundary` mode).
+
+## Trigger zones are Passive colliders identified by an auto-numbered EntityInfo string
+
+A trigger zone (island-authoring §5.3 — evidence spot / talk radius / exit) is a **`Passive`
+box collider** whose identity rides **`EntityInfoComponent`** — `Type` = a game-defined category
+prefix (`"evidence"`, `"talkzone"`, `"exit"`, screen-supplied as `TriggerType`s) and `Name` = an
+auto-numbered scene-unique instance id (`"evidence_01"`, `TriggerFactory.NextName` = one past the
+highest existing suffix, so numbering survives deletes). **No new component**: the trigger IS a
+passive collider + a serialized identity string, exactly what a game reaction system pattern-matches
+on (the in-repo `ZoneDialogueTriggerSystem` precedent — a collision message + a zone identity → a
+game reaction). It round-trips through the existing `EntityInfo` + `BoxCollider` serializers
+unchanged (the `Passive` flag already serialises); rename is editing the saved JSON (banked decision
+3 — no free-text widget). Placement rides the palette's Place mode (a "Triggers section" of the
+strip); the placed zone is centred on the click, auto-selected, and one `CreateEntityCommand` undo
+step (auto-tagged `SceneObject`). A trigger is **Passive like all static geometry**, so the flag
+alone cannot tell a blocker from a sensor — the game's collision classifier decides that by identity
+(a known trigger prefix → a non-Physics collision type the physical resolver ignores → fires without
+blocking; everything else → Physics → blocks). Because a passive collider has no sprite and would be
+invisible in Edit, `TriggerOverlaySystem` draws an Edit-only tinted outline for every trigger (a
+Passive box `SceneObject` with no sprite) plus the armed-trigger placement ghost, on the
+native-resolution Editor target (the chrome rule: no `VisibleComponent`).
+
+**Why:** the plan's decision to reuse the engine's existing string identity + passive-collider
+mechanism instead of inventing a trigger component keeps the editor game-agnostic and matches the
+one working precedent; auto-numbering gives unique, stable ids without a text-input widget; the
+Edit-only outline is what makes an otherwise-invisible sensor visible and selectable.
+**Breaks:** a trigger that blocks the player (classified Physics, or the classifier keyed on the
+`Passive` flag — which every static blocker also sets); an invisible zone a designer can neither see
+nor select; a duplicate identity string two game systems can't disambiguate; a new component that
+the game's reaction system would have to learn instead of reading the string it already reads.
+**Tests:** `MonoDreams.Tests/LevelEditor/TriggerPlacementTests.cs` (`TriggerFactory` makes a passive
+centred box with the prefix identity; `NextName` auto-numbers uniquely per prefix; the trigger
+round-trips through the serializers; a moving player entering the zone emits a `CollisionMessage`
+carrying the trigger's `EntityInfoComponent` identity) and the milestone test.
+**Depends on:** collision — `Passive` = "does not initiate" (a passive target still resolves an
+active body); foundation — `EntityInfoComponent` (string identity, serialized); this file — "The
+component-serializer registry is opt-in per type" (the trigger uses only pre-registered serializers).
+
+## The walkable island milestone: build → save → reload → play → restart
+
+The island-authoring phase's acceptance milestone (open decision 6): a scene dressed with ≥2
+buildings (footprint colliders), ground + road patches, a coastline boundary, and ≥1 evidence + ≥1
+talk-zone trigger **saves**, **reloads** (via `LoadSceneRequest`), is **walkable in Play** (the
+coastline and a building footprint BLOCK the player; entering a trigger fires a collision carrying
+the right `EntityInfoComponent` identity), and **survives Restart** (a re-load rebuilds the whole
+scene, the coastline segments re-baking). This is the integration contract binding the slice's parts
+together: the boundary bake + never-serialize, the passive static-blocker idiom, the trigger
+identity, and the scene round-trip.
+
+**Why:** the slice's parts are individually unit-tested, but "the island is walkable" is an
+emergent property of their interaction (bake-on-load feeding collision, the classifier telling a
+blocker from a sensor by identity, the round-trip preserving the polyline while dropping the baked
+products) — only an end-to-end test proves it holds.
+**Breaks:** any of: the coastline not re-baking on load (walk through the coast); a non-passive
+blocker drifting when hit; a trigger blocking instead of sensing (or not firing); the polyline not
+round-tripping; baked segments serialized then double-counted on reload.
+**Tests:** `MonoDreams.Tests/LevelEditor/IslandMilestoneTests.cs` (`WalkableIslandMilestone` — the
+full build → save → reload → play → restart-equivalent flow, in-process over the REAL editor +
+engine systems; the environment cannot present a window, so this is the honest headless form, per
+the Wave-5 in-process-integration precedent).
+**Depends on:** this file — "A boundary bakes into one convex quad segment per polyline edge…",
+"Trigger zones are Passive colliders identified by an auto-numbered EntityInfo string", "Scene
+round-trip reconstructs from registered components, not factories"; collision — SAT + the `Passive`
+static-blocker semantics.
 
 ## See also
 
