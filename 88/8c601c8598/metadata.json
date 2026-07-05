@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "888c601c8598",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/8c601c8598/0/metadata.json",
+      "transcript": "/88/8c601c8598/0/full.jsonl",
+      "context": "/88/8c601c8598/0/context.md",
+      "content_hash": "/88/8c601c8598/0/content_hash.txt",
+      "prompt": "/88/8c601c8598/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3810,
+    "cache_creation_tokens": 49393,
+    "cache_read_tokens": 20792090,
+    "output_tokens": 25567,
+    "api_call_count": 25
+  }
+}
