@@ -21,7 +21,9 @@
 > ordered before the cursor's world-pos derivation) are all live below, plus the
 > **transport model** (the editor is always-on under the run flag; Play/Pause +
 > Restart replace the retired F1 mode toggle; Restart rebuilds from the original
-> load and discards unsaved edits). No premise here ships `Tests: none yet`.
+> load and discards unsaved edits), and the **project-persistence PS1** invariant
+> (canonical, byte-stable scene serialization + a persisted stable scene-local id
+> ordering `entities[]`). No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -172,6 +174,48 @@ persists — the second save is empty without the re-tag).
 **Depends on:** level-loading — `LoadLevelRequest` is LDtk-coupled (the asymmetry this premise routes
 around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
 frame); foundation — the `IPlatformServices` portability seam.
+
+## Scene serialization is canonical and byte-stable; `entities[]` is ordered by a persisted stable scene-local id
+
+Every native scene (and, later, the project manifest) is written and read through ONE canonical JSON
+policy — `CanonicalJson` (`Serialization/CanonicalJson.cs`): a shared `JsonSerializerOptions`
+(indented 2-space / LF newlines, invariant round-trippable floats, null fields omitted, trailing
+`\n`) plus a converter that emits every `Dictionary<string,_>` (the entity `components{}` map) with
+its keys in `StringComparer.Ordinal` order. Component bodies are produced through the same policy
+(`CanonicalJson.SerializeToElement`), and set-valued fields (a collider's `activeLayers`) are written
+sorted. The invariant: **`serialize(world)` is byte-identical across runs and machines, and
+`load → save` equals the source file byte-for-byte.** Determinism additionally requires **stable
+per-entity ids**: each serialized scene ROOT carries a persisted, monotonic, scene-local id
+(`SceneEntityIdComponent`, written as the entry's `id` field) — assigned lazily at first
+serialization (`SceneWriter.BuildScene` stamps any root lacking one, next-free = max present + 1),
+preserved across `load → save` (the reader restores it from the file, the writer reads it back), and
+`SceneWriter` orders `entities[]` by it with a **stable** sort (each root's `ChildOf` closure stays
+contiguous and parent-before-child). A `ChildOf` descendant carries no id of its own; the id is
+captured as a structural field (like `parent`), marked structurally-captured on the registry so it is
+never written into `components{}` nor trips the unregistered-component warning. STJ's default float
+format is culture-invariant and shortest-round-trippable (it normalizes `1.0`→`1`, which still
+round-trips and re-serializes identically, so the fixed point holds).
+
+**Why:** meaningful `.mdscene` git diffs and tractable merges — the precondition for versioning
+levels — require deterministic bytes: STJ does not sort object keys by default (the live
+component-storage order would leak into the file), a `HashSet`'s enumeration order is unspecified, and
+per-session entity/`EditorId` order would reshuffle `entities[]` on a re-save and churn the diff. A
+persisted stable id makes a one-entity move a one-line diff instead of a reshuffle.
+**Breaks:** unsorted component keys / raw `activeLayers` / per-session ordering churn the diff on
+every re-save (line-level noise, unmergeable); a locale-dependent float writes `0,1` and breaks
+cross-machine stability and re-parse; overloading the per-session `EditorId` as the persistent id
+conflates the render tiebreak with scene identity and loses the id on reload; a bare
+`WriteIndented=true` at any call site bypasses the policy and re-introduces churn.
+**Tests:** `MonoDreams.Tests/LevelEditor/SceneCanonicalSerializationTests.cs`
+(`Serialize_SameWorldTwice_IsByteIdentical`; `StableIds_AssignedMonotonically_AndPreservedAcrossReload`
+— build → save → reload → save-again is byte-identical to the source, ids restored;
+`DifferentInsertionOrder_SameStableIds_IsByteIdentical` — order-independence via id ordering;
+`MovingOneEntity_TouchesOnlyThatEntitysLines` — a transform move is a minimal, localized diff;
+`ComponentMapKeys_AreOrdinalSorted` — component keys + `activeLayers` sorted;
+`Floats_UnderNonInvariantCulture_UsePeriodDecimal` — a comma-decimal `CurrentCulture` still emits `.`;
+`NewRootAfterLoad_GetsNextFreeStableId`).
+**Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories"
+(the round-trip whose bytes this makes deterministic); foundation — the `IPlatformServices` write seam.
 
 ## Editor-overlay entities are standalone; delete snapshots the disposed sub-graph
 

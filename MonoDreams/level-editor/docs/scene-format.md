@@ -17,8 +17,10 @@ are live. The file writer/reader and the `LoadSceneRequest` message land in
 Wave 3; the parametric `sources[]` waves (D–F) land later still. The schema is
 designed forward-stable so those waves extend it without a breaking version bump.
 
-Serialization is **System.Text.Json**, consistent with `BlenderLevelData`. It
-runs on **save/load only** — never per-frame.
+Serialization is **System.Text.Json**, consistent with `BlenderLevelData`, and
+runs on **save/load only** — never per-frame. All scene JSON is written and read
+through one **canonical policy** ([`CanonicalJson`](../Serialization/CanonicalJson.cs))
+so the bytes are deterministic — see [Canonical serialization](#canonical-serialization).
 
 ## Top-level schema
 
@@ -52,12 +54,14 @@ a loaded scene reconstruct layer banding without re-deriving it from entities.
 
 ### `entities[]`
 
-Each entity is a `components{}` map plus an optional `parent` reference:
+Each entity is an optional stable `id`, a `components{}` map, and an optional
+`parent` reference:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `components` | object | `componentTypeKey` → serialized fields (one JSON object per component). Only **registered** components appear; unregistered components on the live entity are skipped with a loud `Logger.Warning` at write time. |
-| `parent` | int \| null | Index (into `entities[]`) of this entity's structural parent (`ChildOfComponent`), or `null` for a root. Index-based so the parent graph round-trips without persisting volatile `Entity` ids. |
+| `id` | int \| null | The **persisted, stable, scene-local id** of a scene ROOT — assigned at first serialization, preserved across `load → save`, and the key `entities[]` is ordered by. Only roots carry one; a `ChildOf` descendant omits it (it is ordered within its ancestor's closure). Omitted when null. Backed by a `SceneEntityIdComponent` on the live root; captured as a dedicated structural field (like `parent`), never a component body. |
+| `components` | object | `componentTypeKey` → serialized fields (one JSON object per component). Only **registered** components appear; unregistered components on the live entity are skipped with a loud `Logger.Warning` at write time. The canonical writer emits these keys in **ordinal-sorted** order (deterministic, independent of live component-storage order). |
+| `parent` | int \| null | Index (into `entities[]`) of this entity's structural parent (`ChildOfComponent`), or `null` (omitted) for a root. Index-based so the parent graph round-trips without persisting volatile `Entity` ids. |
 
 The `componentTypeKey` is the stable string the registry assigns a component
 `Type`. The engine ships these keys (see
@@ -109,48 +113,81 @@ survives sidecar changes. `file:` keys are the editor's fast authoring loop; whe
 art finalizes they graduate to plain content keys (see the "`file:` AssetKeys…"
 premise in [`premises.md`](premises.md)).
 
+## Canonical serialization
+
+Every native file is written and read through one canonical policy
+([`CanonicalJson`](../Serialization/CanonicalJson.cs)) so the bytes are
+**deterministic**: `serialize(world)` is byte-identical across runs and machines,
+and `load → save` equals the source file byte-for-byte. That fixed point is what
+makes a `.mdscene` git diff meaningful and a merge tractable — the precondition
+for versioning levels. The rules:
+
+- **Stable property order.** Strongly-typed objects (the top-level schema, each
+  component body) serialize their fields in declaration order. The open
+  `components{}` map's keys are emitted in `StringComparer.Ordinal` order (STJ
+  does not sort object keys by default — insertion order would leak the live
+  component-storage order). Set-valued fields (a collider's `activeLayers`) are
+  written sorted ascending (a `HashSet` has no stable enumeration order).
+- **Deterministic entity order.** `entities[]` is ordered by each root's stable
+  `id` (a stable sort, so each root's `ChildOf` closure stays contiguous and in
+  parent-before-child order). A one-entity edit is a one-line diff, never a
+  reshuffle.
+- **Invariant, round-trippable floats.** Numbers are written culture-invariant
+  (a comma-decimal locale still emits `0.1`, never `0,1`) in the shortest
+  round-trippable form. Note this normalizes `1.0` to `1` — it still round-trips
+  to the same float and re-serializes identically, so the fixed point holds.
+- **Indented, LF newlines, trailing newline.** 2-space indent (net8.0's writer
+  hardcodes `\n` for indentation, so it is platform-independent), one numeric
+  array element per line, and a single trailing `\n`.
+- **Null fields omitted.** An absent `camera`, a root's null `parent`, a null
+  `assetKey`, a child's null `id` are dropped rather than emitted as `"…": null`.
+
 ## Concrete example
 
 A scene with a player (Transform + SpriteInfo + BoxCollider + RigidBody) and one
-child orb parented to it:
+child orb parented to it. Shown **compactly** (arrays inlined, keys grouped) for
+readability; the real file is 2-space-indented with one array element per line,
+`components{}` keys ordinal-sorted, and whole-number floats in shortest form
+(e.g. `1.0` written `1`). Note the root's stable `id` and the omitted
+`parent`/`assetKey` nulls:
 
 ```json
 {
   "version": 1,
-  "camera": { "position": [320.0, 180.0], "zoom": 2.0, "rotation": 0.0 },
+  "camera": { "position": [320, 180], "zoom": 2, "rotation": 0 },
   "layers": [
-    { "name": "Background", "depth": [0.90, 1.00], "ySorted": false },
-    { "name": "Characters", "depth": [0.40, 0.50], "ySorted": true },
-    { "name": "Effects",    "depth": [0.20, 0.30], "ySorted": false }
+    { "name": "Background", "depth": [0.9, 1], "ySorted": false },
+    { "name": "Characters", "depth": [0.4, 0.5], "ySorted": true },
+    { "name": "Effects",    "depth": [0.2, 0.3], "ySorted": false }
   ],
   "sources": [],
   "entities": [
     {
+      "id": 0,
       "components": {
+        "core.BoxCollider": { "bounds": [0, 0, 16, 32], "activeLayers": [-1], "passive": false, "enabled": true },
         "core.EntityInfo": { "type": "Player", "name": "Hero" },
-        "core.Transform":  { "position": [100.0, 200.0], "rotation": 0.0, "scale": [1.0, 1.0], "origin": [0.0, 0.0] },
+        "core.RigidBody":   { "mass": 1, "gravityActive": true, "gravityFactor": 1, "isKinematic": false, "freezeRotation": false, "freezePositionX": false, "freezePositionY": false },
         "core.SpriteInfo": {
           "assetKey": "Atlas/TX Player",
           "source": [0, 0, 16, 32],
-          "size": [16.0, 32.0],
+          "size": [16, 32],
           "color": [255, 255, 255, 255],
-          "origin": [0.0, 0.0],
-          "offset": [-4.0, -8.0],
+          "origin": [0, 0],
+          "offset": [-4, -8],
           "target": 0,
           "layerDepth": 0.45,
-          "ySortOffset": 32.0,
-          "ySortDepthBias": 0.0
+          "ySortOffset": 32,
+          "ySortDepthBias": 0
         },
-        "core.BoxCollider": { "bounds": [0, 0, 16, 32], "activeLayers": [-1], "passive": false, "enabled": true },
-        "core.RigidBody":   { "mass": 1.0, "gravityActive": true, "gravityFactor": 1.0, "isKinematic": false, "freezeRotation": false, "freezePositionX": false, "freezePositionY": false },
-        "core.Velocity":    { "current": [0.0, 0.0], "last": [0.0, 0.0] }
-      },
-      "parent": null
+        "core.Transform":  { "position": [100, 200], "rotation": 0, "scale": [1, 1], "origin": [0, 0] },
+        "core.Velocity":    { "current": [0, 0], "last": [0, 0] }
+      }
     },
     {
       "components": {
         "core.EntityInfo": { "type": "Orb", "name": "BlueOrb" },
-        "core.Transform":  { "position": [50.0, 0.0], "rotation": 0.0, "scale": [1.0, 1.0], "origin": [0.0, 0.0] }
+        "core.Transform":  { "position": [50, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
       },
       "parent": 0
     }
@@ -162,9 +199,13 @@ On load: pass 1 creates both entities and deserializes their components (the
 player's `SpriteInfo.SpriteSheet` is `null`, to be rehydrated from `assetKey`);
 pass 2 wires the orb's parent link (`parent: 0`) via `SetParent`, which syncs both
 the structural `ChildOfComponent` and the `TransformComponent.Parent` matrix link.
+The reader then re-tags each root with `SceneObjectComponent` and restores its
+`SceneEntityIdComponent` from the entry's `id` (so the next save reuses the same
+ids and the array order stays byte-stable — `load → save` equals the source file).
 
 ## See also
 
+- [`Serialization/CanonicalJson.cs`](../Serialization/CanonicalJson.cs) — the one canonical JSON policy (byte-stable options + ordinal-sorted-map converter) all scene/manifest writes flow through.
 - [`Serialization/SceneData.cs`](../Serialization/SceneData.cs) — the in-memory model (1:1 with this schema).
 - [`Serialization/ComponentSerializerRegistry.cs`](../Serialization/ComponentSerializerRegistry.cs) — the opt-in registry that fills `components{}`.
 - [`Serialization/EngineComponentSerializers.cs`](../Serialization/EngineComponentSerializers.cs) — the engine-shipped serializers + the keys above.
