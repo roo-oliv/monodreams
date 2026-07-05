@@ -52,22 +52,22 @@ public class HeadlessEditorOpTests
 {
     private const string SceneFileName = "headless-editor-op.scene.json";
 
-    /// <summary>In-memory platform capturing ExportScene so the Save assertion needs no disk.</summary>
+    /// <summary>In-memory platform capturing the Save write (PS3 writes via WriteAllText) so the Save
+    /// assertion needs no disk.</summary>
     private sealed class InMemoryPlatformServices : IPlatformServices
     {
         public Dictionary<string, string> Files { get; } = new();
-        public int ExportCount { get; private set; }
+        public int WriteCount { get; private set; }
         public string BaseDirectory => "/scene/";
         public string GetEnvironmentVariable(string name) => null!;
         public string CombinePath(params string[] paths) => string.Join("/", paths);
         public bool FileExists(string path) => Files.ContainsKey(path);
         public string ReadAllText(string path) =>
             Files.TryGetValue(path, out var v) ? v : throw new FileNotFoundException(path);
-        public void WriteAllText(string path, string contents) => Files[path] = contents;
+        public void WriteAllText(string path, string contents) { Files[path] = contents; WriteCount++; }
         public void WriteAllBytes(string path, byte[] bytes) { }
         public string ExportScene(string suggestedFileName, string contents)
         {
-            ExportCount++;
             Files[suggestedFileName] = contents;
             return suggestedFileName;
         }
@@ -234,8 +234,8 @@ public class HeadlessEditorOpTests
             Assert.Equal(0, history.Count);
             Assert.Equal(1, history.RedoCount);
 
-            // ---- Save exported the scene through IPlatformServices (the reverted transform is persisted). ----
-            Assert.Equal(1, fake.ExportCount);
+            // ---- Save wrote the scene through IPlatformServices (the reverted transform is persisted). ----
+            Assert.Equal(1, fake.WriteCount);
             Assert.True(fake.Files.TryGetValue(SceneFileName, out var json));
 
             var scene = JsonSerializer.Deserialize<SceneData>(json!,

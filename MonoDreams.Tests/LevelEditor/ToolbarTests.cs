@@ -33,11 +33,12 @@ public class ToolbarTests
 {
     private const string SceneFileName = "toolbar-test.scene.json";
 
-    /// <summary>In-memory platform capturing ExportScene calls so the Save test asserts the writer ran.</summary>
+    /// <summary>In-memory platform capturing the Save write (PS3 writes via WriteAllText) so the Save
+    /// test asserts the writer ran without a disk.</summary>
     private sealed class InMemoryPlatformServices : IPlatformServices
     {
         public Dictionary<string, string> Files { get; } = new();
-        public int ExportCount { get; private set; }
+        public int WriteCount { get; private set; }
         public StringWriter LogWriter { get; } = new();
         public string BaseDirectory => "/scene/";
         public string GetEnvironmentVariable(string name) => null;
@@ -45,11 +46,10 @@ public class ToolbarTests
         public bool FileExists(string path) => Files.ContainsKey(path);
         public string ReadAllText(string path) =>
             Files.TryGetValue(path, out var v) ? v : throw new FileNotFoundException(path);
-        public void WriteAllText(string path, string contents) => Files[path] = contents;
+        public void WriteAllText(string path, string contents) { Files[path] = contents; WriteCount++; }
         public void WriteAllBytes(string path, byte[] bytes) { }
         public string ExportScene(string suggestedFileName, string contents)
         {
-            ExportCount++;
             Files[suggestedFileName] = contents;
             return suggestedFileName;
         }
@@ -154,10 +154,10 @@ public class ToolbarTests
             dispatch(EditorToolbarAction.ToggleSnap);
             Assert.False(gizmoState.Get<GizmoStateComponent>().SnapEnabled);
 
-            // ---- Save invokes SceneWriter (writes through IPlatformServices.ExportScene) ----
-            Assert.Equal(0, fake.ExportCount);
+            // ---- Save invokes SceneWriter (PS3 writes through IPlatformServices.WriteAllText) ----
+            Assert.Equal(0, fake.WriteCount);
             dispatch(EditorToolbarAction.Save);
-            Assert.Equal(1, fake.ExportCount);
+            Assert.Equal(1, fake.WriteCount);
             Assert.True(fake.Files.ContainsKey(SceneFileName));
 
             // ---- Load publishes a LoadSceneRequest (the SceneReaderSystem handles it in the screen) ----
@@ -264,15 +264,15 @@ public class ToolbarTests
 
             // Playing (even with a resolved project): blocked.
             DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Play }, resolved);
-            Assert.Equal(0, fake.ExportCount);
+            Assert.Equal(0, fake.WriteCount);
 
             // Paused but no project root: blocked (PS2 cause).
             DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit }, EditorProjectContext.Unresolved);
-            Assert.Equal(0, fake.ExportCount);
+            Assert.Equal(0, fake.WriteCount);
 
             // Paused + resolved project: saves normally.
             DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit }, resolved);
-            Assert.Equal(1, fake.ExportCount);
+            Assert.Equal(1, fake.WriteCount);
         });
     }
 }
