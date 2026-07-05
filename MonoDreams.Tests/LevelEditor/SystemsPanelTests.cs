@@ -94,7 +94,11 @@ public class SystemsPanelTests
         panel.Update(Edit());
 
         var labels = LabelTexts(world);
-        // Section headers + every entry of both pipelines, with the policy tag on Freeze.
+        // The three collapsible section headers, the pipeline sub-headers, and every entry of both
+        // pipelines, with the policy tag on Freeze.
+        Assert.Contains("SYSTEMS", labels);
+        Assert.Contains("SCENE", labels);
+        Assert.Contains("INSPECTOR", labels);
         Assert.Contains("UPDATE", labels);
         Assert.Contains("DRAW", labels);
         Assert.Contains("logic [freeze]", labels);
@@ -140,9 +144,10 @@ public class SystemsPanelTests
 
         panel.Update(Edit()); // builds + lays out the rows
 
-        // The "logic" entry is line 1 (line 0 = the UPDATE header). Click inside its row.
+        // Lines: SYSTEMS(0), UPDATE(1), logic(2). Click inside the "logic" row (away from its left
+        // caret column so it is an enable-toggle, not a collapse).
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var row = SystemsPanelLayout.LineRect(panelRect, 1);
+        var row = SystemsPanelLayout.LineRect(panelRect, 2);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
@@ -185,9 +190,9 @@ public class SystemsPanelTests
 
         panel.Update(Edit());
 
-        // Click the panel's own row (line 2: header, logic, panel).
+        // Click the panel's own row (line 3: SYSTEMS(0), UPDATE(1), logic(2), panel(3)).
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var row = SystemsPanelLayout.LineRect(panelRect, 2);
+        var row = SystemsPanelLayout.LineRect(panelRect, 3);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
@@ -211,7 +216,7 @@ public class SystemsPanelTests
         panel.Update(Edit()); // build once so the rows exist
 
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var row = SystemsPanelLayout.LineRect(panelRect, 1);
+        var row = SystemsPanelLayout.LineRect(panelRect, 2); // SYSTEMS(0), UPDATE(1), logic(2)
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
@@ -241,6 +246,8 @@ public class SystemsPanelTests
 
         panel.Update(Edit());
         Assert.Equal(0, panel.ScrollOffset);
+        // The whole right column (all three sections, everything expanded) is the scroll extent.
+        var totalLines = panel.DisplayedLineCount;
 
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
         ref var input = ref cursor.Get<CursorInputComponent>();
@@ -254,7 +261,6 @@ public class SystemsPanelTests
         // A huge scroll clamps to MaxScroll.
         input.ScrollWheelDelta = -120 * 50;
         panel.Update(Edit());
-        var totalLines = 2 /* headers */ + update.Entries.Count + draw.Entries.Count;
         Assert.Equal(SystemsPanelLayout.MaxScroll(totalLines, panelRect), panel.ScrollOffset);
 
         // Scrolling back up clamps at 0.
@@ -272,7 +278,7 @@ public class SystemsPanelTests
     // ---- The tree: groups render above their children, indented, with tri-state checkboxes ----
 
     /// <summary>Update registrar = a Freeze group with two leaves; draw registrar = one leaf.
-    /// Lines: UPDATE(0), logic(1), logic.a(2), logic.b(3), DRAW(4), renderMain(5).</summary>
+    /// Lines: SYSTEMS(0), UPDATE(1), logic(2), a(3), b(4), DRAW(5), renderMain(6).</summary>
     private static (SystemsPanelSystem panel, EditorPipelineRegistrar update,
         CountingSystem a, CountingSystem b)
         MakeTreePanel(World world, ViewportManager vm)
@@ -313,20 +319,23 @@ public class SystemsPanelTests
         Assert.Contains("b", labels);
         Assert.DoesNotContain("logic.a", labels);
 
-        // Checkbox indentation: the group's checkbox sits at the content edge, the children's
-        // one indent step to the right.
+        // Checkbox indentation: after the reserved left caret column, the group's checkbox sits at
+        // the content edge and the children's one indent step to the right.
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
         var content = SystemsPanelLayout.ContentArea(panelRect);
+        var caret = SystemsPanelLayout.CaretColumn;
         var xs = new List<int>();
         using var boxes = world.GetEntities().With<SimpleButtonComponent>().AsSet();
         foreach (var e in boxes.GetEntities())
         {
             ref readonly var box = ref e.Get<SimpleButtonComponent>();
             if ((int)box.Size.X != SystemsPanelLayout.CheckboxSize) continue; // skip the minus bars
-            xs.Add((int)e.Get<TransformComponent>().Position.X);
+            var pos = e.Get<TransformComponent>().Position;
+            if (pos == SystemsPanelLayout.ParkedPosition) continue; // skip scrolled-out/parked
+            xs.Add((int)pos.X);
         }
-        Assert.Equal(2, xs.Count(x => x == content.X + SystemsPanelLayout.IndentPerDepth)); // a, b
-        Assert.Contains(content.X, xs); // the group row (and the flat draw entry)
+        Assert.Equal(2, xs.Count(x => x == content.X + SystemsPanelLayout.IndentPerDepth + caret)); // a, b
+        Assert.Contains(content.X + caret, xs); // the group row (and the flat draw entry)
     }
 
     [Fact]
@@ -400,9 +409,10 @@ public class SystemsPanelTests
         update.SetEnabled("logic.a", false);
         Assert.Equal(PipelineEnabledState.Mixed, update.GetEnabledState("logic"));
 
-        // Click the GROUP row (line 1): Mixed → everything off.
+        // Click the GROUP row (line 2) at its center (away from the left caret column, so it is the
+        // Gmail enable-cascade, not a collapse): Mixed → everything off.
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var row = SystemsPanelLayout.LineRect(panelRect, 1);
+        var row = SystemsPanelLayout.LineRect(panelRect, 2);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
@@ -433,9 +443,9 @@ public class SystemsPanelTests
 
         panel.Update(Edit());
 
-        // Click the "logic.a" row (line 2).
+        // Click the "logic.a" row (line 3: SYSTEMS(0), UPDATE(1), logic(2), a(3)).
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var row = SystemsPanelLayout.LineRect(panelRect, 2);
+        var row = SystemsPanelLayout.LineRect(panelRect, 3);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
@@ -472,9 +482,10 @@ public class SystemsPanelTests
 
         panel.Update(Edit());
 
-        // Click the GROUP row (line 1: header, editor, editor.systemsPanel, editor.cameraNav).
+        // Click the GROUP row (line 2: SYSTEMS(0), UPDATE(1), editor(2), editor.systemsPanel(3),
+        // editor.cameraNav(4)) at its center (the enable region, not the caret).
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var row = SystemsPanelLayout.LineRect(panelRect, 1);
+        var row = SystemsPanelLayout.LineRect(panelRect, 2);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
@@ -484,8 +495,8 @@ public class SystemsPanelTests
         Assert.True(update.IsEnabled("editor.systemsPanel"));
         Assert.True(update.IsEnabled("editor.cameraNav"));
 
-        // The sibling leaf itself stays individually toggleable (line 3).
-        row = SystemsPanelLayout.LineRect(panelRect, 3);
+        // The sibling leaf itself stays individually toggleable (line 4).
+        row = SystemsPanelLayout.LineRect(panelRect, 4);
         input.ScreenPosition = new Vector2(row.Center.X, row.Center.Y);
         input.LeftButtonReleased = true;
         panel.Update(Edit());
@@ -516,10 +527,12 @@ public class SystemsPanelTests
 
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
         var visible = SystemsPanelLayout.VisibleLineCount(panelRect);
-        var totalLines = 2 + update.Entries.Count + draw.Entries.Count;
-        Assert.True(visible < totalLines, "test needs an overflowing panel");
+        Assert.True(visible < panel.DisplayedLineCount, "test needs an overflowing panel");
 
-        // Some labels sit inside the strip; the overflow is parked far off-screen.
+        // The premise: scrolled-out rows are parked far off-screen (GPU-clipped); every visible
+        // chrome text entity sits inside the strip, and the overflow is parked — nothing bleeds
+        // over the top/bottom bars. (Each row may own >1 text entity — a caret + a label — so we
+        // assert the parked/in-strip partition, not a per-line count.)
         var inStrip = 0;
         var parked = 0;
         using var labels = world.GetEntities().With<DynamicTextComponent>().AsSet();
@@ -527,9 +540,14 @@ public class SystemsPanelTests
         {
             var pos = e.Get<TransformComponent>().Position;
             if (pos == SystemsPanelLayout.ParkedPosition) parked++;
-            else if (panelRect.Contains(new Point((int)pos.X, (int)pos.Y))) inStrip++;
+            else
+            {
+                Assert.True(panelRect.Contains(new Point((int)pos.X, (int)pos.Y)),
+                    "a non-parked chrome text entity must sit inside the right strip");
+                inStrip++;
+            }
         }
-        Assert.Equal(visible, inStrip);
-        Assert.Equal(totalLines - visible, parked);
+        Assert.True(parked > 0, "an overflowing panel must park the scrolled-out rows");
+        Assert.True(inStrip > 0, "some rows must be visible in the strip");
     }
 }

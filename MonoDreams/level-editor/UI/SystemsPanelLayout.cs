@@ -41,6 +41,18 @@ public static class SystemsPanelLayout
     /// one step right of the group row (the registrar's <c>EditorPipelineEntry.Depth</c>).</summary>
     public const int IndentPerDepth = 14;
 
+    /// <summary>The collapse/expand caret glyph box, logical points. Reserved as a column at the
+    /// left of every row (section headers, pipeline groups, inspector components) so a collapsible
+    /// row's caret and a non-collapsible row's content stay vertically aligned.</summary>
+    public const int CaretSize = 10;
+
+    /// <summary>Gap between the caret column and the checkbox/label, logical points.</summary>
+    public const int CaretGap = 6;
+
+    /// <summary>The reserved caret column width (caret box + gap), logical points. Every row's
+    /// checkbox/label is shifted right by this so carets and content align across row kinds.</summary>
+    public const int CaretColumn = CaretSize + CaretGap;
+
     /// <summary>The indeterminate (mixed) minus bar inside a group checkbox, logical points (the
     /// Gmail/Material partial-selection mark).</summary>
     public const int MinusBarWidth = 8;
@@ -83,13 +95,26 @@ public static class SystemsPanelLayout
         return new Rectangle(content.X, content.Y + visibleIndex * row, content.Width, row);
     }
 
-    /// <summary>The checkbox square inside an entry row's line rectangle, vertically centered
-    /// and indented <paramref name="depth"/> tree levels.</summary>
+    /// <summary>The collapse/expand caret box inside a row, vertically centered and indented
+    /// <paramref name="depth"/> tree levels — it sits at the row's left edge, before the checkbox.
+    /// Rendered only for collapsible rows (section headers, pipeline groups, inspector components);
+    /// the column is reserved on every row so content aligns.</summary>
+    public static Rectangle CaretRect(Rectangle line, int depth = 0, float scale = 1f)
+    {
+        var size = Px(CaretSize, scale);
+        return new Rectangle(
+            line.X + depth * Px(IndentPerDepth, scale),
+            line.Y + (Px(RowHeight, scale) - size) / 2,
+            size, size);
+    }
+
+    /// <summary>The checkbox square inside an entry row's line rectangle, vertically centered,
+    /// indented <paramref name="depth"/> tree levels and shifted past the reserved caret column.</summary>
     public static Rectangle CheckboxRect(Rectangle line, int depth = 0, float scale = 1f)
     {
         var size = Px(CheckboxSize, scale);
         return new Rectangle(
-            line.X + depth * Px(IndentPerDepth, scale),
+            line.X + depth * Px(IndentPerDepth, scale) + Px(CaretColumn, scale),
             line.Y + (Px(RowHeight, scale) - size) / 2,
             size, size);
     }
@@ -105,13 +130,22 @@ public static class SystemsPanelLayout
             w, h);
     }
 
-    /// <summary>Top-left of an entry row's label (after the checkbox), vertically centered for
-    /// a label of <paramref name="labelHeight"/> px, indented <paramref name="depth"/> levels.</summary>
+    /// <summary>Top-left of an entry row's label (after the reserved caret column + the checkbox),
+    /// vertically centered for a label of <paramref name="labelHeight"/> px, indented
+    /// <paramref name="depth"/> levels — the pipeline-entry (checkbox-bearing) rows.</summary>
     public static Vector2 LabelPosition(Rectangle line, float labelHeight, int depth = 0, float scale = 1f) => new(
-        line.X + depth * Px(IndentPerDepth, scale) + Px(CheckboxSize, scale) + Px(CheckboxGap, scale),
+        line.X + depth * Px(IndentPerDepth, scale) + Px(CaretColumn, scale) + Px(CheckboxSize, scale) + Px(CheckboxGap, scale),
         line.Y + (Px(RowHeight, scale) - labelHeight) / 2f);
 
-    /// <summary>Top-left of a section header label (no checkbox indent).</summary>
+    /// <summary>Top-left of a label for a checkbox-less row (section header, scene entity, inspector
+    /// component/member) — after the reserved caret column, indented <paramref name="depth"/> levels.
+    /// A collapsible such row draws its caret in the caret column (<see cref="CaretRect"/>).</summary>
+    public static Vector2 ContentLabelPosition(Rectangle line, float labelHeight, int depth = 0, float scale = 1f) => new(
+        line.X + depth * Px(IndentPerDepth, scale) + Px(CaretColumn, scale),
+        line.Y + (Px(RowHeight, scale) - labelHeight) / 2f);
+
+    /// <summary>Top-left of a section sub-header label (UPDATE / DRAW inside SYSTEMS) — flush left,
+    /// no caret column.</summary>
     public static Vector2 HeaderPosition(Rectangle line, float labelHeight, float scale = 1f) => new(
         line.X, line.Y + (Px(RowHeight, scale) - labelHeight) / 2f);
 

@@ -228,10 +228,13 @@ public sealed class EditorOverlay
         ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction,
             (action, state) => action == EditorToolbarAction.Save
                                && SaveBlock(state, _projectContext) == SaveBlockReason.NoProjectRoot);
-        // The systems panel (Wave 8a) binds lazily to the pipelines the screen hands over via
-        // BindPipelines — they don't exist yet while the overlay itself is being constructed.
-        SystemsPanel = new SystemsPanelSystem(world, viewportManager, toolbarFont,
+        // The right-column panel (Wave 8a + this wave's collapsible sections / scene tree /
+        // inspector) binds lazily to the pipelines the screen hands over via BindPipelines — they
+        // don't exist yet while the overlay itself is being constructed. Kept concrete so the
+        // headless `panel:` ops can drive its sections/tree/inspector.
+        _systemsPanel = new SystemsPanelSystem(world, viewportManager, toolbarFont,
             () => (UpdatePipeline, DrawPipeline));
+        SystemsPanel = _systemsPanel;
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
@@ -330,6 +333,9 @@ public sealed class EditorOverlay
     // The concrete boundary tool: the toolbar dispatch (ToolBoundary) and the named boundary ops
     // call its Begin/Commit/Cancel directly.
     private readonly BoundaryToolSystem _boundaryTool;
+
+    // The concrete right-column panel: the headless `panel:` ops drive its sections/tree/inspector.
+    private readonly SystemsPanelSystem _systemsPanel;
 
     /// <summary>The freeform boundary tool (Edit-guarded; island-authoring §5.2): lays a polyline,
     /// Enter/double-click commits, Escape/right-click cancels. Weave into the UPDATE pipeline after
@@ -777,6 +783,37 @@ public sealed class EditorOverlay
         const string triggerPrefix = "trigger:";
         const string ghostPrefix = "ghost:";
         const string dialogPrefix = "dialog:";
+        const string panelPrefix = "panel:";
+
+        if (name.StartsWith(panelPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // panel:section:<systems|scene|inspector> | group:<fullName> | component:<typeFullName> | select:<label>
+            var rest = name.Substring(panelPrefix.Length);
+            var sep = rest.IndexOf(':');
+            var verb = sep < 0 ? rest : rest.Substring(0, sep);
+            var arg = sep < 0 ? string.Empty : rest.Substring(sep + 1);
+            switch (verb.ToLowerInvariant())
+            {
+                case "section":
+                    if (Enum.TryParse<PanelSection>(arg, ignoreCase: true, out var section))
+                        _systemsPanel.ToggleSection(section);
+                    else
+                        Logger.Warning($"[level-editor] Editor-op '{name}': expected panel:section:<systems|scene|inspector>.");
+                    break;
+                case "group": _systemsPanel.ToggleGroup(arg); break;
+                case "component": _systemsPanel.ToggleComponent(arg); break;
+                case "select":
+                    if (!_systemsPanel.SelectEntityByLabel(arg))
+                        Logger.Warning($"[level-editor] Editor-op '{name}': no scene entity labelled '{arg}'.");
+                    break;
+                default:
+                    Logger.Warning(
+                        $"[level-editor] Editor-op '{name}': expected " +
+                        "panel:section:<name>|group:<fullName>|component:<typeFullName>|select:<label>.");
+                    break;
+            }
+            return;
+        }
 
         if (name.StartsWith(dialogPrefix, StringComparison.OrdinalIgnoreCase))
         {

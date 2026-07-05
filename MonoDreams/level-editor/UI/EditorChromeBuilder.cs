@@ -67,6 +67,10 @@ public sealed class EditorChromeBuilder
     public static readonly Color CheckboxMixedMark = new(26, 26, 31);
     public static readonly Color HeaderLabelColor = new(150, 150, 162);
     public static readonly Color DisabledLabelColor = new(140, 140, 150);
+    /// <summary>The label color of the currently-selected entity's row in the SCENE tree — a bright
+    /// accent distinct from the plain white hover, so the selection reads at a glance (two-way with
+    /// <c>SelectedComponent</c>).</summary>
+    public static readonly Color SelectedLabelColor = new(120, 200, 255);
 
     // Depths within the Editor target: panels behind buttons/checkboxes behind labels.
     // Public so sibling chrome builders (the systems panel) stack onto the same bands.
