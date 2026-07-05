@@ -107,7 +107,27 @@ public sealed class SceneWriter(SceneSerializer serializer)
             return null;
         }
 
-        var scene = BuildScene(world, camera, layers);
+        return Save(BuildScene(world, camera, layers), filePath);
+    }
+
+    /// <summary>
+    /// Canonical-serializes an <b>already-built</b> <see cref="SceneData"/> and writes it to
+    /// <paramref name="filePath"/> in the project source tree (same guard + directory-create + write as
+    /// the world overload). This is the seam the editor uses so it can <b>lint the scene</b>
+    /// (<see cref="SceneLint"/>) before writing it, without building the scene twice. Returns the path
+    /// written, or <c>null</c> if it refused a null/empty path.
+    /// </summary>
+    public string? Save(SceneData scene, string? filePath)
+    {
+        if (string.IsNullOrEmpty(filePath))
+        {
+            Logger.Warning(
+                "[level-editor] Save refused: no destination path (the project root is unresolved, so " +
+                "there is nowhere versioned to write). This should have been blocked upstream by the " +
+                "save-guard; set MONODREAMS_PROJECT_ROOT in the run configuration.");
+            return null;
+        }
+
         var json = CanonicalJson.Serialize(scene);
 
         var directory = Path.GetDirectoryName(filePath);

@@ -20,6 +20,7 @@ using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoDreams.System.Cursor;
@@ -492,7 +493,14 @@ public sealed class EditorOverlay
                         return;
                 }
                 // Write into the versioned project SOURCE tree (PS3): ProjectRoot/LevelsDir/<id>.mdscene.
-                new SceneWriter(Serializer).Save(_world, SceneFilePath(_projectContext, _sceneId), _camera, _layers);
+                // Build once so the ship-readiness lint (PS6) can inspect the exact scene being written.
+                var writer = new SceneWriter(Serializer);
+                var scene = writer.BuildScene(_world, _camera, _layers);
+                WarnIfNotShipReady(scene);
+                var savedPath = writer.Save(scene, SceneFilePath(_projectContext, _sceneId));
+                // Zero-touch bundling (PS6): append the MGCB /copy: entry for a NEW level so it bundles
+                // to the title on the next build with no manual .mgcb edit (idempotent for existing ones).
+                if (savedPath != null) EnsureLevelBundled();
                 break;
             case EditorToolbarAction.Load:
                 // Reload the just-written source file directly (desktop file IO — no build round-trip).
@@ -536,6 +544,55 @@ public sealed class EditorOverlay
     {
         Palette?.Disarm();
         _boundaryTool.BeginBoundary();
+    }
+
+    /// <summary>
+    /// Ship-readiness lint on Save (PS6, nice-to-have surfacing): a scene is fully portable only when
+    /// it has ZERO <c>file:</c> AssetKeys (all graduated to content keys — see the ship-readiness
+    /// premise). When the scene being saved still references drop-folder art through the <c>file:</c>
+    /// scheme, log a loud warning naming the count + a sample key so the designer knows the level is
+    /// not yet shippable. Never blocks the save (a <c>file:</c> scene is valid to author + iterate on).
+    /// </summary>
+    private void WarnIfNotShipReady(SceneData scene)
+    {
+        var fileKeys = SceneLint.FindFileAssetKeys(scene);
+        if (fileKeys.Count == 0) return;
+        Logger.Warning(
+            $"[level-editor] Scene '{_sceneId}' is NOT ship-ready: {fileKeys.Count} file: asset key(s) " +
+            $"still reference the drop folder (e.g. '{fileKeys[0].AssetKey}'). Graduate them to MGCB " +
+            "content keys before shipping (a scene ships-clean when it has zero file: keys).");
+    }
+
+    /// <summary>
+    /// Zero-touch level bundling (PS6, banked decision 2 — editor-appends-copy-line): on Save, ensure
+    /// the content project's <c>Content.mgcb</c> carries a <c>/copy:</c> entry for the scene just
+    /// written, so a brand-new level bundles to the title (desktop + web) on the next build with no
+    /// manual MGCB editing. Idempotent — a no-op for a level whose entry already exists (every
+    /// committed level, and every re-save). Desktop-editor-only file IO through
+    /// <see cref="IPlatformServices"/>; only reached from Save, which is already gated on a resolved
+    /// project root (<see cref="SaveBlock"/>). See <see cref="MgcbLevelBundle"/>.
+    /// </summary>
+    private void EnsureLevelBundled()
+    {
+        var ctx = _projectContext;
+        if (ctx is not { Resolved: true } || string.IsNullOrEmpty(ctx.ProjectRoot)) return;
+
+        var mgcbPath = Path.Combine(ctx.ProjectRoot!, MgcbLevelBundle.McgbFileName);
+        if (!PlatformServices.Current.FileExists(mgcbPath))
+        {
+            Logger.Warning(
+                $"[level-editor] Zero-touch bundling skipped: no {MgcbLevelBundle.McgbFileName} at " +
+                $"'{mgcbPath}'. Add '{MgcbLevelBundle.CopyLine(_sceneId)}' by hand so '{_sceneId}' bundles to the title.");
+            return;
+        }
+
+        var updated = MgcbLevelBundle.EnsureCopyEntry(PlatformServices.Current.ReadAllText(mgcbPath), _sceneId, out var changed);
+        if (!changed) return;
+
+        PlatformServices.Current.WriteAllText(mgcbPath, updated);
+        Logger.Info(
+            $"[level-editor] Bundled new level '{_sceneId}': appended '{MgcbLevelBundle.CopyLine(_sceneId)}' to " +
+            $"{MgcbLevelBundle.McgbFileName}. Rebuild to copy it into the title content.");
     }
 
     /// <summary>
