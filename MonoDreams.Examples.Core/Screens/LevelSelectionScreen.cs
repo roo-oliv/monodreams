@@ -336,9 +336,15 @@ public class LevelSelectionScreen : IGameScreen
         {
             // The menu runs no keyboard mapping of its own; the editor needs its key surface
             // (Delete, Z/Y, Home) — composed only under the flag.
-            p.Add("editor.keys", new InputMappingSystem(_world), EditTimeBehavior.RunNormally);
+            var editorKeys = new InputMappingSystem(_world);
+            // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands
+            // down while a Save/Load dialog owns the keys; the mouse half is the dialog consuming the
+            // cursor edges.
+            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen;
+            p.Add("editor.keys", editorKeys, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
         }
         // The auto-layout solver is the menu's content placement (the level-parser analogue):
         // RunNormally, or booting straight into Edit would show an unlaid-out menu. Trade-off:

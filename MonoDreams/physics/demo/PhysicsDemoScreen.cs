@@ -620,6 +620,7 @@ public class PhysicsDemoScreen : IGameScreen
         {
             p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
         }
         p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
         {

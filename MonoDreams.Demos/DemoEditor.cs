@@ -78,6 +78,9 @@ public sealed class DemoEditor
                 var host = game();
                 if (host != null) host.IsMouseVisible = visible;
             });
+        // Modal capture (keyboard half): while a Save/Load dialog is open the editor keyboard stands
+        // down so the dialog owns the keys (the mouse half is the dialog consuming the cursor edges).
+        keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen;
         return new DemoEditor(keys, overlay);
     }
 }

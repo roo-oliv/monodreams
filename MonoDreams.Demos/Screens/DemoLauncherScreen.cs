@@ -208,6 +208,7 @@ public class DemoLauncherScreen : IGameScreen
             p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
         }
         // The auto-layout solver is the menu's content placement: RunNormally, or booting
         // straight into Edit would show an unlaid-out menu.

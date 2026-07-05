@@ -123,7 +123,8 @@ public class InfiniteRunnerScreen : IGameScreen
         var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
         if (debugInspector != null)
         {
-            _inputMappingSystem.ShouldSuppressInput = () => debugInspector.WantsKeyboard;
+            _inputMappingSystem.ShouldSuppressInput = () =>
+                debugInspector.WantsKeyboard || (_editor != null && _editor.Dialog.IsOpen);
         }
 #endif
 
@@ -289,6 +290,11 @@ public class InfiniteRunnerScreen : IGameScreen
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
+        // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands down
+        // while a Save/Load dialog owns the keys (the closure reads the field lazily; _editor is set
+        // just below when the editor is composed). The mouse half is the dialog consuming the cursor
+        // edges. A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
+        inputMappingSystem.ShouldSuppressInput = () => _editor != null && _editor.Dialog.IsOpen;
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -367,6 +373,7 @@ public class InfiniteRunnerScreen : IGameScreen
             // world/virtual projection later (after camera-nav).
             p.Add("editor.cursorInput", _editor.CursorInput, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
         }
         // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
         // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every

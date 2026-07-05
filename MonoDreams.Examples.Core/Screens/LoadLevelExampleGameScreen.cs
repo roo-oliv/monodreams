@@ -145,7 +145,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
         if (debugInspector != null)
         {
-            _inputMappingSystem.ShouldSuppressInput = () => debugInspector.WantsKeyboard;
+            _inputMappingSystem.ShouldSuppressInput = () =>
+                debugInspector.WantsKeyboard || (_editor != null && _editor.Dialog.IsOpen);
         }
 #endif
 
@@ -190,6 +191,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
+        // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands down
+        // while a Save/Load dialog owns the keys (the closure reads the field lazily; _editor is set
+        // below when the editor is composed). The mouse half is the dialog consuming the cursor edges.
+        // A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
+        inputMappingSystem.ShouldSuppressInput = () => _editor != null && _editor.Dialog.IsOpen;
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -504,6 +510,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             // Native-scene loading (LoadSceneRequest) — with the level-load group, message-driven.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
             // Boundary bake — reacts to a BoundaryComponent being added/changed (the tool's commit,
             // a scene load, a vertex edit) and generates the segment colliders. RunNormally: a
             // shipped game loading a native scene with a boundary must bake it too (§S2).
