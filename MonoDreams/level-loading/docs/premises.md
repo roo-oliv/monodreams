@@ -68,17 +68,28 @@ boots the committed `Levels/sample.mdscene` native),
 **Depends on:** level-editor — "The game boots native scenes native-first via
 LoadLevelRequest".
 
-## Native `.mdscene` levels are bundled by an MGCB `/copy:` glob and read via `TitleContainer`
+## Native `.mdscene` levels are bundled by an MGCB `/copy:` entry and read via `TitleContainer`
 
 Native scene files live in the source content tree at `Content/Levels/<id>.mdscene`
 (versioned in git). They are bundled to the title content by an MGCB `/copy:` entry
-(the same raw-copy mechanism as `blender_level.json` / `game.mdproj`), authored in
-`Content.npl` as a `Levels/*.mdscene` copy group and materialized in `Content.mgcb`;
-on build each file lands at `<ContentRoot>/Levels/<id>.mdscene` (verified: desktop
+(the same raw-copy mechanism as `blender_level.json` / `game.mdproj`); on build each
+file lands at `<ContentRoot>/Levels/<id>.mdscene` (verified: desktop
 `bin/…/Content/Levels/`; web `wwwroot/Content/Levels/`). The shipped game reads them
 read-only through `TitleContainer.OpenStream(Path.Combine(ContentRoot, "Levels",
 id + ".mdscene"))` — console-portable, never `System.IO.File`. Only the desktop
 editor writes scenes (file IO into the source tree, PS3).
+
+**Zero-touch for new levels (PS6).** MGCB's `.mgcb` is an explicit list with **no glob
+syntax**, so a new level's `/copy:` line is added WITHOUT a human: on first Save the
+editor appends it (see level-editor — "New levels bundle zero-touch: the editor appends
+the MGCB `/copy:` entry on first save"; idempotent, desktop-editor-only). A build-time
+`Content.npl` Nopipeline regen was rejected — a full regen sweeps the gitignored Island
+placeholder-art pack into the MGCB texture build (the recursive `*.png` group) and breaks
+a fresh checkout — so the `.npl` `Levels/*.mdscene` copy group is a **declarative record
+only** here (Nopipeline is not wired to regenerate this project's hand-maintained `.mgcb`).
+The `/copy:` entry is the one all-platform mechanism (a raw-copy `<None>`/`.targets` reaches
+the desktop output but not the web `wwwroot/Content/`), so there is exactly one bundling
+mechanism and no double-copy.
 
 **Why:** `TitleContainer` over `/copy:`-bundled data is the one read path that works
 on DesktopGL, KNI/web, AND consoles (Switch/PS/Xbox sandbox arbitrary file IO). A
@@ -91,8 +102,11 @@ placed outside the bundled content root (or not `/copy:`-listed) is invisible to
 `MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the boot fails unless the
 sample is bundled where `TitleContainer` finds it),
 `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::CommittedSampleScene_MatchesTheCanonicalShape`
-(the committed sample stays byte-locked to the canonical serializer).
-**Depends on:** —
+(the committed sample stays byte-locked to the canonical serializer),
+`MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs::CommittedMgcb_HasACopyEntry_ForEveryCommittedLevel`
+(every committed level is `/copy:`-listed, so the bundling config is correct).
+**Depends on:** level-editor — "New levels bundle zero-touch: the editor appends the MGCB
+`/copy:` entry on first save".
 
 ## `CurrentLevelComponent` is a world-scoped singleton
 

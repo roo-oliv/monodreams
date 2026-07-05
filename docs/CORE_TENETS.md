@@ -555,6 +555,29 @@ both-modes master switch; group = cascade over its descendant leaves), so
 the per-system edit-mode declaration is visible and adjustable while the
 game runs.
 
+**Editing produces versioned, portable, diffable levels — the persistence
+story.** A level the editor authors is saved as a native `.mdscene` **into
+the game's SOURCE content tree** (`Content/Levels/<id>.mdscene`), versioned
+in git — not into the ephemeral build output. Writing is a **desktop-dev-only**
+capability (guarded by the editor run flag + an OS check + a resolved project
+root, resolved via `MONODREAMS_PROJECT_ROOT` or a walk-up to the `game.mdproj`
+manifest; unresolved disables Save loudly, never crashes); **reading is
+console-portable** — the shipped game boots a level read-only through
+`TitleContainer` over MGCB-`/copy:`-bundled files on every platform (desktop,
+web, consoles), native-first via `LoadLevelRequest` (§6), so straying from
+MGCB never costs console support. The serializer is **canonical and
+byte-stable** (deterministic bytes, stable per-entity ids ordering
+`entities[]`), so `load → edit → save` is a fixed point and a git diff of a
+level is meaningful. A **`game.mdproj` manifest** makes "a MonoDreams project"
+a versionable unit (entry scene, levels dir, asset roots). A new level bundles
+**zero-touch** — the editor appends the MGCB `/copy:` entry on first save
+(MGCB has no glob; a build-time regen would sweep gitignored placeholder art),
+so it boots after a normal build with no manual `.mgcb` editing. And a scene is
+**ship-ready** (fully portable) exactly when it has **zero `file:` AssetKeys** —
+a checkable lint (all drop-folder art graduated to MGCB content keys); the
+committed reference levels are asserted ship-clean. The invariants live in the
+`level-editor` and `level-loading` premises.
+
 ### Aspirational direction
 
 The reserved `RunPartial` / `RuntimeEditable` policies are placeholders

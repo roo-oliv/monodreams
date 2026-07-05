@@ -9,12 +9,16 @@
 > never `LoadLevelRequest` (which is LDtk-coupled — see
 > [`level-loading` premises](../../level-loading/docs/premises.md)).
 
-**Status (Wave 2):** the format and its in-memory model
-([`Serialization/SceneData.cs`](../Serialization/SceneData.cs)) and the
+**Status (persistence phase complete):** the format, its in-memory model
+([`Serialization/SceneData.cs`](../Serialization/SceneData.cs)), the
 component-serializer registry that fills it
-([`Serialization/ComponentSerializerRegistry.cs`](../Serialization/ComponentSerializerRegistry.cs))
-are live. The file writer/reader and the `LoadSceneRequest` message land in
-Wave 3; the parametric `sources[]` waves (D–F) land later still. The schema is
+([`Serialization/ComponentSerializerRegistry.cs`](../Serialization/ComponentSerializerRegistry.cs)),
+the file writer/reader (`SceneWriter` + `LoadSceneRequest` + `SceneReaderSystem`),
+the **canonical byte-stable serializer** with **stable per-entity ids** (PS1),
+the **`game.mdproj` manifest** (PS2), **save into the versioned source tree**
+(PS3), **native-first boot via `LoadLevelRequest` + `/copy:` bundling** (PS4),
+**LDtk/Blender import-only** (PS5), and the **ship-readiness lint** (PS6) are all
+live. The parametric `sources[]` waves (D–F) land later still; the schema is
 designed forward-stable so those waves extend it without a breaking version bump.
 
 Serialization is **System.Text.Json**, consistent with `BlenderLevelData`, and
@@ -112,6 +116,32 @@ the region's `source` rectangle is serialized on the sprite itself, so the scene
 survives sidecar changes. `file:` keys are the editor's fast authoring loop; when
 art finalizes they graduate to plain content keys (see the "`file:` AssetKeys…"
 premise in [`premises.md`](premises.md)).
+
+### Ship-readiness (zero `file:` keys)
+
+A scene is **"ship-ready / fully portable"** exactly when it has **zero `file:`
+AssetKeys** — every asset reference has graduated to an MGCB content key
+(processed, shipped, web-ready). A `file:` key resolves to a magenta placeholder
+on a fresh checkout or on web (there is no directory scan there), so this is the
+checkable definition of "this committed level is portable". `SceneLint`
+([`Serialization/SceneLint.cs`](../Serialization/SceneLint.cs)) is the pure
+analyzer — `SceneLint.IsShipReady(scene)` / `FindFileAssetKeys(scene)` — used
+three ways: a loud warning on Save when the scene still has `file:` keys (never
+blocking), a test that asserts the committed `Content/Levels/**` scenes are
+ship-clean, and the plain predicate for any tool. The committed reference levels
+(`Blender_Level` / `sample`) use only content-key AssetKeys.
+
+### Bundling (how a scene reaches the shipped game)
+
+A committed `.mdscene` is bundled to the title content by an MGCB `/copy:` entry
+in `Content.mgcb` (raw copy, like `blender_level.json` / `game.mdproj`) and read
+back read-only through `TitleContainer` on every platform (console-portable). A
+**new** level is bundled **zero-touch**: on first Save the editor appends the
+`/copy:` entry to `Content.mgcb` (MGCB has no glob syntax; a build-time Nopipeline
+regen was rejected because it sweeps the gitignored placeholder-art pack into the
+texture build). One mechanism, no double-copy. See the level-editor "New levels
+bundle zero-touch…" and level-loading "Native `.mdscene` levels are bundled by an
+MGCB `/copy:` entry…" premises.
 
 ## Canonical serialization
 

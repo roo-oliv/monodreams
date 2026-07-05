@@ -343,6 +343,12 @@ the same commit; headless-drivable where it touches interaction.
    round-trip incl. missing-file behavior; placement creates the standard stack
    with correct SOURCE sort fields per band; ghost lifecycle; headless op-plan
    place. **Outcome: you can dress the island visually, save it, reload it.**
+   (**Save is real now** — the project-persistence phase (PS1–PS6, see
+   [`project-persistence-plan.md`](project-persistence-plan.md)) landed the mechanism this "save it"
+   rides: Save writes a canonical, byte-stable `.mdscene` into the versioned SOURCE tree
+   `Content/Levels/<id>.mdscene`, appends the MGCB `/copy:` entry so the level bundles zero-touch, and
+   the game boots it native-first via `LoadLevelRequest`. When the island's art finalizes, graduate its
+   `file:` keys to content keys so the scene is ship-clean — zero `file:` keys, the ship-readiness lint.)
 2. **Order and shape.** Bring-forward/send-back command + proxy `(kind,index)`
    generalization + box **resize** handles + **add/remove collider** actions with
    footprint defaults. *Tests:* ordering undoable + persists; existing ProxyTests

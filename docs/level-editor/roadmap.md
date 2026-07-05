@@ -389,6 +389,32 @@ component every frame, writing back through `ColliderEditCommand` + the undo his
 collision-runtime cost (proxies exist only while selected in Edit), zero data-model migration —
 the trade is a thin editor-side indirection layer, which is exactly what this RFC would delete.
 
+## Project persistence phase (PS1–PS6) — complete
+
+Ran orthogonally to Waves A–F (it hardens *how* levels are saved/versioned/booted, not *which*
+tools produce them). See [`project-persistence-plan.md`](project-persistence-plan.md) for the full
+story. **Done:** PS1 canonical byte-stable serializer + stable scene-local ids; PS2 `game.mdproj`
+manifest + `EditorProjectContext` (env/walk-up project-root resolution, fail-safe); PS3 Save writes
+versioned `.mdscene` into the SOURCE tree; PS4 native-first `LoadLevelRequest` + `/copy:` bundling +
+`startScene` boot; PS5 LDtk/Blender import-only + `Blender_Level` migrated + parser-asymmetry closed;
+PS6 ship-readiness lint (`SceneLint` — zero `file:` keys) + **zero-touch bundling** (the editor
+appends the MGCB `/copy:` entry on first save; `MgcbLevelBundle`) + docs consolidation.
+
+**Deferred (with triggers):**
+- **Native tile-layer batching primitive → migrate LDtk `Level_0`.** `Level_0`'s ~21k per-tile
+  entities would make a per-entity `.mdscene` a multi-MB artifact; it needs a compact tile-layer
+  representation first. Until then it stays import-only and off the reference menu. *Trigger:* a
+  native scene needs a large tile grid (or `Level_0` must ship native).
+- **Full NPC dialogue-affordance round-trip.** The migrated levels degrade runtime-derived
+  affordances that hold live handles — `NPCInteractionIcon` (a live `Entity` ref) and the icon's
+  `DynamicTextComponent` (a live font) are excluded, not serialized. *Trigger:* entity-reference
+  serialization (index-based, like the `parent` link) + font asset keys land.
+- **Scene-name / rename / new-scene UI.** The editor holds one id (manifest `startScene` / `untitled`);
+  there is no in-editor rename or multi-level browser. *Trigger:* more than a couple of levels exist,
+  or the designer needs to name/switch levels in-editor.
+- **Cross-scene references / multi-level graph.** v1 persists + boots single scenes by id; an Exit
+  trigger's string identity is the seam. *Trigger:* the first door between two levels.
+
 ## Cross-wave invariants (the things that must keep holding)
 
 - **C1/C2 never break.** No wave introduces a parallel renderer or a second scene model.

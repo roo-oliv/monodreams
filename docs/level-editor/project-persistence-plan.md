@@ -1,15 +1,22 @@
 # Project persistence & versioning — saving MonoDreams levels/projects
 
-> **Status: PROPOSAL for review, 2026-07-04.** How a MonoDreams game **saves and
-> versions its levels/project** — the gap behind "there is still no save
-> mechanism." What exists today (`SceneWriter` + `LoadSceneRequest` +
-> `SceneReaderSystem`) is a working scene *serializer*; this plan turns it into a
-> project *persistence system*: versioned files in the source tree, loadable as
-> the game's real levels, portable to every MonoGame target, and diffable in git.
+> **Status: IMPLEMENTED (PS1–PS6 complete), 2026-07-05.** All six slices landed on
+> branch `feat/level-editor` (PR #31). The gap behind "there is still no save
+> mechanism" is closed: the editor now saves canonical, byte-stable, versioned
+> `.mdscene` files into the game's SOURCE content tree, they bundle to the title
+> zero-touch and boot native-first via `LoadLevelRequest` on every MonoGame target
+> (console-portable through `TitleContainer`), and a scene's diff is meaningful in git.
+> **Deviations from this plan (see the slice statuses in §10 + §11):** (1) the §3
+> bundling glob proved **unworkable** in this toolchain — a full `Content.npl`
+> Nopipeline regen sweeps the gitignored placeholder-art pack into the MGCB build — so
+> the **fallback was adopted: the editor appends the `/copy:` line on first save**
+> (banked decision 2's sanctioned fallback); (2) the LDtk `Level_0` is **not** migrated
+> (its ~21k per-tile entities need a native tile-layer batching primitive first — §11);
+> the Examples Blender level is fully migrated and proves the mechanism.
 >
-> Decisions already made by the gamedev (banked): **native-first** — the native
-> `.mdscene` becomes the game's real level format (`LoadLevelRequest` boots it;
-> LDtk/Blender become import-only); **a minimal project manifest** makes "a
+> Decisions already made by the gamedev (banked, all applied): **native-first** — the
+> native `.mdscene` is the game's real level format (`LoadLevelRequest` boots it;
+> LDtk/Blender are import-only); **a minimal project manifest** (`game.mdproj`) makes "a
 > MonoDreams project" a first-class versionable unit; **file-IO-leaning** for the
 > write path, with the explicit concern *"what do I lose straying from MGCB,
 > especially for console (Switch/PS/Xbox) portability?"* — resolved in §1.
@@ -109,12 +116,17 @@ desktop editor writes, via file IO into the source tree.*
   (the game's content project, beside the other content). Committed to git — this
   is the versioned unit.
 - **Bundling for the game to read:** an MGCB `/copy:` per level (like
-  `blender_level.json`), ideally emitted by an **MSBuild/MGCB glob** over
-  `Content/Levels/**/*.mdscene` (open decision 2) so adding a level is zero-touch.
-  On build, MGCB copies each `.mdscene` into the title content root on every
-  platform; the game reads it via `TitleContainer.OpenStream(Path.Combine(
-  Content.RootDirectory, "Levels", id + ".mdscene"))` — the same shape as the
-  Blender read.
+  `blender_level.json`). **Implemented via the editor appending the `/copy:` line on
+  first save** (`MgcbLevelBundle`, PS6) — the glob approach from open decision 2 proved
+  **unworkable** here: a full `Content.npl` Nopipeline regen sweeps the gitignored Island
+  placeholder-art pack into the MGCB texture build (via the recursive `*.png` group),
+  breaking a fresh checkout, and a raw-copy `.targets`/`<None>` can't reach the web
+  `wwwroot/Content/`. So the editor — the sole creator of new levels, already writing the
+  `.mdscene` into source — appends the `/copy:` entry (idempotent; desktop-only), keeping
+  exactly one mechanism (the console-portable `/copy:` path) with no double-copy. On build,
+  MGCB copies each `.mdscene` into the title content root on every platform; the game reads
+  it via `TitleContainer.OpenStream(Path.Combine(Content.RootDirectory, "Levels",
+  id + ".mdscene"))` — the same shape as the Blender read.
 - **Determinism (§ shared with the serializer):** replace the ad-hoc
   `JsonSerializerOptions { WriteIndented = true }` with a **canonical writer**:
   stable property order, `CultureInfo.InvariantCulture` round-trippable floats
@@ -247,35 +259,38 @@ one-entity move a one-line diff instead of a reshuffle.
 
 ---
 
-## 10. Slice plan (dependency-ordered; tests per slice)
+## 10. Slice plan (dependency-ordered; tests per slice) — ALL DONE
 
-1. **Canonical serializer + stable ids + byte-stable fixed-point test.** Replace
-   `JsonSerializerOptions`; add stable scene-local ids + deterministic ordering.
-   *Tests:* serialize twice = identical bytes; load→save = source bytes; a moved
-   entity = a minimal diff. (No new feature surface — hardens what exists.)
-2. **`game.mdproj` manifest + `EditorProjectContext` + project-root resolution.**
-   Manifest model + canonical read/write; env-var + walk-up resolution; the
-   save-guard gains the "no project root" disabled cause. *Tests:* manifest
-   round-trip; root resolution (env, walk-up, fail→disable); pure, no window.
-3. **Editor writes to the source tree.** Repoint Save from `BaseDirectory` to
-   `ProjectRoot/LevelsDir/<id>.mdscene`; scene id/name in the toolbar (name the
-   scene, not a fixed `editor_scene.json`); in-editor reload reads source directly.
-   *Tests:* Save writes the resolved source path; disabled when unresolved;
-   load-from-source reload.
-4. **Native-first `LoadLevelRequest` + bundling glob.** Generalize the native
-   reader onto `LoadLevelRequest`; TitleContainer resolution `Levels/<id>.mdscene`;
-   the MGCB/MSBuild `/copy:` glob for `Content/Levels/**`. Manifest `startScene`
-   drives boot. *Tests:* `LoadLevelRequest(id)` loads a bundled native scene
-   (in-process over the real reader); boot resolves `startScene`; a `GameTestRunner`
-   headless boot of a committed native scene renders non-blank.
-5. **LDtk/Blender import-only + Examples migration.** Import action → `.mdscene`;
-   migrate the Examples levels; native-first fallback removed. *Tests:* import
-   produces an equivalent native scene; migrated Examples levels boot native.
-6. **Ship-readiness lint + docs.** The "zero `file:` keys = portable" check; premises
-   (canonical/byte-stable, TitleContainer-read/desktop-write, native-first,
-   manifest, stable-id); update CORE_TENETS §9, flow doc, `scene-format.md`, the
-   island plan's "Save" references, and record the parser-asymmetry backlog as
-   resolved.
+1. **[DONE] Canonical serializer + stable ids + byte-stable fixed-point test.** Replaced
+   `JsonSerializerOptions` with `CanonicalJson`; added stable scene-local ids
+   (`SceneEntityIdComponent`) + deterministic ordering.
+   *Tests:* `SceneCanonicalSerializationTests` (serialize twice = identical bytes; load→save = source
+   bytes; a moved entity = a minimal diff).
+2. **[DONE] `game.mdproj` manifest + `EditorProjectContext` + project-root resolution.**
+   `GameProject` model + canonical read/write; env-var + walk-up resolution; the
+   save-guard gained the "no project root" disabled cause.
+   *Tests:* `GameProjectTests`, `EditorProjectContextTests` (env, walk-up, fail→disable; pure, no window).
+3. **[DONE] Editor writes to the source tree.** Repointed Save from `BaseDirectory` to
+   `ProjectRoot/LevelsDir/<id>.mdscene`; scene id from the manifest (not a fixed
+   `editor_scene.json`); in-editor reload reads source directly. (A rename UI is deferred — §11.)
+   *Tests:* `SceneSourceWriteTests`.
+4. **[DONE] Native-first `LoadLevelRequest` + `/copy:` bundling.** Generalized the native
+   reader onto `LoadLevelRequest`; TitleContainer resolution `Levels/<id>.mdscene`; the MGCB
+   `/copy:` entry for the levels. Manifest `startScene` drives boot.
+   *Tests:* `NativeFirstLoadTests`, `ManifestBootTests`, `NativeSceneBootTests` (a headless boot of a
+   committed native scene).
+5. **[DONE] LDtk/Blender import-only + Examples migration.** Import op → `.mdscene`; migrated
+   `Blender_Level`; native-first fallback removed; parser-asymmetry closed. (`Level_0` deferred — §11.)
+   *Tests:* `LevelImporterTests`, `MigratedLevelTests`, converted `BlenderLevelTests`/`LDtkLevelTests`.
+6. **[DONE] Ship-readiness lint + zero-touch bundling + docs.** The "zero `file:` keys = portable"
+   check (`SceneLint`); **zero-touch bundling via the editor appending the MGCB `/copy:` entry on
+   first save** (`MgcbLevelBundle` — the §3 glob's sanctioned fallback, adopted because a full
+   Nopipeline regen sweeps the gitignored placeholder pack into MGCB); premises (ship-readiness +
+   zero-touch bundling), CORE_TENETS §9 persistence paragraph, flow doc, `scene-format.md`, the island
+   plan's "Save" references, the roadmap deferred list; the parser-asymmetry backlog was recorded
+   resolved in PS5.
+   *Tests:* `SceneLintTests` (pure lint + committed scenes ship-clean), `MgcbLevelBundleTests` (pure
+   append + committed mgcb has a `/copy:` entry per level).
 
 ---
 
@@ -283,11 +298,15 @@ one-entity move a one-line diff instead of a reshuffle.
 
 | Deferred | Revisit when |
 |---|---|
+| **Native tile-layer batching primitive → migrate LDtk `Level_0`** | A native scene needs a large tile grid (or `Level_0` must ship native) — its ~21k per-tile entities would make a per-entity `.mdscene` a multi-MB artifact (deferred by PS5; documented in CORE_TENETS §6/§10) |
+| **Full NPC dialogue-affordance round-trip** | Entity-reference serialization (index-based, like `parent`) + font asset keys land — today `NPCInteractionIcon` (live `Entity` ref) + the icon's `DynamicTextComponent` (live font) are excluded, not serialized (PS5) |
+| **Scene-name / rename / new-scene UI** | More than a couple of levels exist, or the designer needs to name/switch levels in-editor (the editor holds one id: manifest `startScene` / `untitled`) |
 | Cross-scene references / multi-level graph | The first door between two levels (§0.5) |
 | Prefab semantics (edit-propagates) | Repeated identical-building edits (needs the stable ids from §9) |
 | In-editor "open/switch level" browser UI | More than a couple of levels exist |
 | Browser-download of scenes on web | Anyone wants to author on web (unlikely) |
 | Full MGCB *processor* for `.mdscene` (vs `/copy:`) | A scene needs build-time transformation (not foreseen — data doesn't) |
+| Build-time zero-touch bundling glob (vs editor-append) | The `Content.npl`/`.mgcb` texture handling is restructured so a Nopipeline regen no longer sweeps the gitignored placeholder pack (PS6 adopted the editor-append fallback) |
 | Merge tooling for scene conflicts | Team authoring / frequent scene merge pain |
 
 ## See also

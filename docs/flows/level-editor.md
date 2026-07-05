@@ -168,8 +168,11 @@ pipeline):
    scene and Save is off when there is nowhere versioned to write; when it does fire, Save writes
    `<ProjectContext.LevelsPath>/<sceneId>.mdscene` into the versioned SOURCE tree via
    `IPlatformServices.WriteAllText` (PS3 — git-visible, not `bin/…`; the scene id defaults from the
-   manifest's `startScene`, else `untitled`) and Load reads that same source file back directly
-   (`LoadSceneRequest`, `fromContent: false`) for an instant reload; Save also dims for the
+   manifest's `startScene`, else `untitled`), then (PS6) **appends the MGCB `/copy:` entry** for a
+   new level to `Content.mgcb` so it bundles zero-touch on the next build (`MgcbLevelBundle`,
+   idempotent), and logs a **ship-readiness warning** if the scene still has `file:` AssetKeys
+   (`SceneLint` — a scene ships-clean only with zero `file:` keys); Load reads that same source file
+   back directly (`LoadSceneRequest`, `fromContent: false`) for an instant reload; Save also dims for the
    no-project-root cause while Paused; a transform-tool button also disarms the palette (the tool radio over
    `EditorToolMode`) — the two
    are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`

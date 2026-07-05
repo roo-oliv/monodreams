@@ -1135,7 +1135,7 @@ not-yet-committed level would send the game into a failing LDtk load instead of 
 `MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the real headless game boots the committed
 sample).
 **Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails
-loud otherwise)"; "Native `.mdscene` levels are bundled by an MGCB `/copy:` glob and read via
+loud otherwise)"; "Native `.mdscene` levels are bundled by an MGCB `/copy:` entry and read via
 `TitleContainer`"; this file — "Scene round-trip reconstructs from registered components, not factories";
 "The project manifest anchors the editor's project root; unresolved is fail-safe".
 
@@ -1466,6 +1466,75 @@ makes a scene load in one composition and throw in the other.
 `MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs` (the committed scene boots through the shipped
 registry).
 **Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories".
+
+## A scene is ship-ready iff it has zero `file:` AssetKeys
+
+A native scene is **"ship-ready / fully portable"** exactly when it carries **zero `file:`
+AssetKeys** — every asset reference has graduated from the editor's drop-folder `file:` scheme
+(loaded at runtime from the gitignored asset folder, desktop-editor-first) to an MGCB **content
+key** (processed, shipped, web-ready). A `file:` key resolves to a magenta placeholder on a fresh
+checkout or on web (no directory scan there), so "zero `file:` keys" is the checkable invariant for
+"this committed level is portable". `SceneLint` (`Serialization/SceneLint.cs`) is the pure analyzer:
+`FindFileAssetKeys(scene)` walks every entity's serialized component bodies for any JSON string using
+the `FileAssetKey.Prefix` scheme (so it catches today's `SpriteInfoComponent.AssetKey` and any future
+file-scheme reference without enumerating component types), and `IsShipReady` is the zero-findings
+predicate. The editor logs a **loud warning on Save** when the scene being written still has `file:`
+keys (never blocking — a `file:` scene is valid to author + iterate on); the committed
+`Content/Levels/**` scenes are asserted ship-clean by a test (`Blender_Level` / `sample` use only
+content-key AssetKeys — PS5).
+
+**Why:** a versioned scene that references unversioned/gitignored drop-folder art breaks on a fresh
+checkout and on web — the graduation to content keys is the exit, and "zero `file:` keys" is the
+one-line, greppable, testable definition of "done" for shipping a level (project-persistence plan §7).
+**Breaks:** a scene shipped (or committed as a reference level) with `file:` keys loads magenta
+placeholders for anyone without the exact drop folder — silent-looking data loss on someone else's
+machine; without a checkable predicate the graduation step is easy to forget.
+**Tests:** `MonoDreams.Tests/LevelEditor/SceneLintTests.cs`
+(`FindFileAssetKeys_FlagsTheFileScheme_WithEntityAndComponentContext`,
+`IsShipReady_TrueForContentKeyOnly_FalseForAnyFileKey`, `FindFileAssetKeys_EmptyOrNullScene_IsShipReady`,
+`FindFileAssetKeys_ScansNestedArraysAndObjects`, and
+`AllCommittedExamplesLevels_AreShipClean_ZeroFileKeys` — the committed levels carry no `file:` keys).
+**Depends on:** this file — "`file:` AssetKeys load drop-folder art at runtime and graduate to content
+keys at ship" (the scheme this lint counts); "`SpriteInfoComponent` serializes an `AssetKey`, never the
+live `Texture2D`".
+
+## New levels bundle zero-touch: the editor appends the MGCB `/copy:` entry on first save
+
+A brand-new saved `Content/Levels/<id>.mdscene` must be bootable after a normal build with **no
+manual `.mgcb` editing** (project-persistence plan §3, banked decision 2). The shipped game reads
+bundled scenes read-only via `TitleContainer` over MGCB-`/copy:`-bundled files (the one all-platform
+read path — desktop `bin/…/Content/Levels/` AND web `wwwroot/Content/Levels/`), but `.mgcb` is an
+explicit list with **no glob syntax**. So the editor — the sole creator of new levels, already
+writing the `.mdscene` into the source tree (PS3) — on Save also **appends the `/copy:` entry** for
+that level to the content project's `Content.mgcb` (`ProjectRoot/Content.mgcb`) if it is missing.
+The append is a pure text transform (`MgcbLevelBundle.EnsureCopyEntry`, **idempotent** — a no-op for
+a level whose entry already exists, so there is never a double-copy and no reshuffle), done through
+`IPlatformServices` on the desktop-editor path only (Save is already gated on a resolved project root,
+and the web project context is null → Save disabled → no append). **Exactly one mechanism** bundles
+every level: the MGCB `/copy:` entry (committed levels' lines were hand-added once; new levels' lines
+are editor-appended).
+
+**Why not a build-time glob:** a full `Content.npl` Nopipeline regen of the hand-maintained
+`Content.mgcb` sweeps the **gitignored Island placeholder-art pack** into the MGCB texture build (via
+the recursive `*.png` group — empirically ~800 entries), breaking a fresh checkout where those files
+are absent; and a raw-copy MSBuild `<None>`/`.targets` reaches the desktop output but **not** the web
+`wwwroot/Content/` (only the KNI content builder stages there, via the `.mgcb`). The `/copy:` path is
+the validated, console-portable, all-platform mechanism; the editor appends its line because the
+editor is where the level is born and already edits dev files. The `.npl` `Levels/*.mdscene` copy
+group is a **declarative record only** here (Nopipeline is not wired to regenerate this project's
+hand-maintained `.mgcb`).
+**Breaks:** a new level saved but not `/copy:`-listed is invisible to `TitleContainer` at runtime and
+the game fails to boot it; a non-idempotent append double-copies (or churns) on every re-save; running
+the append on web (no source tree) or when the project is unresolved would write to nowhere.
+**Tests:** `MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs`
+(`EnsureCopyEntry_AppendsBlock_WhenAbsent`, `EnsureCopyEntry_Idempotent_WhenAlreadyPresent`,
+`EnsureCopyEntry_DistinguishesSimilarIds_WholeLineMatch`, `EnsureCopyEntry_HandlesMissingTrailingNewline`,
+`CopyLine_MatchesTheContentRelativeFormat`, and
+`CommittedMgcb_HasACopyEntry_ForEveryCommittedLevel` — every committed level is already `/copy:`-listed).
+**Depends on:** level-loading — "Native `.mdscene` levels are bundled by an MGCB `/copy:` entry and read
+via `TitleContainer`" (the read side this feeds); this file — "The editor Save writes versioned
+`.mdscene` into the project source tree" (the same Save that appends the entry); foundation —
+`IPlatformServices` (`FileExists`/`ReadAllText`/`WriteAllText`).
 
 ## See also
 
