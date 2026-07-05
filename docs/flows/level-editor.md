@@ -162,7 +162,11 @@ pipeline):
    own dispatch (`EditorOverlay.SaveBlock`, two distinguishable causes): a Save arriving while
    Playing OR while the `EditorProjectContext` is unresolved (no `game.mdproj` root) through ANY
    path (headless op, programmatic) is a loud no-op, so mid-simulation state is never baked into a
-   scene and Save is off when there is nowhere versioned to write; Save also dims for the
+   scene and Save is off when there is nowhere versioned to write; when it does fire, Save writes
+   `<ProjectContext.LevelsPath>/<sceneId>.mdscene` into the versioned SOURCE tree via
+   `IPlatformServices.WriteAllText` (PS3 — git-visible, not `bin/…`; the scene id defaults from the
+   manifest's `startScene`, else `untitled`) and Load reads that same source file back directly
+   (`LoadSceneRequest`, `fromContent: false`) for an instant reload; Save also dims for the
    no-project-root cause while Paused; a transform-tool button also disarms the palette (the tool radio over
    `EditorToolMode`) — the two
    are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`

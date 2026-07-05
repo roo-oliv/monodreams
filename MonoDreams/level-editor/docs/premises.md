@@ -132,8 +132,10 @@ orbiting orbs) round-trips with its parent graph intact even though only the roo
 Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar) are
 untagged → excluded; Blender-origin entities are untagged in this wave (their save is deferred) →
 view-only. `SceneWriter` computes the closure, serializes it through the Wave-2 `SceneSerializer`
-into a `SceneData` (attaching the active `Camera` state and the `DrawLayerMap` banding), and exports
-the JSON through `IPlatformServices.ExportScene` (desktop file / web download). Loading is a
+into a `SceneData` (attaching the active `Camera` state and the `DrawLayerMap` banding), and writes
+the canonical JSON through `IPlatformServices.WriteAllText` into the versioned project source tree
+(`ProjectRoot/LevelsDir/<sceneId>.mdscene` — PS3; see "The editor Save writes versioned `.mdscene`
+into the project source tree"). Loading is a
 **dedicated `LoadSceneRequest`** message — separate from `LoadLevelRequest` so it never triggers
 (or, on failure, clobbers) the LDtk `Content.Load` / `Remove<CurrentLevelComponent>` path —
 handled by `SceneReaderSystem` in two passes (create + deserialize each entity's components, then
@@ -1017,8 +1019,9 @@ cause (the transport rule dims all editing buttons while Playing; a small per-bu
 dims Save while Paused-but-unresolved), and this guard closes the remaining dispatch paths (the
 headless `ToolbarAction` op, any programmatic dispatch). The two reasons are reported separately so
 the log/toolbar can tell the user WHY. Undo/Redo/Load keep their existing Paused-only toolbar gating;
-the transport buttons stay live in both states. (PS2 gates on the context but does NOT yet repoint
-the write target — Save still writes where it did; PS3 repoints it into the resolved source tree.)
+the transport buttons stay live in both states. (PS3 repoints the actual write from the ephemeral
+build-output path to the resolved source tree — see "The editor Save writes versioned `.mdscene` into
+the project source tree" — so the `NoProjectRoot` gate is now also what keeps the write target valid.)
 
 **Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
 is nearly free) AND the project-persistence trap (project-persistence plan §4): a mid-Play save
@@ -1063,6 +1066,41 @@ round-trip, byte-stable, `assetRoots` order preserved, canonical shape locked).
 **Depends on:** this file — "Scene serialization is canonical and byte-stable…" (the shared
 `CanonicalJson`); foundation — `IPlatformServices` (`BaseDirectory`, env/file lookups the resolver
 routes through).
+
+## The editor Save writes versioned `.mdscene` into the project source tree
+
+The editor's Save writes the scene to `EditorProjectContext.LevelsPath/<sceneId>.mdscene` — i.e.
+`ProjectRoot/LevelsDir/<sceneId>.mdscene`, in the **versioned SOURCE tree** — through
+`IPlatformServices.WriteAllText` (a desktop file write git sees immediately), creating the levels
+directory if it is missing (PS3). The path is derived by the pure `EditorOverlay.SceneFilePath(ctx,
+sceneId)`; the `sceneId` is `EditorOverlay.ResolveSceneId(explicit, ctx)` — an explicit id wins,
+else the manifest's `GameProject.StartScene`, else `EditorOverlay.DefaultSceneId` (`"untitled"`) — so
+Save writes a named `<id>.mdscene`, not a fixed `editor_scene.json`. The in-editor **Load** reads that
+SAME source path back directly (`LoadSceneRequest(path, fromContent: false)` → `ReadAllText`) for an
+instant reload of what was just written — no build round-trip. This **retires the pre-PS3
+`ExportScene`→`BaseDirectory` write**: the editor no longer writes into `bin/…`, and
+`IPlatformServices.ExportScene` is reserved for the deferred web browser-download (web has no source
+tree; on web the project context is null so Save is disabled). Two guards keep the write safe: the
+overlay's save-guard (`SaveBlock` → `NoProjectRoot`, which blocks the dispatch and dims the button
+when the project is unresolved) and, as defense-in-depth, `SceneWriter.Save` itself refusing a
+null/empty path (loud, no write). The shipped game still reads bundled `.mdscene` read-only via
+`TitleContainer` (console-portable — PS4); only the desktop editor writes.
+
+**Why:** the "there is no save mechanism" gap — Save must land the file where a designer versions it
+(the source `Content/Levels/`), not in the ephemeral, gitignored, clobbered-on-rebuild build output;
+and the PS1 byte-stable fixed point (`load → edit → save` == source bytes) must survive the repoint so
+git diffs stay meaningful at the real location.
+**Breaks:** Save writes to `bin/…` (lost on the next rebuild, invisible to git) — the designer's work
+silently evaporates; or Save writes to nowhere / crashes when the project is unresolved; or a fixed
+`editor_scene.json` name makes every level overwrite the same file.
+**Tests:** `MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs`
+(`Save_WritesIntoTheProjectSourceTree_NotBaseDirectory`, `Save_Refused_WhenProjectUnresolved`,
+`SceneId_DefaultsFromManifestStartScene_ElseUntitled`, `Load_ReadsTheJustWrittenSourceFile_RoundTrips`,
+`SaveReloadSave_AtTheSourcePath_IsAByteStableFixedPoint`).
+**Depends on:** this file — "The project manifest anchors the editor's project root; unresolved is
+fail-safe" (`LevelsPath` + `StartScene`); "Scene serialization is canonical and byte-stable…" (the
+bytes written); "Save is blocked while Playing or when no project root is resolved" (the upstream
+gate); foundation — `IPlatformServices` (`WriteAllText` / `CreateDirectory` / `ReadAllText`).
 
 ## Within-band ordering nudges SOURCE sort fields and never breaks the band
 
