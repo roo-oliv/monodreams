@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -83,7 +82,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         try
         {
             var json = ReadSceneJson(path, message.FromContent);
-            var scene = JsonSerializer.Deserialize<SceneData>(json);
+            var scene = CanonicalJson.Deserialize<SceneData>(json);
             if (scene == null)
             {
                 Logger.Error($"[level-editor] Scene '{path}' deserialized to null; aborting load.");
@@ -132,7 +131,10 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// <see cref="SceneObjectComponent"/> is transient editor state (never registered / serialized),
     /// so a freshly reconstructed scene carries no save-root tags; the next Save (which only writes
     /// <c>[With(SceneObjectComponent)]</c> roots + their closure) would otherwise write an empty
-    /// scene and silently drop every edit made since loading.
+    /// scene and silently drop every edit made since loading. It also <b>restores each root's
+    /// persisted stable scene-local id</b> (<see cref="SceneEntityIdComponent"/> from the entry's
+    /// <see cref="SceneEntityData.Id"/>), so the next Save reuses the same ids and keeps
+    /// <c>entities[]</c> byte-stable — <c>load → save</c> equals the source file.
     ///
     /// <para>A scene root is a <b>top-level <c>entities[]</c> entry</b> — one with no in-scope parent
     /// (<see cref="SceneEntityData.Parent"/> null or out of the created range, mirroring the exact
@@ -140,7 +142,9 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// <see cref="SceneWriter.CollectMembership"/> precisely: those roots seed the membership closure,
     /// so re-tagging exactly them reproduces the same serialized set on the next Save. A
     /// <c>ChildOf</c> descendant is deliberately NOT re-tagged (the writer auto-closes it from its
-    /// tagged ancestor). Bake products (<c>BakedProductComponent</c>, e.g. a boundary's segment
+    /// tagged ancestor) and carries no stable id of its own. An entry with no <c>id</c> (an
+    /// older file predating stable ids) is left un-stamped — the writer assigns it a fresh id on the
+    /// next Save. Bake products (<c>BakedProductComponent</c>, e.g. a boundary's segment
     /// colliders) never reach this loop — they are never serialized, so they never appear in
     /// <c>entities[]</c> / <paramref name="created"/>; they regenerate on load and the writer
     /// excludes them from any tagged root's closure, so re-tagging cannot reintroduce them into the
@@ -152,8 +156,11 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         {
             var parentIndex = scene.Entities[i].Parent;
             var hasInScopeParent = parentIndex is { } pi && pi >= 0 && pi < created.Count;
-            if (!hasInScopeParent)
-                created[i].Set(new SceneObjectComponent());
+            if (hasInScopeParent) continue;
+
+            created[i].Set(new SceneObjectComponent());
+            if (scene.Entities[i].Id is { } id)
+                created[i].Set(new SceneEntityIdComponent(id));
         }
     }
 

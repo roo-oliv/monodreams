@@ -1,6 +1,7 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
-using System.Text.Json;
+using System.Linq;
 using DefaultEcs;
 using MonoDreams.Component;
 using MonoDreams.Draw;
@@ -27,18 +28,28 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// </summary>
 public sealed class SceneWriter(SceneSerializer serializer)
 {
-    /// <summary>Shared, indented JSON options so an exported scene is human-diffable.</summary>
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     /// <summary>
     /// Builds the <see cref="SceneData"/> for the current contents of <paramref name="world"/>:
-    /// the membership closure of every <see cref="SceneObjectComponent"/> root, plus
-    /// <paramref name="camera"/> state and the <paramref name="layers"/> banding (both optional).
+    /// the membership closure of every <see cref="SceneObjectComponent"/> root — <b>ordered by each
+    /// root's persisted stable scene-local id</b> (see <see cref="CollectOrderedMembership"/>) so a
+    /// re-save keeps <c>entities[]</c> in a stable order — plus <paramref name="camera"/> state and the
+    /// <paramref name="layers"/> banding (both optional).
+    ///
+    /// <para><b>Side effect (by design).</b> Assigns a stable id to any root lacking one — the
+    /// "assigned at first serialization" step (§9); the id is stamped onto a live
+    /// <see cref="SceneEntityIdComponent"/> so it sticks and is written to the file. Serializing the
+    /// same world twice is therefore byte-identical (the second call reuses the ids the first stamped).</para>
     /// </summary>
     public SceneData BuildScene(World world, Camera? camera = null, DrawLayerMap? layers = null)
     {
-        var members = CollectMembership(world);
+        var members = CollectOrderedMembership(world);
         var scene = serializer.Serialize(members);
+
+        // Stamp each root's persisted stable id onto its entry (a top-level, parent-null entry). A
+        // ChildOf descendant carries no id of its own (it is ordered within its ancestor's closure).
+        for (var i = 0; i < members.Count && i < scene.Entities.Count; i++)
+            if (scene.Entities[i].Parent == null && members[i].Has<SceneEntityIdComponent>())
+                scene.Entities[i].Id = members[i].Get<SceneEntityIdComponent>().Id;
 
         if (camera != null)
             scene.Camera = new SceneCameraData
@@ -63,7 +74,7 @@ public sealed class SceneWriter(SceneSerializer serializer)
     public string? Save(World world, string suggestedFileName, Camera? camera = null, DrawLayerMap? layers = null)
     {
         var scene = BuildScene(world, camera, layers);
-        var json = JsonSerializer.Serialize(scene, JsonOptions);
+        var json = CanonicalJson.Serialize(scene);
         var locator = PlatformServices.Current.ExportScene(suggestedFileName, json);
         Logger.Info($"[level-editor] Saved scene '{suggestedFileName}' " +
                     $"({scene.Entities.Count} entities) to {(locator ?? "out-of-band (web)")}.");
@@ -100,6 +111,69 @@ public sealed class SceneWriter(SceneSerializer serializer)
             AddWithDescendants(entity, childrenByParent, result, seen);
 
         return result;
+    }
+
+    /// <summary>
+    /// The membership set (see <see cref="CollectMembership"/>) <b>ordered deterministically</b> for a
+    /// byte-stable file: each root's <see cref="SceneEntityIdComponent"/> is assigned (if missing) and
+    /// the flat closure is ordered by owning-root id. Because the ordering is a <b>stable</b> sort on
+    /// the owning root's id, each root's DFS closure (parent-before-children) stays intact and grouped,
+    /// and roots appear in id order — so two worlds whose roots carry the same ids serialize identically
+    /// regardless of the live entity-creation order, and a re-save never reshuffles <c>entities[]</c>.
+    ///
+    /// <para><b>Side effect:</b> stamps a stable id onto any root lacking one (the "assigned at first
+    /// serialization" step). New ids are handed out from <c>max present + 1</c> in flat-enumeration
+    /// order, which on a reloaded scene equals the file order (entities are created in <c>entities[]</c>
+    /// order), so ids stay stable across <c>load → save</c>.</para>
+    /// </summary>
+    public static List<Entity> CollectOrderedMembership(World world)
+    {
+        var flat = CollectMembership(world);
+        if (flat.Count == 0) return flat;
+
+        var memberSet = new HashSet<Entity>(flat);
+
+        // Map each member to its owning root (the topmost ancestor still inside the member set) —
+        // mirrors SceneSerializer's "parent in scope" rule, so a top-level entry is its own root.
+        var rootOf = new Dictionary<Entity, Entity>(flat.Count);
+        foreach (var e in flat) rootOf[e] = FindRoot(e, memberSet);
+
+        // Roots in flat (enumeration) order; hand out any missing stable ids.
+        var roots = flat.Where(e => rootOf[e].Equals(e)).ToList();
+        AssignStableIds(roots);
+
+        // Stable sort by owning-root id keeps each closure contiguous and in DFS order.
+        return flat.OrderBy(e => rootOf[e].Get<SceneEntityIdComponent>().Id).ToList();
+    }
+
+    /// <summary>Walks <c>ChildOf</c> up from <paramref name="e"/> while the parent stays inside
+    /// <paramref name="memberSet"/>, returning the owning root (bounded to defend against a malformed cycle).</summary>
+    private static Entity FindRoot(Entity e, HashSet<Entity> memberSet)
+    {
+        var cur = e;
+        for (var i = 0; i < 4096 && cur.Has<ChildOfComponent>(); i++)
+        {
+            var parent = cur.Get<ChildOfComponent>().Parent;
+            if (!parent.IsAlive || !memberSet.Contains(parent)) break;
+            cur = parent;
+        }
+        return cur;
+    }
+
+    /// <summary>Assigns a monotonic <see cref="SceneEntityIdComponent"/> to each root in
+    /// <paramref name="roots"/> that lacks one; the next free id is <c>max present + 1</c>. Roots that
+    /// already carry an id (e.g. restored from a loaded file) are left untouched, so ids are preserved
+    /// across <c>load → save</c>.</summary>
+    private static void AssignStableIds(List<Entity> roots)
+    {
+        var next = 0;
+        foreach (var r in roots)
+            if (r.Has<SceneEntityIdComponent>())
+                next = Math.Max(next, r.Get<SceneEntityIdComponent>().Id + 1);
+
+        foreach (var r in roots)
+            if (!r.Has<SceneEntityIdComponent>())
+                r.Set(new SceneEntityIdComponent(next++));
     }
 
     private static void AddWithDescendants(

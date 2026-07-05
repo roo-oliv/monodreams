@@ -37,10 +37,12 @@ public sealed class ComponentSerializerRegistry
     private readonly Dictionary<Type, ComponentSerializer> _byType = new();
     private readonly Dictionary<string, ComponentSerializer> _byKey = new();
 
-    /// <summary>Component types whose presence on an entity is known but intentionally not written
-    /// as a component body (the structural parent link is captured as <see cref="SceneEntityData.Parent"/>).
-    /// Keeping them out of the unregistered-warning path avoids a spurious warning for every parented entity.</summary>
-    private readonly HashSet<Type> _structuralParentTypes = new();
+    /// <summary>Component types whose presence on an entity is known but intentionally not written as a
+    /// component body — they are captured as the entity entry's dedicated STRUCTURAL fields instead:
+    /// <c>ChildOfComponent</c> as <see cref="SceneEntityData.Parent"/>, <c>SceneEntityIdComponent</c> as
+    /// <see cref="SceneEntityData.Id"/>. Keeping them out of the unregistered-warning path avoids a
+    /// spurious warning for every parented / id-stamped entity.</summary>
+    private readonly HashSet<Type> _structurallyCapturedTypes = new();
 
     /// <summary>Registers a serializer for <paramref name="componentType"/> under <paramref name="key"/>.</summary>
     /// <exception cref="ArgumentException">A serializer is already registered for the same type or key.</exception>
@@ -66,7 +68,15 @@ public sealed class ComponentSerializerRegistry
     /// (so it never triggers the unregistered-component warning) but not written as a component body —
     /// the link is captured as <see cref="SceneEntityData.Parent"/> by <see cref="SerializeEntity"/>.
     /// </summary>
-    public void RegisterStructuralParentLink<T>() => _structuralParentTypes.Add(typeof(T));
+    public void RegisterStructuralParentLink<T>() => MarkStructurallyCaptured<T>();
+
+    /// <summary>
+    /// Marks <typeparamref name="T"/> as a component captured by the writer as a dedicated structural
+    /// field on the entity entry (e.g. <c>SceneEntityIdComponent</c> → <see cref="SceneEntityData.Id"/>),
+    /// not as a body in <c>components{}</c>: known to the registry (so it never triggers the
+    /// unregistered-component warning) and silently skipped by <see cref="SerializeEntity"/>.
+    /// </summary>
+    public void MarkStructurallyCaptured<T>() => _structurallyCapturedTypes.Add(typeof(T));
 
     /// <summary>True if a serializer is registered for <paramref name="componentType"/>.</summary>
     public bool IsRegistered(Type componentType) => _byType.ContainsKey(componentType);
@@ -124,8 +134,8 @@ public sealed class ComponentSerializerRegistry
         {
             var type = typeof(T);
 
-            if (registry._structuralParentTypes.Contains(type))
-                return; // parent link captured as SceneEntityData.Parent, not as a component body
+            if (registry._structurallyCapturedTypes.Contains(type))
+                return; // captured as a structural field (Parent / Id), not as a component body
 
             if (registry._byType.TryGetValue(type, out var serializer))
             {

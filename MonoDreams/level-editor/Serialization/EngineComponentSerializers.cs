@@ -73,6 +73,11 @@ public static class EngineComponentSerializers
         // register it so a parented entity never trips the unregistered-component warning.
         registry.Register(ChildOfKey, typeof(ChildOfComponent), WriteChildOfStub, ReadChildOfStub);
         registry.RegisterStructuralParentLink<ChildOfComponent>();
+
+        // The persisted stable scene-local id is captured as SceneEntityData.Id (a dedicated
+        // structural field, like the parent link), never a component body — mark it so a stamped root
+        // is silently skipped by the component discoverer rather than tripping the warning.
+        registry.MarkStructurallyCaptured<LevelEditor.Component.SceneEntityIdComponent>();
     }
 
     // ---- TransformComponent (source spatial state; world matrix is derived) ----
@@ -88,7 +93,7 @@ public static class EngineComponentSerializers
     private static JsonElement WriteTransform(Entity e)
     {
         var t = e.Get<TransformComponent>();
-        return JsonSerializer.SerializeToElement(new TransformDto
+        return CanonicalJson.SerializeToElement(new TransformDto
         {
             Position = Vec(t.Position),
             Rotation = t.Rotation,
@@ -123,7 +128,7 @@ public static class EngineComponentSerializers
     private static JsonElement WriteSpriteInfo(Entity e)
     {
         var s = e.Get<SpriteInfoComponent>();
-        return JsonSerializer.SerializeToElement(new SpriteInfoDto
+        return CanonicalJson.SerializeToElement(new SpriteInfoDto
         {
             AssetKey = s.AssetKey, // the content key, never the live Texture2D
             Source = Rect(s.Source),
@@ -168,7 +173,7 @@ public static class EngineComponentSerializers
     private static JsonElement WriteEntityInfo(Entity e)
     {
         var info = e.Get<EntityInfoComponent>();
-        return JsonSerializer.SerializeToElement(new EntityInfoDto { Type = info.Type, Name = info.Name });
+        return CanonicalJson.SerializeToElement(new EntityInfoDto { Type = info.Type, Name = info.Name });
     }
 
     private static void ReadEntityInfo(Entity e, JsonElement json)
@@ -190,10 +195,10 @@ public static class EngineComponentSerializers
     private static JsonElement WriteBoxCollider(Entity e)
     {
         var c = e.Get<BoxColliderComponent>();
-        return JsonSerializer.SerializeToElement(new BoxColliderDto
+        return CanonicalJson.SerializeToElement(new BoxColliderDto
         {
             Bounds = Rect(c.Bounds),
-            ActiveLayers = c.ActiveLayers.ToArray(),
+            ActiveLayers = SortedLayers(c.ActiveLayers), // a HashSet has no stable order — sort for byte-stable output
             Passive = c.Passive,
             Enabled = c.Enabled,
         });
@@ -219,10 +224,10 @@ public static class EngineComponentSerializers
     private static JsonElement WriteConvexCollider(Entity e)
     {
         var c = e.Get<ConvexColliderComponent>();
-        return JsonSerializer.SerializeToElement(new ConvexColliderDto
+        return CanonicalJson.SerializeToElement(new ConvexColliderDto
         {
             ModelVertices = c.ModelVertices.Select(Vec).ToArray(),
-            ActiveLayers = c.ActiveLayers.ToArray(),
+            ActiveLayers = SortedLayers(c.ActiveLayers), // a HashSet has no stable order — sort for byte-stable output
             Passive = c.Passive,
             Enabled = c.Enabled,
             IgnoreTransformRotation = c.IgnoreTransformRotation,
@@ -252,7 +257,7 @@ public static class EngineComponentSerializers
     private static JsonElement WriteRigidBody(Entity e)
     {
         var r = e.Get<RigidBodyComponent>();
-        return JsonSerializer.SerializeToElement(new RigidBodyDto
+        return CanonicalJson.SerializeToElement(new RigidBodyDto
         {
             Mass = r.Mass,
             GravityActive = r.Gravity.active,
@@ -287,7 +292,7 @@ public static class EngineComponentSerializers
     private static JsonElement WriteVelocity(Entity e)
     {
         var v = e.Get<VelocityComponent>();
-        return JsonSerializer.SerializeToElement(new VelocityDto { Current = Vec(v.Current), Last = Vec(v.Last) });
+        return CanonicalJson.SerializeToElement(new VelocityDto { Current = Vec(v.Current), Last = Vec(v.Last) });
     }
 
     private static void ReadVelocity(Entity e, JsonElement json)
@@ -308,7 +313,7 @@ public static class EngineComponentSerializers
     private static JsonElement WriteBoundary(Entity e)
     {
         var b = e.Get<LevelEditor.Component.BoundaryComponent>();
-        return JsonSerializer.SerializeToElement(new BoundaryDto
+        return CanonicalJson.SerializeToElement(new BoundaryDto
         {
             Points = (b.Points ?? Array.Empty<Vector2>()).Select(Vec).ToArray(),
             Thickness = b.Thickness,
@@ -334,6 +339,17 @@ public static class EngineComponentSerializers
             "'parent' index field. This indicates a malformed scene file.");
 
     // ---- Primitive <-> JSON-array helpers (compact, explicit, deterministic) ----
+
+    /// <summary>The collider's active layers, sorted ascending. <c>ActiveLayers</c> is a
+    /// <see cref="HashSet{Int32}"/> — its enumeration order is an unspecified implementation detail, so
+    /// serializing it raw would let a load→save cycle churn the array; sorting (a set is order-agnostic)
+    /// makes the output byte-stable.</summary>
+    private static int[] SortedLayers(HashSet<int> layers)
+    {
+        var arr = layers.ToArray();
+        Array.Sort(arr);
+        return arr;
+    }
 
     private static float[] Vec(Vector2 v) => new[] { v.X, v.Y };
     private static Vector2 ToVec(float[] a) => new(a[0], a[1]);

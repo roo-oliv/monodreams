@@ -84,10 +84,24 @@ public class SceneLayerData
 public class SceneEntityData
 {
     /// <summary>
+    /// The <b>persisted, stable, scene-local id</b> of a serialized scene ROOT (see
+    /// <c>SceneEntityIdComponent</c>). Assigned at first serialization, preserved across
+    /// <c>load → save</c>, and the key <see cref="SceneData.Entities"/> is ordered by on write — so a
+    /// re-save keeps the array order stable and a single-entity edit stays a minimal diff. Only roots
+    /// carry an id; a <c>ChildOf</c> descendant leaves it <c>null</c> (it is ordered within its
+    /// ancestor's closure, not by an id of its own). Structural metadata like <see cref="Parent"/>,
+    /// not a component body; omitted from the file when <c>null</c>.
+    /// </summary>
+    [JsonPropertyName("id")]
+    public int? Id { get; set; }
+
+    /// <summary>
     /// componentTypeKey → serialized fields (a JSON object per component). The key is the stable
     /// string the registry assigns a component <c>Type</c>; the value is whatever
     /// that type's writer produced. Only registered components appear here — unregistered
-    /// components on the live entity are skipped with a loud warning at write time.
+    /// components on the live entity are skipped with a loud warning at write time. The canonical
+    /// writer emits these keys in ordinal-sorted order (deterministic, independent of live
+    /// component-storage order).
     /// </summary>
     [JsonPropertyName("components")]
     public Dictionary<string, JsonElement> Components { get; set; } = new();
