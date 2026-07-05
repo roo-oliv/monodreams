@@ -33,6 +33,10 @@ namespace MonoDreams.LevelEditor.Serialization;
 ///   <item><c>BoxColliderComponent</c> / <c>ConvexColliderComponent</c> — collider shape + layers +
 ///   flags (world vertices and broad-phase AABB are derived and recomputed by detection).</item>
 ///   <item><c>RigidBodyComponent</c> / <c>VelocityComponent</c> — physics source state.</item>
+///   <item><c>CameraFollowTargetComponent</c> — camera-follow tuning (damping / max-distance /
+///   active) plus the optional world-space clamp <c>Bounds</c> (omitted when the camera follows
+///   freely). A player/NPC entity set by the reference factories carries it, so a migrated native
+///   scene reconstructs its camera-follow behaviour without re-running the factory.</item>
 ///   <item><c>ChildOfComponent</c> — registered as the structural parent link (captured as
 ///   <see cref="SceneEntityData.Parent"/>, not a component body).</item>
 /// </list>
@@ -52,6 +56,7 @@ public static class EngineComponentSerializers
     public const string ConvexColliderKey = "core.ConvexCollider";
     public const string RigidBodyKey = "core.RigidBody";
     public const string VelocityKey = "core.Velocity";
+    public const string CameraFollowTargetKey = "core.CameraFollowTarget";
     public const string ChildOfKey = "core.ChildOf";
     public const string BoundaryKey = "core.Boundary";
 
@@ -67,6 +72,7 @@ public static class EngineComponentSerializers
         registry.Register(ConvexColliderKey, typeof(ConvexColliderComponent), WriteConvexCollider, ReadConvexCollider);
         registry.Register(RigidBodyKey, typeof(RigidBodyComponent), WriteRigidBody, ReadRigidBody);
         registry.Register(VelocityKey, typeof(VelocityComponent), WriteVelocity, ReadVelocity);
+        registry.Register(CameraFollowTargetKey, typeof(CameraFollowTargetComponent), WriteCameraFollowTarget, ReadCameraFollowTarget);
         registry.Register(BoundaryKey, typeof(LevelEditor.Component.BoundaryComponent), WriteBoundary, ReadBoundary);
 
         // The structural parent link is captured as SceneEntityData.Parent, not a component body —
@@ -299,6 +305,48 @@ public static class EngineComponentSerializers
     {
         var dto = json.Deserialize<VelocityDto>()!;
         e.Set(new VelocityComponent(ToVec(dto.Current)) { Last = ToVec(dto.Last) });
+    }
+
+    // ---- CameraFollowTargetComponent (camera-follow tuning + optional world-space bounds) ----
+
+    private sealed class CameraFollowTargetDto
+    {
+        [JsonPropertyName("dampingX")] public float DampingX { get; set; } = 5f;
+        [JsonPropertyName("dampingY")] public float DampingY { get; set; } = 5f;
+        [JsonPropertyName("maxDistanceX")] public float MaxDistanceX { get; set; } = 100f;
+        [JsonPropertyName("maxDistanceY")] public float MaxDistanceY { get; set; } = 100f;
+        [JsonPropertyName("isActive")] public bool IsActive { get; set; } = true;
+        // Optional world-space clamp rectangle (x, y, width, height). Omitted (null) when the camera
+        // follows freely — CanonicalJson's WhenWritingNull keeps the field out of the file entirely.
+        [JsonPropertyName("bounds")] public int[]? Bounds { get; set; }
+    }
+
+    private static JsonElement WriteCameraFollowTarget(Entity e)
+    {
+        var c = e.Get<CameraFollowTargetComponent>();
+        return CanonicalJson.SerializeToElement(new CameraFollowTargetDto
+        {
+            DampingX = c.DampingX,
+            DampingY = c.DampingY,
+            MaxDistanceX = c.MaxDistanceX,
+            MaxDistanceY = c.MaxDistanceY,
+            IsActive = c.IsActive,
+            Bounds = c.Bounds is { } b ? new[] { b.X, b.Y, b.Width, b.Height } : null,
+        });
+    }
+
+    private static void ReadCameraFollowTarget(Entity e, JsonElement json)
+    {
+        var dto = json.Deserialize<CameraFollowTargetDto>()!;
+        e.Set(new CameraFollowTargetComponent
+        {
+            DampingX = dto.DampingX,
+            DampingY = dto.DampingY,
+            MaxDistanceX = dto.MaxDistanceX,
+            MaxDistanceY = dto.MaxDistanceY,
+            IsActive = dto.IsActive,
+            Bounds = dto.Bounds is { Length: 4 } b ? new Rectangle(b[0], b[1], b[2], b[3]) : null,
+        });
     }
 
     // ---- BoundaryComponent (freeform boundary polyline; the segment colliders are baked, never serialized) ----

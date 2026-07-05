@@ -351,6 +351,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = texture,
+            AssetKey = contentPath, // content key so an imported native scene re-loads this texture
             Source = sourceRect,
             Size = size,
             Color = Color.White,

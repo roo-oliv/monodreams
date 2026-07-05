@@ -19,6 +19,7 @@ using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
+using MonoDreams.Examples.Serialization;
 using MonoDreams.Message.Level;
 using MonoDreams.Message;
 using MonoDreams.Platform;
@@ -268,6 +269,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 paletteBands: paletteBands,
                 triggerTypes: triggerTypes,
                 projectContext: _projectContext);
+
+            // Game-component serializers (PS5): register the reference game's own component
+            // serializers onto the editor's live registry so the in-editor Load/Save round-trips
+            // PlayerState / OrbitalMotion / StopMotionEffect / DialogueZoneComponent. The engine
+            // serializers are already registered by the overlay's ctor; this adds the game's on top.
+            _editor.Registry.RegisterGameComponents();
         }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
@@ -437,6 +444,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             var nativeRegistry = new ComponentSerializerRegistry();
             nativeRegistry.RegisterEngineComponents();
+            // Game-component serializers on the SHIPPED (no-editor) reader (PS5 handoff): a booted
+            // native scene migrated from an LDtk/Blender level carries game components (PlayerState,
+            // StopMotionEffect, …) — register them here too, else the load throws on the first
+            // unknown component key. The editor path registers them on its own registry above.
+            nativeRegistry.RegisterGameComponents();
             var nativeSerializer = new SceneSerializer(nativeRegistry);
             var nativeAssetTextures = new FileAssetTextureLoader(_graphicsDevice, _content.RootDirectory);
             nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
