@@ -190,51 +190,89 @@ public class ToolbarTests
         });
     }
 
-    // ---- SaveGuardTest: Save is blocked while the transport is Playing (island-authoring Slice 1) ----
+    // ---- SaveGuardTest: Save is blocked while Playing (island-authoring Slice 1) OR when no
+    // project root is resolved (PS2). The two causes are distinguishable (SaveBlockReason). ----
 
-    /// <summary>
-    /// The save-guard predicate itself (<see cref="EditorOverlay.IsSaveBlocked"/> — the exact
-    /// check <c>EditorOverlay.DispatchToolbarAction</c>'s Save case runs): blocked while Playing,
-    /// open while Paused (Edit).
-    /// </summary>
-    [Fact]
-    public void SaveGuardTest_BlockedExactlyWhilePlaying()
+    /// <summary>A resolved project context (env var → an in-memory manifest), for the guard tests.</summary>
+    private static EditorProjectContext ResolvedContext()
     {
-        Assert.True(EditorOverlay.IsSaveBlocked(new GameState(new GameTime()) { RunMode = RunMode.Play }));
-        Assert.False(EditorOverlay.IsSaveBlocked(new GameState(new GameTime()) { RunMode = RunMode.Edit }));
+        const string root = "/proj";
+        var manifestPath = Path.Combine(root, "Content", GameProject.FileName);
+        var manifestJson = CanonicalJson.Serialize(new GameProject { StartScene = "island" });
+        return EditorProjectContext.Resolve(
+            baseDirectory: Path.Combine("/somewhere", "bin") + Path.DirectorySeparatorChar,
+            getEnvironmentVariable: name => name == EditorProjectContext.ProjectRootVariable ? root : null,
+            fileExists: p => p == manifestPath,
+            readAllText: _ => manifestJson);
     }
 
     /// <summary>
-    /// The guarded dispatch: a Save action arriving while the transport is Playing (a headless op,
-    /// or any dispatch path — the toolbar button already renders dimmed and inactive there) is a
-    /// loud no-op; the same dispatch while Paused exports. Mirrors the overlay's Save case,
-    /// including the REAL <see cref="EditorOverlay.IsSaveBlocked"/> guard.
+    /// The save-guard reasons (<see cref="EditorOverlay.SaveBlock"/> — the exact check
+    /// <c>EditorOverlay.DispatchToolbarAction</c>'s Save case and the toolbar dim run): Playing takes
+    /// precedence; Paused + resolved is allowed; Paused + unresolved is blocked with the distinct
+    /// <see cref="SaveBlockReason.NoProjectRoot"/> cause.
     /// </summary>
     [Fact]
-    public void SaveGuardTest_DispatchNoOpsWhilePlayingAndSavesWhilePaused()
+    public void SaveGuardTest_BlockedWhilePlayingOrWithoutAProjectRoot()
+    {
+        var resolved = ResolvedContext();
+        Assert.True(resolved.Resolved);
+        var playing = new GameState(new GameTime()) { RunMode = RunMode.Play };
+        var paused = new GameState(new GameTime()) { RunMode = RunMode.Edit };
+
+        // Playing takes precedence regardless of project state (existing behaviour).
+        Assert.Equal(SaveBlockReason.Playing, EditorOverlay.SaveBlock(playing, resolved));
+        Assert.Equal(SaveBlockReason.Playing, EditorOverlay.SaveBlock(playing, EditorProjectContext.Unresolved));
+        Assert.Equal(SaveBlockReason.Playing, EditorOverlay.SaveBlock(playing, null));
+
+        // Paused + resolved = allowed.
+        Assert.Equal(SaveBlockReason.None, EditorOverlay.SaveBlock(paused, resolved));
+        Assert.False(EditorOverlay.IsSaveBlocked(paused, resolved));
+
+        // Paused + no project root = blocked, with the distinguishable reason (PS2).
+        Assert.Equal(SaveBlockReason.NoProjectRoot, EditorOverlay.SaveBlock(paused, EditorProjectContext.Unresolved));
+        Assert.Equal(SaveBlockReason.NoProjectRoot, EditorOverlay.SaveBlock(paused, null));
+        Assert.True(EditorOverlay.IsSaveBlocked(paused, null));
+    }
+
+    /// <summary>
+    /// The guarded dispatch: a Save arriving while blocked (Playing, or Paused with no project root —
+    /// through any dispatch path; the toolbar button also renders dimmed) is a loud no-op; a Save
+    /// while Paused with a resolved project exports. Mirrors the overlay's Save case, including the
+    /// REAL <see cref="EditorOverlay.IsSaveBlocked"/> guard.
+    /// </summary>
+    [Fact]
+    public void SaveGuardTest_DispatchNoOpsWhileBlockedAndSavesWhenAllowed()
     {
         var fake = new InMemoryPlatformServices();
         WithPlatform(fake, () =>
         {
             using var world = new World();
             var serializer = new SceneSerializer(NewEngineRegistry());
+            var resolved = ResolvedContext();
 
             var root = world.CreateEntity();
             root.Set(new SceneObjectComponent());
             root.Set(new TransformComponent(new Vector2(1, 2)));
 
             // The overlay's Save case shape: guard first, then SceneWriter.Save.
-            void DispatchSave(GameState state)
+            void DispatchSave(GameState state, EditorProjectContext ctx)
             {
-                if (EditorOverlay.IsSaveBlocked(state)) return; // (the overlay also logs a warning)
+                if (EditorOverlay.IsSaveBlocked(state, ctx)) return; // (the overlay also logs a warning)
                 new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
             }
 
-            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Play });
-            Assert.Equal(0, fake.ExportCount); // blocked: no export while the game is running
+            // Playing (even with a resolved project): blocked.
+            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Play }, resolved);
+            Assert.Equal(0, fake.ExportCount);
 
-            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit });
-            Assert.Equal(1, fake.ExportCount); // paused: saves normally
+            // Paused but no project root: blocked (PS2 cause).
+            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit }, EditorProjectContext.Unresolved);
+            Assert.Equal(0, fake.ExportCount);
+
+            // Paused + resolved project: saves normally.
+            DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit }, resolved);
+            Assert.Equal(1, fake.ExportCount);
         });
     }
 }
