@@ -7,10 +7,13 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Message;
+using MonoDreams.LevelEditor.Navigation;
 using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.Transform;
 using MonoDreams.Platform;
 using MonoDreams.State;
 
@@ -33,17 +36,37 @@ namespace MonoDreams.LevelEditor.System;
 /// loader (the in-memory deserialize leaves <c>SpriteSheet</c> null on purpose — it has no
 /// <c>ContentManager</c>).</para>
 ///
+/// <para>It then <b>restores the transient <c>DrawComponent</c></b> on every reconstructed sprite (see
+/// <see cref="RestoreDrawComponents"/>): <c>DrawComponent</c> is deliberately never serialized (its
+/// sprite fields are re-prepped every frame and its <c>LayerDepth</c> is per-frame-derived), so a
+/// reconstructed sprite has <c>SpriteInfoComponent</c> + <c>TransformComponent</c> but no
+/// <c>DrawComponent</c> — and <c>SpritePrepSystem</c>'s <c>[With(DrawComponent, …)]</c> query then
+/// never preps it, so it never draws and the Main target stays the backbuffer clear color. Restoring
+/// the pairing on load (mirroring <c>SpritePropFactory</c>) fixes the "reloaded scene renders blank"
+/// bug.</para>
+///
+/// <para>Finally, when a <see cref="Camera"/> is supplied and the loaded scene has <b>no active
+/// camera-follow target</b> (a dressed prop-only scene has no player), it <b>auto-frames the camera</b>
+/// on the loaded content's AABB (via the pure <see cref="CameraNav"/> frame-scene math) so the scene is
+/// centered + visible instead of the camera sitting at (0,0) while the content is elsewhere. When there
+/// IS an active follow target it leaves the camera alone (<c>CameraFollowSystem</c> owns it).</para>
+///
 /// <para>It <b>fails loud</b>: a component key in the file with no registered serializer throws from
 /// the registry (the load aborts with a clear message rather than silently dropping data); the
 /// exception is logged and surfaced.</para>
 /// </summary>
 public sealed class SceneReaderSystem : ISystem<GameState>
 {
+    /// <summary>Fit margin used when auto-framing loaded content (10% padding), matching
+    /// <see cref="CameraNavSystem"/>'s frame-scene feel.</summary>
+    private const float FrameMargin = 0.9f;
+
     private readonly World _world;
     private readonly SceneSerializer _serializer;
     private readonly ContentManager _content;
     private readonly Func<string, Texture2D> _loadTexture;
     private readonly Func<string, Texture2D?>? _fileTextureLoader;
+    private readonly Camera? _camera;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -55,19 +78,24 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// the asset drop folder — see <see cref="Assets.FileAssetKey"/>); wire
     /// <c>FileAssetTextureLoader.Load</c>, which returns a visible magenta placeholder (with a loud
     /// warning) for a missing file so the entity is never silently invisible.
+    /// <paramref name="camera"/> (optional; the overlay supplies the screen's live camera) enables the
+    /// post-load auto-frame — centering + zoom-fitting the camera on the loaded content when the scene
+    /// has no active camera-follow target. Null (the pure round-trip tests) simply skips auto-framing.
     /// </summary>
     public SceneReaderSystem(
         World world,
         SceneSerializer serializer,
         ContentManager content,
         Func<string, Texture2D>? loadTexture = null,
-        Func<string, Texture2D?>? fileTextureLoader = null)
+        Func<string, Texture2D?>? fileTextureLoader = null,
+        Camera? camera = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _content = content; // may be null when an explicit loadTexture is supplied (tests)
         _loadTexture = loadTexture ?? (key => _content.Load<Texture2D>(key));
         _fileTextureLoader = fileTextureLoader;
+        _camera = camera;
         _world.Subscribe<LoadSceneRequest>(On);
     }
 
@@ -96,6 +124,10 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             RetagSceneRoots(scene, created);
 
             RehydrateTextures(created);
+
+            RestoreDrawComponents(created);
+
+            AutoFrameLoadedContent(created);
 
             Logger.Info($"[level-editor] Loaded scene '{path}': {created.Count} entities.");
         }
@@ -200,6 +232,75 @@ public sealed class SceneReaderSystem : ISystem<GameState>
                 Logger.Error($"[level-editor] Failed to rehydrate texture for asset key '{sprite.AssetKey}': {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Restores the transient <see cref="DrawComponent"/> on every reconstructed sprite that lacks
+    /// one — the <c>SpriteInfoComponent ⇒ DrawComponent</c> pairing every renderable sprite needs.
+    /// <see cref="DrawComponent"/> is deliberately NOT serialized (its sprite fields are re-prepped
+    /// each frame from <see cref="SpriteInfoComponent"/> and its <c>LayerDepth</c> is per-frame-derived),
+    /// so the reader reconstructs it here rather than from the file, mirroring
+    /// <see cref="Assets.SpritePropFactory"/> (sprite type, target taken from the sprite's own
+    /// <see cref="SpriteInfoComponent.Target"/>). Without it a reloaded sprite has no
+    /// <see cref="DrawComponent"/>, so <c>SpritePrepSystem</c>'s <c>[With(DrawComponent, …)]</c> query
+    /// skips it and it never draws (the "reloaded scene renders blank" bug). Mesh/text draw data is not
+    /// serializable today, so this handles sprites — the only serialized renderable.
+    /// </summary>
+    private static void RestoreDrawComponents(List<Entity> entities)
+    {
+        foreach (var entity in entities)
+        {
+            if (!entity.Has<SpriteInfoComponent>() || entity.Has<DrawComponent>()) continue;
+            var target = entity.Get<SpriteInfoComponent>().Target;
+            entity.Set(new DrawComponent
+            {
+                Type = DrawElementType.Sprite,
+                Target = target,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Auto-frames the camera on the loaded content's AABB — but only when a <see cref="Camera"/> was
+    /// supplied AND the scene has no <b>active</b> <see cref="CameraFollowTargetComponent"/> (a
+    /// prop-only scene has no player, so nothing else will move the camera onto the content). This
+    /// centers the camera and zoom-fits the content (via the pure <see cref="CameraNav"/> frame-scene
+    /// math, the same used by <see cref="CameraNavSystem"/>), so a loaded off-origin scene is visible
+    /// instead of blank with the camera stuck at (0,0). When a follow target IS present it leaves the
+    /// camera untouched — <c>CameraFollowSystem</c> owns the camera in Play. No content → no-op.
+    /// </summary>
+    private void AutoFrameLoadedContent(List<Entity> entities)
+    {
+        if (_camera == null) return;
+        if (HasActiveFollowTarget()) return;
+
+        var quads = new List<Vector2[]>();
+        foreach (var entity in entities)
+        {
+            if (!entity.Has<SpriteInfoComponent>() || !entity.Has<TransformComponent>()) continue;
+            quads.Add(GizmoTransform.SpriteWorldQuad(
+                entity.Get<TransformComponent>(), entity.Get<SpriteInfoComponent>()));
+        }
+
+        if (CameraNav.ContentBounds(quads) is not { } aabb) return; // no content: leave the camera as-is
+
+        _camera.Position = CameraNav.Center(aabb);
+        if (aabb.Width > 0 && aabb.Height > 0)
+            _camera.Zoom = CameraNav.FitZoom(aabb, _camera.VirtualWidth, _camera.VirtualHeight,
+                FrameMargin, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
+
+        Logger.Info(
+            $"[level-editor] Auto-framed camera on loaded content: center={_camera.Position}, zoom={_camera.Zoom:F3}.");
+    }
+
+    /// <summary>Whether any live entity carries an <b>active</b> <see cref="CameraFollowTargetComponent"/>
+    /// — the signal that <c>CameraFollowSystem</c> will drive the camera, so the reader must not.</summary>
+    private bool HasActiveFollowTarget()
+    {
+        using var set = _world.GetEntities().With<CameraFollowTargetComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.Get<CameraFollowTargetComponent>().IsActive) return true;
+        return false;
     }
 
     public void Update(GameState state)

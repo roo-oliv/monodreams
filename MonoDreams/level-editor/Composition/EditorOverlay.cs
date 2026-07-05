@@ -160,7 +160,7 @@ public sealed class EditorOverlay
         // shows the magenta placeholder instead of an invisible sprite.
         AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
         SceneReader = new SceneReaderSystem(world, Serializer, content,
-            fileTextureLoader: AssetTextures.Load);
+            fileTextureLoader: AssetTextures.Load, camera: camera);
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested,
