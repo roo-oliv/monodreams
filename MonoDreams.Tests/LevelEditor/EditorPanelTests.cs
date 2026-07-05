@@ -1,0 +1,490 @@
+#nullable enable
+using System.Collections.Generic;
+using System.Linq;
+using DefaultEcs;
+using DefaultEcs.System;
+using Microsoft.Xna.Framework;
+using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
+using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.UI;
+using MonoDreams.Renderer;
+using MonoDreams.State;
+using MonoDreams.System;
+using Xunit;
+
+namespace MonoDreams.Tests.LevelEditor;
+
+/// <summary>
+/// Protects the <see cref="EditorPanelSystem"/> — the right-strip panel with the Systems, Scene and
+/// Inspector sections. Covers: the Systems section mirrors both pipelines and toggles an entry (the
+/// gated system actually stops); the panel refuses to disable itself; section + group collapse;
+/// the wheel scrolls whole clamped lines; the Scene tree selects an entity both ways
+/// (<c>SelectedComponent</c>); and the Inspector lists the selection's components and expands to
+/// member values. Pure logic — a null font (layout-only) + a hand-built <see cref="ViewportManager"/>.
+/// </summary>
+public class EditorPanelTests
+{
+    private static GameState Edit() => new(new GameTime()) { RunMode = RunMode.Edit };
+    private static GameState Play() => new(new GameTime()) { RunMode = RunMode.Play };
+
+    private sealed class CountingSystem : ISystem<GameState>
+    {
+        public int Updates { get; private set; }
+        public bool IsEnabled { get; set; } = true;
+        public void Update(GameState state) => Updates++;
+        public void Dispose() { }
+    }
+
+    private static Entity MakeCursor(World world)
+    {
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent());
+        return cursor;
+    }
+
+    private static ViewportManager Vm(int width = 1600, int height = 900) =>
+        new(null, 800, 600) { ScreenWidth = width, ScreenHeight = height };
+
+    /// <summary>A scene entity (Transform + optional EntityInfo name) — appears in the Scene tree.</summary>
+    private static Entity MakeSceneEntity(World world, string? name = null)
+    {
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(Vector2.Zero));
+        if (name != null) e.Set(new EntityInfoComponent(name, name));
+        return e;
+    }
+
+    // ---- Interaction helpers (find a row, then click its body or arrow) ----
+
+    private int RowIndex(EditorPanelSystem panel, global::System.Func<PanelRow, bool> pred)
+    {
+        for (var i = 0; i < panel.Rows.Count; i++)
+            if (pred(panel.Rows[i])) return i;
+        return -1;
+    }
+
+    private Rectangle LineFor(EditorPanelSystem panel, ViewportManager vm, int rowIndex)
+    {
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        return SystemsPanelLayout.LineRect(panelRect, rowIndex - panel.ScrollOffset);
+    }
+
+    private void ClickBody(EditorPanelSystem panel, ViewportManager vm, Entity cursor, int rowIndex)
+    {
+        var line = LineFor(panel, vm, rowIndex);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(line.Center.X, line.Center.Y); // center is past the arrow gutter
+        input.LeftButtonReleased = true;
+    }
+
+    private void ClickArrow(EditorPanelSystem panel, ViewportManager vm, Entity cursor, int rowIndex)
+    {
+        var line = LineFor(panel, vm, rowIndex);
+        var arrow = SystemsPanelLayout.ArrowRect(line, panel.Rows[rowIndex].Depth);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(arrow.Center.X, arrow.Center.Y);
+        input.LeftButtonReleased = true;
+    }
+
+    private static List<string> VisibleLabels(World world)
+    {
+        var texts = new List<string>();
+        using var set = world.GetEntities().With<DynamicTextComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.Get<TransformComponent>().Position != SystemsPanelLayout.ParkedPosition)
+                texts.Add(e.Get<DynamicTextComponent>().TextContent);
+        return texts;
+    }
+
+    private static (EditorPanelSystem panel, EditorPipelineRegistrar update, CountingSystem logic,
+        SequentialSystem<GameState> updatePipeline) MakeFlatPanel(World world, ViewportManager vm)
+    {
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        var logic = new CountingSystem();
+        update.Add("logic", logic, EditTimeBehavior.Freeze);
+        var updatePipeline = update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+        var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        return (panel, update, logic, updatePipeline);
+    }
+
+    private static (EditorPanelSystem panel, EditorPipelineRegistrar update) MakeGroupPanel(World world, ViewportManager vm)
+    {
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        update.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("a", new CountingSystem());
+            g.Add("b", new CountingSystem());
+        });
+        update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+        var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        return (panel, update);
+    }
+
+    // ---- Systems section: mirrors the pipelines, toggles an entry ----------
+
+    [Fact]
+    public void SystemsSection_MirrorsBothPipelines_WithPolicyTags()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var (panel, _, _, _) = MakeFlatPanel(world, Vm());
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        var labels = VisibleLabels(world);
+        Assert.Contains(EditorPanelModel.SystemsTitle, labels);
+        Assert.Contains("UPDATE", labels);
+        Assert.Contains("DRAW", labels);
+        Assert.Contains("logic [freeze]", labels);
+        Assert.Contains("renderMain", labels);
+        // The other two sections' headers are always present too.
+        Assert.Contains(EditorPanelModel.SceneTitle, labels);
+        Assert.Contains(EditorPanelModel.InspectorTitle, labels);
+    }
+
+    [Fact]
+    public void ClickPipelineRow_TogglesTheEntry_AndTheSystemStops()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, update, logic, updatePipeline) = MakeFlatPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.PipelineEntry && r.Label == "logic [freeze]");
+        Assert.True(idx >= 0);
+
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Edit());
+        Assert.False(update.IsEnabled("logic"));
+
+        // Master switch: the child no longer runs in EITHER mode.
+        var before = logic.Updates;
+        updatePipeline.Update(Play());
+        updatePipeline.Update(Edit());
+        Assert.Equal(before, logic.Updates);
+
+        // Re-enable via a second click; the Freeze policy resumes (runs in Play only).
+        cursor.Get<CursorInputComponent>().LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.True(update.IsEnabled("logic"));
+        updatePipeline.Update(Play());
+        Assert.Equal(before + 1, logic.Updates);
+    }
+
+    [Fact]
+    public void RefusesToDisableItsOwnEntry()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        EditorPanelSystem panel = null!;
+        panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        update.Add("editor.systemsPanel", panel, EditTimeBehavior.RunNormally);
+        update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Entry?.Name == "editor.systemsPanel");
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Edit());
+
+        Assert.True(update.IsEnabled("editor.systemsPanel")); // never disables itself
+    }
+
+    [Fact]
+    public void WhilePlaying_StaysInteractive()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, update, _, _) = MakeFlatPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Label == "logic [freeze]");
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Play()); // transport model: toggling while the game runs is the point
+
+        Assert.False(update.IsEnabled("logic"));
+    }
+
+    // ---- Section collapse (click the SYSTEMS header) -----------------------
+
+    [Fact]
+    public void SectionHeaderClick_CollapsesTheSection()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, _, _, _) = MakeFlatPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.PipelineEntry);
+
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Systems);
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Edit());
+
+        Assert.True(panel.State.SystemsCollapsed);
+        Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.PipelineEntry);
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Systems);
+    }
+
+    // ---- Group collapse (click a group row's arrow) ------------------------
+
+    [Fact]
+    public void GroupArrowClick_CollapsesAndExpandsChildren()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, _) = MakeGroupPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Label == "a");
+        Assert.Contains(panel.Rows, r => r.Label == "b");
+
+        var groupIdx = RowIndex(panel, r => r.Label == "logic [freeze]");
+        ClickArrow(panel, vm, cursor, groupIdx);
+        panel.Update(Edit());
+
+        Assert.Contains("logic", panel.State.CollapsedGroups);
+        Assert.Contains(panel.Rows, r => r.Label == "logic [freeze]"); // group row stays
+        Assert.DoesNotContain(panel.Rows, r => r.Label == "a");        // children hidden
+
+        // Arrow click again re-expands.
+        groupIdx = RowIndex(panel, r => r.Label == "logic [freeze]");
+        ClickArrow(panel, vm, cursor, groupIdx);
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Label == "a");
+    }
+
+    [Fact]
+    public void GroupBodyClick_CascadesEnabled_Gmail()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, update) = MakeGroupPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        // Make it mixed, then a body click on the group turns everything off (Gmail).
+        update.SetEnabled("logic.a", false);
+        Assert.Equal(PipelineEnabledState.Mixed, update.GetEnabledState("logic"));
+
+        panel.Update(Edit());
+        var groupIdx = RowIndex(panel, r => r.Label == "logic [freeze]");
+        ClickBody(panel, vm, cursor, groupIdx);
+        panel.Update(Edit());
+        Assert.Equal(PipelineEnabledState.Off, update.GetEnabledState("logic"));
+    }
+
+    // ---- Scroll ------------------------------------------------------------
+
+    [Fact]
+    public void Wheel_ScrollsByClampedLines()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm(1600, 300); // short window so the list overflows
+
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        for (var i = 0; i < 12; i++) update.Add($"system{i}", new CountingSystem(), EditTimeBehavior.RunNormally);
+        update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+        using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+
+        panel.Update(Edit());
+        Assert.Equal(0, panel.ScrollOffset);
+
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(panelRect.Center.X, panelRect.Center.Y);
+
+        input.ScrollWheelDelta = -120; // one notch down
+        panel.Update(Edit());
+        Assert.Equal(SystemsPanelLayout.LinesPerNotch, panel.ScrollOffset);
+
+        input.ScrollWheelDelta = -120 * 100; // clamps to max
+        panel.Update(Edit());
+        Assert.Equal(SystemsPanelLayout.MaxScroll(panel.Rows.Count, panelRect), panel.ScrollOffset);
+
+        input.ScrollWheelDelta = 120 * 100; // clamps to 0
+        panel.Update(Edit());
+        Assert.Equal(0, panel.ScrollOffset);
+
+        // Wheel outside the panel does nothing.
+        input.ScreenPosition = new Vector2(10, 100);
+        input.ScrollWheelDelta = -120;
+        panel.Update(Edit());
+        Assert.Equal(0, panel.ScrollOffset);
+    }
+
+    [Fact]
+    public void PooledVisuals_AreBoundedByTheVisibleWindow()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm(1600, 300);
+        var update = new EditorPipelineRegistrar();
+        var draw = new EditorPipelineRegistrar();
+        for (var i = 0; i < 20; i++) update.Add($"system{i}", new CountingSystem(), EditTimeBehavior.RunNormally);
+        update.Build();
+        draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
+        draw.Build();
+        using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+
+        panel.Update(Edit());
+
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var visible = SystemsPanelLayout.VisibleLineCount(panelRect);
+        Assert.True(panel.Rows.Count > visible, "test needs an overflowing panel");
+
+        // Pooling: the panel creates a fixed pool sized to the visible window (a label + an arrow
+        // per slot = 2 text entities), NOT one entity per row — so the entity count is bounded by
+        // the window even though there are far more rows.
+        int textEntities;
+        using (var set = world.GetEntities().With<DynamicTextComponent>().AsSet())
+            textEntities = set.GetEntities().Length;
+        Assert.Equal(2 * visible, textEntities);
+        Assert.True(textEntities < panel.Rows.Count, "pooling should bound entities below the row count");
+    }
+
+    // ---- Scene tree: two-way selection -------------------------------------
+
+    [Fact]
+    public void SceneRowClick_SelectsTheEntity()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var hero = MakeSceneEntity(world, "Hero");
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Hero");
+        Assert.True(idx >= 0);
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Edit());
+
+        Assert.True(hero.Has<SelectedComponent>());
+    }
+
+    [Fact]
+    public void SelectEntityByName_SelectsFromTheHeadlessChannel()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var hero = MakeSceneEntity(world, "Hero");
+        using var panel = new EditorPanelSystem(world, Vm(), font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        Assert.True(panel.SelectEntityByName("Hero")); // the panel:select <name> op path
+        Assert.True(hero.Has<SelectedComponent>());
+        Assert.False(panel.SelectEntityByName("Nobody"));
+    }
+
+    [Fact]
+    public void ExternalSelection_IsHighlightedInTheTree()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        var hero = MakeSceneEntity(world, "Hero");
+        var villain = MakeSceneEntity(world, "Villain");
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        // Selection made elsewhere (e.g. SelectionSystem from a viewport click).
+        villain.Set(new SelectedComponent());
+        panel.Update(Edit());
+
+        var heroRow = panel.Rows.Single(r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Hero");
+        var villainRow = panel.Rows.Single(r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Villain");
+        Assert.True(villainRow.Selected);
+        Assert.False(heroRow.Selected);
+    }
+
+    [Fact]
+    public void SceneTree_HidesEditorInfrastructureEntities()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        MakeSceneEntity(world, "Hero");
+        var infra = MakeSceneEntity(world, "ChromeThing");
+        infra.Set(new EditorInfrastructureComponent());
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        panel.Update(Edit());
+
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Hero");
+        Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "ChromeThing");
+    }
+
+    // ---- Inspector: component list + member values -------------------------
+
+    [Fact]
+    public void Inspector_ListsSelectedEntityComponents_AndExpandsMembers()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        var hero = MakeSceneEntity(world, "Hero"); // Transform + EntityInfo
+        hero.Set(new SelectedComponent());
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        panel.Update(Edit());
+
+        // Component list (item 3): the selection's component type names appear as Inspector rows.
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == nameof(EntityInfoComponent));
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == nameof(TransformComponent));
+        // Members hidden until expanded.
+        Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember);
+
+        // Expand EntityInfoComponent (item 4): its member values appear.
+        panel.ToggleInspectorComponentKey(nameof(EntityInfoComponent));
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember && r.Label == "Name: Hero");
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember && r.Label == "Type: Hero");
+    }
+
+    [Fact]
+    public void Inspector_NoSelection_ShowsPlaceholder()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no selection)");
+    }
+}

@@ -779,11 +779,17 @@ laid out by the pure `SystemsPanelLayout`, hit-testing the cursor's raw `ScreenP
 Play by the chrome pass and interaction-inert there by its own Edit guard. It scrolls by whole
 lines on the mouse wheel over the strip (scrolled-out rows — bars included — are parked off-screen;
 a partial line would bleed over the top/bottom bars, which share the target). It binds lazily
-through `EditorOverlay.BindPipelines` and builds its rows once (entries are fixed after `Build()`).
-One protection: the panel **refuses to disable its own entry AND any ancestor group of it** — its
-gate off (directly, or as cascade collateral) means no update, no hit-test, and no UI path back.
-Collapse/expand of group rows is a deliberate non-feature for now: the wheel scroll covers the
-reference compositions' row counts (a follow-up if trees grow much deeper).
+through `EditorOverlay.BindPipelines`. One protection: the panel **refuses to disable its own entry
+AND any ancestor group of it** — its gate off (directly, or as cascade collateral) means no update,
+no hit-test, and no UI path back. **Group rows collapse** (the deferred follow-up, now live): a
+group row carries a disclosure arrow (`SystemsPanelLayout.ArrowGutter`/`ArrowRect`) whose click
+hides/shows its children (the collapsed set lives in the pure-data `EditorPanelStateComponent`);
+clicking the group row **body** still cascades the enabled toggle (Gmail), so collapse (arrow) and
+enable (body) are distinct zones. The Systems panel is now one **section** of the right-strip
+`EditorPanelSystem` (see the sections premise below), which renders through the pure
+`EditorPanelModel` and pools its row visuals over the visible window (dynamic content — the Scene
+tree + Inspector change every frame — so it re-purposes a bounded pool rather than one entity per
+row).
 
 **Why:** direct user directives — "we should be able to see the ECS systems pipeline and manually
 activate or deactivate them", then "I'd like a way for all systems to be displayed, even when some
@@ -796,18 +802,83 @@ makes the strip's rows dead (the chrome sits where the virtual mapping is null);
 scroll bleeds rows over the toolbar; a self-disabling panel — or an ancestor cascade that disables
 it — bricks the editor UI for the session; a two-state group checkbox would lie about a
 partially-disabled block.
-**Tests:** `MonoDreams.Tests/LevelEditor/SystemsPanelTests.cs` (rows mirror both pipelines' entries
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (rows mirror both pipelines' entries
 + policy tags; checkboxes reflect live enabled state; a row click calls `SetEnabled` and the gated
-system actually stops in both modes — side-effect counter — and a second click re-arms it; inert in
-Play; wheel scroll in whole clamped lines; scrolled-out rows parked; the panel refuses to disable
-itself; tree rows render groups before children with depth-indented checkboxes and local-name
-labels; the group checkbox maps On/Mixed/Off to filled / filled-with-minus-bar / empty; a group
-click follows the Gmail convention — Mixed or On → all off, Off → all on; a leaf click inside a
-group toggles only that leaf; the panel refuses to toggle an ancestor group of its own entry while
-the sibling leaf stays toggleable).
+system actually stops in both modes — side-effect counter — and a second click re-arms it; live in
+both transport states; wheel scroll in whole clamped lines; pooled visuals bounded by the visible
+window; the panel refuses to disable itself; a group row's **arrow** click collapses/expands its
+children while its **body** click cascades the enabled toggle Gmail-style) and
+`MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs` (the pure row model: the group checkbox maps
+On/Mixed/Off to filled / filled-with-minus-bar / empty and tracks the registrar; group collapse
+hides children yet keeps the group row; child rows show the local-name label).
 **Depends on:** this file — "The pipeline registrar is the composition seam" (the binding + the
 derived tri-state), "The editor shell insets the game viewport and renders its chrome at native
-resolution" (the strip, the `ScreenPosition` rule, the no-`VisibleComponent` rule).
+resolution" (the strip, the `ScreenPosition` rule, the no-`VisibleComponent` rule), "The editor
+right strip is a stack of collapsible sections" (the panel this section lives in).
+
+## The editor right strip is a stack of collapsible sections: Systems, a Scene tree, and a selection-bound Inspector
+
+The right strip is `EditorPanelSystem` — one vertically scrolling stack of three **collapsible
+sections** whose in-session collapse/expand state lives in the pure-data
+`EditorPanelStateComponent` on an editor-infra entity (ECS purity — state in a component, behaviour
+in the system), and whose flat row list is assembled purely by `EditorPanelModel.Build` (unit-
+testable with hand-fed inputs — no world, no GraphicsDevice). Each section header toggles its whole
+body; the three:
+
+- **Systems** — the pipeline listing (the premise above), now with per-group collapse.
+- **Scene** — the world's entities as a **tree**, built by the pure `EntitySceneTree.Build`: roots
+  first, each entity's `ChildOfComponent` descendants nested one indent deeper (pre-order), with
+  **editor-infrastructure entities hidden** (the section's `EntitySet` is
+  `With<TransformComponent> Without<EditorInfrastructureComponent>`, so chrome / gizmo overlays /
+  proxies / the cursor / the state entities never appear); a child of a hidden entity re-parents to
+  its nearest included ancestor. Each row is labelled by its `EntityInfoComponent` name (else type,
+  else a stable panel-local id) and is **selectable both ways**: clicking a row sets
+  `SelectedComponent` on that entity (the same tag `SelectionSystem` sets from a viewport click —
+  and the panel's chrome click is `OutsideViewport`, so `SelectionSystem` never clobbers it), and
+  the currently-selected entity is highlighted in the tree. An entity with children carries a
+  disclosure arrow that collapses its subtree.
+- **Inspector** — bound to the current selection: it lists that entity's **attached components**
+  (item 3 — every component type name via `ComponentInspector.Inspect` over DefaultEcs
+  `ReadAllComponents`, the same discovery the serializer registry uses), and each component row
+  expands (on demand — hidden by default) to its **member values** (item 4 — read-only
+  `name: value` rows reflected from the component's public fields/properties by
+  `ComponentInspector.ReadMembers`, culture-invariant floats, guarded per-member so an arbitrary
+  component — struct, tag, ref, null — never throws). No selection → "(no selection)"; the expand
+  set resets when the selection changes.
+
+The panel is native-resolution chrome like the systems panel (Editor target, no `VisibleComponent`,
+`ScreenPosition` hit-test), reuses the systems-panel scroll model (`SystemsPanelLayout`), and —
+because the Scene/Inspector content is dynamic — **pools** its row visuals over the visible window
+(bounded entity count) rather than one entity per row. Headless-drivable through the overlay's named
+dispatch: `panel:systems|scene|inspector` (toggle a section), `panel:group <name>` (a pipeline
+group), `panel:inspect <type>` (a component's members), `panel:select <name>` (a scene entity).
+
+**Why:** the direct asks — "the right column should be collapsible sections", "a scene tree of the
+entities I can select", "see which components are on an entity", and "see the state (member/bar
+values) of each component when I want". Selection integrates both ways so the viewport and the tree
+are one selection, not two.
+**Breaks:** state on the system instead of a component violates ECS purity and would not survive the
+right lifecycle; not hiding `EditorInfrastructureComponent` entities floods the tree with chrome /
+gizmo / proxy noise; one-entity-per-row (instead of pooling) unbounds the entity count on a big
+scene; reflecting a component without per-member guards crashes the editor on the first component
+whose getter throws; a tree selection that `SelectionSystem` could clear (or vice-versa) would make
+the viewport and tree fight over one `SelectedComponent`.
+**Tests:** `MonoDreams.Tests/LevelEditor/EntitySceneTreeTests.cs` (roots-first / children-indented
+pre-order; editor-infra hidden; a child of a hidden parent promoted to a root / re-parented to the
+nearest included ancestor); `MonoDreams.Tests/LevelEditor/ComponentInspectorTests.cs` (the attached-
+component list; member reflection over mixed field types with invariant floats + null + a computed
+property; a tag component has no members; graceful on a dead entity);
+`MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs` (all three section headers always present
+with disclosure state; section collapse hides a body; scene rows indent + highlight the selection +
+subtree collapse; the Inspector lists components and expands to member rows; "(no selection)" /
+"(no scene entities)" placeholders); `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (a Scene row
+click sets `SelectedComponent`; an external selection is highlighted in the tree; `panel:select`
+selects by name headlessly; the Inspector lists the selection's components and expands to member
+values; editor-infra entities are hidden from the tree; section-header + group-arrow collapse).
+**Depends on:** this file — "The systems panel renders the registrar tree …" (the Systems section),
+"The editor shell insets the game viewport …" (the strip + chrome rules), "Selection picks MAX final
+`LayerDepth` …" (`SelectedComponent`, the two-way selection tag); foundation — `ChildOfComponent`
+(the tree edges), `EntityInfoComponent` (row labels).
 
 ## Collider shapes are edited through standalone gizmo proxies; write-back targets the bound component, through the undo history
 

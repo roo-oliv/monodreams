@@ -228,10 +228,13 @@ public sealed class EditorOverlay
         ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction,
             (action, state) => action == EditorToolbarAction.Save
                                && SaveBlock(state, _projectContext) == SaveBlockReason.NoProjectRoot);
-        // The systems panel (Wave 8a) binds lazily to the pipelines the screen hands over via
-        // BindPipelines — they don't exist yet while the overlay itself is being constructed.
-        SystemsPanel = new SystemsPanelSystem(world, viewportManager, toolbarFont,
+        // The right-strip editor panel (Systems + Scene + Inspector sections). The Systems section
+        // binds lazily to the pipelines the screen hands over via BindPipelines — they don't exist
+        // yet while the overlay itself is being constructed; the Scene + Inspector sections read the
+        // live world directly.
+        _editorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
             () => (UpdatePipeline, DrawPipeline));
+        SystemsPanel = _editorPanel;
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
@@ -365,10 +368,18 @@ public sealed class EditorOverlay
     /// <see cref="ToolbarMeshPrep"/> (see there).</summary>
     public ISystem<GameState> ToolbarClicks { get; }
 
-    /// <summary>The systems panel in the shell's right strip: lists every bound registrar entry
-    /// (update + draw, groups indented, tri-state group checkboxes) with its policy and a live
-    /// enabled toggle. Weave after the <c>editor.toolbar</c> group (whose mesh prep bakes its
-    /// checkbox meshes). Requires <see cref="BindPipelines"/> — until then it idles.</summary>
+    // The concrete right-strip panel: the headless panel:* ops drive its section/group/tree/inspector
+    // toggles directly (like _editorCommands for the selection-edit ops).
+    private readonly EditorPanelSystem _editorPanel;
+
+    /// <summary>The right-strip editor panel in the shell's right strip: three collapsible sections —
+    /// <b>Systems</b> (every bound registrar entry of both pipelines, groups indented + collapsible,
+    /// tri-state group checkboxes, live enabled toggle), <b>Scene</b> (the world's entities as a
+    /// selectable parent/child tree), and <b>Inspector</b> (the selected entity's components +
+    /// on-demand member values). Weave after the <c>editor.toolbar</c> group (whose mesh prep bakes
+    /// its checkbox meshes). The Systems section requires <see cref="BindPipelines"/>; the Scene +
+    /// Inspector sections work immediately. Kept the <c>editor.systemsPanel</c> entry name so every
+    /// screen weaves it unchanged.</summary>
     public ISystem<GameState> SystemsPanel { get; }
 
     /// <summary>The modal Save / Load dialogs (native-resolution chrome). Weave EARLY in the update
@@ -761,7 +772,10 @@ public sealed class EditorOverlay
     /// <c>order:forward</c>/<c>order:back</c> nudge the selection's within-band order,
     /// <c>collider:addBox</c>/<c>addConvex</c>/<c>remove</c>/<c>addVertex</c>/<c>deleteVertex</c>
     /// drive the collider authoring actions, <c>ghost:cw</c>/<c>ghost:ccw</c> rotate the armed
-    /// palette ghost, and anything else parses as a plain
+    /// palette ghost, <c>panel:systems|scene|inspector</c> collapse a right-strip section,
+    /// <c>panel:group &lt;name&gt;</c> collapses a pipeline group, <c>panel:inspect &lt;type&gt;</c>
+    /// expands a component's member values, <c>panel:select &lt;name&gt;</c> selects a scene entity,
+    /// and anything else parses as a plain
     /// <see cref="EditorToolbarAction"/> into <see cref="DispatchToolbarAction"/> — so every
     /// scripted editor action shares one grammar. Loud on unknown names / a palette op without a
     /// composed palette.
@@ -777,6 +791,36 @@ public sealed class EditorOverlay
         const string triggerPrefix = "trigger:";
         const string ghostPrefix = "ghost:";
         const string dialogPrefix = "dialog:";
+        const string panelPrefix = "panel:";
+
+        if (name.StartsWith(panelPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // panel:systems|scene|inspector (toggle a section), panel:group <fullName> (toggle a
+            // pipeline group's children), panel:inspect <typeName> (toggle a component's members),
+            // panel:select <entityName> (select a scene entity by its EntityInfo name/type).
+            var rest = name.Substring(panelPrefix.Length);
+            var space = rest.IndexOf(' ');
+            var verb = space < 0 ? rest : rest.Substring(0, space);
+            var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
+            switch (verb.ToLowerInvariant())
+            {
+                case "systems": _editorPanel.ToggleSection(EditorPanelSection.Systems); break;
+                case "scene": _editorPanel.ToggleSection(EditorPanelSection.Scene); break;
+                case "inspector": _editorPanel.ToggleSection(EditorPanelSection.Inspector); break;
+                case "group": _editorPanel.ToggleGroupCollapsed(arg); break;
+                case "inspect": _editorPanel.ToggleInspectorComponentKey(arg); break;
+                case "select":
+                    if (!_editorPanel.SelectEntityByName(arg))
+                        Logger.Warning($"[level-editor] Editor-op '{name}': no scene entity named '{arg}'.");
+                    break;
+                default:
+                    Logger.Warning(
+                        $"[level-editor] Editor-op '{name}': expected " +
+                        "panel:systems|scene|inspector|group <name>|inspect <type>|select <name>.");
+                    break;
+            }
+            return;
+        }
 
         if (name.StartsWith(dialogPrefix, StringComparison.OrdinalIgnoreCase))
         {
