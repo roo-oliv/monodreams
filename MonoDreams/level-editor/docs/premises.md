@@ -177,6 +177,48 @@ persists — the second save is empty without the re-tag).
 around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
 frame); foundation — the `IPlatformServices` portability seam.
 
+## A loaded sprite entity carries a `DrawComponent` (reader-restored) and the reader auto-frames the camera on content
+
+`DrawComponent` is deliberately **not** serialized (its sprite fields are re-prepped every frame from
+`SpriteInfoComponent` and its `LayerDepth` is per-frame-derived), so the scene reader reconstructs
+entities with `SpriteInfoComponent` + `TransformComponent` but **no** `DrawComponent`. Because
+`SpritePrepSystem` queries `[With(DrawComponent, SpriteInfoComponent, TransformComponent,
+VisibleComponent)]`, a reloaded sprite without a `DrawComponent` is **never prepped, never drawn** — the
+Main target stays the backbuffer clear color (the confirmed "reloaded scene renders blank" bug). So the
+invariant: **an entity with `SpriteInfoComponent` must have a `DrawComponent`.** `SceneReaderSystem`
+restores it after deserialize (`RestoreDrawComponents`) — a sprite `DrawComponent` whose `Target` is the
+sprite's own `SpriteInfoComponent.Target`, mirroring `SpritePropFactory` (the authoring path) — for
+every reconstructed sprite that lacks one. Only sprites are restored: `DrawComponent`'s mesh/text
+payloads are not serializable today, so a sprite is the only serialized renderable.
+
+Additionally, when the reader is given the screen's live `Camera` **and** the loaded scene has **no
+active** `CameraFollowTargetComponent` (a dressed prop-only scene has no player, so nothing else moves
+the camera onto the content), it **auto-frames** the camera on the loaded content's world-space AABB
+(centre + zoom-fit, via the pure `CameraNav` frame-scene math) — so an off-origin scene (e.g.
+`Blender_Level` at ~(1275,−530)) is visible instead of the camera sitting at (0,0) while the content is
+elsewhere. When an active follow target IS present the reader leaves the camera untouched
+(`CameraFollowSystem` owns it in Play). No content ⇒ no-op. The `Camera` is an optional reader ctor
+param (the overlay supplies the screen's camera; the pure round-trip tests pass null and skip framing).
+
+**Why:** the render pipeline's `SpriteInfoComponent ⇒ DrawComponent` pairing is what puts a sprite on
+screen; the reader reconstructs the transient `DrawComponent` rather than serializing it (which would
+bake a per-frame-derived depth). Auto-framing turns a technically-loaded-but-invisible off-origin scene
+into a visible one without a manual "frame scene" keypress the first time.
+**Breaks:** a reloaded sprite with no `DrawComponent` is invisible (blank backbuffer-colored screen);
+overriding an active follow target's camera would fight `CameraFollowSystem` in Play; framing on empty
+content would jump to a degenerate AABB.
+**Tests:** `MonoDreams.Tests/LevelEditor/LoadedSceneRendersTests.cs`
+(`ReloadedSprite_HasDrawComponent_SoItEntersThePrepQuery` — the reloaded sprite carries a sprite
+`DrawComponent` targeting Main; `ReloadedScene_AutoFramesCameraAndPassesCulling_SoItRendersNonBlank` —
+after load the camera sits on the off-origin content and the REAL `CullingSystem` tags the sprite
+`VisibleComponent`, i.e. it reaches the draw path at the content region; `ReloadedScene_WithActiveFollowTarget_LeavesCameraAlone`
+— an active follow target keeps the camera at its position, and the `DrawComponent` restore still runs).
+**Depends on:** rendering — `SpritePrepSystem`'s `[With(DrawComponent, …)]` query and `CullingSystem`'s
+`VisibleComponent` add (the draw-path gates); this file — "Editor camera navigation pans/zooms/frames
+the scene directly" (the `CameraNav` frame-scene math reused); "Y-sorted props use the feet-origin
+convention, factory-applied" (`SpritePropFactory`, the pairing this mirrors); camera —
+`CameraFollowTargetComponent` (the follow-target signal that suppresses auto-framing).
+
 ## Scene serialization is canonical and byte-stable; `entities[]` is ordered by a persisted stable scene-local id
 
 Every native scene (and, later, the project manifest) is written and read through ONE canonical JSON
@@ -1042,27 +1084,62 @@ editor's project root; unresolved is fail-safe" (the `NoProjectRoot` cause).
 A MonoDreams game is a versionable unit rooted at a `game.mdproj` manifest (`GameProject`:
 `formatVersion`, `startScene`, `levelsDir` default `Levels`, `assetRoots`), read/written through the
 SAME `CanonicalJson` policy scenes use so it is byte-stable and diffable. The editor resolves its
-project root once at init (desktop-only) via `EditorProjectContext.Resolve`: PRIMARY the env var
-`MONODREAMS_PROJECT_ROOT` (probing `<root>/Content/game.mdproj` then `<root>/game.mdproj`), FALLBACK a
-bounded walk-up from `BaseDirectory` probing `<dir>/game.mdproj` and `<dir>/Content/game.mdproj` at
-each ancestor, else UNRESOLVED. **The resolved `ProjectRoot` is the directory that CONTAINS the
-manifest** (so `ProjectRoot/game.mdproj == ManifestPath` and `ProjectRoot/LevelsDir == LevelsPath`),
-uniform across both resolution paths. Resolution NEVER throws — a missing or malformed manifest logs a
-warning and yields `Resolved = false`. The head (where the editor flag is parsed) resolves it and hands
-it to the overlay (an optional ctor param, default null) so the `level-editor` module stays
-game-agnostic; the module reads the environment/filesystem only through injected delegates (wired to
-`PlatformServices.Current` in the no-arg overload). The example manifest ships committed at
+project root once at init (desktop-only) via `EditorProjectContext.Resolve`, in this order (corrected
+in FW1):
+
+1. **PRIMARY — env var `MONODREAMS_PROJECT_ROOT`** (probing `<root>/Content/game.mdproj` then
+   `<root>/game.mdproj`). This is the explicit override — trusted, NOT bin/obj-filtered. For the
+   reference game its value is the absolute path to the content project, e.g.
+   `.../MonoDreams.Examples.Core`.
+2. **FALLBACK — walk up from `BaseDirectory`, rejecting build-output copies.** At each ancestor probe
+   `<dir>/Content/game.mdproj` then `<dir>/game.mdproj`, but **reject any candidate whose path contains
+   a `bin`/`obj` segment** — that is the MGCB-copied OUTPUT manifest beside the executable
+   (`bin/Debug/net8.0/Content/game.mdproj`), never the versioned source. (FW1 fix: the walk-up used to
+   match that output copy first, so Save landed in `bin/…/Content/Levels`.)
+3. **FALLBACK — repo-root search for the SOURCE manifest.** The source manifest usually lives in a
+   **sibling** project (`.../<Game>.Core/Content/game.mdproj`), off the build-output ancestor chain, so
+   walk-up alone can't reach it. While ascending, detect the repository/solution root (an ancestor
+   holding a `.git` entry — **file OR directory**, so git worktrees work — or a `*.sln`), then
+   recursively search under it for `game.mdproj`, **excluding every `bin`/`obj` path**. When several
+   source manifests exist (e.g. a web head's `wwwroot/Content` copy) the choice is deterministic:
+   shallowest path first, then ordinal — so a normal `dotnet run`/Rider run from inside the repo
+   resolves the SOURCE with **no env var**.
+4. **UNRESOLVED — only an output copy (or nothing) found.** `Resolved = false`; Save is disabled with
+   an actionable reason (never a silent write to `bin`).
+
+**The resolved `ProjectRoot` is the directory that CONTAINS the manifest** (so
+`ProjectRoot/game.mdproj == ManifestPath` and `ProjectRoot/LevelsDir == LevelsPath`), uniform across
+every resolution path. Resolution NEVER throws — a missing or malformed manifest logs a warning and
+yields `Resolved = false`. The head (where the editor flag is parsed) resolves it and hands it to the
+overlay (an optional ctor param, default null) so the `level-editor` module stays game-agnostic; the
+module reads the environment/filesystem only through injected delegates. The pure `Resolve` overload
+takes the env/file/dir/enumerate probes as delegates (fully unit-testable with a simulated layout); the
+no-arg convenience wires the env/file probes to `PlatformServices.Current` and the two directory probes
+(`.git`/`*.sln` detection + recursive manifest search) to `System.IO` directly — the module's only
+direct filesystem access, justified because project resolution is a desktop-only, editor-init host
+concern that never runs on web. The example manifest ships committed at
 `MonoDreams.Examples.Core/Content/game.mdproj` (under `Content/` + an MGCB `/copy:` so the shipped game
 can read it via `TitleContainer` later, like `blender_level.json`).
 
+**Rider / IDE setup:** an in-repo `dotnet run`/Rider run now resolves the SOURCE tree with **no
+configuration** (step 3). To target a specific content project (or when running from a relocated
+output), set `MONODREAMS_PROJECT_ROOT` in the run configuration to the content project directory —
+for the reference game the absolute path to `MonoDreams.Examples.Core` (which contains
+`Content/game.mdproj`); Save then lands in `MonoDreams.Examples.Core/Content/Levels/<id>.mdscene`.
+
 **Why:** the editor runs from a build-output directory but must locate the versioned project source to
-save into it (PS3) and to gate Save when there is no project (PS2); a resolution that threw or picked
-the wrong root would crash the editor or silently write to the wrong place.
-**Breaks:** Save writes to (or crashes over) an ephemeral build-output path; the game cannot resolve
-its `startScene` at boot (PS4); a locale/insertion-order-dependent manifest churns the git diff.
+save into it (PS3) and to gate Save when there is no project (PS2); a resolution that threw, picked the
+build-output copy, or picked the wrong root would crash the editor or silently write to the wrong place
+(the confirmed "Save lands in `bin/…/Content/Levels`" bug — the walk-up resolved the output manifest).
+**Breaks:** Save writes to (or crashes over) an ephemeral build-output path (the FW1 bug); the game
+cannot resolve its `startScene` at boot (PS4); a locale/insertion-order-dependent manifest churns the
+git diff.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorProjectContextTests.cs` (env / walk-up / unresolved /
-malformed / env-miss-falls-back), `MonoDreams.Tests/LevelEditor/GameProjectTests.cs` (canonical
-round-trip, byte-stable, `assetRoots` order preserved, canonical shape locked).
+malformed / env-miss-falls-back; **FW1**: `WalkUp_FromBinBaseDir_ResolvesTheSourceManifest_NeverTheBinOutputCopy`
+— a bin base dir + a source + an output + a web copy + a `.git` file resolves the SOURCE, never the bin
+copy; `EnvVar_Wins_EvenWhenABinCopyAndSourceExist`; `OnlyABinOutputCopy_AndNoSource_IsUnresolved_NeverTheBinCopy`),
+`MonoDreams.Tests/LevelEditor/GameProjectTests.cs` (canonical round-trip, byte-stable, `assetRoots`
+order preserved, canonical shape locked).
 **Depends on:** this file — "Scene serialization is canonical and byte-stable…" (the shared
 `CanonicalJson`); foundation — `IPlatformServices` (`BaseDirectory`, env/file lookups the resolver
 routes through).
