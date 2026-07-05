@@ -531,6 +531,158 @@ public class PalettePlacementTests
         }
     }
 
+    // ---- Per-asset band marks (FW3): resolution rule + set + cycle + persistence ----
+
+    [Fact]
+    public void BandResolution_MarkedAssetUsesItsBand_UnmarkedUsesGlobalSelector()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        using var palette = MakePalette(world, history, serializer);
+
+        // Global selector is Ground; permanently mark tree01 (index 0) as Props.
+        Assert.True(palette.SelectBand("Ground"));
+        Assert.True(palette.SetAssetBand("Island/props/tree01.png", "Props"));
+        Assert.Equal("Props", palette.MarkedBandName(new AssetCatalogEntry(
+            "Island/props/tree01.png", null, null, "tree01", "props")));
+
+        // Arming/placing the MARKED asset lands on its band (Props: depth 0.45, feet-origin),
+        // NOT the global Ground selector.
+        palette.ArmByIndex(0);
+        SetCursor(cursor, new Vector2(10, 20), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(10, 20), leftReleased: true);
+        palette.Update(Edit());
+        var marked = Assert.Single(PlacedProps(world));
+        var markedSprite = marked.Get<SpriteInfoComponent>();
+        Assert.Equal(0.45f, markedSprite.LayerDepth);                 // Props band's SOURCE depth
+        Assert.Equal(new Vector2(16f, 32f), markedSprite.Origin);     // feet-origin (Y-sorted Props)
+
+        // Arming/placing an UNMARKED asset (sheet#trunk, index 1) uses the global Ground selector.
+        palette.ArmByIndex(1);
+        SetCursor(cursor, new Vector2(30, 40), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(30, 40), leftReleased: true);
+        palette.Update(Edit());
+        var unmarked = PlacedProps(world).Find(e => e != marked);
+        var unmarkedSprite = unmarked.Get<SpriteInfoComponent>();
+        Assert.Equal(0.9f, unmarkedSprite.LayerDepth);                // Ground band's SOURCE depth
+        Assert.Equal(Vector2.Zero, unmarkedSprite.Origin);            // top-left (Ground not Y-sorted)
+    }
+
+    [Fact]
+    public void SetAssetBand_SetsClearsAndIsLoudOnUnknown()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var (serializer, history) = MakeInfra(world);
+        using var palette = MakePalette(world, history, serializer);
+        var tree = new AssetCatalogEntry("Island/props/tree01.png", null, null, "tree01", "props");
+
+        Assert.True(palette.SetAssetBand("Island/props/tree01.png", "Ground"));
+        Assert.Equal("Ground", palette.MarkedBandName(tree));
+
+        // "auto" clears the mark back to the global selector.
+        Assert.True(palette.SetAssetBand("Island/props/tree01.png", "auto"));
+        Assert.Null(palette.MarkedBandName(tree));
+
+        // Loud false on an unknown band or an unknown entry (no mark applied).
+        Assert.False(palette.SetAssetBand("Island/props/tree01.png", "Nope"));
+        Assert.False(palette.SetAssetBand("Island/props/ghost.png", "Ground"));
+        Assert.Null(palette.MarkedBandName(tree));
+    }
+
+    [Fact]
+    public void CycleAssetBand_WalksUnmarkedThroughEveryBandBackToUnmarked()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var (serializer, history) = MakeInfra(world);
+        using var palette = MakePalette(world, history, serializer);
+        var tree = new AssetCatalogEntry("Island/props/tree01.png", null, null, "tree01", "props");
+
+        Assert.Null(palette.MarkedBandName(tree));  // starts unmarked (global selector)
+        palette.CycleAssetBand(0);
+        Assert.Equal("Ground", palette.MarkedBandName(tree)); // → band 0
+        palette.CycleAssetBand(0);
+        Assert.Equal("Props", palette.MarkedBandName(tree));  // → band 1
+        palette.CycleAssetBand(0);
+        Assert.Null(palette.MarkedBandName(tree));             // → back to unmarked
+    }
+
+    [Fact]
+    public void MarkedBand_SurvivesCatalogRescanAndEditorRestart()
+    {
+        var root = global::System.IO.Path.Combine(
+            global::System.IO.Path.GetTempPath(),
+            "monodreams-palette-bandmark-" + global::System.Guid.NewGuid().ToString("N"));
+        global::System.IO.Directory.CreateDirectory(global::System.IO.Path.Combine(root, "props"));
+        global::System.IO.File.WriteAllText(
+            global::System.IO.Path.Combine(root, "props", "tree01.png"), "png");
+        try
+        {
+            using var world = new World();
+            MakeGizmoState(world);
+            var (serializer, history) = MakeInfra(world);
+
+            // First session: mark tree01 as Props (persists to asset-bands.json).
+            var catalog1 = AssetCatalog.Scan(root, "Island");
+            var config1 = AssetBandConfig.Load(catalog1.RootAbsolutePath);
+            using (var palette1 = new PalettePlacementSystem(world, catalog1, Bands, MakeLoader(),
+                       serializer, history, viewportManager: null, font: null, cancelRequested: null,
+                       triggerTypes: null, rotateCwRequested: null, rotateCcwRequested: null,
+                       bandConfig: config1))
+            {
+                Assert.True(palette1.SetAssetBand("Island/props/tree01.png", "Props"));
+            }
+
+            // Restart: a FRESH scan + a FRESH config load off the same folder. The mark resolves.
+            var catalog2 = AssetCatalog.Scan(root, "Island");
+            var config2 = AssetBandConfig.Load(catalog2.RootAbsolutePath);
+            using var palette2 = new PalettePlacementSystem(world, catalog2, Bands, MakeLoader(),
+                serializer, history, viewportManager: null, font: null, cancelRequested: null,
+                triggerTypes: null, rotateCwRequested: null, rotateCcwRequested: null,
+                bandConfig: config2);
+
+            var entry = catalog2.Entries[0];
+            Assert.Equal("tree01", entry.Label);
+            Assert.Equal("Props", palette2.MarkedBandName(entry));
+            Assert.Equal("Props", palette2.ResolveBand(entry).Name); // regardless of the default global band
+        }
+        finally
+        {
+            try { global::System.IO.Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void HeadlessPaletteOpTest_AssetBandStringReachesNamedDispatch()
+    {
+        using var world = new World();
+        MakeCursor(world);
+
+        var received = new global::System.Collections.Generic.List<string>();
+        var plan = new EditorOpPlan
+        {
+            Ops = new global::System.Collections.Generic.List<EditorOp>
+            {
+                new() { Frame = 0, Kind = EditorOpKind.ToolbarAction, Action = "asset-band:Island/props/tree01.png:Ground" },
+            },
+        };
+        using var driver = new EditorOpReplaySystem(world, plan,
+            dispatch: null, requestExit: null, transport: null,
+            dispatchNamed: (name, _) => received.Add(name));
+
+        var state = Edit();
+        for (var i = 0; i < 2; i++) driver.Update(state);
+
+        // The asset-band op's raw string reaches the named dispatch (the overlay then parses
+        // <entryId>:<band> and calls Palette.SetAssetBand).
+        Assert.Equal(new[] { "asset-band:Island/props/tree01.png:Ground" }, received);
+    }
+
     [Fact]
     public void HeadlessPaletteOpTest_ArmByIdThenClickPlaces()
     {

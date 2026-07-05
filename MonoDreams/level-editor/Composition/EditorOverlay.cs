@@ -253,10 +253,14 @@ public sealed class EditorOverlay
         // guesses a game's layers. Lives in the shell's bottom strip.
         if (assetCatalog != null && paletteBands is { Count: > 0 })
         {
+            // Per-asset band marks (FW3): loaded from asset-bands.json alongside the assets (the
+            // catalog's scan root), so a mark survives an editor restart. Null root (no drop folder)
+            // → an in-memory config (marks work for the session, don't persist).
+            var bandConfig = AssetBandConfig.Load(assetCatalog.RootAbsolutePath);
             Palette = new PalettePlacementSystem(
                 world, assetCatalog, paletteBands, AssetTextures, Serializer, History,
                 viewportManager, toolbarFont, input.CancelRequested, triggerTypes,
-                input.RotateCwRequested, input.RotateCcwRequested);
+                input.RotateCwRequested, input.RotateCcwRequested, bandConfig);
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -752,6 +756,8 @@ public sealed class EditorOverlay
     /// The STRING-action dispatch the headless channel routes <c>ToolbarAction</c> ops through:
     /// <c>palette:&lt;entryId&gt;</c> arms a palette item, <c>palette:none</c> (or a bare
     /// <c>palette:</c>) disarms, <c>band:&lt;name&gt;</c> selects a layer band,
+    /// <c>asset-band:&lt;entryId&gt;:&lt;band&gt;</c> permanently marks an asset's band
+    /// (<c>:auto</c> clears it),
     /// <c>order:forward</c>/<c>order:back</c> nudge the selection's within-band order,
     /// <c>collider:addBox</c>/<c>addConvex</c>/<c>remove</c>/<c>addVertex</c>/<c>deleteVertex</c>
     /// drive the collider authoring actions, <c>ghost:cw</c>/<c>ghost:ccw</c> rotate the armed
@@ -763,6 +769,7 @@ public sealed class EditorOverlay
     public void DispatchNamedAction(string name, GameState state)
     {
         const string palettePrefix = "palette:";
+        const string assetBandPrefix = "asset-band:";
         const string bandPrefix = "band:";
         const string orderPrefix = "order:";
         const string colliderPrefix = "collider:";
@@ -835,6 +842,24 @@ public sealed class EditorOverlay
                 case "ccw": Palette.RotateArmedGhost(-PalettePlacementSystem.GhostRotationStep); break;
                 default: Logger.Warning($"[level-editor] Editor-op '{name}': expected ghost:cw or ghost:ccw."); break;
             }
+            return;
+        }
+
+        if (name.StartsWith(assetBandPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Palette == null)
+            {
+                Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
+                return;
+            }
+            // asset-band:<entryId>:<band> — split on the LAST ':' (the band name has none; the entry
+            // id may itself be a full file: key, which does). "auto"/"none" clears the mark.
+            var rest = name.Substring(assetBandPrefix.Length);
+            var sep = rest.LastIndexOf(':');
+            if (sep <= 0 || sep >= rest.Length - 1)
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected asset-band:<entryId>:<band>.");
+            else
+                Palette.SetAssetBand(rest.Substring(0, sep), rest.Substring(sep + 1));
             return;
         }
 

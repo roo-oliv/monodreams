@@ -6,10 +6,11 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the pure bottom-strip palette layout (<see cref="PaletteLayout"/>): the flow grid
-/// wraps item buttons into rows of the content width, scroll clamps to whole rows, scrolled-out
-/// items report no rectangle (the system parks them off-screen), and the band header row lays out
-/// like the toolbar's button row. World-free, like the other chrome-layout tests.
+/// Protects the pure bottom-strip palette layout (<see cref="PaletteLayout"/>): the card grid packs
+/// fixed-width cards (icon on top, label on the bottom, a band chip in the icon corner) into rows of
+/// the content width, scroll clamps to whole card rows, scrolled-out cards report no rectangle (the
+/// system parks them off-screen), and the band header row lays out like the toolbar's button row.
+/// World-free, like the other chrome-layout tests.
 /// </summary>
 public class PaletteLayoutTests
 {
@@ -17,30 +18,32 @@ public class PaletteLayoutTests
         EditorChromeLayout.BottomBar(w, h);
 
     [Fact]
-    public void FlowWrapsAtContentWidth()
+    public void CardGridWrapsAtContentWidth()
     {
-        // Content width 300: 120 + gap(6) + 120 fits; the third 120 wraps.
-        var flow = PaletteLayout.Flow(new[] { 120, 120, 120, 300, 50 }, contentWidth: 300);
+        // Content width 300: (300+8)/(92+8) = 3 columns; the 4th card wraps to row 1.
+        var flow = PaletteLayout.CardFlow(5, contentWidth: 300);
 
         Assert.Equal((0, 0), flow[0]);
-        Assert.Equal((0, 126), flow[1]);      // 120 + ButtonGap(6)
-        Assert.Equal((1, 0), flow[2]);        // wrapped
-        Assert.Equal((2, 0), flow[3]);        // 300 fills a row exactly (126+300 > 300 → wraps)
-        Assert.Equal((3, 0), flow[4]);        // 300 + gap overflows → next row
-        Assert.Equal(4, PaletteLayout.TotalRows(flow));
-        Assert.Equal(0, PaletteLayout.TotalRows(PaletteLayout.Flow(new int[0], 300)));
+        Assert.Equal((0, 100), flow[1]);   // CardWidth(92) + CardGapX(8)
+        Assert.Equal((0, 200), flow[2]);
+        Assert.Equal((1, 0), flow[3]);     // wrapped
+        Assert.Equal((1, 100), flow[4]);
+        Assert.Equal(2, PaletteLayout.TotalRows(flow));
+        Assert.Equal(0, PaletteLayout.TotalRows(PaletteLayout.CardFlow(0, 300)));
     }
 
     [Fact]
-    public void OverwideItemStillOccupiesARowAlone()
+    public void CardGridAlwaysFitsAtLeastOneColumn()
     {
-        var flow = PaletteLayout.Flow(new[] { 500, 100 }, contentWidth: 300);
-        Assert.Equal((0, 0), flow[0]); // wider than the row, placed anyway (x == 0 → no wrap loop)
+        // A content narrower than one card still packs one card per row (never zero columns).
+        var flow = PaletteLayout.CardFlow(3, contentWidth: 10);
+        Assert.Equal((0, 0), flow[0]);
         Assert.Equal((1, 0), flow[1]);
+        Assert.Equal((2, 0), flow[2]);
     }
 
     [Fact]
-    public void ScrollClampsToWholeRows()
+    public void ScrollClampsToWholeCardRows()
     {
         var strip = Strip();
         var visible = PaletteLayout.VisibleRowCount(strip);
@@ -57,25 +60,62 @@ public class PaletteLayoutTests
     }
 
     [Fact]
-    public void ItemRectVisibleAndScrolledOut()
+    public void CardRectVisibleAndScrolledOut()
     {
         var strip = Strip();
         var content = PaletteLayout.ContentArea(strip);
         var visible = PaletteLayout.VisibleRowCount(strip);
 
-        // Row 0, x 0, no scroll: on-screen, under the band header, button-height tall.
-        Assert.True(PaletteLayout.TryItemRect(strip, (0, 0), width: 80, scroll: 0, out var rect));
+        // Row 0, x 0, no scroll: on-screen, under the band header, card-sized.
+        Assert.True(PaletteLayout.TryCardRect(strip, (0, 0), scroll: 0, out var rect));
         Assert.Equal(content.X, rect.X);
-        Assert.Equal(80, rect.Width);
-        Assert.Equal(PaletteLayout.ButtonHeight, rect.Height);
+        Assert.Equal(PaletteLayout.CardWidth, rect.Width);
+        Assert.Equal(PaletteLayout.CardHeight, rect.Height);
         Assert.True(rect.Y >= content.Y + PaletteLayout.HeaderHeight - 2); // below the header row
 
         // Scrolled out above → no rect (the system parks the entity).
-        Assert.False(PaletteLayout.TryItemRect(strip, (0, 0), 80, scroll: 1, out _));
+        Assert.False(PaletteLayout.TryCardRect(strip, (0, 0), scroll: 1, out _));
         // Beyond the visible rows below → no rect.
-        Assert.False(PaletteLayout.TryItemRect(strip, (visible, 0), 80, scroll: 0, out _));
+        Assert.False(PaletteLayout.TryCardRect(strip, (visible, 0), scroll: 0, out _));
         // The same far row scrolls INTO view.
-        Assert.True(PaletteLayout.TryItemRect(strip, (visible, 0), 80, scroll: 1, out _));
+        Assert.True(PaletteLayout.TryCardRect(strip, (visible, 0), scroll: 1, out _));
+    }
+
+    [Fact]
+    public void CardSubRects_IconTopLabelBottomChipCorner()
+    {
+        var card = new Rectangle(100, 200, PaletteLayout.CardWidth, PaletteLayout.CardHeight);
+        var pad = PaletteLayout.CardPadding;
+
+        // Icon box sits at the top, inset by the padding, CardIconHeight tall.
+        var icon = PaletteLayout.CardIconRect(card, 1f);
+        Assert.Equal(new Rectangle(100 + pad, 200 + pad,
+            PaletteLayout.CardWidth - pad * 2, PaletteLayout.CardIconHeight), icon);
+
+        // Label row sits at the bottom, full inner width, CardLabelHeight tall.
+        var label = PaletteLayout.CardLabelRect(card, 1f);
+        Assert.Equal(PaletteLayout.CardLabelHeight, label.Height);
+        Assert.Equal(card.Bottom - pad, label.Bottom);
+        Assert.Equal(100 + pad, label.X);
+        Assert.True(label.Y > icon.Bottom); // strictly below the icon
+
+        // Band chip badge sits in the icon's top-right corner.
+        var chip = PaletteLayout.CardChipRect(card, 1f);
+        Assert.Equal(new Rectangle(card.Right - pad - PaletteLayout.CardChipWidth, 200 + pad,
+            PaletteLayout.CardChipWidth, PaletteLayout.CardChipHeight), chip);
+    }
+
+    [Fact]
+    public void RaisedStripFitsHeaderPlusACardRow()
+    {
+        // The raised BottomBarHeight (168, up from the v1 flat-row 104) hosts the band header + at
+        // least one full card row — the redesigned palette's bigger cards.
+        Assert.Equal(168, EditorChromeLayout.BottomBarHeight);
+        var strip = Strip();
+        Assert.True(PaletteLayout.VisibleRowCount(strip) >= 1);
+        // The header + one card row fit inside the content area.
+        var content = PaletteLayout.ContentArea(strip);
+        Assert.True(content.Height >= PaletteLayout.HeaderHeight + PaletteLayout.CardHeight);
     }
 
     [Fact]
@@ -95,32 +135,7 @@ public class PaletteLayoutTests
         }
     }
 
-    [Fact]
-    public void StripFitsHeaderPlusThreeRows()
-    {
-        // The raised BottomBarHeight (104) hosts the header + ≥3 item rows — the palette's design.
-        Assert.True(PaletteLayout.VisibleRowCount(Strip()) >= 3);
-    }
-
-    // ---- Thumbnails (Slice 4) ----
-
-    [Fact]
-    public void ItemButtonReservesTheThumbnailBoxAndOffsetsTheLabel()
-    {
-        // A sprite item's width = leading pad + thumbnail box + gap + label + trailing pad, and its
-        // label starts past the thumbnail box.
-        var offset = PaletteLayout.ItemLabelOffsetX();
-        Assert.Equal(
-            PaletteLayout.ButtonPaddingX + PaletteLayout.ThumbnailSize + PaletteLayout.ButtonGap,
-            offset);
-        Assert.Equal(offset + 40 + PaletteLayout.ButtonPaddingX, PaletteLayout.ItemWidth(40f));
-        // The thumbnail box is a square at the left of the item rect, vertically centered.
-        var rect = new Rectangle(100, 200, 120, 20);
-        var box = PaletteLayout.ItemThumbnailRect(rect, 1f);
-        Assert.Equal(new Rectangle(100 + PaletteLayout.ButtonPaddingX,
-            200 + (20 - PaletteLayout.ThumbnailSize) / 2, PaletteLayout.ThumbnailSize,
-            PaletteLayout.ThumbnailSize), box);
-    }
+    // ---- Thumbnail aspect-fit (icon box) ----
 
     [Fact]
     public void ThumbnailFitPreservesAspectAndCenters()
@@ -137,5 +152,15 @@ public class PaletteLayoutTests
         // A degenerate source collapses to an empty rect (the caller draws nothing — label fallback),
         // no crash / no divide-by-zero.
         Assert.Equal(0, PaletteLayout.ThumbnailFit(box, 0, 0).Width);
+    }
+
+    [Fact]
+    public void CardMetrics_AtDpr2_Double()
+    {
+        // DPR scaling: a card's screen rect doubles at scale 2 (physical size preserved, denser px).
+        var strip = EditorChromeLayout.BottomBar(3200, 1800, 2f);
+        Assert.True(PaletteLayout.TryCardRect(strip, (0, 0), scroll: 0, out var rect, 2f));
+        Assert.Equal(PaletteLayout.CardWidth * 2, rect.Width);
+        Assert.Equal(PaletteLayout.CardHeight * 2, rect.Height);
     }
 }

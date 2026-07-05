@@ -60,6 +60,11 @@ public sealed class AssetCatalog
     /// (island-authoring Slice 4 refresh). A catalog constructed directly (a unit test) cannot.</summary>
     public bool CanRescan => _rootAbsolutePath != null;
 
+    /// <summary>The absolute path of the drop folder this catalog was scanned from, or null for a
+    /// directly-constructed (test) catalog. The per-asset band config (<see cref="AssetBandConfig"/>)
+    /// lives here, alongside the assets.</summary>
+    public string? RootAbsolutePath => _rootAbsolutePath;
+
     /// <summary>
     /// Re-scans the drop folder this catalog was <see cref="Scan"/>ned from and replaces its
     /// entries in place (Slice 4 refresh button), so a newly-dropped or renamed PNG appears

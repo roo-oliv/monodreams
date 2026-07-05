@@ -24,11 +24,13 @@ namespace MonoDreams.LevelEditor.System;
 /// <summary>
 /// The editor's <b>asset palette + placement</b> system (island-authoring plan §3, adopting the
 /// wave-repass Wave-C design): the shell's bottom strip lists every <see cref="AssetCatalog"/>
-/// entry as a native-resolution button — a lazy-loaded art <b>thumbnail</b> (Slice 4) beside its
-/// text label, the label alone when the texture is missing/magenta — (grouped by folder in the
-/// sort; wheel-over-strip scrolls whole rows) beside a <b>layer-band selector</b> built from the
-/// screen-supplied
-/// <see cref="PaletteBand"/>s. Clicking an item <b>arms</b> it — the shared
+/// entry as a native-resolution <b>card</b> — a lazy-loaded art <b>thumbnail</b> on top, the text
+/// label on the bottom (the label alone when the texture is missing/magenta), and a small
+/// <b>band-chip badge</b> in the icon's top-right corner showing the asset's permanent band mark —
+/// laid out as a wrapping grid (grouped by folder in the sort; wheel-over-strip scrolls whole card
+/// rows) beside a <b>layer-band selector</b> built from the screen-supplied
+/// <see cref="PaletteBand"/>s. Clicking a card's body <b>arms</b> it; clicking its band chip
+/// <b>cycles</b> the asset's permanent band mark (see below). Arming flips the shared
 /// <see cref="GizmoStateComponent.Mode"/> flips to <see cref="EditorToolMode.Place"/> (selection
 /// and the transform gizmo go dormant, §S1) and a semi-transparent <b>ghost</b> preview follows
 /// the cursor's world position (snap-quantized via the shared snap settings; hidden while the
@@ -61,10 +63,20 @@ namespace MonoDreams.LevelEditor.System;
 /// Weave AFTER <c>CursorPositionSystem</c> (entry <c>editor.palette</c>) — the ghost must follow
 /// THIS frame's cursor world position, lag-free.</para>
 ///
+/// <para><b>Per-asset band mark (FW3).</b> The layer band is normally the GLOBAL selector, but an
+/// asset can be <b>permanently marked</b> to always place on a specific band regardless of the
+/// selector (e.g. ground tiles always on Ground). The mark lives in an <see cref="AssetBandConfig"/>
+/// (an <c>asset-bands.json</c> alongside the assets — dev-authoring metadata, survives restart), is
+/// set via the card's band chip (<see cref="CycleAssetBand"/>) or headlessly (<see cref="SetAssetBand"/>),
+/// and the placement <b>resolution rule</b> is: <see cref="ResolveBand"/> = the asset's marked band
+/// if set, else the global <see cref="SelectedBand"/>. A scene still serializes the actual band the
+/// placed entity landed on (unchanged); this only changes the DEFAULT.</para>
+///
 /// <para><b>Headless-drivable.</b> <see cref="Arm(string)"/> / <see cref="Disarm"/> /
-/// <see cref="SelectBand(string)"/> are public: the overlay's named-action dispatch routes the
-/// op-plan actions <c>palette:&lt;entryId&gt;</c> / <c>palette:none</c> / <c>band:&lt;name&gt;</c>
-/// here, so a scripted plan can arm an item and click-place with no real mouse.</para>
+/// <see cref="SelectBand(string)"/> / <see cref="SetAssetBand(string, string)"/> are public: the
+/// overlay's named-action dispatch routes the op-plan actions <c>palette:&lt;entryId&gt;</c> /
+/// <c>palette:none</c> / <c>band:&lt;name&gt;</c> / <c>asset-band:&lt;entryId&gt;:&lt;band&gt;</c>
+/// here, so a scripted plan can arm an item, mark its band, and click-place with no real mouse.</para>
 /// </summary>
 public sealed class PalettePlacementSystem : ISystem<GameState>
 {
@@ -79,12 +91,17 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// label (<see cref="EditorChromeBuilder.LabelDepth"/> 0.6).</summary>
     private const float ThumbnailDepth = 0.56f;
 
+    /// <summary>The band-chip badge's fill draw depth — above the thumbnail (0.56) so the badge is
+    /// never hidden by the preview, below the label band (0.6).</summary>
+    private const float ChipDepth = 0.58f;
+
     /// <summary>The per-press rotation step (radians) the ghost-rotate keys (Q/E) apply — 45°, so a
     /// road piece reaches the four cardinal + four diagonal orientations in whole steps (Slice 4).</summary>
     public const float GhostRotationStep = MathHelper.PiOver4;
 
     private readonly World _world;
     private readonly AssetCatalog _catalog;
+    private readonly AssetBandConfig _bandConfig;
     private readonly IReadOnlyList<PaletteBand> _bands;
     private readonly IReadOnlyList<TriggerType> _triggerTypes;
     private readonly FileAssetTextureLoader _textures;
@@ -105,21 +122,21 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private sealed class ItemButton
     {
         public required AssetCatalogEntry Entry;
-        public Entity Button;
-        public Entity Label;
-        public Entity Thumbnail; // native-res art preview sprite on the Editor target (Slice 4)
-        public int Width;
+        public Entity Button;       // the card body (click to arm)
+        public Entity Label;        // the card's bottom text label
+        public Entity Thumbnail;    // native-res art preview sprite on the Editor target (the card icon)
+        public Entity Chip;         // the per-asset band-mark chip badge (click to cycle the band)
+        public Entity ChipLabel;    // the chip's letter (band initial, or "-" for unmarked/auto)
         public (int Row, int X) Flowed;
     }
 
-    // A trigger-type button (island-authoring Slice 3), flowed in the SAME item grid after the
-    // sprite items (a "Triggers section" — prefixed labels distinguish them).
+    // A trigger-type button (island-authoring Slice 3), flowed in the SAME card grid after the
+    // sprite items (a "Triggers section" — prefixed labels distinguish them; no icon, no band chip).
     private sealed class TriggerButton
     {
         public required TriggerType Type;
         public Entity Button;
         public Entity Label;
-        public int Width;
         public (int Row, int X) Flowed;
     }
 
@@ -153,6 +170,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// <param name="font">The chrome label font; null (unit tests) = layout-only labels.</param>
     /// <param name="cancelRequested">The screen's Escape predicate (optional — right-click always
     /// disarms).</param>
+    /// <param name="bandConfig">The per-asset band marks (FW3). Null = in-memory only (no drop-folder
+    /// root, or a unit test): marks work for the session but don't persist.</param>
     public PalettePlacementSystem(
         World world,
         AssetCatalog catalog,
@@ -165,10 +184,14 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Func<GameState, bool>? cancelRequested = null,
         IReadOnlyList<TriggerType>? triggerTypes = null,
         Func<GameState, bool>? rotateCwRequested = null,
-        Func<GameState, bool>? rotateCcwRequested = null)
+        Func<GameState, bool>? rotateCcwRequested = null,
+        AssetBandConfig? bandConfig = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        // Per-asset band marks (FW3). Null = in-memory (a screen with no drop-folder root, or a
+        // test) — marks then live only for the session; resolution still works (marked→its band).
+        _bandConfig = bandConfig ?? new AssetBandConfig();
         _bands = bands ?? throw new ArgumentNullException(nameof(bands));
         if (bands.Count == 0) throw new ArgumentException("The palette needs at least one layer band.", nameof(bands));
         _triggerTypes = triggerTypes ?? Array.Empty<TriggerType>();
@@ -193,8 +216,91 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     public AssetCatalogEntry? ArmedEntry =>
         _armedIndex >= 0 && _armedIndex < _catalog.Entries.Count ? _catalog.Entries[_armedIndex] : null;
 
-    /// <summary>The selected layer band the next placement targets.</summary>
+    /// <summary>The globally-selected layer band (the band-selector header). Used for any asset
+    /// with no permanent per-asset mark — see <see cref="ResolveBand"/>.</summary>
     public PaletteBand SelectedBand => _bands[_bandIndex];
+
+    /// <summary>
+    /// The band a placement of <paramref name="entry"/> targets, per the FW3 resolution rule: the
+    /// asset's <b>marked band if set</b> (<see cref="AssetBandConfig"/>), <b>else the global band
+    /// selector</b>. A mark naming a band this screen does not offer is ignored (falls back to the
+    /// global selector) so a stale config can never point at a non-existent band.
+    /// </summary>
+    public PaletteBand ResolveBand(AssetCatalogEntry entry)
+    {
+        if (_bandConfig.TryGetBand(entry.Id, out var name))
+            for (var i = 0; i < _bands.Count; i++)
+                if (string.Equals(_bands[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                    return _bands[i];
+        return SelectedBand;
+    }
+
+    /// <summary>The band name permanently marked for <paramref name="entry"/>, or null (unmarked →
+    /// the global selector applies). Drives the card's band-chip label.</summary>
+    public string? MarkedBandName(AssetCatalogEntry entry) =>
+        _bandConfig.TryGetBand(entry.Id, out var name) ? name : null;
+
+    /// <summary>
+    /// Permanently marks the catalog entry named by <paramref name="idOrAssetKey"/> to place on the
+    /// band <paramref name="bandName"/> (the headless <c>asset-band:&lt;entryId&gt;:&lt;band&gt;</c>
+    /// op / the card's band chip). <c>"auto"</c> / <c>"none"</c> / empty clears the mark (back to the
+    /// global selector). The mark is persisted (survives an editor restart) and the palette re-lays
+    /// so the chip reflects it. Returns false — loud — for an unknown entry or an unknown band name.
+    /// </summary>
+    public bool SetAssetBand(string idOrAssetKey, string bandName)
+    {
+        if (!_catalog.TryGet(idOrAssetKey, out var entry))
+        {
+            Logger.Warning($"[level-editor] Palette: no catalog entry '{idOrAssetKey}' to mark.");
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(bandName) ||
+            string.Equals(bandName, "auto", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(bandName, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            _bandConfig.ClearBand(entry.Id);
+            Logger.Info($"[level-editor] Palette: cleared band mark on '{entry.Id}' (uses the global selector).");
+            _laidOutScroll = -1; // refresh the chip label next Update
+            return true;
+        }
+
+        for (var i = 0; i < _bands.Count; i++)
+        {
+            if (!string.Equals(_bands[i].Name, bandName, StringComparison.OrdinalIgnoreCase)) continue;
+            _bandConfig.SetBand(entry.Id, _bands[i].Name); // store the canonical band name
+            Logger.Info($"[level-editor] Palette: marked '{entry.Id}' to always place on band '{_bands[i].Name}'.");
+            _laidOutScroll = -1;
+            return true;
+        }
+
+        Logger.Warning($"[level-editor] Palette: no layer band '{bandName}' to mark '{entry.Id}' with.");
+        return false;
+    }
+
+    /// <summary>
+    /// Cycles the per-asset band mark on the item at <paramref name="index"/> (the card's band-chip
+    /// click): unmarked → band 0 → band 1 → … → last band → unmarked, persisting each step. Lets a
+    /// designer set an asset's permanent band right on its card with no dialog.
+    /// </summary>
+    public void CycleAssetBand(int index)
+    {
+        if (index < 0 || index >= _catalog.Entries.Count) return;
+        var entry = _catalog.Entries[index];
+        var current = _bandConfig.TryGetBand(entry.Id, out var name) ? name : null;
+
+        // Map the current mark to a cycle position: -1 = unmarked, else the band index.
+        var position = -1;
+        if (current != null)
+            for (var i = 0; i < _bands.Count; i++)
+                if (string.Equals(_bands[i].Name, current, StringComparison.OrdinalIgnoreCase)) { position = i; break; }
+
+        var next = position + 1; // -1(auto) → 0 → … → _bands.Count-1 → _bands.Count(auto)
+        if (next >= _bands.Count)
+            SetAssetBand(entry.Id, "auto");
+        else
+            SetAssetBand(entry.Id, _bands[next].Name);
+    }
 
     /// <summary>Whether the ghost preview entity currently exists.</summary>
     public bool HasGhost => _ghostAlive && _ghost.IsAlive;
@@ -230,7 +336,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _armedTrigger = -1; // sprite item and trigger arming are mutually exclusive
         SetMode(EditorToolMode.Place);
         Logger.Info($"[level-editor] Palette: armed '{_catalog.Entries[index].Id}' " +
-                    $"on band '{SelectedBand.Name}'.");
+                    $"on band '{ResolveBand(_catalog.Entries[index]).Name}'.");
     }
 
     /// <summary>The armed trigger type (island-authoring §5.3), or null when a sprite item is armed
@@ -322,23 +428,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
         Disarm(); // the previously-armed item may be gone after the rescan
 
-        foreach (var item in _items)
-        {
-            if (item.Button.IsAlive) item.Button.Dispose();
-            if (item.Label.IsAlive) item.Label.Dispose();
-            if (item.Thumbnail.IsAlive) item.Thumbnail.Dispose();
-        }
+        foreach (var item in _items) DisposeItem(item);
         _items.Clear();
         if (_emptyHint.IsAlive) _emptyHint.Dispose();
 
         foreach (var entry in _catalog.Entries)
-        {
-            var label = CreateLabel(ItemLabel(entry));
-            _items.Add(new ItemButton
-            {
-                Entry = entry, Button = CreateButton(label), Label = label, Thumbnail = CreateThumbnail(),
-            });
-        }
+            _items.Add(CreateItem(entry));
 
         if (_catalog.Entries.Count == 0 && _triggerItems.Count == 0)
             _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
@@ -436,21 +531,30 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 return (i, -1);
             }
 
-            // Item flow grid.
+            // Item card grid. The band-chip badge is hit-tested BEFORE the card body: a click on the
+            // chip cycles the per-asset band mark (never arms), a click anywhere else on the card arms.
             for (var i = 0; i < _items.Count; i++)
             {
-                if (!PaletteLayout.TryItemRect(strip, _items[i].Flowed, _items[i].Width, _scroll,
-                        out var rect, scale)) continue;
+                if (!PaletteLayout.TryCardRect(strip, _items[i].Flowed, _scroll, out var rect, scale))
+                    continue;
                 if (!rect.Contains(point)) continue;
-                if (input.LeftButtonReleased) ArmByIndex(i);
+                var chip = PaletteLayout.CardChipRect(rect, scale);
+                if (chip.Contains(point))
+                {
+                    if (input.LeftButtonReleased) CycleAssetBand(i);
+                }
+                else if (input.LeftButtonReleased)
+                {
+                    ArmByIndex(i);
+                }
                 return (-1, i);
             }
 
-            // Triggers section (flowed in the same grid; hovered index offset by the item count).
+            // Triggers section (flowed in the same card grid; hovered index offset by the item count).
             for (var j = 0; j < _triggerItems.Count; j++)
             {
-                if (!PaletteLayout.TryItemRect(strip, _triggerItems[j].Flowed, _triggerItems[j].Width,
-                        _scroll, out var rect, scale)) continue;
+                if (!PaletteLayout.TryCardRect(strip, _triggerItems[j].Flowed, _scroll, out var rect, scale))
+                    continue;
                 if (!rect.Contains(point)) continue;
                 if (input.LeftButtonReleased) ArmTriggerByIndex(j);
                 return (-1, _items.Count + j);
@@ -487,7 +591,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
 
         var entry = _catalog.Entries[_armedIndex];
-        var band = SelectedBand;
+        var band = ResolveBand(entry); // marked band if set, else the global selector (FW3)
         var texture = _textures.Load(entry.AssetKey); // lazy + memoized; magenta when missing
 
         foreach (var cursor in _cursorSet.GetEntities())
@@ -691,13 +795,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
 
         foreach (var entry in _catalog.Entries)
-        {
-            var label = CreateLabel(ItemLabel(entry));
-            _items.Add(new ItemButton
-            {
-                Entry = entry, Button = CreateButton(label), Label = label, Thumbnail = CreateThumbnail(),
-            });
-        }
+            _items.Add(CreateItem(entry));
 
         // Triggers section (island-authoring §5.3): flowed in the same grid, after the sprite items.
         foreach (var type in _triggerTypes)
@@ -780,6 +878,52 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         return thumb;
     }
 
+    /// <summary>Builds one asset card's chrome: the card body button (arm-on-click), its bottom
+    /// label, its icon thumbnail, and the band-chip badge (button + letter).</summary>
+    private ItemButton CreateItem(AssetCatalogEntry entry)
+    {
+        var label = CreateLabel(ItemLabel(entry));
+        var chipLabel = CreateLabel("-"); // populated per relayout from the marked band
+        return new ItemButton
+        {
+            Entry = entry,
+            Button = CreateButton(label),
+            Label = label,
+            Thumbnail = CreateThumbnail(),
+            Chip = CreateChip(chipLabel),
+            ChipLabel = chipLabel,
+        };
+    }
+
+    private static void DisposeItem(ItemButton item)
+    {
+        if (item.Button.IsAlive) item.Button.Dispose();
+        if (item.Label.IsAlive) item.Label.Dispose();
+        if (item.Thumbnail.IsAlive) item.Thumbnail.Dispose();
+        if (item.Chip.IsAlive) item.Chip.Dispose();
+        if (item.ChipLabel.IsAlive) item.ChipLabel.Dispose();
+    }
+
+    /// <summary>A card's band-chip badge — a small <see cref="SimpleButtonComponent"/> above the
+    /// thumbnail carrying a one-letter band mark; click cycles the per-asset band.</summary>
+    private Entity CreateChip(Entity labelEntity)
+    {
+        var chip = _world.CreateEntity();
+        chip.Set(new EditorInfrastructureComponent());
+        chip.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        chip.Set(new SimpleButtonComponent
+        {
+            Size = Vector2.One,
+            LineThickness = 1f,
+            Color = EditorChromeBuilder.ButtonOutline,
+            FillColor = EditorChromeBuilder.ButtonFill,
+            TextEntity = labelEntity,
+            Target = RenderTargetID.Editor,
+            LayerDepth = ChipDepth, // above the thumbnail so the badge shows over the preview
+        });
+        return chip;
+    }
+
     private int TotalRows()
     {
         var rows = 0;
@@ -801,31 +945,15 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         for (var i = 0; i < _bandButtons.Count; i++)
             PlaceButton(_bandButtons[i].Button, _bandButtons[i].Label, bandRects[i], labelHeight, scale);
 
-        // Item flow grid, scrolled by whole rows. Sprite items and trigger buttons flow TOGETHER in
-        // one grid (triggers appended after the sprite items — the "Triggers section").
+        // Card grid, scrolled by whole rows. Sprite items and trigger cards flow TOGETHER in one
+        // fixed-width grid (triggers appended after the sprite items — the "Triggers section").
         var total = _items.Count + _triggerItems.Count;
-        var widths = new int[total];
-        for (var i = 0; i < _items.Count; i++)
-        {
-            // Sprite items reserve the thumbnail box (ItemWidth), so the flow layout is stable
-            // whether or not the texture resolves (Slice 4).
-            widths[i] = PaletteLayout.ItemWidth(
-                _measureLabel(_items[i].Label.Get<DynamicTextComponent>().TextContent) * scale, scale);
-            _items[i].Width = widths[i];
-        }
-        for (var j = 0; j < _triggerItems.Count; j++)
-        {
-            var w = PaletteLayout.ButtonWidth(
-                _measureLabel(_triggerItems[j].Label.Get<DynamicTextComponent>().TextContent) * scale, scale);
-            widths[_items.Count + j] = w;
-            _triggerItems[j].Width = w;
-        }
-        var flow = PaletteLayout.Flow(widths, content.Width, scale);
+        var flow = PaletteLayout.CardFlow(total, content.Width, scale);
         for (var i = 0; i < _items.Count; i++)
         {
             _items[i].Flowed = flow[i];
-            if (PaletteLayout.TryItemRect(strip, flow[i], widths[i], _scroll, out var rect, scale))
-                PlaceItemButton(_items[i], rect, labelHeight, scale);
+            if (PaletteLayout.TryCardRect(strip, flow[i], _scroll, out var rect, scale))
+                PlaceItemCard(_items[i], rect, labelHeight, scale);
             else
                 ParkItem(_items[i]);
         }
@@ -833,8 +961,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             var idx = _items.Count + j;
             _triggerItems[j].Flowed = flow[idx];
-            if (PaletteLayout.TryItemRect(strip, flow[idx], widths[idx], _scroll, out var rect, scale))
-                PlaceButton(_triggerItems[j].Button, _triggerItems[j].Label, rect, labelHeight, scale);
+            if (PaletteLayout.TryCardRect(strip, flow[idx], _scroll, out var rect, scale))
+                PlaceTriggerCard(_triggerItems[j], rect, labelHeight, scale);
             else
                 ParkButton(_triggerItems[j].Button, _triggerItems[j].Label);
         }
@@ -843,7 +971,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             PlaceLabel(_emptyHint, new Vector2(content.X,
                 content.Y + EditorChromeLayout.Px(PaletteLayout.HeaderHeight, scale)
-                          + (EditorChromeLayout.Px(PaletteLayout.RowHeight, scale) - labelHeight) / 2f), scale);
+                          + (EditorChromeLayout.Px(PaletteLayout.CardLabelHeight, scale) - labelHeight) / 2f), scale);
         }
 
         _laidOutWidth = _viewportManager!.ScreenWidth;
@@ -870,30 +998,84 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         text.VisibleCharacterCount = 0; // parked labels render nothing (cheaper than re-prepping)
     }
 
-    /// <summary>Places a sprite item's button + its label (offset past the thumbnail box) + its
-    /// thumbnail (Slice 4).</summary>
-    private void PlaceItemButton(ItemButton item, Rectangle rect, float labelHeight, float scale)
+    /// <summary>Places an asset card: the card body button, the icon thumbnail (top), the label
+    /// (bottom, centered + truncated to fit), and the band-chip badge (top-right).</summary>
+    private void PlaceItemCard(ItemButton item, Rectangle card, float labelHeight, float scale)
     {
-        Place(item.Button, new Vector2(rect.X, rect.Y));
+        Place(item.Button, new Vector2(card.X, card.Y));
         ref var visual = ref item.Button.Get<SimpleButtonComponent>();
-        visual.Size = new Vector2(rect.Width, rect.Height);
-        PlaceLabel(item.Label, new Vector2(
-            rect.X + PaletteLayout.ItemLabelOffsetX(scale),
-            rect.Y + (rect.Height - labelHeight) / 2f), scale);
-        PlaceItemThumbnail(item, rect, scale);
+        visual.Size = new Vector2(card.Width, card.Height);
+
+        PlaceCardLabel(item.Label, ItemLabel(item.Entry), PaletteLayout.CardLabelRect(card, scale),
+            labelHeight, scale);
+        PlaceItemThumbnail(item, card, scale);
+
+        // Band chip badge (top-right of the icon area): its letter is the marked band's initial, or
+        // "-" when unmarked (the global selector applies).
+        var chipRect = PaletteLayout.CardChipRect(card, scale);
+        Place(item.Chip, new Vector2(chipRect.X, chipRect.Y));
+        ref var chipVisual = ref item.Chip.Get<SimpleButtonComponent>();
+        chipVisual.Size = new Vector2(chipRect.Width, chipRect.Height);
+        PlaceCardLabel(item.ChipLabel, ChipText(item.Entry), chipRect, labelHeight, scale);
+    }
+
+    /// <summary>Places a trigger card: the card body + a centered, truncated label (no icon, no
+    /// band chip — triggers don't use the layer bands).</summary>
+    private void PlaceTriggerCard(TriggerButton trigger, Rectangle card, float labelHeight, float scale)
+    {
+        Place(trigger.Button, new Vector2(card.X, card.Y));
+        ref var visual = ref trigger.Button.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(card.Width, card.Height);
+        PlaceCardLabel(trigger.Label, TriggerLabel(trigger.Type), PaletteLayout.CardLabelRect(card, scale),
+            labelHeight, scale);
     }
 
     private void ParkItem(ItemButton item)
     {
         ParkButton(item.Button, item.Label);
+        ParkButton(item.Chip, item.ChipLabel);
         // A parked thumbnail draws nothing (and we skip the lazy texture load for scrolled-out rows).
         item.Thumbnail.Get<DrawComponent>().Texture = null;
     }
 
-    /// <summary>Lazily loads a visible item's texture and populates its thumbnail sprite to fit the
-    /// row's thumbnail box (aspect-preserved, native resolution). Falls back to the text label — the
+    /// <summary>The band-chip letter for a card: the marked band's initial (uppercased), or "-" when
+    /// the asset is unmarked (uses the global band selector).</summary>
+    private string ChipText(AssetCatalogEntry entry)
+    {
+        var name = MarkedBandName(entry);
+        return string.IsNullOrEmpty(name) ? "-" : name!.Substring(0, 1).ToUpperInvariant();
+    }
+
+    /// <summary>Places a label centered within <paramref name="box"/>, truncated (with an ellipsis)
+    /// to the box width so a fixed-width card never bleeds text into its neighbour.</summary>
+    private void PlaceCardLabel(Entity label, string fullText, Rectangle box, float labelHeight, float scale)
+    {
+        var text = TruncateToWidth(fullText, box.Width, scale);
+        ref var dyn = ref label.Get<DynamicTextComponent>();
+        dyn.TextContent = text;
+        var textWidth = _measureLabel(text) * scale;
+        PlaceLabel(label, new Vector2(
+            box.X + (box.Width - textWidth) / 2f,
+            box.Y + (box.Height - labelHeight) / 2f), scale);
+    }
+
+    /// <summary>Trims <paramref name="text"/> (appending "…") until it fits <paramref name="maxWidthPx"/>
+    /// screen pixels at the label scale. Cheap linear shrink — labels are short.</summary>
+    private string TruncateToWidth(string text, int maxWidthPx, float scale)
+    {
+        if (_measureLabel(text) * scale <= maxWidthPx) return text;
+        for (var len = text.Length - 1; len > 0; len--)
+        {
+            var candidate = text.Substring(0, len) + "…";
+            if (_measureLabel(candidate) * scale <= maxWidthPx) return candidate;
+        }
+        return "…";
+    }
+
+    /// <summary>Lazily loads a visible card's texture and populates its icon thumbnail sprite to fit
+    /// the card's icon box (aspect-preserved, native resolution). Falls back to the text label — the
     /// thumbnail draws nothing — when the texture is missing or the magenta placeholder.</summary>
-    private void PlaceItemThumbnail(ItemButton item, Rectangle itemRect, float scale)
+    private void PlaceItemThumbnail(ItemButton item, Rectangle card, float scale)
     {
         var draw = item.Thumbnail.Get<DrawComponent>();
         var texture = _textures.Load(item.Entry.AssetKey); // lazy + memoized (only visible rows)
@@ -904,7 +1086,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
 
         var source = SpritePropFactory.SourceRect(item.Entry, texture);
-        var box = PaletteLayout.ItemThumbnailRect(itemRect, scale);
+        var box = PaletteLayout.CardIconRect(card, scale);
         var dest = PaletteLayout.ThumbnailFit(box, source.Width, source.Height);
 
         draw.Texture = texture;
@@ -957,6 +1139,15 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                     : hovered.Item == i
                         ? EditorChromeBuilder.ButtonHoverFill
                         : EditorChromeBuilder.ButtonFill;
+
+            // The band-chip badge: filled with the "active" accent when the asset is permanently
+            // marked, plain otherwise — so a glance shows which assets have a fixed band.
+            ref var chipVisual = ref _items[i].Chip.Get<SimpleButtonComponent>();
+            chipVisual.FillColor = !editing
+                ? EditorChromeBuilder.ButtonDisabledFill
+                : MarkedBandName(_items[i].Entry) != null
+                    ? ArmedItemFill
+                    : EditorChromeBuilder.ButtonFill;
         }
 
         for (var j = 0; j < _triggerItems.Count; j++)
@@ -1002,12 +1193,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (button.IsAlive) button.Dispose();
             if (label.IsAlive) label.Dispose();
         }
-        foreach (var item in _items)
-        {
-            if (item.Button.IsAlive) item.Button.Dispose();
-            if (item.Label.IsAlive) item.Label.Dispose();
-            if (item.Thumbnail.IsAlive) item.Thumbnail.Dispose();
-        }
+        foreach (var item in _items) DisposeItem(item);
         foreach (var trigger in _triggerItems)
         {
             if (trigger.Button.IsAlive) trigger.Button.Dispose();

@@ -499,7 +499,9 @@ public class SystemsPanelTests
     {
         using var world = new World();
         var cursor = MakeCursor(world);
-        var vm = Vm(1600, 200);
+        // Tall enough that the right panel has real estate after the top bar + the raised bottom bar
+        // (FW3 grew BottomBarHeight 104 → 168 for the asset cards); still overflows with 12 systems.
+        var vm = Vm(1600, 300);
 
         var update = new EditorPipelineRegistrar();
         var draw = new EditorPipelineRegistrar();

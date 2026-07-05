@@ -1047,6 +1047,83 @@ visually behind it; ghost preview and placed prop disagree about where "under th
 **Depends on:** rendering — `YSortSystem`'s `WorldPosition.Y + YSortOffset` key; this file — "The
 serializer persists SOURCE sort fields…" (Origin/YSortOffset are SOURCE fields that round-trip).
 
+## A placed asset's band is its permanent per-asset mark if set, else the global selector
+
+The palette's layer band is normally the **global** band selector (the header row — you pick
+Ground/Detail/Props/Overhead before placing). FW3 adds a **permanent per-asset mark**: a catalog
+entry can be marked to ALWAYS place on a specific band regardless of the global selector (e.g. a
+ground tile is always Ground). The **resolution rule** (`PalettePlacementSystem.ResolveBand`, used
+by both the ghost preview and every stamp/placement): the placement band = the asset's **marked
+band if set, else `SelectedBand`** (the global selector). A mark that names a band this screen does
+not offer is ignored (falls back to the global selector) so a stale config can never point at a
+non-existent band. Marks are set on a card's **band-chip badge** (`CycleAssetBand` — unmarked → each
+band → unmarked) or headlessly (`SetAssetBand`, the `asset-band:<entryId>:<band>` op; `auto`/`none`
+clears). They persist in an **`asset-bands.json`** (`AssetBandConfig`) written next to the assets at
+the catalog's scan root through the **canonical byte-stable** JSON policy (`CanonicalJson`) — so the
+mark **survives an editor restart** (a fresh scan + fresh config load still resolves it). This is
+**dev-authoring metadata** (it lives with the gitignored placeholder packs, is desktop-editor-only,
+uses `System.IO` directly like the catalog's own directory scan) and it **never touches a scene
+file**: a placed entity still serializes the actual band it landed on (unchanged) — the mark only
+changes the DEFAULT band used when arming/placing. A directly-constructed (rootless) config keeps
+marks in memory with a loud no-op `Save`, so a screen with no drop folder (or a unit test) still
+resolves marks for the session.
+
+**Why:** the user's report "there is no way to permanently mark an asset as ground or not" — a global
+band selector alone means re-picking the band for every asset, and forgetting to leaves a ground tile
+Y-sorting as a prop. A per-asset default that persists removes the friction; keeping it out of the
+scene file preserves the "a scene serializes the actual band on the placed entity" round-trip.
+**Breaks:** without the mark, every placement needs the global selector set correctly first (easy to
+forget → wrong band); baking the mark into the scene would conflate authoring defaults with placed
+truth; a non-canonical writer would churn the config diff; a mark naming a removed band would place
+onto nothing.
+**Tests:** `MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`BandResolution_MarkedAssetUsesItsBand_UnmarkedUsesGlobalSelector`,
+`SetAssetBand_SetsClearsAndIsLoudOnUnknown`,
+`CycleAssetBand_WalksUnmarkedThroughEveryBandBackToUnmarked`,
+`MarkedBand_SurvivesCatalogRescanAndEditorRestart`,
+`HeadlessPaletteOpTest_AssetBandStringReachesNamedDispatch`);
+`MonoDreams.Tests/LevelEditor/AssetBandConfigTests.cs` (`SetBand_PersistsAndSurvivesReload`,
+`ClearBand_RemovesTheMark_Persisting`, `Config_RoundTripsCanonicalBytes`,
+`MalformedConfig_FallsBackToEmpty_NoThrow`, `InMemoryConfig_KeepsMarks_ButCannotPersist`).
+**Depends on:** this file — "Y-sorted props use the feet-origin convention, factory-applied" (the band
+carries the Y-sort/feet behavior the mark selects); "Scene serialization is canonical and
+byte-stable" (`CanonicalJson`, reused to write the config).
+
+## The palette lists assets as cards (icon on top, label on the bottom) in a scrollable grid
+
+The palette's bottom strip renders each catalog entry as a fixed-size **card** — a lazily-loaded art
+**thumbnail** filling the top icon box, the **text label** on the bottom row (truncated with an
+ellipsis to the card width so it never bleeds into the neighbour; the label-only fallback when the
+texture is missing/magenta), and a small **band-chip badge** in the icon's top-right corner showing
+the per-asset band mark (a band initial when marked, `-` when unmarked; click cycles it — see the
+resolution premise above). Cards flow left-to-right into a fixed-width grid inside
+`EditorChromeLayout.BottomBar` and scroll by **whole card rows** on the mouse wheel (scrolled-out rows
+are parked off-screen — no clipping). The band-selector header row stays at the top of the strip. The
+pure grid math (card rects, icon/label/chip sub-rects, column wrap, whole-row scroll, DPR scaling)
+lives in `PaletteLayout` so it is unit-testable without a GraphicsDevice. `EditorChromeLayout.BottomBarHeight`
+was raised (104 → 168 logical points) to give the cards real screen real estate — the game viewport
+inset shrinks by the same amount, automatically, because the shell + mouse mapping both derive from
+`ViewportInset`. Hit-testing is card-body-then-chip: a click on the chip cycles the band (never
+arms), a click anywhere else on the card arms placement.
+
+**Why:** the user's report that the palette assets "should be bigger, take a little more height … and
+be actual cards with the icon/preview on top and text on the bottom" — flat text rows are hard to
+scan and give the art no room. Keeping the layout math pure keeps it testable and keeps chrome
+hit-tests aligned at any DPR.
+**Breaks:** an inset that grows only compositing (not mouse mapping) desyncs every world pick by the
+extra bottom margin; a card grid computed in the system (not `PaletteLayout`) can't be unit-tested;
+an un-truncated label bleeds across cards; a chip hit-test after the card body would arm instead of
+marking.
+**Tests:** `MonoDreams.Tests/LevelEditor/PaletteLayoutTests.cs` (`CardGridWrapsAtContentWidth`,
+`CardGridAlwaysFitsAtLeastOneColumn`, `ScrollClampsToWholeCardRows`, `CardRectVisibleAndScrolledOut`,
+`CardSubRects_IconTopLabelBottomChipCorner`, `RaisedStripFitsHeaderPlusACardRow`,
+`CardMetrics_AtDpr2_Double`); `MonoDreams.Tests/LevelEditor/EditorShellTests.cs`
+(`ChromeLayout_DefaultScale_IsThePreDprLayout`, `ChromeLayout_AtDpr2_DoublesEveryPointMetric` — the
+raised inset at DPR 1 and 2).
+**Depends on:** this file — "The editor shell insets the game viewport and renders its chrome at
+native resolution" (the `ViewportInset` the strip height feeds, and the device-pixel space the cards
+render in); rendering — the `SimpleButtonComponent`/`DynamicTextComponent` chrome primitives.
+
 ## Save is blocked while Playing or when no project root is resolved
 
 `EditorOverlay.DispatchToolbarAction`'s Save case no-ops with a loud `Logger.Warning` in TWO
