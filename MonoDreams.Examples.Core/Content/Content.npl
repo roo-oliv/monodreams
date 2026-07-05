@@ -66,6 +66,12 @@
 			"action": "build",
 			"importer": "YarnSpinnerImporter",
 			"processor": "YarnSpinnerProcessor"
+		},
+		"levels":
+		{
+			"path": "./Levels/*.mdscene",
+			"recursive": "True",
+			"action": "copy"
 		}
 	}
 }

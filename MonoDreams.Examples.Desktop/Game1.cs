@@ -197,6 +197,19 @@ public class Game1 : Game
             Services.AddService(new RequestedLevelComponent(replayPlan.StartLevel));
             _screenController.LoadScreen(ScreenName.Game);
         }
+        else if (ManifestBoot.ResolveStartScene(
+                     ManifestBoot.TryReadManifest(Content.RootDirectory),
+                     id => NativeLevelLoader.NativeSceneExists(Content.RootDirectory, id)) is { } startScene)
+        {
+            // PS4: the bundled game.mdproj (read via TitleContainer) names a startScene that resolves to a
+            // bundled native .mdscene — boot it directly through the native-first LoadLevelRequest path
+            // (the Game screen publishes LoadLevelRequest(startScene); LevelLoadRequestSystem resolves it
+            // native-first). When the start scene has no native file yet (the Examples "island" placeholder
+            // until PS5), ResolveStartScene returns null and the default menu boot below runs (back-compat).
+            Logger.Info($"Manifest startScene '{startScene}' resolves to a native scene; booting it.");
+            Services.AddService(new RequestedLevelComponent(startScene));
+            _screenController.LoadScreen(ScreenName.Game);
+        }
         else
         {
             _screenController.LoadScreen(ScreenName.LevelSelection);

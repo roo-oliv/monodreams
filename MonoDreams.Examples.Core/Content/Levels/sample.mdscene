@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "layers": [],
+  "sources": [],
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "core.EntityInfo": {
+          "type": "Prop",
+          "name": "grass"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "square",
+          "source": [
+            0,
+            0,
+            32,
+            32
+          ],
+          "size": [
+            64,
+            64
+          ],
+          "color": "/////w==",
+          "origin": [
+            0,
+            0
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.5,
+          "ySortOffset": 0,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "components": {
+        "core.EntityInfo": {
+          "type": "Prop",
+          "name": "stone"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "square",
+          "source": [
+            0,
+            0,
+            32,
+            32
+          ],
+          "size": [
+            64,
+            64
+          ],
+          "color": "/////w==",
+          "origin": [
+            0,
+            0
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.5,
+          "ySortOffset": 0,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            96,
+            32
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

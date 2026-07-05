@@ -15,7 +15,10 @@ using MonoDreams.Input;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Examples.Message;
+using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.System;
 using MonoDreams.Message.Level;
 using MonoDreams.Message;
 using MonoDreams.Platform;
@@ -417,6 +420,30 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // named children (the registrar builds the composite), so the systems panel sees and
         // toggles every system. With the editor off, RunMode never leaves Play and every gate is
         // a pass-through, so the pipeline behaves exactly as before.
+        // Native-first level loading (PS4): the game boots bundled .mdscene levels through the native
+        // reader. The reader is composed once — reuse the editor overlay's when present (else build a
+        // standalone one so a SHIPPED game with no editor still boots native scenes; behaviorally inert
+        // for the current LDtk/Blender levels, which have no .mdscene and fall through). The probe is
+        // handed to LevelLoadRequestSystem: on a LoadLevelRequest whose id has a bundled
+        // Content/Levels/<id>.mdscene, it publishes a LoadSceneRequest (handled synchronously by the
+        // reader) and the LDtk path is skipped. No native file ⇒ the LDtk/Blender fallback runs unchanged
+        // (migration coexistence — removed in PS5).
+        ISystem<GameState> nativeSceneReader;
+        if (_editor != null)
+        {
+            nativeSceneReader = _editor.SceneReader;
+        }
+        else
+        {
+            var nativeRegistry = new ComponentSerializerRegistry();
+            nativeRegistry.RegisterEngineComponents();
+            var nativeSerializer = new SceneSerializer(nativeRegistry);
+            var nativeAssetTextures = new FileAssetTextureLoader(_graphicsDevice, _content.RootDirectory);
+            nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
+                fileTextureLoader: nativeAssetTextures.Load);
+        }
+        var nativeSceneProbe = NativeLevelLoader.CreateProbe(_world, _content.RootDirectory);
+
         var p = _updatePipeline;
         p.AddGroup("input", EditTimeBehavior.RunNormally, g =>
         {
@@ -426,7 +453,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }, inputKind, _parallelRunner);
         p.AddGroup("levelLoad", EditTimeBehavior.RunNormally, g =>
         {
-            g.Add("requests", new LevelLoadRequestSystem(_world, _content));
+            g.Add("requests", new LevelLoadRequestSystem(_world, _content, nativeSceneProbe));
+            // The native reader for a shipped game (no editor). When the editor is composed, its own
+            // editor.sceneReader (below) is the single reader — do not double-subscribe here.
+            if (_editor == null) g.Add("nativeSceneReader", nativeSceneReader);
             g.Add("blender", blenderParser);
             g.Add("ldtkTiles", new LDtkTileParserSystem(_world, _content));
             g.Add("ldtkEntities", new LDtkEntityParserSystem(_world));

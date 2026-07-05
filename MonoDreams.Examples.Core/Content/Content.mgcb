@@ -1578,6 +1578,8 @@
 /copy:./blender_level.json
 #begin ./game.mdproj
 /copy:./game.mdproj
+#begin ./Levels/sample.mdscene
+/copy:./Levels/sample.mdscene
 #begin ./Tiny Swords (Free Pack)/Particle FX/Dust_02.png
 /importer:TextureImporter
 /processor:TextureProcessor
