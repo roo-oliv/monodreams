@@ -7,6 +7,10 @@ sensitive: false
 
 # LDtk level parse
 
+> **PS5 — import-only.** The LDtk parsers are no longer wired to live game boot (the game boots native
+> `.mdscene` only). They run only in the import op's `importMode` composition, to migrate an `.ldtk`
+> level into a native scene the game then owns. The flow below is the **import** path.
+
 An LDtk level reaches this module as state, not as a message. Game code publishes a
 `LoadLevelRequest`; `LevelLoadRequestSystem` (in `level-loading`) loads the `.ldtk` file via the
 content pipeline and calls `world.Set(new CurrentLevelComponent(...))`. The two parsers here —

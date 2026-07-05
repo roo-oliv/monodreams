@@ -7,59 +7,64 @@
 > `level-ldtk` and `level-blender` modules; this file covers the
 > contract every parser ships into.
 
-## `LoadLevelRequest` triggers `LevelLoadRequestSystem`, which adds `CurrentLevelComponent`
+## `LevelLoadRequestSystem`'s LDtk path adds `CurrentLevelComponent` (import-only now)
 
-Game code publishes a `LoadLevelRequest` message.
-`LevelLoadRequestSystem` consumes it, loads the file as an LDtk level,
-and adds `CurrentLevelComponent` to the world (and
-`CurrentBackgroundColorComponent` for the background color). The
-component-driven parsers (`LDtkEntityParserSystem`, `LDtkTileParserSystem`)
-subscribe to the component being added, not to the message.
+When `LevelLoadRequestSystem` is composed with `enableLegacyLdtkFallback: true`
+(the **import** composition only — PS5), a `LoadLevelRequest` with no native scene
+loads the file as an LDtk level and adds `CurrentLevelComponent` (and
+`CurrentBackgroundColorComponent`). The component-driven parsers
+(`LDtkEntityParserSystem`, `LDtkTileParserSystem`) subscribe to the component being
+added, not to the message. At **game boot** this path does not run:
+`enableLegacyLdtkFallback` is `false`, so an id with no native scene fails loud (see
+the native-only premise below) — `CurrentLevelComponent` is never added at boot.
 
-**Why:** the separation lets parsers be ignorant of how the level
-arrived — a test that adds `CurrentLevelComponent` manually triggers
-parsing equivalently. This is the engine-wide pattern (see
-"Parsers are component-driven").
-**Breaks:** game code that subscribes to `LoadLevelRequest` to react
-to a load competes with `LevelLoadRequestSystem`, possibly seeing the
-message before the level is actually loaded.
+**Why:** the separation lets parsers be ignorant of how the level arrived — a test
+that adds `CurrentLevelComponent` manually triggers parsing equivalently. This is
+the engine-wide pattern (see "Parsers are component-driven"); it now serves the
+import op, which re-parses a legacy level so the importer can serialize it to native.
+**Breaks:** game code that subscribes to `LoadLevelRequest` to react to a load
+competes with `LevelLoadRequestSystem`, possibly seeing the message before the level
+is actually loaded.
 **Tests:**
-`MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelLoadsSuccessfully`
-and
-`MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::LDtkLevelLoadsSuccessfully`
-exercise the happy path end-to-end.
+`MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (the import → native round-trip
+over LDtk-/Blender-shaped worlds) and
+`MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
+(an unmigrated LDtk id fails loud at boot — the LDtk path is not wired there).
 **Depends on:** "Parsers are component-driven, not message-driven".
 
-## `LevelLoadRequestSystem` resolves `LoadLevelRequest` native-first, then falls back to LDtk
+## `LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails loud otherwise)
 
-`LevelLoadRequestSystem` is the load dispatcher on `LoadLevelRequest`. When a
-native-scene loader is composed (the optional `tryLoadNativeScene`
-`Func<string,bool>` — built by `NativeLevelLoader.CreateProbe` in the
-`level-editor` module), it is called FIRST for every request: it probes for a
-bundled `Content/Levels/<id>.mdscene` via `TitleContainer` (the console-portable
-read) and, on a hit, loads it through the native reader (`SceneReaderSystem`,
-generalized off the editor-only `LoadSceneRequest`) and returns `true` — at which
-point `LevelLoadRequestSystem` **returns immediately**, never running the LDtk
-`Content.Load<LDtkLevel>` and never removing `CurrentLevelComponent`. Only when no
-native loader is composed, or the probe finds no `.mdscene`, does the legacy LDtk
-path run (unchanged). The delegate is a plain `Func<string,bool>` so `level-loading`
-never depends upward on `level-editor`; the native reader must run in BOTH run modes
-and in a plain game with no editor composed (a shipped game boots native scenes too).
+`LevelLoadRequestSystem` is the load dispatcher on `LoadLevelRequest`. At game boot
+(`enableLegacyLdtkFallback: false`, the default) it is **native-only**: the composed
+`tryLoadNativeScene` `Func<string,bool>` (built by `NativeLevelLoader.CreateProbe` in
+`level-editor`) is called FIRST for every request; it probes for a bundled
+`Content/Levels/<id>.mdscene` via `TitleContainer` (the console-portable read) and,
+on a hit, loads it through the native reader (`SceneReaderSystem`, generalized off
+the editor-only `LoadSceneRequest`) and returns `true` — `LevelLoadRequestSystem`
+then returns. **No native scene ⇒ it fails loud** (a logged error, no entities), with
+no legacy LDtk/Blender attempt. The legacy LDtk `Content.Load<LDtkLevel>` path runs
+**only** when a caller explicitly opts in with `enableLegacyLdtkFallback: true` — the
+import op's dedicated composition, never the shipped boot. The delegate is a plain
+`Func<string,bool>` so `level-loading` never depends upward on `level-editor`; the
+native reader runs in BOTH run modes and in a plain game with no editor composed (a
+shipped game boots native scenes too).
 
-**Why:** native `.mdscene` is becoming the game's real level format (the shipped
-game reads bundled scenes via `TitleContainer`, exactly like `blender_level.json`).
-Probing native BEFORE the LDtk attempt is what keeps a native load from being
-clobbered by the LDtk path's remove-on-miss; it also unifies the load entry, which
-is what closes the LDtk-vs-Blender parser-asymmetry (see the `Blender_` premise).
-**Breaks:** if the probe ran AFTER the LDtk attempt, or the LDtk path did not
-short-circuit on a native hit, a native load would be followed by
-`Remove<CurrentLevelComponent>()` and the scene would flicker/clear. If the delegate
-imported a `level-editor` type into `level-loading`, the module layering inverts.
+**Why:** native `.mdscene` is the game's real level format (the shipped game reads
+bundled scenes via `TitleContainer`, exactly like `blender_level.json`). A single
+native-only boot path is what closes the LDtk-vs-Blender parser-asymmetry (the
+`Blender_` premise) — the parsers are import-only machinery now, off the boot path.
+**Breaks:** if the boot path silently fell back to LDtk on a native miss, the
+asymmetry would reopen and an unmigrated id would load stale content instead of
+surfacing the migration gap. If the delegate imported a `level-editor` type into
+`level-loading`, the module layering inverts.
 **Tests:**
-`MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs::NativeSceneBootsViaLoadLevelRequest_AndBundlingIsTitleContainerReadable`
-(the real headless game boots the committed `Levels/sample.mdscene` native-first),
-`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs` (native-first resolution +
-editor-free reader + no-native-file fallback, in-process).
+`MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the real headless game
+boots the committed `Levels/sample.mdscene` native),
+`MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelBootsNative`
+(the migrated `Blender_Level` boots native, no Blender parse), and
+`MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
+(no native scene ⇒ fail loud, no LDtk boot), plus in-process
+`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`.
 **Depends on:** level-editor — "The game boots native scenes native-first via
 LoadLevelRequest".
 
@@ -127,34 +132,31 @@ message bypasses it.
 **Tests:** none yet.
 **Depends on:** —
 
-## `Blender_` identifier prefix dispatches to the Blender parser
+## `Blender_` identifier prefix is import-only (never on the game boot path)
 
-The Blender parser (`level-blender` module) subscribes directly to
-`LoadLevelRequest` and processes it only when `request.LevelIdentifier`
-starts with the string `Blender_`; `LevelLoadRequestSystem` also
-subscribes and unconditionally attempts to load the same identifier as
-an LDtk level, which fails for Blender names and produces a logged
-error plus an explicit `world.Remove<CurrentLevelComponent>()`. So the
-practical effect is: Blender prefix → Blender parser handles the load
-and the LDtk path no-ops out; any other prefix → LDtk path handles the
-load. *Status: being resolved — the native-first dispatcher (see
-"`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-first") is the
-content-driven unification landing; PS4 adds native-first ahead of both LDtk and
-Blender as migration coexistence, and PS5 removes the LDtk + Blender boot loaders
-once the Examples levels are migrated, closing this hack.*
+The `Blender_` name-prefix dispatch survives **only inside the import op's
+composition** (`importMode`), where `BlenderLevelParserSystem` subscribes to
+`LoadLevelRequest` (processing ids starting with `Blender_`) alongside a
+`LevelLoadRequestSystem` composed with `enableLegacyLdtkFallback: true` (the LDtk
+path harmlessly logs an error for a Blender id). At **game boot** neither parser is
+composed — the single native-only dispatcher decides everything — so this
+dual-subscribe name-prefix hack **never runs on the live path**. *Status: the
+parser-asymmetry is RESOLVED (PS5): the game boots native `.mdscene` only; the
+parsers are import machinery. The hack is retired end-to-end when the parsers are
+eventually deleted (the import op then moves to a standalone tool).*
 
-**Why:** the dispatch landed as a quick path for the Blender export
-plugin. The intended replacement — now underway — is the native-first path: a level
-id resolves to a native `.mdscene` before either legacy parser runs, so a single
-dispatcher decides native-vs-LDtk and Blender becomes import-only (PS5). A native id
-never starts with `Blender_`, so the two coexist without conflict during migration.
-**Breaks:** a developer naming an LDtk level with a `Blender_` prefix
-sends it to the wrong parser. Renaming files becomes a load-time
-contract. The dual-subscriber design also means the LDtk path always
-logs an error for Blender loads, which can mask real failures.
-**Tests:** none yet.
-**Depends on:** level-blender — "`Blender_` prefix is the parser's opt-in
-hook".
+**Why:** the dispatch landed as a quick path for the Blender export plugin. Native
+`.mdscene` replaced it as the game's real format: a level id resolves to a native
+scene at boot, and the legacy parsers only run once, via the import op, to migrate a
+legacy level. A native id never starts with `Blender_`, so the two never conflict
+even inside the import composition.
+**Breaks:** if the parsers were re-wired to game boot, the asymmetry reopens (the
+LDtk path would log spurious errors for Blender ids again, masking real failures).
+**Tests:**
+`MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
+(no legacy dispatch at boot) and `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs`
+(the import path over LDtk-/Blender-shaped worlds).
+**Depends on:** level-blender — "`Blender_` prefix is the parser's opt-in hook".
 
 ## `EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`
 

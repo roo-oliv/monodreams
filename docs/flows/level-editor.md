@@ -117,9 +117,12 @@ hooks with their own per-screen policies, the runner's overlay providing its own
 pipeline):
 
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
-2. **Level / scene load** — `LoadLevelRequest` (LDtk/Blender) + `LoadSceneRequest` (`SceneReaderSystem`).
-   The transport's Restart re-drives this path: it removes `CurrentLevelComponent`, disposes the
-   scene entities, and re-publishes the screen-recorded original load request.
+2. **Level / scene load** — `LoadLevelRequest` (native-only at boot, PS5: the probe → native reader, or
+   fail loud) + `LoadSceneRequest` (`SceneReaderSystem`, the editor's Load button). The LDtk/Blender
+   parsers are import-only (composed only in the export op's `importMode`), so they are not on this live
+   path. The transport's Restart re-drives it: it removes `CurrentLevelComponent`, disposes the scene
+   entities, and re-publishes the screen-recorded original load request. Migrating a legacy level into a
+   native `.mdscene` is a one-shot `LevelImporter` op (see the module overview), not part of this flow.
 3. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
 4. **Editor command systems** (Edit-guarded) — `EditorCommandSystem` (delete/undo/redo →
    `EditorHistory`; since island Slice 2 also the toolbar's selection-edit actions: bring

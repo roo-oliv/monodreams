@@ -8,6 +8,11 @@ sensitive: false
 
 # Blender level load
 
+> **PS5 — import-only.** The Blender parser is no longer wired to live game boot (the game boots native
+> `.mdscene` only). It runs only in the import op's `importMode` composition, to migrate a
+> `blender_level.json` export into a native scene (the Examples Blender level is migrated to
+> `Content/Levels/Blender_Level.mdscene`). The flow below is the **import** path.
+
 A Blender scene becomes engine entities along one straight path: an artist designs a level in
 Blender, the bundled add-on `Tools/blender_level_export.py` walks the scene and writes a JSON
 document, that JSON ships as content (`<ContentRoot>/blender_level.json`), and at runtime

@@ -6,6 +6,27 @@
 > `Tools/blender_level_export.py` exporter plugin. Read this before
 > changing the parser, the JSON schema, or the exporter plugin.
 
+## The Blender parser is import-only (not wired to live game boot)
+
+Since PS5 `BlenderLevelParserSystem` is **import machinery**, not a live loader. The shipped game boots
+native `.mdscene` levels only; the Blender parser runs once, via the import op, to migrate a
+`blender_level.json` export into a native scene the game then owns. In the reference screen it is composed
+only in `importMode` (the export op), never at boot — so the `Blender_` prefix dual-subscribe (below) no
+longer runs on the live path. The Examples Blender level has been migrated to a committed
+`Content/Levels/Blender_Level.mdscene` (the menu's "Level 1" boots it native). The parser sets
+`SpriteInfoComponent.AssetKey` (from its derived content path) so the imported native scene re-loads the
+GreasePencil textures by key. Runtime-derived NPC affordances (the dialogue zone's live `Entity` icon
+reference + the icon's live font) are excluded from the migrated scene — a follow-up.
+
+**Why:** native `.mdscene` is the game's real level format; keeping the parser as a one-way importer is
+what closes the parser-asymmetry (CORE_TENETS §6/§10) while preserving the Blender authoring path.
+**Breaks:** re-wiring the parser to game boot reopens the asymmetry.
+**Tests:** `MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelBootsNative` (the migrated
+level boots native, no Blender parse); `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs`,
+`MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs`.
+**Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails
+loud otherwise)"; level-editor — "The Examples levels are migrated to native `.mdscene`".
+
 ## `Blender_` prefix is the parser's opt-in hook
 
 `BlenderLevelParserSystem` subscribes to `LoadLevelRequest` and

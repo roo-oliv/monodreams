@@ -138,11 +138,24 @@ The editor never cares which host or screen it lands in — a menu, a demo, a le
 - `ui` — the chrome reuses `SimpleButtonComponent` / `ButtonMeshPrepSystem` for panel + button meshes (on the native-resolution Editor target since Wave 7).
 - `cursor` — selection and gizmo dragging read `CursorInputComponent.WorldPosition`.
 - `collision` / `physics` — the serializer registry ships serializers for the collider/body components, and the Wave-8b gizmo proxies read + write `BoxColliderComponent` / `ConvexColliderComponent` directly (refreshing the convex world data per the collision premises).
-- `level-loading` — scene save/load reuses the spawn-request plumbing and the `IPlatformServices` storage seam; the native `LoadSceneRequest` is deliberately separate from the LDtk/Blender `LoadLevelRequest`.
+- `level-loading` — scene save/load reuses the spawn-request plumbing and the `IPlatformServices` storage seam; since PS5 the game boot is native-only (`LoadLevelRequest` → native reader, fail-loud otherwise) and the LDtk/Blender parsers are import-only machinery (the `LoadSceneRequest`/`LoadLevelRequest` split is now a live-native-path vs import-op distinction, not a parallel-loaders one).
+
+## Importing legacy levels (LDtk/Blender → native `.mdscene`)
+
+`LevelImporter` (Composition) is the one-way import core: given a world a legacy parser populated, it
+tags the scene-content roots (`SceneObjectComponent`, excluding editor-infra and bake products) and
+serializes through the canonical `SceneWriter` to a native `.mdscene` the game then owns — reconstructed
+on load by components, never by re-running the parser. The reference game drives it with a headless
+export op (`Game1`: `--export-scene <id>` / `MONODREAMS_EXPORT_SCENE`, boots in Edit so frozen physics
+can't perturb positions, excludes system-built UI like the dialogue sub-graph, writes into the project
+source tree via `EditorProjectContext`). The Examples Blender level is migrated to a committed
+`Content/Levels/Blender_Level.mdscene`; the LDtk `Level_0` awaits a native tile-layer batching primitive
+(a follow-up) before its ~21k per-tile entities can migrate. An editor toolbar "Import" action is a
+natural next binding of the same core.
 
 ## Extension points
 
-- **Game-component serialization (Wave 2, live).** Register `(write, read)` serializers for game-specific components (e.g. `PlayerState`) on the registry — `registry.Register(key, typeof(MyComponent), write, read)` — so they round-trip; the engine ships serializers for its own serializable components via `registry.RegisterEngineComponents()`. Only registered types serialize (opt-in); an unregistered component on an entity is skipped with a loud warning at write time.
+- **Game-component serialization (Wave 2, live; game serializers wired PS5).** Register `(write, read)` serializers for game-specific components (e.g. `PlayerState`) on the registry — `registry.Register(key, typeof(MyComponent), write, read)` — so they round-trip; the engine ships serializers for its own serializable components via `registry.RegisterEngineComponents()`. The reference game bundles its own via `GameComponentSerializers.RegisterGameComponents()` (PlayerState / OrbitalMotion / StopMotionEffect / DialogueZoneComponent), registered on BOTH the editor overlay's registry AND the shipped game's native-reader registry so a migrated native scene reconstructs game components with no editor composed. Only registered types serialize (opt-in); an unregistered component is skipped with a loud warning at write time.
 - **Per-system edit-time policy.** Opt a system into freezing by wrapping it in `GatedSystem(child, EditTimeBehavior.Freeze)`; leave render/input/cursor/hierarchy ungated or `RunNormally`.
 
 ## See also

@@ -5,6 +5,28 @@
 > before changing either parser or wiring an LDtk-exported level into a
 > screen.
 
+## The LDtk parsers are import-only (not wired to live game boot)
+
+Since PS5 the LDtk parsers are **import machinery**, not live loaders. The shipped game boots native
+`.mdscene` levels only (level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest`
+native-only"); the LDtk parsers run once, via the import op, to migrate an `.ldtk` level into a native
+scene the game then owns. In the reference screen they are composed only in `importMode` (the export op),
+never at boot. The parser behaviour below (component-driven, `EntitySpawnRequest`-emitting) is unchanged
+— it simply runs on the import path now. Their factories set `SpriteInfoComponent.AssetKey` (the tileset
+content key) so the imported native scene re-loads the tiles by key. Note: the LDtk `Level_0` is not yet
+migrated (its ~21k per-tile entities need a native tile-layer batching primitive — a follow-up), so it is
+import-only and not offered by the reference menu.
+
+**Why:** native `.mdscene` is the game's real level format; keeping the parsers as one-way importers is
+what closes the parser-asymmetry (CORE_TENETS §6/§10) while preserving the LDtk authoring path.
+**Breaks:** re-wiring the parsers to game boot reopens the asymmetry (dual-subscribe dispatch, LDtk error
+noise for Blender ids).
+**Tests:** `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (import → native round-trip);
+`MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`.
+**Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails
+loud otherwise)"; level-editor — "LDtk/Blender are import-only; the importer round-trips a parsed world
+to native".
+
 ## Both parsers subscribe to `CurrentLevelComponent` being added, not to `LoadLevelRequest`
 
 `LDtkTileParserSystem` and `LDtkEntityParserSystem` each call

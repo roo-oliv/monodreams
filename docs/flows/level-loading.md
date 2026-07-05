@@ -16,8 +16,15 @@ doesn't know which parser emitted the request, and the parsers don't know how th
 arrived. That indirection is what lets the same level data drive a gameplay build, a
 render-only preview, and a headless test by swapping only the factory map.
 
+> **PS5 status — asymmetry resolved.** The game boot is **native-only**: `LevelLoadRequestSystem`
+> resolves `LoadLevelRequest` to a native `.mdscene` (or fails loud), and the LDtk/Blender parsers are
+> **import-only** machinery, composed only in the reference screen's `importMode` (the export op), never
+> at boot. The dual-subscribe / `Blender_`-prefix description below is therefore the **import path** now
+> (and the historical live path); read it as "what runs when the import op re-parses a legacy level."
+
 The two parser entry points are **asymmetric by trigger**, and this is the load-bearing
-subtlety. `LevelLoadRequestSystem` (the LDtk path) subscribes to `LoadLevelRequest`,
+subtlety (this asymmetry now lives only in the import composition). `LevelLoadRequestSystem` (the LDtk
+path) subscribes to `LoadLevelRequest`,
 loads `World/{identifier}` as an `LDtkLevel`, and `world.Set`s the
 `CurrentLevelComponent` singleton (plus `CurrentBackgroundColorComponent`). The LDtk
 parsers (`LDtkEntityParserSystem`, `LDtkTileParserSystem`) never see the message — they
@@ -31,20 +38,19 @@ load: a `Blender_`-prefixed identifier is handled by the Blender parser while
 `CurrentLevelComponent` to clean up; any other prefix is handled by the LDtk path and
 the Blender parser early-returns.
 
-**Native-first (PS4) — the unification.** `LevelLoadRequestSystem` is now a native-first
-dispatcher: before the LDtk attempt it calls an optional `tryLoadNativeScene`
-`Func<string,bool>` (built by `NativeLevelLoader.CreateProbe`, level-editor). That delegate
-probes for a bundled `Content/Levels/<id>.mdscene` via `TitleContainer` and, on a hit, loads
-it through `SceneReaderSystem` (generalized off the editor-only `LoadSceneRequest`, so the
-same reader serves the game boot — in both run modes, and with no editor composed) and returns
-`true`; the dispatcher then returns immediately, **skipping the LDtk `Content.Load` and the
-`CurrentLevelComponent` removal** so a native load is never clobbered. Only when no native file
-exists does the legacy LDtk/Blender path run, unchanged. This is the content-driven dispatch the
-`Blender_`-prefix hack always wanted: a single dispatcher decides native-vs-LDtk, native-first;
-PS4 keeps LDtk + Blender as migration fallback, PS5 removes them and closes the asymmetry. The
-delegate is a plain `Func<string,bool>` so `level-loading` never depends upward on `level-editor`;
-the manifest's `startScene` (read at boot from the bundled `game.mdproj` via `TitleContainer`)
-drives the entry when its native scene exists.
+**Native-only (PS5) — the unification, resolved.** At game boot `LevelLoadRequestSystem` is a
+native-only dispatcher: it calls the `tryLoadNativeScene` `Func<string,bool>` (built by
+`NativeLevelLoader.CreateProbe`, level-editor), which probes for a bundled
+`Content/Levels/<id>.mdscene` via `TitleContainer` and, on a hit, loads it through `SceneReaderSystem`
+(generalized off the editor-only `LoadSceneRequest`, so the same reader serves the game boot — in both
+run modes, and with no editor composed) and returns `true`. **No native scene ⇒ it fails loud** (a
+logged error, no entities) — there is no silent LDtk/Blender attempt. The legacy path runs **only** when
+a caller passes `enableLegacyLdtkFallback: true` — the import op's composition, which also composes the
+Blender parser + factories; the export op then hands the re-parsed world to `LevelImporter`. This is the
+content-driven dispatch the `Blender_`-prefix hack always wanted: one path at boot, no dual-subscribe,
+closing the asymmetry (CORE_TENETS §6/§10). The delegate is a plain `Func<string,bool>` so
+`level-loading` never depends upward on `level-editor`; the manifest's `startScene` (read at boot from
+the bundled `game.mdproj` via `TitleContainer`) drives the entry when its native scene exists.
 
 ## Entities & lifecycle
 

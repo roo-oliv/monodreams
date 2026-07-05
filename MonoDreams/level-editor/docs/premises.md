@@ -1111,9 +1111,10 @@ A saved `.mdscene` is loadable as the game's **real level** (PS4): `LoadLevelReq
 so the **same** `SceneReaderSystem` that serves the editor's Load also serves the game boot — the reader
 is thus generalized off the editor-only `LoadSceneRequest`. It runs in **both run modes** and **with no
 editor composed**: `LoadLevelExampleGameScreen` reuses the overlay's reader when the editor is present,
-else builds a standalone one (engine serializers only), so a shipped game boots native scenes too. When
-no `.mdscene` exists for the id the probe returns `false` and the legacy LDtk/Blender path runs unchanged
-(migration coexistence — removed in PS5). The bundled `game.mdproj` (read at boot via
+else builds a standalone one (engine **and game** serializers — PS5), so a shipped game boots native
+scenes too. When no `.mdscene` exists for the id the boot dispatcher **fails loud** — the LDtk/Blender
+loaders are import-only (PS5) and not wired to boot, so there is no silent legacy attempt. The bundled
+`game.mdproj` (read at boot via
 `ManifestBoot.TryReadManifest` over `TitleContainer`) drives the entry: `ManifestBoot.ResolveStartScene`
 returns the manifest's `startScene` **only** when a native scene exists for it, else `null` so the host
 keeps its default boot (a not-yet-migrated `startScene` — the Examples `island` placeholder — stays
@@ -1133,8 +1134,8 @@ not-yet-committed level would send the game into a failing LDtk load instead of 
 `CommittedSampleScene_LoadsBackViaTheNativeReader`), `MonoDreams.Tests/LevelEditor/ManifestBootTests.cs`,
 `MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the real headless game boots the committed
 sample).
-**Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-first, then
-falls back to LDtk"; "Native `.mdscene` levels are bundled by an MGCB `/copy:` glob and read via
+**Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails
+loud otherwise)"; "Native `.mdscene` levels are bundled by an MGCB `/copy:` glob and read via
 `TitleContainer`"; this file — "Scene round-trip reconstructs from registered components, not factories";
 "The project manifest anchors the editor's project root; unresolved is fail-safe".
 
@@ -1389,6 +1390,82 @@ the Wave-5 in-process-integration precedent).
 "Trigger zones are Passive colliders identified by an auto-numbered EntityInfo string", "Scene
 round-trip reconstructs from registered components, not factories"; collision — SAT + the `Passive`
 static-blocker semantics.
+
+## LDtk/Blender are import-only; the importer round-trips a parsed world to native
+
+The LDtk and Blender parsers are no longer wired to live game boot (PS5). They are **import
+machinery**: run once, via the import op (`Game1`'s headless `--export-scene <id>` /
+`MONODREAMS_EXPORT_SCENE`, or a future editor toolbar action), to re-parse a legacy level into a native
+`.mdscene` the game then owns. `LevelImporter` is the testable core: given a world a parser populated, it
+tags every scene-content root with `SceneObjectComponent` (a top-level entity that is not
+`EditorInfrastructureComponent` and not `BakedProductComponent`) so the canonical `SceneWriter`'s
+membership closure captures it + its `ChildOf` descendants, then serializes through the registry.
+Reconstruction on load is by components, never by re-running the parser — so every component a
+factory/parser sets needs a registered serializer, and the reference factories set
+`SpriteInfoComponent.AssetKey` (the tileset/texture content key) so the native reader re-loads the
+texture. The parsers are composed only in the reference screen's `importMode`, never at boot; the import
+op boots in `RunMode.Edit` so the frozen logic group cannot perturb the pristine parsed positions before
+capture, and disposes system-built screen infrastructure (the `DialogueStateComponent` UI sub-graph)
+before importing so only level content is captured.
+
+**Why:** native `.mdscene` is the game's real level format; keeping the parsers as one-way importers
+(not live loaders) is what makes the boot path native-only and closes the parser-asymmetry, while still
+letting a gamedev migrate an LDtk/Blender level they already authored.
+**Breaks:** if the importer did not tag the parsed roots, a straight `SceneWriter.Save` would write an
+empty scene (the parsers never set the transient save-root tag); if a parsed component had no registered
+serializer, its data drops silently (a loud write-time warning surfaces it).
+**Tests:** `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (LDtk-like + Blender-like worlds →
+import → reload via the native reader → equivalent world: counts, game components, transforms, parent
+graph; `TagContentRoots` excludes infra/bake and is idempotent).
+**Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories",
+"Game components round-trip through registered serializers"; level-loading — "`LevelLoadRequestSystem`
+resolves `LoadLevelRequest` native-only (fails loud otherwise)".
+
+## The Examples levels are migrated to native `.mdscene`
+
+The reference game's levels are committed native scenes under `Content/Levels/`. `Blender_Level.mdscene`
+(the migrated Blender level: player Pete, NPCs Boldo/elephant-kid + their zones, the store collider) was
+produced once by the import op and is byte-canonical (a load→save is a fixed point). It is bundled via an
+MGCB `/copy:` entry (mirroring `sample.mdscene`), boots through the shipped native reader, and is what
+the level-selection menu's "Level 1" resolves to. The LDtk `Level_0` is **not** migrated: its ~21k
+per-tile entities would make a per-entity native scene a multi-MB artifact — it needs a native tile-layer
+batching primitive first (a follow-up), so it stays import-only and is not offered by the menu.
+
+**Why:** migrating the levels to native is what lets the game boot native-only (the fallback removal);
+the migrated scene must round-trip through the shipped reader, which is what forced full component
+serialization (engine + game) and the `AssetKey` fixes.
+**Breaks:** a non-canonical hand-edit of the committed scene would break the byte-stable fixed point (the
+byte-lock test catches it); a missing game-component serializer would throw when the scene boots.
+**Tests:** `MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs`
+(`CommittedBlenderLevel_IsByteCanonical_LoadSaveIsAFixedPoint`,
+`CommittedBlenderLevel_BootsThroughTheShippedReader_YieldingPlayerAndNpcs`),
+`MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelBootsNative`.
+**Depends on:** this file — "LDtk/Blender are import-only; the importer round-trips a parsed world to
+native", "The game boots native scenes native-first via `LoadLevelRequest`".
+
+## Game components round-trip through registered serializers
+
+Full component serialization spans the game's own components, not just the engine's. The reference game
+registers serializers for `PlayerState`, `OrbitalMotion`, `StopMotionEffect`, and `DialogueZoneComponent`
+via `GameComponentSerializers.RegisterGameComponents`, and the engine ships one for
+`CameraFollowTargetComponent` — so a native scene migrated from an LDtk/Blender level reconstructs the
+same world through the registry. `RegisterGameComponents` is called on **both** the editor overlay's live
+registry (in-editor Load/Save) **and** the shipped game's standalone native-reader registry (a booted
+native scene reconstructs game components with no editor composed). Runtime-derived affordances that hold
+unserializable handles — `NPCInteractionIcon` (a live `Entity` reference) and the interaction icon's
+`DynamicTextComponent` (a live font) — are deliberately NOT registered; they are excluded from the scene
+(as the export op does with the dialogue UI) and are a follow-up (entity-reference serialization + font
+asset keys).
+
+**Why:** the migrated Examples levels carry game components; if the shipped reader's registry knew only
+engine serializers, a native boot would throw on the first game-component key.
+**Breaks:** registering game serializers on the editor path but not the shipped path (or vice versa)
+makes a scene load in one composition and throw in the other.
+**Tests:** `MonoDreams.Tests/LevelEditor/GameComponentSerializerTests.cs` (each game component +
+`CameraFollowTargetComponent` round-trips; the registry registers every game type),
+`MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs` (the committed scene boots through the shipped
+registry).
+**Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories".
 
 ## See also
 
