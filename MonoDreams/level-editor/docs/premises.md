@@ -1064,6 +1064,10 @@ the log/toolbar can tell the user WHY. Undo/Redo/Load keep their existing Paused
 the transport buttons stay live in both states. (PS3 repoints the actual write from the ephemeral
 build-output path to the resolved source tree — see "The editor Save writes versioned `.mdscene` into
 the project source tree" — so the `NoProjectRoot` gate is now also what keeps the write target valid.)
+When Save is **not** blocked it no longer writes immediately — it OPENS the Save dialog (name the
+scene, then confirm), and the write runs in the dialog's confirm callback through the same
+`SaveCurrentScene`, which re-applies this exact guard as defense-in-depth (see "The editor's Save/Load
+dialogs are modal editor-native chrome that own input while open").
 
 **Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
 is nearly free) AND the project-persistence trap (project-persistence plan §4): a mid-Play save
@@ -1078,6 +1082,55 @@ build-output path instead of the versioned source tree.
 **Depends on:** this file — "The editor run flag composes the always-on editor and the transport
 owns RunMode" (Playing = `RunMode.Play` with the shell composed); "The project manifest anchors the
 editor's project root; unresolved is fail-safe" (the `NoProjectRoot` cause).
+
+## The editor's Save/Load dialogs are modal editor-native chrome that own input while open
+
+The toolbar's Save and Load buttons open modal dialogs (`EditorDialogSystem`, weave entry
+`editor.dialog`) rather than acting immediately: **Save** opens a name field (prefilled with the
+current scene id) + Save/Cancel — confirm sanitizes the typed name to a safe file id
+(`EditorTextField.Sanitize`: letters/digits/`-`/`_` only, edge-trimmed; empty ⇒ refused, dialog stays
+open), sets it as the editor's scene id, and writes through the SAME guarded `SaveCurrentScene`
+(overwriting an existing file with a logged note); **Load** lists `LevelsPath/*.mdscene` (or the
+actionable "no project root" message when unresolved) and a row click publishes the SAME
+`LoadSceneRequest(path, fromContent:false)` the toolbar Load used. The dialog is built the way the
+systems panel is — native-resolution chrome on `RenderTargetID.Editor`, `SimpleButtonComponent` +
+`DynamicTextComponent`, `ScreenPosition` hit-test, **no `VisibleComponent`** (shown/hidden by parking
+off-screen) — deliberately NOT the `ui` `DialogComponent`/`DialogSystem` (which toggle
+`VisibleComponent` and trap focus via `UIFocusSystem` — both Main/HUD mechanisms the Editor-target
+chrome must not use). While a dialog is open it **owns input**, in two halves: (1) mouse — after
+hit-testing its own controls it clears the cursor's pointer edges on the single cursor entity, so no
+mouse-driven editor system (toolbar, selection, gizmo, camera-nav, palette, boundary, systems-panel)
+downstream that frame acts; (2) keyboard — the composing screen wires the host keyboard system's
+`ShouldSuppressInput` to `Dialog.IsOpen`, so every editor/game keyboard action (delete, undo/redo,
+frame, boundary-commit, and the game's Escape-to-exit) stands down while the dialog reads the keyboard
+for its name field (Backspace edits, Enter confirms, Escape cancels). Every action also has a public
+method so the headless `dialog:save-open|load-open|name <text>|confirm|cancel|load <id>` op grammar
+drives the whole flow with no real keyboard/mouse.
+
+**Why:** the user needs to name a scene and pick which to load (Rider hands-on feedback: "there is no
+Save dialog nor a Load dialog"); and a modal must capture input or a stray viewport click/keystroke
+leaks to the tools behind it — most dangerously typing a name with `z`/`y` (undo/redo) or hitting
+Escape (quit the game). Reusing the `ui` dialog machinery would force `VisibleComponent` onto Editor
+chrome and break the chrome-render invariant, so the dialog is editor-native but still built from the
+shared UI primitives (no parallel draw components — the no-duplicate-ways tenet).
+**Breaks:** without the mouse edge-consumption a click meant for a dialog button also selects/places
+behind it; without the keyboard suppression, typing a filename fires editor hotkeys (undo/redo/delete)
+and Escape quits the game mid-edit; using `ui.DialogSystem` would add `VisibleComponent` to Editor
+chrome and double-offset the pre-baked meshes.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
+(`EditorTextField_AppendBackspaceSetClear`, `EditorTextField_Sanitize`,
+`SaveDialog_OpenNameConfirm_FiresSanitizedIdAndCloses`, `SaveDialog_Cancel_WritesNothingAndCloses`,
+`SaveDialog_EmptyAfterSanitize_KeepsDialogOpenAndDoesNotSave`,
+`SaveDialog_ConfirmRespectsTheSaveGuard_AndWritesToLevelsPath`,
+`SaveDialog_KeyboardTypingBackspaceEnter`, `SaveDialog_EscapeCloses`,
+`LoadDialog_ListsScenes_AndSelectingOneFiresLoad`,
+`LoadDialog_UnresolvedRoot_ShowsMessageAndDoesNotCrash`,
+`OpenDialog_ConsumesTheCursor_SoAViewportClickDoesNotSelect`).
+**Depends on:** this file — "Save is blocked while Playing or when no project root is resolved" (the
+confirm re-applies the guard); "The editor Save writes versioned `.mdscene` into the project source
+tree" (SaveCurrentScene's write target); "The systems panel renders the registrar tree …" (the sibling
+native-chrome widget it mirrors); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput` (the
+keyboard-half seam); rendering — "Editor-target chrome carries no `VisibleComponent`" (the chrome rule).
 
 ## The project manifest anchors the editor's project root; unresolved is fail-safe
 
