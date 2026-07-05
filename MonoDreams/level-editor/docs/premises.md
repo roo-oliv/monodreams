@@ -1003,25 +1003,66 @@ visually behind it; ghost preview and placed prop disagree about where "under th
 **Depends on:** rendering — `YSortSystem`'s `WorldPosition.Y + YSortOffset` key; this file — "The
 serializer persists SOURCE sort fields…" (Origin/YSortOffset are SOURCE fields that round-trip).
 
-## Save is blocked while the transport is Playing
+## Save is blocked while Playing or when no project root is resolved
 
-`EditorOverlay.DispatchToolbarAction`'s Save case no-ops with a loud `Logger.Warning` while
-`RunMode == Play` (`EditorOverlay.IsSaveBlocked` — the toolbar already renders the Save button
-dimmed/inactive there, and this guard closes the remaining dispatch paths: the headless
-`ToolbarAction` op and any programmatic dispatch). Saving is an authoring act over the **paused**
-scene; a mid-Play save would bake transient run state — a mid-air player, in-flight velocities,
-half-resolved collisions — into the scene file as if it were authored truth. Undo/Redo/Load keep
-their existing Paused-only toolbar gating; the transport buttons stay live in both states.
+`EditorOverlay.DispatchToolbarAction`'s Save case no-ops with a loud `Logger.Warning` in TWO
+distinguishable cases (`EditorOverlay.SaveBlock` → `SaveBlockReason.Playing` /
+`SaveBlockReason.NoProjectRoot`; `Playing` is checked first): (1) while `RunMode == Play` — saving
+is an authoring act over the **paused** scene, and a mid-Play save would bake transient run state (a
+mid-air player, in-flight velocities, half-resolved collisions) into the scene file as if it were
+authored truth; (2) while the editor's `EditorProjectContext` is unresolved (no `game.mdproj` found —
+a shipped/relocated build, a console, or an unset `MONODREAMS_PROJECT_ROOT` with nothing to walk up
+to) — there is nowhere versioned to write. The toolbar renders the Save button dimmed for EITHER
+cause (the transport rule dims all editing buttons while Playing; a small per-button gate additionally
+dims Save while Paused-but-unresolved), and this guard closes the remaining dispatch paths (the
+headless `ToolbarAction` op, any programmatic dispatch). The two reasons are reported separately so
+the log/toolbar can tell the user WHY. Undo/Redo/Load keep their existing Paused-only toolbar gating;
+the transport buttons stay live in both states. (PS2 gates on the context but does NOT yet repoint
+the write target — Save still writes where it did; PS3 repoints it into the resolved source tree.)
 
 **Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
-is nearly free): the first mid-Play save silently corrupts a scene in a way that only shows on the
-next load.
+is nearly free) AND the project-persistence trap (project-persistence plan §4): a mid-Play save
+corrupts a scene, and a save with no resolved project root has nowhere versioned to land — both
+fail silently in a way that only shows later.
 **Breaks:** a scene reloads with the player embedded mid-jump or props mid-physics — "the level I
-saved is not the level I authored", discovered much later.
+saved is not the level I authored"; or Save silently writes to (or crashes over) an ephemeral
+build-output path instead of the versioned source tree.
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs`
-(`SaveGuardTest_BlockedExactlyWhilePlaying`, `SaveGuardTest_DispatchNoOpsWhilePlayingAndSavesWhilePaused`).
+(`SaveGuardTest_BlockedWhilePlayingOrWithoutAProjectRoot`,
+`SaveGuardTest_DispatchNoOpsWhileBlockedAndSavesWhenAllowed`).
 **Depends on:** this file — "The editor run flag composes the always-on editor and the transport
-owns RunMode" (Playing = `RunMode.Play` with the shell composed).
+owns RunMode" (Playing = `RunMode.Play` with the shell composed); "The project manifest anchors the
+editor's project root; unresolved is fail-safe" (the `NoProjectRoot` cause).
+
+## The project manifest anchors the editor's project root; unresolved is fail-safe
+
+A MonoDreams game is a versionable unit rooted at a `game.mdproj` manifest (`GameProject`:
+`formatVersion`, `startScene`, `levelsDir` default `Levels`, `assetRoots`), read/written through the
+SAME `CanonicalJson` policy scenes use so it is byte-stable and diffable. The editor resolves its
+project root once at init (desktop-only) via `EditorProjectContext.Resolve`: PRIMARY the env var
+`MONODREAMS_PROJECT_ROOT` (probing `<root>/Content/game.mdproj` then `<root>/game.mdproj`), FALLBACK a
+bounded walk-up from `BaseDirectory` probing `<dir>/game.mdproj` and `<dir>/Content/game.mdproj` at
+each ancestor, else UNRESOLVED. **The resolved `ProjectRoot` is the directory that CONTAINS the
+manifest** (so `ProjectRoot/game.mdproj == ManifestPath` and `ProjectRoot/LevelsDir == LevelsPath`),
+uniform across both resolution paths. Resolution NEVER throws — a missing or malformed manifest logs a
+warning and yields `Resolved = false`. The head (where the editor flag is parsed) resolves it and hands
+it to the overlay (an optional ctor param, default null) so the `level-editor` module stays
+game-agnostic; the module reads the environment/filesystem only through injected delegates (wired to
+`PlatformServices.Current` in the no-arg overload). The example manifest ships committed at
+`MonoDreams.Examples.Core/Content/game.mdproj` (under `Content/` + an MGCB `/copy:` so the shipped game
+can read it via `TitleContainer` later, like `blender_level.json`).
+
+**Why:** the editor runs from a build-output directory but must locate the versioned project source to
+save into it (PS3) and to gate Save when there is no project (PS2); a resolution that threw or picked
+the wrong root would crash the editor or silently write to the wrong place.
+**Breaks:** Save writes to (or crashes over) an ephemeral build-output path; the game cannot resolve
+its `startScene` at boot (PS4); a locale/insertion-order-dependent manifest churns the git diff.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorProjectContextTests.cs` (env / walk-up / unresolved /
+malformed / env-miss-falls-back), `MonoDreams.Tests/LevelEditor/GameProjectTests.cs` (canonical
+round-trip, byte-stable, `assetRoots` order preserved, canonical shape locked).
+**Depends on:** this file — "Scene serialization is canonical and byte-stable…" (the shared
+`CanonicalJson`); foundation — `IPlatformServices` (`BaseDirectory`, env/file lookups the resolver
+routes through).
 
 ## Within-band ordering nudges SOURCE sort fields and never breaks the band
 

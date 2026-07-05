@@ -159,9 +159,11 @@ pipeline):
    left-most TRANSPORT buttons (Play/Pause — label synced to the state — and Restart) dispatch in
    both modes through `EditorTransport`; the editing buttons (Save/Load/Undo/Redo/tool/snap)
    dispatch only while Paused and render dimmed while Playing — and Save additionally guards its
-   own dispatch (`EditorOverlay.IsSaveBlocked`): a Save arriving while Playing through ANY path
-   (headless op, programmatic) is a loud no-op, so mid-simulation state is never baked into a
-   scene; a transform-tool button also disarms the palette (the tool radio over
+   own dispatch (`EditorOverlay.SaveBlock`, two distinguishable causes): a Save arriving while
+   Playing OR while the `EditorProjectContext` is unresolved (no `game.mdproj` root) through ANY
+   path (headless op, programmatic) is a loud no-op, so mid-simulation state is never baked into a
+   scene and Save is off when there is nowhere versioned to write; Save also dims for the
+   no-project-root cause while Paused; a transform-tool button also disarms the palette (the tool radio over
    `EditorToolMode`) — the two
    are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`
    (the right strip) renders the registrar tree of both pipelines — groups indented above their
