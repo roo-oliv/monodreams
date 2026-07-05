@@ -176,12 +176,20 @@ pipeline):
    no-project-root cause while Paused; a transform-tool button also disarms the palette (the tool radio over
    `EditorToolMode`) — the two
    are the `editor.toolbar` group's children (`meshPrep`, `clicks`); then `SystemsPanelSystem`
-   (the right strip) renders the registrar tree of both pipelines — groups indented above their
-   children, name + policy + checkbox, tri-state on groups (all/none/mixed; mixed = the minus
-   bar) — hit-tests `ScreenPosition`, scrolls on the wheel, and flips a clicked row via
-   `EditorPipelineRegistrar.SetEnabled` (leaf = a both-modes master switch; group = the Gmail
-   cascade over its descendant leaves; the panel refuses to disable its own entry or any
-   ancestor group of it).
+   (the right strip) renders a vertical stack of three **collapsible sections** — SYSTEMS, SCENE,
+   INSPECTOR — scrolled as one flat list on the wheel, collapse/expand state held in the pure-data
+   `EditorPanelStateComponent`. **SYSTEMS** is the registrar tree of both pipelines — groups
+   indented above their children, name + policy + checkbox, tri-state on groups (all/none/mixed;
+   mixed = the minus bar), each group row's left caret collapsing its children — hit-testing
+   `ScreenPosition` and flipping a clicked checkbox via `EditorPipelineRegistrar.SetEnabled` (leaf =
+   a both-modes master switch; group = the Gmail cascade; the panel refuses to disable its own
+   entry or any ancestor group of it). **SCENE** is the world's entity tree (`SceneTreeBuilder`:
+   roots first, `ChildOfComponent` descendants indented, `EditorInfrastructureComponent` hidden),
+   two-way with the viewport selection — a row click sets `SelectedComponent` (single-select), and
+   the selected entity's row is highlighted. **INSPECTOR** is the selected entity's attached
+   components (`ComponentInspector` over `ReadAllComponents`), each expandable to its public members
+   as read-only "name: value" rows (guarded reflection — structs/refs/nulls/throwing getters never
+   throw). All sections/tree/inspector are headless-drivable via the `panel:` op grammar.
 10. **Cursor projection** (`RunNormally`) — `CursorPositionSystem` after the camera's final move;
    it also flags `CursorInputComponent.OutsideViewport` when the pointer is in the chrome
    margins, which mutes selection picks, gizmo drag-starts, camera-nav zoom/pan, and palette
