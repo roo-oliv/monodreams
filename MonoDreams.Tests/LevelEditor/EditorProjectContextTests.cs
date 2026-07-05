@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Serialization;
 using Xunit;
@@ -142,5 +144,110 @@ public class EditorProjectContextTests
             readAllText: _ => "{ this is not valid json ]");
 
         Assert.False(ctx.Resolved); // caught, treated as unresolved — no exception escapes
+    }
+
+    // ---- FW1 (BUG #2): the walk-up must NEVER resolve a bin/obj output copy ----
+
+    /// <summary>An in-memory filesystem with the two <c>game.mdproj</c> that a real desktop run sees:
+    /// the versioned SOURCE (under the .Core content project) and the MGCB-copied OUTPUT (under the
+    /// desktop head's <c>bin/…</c>), plus optional extra manifests and a <c>.git</c> repo-root marker.
+    /// Wires the <c>fileExists</c> / <c>directoryExists</c> / recursive <c>enumerateFiles</c> delegates
+    /// the corrected <see cref="EditorProjectContext.Resolve"/> needs — no real disk.</summary>
+    private sealed class FakeRepo
+    {
+        private readonly HashSet<string> _manifests = new();
+        private readonly HashSet<string> _gitFiles = new();
+
+        public string RepoRoot { get; }
+
+        public FakeRepo(string repoRoot) => RepoRoot = repoRoot;
+
+        public FakeRepo WithManifest(string path) { _manifests.Add(path); return this; }
+        public FakeRepo WithGitFile(string path) { _gitFiles.Add(path); return this; }
+
+        public bool FileExists(string p) => _manifests.Contains(p) || _gitFiles.Contains(p);
+        public bool DirectoryExists(string _) => false; // .git is a FILE here (a git worktree)
+
+        public IEnumerable<string> EnumerateFiles(string dir, string pattern, bool recursive)
+        {
+            if (pattern != GameProject.FileName) return Enumerable.Empty<string>(); // no *.sln in this repo
+            var prefix = dir.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return _manifests.Where(m => recursive
+                ? m.StartsWith(prefix, StringComparison.Ordinal)
+                : Path.GetDirectoryName(m) == dir.TrimEnd(Path.DirectorySeparatorChar));
+        }
+
+        public EditorProjectContext Resolve(string baseDirectory, string? envRoot = null) =>
+            EditorProjectContext.Resolve(
+                baseDirectory,
+                n => n == EditorProjectContext.ProjectRootVariable ? envRoot : null,
+                FileExists,
+                _ => Manifest(),
+                DirectoryExists,
+                EnumerateFiles);
+    }
+
+    [Fact]
+    public void WalkUp_FromBinBaseDir_ResolvesTheSourceManifest_NeverTheBinOutputCopy()
+    {
+        // Layout mirrors the real repo: SOURCE under .Core/Content, an OUTPUT copy under the desktop
+        // head's bin/…, a web wwwroot copy, and a .git file at the repo root (worktree).
+        var repo = Path.Combine("/repo", "monodreams");
+        var source = Path.Combine(repo, "MonoDreams.Examples.Core", "Content", GameProject.FileName);
+        var webCopy = Path.Combine(repo, "MonoDreams.Examples.Web", "wwwroot", "Content", GameProject.FileName);
+        var binCopy = Path.Combine(repo, "MonoDreams.Examples.Desktop", "bin", "Debug", "net8.0", "Content", GameProject.FileName);
+        var binBaseDir = Path.Combine(repo, "MonoDreams.Examples.Desktop", "bin", "Debug", "net8.0") + Path.DirectorySeparatorChar;
+
+        var fs = new FakeRepo(repo)
+            .WithManifest(source).WithManifest(webCopy).WithManifest(binCopy)
+            .WithGitFile(Path.Combine(repo, ".git"));
+
+        var ctx = fs.Resolve(binBaseDir); // no env var — zero-config in-repo run
+
+        Assert.True(ctx.Resolved);
+        Assert.Equal(source, ctx.ManifestPath); // the SOURCE, never the bin copy
+        Assert.Equal(Path.Combine(repo, "MonoDreams.Examples.Core", "Content"), ctx.ProjectRoot);
+        // Deterministic among source candidates: the shallower .Core/Content beats .Web/wwwroot/Content.
+        Assert.DoesNotContain($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", ctx.ManifestPath!);
+        Assert.DoesNotContain($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", ctx.ManifestPath!);
+    }
+
+    [Fact]
+    public void EnvVar_Wins_EvenWhenABinCopyAndSourceExist()
+    {
+        var repo = Path.Combine("/repo", "monodreams");
+        var source = Path.Combine(repo, "MonoDreams.Examples.Core", "Content", GameProject.FileName);
+        var binCopy = Path.Combine(repo, "MonoDreams.Examples.Desktop", "bin", "Debug", "net8.0", "Content", GameProject.FileName);
+        var binBaseDir = Path.Combine(repo, "MonoDreams.Examples.Desktop", "bin", "Debug", "net8.0") + Path.DirectorySeparatorChar;
+
+        // The env var names a DIFFERENT explicit root (its own Content/game.mdproj).
+        var envRoot = Path.Combine("/elsewhere", "MyGame");
+        var envManifest = Path.Combine(envRoot, "Content", GameProject.FileName);
+
+        var fs = new FakeRepo(repo)
+            .WithManifest(source).WithManifest(binCopy).WithManifest(envManifest)
+            .WithGitFile(Path.Combine(repo, ".git"));
+
+        var ctx = fs.Resolve(binBaseDir, envRoot);
+
+        Assert.True(ctx.Resolved);
+        Assert.Equal(envManifest, ctx.ManifestPath); // the explicit override wins over walk-up + repo search
+        Assert.Equal(Path.Combine(envRoot, "Content"), ctx.ProjectRoot);
+    }
+
+    [Fact]
+    public void OnlyABinOutputCopy_AndNoSource_IsUnresolved_NeverTheBinCopy()
+    {
+        // A relocated/shipped-style layout: the only manifest is the bin output copy, no repo marker.
+        var binCopy = Path.Combine("/shipped", "bin", "Debug", "net8.0", "Content", GameProject.FileName);
+        var binBaseDir = Path.Combine("/shipped", "bin", "Debug", "net8.0") + Path.DirectorySeparatorChar;
+
+        var fs = new FakeRepo("/shipped").WithManifest(binCopy); // no .git, no source
+
+        var ctx = fs.Resolve(binBaseDir);
+
+        Assert.False(ctx.Resolved); // never resolves the bin copy; Save is disabled with an actionable reason
+        Assert.Null(ctx.ProjectRoot);
+        Assert.Null(ctx.LevelsPath);
     }
 }
