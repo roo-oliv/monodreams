@@ -1576,6 +1576,8 @@
 
 #begin ./blender_level.json
 /copy:./blender_level.json
+#begin ./game.mdproj
+/copy:./game.mdproj
 #begin ./Tiny Swords (Free Pack)/Particle FX/Dust_02.png
 /importer:TextureImporter
 /processor:TextureProcessor
