@@ -28,7 +28,10 @@ public sealed class DesktopPlatformServices : IPlatformServices
 
     public string ExportScene(string suggestedFileName, string contents)
     {
-        // Desktop: write the scene next to the executable so the user can find it on disk.
+        // The generic out-of-band export. NOTE (PS3): this is NO LONGER the editor's scene-save
+        // path — the editor writes scenes into the versioned project source tree via WriteAllText
+        // (ProjectRoot/LevelsDir/<id>.mdscene), so nothing lands under BaseDirectory (bin/…) on
+        // desktop any more. Kept as the generic export seam (the web head's browser-download hook).
         var path = Path.Combine(BaseDirectory, suggestedFileName);
         File.WriteAllText(path, contents);
         return path;

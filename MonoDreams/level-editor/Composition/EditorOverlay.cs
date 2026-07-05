@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using DefaultEcs;
 using DefaultEcs.System;
@@ -69,13 +70,15 @@ namespace MonoDreams.LevelEditor.Composition;
 /// </summary>
 public sealed class EditorOverlay
 {
-    /// <summary>The default file the toolbar's Save button writes (under the host scene dir).</summary>
-    public const string DefaultSceneFileName = "editor_scene.json";
+    /// <summary>The scene id the editor holds when neither an explicit id nor the manifest's
+    /// <see cref="GameProject.StartScene"/> supplies one — the fallback name a brand-new project's
+    /// first Save writes (<c>untitled.mdscene</c>). See <see cref="ResolveSceneId"/>.</summary>
+    public const string DefaultSceneId = "untitled";
 
     private readonly World _world;
     private readonly Camera _camera;
     private readonly DrawLayerMap _layers;
-    private readonly string _sceneFileName;
+    private readonly string _sceneId;
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
 
@@ -99,10 +102,15 @@ public sealed class EditorOverlay
     /// selector onto the SCREEN's <c>DrawLayerMap</c> depths. Omit both on screens without
     /// authoring (menus, demos) — the strip just stays empty.
     /// <paramref name="projectContext"/> (host-resolved, desktop-only — see
-    /// <see cref="EditorProjectContext"/>) anchors the versioned project: PS2 uses it only to gate
-    /// Save (the "no project root" cause — <see cref="SaveBlock"/>); null (a shipped build, or a host
-    /// with no project such as the demos) leaves Save disabled with that cause. The head supplies it
-    /// so the module stays game-agnostic.
+    /// <see cref="EditorProjectContext"/>) anchors the versioned project: Save (and the in-editor
+    /// Load) write / read <c>&lt;ProjectContext.LevelsPath&gt;/&lt;sceneId&gt;.mdscene</c> in the source
+    /// tree (PS3), and Save is gated on the project being resolved (the "no project root" cause —
+    /// <see cref="SaveBlock"/>); null (a shipped build, or a host with no project such as the demos)
+    /// leaves Save disabled with that cause. The head supplies it so the module stays game-agnostic.
+    /// <paramref name="sceneId"/> names the scene the editor holds (Save writes
+    /// <c>&lt;sceneId&gt;.mdscene</c>); null (the default) derives it from the manifest's
+    /// <see cref="GameProject.StartScene"/>, or <see cref="DefaultSceneId"/> when there is none (see
+    /// <see cref="ResolveSceneId"/>). A rename / new-scene UI is deferred — PS3 ships the default only.
     /// </summary>
     public EditorOverlay(
         World world,
@@ -118,7 +126,7 @@ public sealed class EditorOverlay
         Action? requestExit = null,
         Action<bool>? setOsCursorVisible = null,
         bool provideCursorPipeline = false,
-        string sceneFileName = DefaultSceneFileName,
+        string? sceneId = null,
         AssetCatalog? assetCatalog = null,
         IReadOnlyList<PaletteBand>? paletteBands = null,
         IReadOnlyList<TriggerType>? triggerTypes = null,
@@ -128,8 +136,8 @@ public sealed class EditorOverlay
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _layers = layers ?? throw new ArgumentNullException(nameof(layers));
         if (input == null) throw new ArgumentNullException(nameof(input));
-        _sceneFileName = sceneFileName;
         _projectContext = projectContext;
+        _sceneId = ResolveSceneId(sceneId, projectContext);
 
         // The shared editor infrastructure. The registry ships the engine serializers; a game
         // registers its own game-component serializers via the exposed Registry.
@@ -264,9 +272,14 @@ public sealed class EditorOverlay
     public Entity GizmoState => _gizmoState;
 
     /// <summary>The resolved project context (desktop-only, host-supplied), or null when none was
-    /// supplied. PS2 uses it only to gate Save; PS3 will read <see cref="EditorProjectContext.LevelsPath"/>
-    /// to repoint the write into the source tree.</summary>
+    /// supplied. Gates Save (the "no project root" cause) and, when resolved, its
+    /// <see cref="EditorProjectContext.LevelsPath"/> is the directory Save/Load target.</summary>
     public EditorProjectContext? ProjectContext => _projectContext;
+
+    /// <summary>The scene id the editor holds — Save writes <c>&lt;SceneId&gt;.mdscene</c> under the
+    /// project's levels directory. Defaults from the manifest's <see cref="GameProject.StartScene"/>,
+    /// or <see cref="DefaultSceneId"/>. (A rename / new-scene UI is deferred.)</summary>
+    public string SceneId => _sceneId;
 
     /// <summary>The editor transport — the one owner of <see cref="GameState.RunMode"/> under the
     /// editor run configuration (Paused = Edit, Playing = Play, Restart = rebuild from the original
@@ -441,13 +454,17 @@ public sealed class EditorOverlay
     /// <see cref="GameState"/> — the RunMode axis lives there); tool-select and snap-toggle mutate
     /// the single <see cref="GizmoState"/> entity (a tool-select also disarms the palette — the
     /// tool buttons are a radio over <see cref="EditorToolMode"/>); Save writes through
-    /// <see cref="SceneWriter"/> with the live camera + layers — <b>blocked, loudly, while the
-    /// transport is Playing OR when no project root is resolved</b> (<see cref="SaveBlock"/>: saving
-    /// mid-simulation would bake transient run state, e.g. a mid-air player, into the scene, and with
-    /// no project root there is nowhere versioned to write; the toolbar renders the button dimmed for
-    /// either cause and this guard closes the headless/dispatch path too); Load publishes a
-    /// <see cref="LoadSceneRequest"/> handled by the woven <see cref="SceneReader"/>; Undo/Redo
-    /// drive <see cref="History"/>. Public so the headless channel and tests dispatch the same way.
+    /// <see cref="SceneWriter"/> (live camera + layers) <b>into the versioned project SOURCE tree</b>
+    /// at <c>ProjectContext.LevelsPath/&lt;sceneId&gt;.mdscene</c> (<see cref="SceneFilePath"/>) via
+    /// <c>IPlatformServices.WriteAllText</c> — git sees it immediately; it is <b>blocked, loudly,
+    /// while the transport is Playing OR when no project root is resolved</b> (<see cref="SaveBlock"/>:
+    /// saving mid-simulation would bake transient run state, e.g. a mid-air player, into the scene, and
+    /// with no project root there is nowhere versioned to write; the toolbar renders the button dimmed
+    /// for either cause and this guard closes the headless/dispatch path too); Load reads that SAME
+    /// source path (a <see cref="LoadSceneRequest"/> with <c>fromContent: false</c> handled by the woven
+    /// <see cref="SceneReader"/> — instant reload of what was just written, no build round-trip), and is
+    /// a loud no-op when the project is unresolved; Undo/Redo drive <see cref="History"/>. Public so the
+    /// headless channel and tests dispatch the same way.
     /// </summary>
     public void DispatchToolbarAction(EditorToolbarAction action, GameState state)
     {
@@ -474,10 +491,21 @@ public sealed class EditorOverlay
                             "in the run configuration, or run from a build output inside the project source tree.");
                         return;
                 }
-                new SceneWriter(Serializer).Save(_world, _sceneFileName, _camera, _layers);
+                // Write into the versioned project SOURCE tree (PS3): ProjectRoot/LevelsDir/<id>.mdscene.
+                new SceneWriter(Serializer).Save(_world, SceneFilePath(_projectContext, _sceneId), _camera, _layers);
                 break;
             case EditorToolbarAction.Load:
-                _world.Publish(new LoadSceneRequest(_sceneFileName, fromContent: false));
+                // Reload the just-written source file directly (desktop file IO — no build round-trip).
+                var loadPath = SceneFilePath(_projectContext, _sceneId);
+                if (string.IsNullOrEmpty(loadPath))
+                {
+                    Logger.Warning(
+                        "[level-editor] Load is blocked: no project root resolved (no " +
+                        $"{GameProject.FileName} found). Set {EditorProjectContext.ProjectRootVariable} " +
+                        "in the run configuration, or run from a build output inside the project source tree.");
+                    return;
+                }
+                _world.Publish(new LoadSceneRequest(loadPath!, fromContent: false));
                 break;
             case EditorToolbarAction.Undo: History.Undo(); break;
             case EditorToolbarAction.Redo: History.Redo(); break;
@@ -526,6 +554,33 @@ public sealed class EditorOverlay
     /// <summary>Whether Save is blocked for any reason (see <see cref="SaveBlock"/>).</summary>
     public static bool IsSaveBlocked(GameState state, EditorProjectContext? projectContext) =>
         SaveBlock(state, projectContext) != SaveBlockReason.None;
+
+    /// <summary>
+    /// The scene id the editor holds: an explicit <paramref name="sceneId"/> wins; otherwise the
+    /// manifest's <see cref="GameProject.StartScene"/> (when the project is resolved and it is
+    /// non-empty); otherwise <see cref="DefaultSceneId"/>. Pure — testable without constructing the
+    /// (GraphicsDevice-bound) overlay.
+    /// </summary>
+    public static string ResolveSceneId(string? sceneId, EditorProjectContext? projectContext)
+    {
+        if (!string.IsNullOrWhiteSpace(sceneId)) return sceneId!;
+        var startScene = projectContext?.Manifest?.StartScene;
+        return string.IsNullOrWhiteSpace(startScene) ? DefaultSceneId : startScene!;
+    }
+
+    /// <summary>
+    /// The absolute source-tree path Save writes / Load reads:
+    /// <c>&lt;LevelsPath&gt;/&lt;sceneId&gt;.mdscene</c>, or <c>null</c> when the project is unresolved
+    /// (<see cref="EditorProjectContext.LevelsPath"/> null) — the caller then refuses (Save is already
+    /// gated by <see cref="SaveBlock"/>; the writer's own guard is the defense-in-depth backstop). Pure.
+    /// </summary>
+    public static string? SceneFilePath(EditorProjectContext? projectContext, string sceneId)
+    {
+        var levelsPath = projectContext?.LevelsPath;
+        return string.IsNullOrEmpty(levelsPath)
+            ? null
+            : Path.Combine(levelsPath!, sceneId + SceneWriter.SceneFileExtension);
+    }
 
     /// <summary>
     /// The STRING-action dispatch the headless channel routes <c>ToolbarAction</c> ops through:

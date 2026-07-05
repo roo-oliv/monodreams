@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using DefaultEcs;
 using MonoDreams.Component;
@@ -16,8 +17,18 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// (every <see cref="SceneObjectComponent"/> root plus each one's <c>ChildOfComponent</c>
 /// descendants), serializes that set through the Wave-2 <see cref="SceneSerializer"/> into a
 /// <see cref="SceneData"/>, attaches the active <see cref="Camera"/> state and the layer banding
-/// from a <see cref="DrawLayerMap"/>, JSON-serializes it (System.Text.Json), and exports it through
-/// <see cref="IPlatformServices.ExportScene"/> (desktop file / web download).
+/// from a <see cref="DrawLayerMap"/>, canonical-serializes it (<see cref="CanonicalJson"/>), and
+/// writes it <b>into the project source tree</b> via <see cref="IPlatformServices.WriteAllText"/>
+/// (a desktop file write that git sees immediately — see <see cref="Save"/>).
+///
+/// <para><b>Where it writes (PS3).</b> The editor resolves the versioned project root
+/// (<c>EditorProjectContext</c>) and hands this writer the absolute destination
+/// <c>ProjectRoot/LevelsDir/&lt;sceneId&gt;.mdscene</c>. This replaces the pre-PS3 path that exported
+/// to the ephemeral build-output dir (<c>BaseDirectory</c>) through
+/// <see cref="IPlatformServices.ExportScene"/> — that seam is now reserved for the (deferred) web
+/// out-of-band download and is no longer the editor's scene-save path, so no scene lands in
+/// <c>bin/…</c> on desktop. The <b>shipped game</b> reads bundled scenes read-only via
+/// <c>TitleContainer</c> (console-portable, PS4); only the desktop editor writes.</para>
 ///
 /// <para>Only tagged roots and their child closure are written: transient cursor / UI / HUD /
 /// gizmo / overlay entities are untagged and excluded, and Blender-origin entities are untagged in
@@ -28,6 +39,10 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// </summary>
 public sealed class SceneWriter(SceneSerializer serializer)
 {
+    /// <summary>The native scene file extension. A scene id <c>"island"</c> writes to
+    /// <c>&lt;LevelsPath&gt;/island.mdscene</c>.</summary>
+    public const string SceneFileExtension = ".mdscene";
+
     /// <summary>
     /// Builds the <see cref="SceneData"/> for the current contents of <paramref name="world"/>:
     /// the membership closure of every <see cref="SceneObjectComponent"/> root — <b>ordered by each
@@ -67,18 +82,41 @@ public sealed class SceneWriter(SceneSerializer serializer)
     }
 
     /// <summary>
-    /// Serializes the current scene to JSON and exports it through <see cref="IPlatformServices.ExportScene"/>.
-    /// Returns the host-meaningful locator the platform reported (a file path on desktop), or
-    /// <c>null</c> when delivered out-of-band (e.g. a browser download / console echo on web).
+    /// Serializes the current scene to canonical JSON and <b>writes it to <paramref name="filePath"/>
+    /// in the project source tree</b> via <see cref="IPlatformServices.WriteAllText"/> (a desktop file
+    /// write git sees), creating the containing directory if it is missing. Returns the path written,
+    /// or <c>null</c> if it refused.
+    ///
+    /// <para><b>Defense-in-depth guard.</b> A null / empty <paramref name="filePath"/> — the shape the
+    /// caller produces when the project root is unresolved (<c>EditorProjectContext.LevelsPath</c> is
+    /// null) — is <b>refused loudly with no write</b>. The overlay's save-guard
+    /// (<c>EditorOverlay.SaveBlock</c> → <c>NoProjectRoot</c>) already blocks the dispatch before it
+    /// reaches here; this second guard ensures the writer never writes to nowhere on any path.</para>
     /// </summary>
-    public string? Save(World world, string suggestedFileName, Camera? camera = null, DrawLayerMap? layers = null)
+    /// <param name="filePath">Absolute destination, e.g.
+    /// <c>ProjectRoot/LevelsDir/&lt;sceneId&gt;.mdscene</c>. The overlay combines
+    /// <c>EditorProjectContext.LevelsPath</c> with the scene id + <see cref="SceneFileExtension"/>.</param>
+    public string? Save(World world, string? filePath, Camera? camera = null, DrawLayerMap? layers = null)
     {
+        if (string.IsNullOrEmpty(filePath))
+        {
+            Logger.Warning(
+                "[level-editor] Save refused: no destination path (the project root is unresolved, so " +
+                "there is nowhere versioned to write). This should have been blocked upstream by the " +
+                "save-guard; set MONODREAMS_PROJECT_ROOT in the run configuration.");
+            return null;
+        }
+
         var scene = BuildScene(world, camera, layers);
         var json = CanonicalJson.Serialize(scene);
-        var locator = PlatformServices.Current.ExportScene(suggestedFileName, json);
-        Logger.Info($"[level-editor] Saved scene '{suggestedFileName}' " +
-                    $"({scene.Entities.Count} entities) to {(locator ?? "out-of-band (web)")}.");
-        return locator;
+
+        var directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+            PlatformServices.Current.CreateDirectory(directory);
+        PlatformServices.Current.WriteAllText(filePath!, json);
+
+        Logger.Info($"[level-editor] Saved scene ({scene.Entities.Count} entities) to '{filePath}'.");
+        return filePath;
     }
 
     /// <summary>
