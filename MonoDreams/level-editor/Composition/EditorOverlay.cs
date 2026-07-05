@@ -76,6 +76,7 @@ public sealed class EditorOverlay
     private readonly Camera _camera;
     private readonly DrawLayerMap _layers;
     private readonly string _sceneFileName;
+    private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
 
     /// <summary>
@@ -97,6 +98,11 @@ public sealed class EditorOverlay
     /// bottom strip: the catalog lists the drop-folder art, the bands map the palette's layer
     /// selector onto the SCREEN's <c>DrawLayerMap</c> depths. Omit both on screens without
     /// authoring (menus, demos) — the strip just stays empty.
+    /// <paramref name="projectContext"/> (host-resolved, desktop-only — see
+    /// <see cref="EditorProjectContext"/>) anchors the versioned project: PS2 uses it only to gate
+    /// Save (the "no project root" cause — <see cref="SaveBlock"/>); null (a shipped build, or a host
+    /// with no project such as the demos) leaves Save disabled with that cause. The head supplies it
+    /// so the module stays game-agnostic.
     /// </summary>
     public EditorOverlay(
         World world,
@@ -115,13 +121,15 @@ public sealed class EditorOverlay
         string sceneFileName = DefaultSceneFileName,
         AssetCatalog? assetCatalog = null,
         IReadOnlyList<PaletteBand>? paletteBands = null,
-        IReadOnlyList<TriggerType>? triggerTypes = null)
+        IReadOnlyList<TriggerType>? triggerTypes = null,
+        EditorProjectContext? projectContext = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _layers = layers ?? throw new ArgumentNullException(nameof(layers));
         if (input == null) throw new ArgumentNullException(nameof(input));
         _sceneFileName = sceneFileName;
+        _projectContext = projectContext;
 
         // The shared editor infrastructure. The registry ships the engine serializers; a game
         // registers its own game-component serializers via the exposed Registry.
@@ -204,7 +212,12 @@ public sealed class EditorOverlay
         // named children of an `editor.toolbar` registrar group — every system stays visible and
         // individually toggleable in the systems panel.
         ToolbarMeshPrep = new ButtonMeshPrepSystem(world);
-        ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction);
+        // The Save button additionally dims (and its click is suppressed) while the project is
+        // unresolved, even when Paused — the "no project root" save-guard cause. The "Playing"
+        // cause is already covered by the toolbar's transport rule.
+        ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction,
+            (action, state) => action == EditorToolbarAction.Save
+                               && SaveBlock(state, _projectContext) == SaveBlockReason.NoProjectRoot);
         // The systems panel (Wave 8a) binds lazily to the pipelines the screen hands over via
         // BindPipelines — they don't exist yet while the overlay itself is being constructed.
         SystemsPanel = new SystemsPanelSystem(world, viewportManager, toolbarFont,
@@ -249,6 +262,11 @@ public sealed class EditorOverlay
 
     /// <summary>The shared gizmo-state entity (tool / snap config).</summary>
     public Entity GizmoState => _gizmoState;
+
+    /// <summary>The resolved project context (desktop-only, host-supplied), or null when none was
+    /// supplied. PS2 uses it only to gate Save; PS3 will read <see cref="EditorProjectContext.LevelsPath"/>
+    /// to repoint the write into the source tree.</summary>
+    public EditorProjectContext? ProjectContext => _projectContext;
 
     /// <summary>The editor transport — the one owner of <see cref="GameState.RunMode"/> under the
     /// editor run configuration (Paused = Edit, Playing = Play, Restart = rebuild from the original
@@ -424,9 +442,10 @@ public sealed class EditorOverlay
     /// the single <see cref="GizmoState"/> entity (a tool-select also disarms the palette — the
     /// tool buttons are a radio over <see cref="EditorToolMode"/>); Save writes through
     /// <see cref="SceneWriter"/> with the live camera + layers — <b>blocked, loudly, while the
-    /// transport is Playing</b> (<see cref="IsSaveBlocked"/>: saving mid-simulation would bake
-    /// transient run state, e.g. a mid-air player, into the scene; the toolbar renders the button
-    /// dimmed there and this guard closes the headless/dispatch path too); Load publishes a
+    /// transport is Playing OR when no project root is resolved</b> (<see cref="SaveBlock"/>: saving
+    /// mid-simulation would bake transient run state, e.g. a mid-air player, into the scene, and with
+    /// no project root there is nowhere versioned to write; the toolbar renders the button dimmed for
+    /// either cause and this guard closes the headless/dispatch path too); Load publishes a
     /// <see cref="LoadSceneRequest"/> handled by the woven <see cref="SceneReader"/>; Undo/Redo
     /// drive <see cref="History"/>. Public so the headless channel and tests dispatch the same way.
     /// </summary>
@@ -441,12 +460,19 @@ public sealed class EditorOverlay
             case EditorToolbarAction.ToolScale: SetGizmoTool(GizmoTool.Scale); break;
             case EditorToolbarAction.ToggleSnap: ToggleGizmoSnap(); break;
             case EditorToolbarAction.Save:
-                if (IsSaveBlocked(state))
+                switch (SaveBlock(state, _projectContext))
                 {
-                    Logger.Warning(
-                        "[level-editor] Save is blocked while the transport is Playing — saving " +
-                        "mid-simulation would bake transient run state into the scene. Pause first.");
-                    break;
+                    case SaveBlockReason.Playing:
+                        Logger.Warning(
+                            "[level-editor] Save is blocked while the transport is Playing — saving " +
+                            "mid-simulation would bake transient run state into the scene. Pause first.");
+                        return;
+                    case SaveBlockReason.NoProjectRoot:
+                        Logger.Warning(
+                            "[level-editor] Save is blocked: no project root resolved (no " +
+                            $"{GameProject.FileName} found). Set {EditorProjectContext.ProjectRootVariable} " +
+                            "in the run configuration, or run from a build output inside the project source tree.");
+                        return;
                 }
                 new SceneWriter(Serializer).Save(_world, _sceneFileName, _camera, _layers);
                 break;
@@ -484,9 +510,22 @@ public sealed class EditorOverlay
         _boundaryTool.BeginBoundary();
     }
 
-    /// <summary>The authoring-vs-runtime save guard: Save dispatches only while the transport is
-    /// Paused (<see cref="RunMode.Edit"/>). Pure — named by the save-guard premise and its test.</summary>
-    public static bool IsSaveBlocked(GameState state) => state.RunMode == RunMode.Play;
+    /// <summary>
+    /// The save guard's distinguishable reasons: Save dispatches only while the transport is Paused
+    /// (<see cref="RunMode.Edit"/>) AND the project root is resolved. Pure — named by the save-guard
+    /// premise and its test. The two causes are reported separately so the toolbar/log can tell the
+    /// user WHY Save is off. <see cref="SaveBlockReason.Playing"/> takes precedence (checked first).
+    /// </summary>
+    public static SaveBlockReason SaveBlock(GameState state, EditorProjectContext? projectContext)
+    {
+        if (state.RunMode == RunMode.Play) return SaveBlockReason.Playing;
+        if (projectContext is not { Resolved: true }) return SaveBlockReason.NoProjectRoot;
+        return SaveBlockReason.None;
+    }
+
+    /// <summary>Whether Save is blocked for any reason (see <see cref="SaveBlock"/>).</summary>
+    public static bool IsSaveBlocked(GameState state, EditorProjectContext? projectContext) =>
+        SaveBlock(state, projectContext) != SaveBlockReason.None;
 
     /// <summary>
     /// The STRING-action dispatch the headless channel routes <c>ToolbarAction</c> ops through:
@@ -632,4 +671,18 @@ public sealed class EditorOverlay
         ref var state = ref _gizmoState.Get<GizmoStateComponent>();
         state.SnapEnabled = !state.SnapEnabled;
     }
+}
+
+/// <summary>Why the editor's Save is disabled — reported by <see cref="EditorOverlay.SaveBlock"/> so
+/// the toolbar can dim the right button and the log can name the cause.</summary>
+public enum SaveBlockReason
+{
+    /// <summary>Save is allowed (Paused + a resolved project root).</summary>
+    None,
+    /// <summary>Blocked because the transport is Playing — a mid-simulation save would bake transient
+    /// run state into the scene.</summary>
+    Playing,
+    /// <summary>Blocked because no project root resolved (shipped build / relocated output / console /
+    /// no <c>game.mdproj</c>) — there is nowhere versioned to write.</summary>
+    NoProjectRoot,
 }

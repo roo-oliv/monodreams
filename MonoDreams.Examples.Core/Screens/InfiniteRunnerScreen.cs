@@ -69,13 +69,14 @@ public class InfiniteRunnerScreen : IGameScreen
     // Wave 8a: the universal editor overlay (null when editorEnabled is false) and the retained
     // pipeline registries the systems panel binds to.
     private readonly bool _editorEnabled;
+    private readonly EditorProjectContext? _projectContext;
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
     private EditorOverlay _editor;
 
     public InfiniteRunnerScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
-        bool editorEnabled = false)
+        bool editorEnabled = false, EditorProjectContext? projectContext = null)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -85,6 +86,7 @@ public class InfiniteRunnerScreen : IGameScreen
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -326,7 +328,8 @@ public class InfiniteRunnerScreen : IGameScreen
                 debugDir,
                 requestExit: _game.Exit,
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
-                provideCursorPipeline: true);
+                provideCursorPipeline: true,
+                projectContext: _projectContext);
             // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
             if (_editor.HasEditorOpPlan) _editor.CursorInput.SkipHardwareRead = true;
         }

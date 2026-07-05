@@ -47,15 +47,25 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
 {
     private readonly EntitySet _cursorSet;
     private readonly Action<EditorToolbarAction, GameState> _dispatch;
+    private readonly Func<EditorToolbarAction, GameState, bool>? _isEditingActionBlocked;
 
     private bool _cursorPresent;
     private Vector2 _cursorPoint;
     private bool _clicked;
 
-    public ToolbarSystem(World world, Action<EditorToolbarAction, GameState> dispatch)
+    /// <param name="world">The screen's world (the toolbar buttons + cursor live here).</param>
+    /// <param name="dispatch">Fires a clicked button's action + the frame's state.</param>
+    /// <param name="isEditingActionBlocked">Optional extra gate for an EDITING button beyond the
+    /// transport rule: when it returns <c>true</c> the button renders with the disabled fill and its
+    /// click is suppressed even while Paused. The overlay wires it to the save-guard's "no project
+    /// root" cause so Save dims while the project is unresolved (the "Playing" cause is already
+    /// covered by the transport rule). Null (the default) preserves the pre-PS2 behaviour.</param>
+    public ToolbarSystem(World world, Action<EditorToolbarAction, GameState> dispatch,
+        Func<EditorToolbarAction, GameState, bool>? isEditingActionBlocked = null)
         : base(world.GetEntities().With<ToolbarButtonComponent>().With<TransformComponent>().AsSet())
     {
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
+        _isEditingActionBlocked = isEditingActionBlocked;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
@@ -82,8 +92,10 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
         if (button.Action == EditorToolbarAction.PlayPause)
             SyncPlayPauseLabel(entity, state);
 
-        // Transport buttons are live in both modes; editing buttons only while Paused (Edit).
-        var active = state.RunMode == RunMode.Edit || button.Action.IsTransport();
+        // Transport buttons are live in both modes; editing buttons only while Paused (Edit) — and
+        // an editing button may be additionally gated (e.g. Save while the project is unresolved).
+        var active = (state.RunMode == RunMode.Edit || button.Action.IsTransport())
+                     && !(_isEditingActionBlocked?.Invoke(button.Action, state) ?? false);
 
         var over = _cursorPresent && active && button.Bounds.Contains(_cursorPoint);
         button.IsHovered = over;

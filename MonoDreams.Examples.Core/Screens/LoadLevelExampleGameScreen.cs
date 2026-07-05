@@ -87,13 +87,14 @@ public class LoadLevelExampleGameScreen : IGameScreen
     // Wave 6: the editor overlay (null when editorEnabled is false) and the retained pipeline
     // registries the systems panel binds to.
     private readonly bool _editorEnabled;
+    private readonly EditorProjectContext? _projectContext;
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
     private EditorOverlay _editor;
 
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
-        bool editorEnabled = false)
+        bool editorEnabled = false, EditorProjectContext? projectContext = null)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -103,6 +104,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
@@ -261,7 +263,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
                 assetCatalog: assetCatalog,
                 paletteBands: paletteBands,
-                triggerTypes: triggerTypes);
+                triggerTypes: triggerTypes,
+                projectContext: _projectContext);
         }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);

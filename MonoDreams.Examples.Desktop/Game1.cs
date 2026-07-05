@@ -161,13 +161,19 @@ public class Game1 : Game
         }
 #endif
 
+        // Resolve the versioned project (desktop-only, PS2): the env var MONODREAMS_PROJECT_ROOT or a
+        // walk-up to game.mdproj. Handed to every screen's overlay so Save is gated on a resolved root
+        // (unresolved ⇒ Save disabled with the "no project root" reason). Resolved once here — where
+        // the editor flag is parsed — so the module stays game-agnostic. Null off the flag.
+        var projectContext = _editor ? EditorProjectContext.Resolve() : null;
+
         // Under the editor run flag EVERY screen composes the editor overlay (Wave 8a: the editor
         // is screen-agnostic — the menu and the runner are scenes like any level). The runner has
         // no cursor pipeline of its own, so its overlay brings one (provideCursorPipeline inside
         // the screen). The run flag is the ONLY way into the editor (transport model).
-        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
-        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
-        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor));
+        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
+        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
+        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
 
         if (_editor)
         {
