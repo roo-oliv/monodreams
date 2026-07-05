@@ -302,8 +302,23 @@ independently. The Blender parser filters by the `Blender_` prefix and
 handles the load when matched; `LevelLoadRequestSystem` unconditionally
 attempts the LDtk path, fails for Blender-prefixed names, and removes
 `CurrentLevelComponent` to clean up. **This dual-subscribe dispatch by
-name prefix is a quick hack** (§10); a content-driven dispatch (a format
-field in the level data) is the eventual replacement.
+name prefix is a quick hack** (§10); a content-driven dispatch is the
+eventual replacement — **now underway.**
+
+**Native-first load (the content-driven unification, PS4).**
+`LevelLoadRequestSystem` is now a native-first dispatcher: before the LDtk
+attempt it probes for a bundled native scene `Content/Levels/<id>.mdscene`
+via `TitleContainer` (the console-portable read, exactly like
+`blender_level.json`) and, on a hit, loads it through the generalized
+`SceneReaderSystem` (the same native reader the editor's `LoadSceneRequest`
+uses — reconstructing entities from serialized components, not factories)
+and short-circuits, so the LDtk `Content.Load` / `CurrentLevelComponent`
+removal never runs. Native `.mdscene` is becoming the game's real level
+format: it is versioned in `Content/Levels/`, MGCB-`/copy:`-bundled, and
+read read-only via `TitleContainer` on every platform (only the desktop
+editor writes, PS3). During migration (PS4) LDtk + Blender remain the
+fallback when no native file exists; **PS5 removes both boot loaders once
+the Examples levels are migrated, closing the parser-asymmetry (§10).**
 
 ## 7. The reference pipeline
 
@@ -548,8 +563,12 @@ code".
   Open question: would moving it complicate the bulk add/remove
   pattern `CullingSystem` uses today?
 - **`Blender_` identifier prefix** (§6). Dispatch by name prefix is a
-  hack; a content-driven dispatch (format field in level data) is the
-  eventual replacement.
+  hack; a content-driven dispatch is the eventual replacement. **Being
+  resolved:** the native-first dispatcher (PS4) probes a native
+  `.mdscene` before either legacy parser and short-circuits — a single
+  dispatcher deciding native-vs-LDtk. PS5 removes the LDtk + Blender boot
+  loaders once the Examples levels are migrated to native scenes, fully
+  closing this item.
 - **`EntitySpawnSystem` silent-drops unregistered factories** (§6).
   Intended behaviour is to throw.
 - **`Transform.Delta` consistency not enforced** (§3). No API today

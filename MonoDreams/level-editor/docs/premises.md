@@ -1102,6 +1102,42 @@ fail-safe" (`LevelsPath` + `StartScene`); "Scene serialization is canonical and 
 bytes written); "Save is blocked while Playing or when no project root is resolved" (the upstream
 gate); foundation — `IPlatformServices` (`WriteAllText` / `CreateDirectory` / `ReadAllText`).
 
+## The game boots native scenes native-first via `LoadLevelRequest`
+
+A saved `.mdscene` is loadable as the game's **real level** (PS4): `LoadLevelRequest(id)` resolves
+**native-first**. `NativeLevelLoader.CreateProbe` builds the `Func<string,bool>` handed to
+`LevelLoadRequestSystem`; per request it probes the bundled `Content/Levels/<id>.mdscene` via
+`TitleContainer` and, on a hit, publishes a `LoadSceneRequest(rel, fromContent:true)` (returning `true`)
+so the **same** `SceneReaderSystem` that serves the editor's Load also serves the game boot — the reader
+is thus generalized off the editor-only `LoadSceneRequest`. It runs in **both run modes** and **with no
+editor composed**: `LoadLevelExampleGameScreen` reuses the overlay's reader when the editor is present,
+else builds a standalone one (engine serializers only), so a shipped game boots native scenes too. When
+no `.mdscene` exists for the id the probe returns `false` and the legacy LDtk/Blender path runs unchanged
+(migration coexistence — removed in PS5). The bundled `game.mdproj` (read at boot via
+`ManifestBoot.TryReadManifest` over `TitleContainer`) drives the entry: `ManifestBoot.ResolveStartScene`
+returns the manifest's `startScene` **only** when a native scene exists for it, else `null` so the host
+keeps its default boot (a not-yet-migrated `startScene` — the Examples `island` placeholder — stays
+back-compat until PS5 lands its `.mdscene`).
+
+**Why:** native `.mdscene` is the game's real level format; the shipped game must boot it read-only on
+every platform (`TitleContainer`, console-portable), and the load entry must be unified so a native load
+is not clobbered by the LDtk remove-on-miss — this is what closes the CORE_TENETS §6 parser-asymmetry
+(fully in PS5). The manifest-boot guard (native-exists) keeps a placeholder `startScene` from breaking
+the default boot before its level is committed.
+**Breaks:** if the native reader were only composed behind the editor, a shipped game could never boot a
+`.mdscene`; if `ResolveStartScene` returned `startScene` unconditionally, a manifest naming a
+not-yet-committed level would send the game into a failing LDtk load instead of its menu.
+**Tests:** `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`
+(`NativeFirst_LoadsScene_ViaTheNativeReader_WithNoEditorComposed`,
+`NoNativeScene_ProbeReturnsFalse_AndPublishesNothing`, `CommittedSampleScene_MatchesTheCanonicalShape`,
+`CommittedSampleScene_LoadsBackViaTheNativeReader`), `MonoDreams.Tests/LevelEditor/ManifestBootTests.cs`,
+`MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the real headless game boots the committed
+sample).
+**Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-first, then
+falls back to LDtk"; "Native `.mdscene` levels are bundled by an MGCB `/copy:` glob and read via
+`TitleContainer`"; this file — "Scene round-trip reconstructs from registered components, not factories";
+"The project manifest anchors the editor's project root; unresolved is fail-safe".
+
 ## Within-band ordering nudges SOURCE sort fields and never breaks the band
 
 The Bring forward / Send back actions (toolbar buttons `Fwd`/`Back`, headless

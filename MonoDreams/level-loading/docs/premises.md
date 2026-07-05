@@ -30,6 +30,65 @@ and
 exercise the happy path end-to-end.
 **Depends on:** "Parsers are component-driven, not message-driven".
 
+## `LevelLoadRequestSystem` resolves `LoadLevelRequest` native-first, then falls back to LDtk
+
+`LevelLoadRequestSystem` is the load dispatcher on `LoadLevelRequest`. When a
+native-scene loader is composed (the optional `tryLoadNativeScene`
+`Func<string,bool>` — built by `NativeLevelLoader.CreateProbe` in the
+`level-editor` module), it is called FIRST for every request: it probes for a
+bundled `Content/Levels/<id>.mdscene` via `TitleContainer` (the console-portable
+read) and, on a hit, loads it through the native reader (`SceneReaderSystem`,
+generalized off the editor-only `LoadSceneRequest`) and returns `true` — at which
+point `LevelLoadRequestSystem` **returns immediately**, never running the LDtk
+`Content.Load<LDtkLevel>` and never removing `CurrentLevelComponent`. Only when no
+native loader is composed, or the probe finds no `.mdscene`, does the legacy LDtk
+path run (unchanged). The delegate is a plain `Func<string,bool>` so `level-loading`
+never depends upward on `level-editor`; the native reader must run in BOTH run modes
+and in a plain game with no editor composed (a shipped game boots native scenes too).
+
+**Why:** native `.mdscene` is becoming the game's real level format (the shipped
+game reads bundled scenes via `TitleContainer`, exactly like `blender_level.json`).
+Probing native BEFORE the LDtk attempt is what keeps a native load from being
+clobbered by the LDtk path's remove-on-miss; it also unifies the load entry, which
+is what closes the LDtk-vs-Blender parser-asymmetry (see the `Blender_` premise).
+**Breaks:** if the probe ran AFTER the LDtk attempt, or the LDtk path did not
+short-circuit on a native hit, a native load would be followed by
+`Remove<CurrentLevelComponent>()` and the scene would flicker/clear. If the delegate
+imported a `level-editor` type into `level-loading`, the module layering inverts.
+**Tests:**
+`MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs::NativeSceneBootsViaLoadLevelRequest_AndBundlingIsTitleContainerReadable`
+(the real headless game boots the committed `Levels/sample.mdscene` native-first),
+`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs` (native-first resolution +
+editor-free reader + no-native-file fallback, in-process).
+**Depends on:** level-editor — "The game boots native scenes native-first via
+LoadLevelRequest".
+
+## Native `.mdscene` levels are bundled by an MGCB `/copy:` glob and read via `TitleContainer`
+
+Native scene files live in the source content tree at `Content/Levels/<id>.mdscene`
+(versioned in git). They are bundled to the title content by an MGCB `/copy:` entry
+(the same raw-copy mechanism as `blender_level.json` / `game.mdproj`), authored in
+`Content.npl` as a `Levels/*.mdscene` copy group and materialized in `Content.mgcb`;
+on build each file lands at `<ContentRoot>/Levels/<id>.mdscene` (verified: desktop
+`bin/…/Content/Levels/`; web `wwwroot/Content/Levels/`). The shipped game reads them
+read-only through `TitleContainer.OpenStream(Path.Combine(ContentRoot, "Levels",
+id + ".mdscene"))` — console-portable, never `System.IO.File`. Only the desktop
+editor writes scenes (file IO into the source tree, PS3).
+
+**Why:** `TitleContainer` over `/copy:`-bundled data is the one read path that works
+on DesktopGL, KNI/web, AND consoles (Switch/PS/Xbox sandbox arbitrary file IO). A
+scene is data (JSON parsed at load), so `/copy:` (raw) is correct — no MGCB processor
+needed; the assets a scene references still go through the real content pipeline.
+**Breaks:** reading a scene via `System.IO.File` breaks on console/web; a scene file
+placed outside the bundled content root (or not `/copy:`-listed) is invisible to
+`TitleContainer` at runtime and the level fails to boot.
+**Tests:**
+`MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the boot fails unless the
+sample is bundled where `TitleContainer` finds it),
+`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::CommittedSampleScene_MatchesTheCanonicalShape`
+(the committed sample stays byte-locked to the canonical serializer).
+**Depends on:** —
+
 ## `CurrentLevelComponent` is a world-scoped singleton
 
 Exactly one `CurrentLevelComponent` exists in the world at a time.
@@ -78,12 +137,17 @@ an LDtk level, which fails for Blender names and produces a logged
 error plus an explicit `world.Remove<CurrentLevelComponent>()`. So the
 practical effect is: Blender prefix → Blender parser handles the load
 and the LDtk path no-ops out; any other prefix → LDtk path handles the
-load. *Status: refactor candidate — this is a quick hack.*
+load. *Status: being resolved — the native-first dispatcher (see
+"`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-first") is the
+content-driven unification landing; PS4 adds native-first ahead of both LDtk and
+Blender as migration coexistence, and PS5 removes the LDtk + Blender boot loaders
+once the Examples levels are migrated, closing this hack.*
 
 **Why:** the dispatch landed as a quick path for the Blender export
-plugin. The intended replacement is content-driven dispatch (a format
-field inside the level data, or explicit per-format registration on the
-loader).
+plugin. The intended replacement — now underway — is the native-first path: a level
+id resolves to a native `.mdscene` before either legacy parser runs, so a single
+dispatcher decides native-vs-LDtk and Blender becomes import-only (PS5). A native id
+never starts with `Blender_`, so the two coexist without conflict during migration.
 **Breaks:** a developer naming an LDtk level with a `Blender_` prefix
 sends it to the wrong parser. Renaming files becomes a load-time
 contract. The dual-subscriber design also means the LDtk path always

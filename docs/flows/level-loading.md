@@ -31,6 +31,21 @@ load: a `Blender_`-prefixed identifier is handled by the Blender parser while
 `CurrentLevelComponent` to clean up; any other prefix is handled by the LDtk path and
 the Blender parser early-returns.
 
+**Native-first (PS4) — the unification.** `LevelLoadRequestSystem` is now a native-first
+dispatcher: before the LDtk attempt it calls an optional `tryLoadNativeScene`
+`Func<string,bool>` (built by `NativeLevelLoader.CreateProbe`, level-editor). That delegate
+probes for a bundled `Content/Levels/<id>.mdscene` via `TitleContainer` and, on a hit, loads
+it through `SceneReaderSystem` (generalized off the editor-only `LoadSceneRequest`, so the
+same reader serves the game boot — in both run modes, and with no editor composed) and returns
+`true`; the dispatcher then returns immediately, **skipping the LDtk `Content.Load` and the
+`CurrentLevelComponent` removal** so a native load is never clobbered. Only when no native file
+exists does the legacy LDtk/Blender path run, unchanged. This is the content-driven dispatch the
+`Blender_`-prefix hack always wanted: a single dispatcher decides native-vs-LDtk, native-first;
+PS4 keeps LDtk + Blender as migration fallback, PS5 removes them and closes the asymmetry. The
+delegate is a plain `Func<string,bool>` so `level-loading` never depends upward on `level-editor`;
+the manifest's `startScene` (read at boot from the bundled `game.mdproj` via `TitleContainer`)
+drives the entry when its native scene exists.
+
 ## Entities & lifecycle
 
 - **`CurrentLevelComponent`** — a world-scoped singleton (`world.Set`/`world.Get`), the
@@ -65,6 +80,10 @@ the ones this flow's ordering and dispatch lean on:
   unchecked at compile time.
 - An unregistered factory identifier logs a `Logger.Warning` and **silently drops** the
   spawn (refactor candidate — intended behavior is to throw).
+- Native-first: `LevelLoadRequestSystem` probes a bundled `Content/Levels/<id>.mdscene`
+  (`TitleContainer`) **before** the LDtk attempt and short-circuits on a hit, so a native
+  load is never followed by the LDtk remove-on-miss. Native scenes are `/copy:`-bundled and
+  read via `TitleContainer` (console-portable); only the desktop editor writes them.
 
 ## Load-bearing quantities
 
