@@ -11,28 +11,27 @@ using MonoDreams.State;
 namespace MonoDreams.System.Level;
 
 /// <summary>
-/// The <b>native-first level-load dispatcher</b> on <c>LoadLevelRequest</c>. It decides, per request,
-/// whether a level id resolves to a <b>native MonoDreams scene</b> (a bundled <c>.mdscene</c>) or the
-/// legacy <b>LDtk</b> content path, and — when native — short-circuits before the LDtk attempt so the
-/// two paths never collide.
+/// The <b>native-first level-load dispatcher</b> on <c>LoadLevelRequest</c>. For the shipped game it is
+/// <b>native-only</b> (PS5): a level id resolves to a bundled native MonoDreams scene
+/// (<c>Content/Levels/&lt;id&gt;.mdscene</c>) loaded through the native reader, and there is <b>no</b>
+/// legacy LDtk/Blender boot loader — those parsers are now import-only machinery (they run once, via the
+/// import op, to produce a <c>.mdscene</c>), never wired to live game boot. This closes the CORE_TENETS
+/// §6/§10 parser-asymmetry: one content-driven load path.
 ///
-/// <para><b>Native-first (PS4).</b> When a native-scene loader is composed (the optional
-/// <c>tryLoadNativeScene</c> delegate — built by <c>NativeLevelLoader.CreateProbe</c> in the
+/// <para><b>Native (PS4).</b> Each <see cref="LoadLevelRequest"/> is probed for
+/// <c>Content/Levels/&lt;id&gt;.mdscene</c> via <c>TitleContainer</c> (the console-portable read) by the
+/// optional <c>tryLoadNativeScene</c> delegate — built by <c>NativeLevelLoader.CreateProbe</c> in the
 /// <c>level-editor</c> module, kept as a plain <see cref="Func{T,TResult}"/> here so <c>level-loading</c>
-/// never depends upward on <c>level-editor</c>), each <see cref="LoadLevelRequest"/> is first probed for
-/// <c>Content/Levels/&lt;id&gt;.mdscene</c> via <c>TitleContainer</c> (the console-portable read). If the
-/// native scene exists, the delegate loads it (through the native reader) and returns <c>true</c>; this
-/// system then <b>returns immediately</b> — it never runs the LDtk <c>Content.Load</c> and never removes
-/// <see cref="CurrentLevelComponent"/>, so a native load is not clobbered by a failed LDtk attempt.</para>
+/// never depends upward on <c>level-editor</c>. On a hit the delegate loads the scene through the native
+/// reader and returns <c>true</c>; this system then returns. A truly-unknown id (no native scene) <b>fails
+/// loud</b> — no silent LDtk attempt.</para>
 ///
-/// <para><b>Fallback (migration coexistence — banked decision 4).</b> When no native loader is composed,
-/// or the probe finds no <c>.mdscene</c> for the id, the behaviour below is <b>unchanged</b>: load the
-/// LDtk level and set the <see cref="CurrentLevelComponent"/> singleton (which drives the LDtk tile +
-/// entity parsers). The <c>Blender_</c>-prefixed path stays its own orthogonal subscriber
-/// (<c>BlenderLevelParserSystem</c>); a native id never starts with <c>Blender_</c>, so the two do not
-/// conflict. This dual fallback (LDtk + Blender) is removed in PS5 once the Examples levels are migrated
-/// to native scenes; native-first is then the sole load path and the CORE_TENETS §6 parser-asymmetry
-/// backlog closes.</para>
+/// <para><b>Legacy fallback = import-only opt-in.</b> The old LDtk <c>Content.Load</c> path survives
+/// <b>only</b> when a caller explicitly opts in via <c>enableLegacyLdtkFallback</c> (the import op's
+/// dedicated composition, which re-parses a legacy level so the importer can capture and serialize it).
+/// The normal game/editor boot passes <c>false</c>, so the shipped game never touches the LDtk content.
+/// The <c>Blender_</c>-prefixed <c>BlenderLevelParserSystem</c> is likewise composed only in that import
+/// composition — never at live game boot.</para>
 /// </summary>
 public sealed class LevelLoadRequestSystem : ISystem<GameState>
 {
@@ -40,23 +39,31 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
     private readonly ContentManager _content;
     private readonly LDtkWorld _ldtkWorld;
     private readonly Func<string, bool>? _tryLoadNativeScene;
+    private readonly bool _enableLegacyLdtkFallback;
 
     /// <summary>
     /// The native-first level-load dispatcher on <c>LoadLevelRequest</c> (see the type doc).
     /// </summary>
     /// <param name="tryLoadNativeScene">
     /// Optional native-first hook: given a level id, returns <c>true</c> if a native <c>.mdscene</c>
-    /// existed and was loaded (in which case the LDtk path is skipped), or <c>false</c> to fall through
-    /// to the LDtk path. Build it with <c>NativeLevelLoader.CreateProbe</c> (level-editor). When
-    /// <c>null</c> (a game with no native support composed), behaviour is the legacy LDtk path.
+    /// existed and was loaded (in which case nothing else runs), or <c>false</c> otherwise. Build it
+    /// with <c>NativeLevelLoader.CreateProbe</c> (level-editor).
+    /// </param>
+    /// <param name="enableLegacyLdtkFallback">
+    /// When <c>true</c>, a request with no native scene falls back to the legacy LDtk content load (the
+    /// <b>import-only</b> path — used solely by the import op to re-parse a legacy level). Defaults to
+    /// <c>false</c>: the shipped game/editor boot is native-only and an unknown id fails loud.
     /// </param>
     public LevelLoadRequestSystem(World world, ContentManager content,
-        Func<string, bool>? tryLoadNativeScene = null)
+        Func<string, bool>? tryLoadNativeScene = null, bool enableLegacyLdtkFallback = false)
     {
         _world = world;
         _content = content;
         _tryLoadNativeScene = tryLoadNativeScene;
-        _ldtkWorld = _content.Load<LDtkFile>("World").LoadSingleWorld();
+        _enableLegacyLdtkFallback = enableLegacyLdtkFallback;
+        // Load the LDtk world only for the import-only path; the native-only game boot never touches it.
+        if (_enableLegacyLdtkFallback)
+            _ldtkWorld = _content.Load<LDtkFile>("World").LoadSingleWorld();
         _world.Subscribe<LoadLevelRequest>(On);
     }
 
@@ -71,11 +78,21 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
         Logger.Info($"Received request to activate level '{levelIdentifier}'.");
 
         // Native-first: if a bundled Content/Levels/<id>.mdscene exists, the native reader loads it and
-        // we skip the LDtk path entirely (no Content.Load, no CurrentLevelComponent removal). This is
-        // the unified load entry (PS4) — probe native BEFORE the LDtk attempt below.
+        // we return. This is the unified load entry (PS4/PS5).
         if (_tryLoadNativeScene != null && _tryLoadNativeScene(levelIdentifier))
         {
-            Logger.Info($"Level '{levelIdentifier}' resolved to a native .mdscene; loaded via the native reader (LDtk path skipped).");
+            Logger.Info($"Level '{levelIdentifier}' resolved to a native .mdscene; loaded via the native reader.");
+            return;
+        }
+
+        // Native-only game boot (PS5): no native scene ⇒ fail loud. The LDtk/Blender loaders are
+        // import-only and not wired here, so there is no silent legacy attempt.
+        if (!_enableLegacyLdtkFallback)
+        {
+            Logger.Error(
+                $"No native scene 'Content/Levels/{levelIdentifier}.mdscene' found for level " +
+                $"'{levelIdentifier}', and the legacy LDtk/Blender loaders are import-only (not wired to " +
+                "game boot). The level was not loaded. Migrate it to a native .mdscene (the import op).");
             return;
         }
 

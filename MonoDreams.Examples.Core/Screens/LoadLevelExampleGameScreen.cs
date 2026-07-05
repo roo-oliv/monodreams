@@ -91,6 +91,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
     // Wave 6: the editor overlay (null when editorEnabled is false) and the retained pipeline
     // registries the systems panel binds to.
     private readonly bool _editorEnabled;
+    private readonly bool _importMode;
     private readonly EditorProjectContext? _projectContext;
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
@@ -98,7 +99,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
-        bool editorEnabled = false, EditorProjectContext? projectContext = null)
+        bool editorEnabled = false, EditorProjectContext? projectContext = null, bool importMode = false)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -108,6 +109,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
+        _importMode = importMode;
         _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
@@ -305,7 +307,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
             inputKind = PipelineCompositeKind.Sequential;
         }
 
-        var blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
+        // Import machinery (PS5): the LDtk/Blender parsers + spawn factories are composed ONLY in
+        // import mode (the dev/export op that re-parses a legacy level so the importer can serialize
+        // it to a native .mdscene). The shipped game/editor boot is native-only — these never run at
+        // live boot, closing the parser-asymmetry. Constructing the factories here also loads their
+        // textures, so gating construction keeps a normal boot from touching legacy tilesets.
+        BlenderLevelParserSystem blenderParser = null;
+        EntitySpawnSystem entitySpawnSystem = null;
+        if (_importMode)
+        {
+        blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
         blenderParser.SetDrawLayerMap(_layers);
         blenderParser.RegisterCollectionHandler("Player", (entity, blenderObj) =>
         {
@@ -407,11 +418,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
             zoneEntity.Set(new NPCInteractionIcon { IconEntity = iconEntity });
         });
 
-        var entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
+        entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
         entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory(_layers));
         entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content, _layers));
         entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content, _layers));
         entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content, _layers));
+        } // end if (_importMode)
 
         // Hierarchy system must run AFTER logic systems modify transforms
         // but BEFORE any systems read world transforms (camera, rendering, etc.)
@@ -465,14 +477,28 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }, inputKind, _parallelRunner);
         p.AddGroup("levelLoad", EditTimeBehavior.RunNormally, g =>
         {
-            g.Add("requests", new LevelLoadRequestSystem(_world, _content, nativeSceneProbe));
-            // The native reader for a shipped game (no editor). When the editor is composed, its own
-            // editor.sceneReader (below) is the single reader — do not double-subscribe here.
-            if (_editor == null) g.Add("nativeSceneReader", nativeSceneReader);
-            g.Add("blender", blenderParser);
-            g.Add("ldtkTiles", new LDtkTileParserSystem(_world, _content));
-            g.Add("ldtkEntities", new LDtkEntityParserSystem(_world));
-            g.Add("entitySpawn", entitySpawnSystem);
+            if (_importMode)
+            {
+                // Import machinery (dev/export op): re-parse the legacy LDtk/Blender level so the
+                // importer can capture + serialize it. No native probe — force the legacy parse even if
+                // a .mdscene already exists (re-import). The importer takes the parsed world afterwards.
+                g.Add("requests", new LevelLoadRequestSystem(_world, _content, tryLoadNativeScene: null, enableLegacyLdtkFallback: true));
+                g.Add("blender", blenderParser);
+                g.Add("ldtkTiles", new LDtkTileParserSystem(_world, _content));
+                g.Add("ldtkEntities", new LDtkEntityParserSystem(_world));
+                g.Add("entitySpawn", entitySpawnSystem);
+            }
+            else
+            {
+                // Native-only game boot (PS5): the game loads bundled .mdscene levels through the native
+                // reader; the legacy LDtk/Blender loaders are import-only (composed only above), so a
+                // LoadLevelRequest with no native scene fails loud — no silent legacy attempt. This is
+                // the single content-driven load path that closes the parser-asymmetry.
+                g.Add("requests", new LevelLoadRequestSystem(_world, _content, nativeSceneProbe, enableLegacyLdtkFallback: false));
+                // The native reader for a shipped game (no editor). When the editor is composed, its own
+                // editor.sceneReader (below) is the single reader — do not double-subscribe here.
+                if (_editor == null) g.Add("nativeSceneReader", nativeSceneReader);
+            }
         });
         if (_editor != null)
         {

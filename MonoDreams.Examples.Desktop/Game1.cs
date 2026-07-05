@@ -1,4 +1,6 @@
-﻿using DefaultEcs.Threading;
+﻿using System.Collections.Generic;
+using System.Linq;
+using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -11,6 +13,8 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Examples.Settings;
 using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.Examples.Serialization;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Input;
@@ -30,6 +34,13 @@ public class Game1 : Game
     private GameSettings _settings;
     private readonly bool _headless;
     private readonly bool _editor;
+    // PS5 dev/import op: when set (via --export-scene <id> or MONODREAMS_EXPORT_SCENE), the head boots
+    // headless, loads the given legacy level through the LDtk/Blender parser (the migration fallback,
+    // still present when this op runs), imports the resulting world to a native .mdscene under the
+    // resolved project source tree, and exits. This is how the committed migrated levels are generated;
+    // it never runs in a normal launch (the field is null unless the flag is present).
+    private readonly string _exportSceneId;
+    private bool _exported;
 #if DEBUG
     private ImGuiRenderer _imGuiRenderer;
     private DebugInspector _debugInspector;
@@ -43,6 +54,9 @@ public class Game1 : Game
         // every screen composes the editor overlay, the shell is always visible, and the
         // transport boots Paused (the toolbar's Play/Pause + Restart buttons drive the game).
         _editor = EditorRunFlag.IsEnabled(args, Environment.GetEnvironmentVariable);
+
+        // PS5 headless import op (dev-only): "--export-scene <id>" or MONODREAMS_EXPORT_SCENE=<id>.
+        _exportSceneId = ResolveExportSceneId(args, Environment.GetEnvironmentVariable);
 
         // Load settings first
         _settings = SettingsManager.Instance.Settings;
@@ -172,7 +186,10 @@ public class Game1 : Game
         // no cursor pipeline of its own, so its overlay brings one (provideCursorPipeline inside
         // the screen). The run flag is the ONLY way into the editor (transport model).
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
-        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
+        // In the export op the Game screen composes the LDtk/Blender import machinery (importMode); a
+        // normal / editor boot composes native-only (the parsers are not wired to live game boot, PS5).
+        var importMode = _exportSceneId != null;
+        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, importMode: importMode));
         _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
 
         if (_editor)
@@ -182,6 +199,22 @@ public class Game1 : Game
             // explicit host-level opt-in mutation, so unflagged runs are untouched.
             _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
             Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): game screens compose the editor overlay; booting in Edit mode.");
+        }
+
+        // PS5 headless import op: load the legacy level (via the still-present LDtk/Blender fallback)
+        // and, on the first Update, import the parsed world to a native .mdscene, then exit. Takes
+        // precedence over the normal boot branches; only active when the export flag is set.
+        if (_exportSceneId != null)
+        {
+            Logger.Info($"[export] Headless import op: loading legacy level '{_exportSceneId}' to migrate it to a native .mdscene.");
+            // Boot the export in Edit so the gated logic group (physics/movement) freezes — the first
+            // screen Update runs the screen's Load (which publishes LoadLevelRequest → the parser
+            // populates the world) WITHOUT a game-logic tick perturbing the pristine parsed positions.
+            _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
+            Services.AddService(new RequestedLevelComponent(_exportSceneId));
+            _screenController.LoadScreen(ScreenName.Game);
+            base.Initialize();
+            return;
         }
 
         // If a replay plan specifies a start screen or level, skip menus
@@ -222,6 +255,20 @@ public class Game1 : Game
 
     protected override void Update(GameTime gameTime)
     {
+        // PS5 headless import op: the screen's Load (during Initialize) already published
+        // LoadLevelRequest, so the LDtk/Blender parser + factories populated the world synchronously.
+        // Import that pristine parsed world (before any game logic runs) to a native .mdscene and exit.
+        if (_exportSceneId != null && !_exported)
+        {
+            _exported = true;
+            // One screen Update finalizes the deferred screen swap and runs the screen's Load
+            // (LoadScreen only queues the screen; Load — which publishes LoadLevelRequest and drives
+            // the parser — runs on the next Update). Logic is frozen (Edit), so the world is pristine.
+            _screenController.Update(gameTime);
+            ExportSceneAndExit();
+            return;
+        }
+
         // First-frame HiDPI application (see ApplyEditorHiDpi): the OS window has its real size
         // only once the run loop starts, so Initialize is too early to measure it.
         if (!_hiDpiApplied)
@@ -263,6 +310,76 @@ public class Game1 : Game
         _graphics.IsFullScreen = fullscreen;
         _graphics.ApplyChanges();
         InitializeRenderer(width, height);
+    }
+
+    /// <summary>Reads the PS5 export-op level id from <c>--export-scene &lt;id&gt;</c> or the
+    /// <c>MONODREAMS_EXPORT_SCENE</c> env var; <c>null</c> (the normal case) disables the op.</summary>
+    private static string ResolveExportSceneId(string[] args, Func<string, string> getEnv)
+    {
+        if (args != null)
+            for (var i = 0; i < args.Length - 1; i++)
+                if (args[i] == "--export-scene")
+                    return args[i + 1];
+        var env = getEnv?.Invoke("MONODREAMS_EXPORT_SCENE");
+        return string.IsNullOrWhiteSpace(env) ? null : env;
+    }
+
+    /// <summary>Imports the current (freshly parsed) world to a native <c>.mdscene</c> under the
+    /// resolved project source tree (<c>MONODREAMS_PROJECT_ROOT</c> → <c>Content/Levels</c>) and exits.
+    /// The registry carries both engine and game serializers so every parsed component round-trips.</summary>
+    private void ExportSceneAndExit()
+    {
+        var world = _screenController.CurrentWorld;
+
+        // Screen infrastructure the level parse did NOT create: the DialogueSystem builds its dialogue
+        // UI sub-graph at construction (identified by DialogueStateComponent — the same marker the
+        // transport's KeepAlive uses). It is not level content, and on native boot the DialogueSystem
+        // rebuilds it — so leaving it in the migrated scene would double-create the dialogue UI. Dispose
+        // the sub-graph before importing so only parsed level content is captured.
+        DisposeInfrastructureSubgraphs(world);
+
+        var ctx = EditorProjectContext.Resolve();
+        var levelsPath = ctx.Resolved
+            ? ctx.LevelsPath
+            : PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "Content", "Levels");
+        var target = PlatformServices.Current.CombinePath(levelsPath, _exportSceneId + SceneWriter.SceneFileExtension);
+
+        var registry = new ComponentSerializerRegistry();
+        registry.RegisterEngineComponents();
+        registry.RegisterGameComponents();
+        var importer = new LevelImporter(new SceneWriter(new SceneSerializer(registry)));
+        var written = importer.ImportToFile(world, target);
+        Logger.Info($"[export] Imported level '{_exportSceneId}' to native scene '{written ?? "(refused)"}'.");
+        Exit();
+    }
+
+    /// <summary>Disposes screen-infrastructure sub-graphs a system built (not the level parse), so they
+    /// never land in a migrated scene. Today: the dialogue UI (root carries
+    /// <see cref="MonoDreams.Dialogue.DialogueStateComponent"/>) plus its <c>ChildOf</c> descendants.</summary>
+    private static void DisposeInfrastructureSubgraphs(DefaultEcs.World world)
+    {
+        var roots = new List<DefaultEcs.Entity>();
+        using (var set = world.GetEntities().With<MonoDreams.Dialogue.DialogueStateComponent>().AsSet())
+            roots.AddRange(set.GetEntities().ToArray());
+
+        // Index children by parent so the descendant sweep is O(n).
+        var childrenByParent = new Dictionary<DefaultEcs.Entity, List<DefaultEcs.Entity>>();
+        using (var childSet = world.GetEntities().With<ChildOfComponent>().AsSet())
+            foreach (var e in childSet.GetEntities())
+            {
+                var parent = e.Get<ChildOfComponent>().Parent;
+                if (!parent.IsAlive) continue;
+                (childrenByParent.TryGetValue(parent, out var list) ? list : childrenByParent[parent] = new List<DefaultEcs.Entity>()).Add(e);
+            }
+
+        var queue = new Queue<DefaultEcs.Entity>(roots);
+        while (queue.Count > 0)
+        {
+            var e = queue.Dequeue();
+            if (childrenByParent.TryGetValue(e, out var kids))
+                foreach (var k in kids) queue.Enqueue(k);
+            if (e.IsAlive) e.Dispose();
+        }
     }
 
     protected override void Dispose(bool disposing)

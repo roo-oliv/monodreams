@@ -169,11 +169,14 @@ public class LevelSelectionScreen : IGameScreen
 
         // Create entities first. Play buttons only — the editor is entered exclusively through the
         // --editor / MONODREAMS_EDITOR=1 run configuration (the transport model), never via a menu
-        // button. Level 3 is the infinite runner, not a level file.
+        // button. Level ids resolve to NATIVE .mdscene levels now (PS5: native-first is native-only;
+        // the LDtk/Blender loaders are import-only). "Level 1" → the migrated native Blender_Level;
+        // the runner is a screen, not a level file. The LDtk Level_0 is not migrated yet (its ~21k
+        // per-tile entities need a native tile-layer batching primitive — a PS6 item), so it is not
+        // offered here: booting it native-only would fail loud.
         var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, _layers.GetDepth(DrawLayer.Title));
-        var play1 = CreateButtonEntity("Level 1", _font, 0, "Level_0", true, buttonStyle);
-        var play2 = CreateButtonEntity("Level 2", _font, 1, "Blender_Level", true, buttonStyle);
-        var play3 = CreateButtonEntity("Level 3", _font, 2, null, true, buttonStyle, ScreenName.InfiniteRunner);
+        var play1 = CreateButtonEntity("Level 1", _font, 0, "Blender_Level", true, buttonStyle);
+        var play2 = CreateButtonEntity("Runner", _font, 1, null, true, buttonStyle, ScreenName.InfiniteRunner);
 
         // Create UI using auto layout with slots
         var layout = new AutoLayoutBuilder(_world, _viewportManager);
@@ -194,7 +197,6 @@ public class LevelSelectionScreen : IGameScreen
                 .AlignCross(CrossAxisAlignment.Center)
                 .AddSlot(slot => slot.Attach(play1.container).MeasureWith(_ => play1.size))
                 .AddSlot(slot => slot.Attach(play2.container).MeasureWith(_ => play2.size))
-                .AddSlot(slot => slot.Attach(play3.container).MeasureWith(_ => play3.size))
             )
             .Build();
     }
