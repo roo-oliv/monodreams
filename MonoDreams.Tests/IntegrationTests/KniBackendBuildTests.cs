@@ -56,8 +56,12 @@ public class KniBackendBuildTests
         var isolatedBin = Path.Combine(Path.GetTempPath(), "monodreams_kniweb_" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
+            // -m:1 serialises MSBuild nodes for this in-test build. Without it, MSBuild's default
+            // multi-node parallelism races the vendored LDtkMonogame project's deps.json (a shared
+            // ProjectReference), which intermittently fails this build under Release/CI — a flaky
+            // gate. Serialising the build removes the race; it costs a little wall-clock on one test.
             var (exitCode, output) = RunDotnet(repoRoot,
-                $"build \"{csproj}\" -c Debug -p:MonoDreamsPlatform=web --output \"{isolatedBin}\" -v q -nologo");
+                $"build \"{csproj}\" -c Debug -p:MonoDreamsPlatform=web --output \"{isolatedBin}\" -m:1 -v q -nologo");
 
             Assert.True(exitCode == 0,
                 $"Expected '{relativeCsproj}' to compile against MonoDreamsPlatform=web with exit 0.\n{output}");
@@ -67,7 +71,7 @@ public class KniBackendBuildTests
             try { if (Directory.Exists(isolatedBin)) Directory.Delete(isolatedBin, recursive: true); } catch { /* best effort */ }
             // The web restore left the in-place obj in web state; restore desktop so later tests
             // (and the desktop-targeting integration tests) see desktop artifacts again.
-            RunDotnet(repoRoot, $"build \"{csproj}\" -c Debug -v q -nologo");
+            RunDotnet(repoRoot, $"build \"{csproj}\" -c Debug -m:1 -v q -nologo");
         }
     }
 
