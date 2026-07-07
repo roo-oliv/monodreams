@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DefaultEcs;
+using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
@@ -16,6 +17,7 @@ using MonoDreams.LevelEditor.UI;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.System.Cursor;
 using Xunit;
 
 namespace MonoDreams.Tests.LevelEditor;
@@ -275,6 +277,60 @@ public class EditorDialogTests
         dialog.Update(state);      // closed → parks, does NOT consume
         selection.Update(state);
         Assert.True(sprite.Has<SelectedComponent>());
+    }
+
+    /// <summary>
+    /// Regression (EF1 — the user-reported "clicking Save/Load dialog buttons does nothing"): drives a
+    /// real press→release through the ACTUAL woven update order (<see cref="CursorInputSystem"/> then
+    /// the dialog, entry <c>editor.dialog</c>) with a SCRIPTED hardware mouse — NOT by injecting the
+    /// release edge post-CursorInputSystem, which is why 409+ tests missed it. The dialog acts on
+    /// <c>LeftButtonReleased</c> but its modal consume clears the cursor's LeftButton LEVEL every
+    /// frame; when <see cref="CursorInputSystem"/> derived the release edge from that (cleared) level,
+    /// the edge could never fire while the dialog was open, so clicks did nothing. FAILS before the
+    /// fix (CursorInputSystem derives edges from its own previous-hardware state); passes after.
+    /// </summary>
+    [Fact]
+    public void SaveDialog_ClickThroughRealCursorPipeline_ConfirmsOnRelease()
+    {
+        using var world = new World();
+        var vm = NewViewport(); // 800×600, DPR 1 → ScreenPosition == the raw mouse position
+        MakeCursor(world);      // CursorController + CursorInput, the query both systems read
+
+        string? savedId = null;
+        var dialog = new EditorDialogSystem(
+            world, vm, font: null,
+            onSaveConfirmed: (id, _) => savedId = id,
+            onLoadSelected: (_, _) => { },
+            listScenes: () => new SceneListing(true, Array.Empty<string>(), null));
+
+        // The scripted hardware mouse: fixed over the Save (confirm) button; only the button state
+        // flips per frame, exactly as a real click would (up → down → up over the same pixel).
+        var panel = EditorDialogLayout.Panel(800, 600, isLoad: false, scale: 1f);
+        var over = EditorDialogLayout.ConfirmButton(panel, 1f).Center;
+        var down = false;
+        var cursorInput = new CursorInputSystem(world, vm)
+        {
+            MouseStateProvider = () => new MouseState(
+                over.X, over.Y, 0,
+                down ? ButtonState.Pressed : ButtonState.Released,
+                ButtonState.Released, ButtonState.Released, ButtonState.Released, ButtonState.Released),
+        };
+
+        // The REAL woven order: cursor input first (sets the edges), then the dialog reads/consumes.
+        using var pipeline = new SequentialSystem<GameState>(cursorInput, dialog);
+        var state = EditState();
+
+        dialog.OpenSave("island");
+
+        down = false; pipeline.Update(state); // frame 1: button up over the confirm button
+        down = true;  pipeline.Update(state); // frame 2: press — the dialog acts on release, so no-op
+        Assert.True(dialog.IsOpen);
+        Assert.Null(savedId);
+
+        down = false; pipeline.Update(state); // frame 3: release over the confirm button → Confirm
+
+        Assert.Equal("island", savedId); // the click was received
+        Assert.False(dialog.IsOpen);      // and the dialog closed
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────────────────────────

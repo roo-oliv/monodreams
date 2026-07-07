@@ -1,3 +1,4 @@
+using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework.Input;
@@ -34,13 +35,21 @@ public class CursorInputSystem(World world, ViewportManager viewportManager = nu
     /// </summary>
     public bool SkipHardwareRead { get; set; }
 
+    /// <summary>
+    /// Test/replay seam overriding the hardware mouse read. Default <c>null</c> → <see cref="Mouse"/>.
+    /// A headless test sets it to drive a scripted press→release through the REAL edge derivation
+    /// (the path <see cref="SkipHardwareRead"/> deliberately bypasses), exercising the interaction
+    /// with a downstream consumer that clears the cursor's button state.
+    /// </summary>
+    public Func<MouseState> MouseStateProvider { get; set; }
+
     protected override void Update(GameState state, in Entity entity)
     {
         // Skip the hardware read entirely so injected cursor state survives (editor-op / replay channel).
         if (SkipHardwareRead) return;
 
         ref var input = ref entity.Get<CursorInputComponent>();
-        var mouseState = Mouse.GetState();
+        var mouseState = MouseStateProvider != null ? MouseStateProvider() : Mouse.GetState();
 
         // Store previous positions
         input.PreviousScreenPosition = input.ScreenPosition;
@@ -53,10 +62,16 @@ public class CursorInputSystem(World world, ViewportManager viewportManager = nu
         // Calculate delta
         input.Delta = input.ScreenPosition - input.PreviousScreenPosition;
 
-        // Update button states
-        var prevLeft = input.LeftButton;
-        var prevRight = input.RightButton;
-        var prevMiddle = input.MiddleButton;
+        // Derive the press/release edges from the previous HARDWARE levels this system owns
+        // (PreviousLeftButton/etc.), NOT from the current LeftButton/etc. level fields. A downstream
+        // consumer — e.g. an open modal dialog's pointer-edge consume — clears those level fields to
+        // suppress the click; reusing them as the "previous" state let that clear poison the next
+        // frame's edges (LeftButton forced false ⇒ LeftButtonReleased could never fire ⇒ a modal that
+        // acts on release never saw its own click). The previous-fields are written from the raw
+        // read below, before any consumer runs, so the edges are immune to the consume.
+        var prevLeft = input.PreviousLeftButton;
+        var prevRight = input.PreviousRightButton;
+        var prevMiddle = input.PreviousMiddleButton;
 
         input.LeftButton = mouseState.LeftButton == ButtonState.Pressed;
         input.RightButton = mouseState.RightButton == ButtonState.Pressed;
@@ -70,6 +85,12 @@ public class CursorInputSystem(World world, ViewportManager viewportManager = nu
         input.LeftButtonReleased = !input.LeftButton && prevLeft;
         input.RightButtonReleased = !input.RightButton && prevRight;
         input.MiddleButtonReleased = !input.MiddleButton && prevMiddle;
+
+        // Record THIS frame's true hardware levels for next frame's edge derivation, straight from
+        // the read above so a downstream consumer's clear of LeftButton/etc. never corrupts them.
+        input.PreviousLeftButton = input.LeftButton;
+        input.PreviousRightButton = input.RightButton;
+        input.PreviousMiddleButton = input.MiddleButton;
 
         // Scroll wheel
         var prevScroll = input.ScrollWheelValue;

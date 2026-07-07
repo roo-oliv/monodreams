@@ -29,6 +29,15 @@ public struct CursorInputComponent
     public bool LeftButtonReleased { get; set; }
     public bool RightButtonReleased { get; set; }
     public bool MiddleButtonReleased { get; set; }
+    /// Last frame's hardware button levels, owned and written by CursorInputSystem straight from the
+    /// mouse read (before any consumer runs). The press/release edges derive from THESE, not from the
+    /// mutable LeftButton/etc. level fields — so a downstream consumer that clears the level state to
+    /// suppress the click (a modal dialog's pointer-edge consume) does NOT poison the next frame's
+    /// edge computation. Mirrors how ScrollWheelValue (the accumulator) survives a consumer clearing
+    /// only ScrollWheelDelta (the derived edge). Not read on the SkipHardwareRead / injected path.
+    public bool PreviousLeftButton { get; set; }
+    public bool PreviousRightButton { get; set; }
+    public bool PreviousMiddleButton { get; set; }
     public int ScrollWheelValue { get; set; }
     public int ScrollWheelDelta { get; set; }
 }

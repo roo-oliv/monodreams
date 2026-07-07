@@ -1246,9 +1246,15 @@ systems panel is — native-resolution chrome on `RenderTargetID.Editor`, `Simpl
 off-screen) — deliberately NOT the `ui` `DialogComponent`/`DialogSystem` (which toggle
 `VisibleComponent` and trap focus via `UIFocusSystem` — both Main/HUD mechanisms the Editor-target
 chrome must not use). While a dialog is open it **owns input**, in two halves: (1) mouse — after
-hit-testing its own controls it clears the cursor's pointer edges on the single cursor entity, so no
-mouse-driven editor system (toolbar, selection, gizmo, camera-nav, palette, boundary, systems-panel)
-downstream that frame acts; (2) keyboard — the composing screen wires the host keyboard system's
+hit-testing its own controls (on the release edge) it clears the cursor's pointer edges AND the
+button level fields on the single cursor entity, so no mouse-driven editor system (toolbar,
+selection, gizmo, camera-nav, palette, boundary, systems-panel) downstream that frame acts. The
+dialog itself acting on the release edge survives its own consume ONLY because `CursorInputSystem`
+derives the edges from a previous-state it owns rather than from the (now-cleared) level fields — see
+cursor's "Button press/release edges derive from CursorInputSystem's own previous-state"; without
+that the dialog's clear of `LeftButton` would make its own release edge unobservable the next frame
+(the confirmed "dialog clicks do nothing" bug). (2) keyboard — the composing screen wires the host
+keyboard system's
 `ShouldSuppressInput` to `Dialog.IsOpen`, so every editor/game keyboard action (delete, undo/redo,
 frame, boundary-commit, and the game's Escape-to-exit) stands down while the dialog reads the keyboard
 for its name field (Backspace edits, Enter confirms, Escape cancels). Every action also has a public
@@ -1273,12 +1279,17 @@ chrome and double-offset the pre-baked meshes.
 `SaveDialog_KeyboardTypingBackspaceEnter`, `SaveDialog_EscapeCloses`,
 `LoadDialog_ListsScenes_AndSelectingOneFiresLoad`,
 `LoadDialog_UnresolvedRoot_ShowsMessageAndDoesNotCrash`,
-`OpenDialog_ConsumesTheCursor_SoAViewportClickDoesNotSelect`).
+`OpenDialog_ConsumesTheCursor_SoAViewportClickDoesNotSelect`,
+`SaveDialog_ClickThroughRealCursorPipeline_ConfirmsOnRelease` — a scripted press→release through the
+REAL `CursorInputSystem → editor.dialog` woven order confirms the dialog, the regression that the
+injected-edge tests missed).
 **Depends on:** this file — "Save is blocked while Playing or when no project root is resolved" (the
 confirm re-applies the guard); "The editor Save writes versioned `.mdscene` into the project source
 tree" (SaveCurrentScene's write target); "The systems panel renders the registrar tree …" (the sibling
-native-chrome widget it mirrors); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput` (the
-keyboard-half seam); rendering — "Editor-target chrome carries no `VisibleComponent`" (the chrome rule).
+native-chrome widget it mirrors); cursor — "Button press/release edges derive from CursorInputSystem's
+own previous-state, immune to consumers clearing the level fields" (why the dialog's release-edge
+action survives its own pointer-edge consume); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput`
+(the keyboard-half seam); rendering — "Editor-target chrome carries no `VisibleComponent`" (the chrome rule).
 
 ## The project manifest anchors the editor's project root; unresolved is fail-safe
 
