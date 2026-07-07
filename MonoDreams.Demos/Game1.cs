@@ -82,6 +82,10 @@ public class Game1 : Game
             if (!ApplyEditorHiDpi())
                 InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
         };
+        // Editor runs are user-resizable (like the Examples head); the resize handler above already
+        // recomputes the renderer size and the shell/chrome relayout follows. Non-editor + headless
+        // runs keep the fixed window.
+        if (_editor && !_headless.Enabled) Window.AllowUserResizing = true;
 #endif
     }
 

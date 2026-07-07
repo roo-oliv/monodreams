@@ -98,6 +98,13 @@ public class Game1 : Game
         // from the host page, so the OS-window event is gated out there.
 #if !MONODREAMS_WEB
         Window.ClientSizeChanged += OnWindowResize;
+        // The editor is a desktop authoring tool — let the designer resize the window like any IDE.
+        // The resize path already exists (OnWindowResize → ApplyEditorHiDpi/InitializeRenderer feeds
+        // the new device size into the ViewportManager; EditorShellSystem relayouts the chrome +
+        // viewport inset on the dim/DPR change and EditorChromeRenderSystem recreates the native
+        // Editor target at the new size). Shipped/non-editor runs keep the fixed window (match
+        // existing behavior); headless has a 1×1 off-screen window and stays non-resizable.
+        if (_editor && !_headless) Window.AllowUserResizing = true;
 #endif
     }
     

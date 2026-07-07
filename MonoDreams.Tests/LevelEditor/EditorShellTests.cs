@@ -306,6 +306,50 @@ public class EditorShellTests
     }
 
     [Fact]
+    public void ShellSystem_ResizeWithDprChange_RecomputesChromeInsetAndMouseMapping()
+    {
+        // Resizable editor window (EF1): the host feeds a new ScreenWidth/Height AND a new
+        // DevicePixelRatio (what OnWindowResize → ApplyEditorHiDpi does on a Retina resize). The
+        // shell must relayout the chrome, re-apply the DPR-scaled viewport inset, and — because the
+        // inset lives on the single ViewportManager — the mouse mapping must follow the new game
+        // viewport (a point at its centre maps in; a point in the reserved top margin maps out).
+        using var world = new World();
+        MakeCursor(world);
+        var vm = new ViewportManager(null, 800, 600) { ScreenWidth = 1600, ScreenHeight = 900, DevicePixelRatio = 1f };
+        var chrome = new EditorChromeBuilder(world, Measure);
+        chrome.Build(1, 1); // stale — the shell relayouts to the real size + scale
+        using var shell = new EditorShellSystem(world, vm, chrome, null);
+
+        shell.Update(Edit());
+        Assert.Equal(1600, chrome.LaidOutWidth);
+        Assert.Equal(1f, chrome.LaidOutScale);
+        var (_, top1, _, _) = EditorChromeLayout.ViewportInset(1f);
+        Assert.True(vm.DestinationRectangle.Y >= top1);
+        var centreBefore = new Vector2(vm.DestinationRectangle.Center.X, vm.DestinationRectangle.Center.Y);
+        Assert.NotNull(vm.ScaleMouseToVirtualCoordinates(centreBefore)); // inside the game viewport
+
+        // Resize + HiDPI re-back: larger device backbuffer at 2× DPR.
+        vm.DevicePixelRatio = 2f;
+        vm.ScreenWidth = 3840;
+        vm.ScreenHeight = 2160;
+        shell.Update(Edit());
+
+        // Chrome relayouted to the new size AND scale; the inset is the DPR-scaled top bar.
+        Assert.Equal(3840, chrome.LaidOutWidth);
+        Assert.Equal(2160, chrome.LaidOutHeight);
+        Assert.Equal(2f, chrome.LaidOutScale);
+        var (_, top2, right2, bottom2) = EditorChromeLayout.ViewportInset(2f);
+        Assert.True(top2 > top1); // the margin scaled up with the DPR
+        Assert.True(vm.HasViewportInset);
+        var dest = vm.DestinationRectangle;
+        Assert.True(dest.Y >= top2);
+        Assert.True(dest.Right <= 3840 - right2 && dest.Bottom <= 2160 - bottom2);
+        // Mouse mapping tracks the new inset viewport.
+        Assert.NotNull(vm.ScaleMouseToVirtualCoordinates(new Vector2(dest.Center.X, dest.Center.Y)));
+        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(dest.Center.X, top2 / 2))); // in the top margin → chrome
+    }
+
+    [Fact]
     public void ShellSystem_Dispose_ClearsTheInsetAndHidesTheOsCursor()
     {
         using var world = new World();
