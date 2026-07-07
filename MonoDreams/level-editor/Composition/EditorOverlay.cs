@@ -239,17 +239,19 @@ public sealed class EditorOverlay
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
 
-        // The modal Save / Load dialogs (native-resolution chrome on the Editor target). Confirm /
-        // select route back into the SAME guarded Save / Load paths the toolbar used (no second
-        // writer/reader); the Load list comes from ListScenes (desktop file IO — see there). The
-        // toolbar's Save/Load buttons now OPEN these dialogs (see DispatchToolbarAction), and the
-        // screen wires the host keyboard system's ShouldSuppressInput to Dialog.IsOpen so editor/game
-        // keys (including Escape-to-exit) stand down while the dialog owns input.
+        // The modal Save / Load file-system navigator (native-resolution chrome on the Editor target).
+        // Confirm / pick route back into the SAME guarded Save / Load paths the toolbar used (no second
+        // writer/reader), carrying the resolved ABSOLUTE path from the browser; the browsable tree comes
+        // from BrowserRoots (the project-root boundary + the LevelsPath open dir) + ListDirectory
+        // (desktop file IO — see there). The toolbar's Save/Load buttons OPEN these dialogs (see
+        // DispatchToolbarAction), and the screen wires the host keyboard system's ShouldSuppressInput to
+        // Dialog.IsOpen so editor/game keys (including Escape-to-exit) stand down while it owns input.
         Dialog = new EditorDialogSystem(
             world, viewportManager, toolbarFont,
-            onSaveConfirmed: (id, s) => { _sceneId = id; SaveCurrentScene(s); },
-            onLoadSelected: (id, s) => { _sceneId = id; LoadScene(id); },
-            listScenes: ListScenes);
+            onSaveConfirmed: (path, s) => { _sceneId = Path.GetFileNameWithoutExtension(path); SaveCurrentSceneTo(path, s); },
+            onLoadSelected: (path, s) => { _sceneId = Path.GetFileNameWithoutExtension(path); LoadScene(path); },
+            getRoots: BrowserRoots,
+            listDirectory: ListDirectory);
 
         // The asset palette + placement (island-authoring Slice 1): only when the screen supplies
         // both the catalog (the drop-folder scan) and its layer-band map — the module never
@@ -573,7 +575,7 @@ public sealed class EditorOverlay
     /// note when the target already exists (the simpler of the two overwrite options — overwrite,
     /// don't prompt), writes, then appends the zero-touch MGCB bundle entry for a new level.
     /// </summary>
-    private void SaveCurrentScene(GameState state)
+    private void SaveCurrentSceneTo(string target, GameState state)
     {
         switch (SaveBlock(state, _projectContext))
         {
@@ -590,8 +592,7 @@ public sealed class EditorOverlay
                 return;
         }
 
-        var target = SceneFilePath(_projectContext, _sceneId);
-        if (!string.IsNullOrEmpty(target) && PlatformServices.Current.FileExists(target!))
+        if (!string.IsNullOrEmpty(target) && PlatformServices.Current.FileExists(target))
             Logger.Info($"[level-editor] Overwriting existing scene '{_sceneId}' at '{target}'.");
 
         // Build once so the ship-readiness lint (PS6) can inspect the exact scene being written.
@@ -600,24 +601,43 @@ public sealed class EditorOverlay
         WarnIfNotShipReady(scene);
         var savedPath = writer.Save(scene, target);
         // Zero-touch bundling (PS6): append the MGCB /copy: entry for a NEW level so it bundles to the
-        // title on the next build with no manual .mgcb edit (idempotent for existing ones).
+        // title on the next build with no manual .mgcb edit (idempotent for existing ones). The copy
+        // line is `./Levels/<id>.mdscene`, so it is only correct when the scene was written directly
+        // into LevelsPath (the browser's default open dir) — a save the designer navigated ELSEWHERE
+        // under the project root is authored but not auto-bundled (it must live under Content/Levels to
+        // ship; see the navigator scoping premise).
         if (savedPath != null)
         {
-            EnsureLevelBundled();
+            if (IsUnderLevelsRoot(target))
+                EnsureLevelBundled();
+            else
+                Logger.Info(
+                    $"[level-editor] Saved scene '{_sceneId}' to '{savedPath}' OUTSIDE the levels dir " +
+                    $"('{_projectContext?.LevelsPath}') — not auto-bundled; move it under Content/Levels to ship it.");
             Logger.Info($"[level-editor] Saved scene '{_sceneId}' to '{savedPath}'.");
         }
     }
 
-    /// <summary>
-    /// Publishes a <see cref="LoadSceneRequest"/> for <paramref name="id"/> under the project's levels
-    /// directory (desktop file IO — no build round-trip; the woven <c>SceneReaderSystem</c> restores
-    /// the DrawComponents + auto-frames so the scene lands visible). The Load dialog's row-select
-    /// callback; a loud no-op when the project root is unresolved.
-    /// </summary>
-    private void LoadScene(string id)
+    /// <summary>Whether <paramref name="target"/> sits directly in the project's levels dir (the only
+    /// location the zero-touch <c>./Levels/&lt;id&gt;.mdscene</c> MGCB copy line addresses correctly).</summary>
+    private bool IsUnderLevelsRoot(string target)
     {
-        var loadPath = SceneFilePath(_projectContext, id);
-        if (string.IsNullOrEmpty(loadPath))
+        var levels = _projectContext?.LevelsPath;
+        if (string.IsNullOrEmpty(levels)) return false;
+        var dir = Path.GetDirectoryName(target);
+        return !string.IsNullOrEmpty(dir) &&
+               string.Equals(dir!.TrimEnd('/', '\\'), levels!.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Publishes a <see cref="LoadSceneRequest"/> for the absolute <paramref name="filePath"/> the
+    /// browser resolved (desktop file IO — no build round-trip; the woven <c>SceneReaderSystem</c>
+    /// restores the DrawComponents + auto-frames so the scene lands visible). The Load dialog's
+    /// file-pick callback; the browser only produces a non-empty path when the project is resolved.
+    /// </summary>
+    private void LoadScene(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath))
         {
             Logger.Warning(
                 "[level-editor] Load is blocked: no project root resolved (no " +
@@ -625,40 +645,54 @@ public sealed class EditorOverlay
                 "in the run configuration, or run from a build output inside the project source tree.");
             return;
         }
-        _world.Publish(new LoadSceneRequest(loadPath!, fromContent: false));
+        _world.Publish(new LoadSceneRequest(filePath, fromContent: false));
     }
 
     /// <summary>
-    /// Lists the saved scenes for the Load dialog: the <c>*.mdscene</c> files under
-    /// <see cref="EditorProjectContext.LevelsPath"/> (ids only, sorted), or an <b>unresolved</b>
-    /// listing carrying the actionable "set MONODREAMS_PROJECT_ROOT" message when the project root did
-    /// not resolve. Desktop file IO through <see cref="System.IO.Directory"/> — a desktop editor-UI
-    /// concern that never runs on web (the web head composes no project context), the same
-    /// justification FW1's resolution enumeration uses; the dialog system itself stays filesystem-free
-    /// (it takes this as an injected provider, so its flow is unit-testable in-process).
+    /// The navigator's roots: the resolved project root is the <b>up-boundary</b> (the browser never
+    /// climbs above it — no OS-wide file picker) and <see cref="EditorProjectContext.LevelsPath"/> is
+    /// where it opens (scenes must live under <c>Content/Levels</c> to bundle + load — see the navigator
+    /// scoping premise), or an <b>unresolved</b> roots record carrying the actionable
+    /// "set MONODREAMS_PROJECT_ROOT" message when the project root did not resolve.
     /// </summary>
-    private SceneListing ListScenes()
+    private BrowserRoots BrowserRoots()
     {
-        var levelsPath = _projectContext?.LevelsPath;
-        if (_projectContext is not { Resolved: true } || string.IsNullOrEmpty(levelsPath))
-            return new SceneListing(false, Array.Empty<string>(),
-                $"No project root resolved (no {GameProject.FileName} found). Set " +
-                $"{EditorProjectContext.ProjectRootVariable} in the run configuration, or run from a " +
-                "build output inside the project source tree.");
+        if (_projectContext is { Resolved: true } && !string.IsNullOrEmpty(_projectContext.ProjectRoot))
+            return new BrowserRoots(true, _projectContext.ProjectRoot, _projectContext.LevelsPath, null);
+        return new BrowserRoots(false, null, null,
+            $"No project root resolved (no {GameProject.FileName} found). Set " +
+            $"{EditorProjectContext.ProjectRootVariable} in the run configuration, or run from a " +
+            "build output inside the project source tree.");
+    }
 
+    /// <summary>
+    /// Lists a directory for the navigator: its immediate subfolders + every file name (the browser
+    /// applies the <c>.mdscene</c> filter + folder/file classification on top). Desktop file IO through
+    /// <see cref="System.IO.Directory"/> — a desktop editor-UI concern that never runs on web (the web
+    /// head composes no project context), the same justification FW1's resolution enumeration uses; the
+    /// dialog + browser stay filesystem-free (they take this as an injected provider, so the whole flow
+    /// is unit-testable in-process). Never throws — a listing failure yields an empty, message-carrying
+    /// directory rather than crashing the modal.
+    /// </summary>
+    private RawDirectory ListDirectory(string dir)
+    {
         try
         {
-            var ids = new List<string>();
-            if (Directory.Exists(levelsPath))
-                foreach (var file in Directory.EnumerateFiles(levelsPath!, "*" + SceneWriter.SceneFileExtension))
-                    ids.Add(Path.GetFileNameWithoutExtension(file));
-            ids.Sort(StringComparer.OrdinalIgnoreCase);
-            return new SceneListing(true, ids, ids.Count == 0 ? "No saved scenes yet." : null);
+            if (!Directory.Exists(dir))
+                return new RawDirectory(true, Array.Empty<string>(), Array.Empty<string>(), "Folder not found.");
+            var dirs = new List<string>();
+            foreach (var sub in Directory.EnumerateDirectories(dir))
+                dirs.Add(Path.GetFileName(sub.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+            var files = new List<string>();
+            foreach (var file in Directory.EnumerateFiles(dir))
+                files.Add(Path.GetFileName(file));
+            var message = dirs.Count == 0 && files.Count == 0 ? "Empty folder." : null;
+            return new RawDirectory(true, dirs, files, message);
         }
         catch (Exception ex)
         {
-            Logger.Warning($"[level-editor] Load dialog: could not list scenes in '{levelsPath}': {ex.Message}");
-            return new SceneListing(true, Array.Empty<string>(), "Could not list scenes in the levels directory.");
+            Logger.Warning($"[level-editor] Load/Save dialog: could not list '{dir}': {ex.Message}");
+            return new RawDirectory(true, Array.Empty<string>(), Array.Empty<string>(), "Could not list this folder.");
         }
     }
 
@@ -824,7 +858,8 @@ public sealed class EditorOverlay
 
         if (name.StartsWith(dialogPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            // dialog:save-open | load-open | name <text> | confirm | cancel | load <id>
+            // dialog:save-open | load-open | name <text> | confirm | cancel | cd <folder> | up |
+            // pick <file> (alias: load <file>)
             var rest = name.Substring(dialogPrefix.Length);
             var space = rest.IndexOf(' ');
             var verb = space < 0 ? rest : rest.Substring(0, space);
@@ -836,11 +871,13 @@ public sealed class EditorOverlay
                 case "name": Dialog.SetName(arg); break;
                 case "confirm": Dialog.Confirm(state); break;
                 case "cancel": Dialog.Cancel(); break;
-                case "load": Dialog.SelectLoad(arg, state); break;
+                case "cd": Dialog.EnterDirectory(arg); break;
+                case "up": Dialog.GoUp(); break;
+                case "pick": case "load": Dialog.PickFile(arg, state); break;
                 default:
                     Logger.Warning(
                         $"[level-editor] Editor-op '{name}': expected " +
-                        "dialog:save-open|load-open|name <text>|confirm|cancel|load <id>.");
+                        "dialog:save-open|load-open|name <text>|confirm|cancel|cd <folder>|up|pick <file>.");
                     break;
             }
             return;

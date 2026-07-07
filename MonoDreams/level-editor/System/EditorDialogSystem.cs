@@ -22,57 +22,54 @@ public enum EditorDialogMode
 {
     /// <summary>No dialog is open.</summary>
     None,
-    /// <summary>The Save dialog: a name field + Save / Cancel.</summary>
+    /// <summary>The Save browser: navigate to a folder, type a name, Save / Cancel.</summary>
     Save,
-    /// <summary>The Load dialog: a scrollable list of existing scenes + Cancel.</summary>
+    /// <summary>The Load browser: navigate to a folder, pick a <c>.mdscene</c> file / Cancel.</summary>
     Load,
 }
 
-/// <summary>The Load dialog's source data: whether the project root resolved, the scene ids to
-/// list, and (when unresolved / empty) an actionable message to show instead of an empty list.</summary>
-public readonly record struct SceneListing(bool Resolved, IReadOnlyList<string> SceneIds, string? Message);
-
 /// <summary>
-/// The editor's modal <b>Save / Load dialogs</b> — native-resolution chrome on
-/// <c>RenderTargetID.Editor</c> (screen-space, DPR-scaled), built from the same engine primitives
-/// as the rest of the shell (<see cref="SimpleButtonComponent"/> fills/outlines prepped by the
-/// woven <c>ButtonMeshPrepSystem</c>, <see cref="DynamicTextComponent"/> labels), laid out by the
-/// pure <see cref="EditorDialogLayout"/> and hit-tested against the cursor's raw
-/// <see cref="CursorInputComponent.ScreenPosition"/> — never <c>VirtualPosition</c>, which is
-/// frozen over the chrome margins. Per the chrome rule the dialog entities carry <b>no</b>
-/// <c>VisibleComponent</c>; they are shown/hidden by parking off-screen (the SystemsPanel idiom),
-/// not by toggling visibility.
+/// The editor's modal <b>Save / Load file-system navigator</b> — a Blender-style directory browser,
+/// native-resolution chrome on <c>RenderTargetID.Editor</c> (screen-space, DPR-scaled), built from the
+/// same engine primitives as the rest of the shell (<see cref="SimpleButtonComponent"/> fills/outlines
+/// prepped by the woven <c>ButtonMeshPrepSystem</c>, <see cref="DynamicTextComponent"/> labels), laid
+/// out by the pure <see cref="EditorDialogLayout"/> and hit-tested against the cursor's raw
+/// <see cref="CursorInputComponent.ScreenPosition"/> — never <c>VirtualPosition</c>, which is frozen
+/// over the chrome margins. Per the chrome rule the dialog entities carry <b>no</b>
+/// <c>VisibleComponent</c>; they are shown/hidden by parking off-screen (the SystemsPanel idiom).
 ///
-/// <para><b>Why editor-native, not the <c>ui</c> <c>DialogComponent</c>.</b> The <c>ui</c> module's
-/// <c>DialogSystem</c> toggles <c>VisibleComponent</c> and is modal via <c>UIFocusSystem</c> focus
-/// groups — both are Main/HUD-target mechanisms that the editor's native-resolution Editor-target
-/// chrome deliberately does <b>not</b> use (adding <c>VisibleComponent</c> to Editor chrome would
-/// pull it into <c>MeshPrepSystem</c> and double-offset the pre-baked meshes — see
-/// <c>EditorChromeBuilder</c>). Reusing it would break the chrome invariant, so the dialog is built
-/// the same way <see cref="SystemsPanelSystem"/> is (its sibling chrome widget), and it reuses the
-/// <c>ui</c> primitives it can (<see cref="SimpleButtonComponent"/> / <see cref="DynamicTextComponent"/>)
-/// rather than inventing new draw components.</para>
+/// <para><b>The browser.</b> The pure <see cref="EditorFileBrowser"/> owns navigation: it lists a
+/// directory's subfolders + <c>.mdscene</c> files, descends (<see cref="EnterDirectory"/>) and climbs
+/// (<see cref="GoUp"/>) <b>bounded at the project root</b>, and opens at the project's scenes dir
+/// (<c>LevelsPath</c>). It is NOT a free OS file picker: it never escapes the project root, and scenes
+/// live under <c>Content/Levels</c> so they bundle + load per the persistence design (see the
+/// browser's own doc and the level-editor premises). The dialog renders folder rows as
+/// <c>name/</c> and scene rows as the id; a click on a folder descends, a click on a file <b>loads</b>
+/// it (Load) or fills the filename field to overwrite it (Save).</para>
 ///
 /// <para><b>Modality (the dialog owns input while open).</b> Two facets: (1) <b>mouse</b> — after
-/// hit-testing its own buttons/rows, the system <b>consumes the cursor's pointer edges</b> (clears
-/// the press/release/scroll edges on the single cursor entity), so every mouse-driven editor system
-/// downstream this frame (toolbar, selection, gizmo, camera-nav, palette, boundary, systems-panel)
-/// sees no click and does not act — no per-system edit needed. (2) <b>keyboard</b> — the composing
-/// screen wires the host keyboard system's <c>ShouldSuppressInput</c> to <see cref="IsOpen"/>, so
-/// every editor/game keyboard action (delete, undo/redo, frame, boundary-commit, and crucially the
-/// game's Escape-to-exit) stands down while the dialog reads the keyboard for its own field. Escape
-/// cancels; Enter confirms (Save).</para>
+/// hit-testing its own controls, the system <b>consumes the cursor's pointer edges</b> (clears the
+/// press/release/scroll edges on the single cursor entity), so every mouse-driven editor system
+/// downstream this frame sees no click and does not act — no per-system edit needed. (2)
+/// <b>keyboard</b> — the composing screen wires the host keyboard system's <c>ShouldSuppressInput</c>
+/// to <see cref="IsOpen"/>, so every editor/game key (delete, undo/redo, the game's Escape-to-exit)
+/// stands down while the dialog reads the keyboard for its own field. Escape cancels; Enter confirms
+/// (Save). The release-edge action survives its own consume only because the cursor derives its edges
+/// from its OWN previous-state (the EF1 cursor premise), not from the level fields the dialog clears.</para>
 ///
 /// <para><b>Headless-drivable.</b> Every action has a public method (<see cref="OpenSave"/> /
 /// <see cref="OpenLoad"/> / <see cref="SetName"/> / <see cref="Confirm"/> / <see cref="Cancel"/> /
-/// <see cref="SelectLoad"/>) so the <c>dialog:*</c> editor-op grammar drives the full flow with no
-/// real keyboard/mouse — see <c>EditorOverlay.DispatchNamedAction</c>.</para>
+/// <see cref="EnterDirectory"/> / <see cref="GoUp"/> / <see cref="PickFile"/>) so the <c>dialog:*</c>
+/// editor-op grammar drives the full flow with no real keyboard/mouse — see
+/// <c>EditorOverlay.DispatchNamedAction</c> (<c>save-open</c> / <c>load-open</c> / <c>name</c> /
+/// <c>confirm</c> / <c>cancel</c> / <c>cd</c> / <c>up</c> / <c>pick</c>).</para>
 ///
 /// <para><b>Game-agnostic.</b> It knows nothing of <c>SceneWriter</c> / project paths: the confirm /
-/// select outcomes fire callbacks the overlay supplies (which run the SAME guarded Save / Load
-/// paths the toolbar used), and the Load list comes from an injected <see cref="SceneListing"/>
-/// provider — so the module never touches the filesystem and the whole flow is unit-testable
-/// in-process with no GraphicsDevice.</para>
+/// pick outcomes fire callbacks the overlay supplies with the resolved <b>absolute file path</b>
+/// (which run the SAME guarded Save / Load paths the toolbar used), and the browsable tree comes from
+/// injected providers (<see cref="BrowserRoots"/> + a <c>listDirectory</c> function) — so the module
+/// never touches the filesystem and the whole flow is unit-testable in-process with no GraphicsDevice.
+/// </para>
 /// </summary>
 public sealed class EditorDialogSystem : ISystem<GameState>
 {
@@ -93,19 +90,19 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private readonly BitmapFont? _font;
     private readonly Action<string, GameState> _onSaveConfirmed;
     private readonly Action<string, GameState> _onLoadSelected;
-    private readonly Func<SceneListing> _listScenes;
+    private readonly Func<BrowserRoots> _getRoots;
     private readonly Func<KeyboardState> _getKeyboardState;
     private readonly EntitySet _cursorSet;
 
     private readonly EditorTextField _field = new();
+    private readonly EditorFileBrowser _browser;
     private EditorDialogMode _mode = EditorDialogMode.None;
-    private SceneListing _listing;
-    private int _loadScroll;
+    private int _scroll;
     private KeyboardState _prevKeys;
 
     private bool _built;
-    private Entity _backdrop, _panel, _title, _fieldBox, _fieldText, _confirmBox, _confirmLabel,
-        _cancelBox, _cancelLabel, _message;
+    private Entity _backdrop, _panel, _title, _breadcrumb, _upBox, _upLabel, _fieldBox, _fieldText,
+        _confirmBox, _confirmLabel, _cancelBox, _cancelLabel, _message;
     private readonly List<(Entity box, Entity label)> _rows = new();
 
     public bool IsEnabled { get; set; } = true;
@@ -120,8 +117,20 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     /// <summary>The current Save-name field value (raw, pre-sanitize). Exposed for tests.</summary>
     public string NameValue => _field.Value;
 
-    /// <summary>The scene ids the Load dialog is currently listing. Exposed for tests.</summary>
-    public IReadOnlyList<string> ListedSceneIds => _listing.SceneIds ?? Array.Empty<string>();
+    /// <summary>The browser's current directory (null when unresolved). Exposed for tests.</summary>
+    public string? CurrentDirectory => _browser.CurrentDir;
+
+    /// <summary>The subfolders in the current directory. Exposed for tests.</summary>
+    public IReadOnlyList<string> Directories => _browser.Directories;
+
+    /// <summary>The <c>.mdscene</c> ids in the current directory. Exposed for tests.</summary>
+    public IReadOnlyList<string> Files => _browser.Files;
+
+    /// <summary>Whether the up-directory control would move (false at the project-root boundary).</summary>
+    public bool CanGoUp => _browser.CanGoUp;
+
+    /// <summary>The breadcrumb path display string. Exposed for tests.</summary>
+    public string BreadcrumbText => _browser.BreadcrumbText;
 
     public EditorDialogSystem(
         World world,
@@ -129,7 +138,8 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         BitmapFont? font,
         Action<string, GameState> onSaveConfirmed,
         Action<string, GameState> onLoadSelected,
-        Func<SceneListing> listScenes,
+        Func<BrowserRoots> getRoots,
+        Func<string, RawDirectory> listDirectory,
         Func<KeyboardState>? getKeyboardState = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -137,30 +147,32 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _font = font; // null = layout-only (tests run no text prep, mirroring EditorChromeBuilder's seam)
         _onSaveConfirmed = onSaveConfirmed ?? throw new ArgumentNullException(nameof(onSaveConfirmed));
         _onLoadSelected = onLoadSelected ?? throw new ArgumentNullException(nameof(onLoadSelected));
-        _listScenes = listScenes ?? throw new ArgumentNullException(nameof(listScenes));
+        _getRoots = getRoots ?? throw new ArgumentNullException(nameof(getRoots));
+        _browser = new EditorFileBrowser(listDirectory ?? throw new ArgumentNullException(nameof(listDirectory)));
         _getKeyboardState = getKeyboardState ?? Keyboard.GetState;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
     // ─── public API (toolbar dispatch, headless ops, tests) ──────────────────────────────────────
 
-    /// <summary>Opens the Save dialog with the field prefilled to <paramref name="defaultName"/>
-    /// (the current scene id).</summary>
+    /// <summary>Opens the Save browser rooted at the project scenes dir, with the field prefilled to
+    /// <paramref name="defaultName"/> (the current scene id).</summary>
     public void OpenSave(string defaultName)
     {
         EnsureBuilt();
         _field.Set(defaultName);
+        _browser.Open(_getRoots());
+        _scroll = 0;
         _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
         _mode = EditorDialogMode.Save;
     }
 
-    /// <summary>Opens the Load dialog and snapshots the current scene listing (files present, or the
-    /// unresolved-project message).</summary>
+    /// <summary>Opens the Load browser rooted at the project scenes dir.</summary>
     public void OpenLoad()
     {
         EnsureBuilt();
-        _listing = _listScenes();
-        _loadScroll = 0;
+        _browser.Open(_getRoots());
+        _scroll = 0;
         _prevKeys = _getKeyboardState();
         _mode = EditorDialogMode.Load;
     }
@@ -168,9 +180,43 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     /// <summary>Replaces the Save-name field value (the headless <c>dialog:name</c> op).</summary>
     public void SetName(string text) => _field.Set(text);
 
-    /// <summary>Confirms the current dialog. For Save: sanitizes the field to a safe file id and,
-    /// when non-empty, fires the save callback and closes; an empty result keeps the dialog open and
-    /// logs. (Load performs its action via <see cref="SelectLoad"/>.)</summary>
+    /// <summary>Descends into a listed subfolder (the headless <c>dialog:cd &lt;name&gt;</c> op / a
+    /// folder-row click).</summary>
+    public void EnterDirectory(string name)
+    {
+        if (_browser.Enter(name)) _scroll = 0;
+    }
+
+    /// <summary>Climbs to the parent directory, bounded at the project root (the headless
+    /// <c>dialog:up</c> op / the up-button click).</summary>
+    public void GoUp()
+    {
+        _browser.Up();
+        _scroll = 0;
+    }
+
+    /// <summary>Picks a scene file by id in the current directory (the headless <c>dialog:pick</c> /
+    /// <c>dialog:load</c> op / a file-row click). In Load mode it fires the load callback (with the
+    /// resolved absolute path) and closes; in Save mode it fills the filename field so the user can
+    /// overwrite that file.</summary>
+    public void PickFile(string id, GameState state)
+    {
+        if (string.IsNullOrEmpty(id)) return;
+        if (_mode == EditorDialogMode.Save) { _field.Set(id); return; }
+        var path = _browser.FilePath(id);
+        if (string.IsNullOrEmpty(path))
+        {
+            Logger.Warning("[level-editor] Load: no project root resolved, so there is nothing to load.");
+            return;
+        }
+        _onLoadSelected(path!, state);
+        Close();
+    }
+
+    /// <summary>Confirms the Save dialog: sanitizes the field to a safe file id and, when non-empty,
+    /// resolves it to <c>&lt;current-dir&gt;/&lt;id&gt;.mdscene</c>, fires the save callback and closes;
+    /// an empty result (or an unresolved root) keeps the dialog open and logs. (Load acts via
+    /// <see cref="PickFile"/>.)</summary>
     public void Confirm(GameState state)
     {
         if (_mode != EditorDialogMode.Save) return;
@@ -182,15 +228,15 @@ public sealed class EditorDialogSystem : ISystem<GameState>
                 "(letters, digits, '-' and '_'). Type a valid name.");
             return; // keep the dialog open
         }
-        _onSaveConfirmed(id, state);
-        Close();
-    }
-
-    /// <summary>Loads a scene by id (a Load-dialog row click or the headless <c>dialog:load</c> op)
-    /// and closes.</summary>
-    public void SelectLoad(string id, GameState state)
-    {
-        _onLoadSelected(id, state);
+        var path = _browser.FilePath(id);
+        if (string.IsNullOrEmpty(path))
+        {
+            Logger.Warning(
+                "[level-editor] Save dialog: no project root resolved, so there is nowhere to write. " +
+                "Set MONODREAMS_PROJECT_ROOT in the run configuration.");
+            return; // keep the dialog open
+        }
+        _onSaveConfirmed(path!, state);
         Close();
     }
 
@@ -258,23 +304,30 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         {
             ref var input = ref cursor.Get<CursorInputComponent>();
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            var isSave = _mode == EditorDialogMode.Save;
             var panel = EditorDialogLayout.Panel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight,
-                _mode == EditorDialogMode.Load, scale);
+                !isSave, scale);
 
-            if (_mode == EditorDialogMode.Load && input.ScrollWheelDelta != 0 && panel.Contains(point))
-                ScrollLoadList(panel, scale, input.ScrollWheelDelta);
+            if (input.ScrollWheelDelta != 0 && panel.Contains(point))
+                ScrollList(panel, isSave, scale, input.ScrollWheelDelta);
 
             if (input.LeftButtonReleased)
             {
-                if (_mode == EditorDialogMode.Save)
+                if (EditorDialogLayout.CancelButton(panel, !isSave, scale).Contains(point))
                 {
-                    if (EditorDialogLayout.ConfirmButton(panel, scale).Contains(point)) Confirm(state);
-                    else if (EditorDialogLayout.CancelButton(panel, false, scale).Contains(point)) Cancel();
+                    Cancel();
                 }
-                else // Load
+                else if (isSave && EditorDialogLayout.ConfirmButton(panel, scale).Contains(point))
                 {
-                    if (EditorDialogLayout.CancelButton(panel, true, scale).Contains(point)) Cancel();
-                    else HitTestLoadRow(panel, scale, point, state);
+                    Confirm(state);
+                }
+                else if (_browser.Resolved && EditorDialogLayout.UpButton(panel, scale).Contains(point))
+                {
+                    GoUp();
+                }
+                else if (_browser.Resolved)
+                {
+                    HitTestRow(panel, isSave, scale, point, state);
                 }
             }
 
@@ -288,61 +341,75 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         }
     }
 
-    private void HitTestLoadRow(Rectangle panel, float scale, Point point, GameState state)
+    /// <summary>Maps a clicked visible row to a folder (descend) or a scene file (Load: load / Save:
+    /// fill the name), folders listed before files.</summary>
+    private void HitTestRow(Rectangle panel, bool isSave, float scale, Point point, GameState state)
     {
-        var ids = _listing.SceneIds;
-        if (ids == null || ids.Count == 0) return;
-        var visible = EditorDialogLayout.VisibleRowCount(panel, scale);
+        var count = _browser.EntryCount;
+        if (count == 0) return;
+        var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
         for (var vi = 0; vi < visible; vi++)
         {
-            var i = _loadScroll + vi;
-            if (i >= ids.Count) break;
-            if (EditorDialogLayout.Row(panel, vi, scale).Contains(point))
-            {
-                SelectLoad(ids[i], state);
-                return;
-            }
+            var i = _scroll + vi;
+            if (i >= count) break;
+            if (!EditorDialogLayout.Row(panel, vi, scale).Contains(point)) continue;
+            if (_browser.IsDirectory(i))
+                EnterDirectory(_browser.Directories[i]);
+            else
+                PickFile(_browser.Files[i - _browser.Directories.Count], state);
+            return;
         }
     }
 
-    private void ScrollLoadList(Rectangle panel, float scale, int wheelDelta)
+    private void ScrollList(Rectangle panel, bool isSave, float scale, int wheelDelta)
     {
-        var count = _listing.SceneIds?.Count ?? 0;
-        var visible = EditorDialogLayout.VisibleRowCount(panel, scale);
-        var max = Math.Max(0, count - visible);
-        _loadScroll = Math.Clamp(_loadScroll + (wheelDelta > 0 ? -1 : 1), 0, max);
+        var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
+        var max = Math.Max(0, _browser.EntryCount - visible);
+        _scroll = Math.Clamp(_scroll + (wheelDelta > 0 ? -1 : 1), 0, max);
     }
 
     // ─── layout + render ───────────────────────────────────────────────────────────────────────
 
     private void LayoutAndRender(GameState state, float scale)
     {
-        var isLoad = _mode == EditorDialogMode.Load;
+        var isSave = _mode == EditorDialogMode.Save;
         var w = _viewportManager.ScreenWidth;
         var h = _viewportManager.ScreenHeight;
-        var panel = EditorDialogLayout.Panel(w, h, isLoad, scale);
+        var panel = EditorDialogLayout.Panel(w, h, !isSave, scale);
 
         PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
         PlaceBox(_panel, panel);
-        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), isLoad ? "Load Scene" : "Save Scene",
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), isSave ? "Save Scene" : "Load Scene",
             EditorChromeBuilder.LabelColor, scale);
 
         // Cancel is always present (Load's only button; Save's second button).
-        var cancel = EditorDialogLayout.CancelButton(panel, isLoad, scale);
+        var cancel = EditorDialogLayout.CancelButton(panel, !isSave, scale);
         PlaceBox(_cancelBox, cancel);
         PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorChromeBuilder.LabelColor, scale);
 
-        if (isLoad)
+        if (!_browser.Resolved)
         {
-            ParkBox(_confirmBox); Park(_confirmLabel);
+            // No project root: show the actionable message, hide the browser controls.
+            PlaceLabel(_message, EditorDialogLayout.Message(panel, scale),
+                _browser.Message ?? "No project root resolved.", EditorChromeBuilder.LabelColor, scale);
+            Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
             ParkBox(_fieldBox); Park(_fieldText);
-            RenderLoadList(panel, scale);
-        }
-        else
-        {
-            ParkMessage();
+            ParkBox(_confirmBox); Park(_confirmLabel);
             ParkRows();
+            return;
+        }
 
+        // Breadcrumb (current path) + up-directory button.
+        var breadcrumb = EditorDialogLayout.Breadcrumb(panel, scale);
+        PlaceLabel(_breadcrumb, LabelInset(breadcrumb, scale), _browser.BreadcrumbText,
+            EditorChromeBuilder.LabelColor, scale);
+        var up = EditorDialogLayout.UpButton(panel, scale);
+        PlaceBox(_upBox, up);
+        PlaceLabel(_upLabel, LabelInset(up, scale), "Up",
+            _browser.CanGoUp ? EditorChromeBuilder.LabelColor : EditorChromeBuilder.DisabledLabelColor, scale);
+
+        if (isSave)
+        {
             var confirm = EditorDialogLayout.ConfirmButton(panel, scale);
             PlaceBox(_confirmBox, confirm);
             PlaceLabel(_confirmLabel, LabelInset(confirm, scale), "Save", EditorChromeBuilder.LabelColor, scale);
@@ -354,35 +421,44 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             PlaceLabel(_fieldText, EditorDialogLayout.FieldText(field, scale), shown,
                 EditorChromeBuilder.LabelColor, scale);
         }
+        else
+        {
+            ParkBox(_confirmBox); Park(_confirmLabel);
+            ParkBox(_fieldBox); Park(_fieldText);
+        }
+
+        RenderList(panel, isSave, scale);
     }
 
-    private void RenderLoadList(Rectangle panel, float scale)
+    private void RenderList(Rectangle panel, bool isSave, float scale)
     {
-        var ids = _listing.SceneIds ?? Array.Empty<string>();
-        var showMessage = !_listing.Resolved || ids.Count == 0;
-        if (showMessage)
+        var count = _browser.EntryCount;
+        if (count == 0)
         {
-            var text = _listing.Message
-                ?? (!_listing.Resolved ? "No project root resolved." : "No saved scenes yet.");
-            PlaceLabel(_message, EditorDialogLayout.Message(panel, scale), text,
-                EditorChromeBuilder.LabelColor, scale);
+            PlaceLabel(_message, EditorDialogLayout.Message(panel, scale),
+                _browser.Message ?? "Empty folder.", EditorChromeBuilder.LabelColor, scale);
             ParkRows();
             return;
         }
 
-        ParkMessage();
-        var visible = EditorDialogLayout.VisibleRowCount(panel, scale);
-        _loadScroll = Math.Clamp(_loadScroll, 0, Math.Max(0, ids.Count - visible));
+        Park(_message);
+        var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
+        _scroll = Math.Clamp(_scroll, 0, Math.Max(0, count - visible));
 
         for (var vi = 0; vi < visible; vi++)
         {
-            var i = _loadScroll + vi;
+            var i = _scroll + vi;
             EnsureRow(vi);
             var (box, label) = _rows[vi];
-            if (i >= ids.Count) { ParkBox(box); Park(label); continue; }
+            if (i >= count) { ParkBox(box); Park(label); continue; }
+
             var rect = EditorDialogLayout.Row(panel, vi, scale);
             PlaceBox(box, rect);
-            PlaceLabel(label, LabelInset(rect, scale), ids[i], EditorChromeBuilder.LabelColor, scale);
+            var isDir = _browser.IsDirectory(i);
+            // Folders are suffixed "/" (and tinted with the accent) so they read distinctly from files.
+            var text = isDir ? _browser.Directories[i] + "/" : _browser.Files[i - _browser.Directories.Count];
+            var color = isDir ? EditorChromeBuilder.CheckboxOnFill : EditorChromeBuilder.LabelColor;
+            PlaceLabel(label, LabelInset(rect, scale), text, color, scale);
         }
         for (var vi = visible; vi < _rows.Count; vi++)
         {
@@ -394,7 +470,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private Vector2 LabelInset(Rectangle rect, float scale)
     {
         var labelH = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
-        return new Vector2(rect.X + EditorDialogLayout.Px(8, scale), rect.Y + (rect.Height - labelH) / 2f);
+        return EditorDialogLayout.TextInset(rect, labelH, scale);
     }
 
     // ─── entity construction (chrome: Editor target, no VisibleComponent) ────────────────────────
@@ -405,6 +481,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _backdrop = CreateBox(BackdropColor, BackdropColor, 0f, BackdropDepth);
         _panel = CreateBox(PanelColor, EditorChromeBuilder.ButtonOutline, 1.5f, PanelDepth);
         _title = CreateLabel(LabelDepth);
+        _breadcrumb = CreateLabel(LabelDepth);
+        _upBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
+        _upLabel = CreateLabel(LabelDepth);
         _fieldBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
         _fieldText = CreateLabel(LabelDepth);
         _confirmBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
@@ -492,10 +571,11 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private void ParkAll()
     {
         ParkBox(_backdrop); ParkBox(_panel); Park(_title);
+        Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
         ParkBox(_fieldBox); Park(_fieldText);
         ParkBox(_confirmBox); Park(_confirmLabel);
         ParkBox(_cancelBox); Park(_cancelLabel);
-        ParkMessage();
+        Park(_message);
         ParkRows();
     }
 
@@ -503,8 +583,6 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     {
         foreach (var (box, label) in _rows) { ParkBox(box); Park(label); }
     }
-
-    private void ParkMessage() => Park(_message);
 
     private static void ParkBox(Entity e)
     {

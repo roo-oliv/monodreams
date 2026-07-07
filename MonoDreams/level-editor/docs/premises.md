@@ -880,6 +880,44 @@ values; editor-infra entities are hidden from the tree; section-header + group-a
 `LayerDepth` …" (`SelectedComponent`, the two-way selection tag); foundation — `ChildOfComponent`
 (the tree edges), `EntityInfoComponent` (row labels).
 
+## Panel disclosure arrows are triangle MESHES, not font glyphs
+
+Every collapsible row in the right strip (section headers, pipeline group rows, scene-tree entities
+with children, inspector component rows) shows its disclosure caret as a **filled triangle mesh** —
+`FilledTriangleMeshGenerator` fed the three points from the pure `SystemsPanelLayout.ArrowTriangle`
+(right-pointing ▸ collapsed, down-pointing ▾ expanded), baked into a raw `DrawComponent`
+(`Type = Mesh`, identity `WorldMatrix`, native `Editor` target, **no `VisibleComponent`**, no
+`SimpleButtonComponent`) that the panel refills each frame in the arrow gutter (`ArrowRect`) — exactly
+the screen-baked-mesh pattern the gizmo overlays use. An arrow with no collapse (a non-collapsible row,
+or a parked pool slot) is hidden by **emptying its mesh** (an invalid mesh is skipped by
+`MasterRenderSystem`), the mesh analog of parking a text entity off-screen. The pooled row visual is
+therefore one `DynamicText` label + one mesh arrow (plus the pipeline-row checkbox/minus-bar), still
+bounded by the visible window. The click hit-zone is unchanged — `ArrowRect` still splits the
+collapse-caret from the enable-toggle body — so the systems-panel enable-vs-collapse distinction holds.
+
+**Why:** the pre-mesh panel drew the caret as the ASCII `v`/`>` because the editor's BitmapFont is not
+guaranteed to carry the Unicode triangle glyphs — which looked like a stray letter (Rider hands-on
+feedback: the `v` reads as a typo, not a disclosure arrow). Drawing it as a mesh removes the font-glyph
+dependency entirely and gives a crisp, native-resolution, DPR-correct Blender-like caret. Meshes are
+already the editor's font-independent draw path (gizmo handles, selection outlines), so this reuses it
+rather than adding a new draw component (the no-duplicate-ways tenet).
+**Breaks:** rendering the caret as a font glyph reintroduces the coverage dependency (a missing glyph
+box, or the `v` mis-read as text); giving the arrow entity a `VisibleComponent` (or a
+`SimpleButtonComponent`) would pull it into `MeshPrepSystem`/`ButtonMeshPrepSystem`, overwriting the
+identity `WorldMatrix` its screen-baked vertices require; parking a mesh by position (instead of
+emptying it) leaves the last triangle drawn at an off-screen coordinate that the identity matrix ignores.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs`
+(`ArrowTriangle_PointsRightWhenCollapsed_DownWhenExpanded` — the pure geometry's orientation;
+`DisclosureArrow_IsAMesh_NotATextGlyph` — the panel emits triangle-mesh arrows and NO `v`/`>` label;
+`GroupArrowMesh_OrientationTracksTheExpandedState` — the group row's arrow mesh matches the
+expanded ▾ then, after an arrow-click collapse, the collapsed ▸ triangle; `GroupArrowClick_Collapses…`,
+`WhilePlaying_StaysInteractive`, `Wheel_ScrollsByClampedLines`, `PooledVisuals_AreBoundedByTheVisibleWindow`
+stay green through the change).
+**Depends on:** this file — "The systems panel renders the registrar tree …" and "The editor right strip
+is a stack of collapsible sections" (the rows whose carets these are); rendering — the mesh
+`DrawComponent` draw path (`MasterRenderSystem` skips an invalid mesh) and `FilledTriangleMeshGenerator`;
+"The editor shell insets the game viewport …" (the Editor target + the no-`VisibleComponent` chrome rule).
+
 ## Collider shapes are edited through standalone gizmo proxies; write-back targets the bound component, through the undo history
 
 Colliders are **not** entities — `BoxColliderComponent.Bounds` (an entity-relative rectangle) and
@@ -1231,64 +1269,91 @@ build-output path instead of the versioned source tree.
 owns RunMode" (Playing = `RunMode.Play` with the shell composed); "The project manifest anchors the
 editor's project root; unresolved is fail-safe" (the `NoProjectRoot` cause).
 
-## The editor's Save/Load dialogs are modal editor-native chrome that own input while open
+## The editor's Save/Load dialog is a modal file-system navigator, project-root-scoped, that owns input while open
 
-The toolbar's Save and Load buttons open modal dialogs (`EditorDialogSystem`, weave entry
-`editor.dialog`) rather than acting immediately: **Save** opens a name field (prefilled with the
-current scene id) + Save/Cancel — confirm sanitizes the typed name to a safe file id
+The toolbar's Save and Load buttons open a modal **Blender-style directory browser**
+(`EditorDialogSystem`, weave entry `editor.dialog`) rather than acting immediately. Both modes share
+the browser: a **breadcrumb** of the current path, an **up-directory** button, and a scrollable list
+of the current directory's **subfolders** (rendered `name/`, click to descend) and **`.mdscene`
+files** (rendered as the id). **Save** adds a **filename field** (prefilled with the current scene id;
+clicking a file fills it, to overwrite) — confirm sanitizes the typed name to a safe file id
 (`EditorTextField.Sanitize`: letters/digits/`-`/`_` only, edge-trimmed; empty ⇒ refused, dialog stays
-open), sets it as the editor's scene id, and writes through the SAME guarded `SaveCurrentScene`
-(overwriting an existing file with a logged note); **Load** lists `LevelsPath/*.mdscene` (or the
-actionable "no project root" message when unresolved) and a row click publishes the SAME
-`LoadSceneRequest(path, fromContent:false)` the toolbar Load used. The dialog is built the way the
-systems panel is — native-resolution chrome on `RenderTargetID.Editor`, `SimpleButtonComponent` +
-`DynamicTextComponent`, `ScreenPosition` hit-test, **no `VisibleComponent`** (shown/hidden by parking
-off-screen) — deliberately NOT the `ui` `DialogComponent`/`DialogSystem` (which toggle
-`VisibleComponent` and trap focus via `UIFocusSystem` — both Main/HUD mechanisms the Editor-target
-chrome must not use). While a dialog is open it **owns input**, in two halves: (1) mouse — after
-hit-testing its own controls (on the release edge) it clears the cursor's pointer edges AND the
-button level fields on the single cursor entity, so no mouse-driven editor system (toolbar,
-selection, gizmo, camera-nav, palette, boundary, systems-panel) downstream that frame acts. The
-dialog itself acting on the release edge survives its own consume ONLY because `CursorInputSystem`
-derives the edges from a previous-state it owns rather than from the (now-cleared) level fields — see
-cursor's "Button press/release edges derive from CursorInputSystem's own previous-state"; without
-that the dialog's clear of `LeftButton` would make its own release edge unobservable the next frame
-(the confirmed "dialog clicks do nothing" bug). (2) keyboard — the composing screen wires the host
-keyboard system's
+open), resolves it to `<current-dir>/<id>.mdscene`, sets that id as the editor's scene id, and writes
+through the SAME guarded save (overwriting an existing file with a logged note). **Load** — clicking a
+`.mdscene` row publishes the SAME `LoadSceneRequest(absolutePath, fromContent:false)` the toolbar Load
+used, with the browser-resolved absolute path. The navigation MODEL is the pure, filesystem-free
+`EditorFileBrowser` (it takes an injected `listDirectory` and does the `.mdscene` filter + folder/file
+classification + bounded navigation on top); the pure geometry is `EditorDialogLayout`.
+
+**Scoping — the browser is NOT an OS file picker.** It is rooted (up-bounded) at the **project root**
+(`EditorProjectContext.ProjectRoot`) — `up` stops there and never climbs into the wider OS filesystem —
+and it **opens at the project's scenes dir** (`LevelsPath` = `Content/Levels`), because per the
+persistence design a scene must live under `Content/Levels` to be MGCB-`/copy:`-bundled into the title
+and loaded native-first by the shipped game. Navigating up to `Content/` or the root is allowed for
+orientation, but only a save written **directly into `LevelsPath`** is auto-bundled (the
+`./Levels/<id>.mdscene` copy line can only address that dir; a save the designer navigated elsewhere is
+authored but logged as not-bundled). When the project root is **unresolved** the browser shows the
+actionable "set `MONODREAMS_PROJECT_ROOT`" message and lists nothing (the overlay supplies the roots +
+lister; the module never reads the filesystem).
+
+The dialog is built the way the systems panel is — native-resolution chrome on `RenderTargetID.Editor`,
+`SimpleButtonComponent` + `DynamicTextComponent`, `ScreenPosition` hit-test, **no `VisibleComponent`**
+(shown/hidden by parking off-screen) — deliberately NOT the `ui` `DialogComponent`/`DialogSystem` (which
+toggle `VisibleComponent` and trap focus via `UIFocusSystem` — both Main/HUD mechanisms the
+Editor-target chrome must not use). While the dialog is open it **owns input**, in two halves: (1) mouse
+— after hit-testing its own controls (on the release edge) it clears the cursor's pointer edges AND the
+button level fields on the single cursor entity, so no mouse-driven editor system (toolbar, selection,
+gizmo, camera-nav, palette, boundary, systems-panel) downstream that frame acts. The dialog itself
+acting on the release edge survives its own consume ONLY because `CursorInputSystem` derives the edges
+from a previous-state it owns rather than from the (now-cleared) level fields — see cursor's "Button
+press/release edges derive from CursorInputSystem's own previous-state"; without that the dialog's clear
+of `LeftButton` would make its own release edge unobservable the next frame (the confirmed "dialog
+clicks do nothing" bug). (2) keyboard — the composing screen wires the host keyboard system's
 `ShouldSuppressInput` to `Dialog.IsOpen`, so every editor/game keyboard action (delete, undo/redo,
 frame, boundary-commit, and the game's Escape-to-exit) stands down while the dialog reads the keyboard
 for its name field (Backspace edits, Enter confirms, Escape cancels). Every action also has a public
-method so the headless `dialog:save-open|load-open|name <text>|confirm|cancel|load <id>` op grammar
-drives the whole flow with no real keyboard/mouse.
+method so the headless `dialog:save-open|load-open|name <text>|confirm|cancel|cd <folder>|up|pick <file>`
+op grammar drives the whole flow with no real keyboard/mouse.
 
-**Why:** the user needs to name a scene and pick which to load (Rider hands-on feedback: "there is no
-Save dialog nor a Load dialog"); and a modal must capture input or a stray viewport click/keystroke
-leaks to the tools behind it — most dangerously typing a name with `z`/`y` (undo/redo) or hitting
-Escape (quit the game). Reusing the `ui` dialog machinery would force `VisibleComponent` onto Editor
-chrome and break the chrome-render invariant, so the dialog is editor-native but still built from the
-shared UI primitives (no parallel draw components — the no-duplicate-ways tenet).
-**Breaks:** without the mouse edge-consumption a click meant for a dialog button also selects/places
-behind it; without the keyboard suppression, typing a filename fires editor hotkeys (undo/redo/delete)
-and Escape quits the game mid-edit; using `ui.DialogSystem` would add `VisibleComponent` to Editor
-chrome and double-offset the pre-baked meshes.
-**Tests:** `MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
+**Why:** the user needs to name a scene and pick which to load, and expected a real file browser (Rider
+hands-on feedback: the flat name-field / list dialogs "aren't what I expected"). Rooting at the project
+root (not the OS root) keeps the browser inside the versionable project and steers scenes into
+`Content/Levels`, the only place they bundle + load — a free OS picker would let a designer save a scene
+somewhere the build can never reach. A modal must capture input or a stray viewport click/keystroke
+leaks to the tools behind it — most dangerously typing a name with `z`/`y` (undo/redo) or hitting Escape
+(quit the game). Reusing the `ui` dialog machinery would force `VisibleComponent` onto Editor chrome and
+break the chrome-render invariant, so the dialog is editor-native but still built from the shared UI
+primitives (no parallel draw components — the no-duplicate-ways tenet).
+**Breaks:** an OS-wide picker lets a scene land where MGCB never copies it (a level that boots in the
+editor but is missing from a shipped build); without the mouse edge-consumption a click meant for a
+dialog button also selects/places behind it; without the keyboard suppression, typing a filename fires
+editor hotkeys (undo/redo/delete) and Escape quits the game mid-edit; using `ui.DialogSystem` would add
+`VisibleComponent` to Editor chrome and double-offset the pre-baked meshes.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorFileBrowserTests.cs`
+(`Open_ListsScenes_FiltersNonSceneFiles_AndClassifiesFolders`, `Enter_DescendsIntoASubfolder`,
+`Enter_UnknownFolder_IsANoOp`, `Up_ClimbsButIsBoundedAtTheProjectRoot`,
+`FilePath_ResolvesTheSceneUnderTheCurrentDir`, `Breadcrumb_ShowsThePathFromTheRootLeaf`,
+`Unresolved_ShowsTheMessage_AndListsNothing` — the pure navigation model + scoping) and
+`MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
 (`EditorTextField_AppendBackspaceSetClear`, `EditorTextField_Sanitize`,
-`SaveDialog_OpenNameConfirm_FiresSanitizedIdAndCloses`, `SaveDialog_Cancel_WritesNothingAndCloses`,
-`SaveDialog_EmptyAfterSanitize_KeepsDialogOpenAndDoesNotSave`,
-`SaveDialog_ConfirmRespectsTheSaveGuard_AndWritesToLevelsPath`,
-`SaveDialog_KeyboardTypingBackspaceEnter`, `SaveDialog_EscapeCloses`,
-`LoadDialog_ListsScenes_AndSelectingOneFiresLoad`,
+`SaveDialog_OpenNameConfirm_WritesSanitizedIdUnderTheCurrentDir_AndCloses`,
+`SaveDialog_Cancel_WritesNothingAndCloses`, `SaveDialog_EmptyAfterSanitize_KeepsDialogOpenAndDoesNotSave`,
+`SaveDialog_ConfirmRespectsTheSaveGuard_AndWritesToLevelsPath`, `SaveDialog_KeyboardTypingBackspaceEnter`,
+`SaveDialog_EscapeCloses`, `LoadDialog_ListsFoldersAndScenes_AndPickingOneFiresLoadWithTheResolvedPath`,
+`Dialog_NavigatesIntoASubfolder_AndUpIsBoundedAtTheProjectRoot`,
+`SaveDialog_PickingAFile_FillsTheNameField_ToOverwrite`,
 `LoadDialog_UnresolvedRoot_ShowsMessageAndDoesNotCrash`,
 `OpenDialog_ConsumesTheCursor_SoAViewportClickDoesNotSelect`,
 `SaveDialog_ClickThroughRealCursorPipeline_ConfirmsOnRelease` — a scripted press→release through the
-REAL `CursorInputSystem → editor.dialog` woven order confirms the dialog, the regression that the
+REAL `CursorInputSystem → editor.dialog` woven order confirms the dialog, the EF1 regression that the
 injected-edge tests missed).
 **Depends on:** this file — "Save is blocked while Playing or when no project root is resolved" (the
 confirm re-applies the guard); "The editor Save writes versioned `.mdscene` into the project source
-tree" (SaveCurrentScene's write target); "The systems panel renders the registrar tree …" (the sibling
+tree" (the write target + `Content/Levels` bundling home); "The project manifest anchors the editor's
+project root" (`ProjectRoot`/`LevelsPath`); "The systems panel renders the registrar tree …" (the sibling
 native-chrome widget it mirrors); cursor — "Button press/release edges derive from CursorInputSystem's
-own previous-state, immune to consumers clearing the level fields" (why the dialog's release-edge
-action survives its own pointer-edge consume); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput`
+own previous-state, immune to consumers clearing the level fields" (why the dialog's release-edge action
+survives its own pointer-edge consume); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput`
 (the keyboard-half seam); rendering — "Editor-target chrome carries no `VisibleComponent`" (the chrome rule).
 
 ## The project manifest anchors the editor's project root; unresolved is fail-safe

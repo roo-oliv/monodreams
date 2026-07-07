@@ -23,20 +23,47 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the editor's Save / Load dialogs (FW2): the pure name-field model + sanitizer, the Save
-/// flow (open → name → confirm writes the sanitized id through the guarded save; Cancel writes
-/// nothing; the FW1 gate still blocks Playing / unresolved-root), the Load flow (lists the scenes,
-/// selecting one fires the load; unresolved root shows an actionable message and never crashes), the
-/// modal capture (an open dialog consumes the cursor so a viewport click never selects; Escape
-/// closes), and keyboard field editing.
+/// Protects the editor's Save / Load <b>file-system navigator</b> dialog (FW2): the pure name-field
+/// model + sanitizer, the Save flow (open → navigate → name → confirm writes to
+/// <c>&lt;current-dir&gt;/&lt;name&gt;.mdscene&gt;</c> through the guarded save; Cancel writes nothing;
+/// the FW1 gate still blocks Playing / unresolved-root), the Load flow (lists the folders + scenes,
+/// picking a file fires the load with the resolved absolute path; unresolved root shows an actionable
+/// message and never crashes), <b>navigation</b> (cd into a subfolder, up bounded at the project
+/// root), the modal capture (an open dialog consumes the cursor so a viewport click never selects;
+/// Escape closes), and keyboard field editing.
 ///
 /// <para>All in-process, no GraphicsDevice: <see cref="EditorDialogSystem"/> is built with a null
-/// font (layout-only) + injected save/load callbacks + an injected scene listing + an injected
-/// keyboard, exactly the seams that let the whole flow run headless.</para>
+/// font (layout-only) + injected save/load callbacks + injected browser roots + a fake dir lister +
+/// an injected keyboard, exactly the seams that let the whole flow run headless.</para>
 /// </summary>
 [Collection("PlatformServices (non-parallel: mutates static state)")]
 public class EditorDialogTests
 {
+    private static string Norm(string p) => p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    // A synthetic project tree: the up-boundary (root) is <base>/Content, the browser opens at
+    // <base>/Content/Levels, and a props/ subfolder holds one more scene.
+    private static readonly string RootDir = Path.Combine(Path.GetTempPath(), "mddialog", "Content");
+    private static readonly string LevelsDir = Path.Combine(RootDir, "Levels");
+
+    private static Func<BrowserRoots> ResolvedRoots => () => new BrowserRoots(true, RootDir, LevelsDir, null);
+    private static Func<BrowserRoots> UnresolvedRoots =>
+        () => new BrowserRoots(false, null, null, "No project root resolved. Set MONODREAMS_PROJECT_ROOT.");
+    private static Func<string, RawDirectory> EmptyLister =>
+        _ => new RawDirectory(true, Array.Empty<string>(), Array.Empty<string>(), null);
+
+    private static Func<string, RawDirectory> SceneTree()
+    {
+        var props = Path.Combine(LevelsDir, "props");
+        var map = new Dictionary<string, RawDirectory>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Norm(LevelsDir)] = new(true, new[] { "props" }, new[] { "arena.mdscene", "island.mdscene", "menu.mdscene", "notes.txt" }, null),
+            [Norm(props)] = new(true, Array.Empty<string>(), new[] { "hut.mdscene" }, null),
+        };
+        return dir => map.TryGetValue(Norm(dir), out var d)
+            ? d : new RawDirectory(true, Array.Empty<string>(), Array.Empty<string>(), "Empty folder.");
+    }
+
     // ─── pure field model + sanitizer ────────────────────────────────────────────────────────────
 
     [Fact]
@@ -71,20 +98,23 @@ public class EditorDialogTests
     // ─── Save flow ────────────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void SaveDialog_OpenNameConfirm_FiresSanitizedIdAndCloses()
+    public void SaveDialog_OpenNameConfirm_WritesSanitizedIdUnderTheCurrentDir_AndCloses()
     {
-        string? savedId = null;
-        var dialog = NewDialog(onSaveConfirmed: (id, _) => savedId = id);
+        string? savedPath = null;
+        var dialog = NewDialog(onSaveConfirmed: (p, _) => savedPath = p);
 
         dialog.OpenSave("island");
         Assert.Equal(EditorDialogMode.Save, dialog.Mode);
-        Assert.Equal("island", dialog.NameValue); // prefilled with the current scene id
+        Assert.Equal("island", dialog.NameValue);          // prefilled with the current scene id
+        Assert.Equal(Norm(LevelsDir), Norm(dialog.CurrentDirectory!)); // opens at the scenes dir
 
         dialog.SetName("My New Level!");
         dialog.Confirm(EditState());
 
-        Assert.Equal("MyNewLevel", savedId); // sanitized on confirm
-        Assert.False(dialog.IsOpen);          // confirm closes
+        Assert.NotNull(savedPath);
+        Assert.Equal("MyNewLevel", Path.GetFileNameWithoutExtension(savedPath!)); // sanitized on confirm
+        Assert.Equal(Norm(LevelsDir), Norm(Path.GetDirectoryName(savedPath!)!));   // in the browsed dir
+        Assert.False(dialog.IsOpen);                                               // confirm closes
     }
 
     [Fact]
@@ -117,10 +147,10 @@ public class EditorDialogTests
 
     /// <summary>
     /// The Save dialog's confirm routes through the SAME guarded save the toolbar used
-    /// (<c>EditorOverlay.IsSaveBlocked</c> → <see cref="SceneWriter"/>): a confirm while Playing or
-    /// with no project root writes nothing (the FW1 gate); a confirm while Paused with a resolved
-    /// project writes <c>&lt;LevelsPath&gt;/&lt;id&gt;.mdscene</c>. This mirrors the overlay's
-    /// <c>onSaveConfirmed</c> wiring exactly.
+    /// (<c>EditorOverlay.IsSaveBlocked</c> → <see cref="SceneWriter"/>): a confirm while Playing writes
+    /// nothing (the FW1 gate); a confirm while Paused with a resolved project writes
+    /// <c>&lt;LevelsPath&gt;/&lt;id&gt;.mdscene</c> — the absolute path the browser resolved. This mirrors
+    /// the overlay's <c>onSaveConfirmed</c> wiring exactly.
     /// </summary>
     [Fact]
     public void SaveDialog_ConfirmRespectsTheSaveGuard_AndWritesToLevelsPath()
@@ -132,34 +162,30 @@ public class EditorDialogTests
             var serializer = NewSerializer();
             var ctx = ResolvedContext();
             MakeSaveRoot(world);
+            Func<BrowserRoots> ctxRoots = () => new BrowserRoots(true, ctx.ProjectRoot, ctx.LevelsPath, null);
 
-            // The overlay's onSaveConfirmed shape: guard, then write to LevelsPath/<id>.mdscene.
-            void OnSaveConfirmed(string id, GameState state)
+            // The overlay's onSaveConfirmed shape: guard, then write to the browser-resolved path.
+            void OnSaveConfirmed(string path, GameState state)
             {
                 if (EditorOverlay.IsSaveBlocked(state, ctx)) return;
-                new SceneWriter(serializer).Save(world, EditorOverlay.SceneFilePath(ctx, id), camera: null, layers: null);
+                new SceneWriter(serializer).Save(world, path, camera: null, layers: null);
             }
 
-            var dialog = NewDialog(onSaveConfirmed: OnSaveConfirmed);
+            var dialog = NewDialog(onSaveConfirmed: OnSaveConfirmed, roots: ctxRoots);
 
-            // Playing → blocked (nothing written), dialog still closes on confirm attempt? No — confirm
-            // fires the callback which no-ops on the guard; the dialog closes regardless of the write.
+            // Playing → blocked (nothing written); the dialog still closes on confirm.
             dialog.OpenSave("island");
             dialog.SetName("arena");
             dialog.Confirm(PlayState());
             Assert.Equal(0, fake.WriteCount);
 
-            // Unresolved project → blocked.
-            void OnSaveUnresolved(string id, GameState state)
-            {
-                if (EditorOverlay.IsSaveBlocked(state, EditorProjectContext.Unresolved)) return;
-                new SceneWriter(serializer).Save(world, EditorOverlay.SceneFilePath(EditorProjectContext.Unresolved, id), camera: null, layers: null);
-            }
-            var dialog2 = NewDialog(onSaveConfirmed: OnSaveUnresolved);
+            // Unresolved project → the browser produces no path, so confirm keeps the dialog open, no write.
+            var dialog2 = NewDialog(onSaveConfirmed: OnSaveConfirmed, roots: UnresolvedRoots);
             dialog2.OpenSave("island");
             dialog2.SetName("arena");
             dialog2.Confirm(EditState());
             Assert.Equal(0, fake.WriteCount);
+            Assert.True(dialog2.IsOpen);
 
             // Paused + resolved → writes to LevelsPath/arena.mdscene.
             dialog.OpenSave("island");
@@ -175,9 +201,9 @@ public class EditorDialogTests
     [Fact]
     public void SaveDialog_KeyboardTypingBackspaceEnter()
     {
-        string? savedId = null;
+        string? savedPath = null;
         var kb = new[] { new KeyboardState() };
-        var dialog = NewDialog(onSaveConfirmed: (id, _) => savedId = id, getKeyboardState: () => kb[0]);
+        var dialog = NewDialog(onSaveConfirmed: (p, _) => savedPath = p, getKeyboardState: () => kb[0]);
 
         dialog.OpenSave(string.Empty); // start empty
 
@@ -193,7 +219,7 @@ public class EditorDialogTests
         Assert.Equal("ma2", dialog.NameValue);
 
         Type(dialog, kb, Keys.Enter); // confirm
-        Assert.Equal("ma2", savedId);
+        Assert.Equal("ma2", Path.GetFileNameWithoutExtension(savedPath!));
         Assert.False(dialog.IsOpen);
     }
 
@@ -217,33 +243,66 @@ public class EditorDialogTests
     // ─── Load flow ────────────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void LoadDialog_ListsScenes_AndSelectingOneFiresLoad()
+    public void LoadDialog_ListsFoldersAndScenes_AndPickingOneFiresLoadWithTheResolvedPath()
     {
-        string? loadedId = null;
-        var listing = new SceneListing(true, new[] { "arena", "island", "menu" }, null);
-        var dialog = NewDialog(onLoadSelected: (id, _) => loadedId = id, listing: listing);
+        string? loadedPath = null;
+        var dialog = NewDialog(onLoadSelected: (p, _) => loadedPath = p, listDir: SceneTree());
 
         dialog.OpenLoad();
         Assert.Equal(EditorDialogMode.Load, dialog.Mode);
-        Assert.Equal(new[] { "arena", "island", "menu" }, dialog.ListedSceneIds);
+        Assert.Equal(new[] { "props" }, dialog.Directories);              // subfolder listed
+        Assert.Equal(new[] { "arena", "island", "menu" }, dialog.Files);  // .mdscene ids only (notes.txt filtered)
 
-        dialog.SelectLoad("island", EditState());
-        Assert.Equal("island", loadedId);
+        dialog.PickFile("island", EditState());
+        Assert.Equal(Norm(Path.Combine(LevelsDir, "island.mdscene")), Norm(loadedPath!));
         Assert.False(dialog.IsOpen);
+    }
+
+    [Fact]
+    public void Dialog_NavigatesIntoASubfolder_AndUpIsBoundedAtTheProjectRoot()
+    {
+        var dialog = NewDialog(listDir: SceneTree());
+        dialog.OpenLoad();
+
+        Assert.Equal(Norm(LevelsDir), Norm(dialog.CurrentDirectory!));
+        Assert.True(dialog.CanGoUp); // Levels is below the project root (Content)
+
+        dialog.EnterDirectory("props");
+        Assert.Equal(Norm(Path.Combine(LevelsDir, "props")), Norm(dialog.CurrentDirectory!));
+        Assert.Equal(new[] { "hut" }, dialog.Files);
+
+        dialog.GoUp(); // back to Levels
+        Assert.Equal(Norm(LevelsDir), Norm(dialog.CurrentDirectory!));
+
+        dialog.GoUp(); // up to the root (Content)
+        Assert.Equal(Norm(RootDir), Norm(dialog.CurrentDirectory!));
+        Assert.False(dialog.CanGoUp);
+        dialog.GoUp(); // a no-op — never escapes above the project root
+        Assert.Equal(Norm(RootDir), Norm(dialog.CurrentDirectory!));
+    }
+
+    [Fact]
+    public void SaveDialog_PickingAFile_FillsTheNameField_ToOverwrite()
+    {
+        var dialog = NewDialog(listDir: SceneTree());
+        dialog.OpenSave("island");
+
+        dialog.PickFile("arena", EditState()); // Save mode: fill the name, do not load/close
+        Assert.Equal("arena", dialog.NameValue);
+        Assert.True(dialog.IsOpen);
     }
 
     [Fact]
     public void LoadDialog_UnresolvedRoot_ShowsMessageAndDoesNotCrash()
     {
-        var listing = new SceneListing(false, Array.Empty<string>(),
-            "No project root resolved. Set MONODREAMS_PROJECT_ROOT.");
-        var dialog = NewDialog(listing: listing);
+        var dialog = NewDialog(roots: UnresolvedRoots);
 
         dialog.OpenLoad();
         Assert.Equal(EditorDialogMode.Load, dialog.Mode);
-        Assert.Empty(dialog.ListedSceneIds);
+        Assert.Empty(dialog.Files);
+        Assert.Empty(dialog.Directories);
 
-        // Rendering the message path (layout with the unresolved listing) must not throw.
+        // Rendering the message path (layout with the unresolved browser) must not throw.
         dialog.Update(EditState());
         Assert.True(dialog.IsOpen);
     }
@@ -299,9 +358,10 @@ public class EditorDialogTests
         string? savedId = null;
         var dialog = new EditorDialogSystem(
             world, vm, font: null,
-            onSaveConfirmed: (id, _) => savedId = id,
+            onSaveConfirmed: (p, _) => savedId = Path.GetFileNameWithoutExtension(p),
             onLoadSelected: (_, _) => { },
-            listScenes: () => new SceneListing(true, Array.Empty<string>(), null));
+            getRoots: ResolvedRoots,
+            listDirectory: EmptyLister);
 
         // The scripted hardware mouse: fixed over the Save (confirm) button; only the button state
         // flips per frame, exactly as a real click would (up → down → up over the same pixel).
@@ -359,17 +419,18 @@ public class EditorDialogTests
         World? world = null,
         Action<string, GameState>? onSaveConfirmed = null,
         Action<string, GameState>? onLoadSelected = null,
-        SceneListing? listing = null,
+        Func<BrowserRoots>? roots = null,
+        Func<string, RawDirectory>? listDir = null,
         Func<KeyboardState>? getKeyboardState = null)
     {
         world ??= new World();
         var vm = NewViewport();
-        var list = listing ?? new SceneListing(true, Array.Empty<string>(), null);
         return new EditorDialogSystem(
             world, vm, font: null,
             onSaveConfirmed: onSaveConfirmed ?? ((_, _) => { }),
             onLoadSelected: onLoadSelected ?? ((_, _) => { }),
-            listScenes: () => list,
+            getRoots: roots ?? ResolvedRoots,
+            listDirectory: listDir ?? EmptyLister,
             getKeyboardState: getKeyboardState ?? (() => new KeyboardState()));
     }
 
