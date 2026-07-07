@@ -140,10 +140,31 @@ public static class SystemsPanelLayout
     public static Vector2 HeaderPosition(Rectangle line, float labelHeight, float scale = 1f) => new(
         line.X, line.Y + (Px(RowHeight, scale) - labelHeight) / 2f);
 
-    /// <summary>The disclosure glyph for an expandable row: <c>v</c> when expanded, <c>&gt;</c>
-    /// when collapsed. Deliberately ASCII — the editor's BitmapFont is not guaranteed to carry
-    /// Unicode triangles, and these read unambiguously as a tree disclosure.</summary>
-    public static string ArrowGlyph(bool expanded) => expanded ? "v" : ">";
+    /// <summary>Fraction of the arrow square inset on every side before the triangle is drawn, so the
+    /// glyph reads as a small centred caret with air around it (not edge-to-edge).</summary>
+    private const float ArrowInsetFraction = 0.18f;
+
+    /// <summary>
+    /// The three points of the disclosure triangle inside <paramref name="arrow"/> (the
+    /// <see cref="ArrowRect"/> square): a <b>right-pointing ▸</b> caret when collapsed and a
+    /// <b>down-pointing ▾</b> caret when expanded — the Blender-style disclosure indicator. It is
+    /// drawn as a filled MESH (<c>FilledTriangleMeshGenerator</c>), never a font glyph, so the
+    /// indicator has <b>zero dependency on the BitmapFont's Unicode coverage</b> — the exact reason
+    /// the pre-mesh panel fell back to the ASCII <c>v</c>/<c>&gt;</c>. Pure geometry (screen pixels in,
+    /// points out), unit-testable without a GraphicsDevice.
+    /// </summary>
+    public static Vector2[] ArrowTriangle(Rectangle arrow, bool expanded)
+    {
+        var inset = arrow.Width * ArrowInsetFraction;
+        float l = arrow.Left + inset, r = arrow.Right - inset;
+        float t = arrow.Top + inset, b = arrow.Bottom - inset;
+        float cx = (l + r) * 0.5f, cy = (t + b) * 0.5f;
+        return expanded
+            // ▾ down-pointing: base along the top edge, apex at the bottom-middle.
+            ? new[] { new Vector2(l, t), new Vector2(r, t), new Vector2(cx, b) }
+            // ▸ right-pointing: base along the left edge, apex at the right-middle.
+            : new[] { new Vector2(l, t), new Vector2(l, b), new Vector2(r, cy) };
+    }
 
     /// <summary>Where hidden (scrolled-out) lines are parked: far off-screen, so their meshes and
     /// text are GPU-clipped without any per-entity blanking (the mesh prep keeps rebuilding them

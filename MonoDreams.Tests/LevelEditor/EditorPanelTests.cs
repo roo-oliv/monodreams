@@ -363,14 +363,111 @@ public class EditorPanelTests
         var visible = SystemsPanelLayout.VisibleLineCount(panelRect);
         Assert.True(panel.Rows.Count > visible, "test needs an overflowing panel");
 
-        // Pooling: the panel creates a fixed pool sized to the visible window (a label + an arrow
-        // per slot = 2 text entities), NOT one entity per row — so the entity count is bounded by
-        // the window even though there are far more rows.
-        int textEntities;
+        // Pooling: the panel creates a fixed pool sized to the visible window (one label + one arrow
+        // MESH per slot), NOT one entity per row — so the entity count is bounded by the window even
+        // though there are far more rows. Labels are DynamicText; arrows are mesh DrawComponents.
+        int labelEntities;
         using (var set = world.GetEntities().With<DynamicTextComponent>().AsSet())
-            textEntities = set.GetEntities().Length;
-        Assert.Equal(2 * visible, textEntities);
-        Assert.True(textEntities < panel.Rows.Count, "pooling should bound entities below the row count");
+            labelEntities = set.GetEntities().Length;
+        int arrowMeshEntities;
+        using (var set = world.GetEntities().With<DrawComponent>().AsSet())
+            arrowMeshEntities = set.GetEntities().Length;
+        Assert.Equal(visible, labelEntities);
+        Assert.Equal(visible, arrowMeshEntities);
+        Assert.True(labelEntities < panel.Rows.Count, "pooling should bound entities below the row count");
+    }
+
+    // ---- Disclosure arrows are triangle MESHES, not ASCII glyphs -----------
+
+    [Fact]
+    public void ArrowTriangle_PointsRightWhenCollapsed_DownWhenExpanded()
+    {
+        var rect = new Rectangle(10, 20, 12, 12);
+
+        // Collapsed ▸ : the base is the left edge (two points share X), the apex is at the right.
+        var collapsed = SystemsPanelLayout.ArrowTriangle(rect, expanded: false);
+        Assert.Equal(collapsed[0].X, collapsed[1].X, 3);              // base points share the left X
+        Assert.True(collapsed[2].X > collapsed[0].X);                 // apex is to the right of the base
+
+        // Expanded ▾ : the base is the top edge (two points share Y), the apex is at the bottom.
+        var expanded = SystemsPanelLayout.ArrowTriangle(rect, expanded: true);
+        Assert.Equal(expanded[0].Y, expanded[1].Y, 3);               // base points share the top Y
+        Assert.True(expanded[2].Y > expanded[0].Y);                  // apex is below the base
+    }
+
+    [Fact]
+    public void DisclosureArrow_IsAMesh_NotATextGlyph()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        var (panel, _, _, _) = MakeFlatPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // The section headers are collapsible → at least one disclosure arrow is drawn, as a filled
+        // triangle mesh (DrawComponent, Type=Mesh, ≥3 vertices) — never a font glyph.
+        var arrows = ArrowMeshes(world);
+        Assert.NotEmpty(arrows);
+
+        // And NO label carries the retired ASCII disclosure glyphs.
+        var labels = VisibleLabels(world);
+        Assert.DoesNotContain("v", labels);
+        Assert.DoesNotContain(">", labels);
+    }
+
+    [Fact]
+    public void GroupArrowMesh_OrientationTracksTheExpandedState()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var (panel, _) = MakeGroupPanel(world, vm);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        var groupIdx = RowIndex(panel, r => r.Label == "logic [freeze]");
+        var arrowRect = SystemsPanelLayout.ArrowRect(LineFor(panel, vm, groupIdx), panel.Rows[groupIdx].Depth);
+
+        // Expanded by default → a down-pointing ▾ triangle mesh exists at the group's arrow rect.
+        var expandedTri = SystemsPanelLayout.ArrowTriangle(arrowRect, expanded: true);
+        Assert.Contains(ArrowMeshes(world), t => TriEquals(t, expandedTri));
+
+        // Collapse the group → the same slot now holds a right-pointing ▸ triangle mesh.
+        ClickArrow(panel, vm, cursor, groupIdx);
+        panel.Update(Edit());
+        var collapsedRect = SystemsPanelLayout.ArrowRect(LineFor(panel, vm, groupIdx), panel.Rows[groupIdx].Depth);
+        var collapsedTri = SystemsPanelLayout.ArrowTriangle(collapsedRect, expanded: false);
+        Assert.Contains(ArrowMeshes(world), t => TriEquals(t, collapsedTri));
+    }
+
+    /// <summary>Every arrow disclosure mesh's three points (a <c>FilledTriangleMeshGenerator</c> emits
+    /// its A/B/C as the first three vertices).</summary>
+    private static List<Vector2[]> ArrowMeshes(World world)
+    {
+        var result = new List<Vector2[]>();
+        using var set = world.GetEntities().With<DrawComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+        {
+            var dc = e.Get<DrawComponent>();
+            if (dc.Type != DrawElementType.Mesh || dc.Vertices is not { Length: >= 3 }) continue;
+            result.Add(new[]
+            {
+                new Vector2(dc.Vertices[0].Position.X, dc.Vertices[0].Position.Y),
+                new Vector2(dc.Vertices[1].Position.X, dc.Vertices[1].Position.Y),
+                new Vector2(dc.Vertices[2].Position.X, dc.Vertices[2].Position.Y),
+            });
+        }
+        return result;
+    }
+
+    private static bool TriEquals(Vector2[] a, Vector2[] b)
+    {
+        for (var i = 0; i < 3; i++)
+            if (global::System.MathF.Abs(a[i].X - b[i].X) > 0.5f || global::System.MathF.Abs(a[i].Y - b[i].Y) > 0.5f)
+                return false;
+        return true;
     }
 
     // ---- Scene tree: two-way selection -------------------------------------

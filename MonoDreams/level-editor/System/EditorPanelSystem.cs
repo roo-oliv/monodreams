@@ -4,9 +4,11 @@ using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Inspector;
@@ -86,7 +88,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     public IReadOnlyList<PanelRow> Rows => _rows;
 
     /// <summary>One pooled row's visual entities (repurposed each frame for whichever row is at
-    /// this slot; unused ones are parked off-screen).</summary>
+    /// this slot; unused ones are parked off-screen). <see cref="Arrow"/> is a screen-baked
+    /// disclosure-triangle MESH (not a text glyph — see <see cref="ConfigureVisual"/>).</summary>
     private sealed class RowVisual
     {
         public Entity Label;
@@ -406,16 +409,18 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private void ConfigureVisual(RowVisual visual, PanelRow row, Rectangle line, float scale,
         float labelHeight, bool hovered)
     {
-        // Arrow (disclosure) — only for collapsible rows.
+        // Arrow (disclosure) — a filled triangle MESH (not a font glyph), so the indicator never
+        // depends on the BitmapFont's Unicode coverage. Right-pointing ▸ collapsed, down ▾ expanded.
         if (row.Collapsible)
         {
             var arrow = SystemsPanelLayout.ArrowRect(line, row.Depth, scale);
-            SetText(visual.Arrow, SystemsPanelLayout.ArrowGlyph(row.Expanded),
-                new Vector2(arrow.X, arrow.Y + (arrow.Height - labelHeight) / 2f), scale, RowColor(row, hovered));
+            var tri = SystemsPanelLayout.ArrowTriangle(arrow, row.Expanded);
+            SetArrowMesh(visual.Arrow,
+                new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], RowColor(row, hovered)).Generate());
         }
         else
         {
-            Park(visual.Arrow);
+            ClearArrowMesh(visual.Arrow);
         }
 
         // Checkbox + minus bar — only for pipeline rows.
@@ -479,8 +484,50 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                     lineThickness: 1.5f, outline: EditorChromeBuilder.ButtonOutline, depth: EditorChromeBuilder.ButtonDepth),
                 MinusBar = CreateBox(SystemsPanelLayout.MinusBarWidth, SystemsPanelLayout.MinusBarHeight,
                     lineThickness: 0f, outline: Color.Transparent, depth: EditorChromeBuilder.CheckboxMarkDepth),
-                Arrow = CreateText(),
+                Arrow = CreateArrowMesh(),
             });
+    }
+
+    /// <summary>Creates a disclosure-arrow MESH entity: a raw <see cref="DrawComponent"/> the panel
+    /// bakes a filled triangle into each frame (mirroring the gizmo overlays' screen-baked meshes) —
+    /// identity <c>WorldMatrix</c>, native Editor target, no <c>VisibleComponent</c> (the chrome rule)
+    /// and no <c>SimpleButtonComponent</c> (so <c>ButtonMeshPrepSystem</c> never touches it).</summary>
+    private Entity CreateArrowMesh()
+    {
+        var arrow = _world.CreateEntity();
+        arrow.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        arrow.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        arrow.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Editor,
+            LayerDepth = EditorChromeBuilder.LabelDepth,
+            WorldMatrix = Matrix.Identity,
+            Vertices = Array.Empty<VertexPositionColor>(),
+            Indices = Array.Empty<int>(),
+        });
+        return arrow;
+    }
+
+    private static void SetArrowMesh(Entity e, MeshData mesh)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Type = DrawElementType.Mesh;
+        dc.Vertices = mesh.Vertices;
+        dc.Indices = mesh.Indices;
+        dc.PrimitiveType = mesh.PrimitiveType;
+        dc.WorldMatrix = Matrix.Identity;
+        dc.Target = RenderTargetID.Editor;
+        dc.LayerDepth = EditorChromeBuilder.LabelDepth;
+    }
+
+    /// <summary>Hides an arrow by emptying its mesh (an invalid mesh is skipped by
+    /// <c>MasterRenderSystem</c>) — the mesh analog of parking a text/box entity off-screen.</summary>
+    private static void ClearArrowMesh(Entity e)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Vertices = Array.Empty<VertexPositionColor>();
+        dc.Indices = Array.Empty<int>();
     }
 
     private Entity CreateText()
@@ -527,6 +574,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         Park(visual.Checkbox);
         Park(visual.MinusBar);
         Park(visual.Arrow);
+        ClearArrowMesh(visual.Arrow); // a parked mesh position does nothing (identity matrix) — empty it
     }
 
     private static void Park(Entity entity) => Place(entity, SystemsPanelLayout.ParkedPosition);
