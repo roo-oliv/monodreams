@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using MonoDreams.LevelEditor.Serialization;
@@ -99,9 +100,12 @@ public class SceneLintTests
     [Fact]
     public void AllCommittedExamplesLevels_AreShipClean_ZeroFileKeys()
     {
-        var levelsDir = RepoPath("MonoDreams.Examples.Core/Content/Levels");
-        var files = Directory.GetFiles(levelsDir, "*.mdscene", SearchOption.AllDirectories);
-        Assert.NotEmpty(files); // there IS at least one committed level to check (sample + Blender_Level)
+        // Enumerate git-TRACKED scenes only. The ship-lint gates what the repo COMMITS, not a
+        // developer's untracked work-in-progress scenes — those legitimately use `file:` placeholder
+        // art during authoring (the whole island workflow), so a filesystem scan would fail the gate
+        // on every WIP scene. `git ls-files` is the source of truth for "committed".
+        var files = TrackedLevelScenes();
+        Assert.NotEmpty(files); // sample + Blender_Level are committed and ship-clean
 
         var offenders = new List<string>();
         foreach (var file in files)
@@ -114,6 +118,28 @@ public class SceneLintTests
 
         Assert.True(offenders.Count == 0,
             "Committed levels must be ship-clean (zero file: keys). Offenders: " + string.Join(" | ", offenders));
+    }
+
+    /// <summary>The git-tracked <c>*.mdscene</c> files under the Examples Levels dir (absolute paths).
+    /// Uses <c>git ls-files</c> so a developer's untracked WIP scenes are excluded — the ship-lint
+    /// gates committed content, not scratch scenes that may still carry <c>file:</c> placeholder art.</summary>
+    private static List<string> TrackedLevelScenes()
+    {
+        var repoRoot = RepoPath(""); // the directory containing MonoDreams.Examples.Core
+        var psi = new ProcessStartInfo("git", "ls-files -- MonoDreams.Examples.Core/Content/Levels/*.mdscene")
+        {
+            WorkingDirectory = repoRoot,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        using var proc = Process.Start(psi)!;
+        var stdout = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit();
+        return stdout
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(rel => Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar)))
+            .Where(File.Exists)
+            .ToList();
     }
 
     /// <summary>Resolves a repo-relative path by walking up from the test base dir to the repo root
