@@ -5,6 +5,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.Platform;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.Composition;
@@ -75,6 +76,55 @@ public static class NativeLevelLoader
             world.Publish(new LoadSceneRequest(rel, fromContent));
             return true;
         };
+    }
+
+    /// <summary>
+    /// The <b>source-first optional scene load</b> (UX-C §3.1): a screen with a bound scene id calls this
+    /// in <c>Load</c> to bring its scene up under its code-built content, if that scene EXISTS. It is the
+    /// SHARED source-first probe UX-D reuses for the transport's Restart. Resolution:
+    /// <list type="number">
+    ///   <item><b>source-first</b> — when <paramref name="projectContext"/> is resolved and the source
+    ///   <c>&lt;LevelsPath&gt;/&lt;sceneId&gt;.mdscene</c> exists, publish
+    ///   <c>LoadSceneRequest(sourcePath, fromContent:false)</c> (the source tree is authoritative the
+    ///   moment the editor saves — the bundled copy is stale until the next build) and return
+    ///   <c>true</c>;</item>
+    ///   <item><b>bundled</b> — else, when the <c>TitleContainer</c> bundled copy exists, publish
+    ///   <c>LoadSceneRequest(rel, fromContent:true)</c> (console-portable) and return <c>true</c>;</item>
+    ///   <item><b>absent</b> — else no-op (<c>false</c>): the screen keeps its code-built content.</item>
+    /// </list>
+    /// A published request is a no-op when no <c>SceneReaderSystem</c> is composed (a plain non-editor
+    /// menu run), so the call is always safe. Existence probes are injectable for tests.
+    /// </summary>
+    public static bool TryPublishSceneLoad(
+        World world, string contentRoot, string sceneId, EditorProjectContext? projectContext,
+        Func<string, bool>? sourceExists = null, Func<string, bool>? bundledExists = null)
+    {
+        if (world == null) throw new ArgumentNullException(nameof(world));
+        if (string.IsNullOrEmpty(sceneId)) return false;
+        contentRoot ??= "Content";
+        sourceExists ??= p => PlatformServices.Current.FileExists(p);
+        bundledExists ??= TitleContainerExists;
+
+        if (projectContext is { Resolved: true } && !string.IsNullOrEmpty(projectContext.LevelsPath))
+        {
+            var sourcePath = Path.Combine(projectContext.LevelsPath!, sceneId + SceneWriter.SceneFileExtension);
+            if (sourceExists(sourcePath))
+            {
+                Logger.Info($"[level-editor] Optional scene load '{sceneId}': source-first from '{sourcePath}'.");
+                world.Publish(new LoadSceneRequest(sourcePath, fromContent: false));
+                return true;
+            }
+        }
+
+        var contentStreamPath = ContentStreamPath(contentRoot, sceneId);
+        if (bundledExists(contentStreamPath))
+        {
+            Logger.Info($"[level-editor] Optional scene load '{sceneId}': bundled from content '{contentStreamPath}'.");
+            world.Publish(new LoadSceneRequest(ContentRelativePath(sceneId), fromContent: true));
+            return true;
+        }
+
+        return false; // absent → silently skip
     }
 
     /// <summary>Whether a bundled native scene exists for <paramref name="levelId"/> (the console-portable
