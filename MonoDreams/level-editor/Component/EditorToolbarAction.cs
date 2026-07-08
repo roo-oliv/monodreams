@@ -88,4 +88,25 @@ public static class EditorToolbarActionExtensions
     /// BOTH modes, unlike the editing actions which are Paused (Edit) only.</summary>
     public static bool IsTransport(this EditorToolbarAction action) =>
         action is EditorToolbarAction.PlayPause or EditorToolbarAction.Restart;
+
+    /// <summary>
+    /// Whether this button reads as ACTIVE given the shared gizmo state (UX2-C icon tinting): the
+    /// transform tools are a radio over <see cref="GizmoStateComponent.Tool"/> (only while the coarse
+    /// <see cref="GizmoStateComponent.Mode"/> is <see cref="EditorToolMode.SelectTransform"/>), Boundary
+    /// is active while <see cref="EditorToolMode.Boundary"/> owns the modality, and the Snap toggle is
+    /// active while <see cref="GizmoStateComponent.SnapEnabled"/>. Pure — the toolbar maps "active" to a
+    /// theme role (radio tools → <c>Accent</c>, Snap → <c>Success</c>).
+    /// </summary>
+    public static bool IsActiveIn(this EditorToolbarAction action, GizmoStateComponent gizmo) => action switch
+    {
+        EditorToolbarAction.ToolMove =>
+            gizmo.Mode == EditorToolMode.SelectTransform && gizmo.Tool == GizmoTool.Move,
+        EditorToolbarAction.ToolRotate =>
+            gizmo.Mode == EditorToolMode.SelectTransform && gizmo.Tool == GizmoTool.Rotate,
+        EditorToolbarAction.ToolScale =>
+            gizmo.Mode == EditorToolMode.SelectTransform && gizmo.Tool == GizmoTool.Scale,
+        EditorToolbarAction.ToolBoundary => gizmo.Mode == EditorToolMode.Boundary,
+        EditorToolbarAction.ToggleSnap => gizmo.SnapEnabled,
+        _ => false,
+    };
 }
