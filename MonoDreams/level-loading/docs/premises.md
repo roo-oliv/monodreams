@@ -49,6 +49,16 @@ import op's dedicated composition, never the shipped boot. The delegate is a pla
 native reader runs in BOTH run modes and in a plain game with no editor composed (a
 shipped game boots native scenes too).
 
+**Source-first optional load (editor, UX-C).** Alongside this boot probe,
+`NativeLevelLoader` exposes a `TryPublishSceneLoad(world, contentRoot, sceneId, projectContext)`
+helper an editor-bound screen calls in `Load` to bring its scene up under its code-built
+content **if it exists**: source-first (`LoadSceneRequest(sourcePath, fromContent:false)` when
+the project root is resolved and the source `.mdscene` exists — the source tree is authoritative
+the moment the editor Saves, before the next build restages the bundled copy), else the bundled
+`TitleContainer` probe (`fromContent:true`), else a silent no-op. It publishes `LoadSceneRequest`
+**directly** (never through `LevelLoadRequestSystem`), so it stays off the LDtk `CurrentLevelComponent`
+path; UX-D reuses the same source-first logic for the transport's Restart reload.
+
 **Why:** native `.mdscene` is the game's real level format (the shipped game reads
 bundled scenes via `TitleContainer`, exactly like `blender_level.json`). A single
 native-only boot path is what closes the LDtk-vs-Blender parser-asymmetry (the

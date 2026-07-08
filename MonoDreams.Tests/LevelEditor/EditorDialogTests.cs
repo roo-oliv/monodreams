@@ -393,6 +393,112 @@ public class EditorDialogTests
         Assert.False(dialog.IsOpen);      // and the dialog closed
     }
 
+    // ─── confirm-on-switch modal (UX-C) ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ConfirmSwitch_Confirm_RunsSaveAndSwitch_NotDiscard_AndCloses()
+    {
+        int saved = 0, discarded = 0;
+        var dialog = NewDialog();
+        dialog.OpenConfirmSwitch("island", _ => saved++, _ => discarded++);
+        Assert.Equal(EditorDialogMode.ConfirmSwitch, dialog.Mode);
+
+        dialog.Confirm(EditState()); // the primary action = Save & Switch
+        Assert.Equal(1, saved);
+        Assert.Equal(0, discarded);
+        Assert.False(dialog.IsOpen);
+    }
+
+    [Fact]
+    public void ConfirmSwitch_Discard_SwitchesWithoutSaving_AndCloses()
+    {
+        int saved = 0, discarded = 0;
+        var dialog = NewDialog();
+        dialog.OpenConfirmSwitch("island", _ => saved++, _ => discarded++);
+
+        dialog.Discard(EditState());
+        Assert.Equal(0, saved);
+        Assert.Equal(1, discarded);
+        Assert.False(dialog.IsOpen);
+    }
+
+    [Fact]
+    public void ConfirmSwitch_Cancel_DoesNeither_AndCloses()
+    {
+        int saved = 0, discarded = 0;
+        var dialog = NewDialog();
+        dialog.OpenConfirmSwitch("island", _ => saved++, _ => discarded++);
+
+        dialog.Cancel();
+        Assert.Equal(0, saved);
+        Assert.Equal(0, discarded);
+        Assert.False(dialog.IsOpen);
+    }
+
+    [Fact]
+    public void ConfirmSwitch_EnterConfirms_EscapeCancels()
+    {
+        int saved = 0, discarded = 0;
+        var kb = new[] { new KeyboardState() };
+        var dialog = NewDialog(getKeyboardState: () => kb[0]);
+
+        dialog.OpenConfirmSwitch("island", _ => saved++, _ => discarded++);
+        kb[0] = new KeyboardState(Keys.Enter);
+        dialog.Update(EditState());
+        Assert.Equal(1, saved);
+        Assert.False(dialog.IsOpen);
+
+        kb[0] = new KeyboardState();
+        dialog.OpenConfirmSwitch("cove", _ => saved++, _ => discarded++);
+        kb[0] = new KeyboardState(Keys.Escape);
+        dialog.Update(EditState());
+        Assert.Equal(1, saved);      // no extra save
+        Assert.Equal(0, discarded);  // Escape is Cancel, not Discard
+        Assert.False(dialog.IsOpen);
+    }
+
+    /// <summary>The confirm-switch modal captures the pointer (like Save/Load) and its three buttons
+    /// hit-test through the REAL woven order (CursorInputSystem → dialog): a press→release over the
+    /// Discard button routes to Discard &amp; Switch on the release edge.</summary>
+    [Fact]
+    public void ConfirmSwitch_ClickDiscardThroughRealCursorPipeline_DiscardsOnRelease()
+    {
+        using var world = new World();
+        var vm = NewViewport();
+        MakeCursor(world);
+
+        int saved = 0, discarded = 0;
+        var dialog = new EditorDialogSystem(
+            world, vm, font: null,
+            onSaveConfirmed: (_, _) => { },
+            onLoadSelected: (_, _) => { },
+            getRoots: ResolvedRoots,
+            listDirectory: EmptyLister);
+        dialog.OpenConfirmSwitch("island", _ => saved++, _ => discarded++);
+
+        var panel = EditorDialogLayout.ConfirmPanel(800, 600, 1f);
+        var over = EditorDialogLayout.ConfirmButtons(panel, 1f)[1].Center; // [1] = Discard & Switch
+        var down = false;
+        var cursorInput = new CursorInputSystem(world, vm)
+        {
+            MouseStateProvider = () => new MouseState(
+                over.X, over.Y, 0,
+                down ? ButtonState.Pressed : ButtonState.Released,
+                ButtonState.Released, ButtonState.Released, ButtonState.Released, ButtonState.Released),
+        };
+        using var pipeline = new SequentialSystem<GameState>(cursorInput, dialog);
+        var state = EditState();
+
+        down = false; pipeline.Update(state);
+        down = true;  pipeline.Update(state);
+        Assert.True(dialog.IsOpen);   // acts on release, not press
+        down = false; pipeline.Update(state);
+
+        Assert.Equal(1, discarded);
+        Assert.Equal(0, saved);
+        Assert.False(dialog.IsOpen);
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────────────────────────
 
     private static void Type(EditorDialogSystem dialog, KeyboardState[] kb, Keys key)

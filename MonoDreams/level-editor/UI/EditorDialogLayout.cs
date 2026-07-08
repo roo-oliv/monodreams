@@ -26,6 +26,10 @@ public static class EditorDialogLayout
     /// <summary>Save-dialog panel height, logical points (Load + a filename field row).</summary>
     public const int SavePanelHeight = 470;
 
+    /// <summary>Confirm-on-switch panel height, logical points (title + message + one button row) —
+    /// the modal shown when a Scenes-panel switch would discard unsaved edits (UX-C §3.3).</summary>
+    public const int ConfirmPanelHeight = 168;
+
     /// <summary>Inner padding, logical points.</summary>
     public const int Padding = 18;
 
@@ -167,4 +171,39 @@ public static class EditorDialogLayout
     /// <summary>Where the "no project root" / "empty folder" message is drawn (inside the list region).</summary>
     public static Vector2 Message(Rectangle panel, float scale) =>
         new(panel.X + Px(Padding, scale), ListTop(panel, scale) + Px(4, scale));
+
+    // ─── confirm-on-switch modal (UX-C) ────────────────────────────────────────────────────────
+
+    /// <summary>The centred confirm-on-switch panel (title + message + one button row).</summary>
+    public static Rectangle ConfirmPanel(int screenWidth, int screenHeight, float scale = 1f)
+    {
+        var w = Px(PanelWidth, scale);
+        var h = Px(ConfirmPanelHeight, scale);
+        return new Rectangle((screenWidth - w) / 2, (screenHeight - h) / 2, w, h);
+    }
+
+    /// <summary>Where the confirm dialog's body message is drawn (below the title).</summary>
+    public static Vector2 ConfirmMessage(Rectangle panel, float scale) =>
+        new(panel.X + Px(Padding, scale),
+            panel.Y + Px(Padding, scale) + Px(TitleHeight, scale) + Px(Padding, scale));
+
+    /// <summary>The confirm dialog's three bottom-row buttons, equal width across the inner panel:
+    /// <c>[0]</c> = the primary action (Save &amp; Switch), <c>[1]</c> = Discard &amp; Switch,
+    /// <c>[2]</c> = Cancel.</summary>
+    public static Rectangle[] ConfirmButtons(Rectangle panel, float scale)
+    {
+        var pad = Px(Padding, scale);
+        var gap = Px(ButtonGap, scale);
+        var h = Px(ButtonHeight, scale);
+        var y = panel.Bottom - pad - h;
+        var inner = panel.Width - pad * 2;
+        var w = (inner - gap * 2) / 3;
+        var x0 = panel.X + pad;
+        return new[]
+        {
+            new Rectangle(x0, y, w, h),
+            new Rectangle(x0 + w + gap, y, w, h),
+            new Rectangle(x0 + 2 * (w + gap), y, w, h),
+        };
+    }
 }

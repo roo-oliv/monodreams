@@ -70,6 +70,12 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>Whether a scene was ever loaded into this world this session (set true on the first
+    /// successful <see cref="LoadSceneRequest"/>). The empty-save guard reads it: zero scene roots +
+    /// never-loaded = "nothing to save" (refused), but a designer who deliberately emptied a
+    /// <b>loaded</b> scene may still save it empty. Never reset — a session-scoped one-way flag.</summary>
+    public bool SceneWasLoaded { get; private set; }
+
     /// <summary>
     /// Subscribes to <see cref="LoadSceneRequest"/>. <paramref name="content"/> resolves the scene's
     /// content path and rehydrates textures; pass an explicit <paramref name="loadTexture"/> only to
@@ -128,6 +134,8 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             RestoreDrawComponents(created);
 
             AutoFrameLoadedContent(created);
+
+            SceneWasLoaded = true; // a real load happened → the empty-save guard now permits an empty save
 
             Logger.Info($"[level-editor] Loaded scene '{path}': {created.Count} entities.");
         }

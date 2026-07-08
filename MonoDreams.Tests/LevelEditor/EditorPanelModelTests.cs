@@ -63,10 +63,12 @@ public class EditorPanelModelTests
         IReadOnlyList<ComponentInspector.ComponentInfo>? inspector = null,
         string? inspectorTitle = null,
         EditorRightTab activeTab = EditorRightTab.Scene,
-        EditorProjectInfo project = default)
+        EditorProjectInfo project = default,
+        IReadOnlyList<SceneCatalogEntry>? sceneCatalog = null,
+        bool isDirty = false)
         => EditorPanelModel.Build(state, activeTab, update, draw,
             nodes ?? Array.Empty<EntitySceneTree.Node>(), label ?? (_ => ""),
-            selected, inspector, inspectorTitle, project);
+            selected, inspector, inspectorTitle, project, sceneCatalog, isDirty);
 
     // ---- Section collapse -------------------------------------------------
 
@@ -110,16 +112,53 @@ public class EditorPanelModelTests
     }
 
     [Fact]
-    public void ProjectTab_ShowsProjectInfo_AndTheUxCPlaceholder()
+    public void ProjectTab_ShowsProjectInfo_AndTheScenesList()
     {
+        var catalog = new[]
+        {
+            new SceneCatalogEntry("level_selection", "Level Selection", "LevelSelection", "level_selection", IsCurrent: false),
+            new SceneCatalogEntry("island", "island", "Game", "island", IsCurrent: true),
+        };
         var rows = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project,
-            project: new EditorProjectInfo("/games/isle", "Levels", "island"));
+            project: new EditorProjectInfo("/games/isle", "Levels", "island"), sceneCatalog: catalog);
+
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("/games/isle"));
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("Levels"));
-        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("island"));
-        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == EditorPanelModel.ScenesListPlaceholder);
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == EditorPanelModel.ScenesTitle);
+        // Both catalog entries render as selectable scene rows; the current one is highlighted.
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Label == "Level Selection" && !r.Selected);
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Label == "island" && r.Selected);
         // No collapsible sections in the Project tab.
         Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader);
+    }
+
+    [Fact]
+    public void ProjectTab_CurrentEntry_ShowsDirtyMarker_WhenDirty()
+    {
+        var catalog = new[]
+        {
+            new SceneCatalogEntry("island", "island", "Game", "island", IsCurrent: true),
+            new SceneCatalogEntry("cove", "cove", "Game", "cove", IsCurrent: false),
+        };
+        var clean = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project, sceneCatalog: catalog, isDirty: false);
+        Assert.DoesNotContain(clean, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.DirtyMarker);
+
+        var dirty = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project, sceneCatalog: catalog, isDirty: true);
+        var current = dirty.Single(r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Selected);
+        Assert.True(current.DirtyMarker);
+        Assert.StartsWith("●", current.Label); // the Warning ● prefix
+        // Only the current entry carries the marker — a non-current entry never does, even while dirty.
+        Assert.DoesNotContain(dirty, r => r.Kind == PanelRowKind.SceneCatalogEntry && !r.Selected && r.DirtyMarker);
+    }
+
+    [Fact]
+    public void ProjectTab_NoCatalog_ShowsNoScenes()
+    {
+        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project,
+            project: new EditorProjectInfo(null, null, null));
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("(unresolved)"));
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no scenes)");
+        Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SceneCatalogEntry);
     }
 
     [Fact]

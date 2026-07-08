@@ -528,6 +528,35 @@ public class EditorPanelTests
     }
 
     [Fact]
+    public void ProjectTab_SceneCatalogRowClick_ForwardsTheEntryToTheSelectCallback()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var catalog = new[]
+        {
+            new SceneCatalogEntry("island", "island", "Game", "island", IsCurrent: false),
+            new SceneCatalogEntry("cove", "cove", "Game", "cove", IsCurrent: true),
+        };
+        SceneCatalogEntry? picked = null;
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null),
+            sceneCatalog: () => catalog,
+            selectScene: (e, _) => picked = e);
+        panel.SetRightTab(EditorRightTab.Project);
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Label == "island");
+        Assert.True(idx >= 0);
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Edit());
+
+        // The panel just forwards the row's entry — the dirty gate + confirm live behind the callback.
+        Assert.NotNull(picked);
+        Assert.Equal("island", picked!.Value.Key);
+    }
+
+    [Fact]
     public void ExternalSelection_IsHighlightedInTheTree()
     {
         using var world = new World();

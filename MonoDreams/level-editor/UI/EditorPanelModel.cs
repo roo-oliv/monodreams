@@ -55,6 +55,10 @@ public enum PanelRowKind
     /// <summary>An Inspector member <c>name: value</c> row (read-only).</summary>
     InspectorMember,
 
+    /// <summary>A Scenes-panel entry (Project tab) — clicking it switches to that scene/screen
+    /// through the dirty-gated select flow.</summary>
+    SceneCatalogEntry,
+
     /// <summary>A non-interactive informational row (e.g. "(no selection)").</summary>
     Info,
 }
@@ -111,6 +115,13 @@ public sealed class PanelRow
     /// <summary>The component's full type name (<see cref="PanelRowKind.InspectorComponent"/>) — the
     /// key into <see cref="EditorPanelStateComponent.ExpandedInspectorComponents"/>.</summary>
     public string? ComponentKey;
+
+    /// <summary>The catalog entry (<see cref="PanelRowKind.SceneCatalogEntry"/>) a click switches to.</summary>
+    public MonoDreams.LevelEditor.Composition.SceneCatalogEntry? CatalogEntry;
+
+    /// <summary>Whether this row carries the unsaved-changes marker (the current scene while dirty) —
+    /// the label is prefixed with a <c>●</c> and rendered <see cref="EditorTheme"/>'s Warning color.</summary>
+    public bool DirtyMarker;
 }
 
 /// <summary>
@@ -129,8 +140,8 @@ public static class EditorPanelModel
     private const string UpdateSub = "UPDATE";
     private const string DrawSub = "DRAW";
 
-    /// <summary>The muted placeholder the Project tab shows until the Scenes list lands (UX-C).</summary>
-    public const string ScenesListPlaceholder = "(scenes list lands in UX-C)";
+    /// <summary>The Scenes-list header row shown in the Project tab.</summary>
+    public const string ScenesTitle = "Scenes";
 
     /// <summary>
     /// Builds the flat row list for the ACTIVE right-strip tab (<paramref name="activeTab"/>):
@@ -154,7 +165,9 @@ public static class EditorPanelModel
         Entity selected,
         IReadOnlyList<ComponentInspector.ComponentInfo>? inspectorComponents,
         string? inspectorTitle,
-        EditorProjectInfo project = default)
+        EditorProjectInfo project = default,
+        IReadOnlyList<MonoDreams.LevelEditor.Composition.SceneCatalogEntry>? sceneCatalog = null,
+        bool isDirty = false)
     {
         var rows = new List<PanelRow>();
 
@@ -170,7 +183,7 @@ public static class EditorPanelModel
                 break;
 
             case EditorRightTab.Project:
-                AppendProject(rows, project);
+                AppendProject(rows, project, sceneCatalog, isDirty);
                 break;
 
             case EditorRightTab.Scene:
@@ -212,12 +225,34 @@ public static class EditorPanelModel
         return text.Substring(0, head) + ellipsis + text.Substring(text.Length - tail);
     }
 
-    private static void AppendProject(List<PanelRow> rows, EditorProjectInfo project)
+    private static void AppendProject(List<PanelRow> rows, EditorProjectInfo project,
+        IReadOnlyList<MonoDreams.LevelEditor.Composition.SceneCatalogEntry>? sceneCatalog, bool isDirty)
     {
         rows.Add(Info($"Project: {(string.IsNullOrEmpty(project.ProjectRoot) ? "(unresolved)" : project.ProjectRoot)}", depth: 1));
         rows.Add(Info($"Levels: {(string.IsNullOrEmpty(project.LevelsDir) ? "-" : project.LevelsDir)}", depth: 1));
-        rows.Add(Info($"Scene: {(string.IsNullOrEmpty(project.SceneId) ? "-" : project.SceneId)}", depth: 1));
-        rows.Add(Info(ScenesListPlaceholder, depth: 1));
+
+        // The Scenes list: each catalog entry as a selectable row (current = highlighted; dirty
+        // current = a Warning ● prefix). The switch itself flows through the dirty-gated select
+        // handler when the row is clicked (the panel wires that callback).
+        rows.Add(Info(ScenesTitle, depth: 1));
+        if (sceneCatalog == null || sceneCatalog.Count == 0)
+        {
+            rows.Add(Info("(no scenes)", depth: 2));
+            return;
+        }
+        foreach (var entry in sceneCatalog)
+        {
+            var dirty = entry.IsCurrent && isDirty;
+            rows.Add(new PanelRow
+            {
+                Kind = PanelRowKind.SceneCatalogEntry,
+                Label = (dirty ? "● " : string.Empty) + entry.Label,
+                Depth = 2,
+                Selected = entry.IsCurrent,
+                DirtyMarker = dirty,
+                CatalogEntry = entry,
+            });
+        }
     }
 
     private static PanelRow SectionHeader(EditorPanelSection section, string title, bool expanded) => new()

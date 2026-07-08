@@ -26,6 +26,10 @@ public enum EditorDialogMode
     Save,
     /// <summary>The Load browser: navigate to a folder, pick a <c>.mdscene</c> file / Cancel.</summary>
     Load,
+    /// <summary>The confirm-on-switch modal (UX-C): "Unsaved changes in &lt;scene&gt;" with
+    /// [Save &amp; Switch] [Discard &amp; Switch] [Cancel]. No browser, no field — a plain 3-action
+    /// confirm on the same modal machinery (parked chrome, cursor consume, same weave).</summary>
+    ConfirmSwitch,
 }
 
 /// <summary>
@@ -79,9 +83,14 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     // Per-widget hover-fade progress for the three persistent dialog buttons (Confirm / Cancel / Up) —
     // stored on the system (the buttons are parked persistent entities, so their fade state lives
     // alongside, never keyed to a pooled row — pre-mortem #6). Advanced framerate-independently.
-    private float _confirmHover, _cancelHover, _upHover;
-    private int _hoverControl = -1; // 0=confirm, 1=cancel, 2=up, else a visible row index + 3, or -1
+    private float _confirmHover, _cancelHover, _upHover, _discardHover;
+    private int _hoverControl = -1; // 0=confirm, 1=cancel, 2=up, 4=discard(confirm-switch), else row+3, or -1
     private bool _leftDown;
+
+    // Confirm-on-switch state (UX-C): the callbacks + message for the current confirm, set by OpenConfirmSwitch.
+    private Action<GameState>? _onSwitchConfirmed; // Save & Switch (the primary/Enter action)
+    private Action<GameState>? _onSwitchDiscarded; // Discard & Switch
+    private string _confirmMessage = string.Empty;
 
     private static readonly Vector2 ParkPosition = new(-100000f, -100000f);
 
@@ -102,7 +111,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
     private bool _built;
     private Entity _backdrop, _panel, _title, _breadcrumb, _upBox, _upLabel, _fieldBox, _fieldText,
-        _confirmBox, _confirmLabel, _cancelBox, _cancelLabel, _message;
+        _confirmBox, _confirmLabel, _discardBox, _discardLabel, _cancelBox, _cancelLabel, _message;
     private readonly List<(Entity box, Entity label)> _rows = new();
 
     public bool IsEnabled { get; set; } = true;
@@ -177,6 +186,32 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _mode = EditorDialogMode.Load;
     }
 
+    /// <summary>Opens the confirm-on-switch modal (UX-C): the message names
+    /// <paramref name="sceneId"/> (the scene with unsaved edits), and the three actions route to
+    /// <paramref name="onSaveAndSwitch"/> (Save &amp; Switch / Enter), <paramref name="onDiscardAndSwitch"/>
+    /// (Discard &amp; Switch), and Cancel (Escape / close, invokes neither). The caller (the scene-select
+    /// gate) supplies the callbacks so the dialog stays game-agnostic.</summary>
+    public void OpenConfirmSwitch(string sceneId, Action<GameState> onSaveAndSwitch, Action<GameState> onDiscardAndSwitch)
+    {
+        EnsureBuilt();
+        _onSwitchConfirmed = onSaveAndSwitch ?? throw new ArgumentNullException(nameof(onSaveAndSwitch));
+        _onSwitchDiscarded = onDiscardAndSwitch ?? throw new ArgumentNullException(nameof(onDiscardAndSwitch));
+        _confirmMessage = $"Unsaved changes in {sceneId}.";
+        _prevKeys = _getKeyboardState();
+        _mode = EditorDialogMode.ConfirmSwitch;
+    }
+
+    /// <summary>The confirm-switch dialog's <b>Discard &amp; Switch</b> action (the headless
+    /// <c>dialog:discard</c> op / the Danger button): closes, then invokes the discard callback
+    /// (switch without saving). No-op outside <see cref="EditorDialogMode.ConfirmSwitch"/>.</summary>
+    public void Discard(GameState state)
+    {
+        if (_mode != EditorDialogMode.ConfirmSwitch) return;
+        var action = _onSwitchDiscarded;
+        Close();
+        action?.Invoke(state);
+    }
+
     /// <summary>Replaces the Save-name field value (the headless <c>dialog:name</c> op).</summary>
     public void SetName(string text) => _field.Set(text);
 
@@ -219,6 +254,15 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     /// <see cref="PickFile"/>.)</summary>
     public void Confirm(GameState state)
     {
+        if (_mode == EditorDialogMode.ConfirmSwitch)
+        {
+            // Save & Switch (the primary confirm-switch action): close, then run the save-then-switch
+            // callback the gate supplied.
+            var action = _onSwitchConfirmed;
+            Close();
+            action?.Invoke(state);
+            return;
+        }
         if (_mode != EditorDialogMode.Save) return;
         var id = EditorTextField.Sanitize(_field.Value);
         if (string.IsNullOrEmpty(id))
@@ -259,6 +303,15 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
         var scale = _viewportManager.DevicePixelRatio;
 
+        if (_mode == EditorDialogMode.ConfirmSwitch)
+        {
+            ReadConfirmKeyboard(state);
+            HandleConfirmMouseAndConsume(state, scale);
+            if (_mode == EditorDialogMode.None) { ParkAll(); return; }
+            LayoutConfirm(state, scale);
+            return;
+        }
+
         if (_mode == EditorDialogMode.Save) ReadSaveKeyboard(state);
         else ReadLoadKeyboard();
 
@@ -267,6 +320,83 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         if (_mode == EditorDialogMode.None) { ParkAll(); return; }
 
         LayoutAndRender(state, scale);
+    }
+
+    /// <summary>Confirm-switch keyboard: Enter = Save &amp; Switch (the primary), Escape = Cancel.</summary>
+    private void ReadConfirmKeyboard(GameState state)
+    {
+        var keys = _getKeyboardState();
+        var enter = keys.IsKeyDown(Keys.Enter) && !_prevKeys.IsKeyDown(Keys.Enter);
+        var escape = keys.IsKeyDown(Keys.Escape) && !_prevKeys.IsKeyDown(Keys.Escape);
+        _prevKeys = keys;
+        if (enter) Confirm(state);
+        else if (escape) Cancel();
+    }
+
+    /// <summary>Hit-tests the confirm-switch buttons against the cursor's native <c>ScreenPosition</c>
+    /// and consumes the cursor edges (modal), exactly like <see cref="HandleMouseAndConsume"/>.</summary>
+    private void HandleConfirmMouseAndConsume(GameState state, float scale)
+    {
+        _hoverControl = -1;
+        _leftDown = false;
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref var input = ref cursor.Get<CursorInputComponent>();
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            var panel = EditorDialogLayout.ConfirmPanel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            var buttons = EditorDialogLayout.ConfirmButtons(panel, scale);
+
+            _leftDown = input.LeftButton;
+            if (buttons[0].Contains(point)) _hoverControl = 0;       // Save & Switch
+            else if (buttons[1].Contains(point)) _hoverControl = 4;  // Discard & Switch
+            else if (buttons[2].Contains(point)) _hoverControl = 1;  // Cancel
+
+            if (input.LeftButtonReleased)
+            {
+                if (buttons[0].Contains(point)) Confirm(state);
+                else if (buttons[1].Contains(point)) Discard(state);
+                else if (buttons[2].Contains(point)) Cancel();
+            }
+
+            input.LeftButtonPressed = input.RightButtonPressed = input.MiddleButtonPressed = false;
+            input.LeftButtonReleased = input.RightButtonReleased = input.MiddleButtonReleased = false;
+            input.LeftButton = input.RightButton = input.MiddleButton = false;
+            input.ScrollWheelDelta = 0;
+            cursor.NotifyChanged<CursorInputComponent>();
+            return; // single cursor
+        }
+    }
+
+    /// <summary>Lays out the confirm-switch modal: backdrop + panel + title + message + the three
+    /// buttons (Discard styled <see cref="EditorTheme.Danger"/>); parks every browser-only control.</summary>
+    private void LayoutConfirm(GameState state, float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var panel = EditorDialogLayout.ConfirmPanel(w, h, scale);
+        var buttons = EditorDialogLayout.ConfirmButtons(panel, scale);
+
+        PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
+        PlaceBox(_panel, panel);
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), "Unsaved changes", EditorTheme.Text0, scale);
+        PlaceLabel(_message, EditorDialogLayout.ConfirmMessage(panel, scale), _confirmMessage, EditorTheme.Text1, scale);
+
+        PlaceBox(_confirmBox, buttons[0]);
+        SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 0, disabled: false, state.Time));
+        PlaceLabel(_confirmLabel, LabelInset(buttons[0], scale), "Save & Switch", EditorTheme.Text0, scale);
+
+        PlaceBox(_discardBox, buttons[1]);
+        SetBoxFill(_discardBox, DialogButtonFill(ref _discardHover, 4, disabled: false, state.Time));
+        PlaceLabel(_discardLabel, LabelInset(buttons[1], scale), "Discard & Switch", EditorTheme.Danger, scale);
+
+        PlaceBox(_cancelBox, buttons[2]);
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 1, disabled: false, state.Time));
+        PlaceLabel(_cancelLabel, LabelInset(buttons[2], scale), "Cancel", EditorTheme.Text0, scale);
+
+        // Park the browser-only chrome (breadcrumb / up / field / list rows).
+        Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
+        ParkBox(_fieldBox); Park(_fieldText);
+        ParkRows();
     }
 
     private void ReadSaveKeyboard(GameState state)
@@ -536,6 +666,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _fieldText = CreateLabel(EditorTheme.Depths.DialogLabel);
         _confirmBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
         _confirmLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
+        // The confirm-switch Discard button gets a Danger outline (its label is Danger-tinted too).
+        _discardBox = CreateBox(EditorTheme.Bg2, EditorTheme.Danger, 1.5f, EditorTheme.Depths.DialogControl);
+        _discardLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
         _cancelBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
         _cancelLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
         _message = CreateLabel(EditorTheme.Depths.DialogLabel);
@@ -622,6 +755,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
         ParkBox(_fieldBox); Park(_fieldText);
         ParkBox(_confirmBox); Park(_confirmLabel);
+        ParkBox(_discardBox); Park(_discardLabel);
         ParkBox(_cancelBox); Park(_cancelLabel);
         Park(_message);
         ParkRows();

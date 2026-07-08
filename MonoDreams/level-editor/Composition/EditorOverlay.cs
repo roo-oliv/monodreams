@@ -22,6 +22,7 @@ using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
+using MonoDreams.Screen;
 using MonoDreams.State;
 using MonoDreams.System.Cursor;
 using MonoDreams.System.Draw;
@@ -84,6 +85,14 @@ public sealed class EditorOverlay
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
     private readonly EditorShellStateComponent _shellState = new();
+    // The concrete reader (SceneReader is the ISystem view of it) — read SceneWasLoaded for the
+    // empty-save guard.
+    private readonly SceneReaderSystem _sceneReaderSystem;
+    // Scene-catalog binding (UX-C), set late in the screen's Load (the screen name + ScreenController
+    // + hand-off are only known there). Null until bound → the Scenes panel shows nothing / no switch.
+    private string? _currentScreenName;
+    private Func<IReadOnlyList<(string Name, ScreenInfo Info)>>? _registeredScreens;
+    private Action<SceneCatalogEntry>? _switchScene;
 
     /// <summary>
     /// Builds the overlay over the screen's own world/camera/layers. <paramref name="toolbarFont"/>
@@ -168,8 +177,9 @@ public sealed class EditorOverlay
         // whether or not this screen shows a palette); textures load lazily, and a missing file
         // shows the magenta placeholder instead of an invisible sprite.
         AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
-        SceneReader = new SceneReaderSystem(world, Serializer, content,
+        _sceneReaderSystem = new SceneReaderSystem(world, Serializer, content,
             fileTextureLoader: AssetTextures.Load, camera: camera);
+        SceneReader = _sceneReaderSystem;
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested,
@@ -244,7 +254,11 @@ public sealed class EditorOverlay
         // overlay itself is being constructed; the Scene + Project tabs read live state directly.
         _editorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
             () => (UpdatePipeline, DrawPipeline), _shellState,
-            () => new EditorProjectInfo(_projectContext?.ProjectRoot, _projectContext?.LevelsPath, _sceneId));
+            () => new EditorProjectInfo(_projectContext?.ProjectRoot, _projectContext?.LevelsPath, _sceneId),
+            // UX-C: the Project tab's Scenes list + the dirty-gated switch, both bound late (BindSceneCatalog).
+            sceneCatalog: BuildCatalog,
+            selectScene: SelectScene,
+            isDirty: () => History.IsDirty);
         SystemsPanel = _editorPanel;
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible, _shellState);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
@@ -486,6 +500,127 @@ public sealed class EditorOverlay
     }
 
     /// <summary>
+    /// Sets the scene id the editor holds — the Game screen calls this in its <c>Load</c> from the
+    /// requested level id, so Save targets that level's file (not the manifest default). Explicit
+    /// per-screen scene ids are what kill the "all screens save to <c>startScene</c>" hazard. A blank
+    /// id is ignored (the ctor-resolved default stands).
+    /// </summary>
+    public void SetSceneId(string? sceneId)
+    {
+        if (!string.IsNullOrWhiteSpace(sceneId)) _sceneId = sceneId!;
+    }
+
+    /// <summary>
+    /// Binds the Scenes-panel inputs (UX-C), called from the screen's <c>Load</c> once the screen name,
+    /// the registered-screens enumeration, and the host switch hand-off are known:
+    /// <paramref name="currentScreenName"/> identifies the running screen (for current-entry
+    /// detection), <paramref name="registeredScreens"/> is the <see cref="ScreenController.RegisteredScreens"/>
+    /// enumeration, and <paramref name="switchScene"/> is the host-supplied seam that actually performs a
+    /// switch (Examples: set the requested level + <c>LoadScreen</c>; Demos: plain <c>LoadScreen</c>) — the
+    /// editor module never references a game screen type, exactly like <see cref="EditorTransport.Reload"/>.
+    /// </summary>
+    public void BindSceneCatalog(
+        string currentScreenName,
+        Func<IReadOnlyList<(string Name, ScreenInfo Info)>> registeredScreens,
+        Action<SceneCatalogEntry> switchScene)
+    {
+        _currentScreenName = currentScreenName;
+        _registeredScreens = registeredScreens ?? throw new ArgumentNullException(nameof(registeredScreens));
+        _switchScene = switchScene ?? throw new ArgumentNullException(nameof(switchScene));
+    }
+
+    /// <summary>Builds the current Scenes catalog from the bound inputs (empty until
+    /// <see cref="BindSceneCatalog"/> runs). The module never reads the filesystem in the pure
+    /// <see cref="SceneCatalog"/> — the overlay supplies the scene-id list via <see cref="ListSceneIds"/>
+    /// (its existing desktop directory IO), gated on the project being resolved.</summary>
+    private IReadOnlyList<SceneCatalogEntry> BuildCatalog()
+    {
+        if (_registeredScreens == null) return Array.Empty<SceneCatalogEntry>();
+        var resolved = _projectContext is { Resolved: true };
+        var sceneIds = resolved ? ListSceneIds() : Array.Empty<string>();
+        return SceneCatalog.Build(_registeredScreens(), sceneIds, _currentScreenName, _sceneId, resolved);
+    }
+
+    /// <summary>The <c>.mdscene</c> ids under the project's levels dir, via the same desktop directory
+    /// IO the Save/Load browser uses (<see cref="ListDirectory"/>). Empty when unresolved.</summary>
+    private IReadOnlyList<string> ListSceneIds()
+    {
+        var levelsPath = _projectContext?.LevelsPath;
+        if (string.IsNullOrEmpty(levelsPath)) return Array.Empty<string>();
+        var raw = ListDirectory(levelsPath!);
+        var ids = new List<string>();
+        foreach (var file in raw.Files)
+            if (file.EndsWith(SceneWriter.SceneFileExtension, StringComparison.OrdinalIgnoreCase))
+                ids.Add(Path.GetFileNameWithoutExtension(file));
+        return ids;
+    }
+
+    /// <summary>
+    /// The ONE place a scene switch is initiated (pre-mortem #7 — the dirty gate lives here, and both
+    /// the Scenes-panel click and the <c>scenes:select</c> op route through it). Same entry → no-op;
+    /// clean → the host <see cref="_switchScene"/> callback fires immediately; dirty → the confirm-switch
+    /// modal opens ("Unsaved changes in &lt;scene&gt;"), whose Save &amp; Switch runs the SAME guarded
+    /// <see cref="SaveCurrentScene"/> then switches, Discard switches without saving, and Cancel stays.
+    /// </summary>
+    public void SelectScene(SceneCatalogEntry entry, GameState state)
+    {
+        switch (SceneCatalog.DecideSwitch(entry, History.IsDirty))
+        {
+            case SceneSwitchDecision.NoOp:
+                return; // clicking the active scene is a no-op
+            case SceneSwitchDecision.Switch:
+                if (SwitchGuardMissing()) return;
+                _switchScene!(entry);
+                return;
+            case SceneSwitchDecision.Confirm:
+                if (SwitchGuardMissing()) return;
+                // Save & Switch runs the SAME guarded SaveCurrentScene then switches; Discard switches
+                // without saving; Cancel (dialog close) does neither.
+                Dialog.OpenConfirmSwitch(_sceneId,
+                    onSaveAndSwitch: s => { SaveCurrentScene(s); _switchScene!(entry); },
+                    onDiscardAndSwitch: _ => _switchScene!(entry));
+                return;
+        }
+    }
+
+    private bool SwitchGuardMissing()
+    {
+        if (_switchScene != null) return false;
+        Logger.Warning(
+            "[level-editor] Scene switch requested but no switch callback is bound " +
+            "(call EditorOverlay.BindSceneCatalog in the screen's Load).");
+        return true;
+    }
+
+    /// <summary>Finds the catalog entry whose <see cref="SceneCatalogEntry.Key"/> (or, as a fallback,
+    /// <see cref="SceneCatalogEntry.Label"/>) matches — the <c>scenes:select &lt;key&gt;</c> lookup.</summary>
+    private SceneCatalogEntry? FindCatalogEntry(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        foreach (var entry in BuildCatalog())
+            if (string.Equals(entry.Key, key, StringComparison.Ordinal) ||
+                string.Equals(entry.Label, key, StringComparison.Ordinal))
+                return entry;
+        return null;
+    }
+
+    /// <summary>The guarded Save the toolbar/dialog/switch all share: resolves the source path from the
+    /// current scene id and writes through <see cref="SaveCurrentSceneTo"/> (which re-checks the Save
+    /// guard + the empty-save guard and marks the history save point on success).</summary>
+    public void SaveCurrentScene(GameState state)
+    {
+        var target = SceneFilePath(_projectContext, _sceneId);
+        if (string.IsNullOrEmpty(target))
+        {
+            Logger.Warning(
+                "[level-editor] Save is blocked: no project root resolved (no " +
+                $"{GameProject.FileName} found).");
+            return;
+        }
+        SaveCurrentSceneTo(target!, state);
+    }
+
+    /// <summary>
     /// Logs the composed editor pipeline (entry names, in order) — the observable contract the
     /// universal-overlay integration tests assert per screen, across hosts. Call it right after
     /// <see cref="BindPipelines"/> from the composing screen.
@@ -603,6 +738,20 @@ public sealed class EditorOverlay
                 return;
         }
 
+        // Empty-save guard (UX-C §3.5, pre-mortem #4): refuse when the world has zero
+        // SceneObjectComponent roots AND no scene was loaded into this world this session — "nothing to
+        // save", so a mis-bound code-built screen can never blank a real level (regardless of whether the
+        // target file already exists). A designer who deliberately emptied a LOADED scene may still save
+        // it empty (SceneWasLoaded is the escape hatch).
+        if (EmptySaveRefused(CountSceneRoots(), _sceneReaderSystem.SceneWasLoaded))
+        {
+            Logger.Warning(
+                $"[level-editor] Save refused for '{_sceneId}': the world has no scene content (zero " +
+                "SceneObjectComponent roots) and no scene was loaded this session — nothing to save. " +
+                "Place or load something first.");
+            return;
+        }
+
         if (!string.IsNullOrEmpty(target) && PlatformServices.Current.FileExists(target))
             Logger.Info($"[level-editor] Overwriting existing scene '{_sceneId}' at '{target}'.");
 
@@ -619,6 +768,7 @@ public sealed class EditorOverlay
         // ship; see the navigator scoping premise).
         if (savedPath != null)
         {
+            History.MarkSavePoint(); // the on-disk scene now matches the world → clean (dirty tracking)
             if (IsUnderLevelsRoot(target))
                 EnsureLevelBundled();
             else
@@ -627,6 +777,21 @@ public sealed class EditorOverlay
                     $"('{_projectContext?.LevelsPath}') — not auto-bundled; move it under Content/Levels to ship it.");
             Logger.Info($"[level-editor] Saved scene '{_sceneId}' to '{savedPath}'.");
         }
+    }
+
+    /// <summary>The empty-save guard predicate (UX-C §3.5): refuse iff the world has zero scene roots
+    /// AND no scene was loaded this session. Pure — a truth table the tests pin directly.</summary>
+    public static bool EmptySaveRefused(int sceneRootCount, bool sceneWasLoaded) =>
+        sceneRootCount == 0 && !sceneWasLoaded;
+
+    /// <summary>The number of <see cref="SceneObjectComponent"/>-tagged scene roots in the world (the
+    /// membership-closure seed set — what a Save would actually write).</summary>
+    private int CountSceneRoots()
+    {
+        using var set = _world.GetEntities().With<SceneObjectComponent>().AsSet();
+        var n = 0;
+        foreach (var _ in set.GetEntities()) n++;
+        return n;
     }
 
     /// <summary>Whether <paramref name="target"/> sits directly in the project's levels dir (the only
@@ -822,6 +987,7 @@ public sealed class EditorOverlay
     /// expands a component's member values, <c>panel:select &lt;name&gt;</c> selects a scene entity,
     /// <c>panel:tab &lt;scene|systems|project|assets&gt;</c> switches a region's active tab,
     /// <c>shell:right &lt;pt&gt;</c> / <c>shell:bottom &lt;pt&gt;</c> resize a region (clamped),
+    /// <c>scenes:select &lt;key&gt;</c> switches to a Scenes-panel entry (dirty-gated),
     /// and anything else parses as a plain
     /// <see cref="EditorToolbarAction"/> into <see cref="DispatchToolbarAction"/> — so every
     /// scripted editor action shares one grammar. Loud on unknown names / a palette op without a
@@ -840,6 +1006,27 @@ public sealed class EditorOverlay
         const string dialogPrefix = "dialog:";
         const string panelPrefix = "panel:";
         const string shellPrefix = "shell:";
+        const string scenesPrefix = "scenes:";
+
+        if (name.StartsWith(scenesPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // scenes:select <entryKey> — switch to the catalog entry with that key (the dirty gate +
+            // confirm-on-switch is applied in SelectScene, identically to a Scenes-panel row click).
+            var rest = name.Substring(scenesPrefix.Length);
+            var space = rest.IndexOf(' ');
+            var verb = space < 0 ? rest : rest.Substring(0, space);
+            var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
+            if (string.Equals(verb, "select", StringComparison.OrdinalIgnoreCase))
+            {
+                if (FindCatalogEntry(arg) is { } entry) SelectScene(entry, state);
+                else Logger.Warning($"[level-editor] Editor-op '{name}': no scene catalog entry '{arg}'.");
+            }
+            else
+            {
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected scenes:select <entryKey>.");
+            }
+            return;
+        }
 
         if (name.StartsWith(panelPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -908,6 +1095,7 @@ public sealed class EditorOverlay
                 case "load-open": Dialog.OpenLoad(); break;
                 case "name": Dialog.SetName(arg); break;
                 case "confirm": Dialog.Confirm(state); break;
+                case "discard": Dialog.Discard(state); break;
                 case "cancel": Dialog.Cancel(); break;
                 case "cd": Dialog.EnterDirectory(arg); break;
                 case "up": Dialog.GoUp(); break;
@@ -915,7 +1103,7 @@ public sealed class EditorOverlay
                 default:
                     Logger.Warning(
                         $"[level-editor] Editor-op '{name}': expected " +
-                        "dialog:save-open|load-open|name <text>|confirm|cancel|cd <folder>|up|pick <file>.");
+                        "dialog:save-open|load-open|name <text>|confirm|discard|cancel|cd <folder>|up|pick <file>.");
                     break;
             }
             return;

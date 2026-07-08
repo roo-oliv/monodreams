@@ -62,6 +62,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private readonly BitmapFont? _font;
     private readonly Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> _pipelines;
     private readonly Func<EditorProjectInfo> _projectInfo;
+    private readonly Func<IReadOnlyList<SceneCatalogEntry>> _sceneCatalog;
+    private readonly Action<SceneCatalogEntry, GameState>? _selectScene;
+    private readonly Func<bool> _isDirty;
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _sceneSet;
@@ -132,13 +135,19 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         BitmapFont? font,
         Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> pipelines,
         EditorShellStateComponent? shellState = null,
-        Func<EditorProjectInfo>? projectInfo = null)
+        Func<EditorProjectInfo>? projectInfo = null,
+        Func<IReadOnlyList<SceneCatalogEntry>>? sceneCatalog = null,
+        Action<SceneCatalogEntry, GameState>? selectScene = null,
+        Func<bool>? isDirty = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
         _font = font; // null = layout-only (tests run no text prep, mirroring EditorChromeBuilder's seam)
         _pipelines = pipelines ?? throw new ArgumentNullException(nameof(pipelines));
         _projectInfo = projectInfo ?? (() => default);
+        _sceneCatalog = sceneCatalog ?? (() => Array.Empty<SceneCatalogEntry>());
+        _selectScene = selectScene;
+        _isDirty = isDirty ?? (() => false);
         _shellState = shellState ?? new EditorShellStateComponent();
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
@@ -190,7 +199,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         // the selection, the active tab or the scroll), then rebuild so the visuals reflect the
         // post-click state this same frame.
         BuildRows();
-        HandleInteraction(panel, tabStrip, body, scale, state.Time);
+        HandleInteraction(panel, tabStrip, body, scale, state);
         BuildRows();
 
         _scroll = SystemsPanelLayout.ClampScroll(_scroll, _rows.Count, body, scale);
@@ -226,9 +235,14 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             inspectorTitle = SceneLabel(selected);
         }
 
+        // Only build the scene catalog when the Project tab is showing — the provider scans the
+        // levels dir (filesystem IO), so it must not run every frame on the Scene/Systems tabs.
+        var catalog = _shellState.ActiveRightTab == EditorRightTab.Project
+            ? _sceneCatalog()
+            : (IReadOnlyList<SceneCatalogEntry>)Array.Empty<SceneCatalogEntry>();
         _rows.AddRange(EditorPanelModel.Build(
             _state, _shellState.ActiveRightTab, update, draw, nodes, SceneLabel, selected,
-            inspector, inspectorTitle, ProjectInfo()));
+            inspector, inspectorTitle, ProjectInfo(), catalog, _isDirty()));
     }
 
     /// <summary>The Project-tab info, with the root middle-truncated to the panel's char budget so a
@@ -279,7 +293,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Interaction -------------------------------------------------------
 
-    private void HandleInteraction(Rectangle panel, Rectangle tabStrip, Rectangle body, float scale, float dt)
+    private void HandleInteraction(Rectangle panel, Rectangle tabStrip, Rectangle body, float scale, GameState state)
     {
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -324,7 +338,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 if (vi < 0 || vi >= visible) continue;
                 var line = SystemsPanelLayout.LineRect(body, vi, scale);
                 if (!line.Contains(point)) continue;
-                HandleClick(_rows[i], line, point, scale);
+                HandleClick(_rows[i], line, point, scale, state);
                 return;
             }
             return;
@@ -380,7 +394,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private float MeasureLabel(string label) =>
         (_font?.MeasureString(label).Width ?? label.Length * 8f) * EditorChromeBuilder.LabelScale;
 
-    private void HandleClick(PanelRow row, Rectangle line, Point point, float scale)
+    private void HandleClick(PanelRow row, Rectangle line, Point point, float scale, GameState state)
     {
         if (!row.Interactive) return;
         var onArrow = row.Collapsible && SystemsPanelLayout.ArrowRect(line, row.Depth, scale).Contains(point);
@@ -400,6 +414,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 break;
             case PanelRowKind.InspectorComponent:
                 if (row.Collapsible) ToggleInspectorComponentKey(row.ComponentKey!);
+                break;
+            case PanelRowKind.SceneCatalogEntry:
+                // The dirty gate + confirm-on-switch lives in the ONE handler the overlay supplies
+                // (pre-mortem #7): the panel just forwards the entry the row carries.
+                if (row.CatalogEntry is { } entry) _selectScene?.Invoke(entry, state);
                 break;
         }
     }
@@ -632,7 +651,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         // WorldMatrix, like the arrows). Selected scene row = AccentSoft fill + a 3pt Accent left bar;
         // a hovered interactive row = Bg3 fill (INSTANT — a pooled row must not fade, or the highlight
         // smears across scroll as the pool repurposes rows). Otherwise both meshes are emptied.
-        var selectedRow = row.Kind == PanelRowKind.SceneEntity && row.Selected;
+        var selectedRow = (row.Kind == PanelRowKind.SceneEntity || row.Kind == PanelRowKind.SceneCatalogEntry)
+                          && row.Selected;
         if (selectedRow)
         {
             SetMeshAt(visual.BgFill, new FilledRectangleMeshGenerator(line, EditorTheme.AccentSoft).Generate(),
@@ -716,6 +736,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         PanelRowKind.SceneEntity => EditorTheme.Text0,
         PanelRowKind.InspectorComponent => EditorTheme.Text0,
         PanelRowKind.InspectorMember => EditorTheme.TextMuted,
+        // The current scene's dirty marker (● prefix) is drawn in Warning; a clean catalog row is Text0.
+        PanelRowKind.SceneCatalogEntry => row.DirtyMarker ? EditorTheme.Warning : EditorTheme.Text0,
         _ => EditorTheme.TextMuted,
     };
 

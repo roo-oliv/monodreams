@@ -907,9 +907,12 @@ collapse/expand state lives in the pure-data `EditorPanelStateComponent` on an e
   to its **member values** (guarded per-member so an arbitrary component never throws); no selection
   → "(no selection)".
 - **Systems** — the pipeline listing (the systems-panel premise above), with per-group collapse.
-- **Project** — project info rows: the project root path (**middle-truncated** to the strip width),
-  the levels dir, the current scene id, and a muted **"(scenes list lands in UX-C)"** placeholder.
-  The Scenes list + switch flow land in **UX-C** (this tab is where they will render).
+- **Project** — project info rows (the project root path, **middle-truncated** to the strip width, and
+  the levels dir) plus the **Scenes list** (UX-C): one selectable row per `SceneCatalog` entry (each
+  registered screen's bound scene + every unclaimed `.mdscene` under the levels dir), the current entry
+  rendered selected (`AccentSoft` + `Accent` bar) with a `Warning`-colored `●` prefix when the scene is
+  dirty. Clicking a row switches to it through the dirty-gated select flow (see "Game screens declare
+  their bound scene; the Scenes panel lists screens + scene files and switching IS selecting").
 
 The tab bar is **per-tab persistent widgets** (each with its OWN hover-fade progress — never a
 pooled row, pre-mortem #6): the active tab renders a `Bg1` fill that merges into the body + a 3pt
@@ -1386,19 +1389,130 @@ scene, then confirm), and the write runs in the dialog's confirm callback throug
 `SaveCurrentScene`, which re-applies this exact guard as defense-in-depth (see "The editor's Save/Load
 dialogs are modal editor-native chrome that own input while open").
 
+**The empty-save guard (UX-C §3.5, pre-mortem #4).** Beyond the two `SaveBlock` causes above,
+`SaveCurrentSceneTo` applies one more world-state guard the pure `SaveBlock` cannot express: it
+**refuses** (loud `Logger.Warning`, distinguishable reason) when the world has **zero
+`SceneObjectComponent` roots AND no scene was loaded into this world this session** — the pure
+predicate `EditorOverlay.EmptySaveRefused(sceneRootCount, sceneWasLoaded)`. There is genuinely
+*nothing to save*, so a mis-bound code-built screen (a menu that never placed anything) can never
+blank a real level with an empty file — **regardless of whether the target file already exists** (file
+existence is deliberately NOT a factor). The escape hatch is the reader's `SceneReaderSystem.SceneWasLoaded`
+one-way session flag (set true on the first successful `LoadSceneRequest`): a designer who deliberately
+**emptied a loaded scene** may still save it empty. On a successful write `SaveCurrentSceneTo` also calls
+`EditorHistory.MarkSavePoint()` (see "The editor history tracks a dirty save-point signal").
+
 **Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
 is nearly free) AND the project-persistence trap (project-persistence plan §4): a mid-Play save
 corrupts a scene, and a save with no resolved project root has nowhere versioned to land — both
-fail silently in a way that only shows later.
+fail silently in a way that only shows later; and the empty-save trap (UX-C §3.5): now that a bound
+screen's overlay carries an explicit scene id, a Save on a screen where nothing was placed OR loaded
+would overwrite that scene id's real file with an empty one.
 **Breaks:** a scene reloads with the player embedded mid-jump or props mid-physics — "the level I
 saved is not the level I authored"; or Save silently writes to (or crashes over) an ephemeral
-build-output path instead of the versioned source tree.
+build-output path instead of the versioned source tree; or a mis-bound screen's blank Save wipes a
+committed level (the empty-save footgun).
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs`
 (`SaveGuardTest_BlockedWhilePlayingOrWithoutAProjectRoot`,
-`SaveGuardTest_DispatchNoOpsWhileBlockedAndSavesWhenAllowed`).
+`SaveGuardTest_DispatchNoOpsWhileBlockedAndSavesWhenAllowed`);
+`MonoDreams.Tests/LevelEditor/EmptySaveGuardTests.cs` (`EmptySaveRefused_TruthTable` — the
+(rootCount, wasLoaded) truth table incl. the never-loaded-but-file-exists case;
+`SceneReader_SceneWasLoaded_StartsFalse_FlipsTrueAfterALoad`).
 **Depends on:** this file — "The editor run flag composes the always-on editor and the transport
 owns RunMode" (Playing = `RunMode.Play` with the shell composed); "The project manifest anchors the
 editor's project root; unresolved is fail-safe" (the `NoProjectRoot` cause).
+
+## Game screens declare their bound scene; the Scenes panel lists screens + scene files and switching IS selecting
+
+A game screen declares which configuration file it loads from at **registration** — foundation's
+`ScreenInfo(DisplayName, BoundSceneId, HostsSceneFiles)`, code being the source of truth. The editor's
+**Scenes panel** (the Project tab) renders the pure `SceneCatalog.Build`, which merges: every registered
+screen with a `BoundSceneId` → one entry (label = `DisplayName`, in registration order); every
+`.mdscene` under the resolved project's levels dir **not claimed by a binding** → one entry hosted by the
+first `HostsSceneFiles` screen (label = the scene id — dangling backups appear here by design); and an
+**unresolved project degrades to screens only** (matching the Save guard's fail-safe). The pure catalog
+never reads the filesystem — the overlay injects the scene-id list (its existing desktop directory IO,
+`ListSceneIds` over `LevelsPath`). Each overlay is handed its scene id **explicitly** (the Game host sets
+it in `Load` from the requested level via `SetSceneId`; a bound screen from its declared id at
+construction), killing the pre-UX-C hazard where every overlay fell back to `manifest.startScene` and all
+three screens would Save to the same `island.mdscene`.
+
+A bound screen also publishes an **optional scene load** in `Load` (`NativeLevelLoader.TryPublishSceneLoad`
+— source-first when the project is resolved and the source file exists, else the bundled `TitleContainer`
+probe, else a silent no-op) so its saved scene comes up UNDER its code-built UI on boot. Code-spawned UI
+stays **untagged / never serialized**: the existing `SceneObjectComponent` membership policy is now the
+ownership policy — screen UI is code-owned, only loaded/placed/editor-created content is scene-owned.
+
+**There is no Load action — switching IS selecting.** Clicking a Scenes-panel row (or the `scenes:select
+<key>` op) routes through the ONE initiator `EditorOverlay.SelectScene`, whose decision is the pure
+`SceneCatalog.DecideSwitch(entry, isDirty)`: the current entry → no-op; a **clean** world → the
+host-supplied `SwitchScene(entry)` callback fires immediately; a **dirty** world → a modal confirm-on-switch
+(the `EditorDialogSystem` `ConfirmSwitch` mode — a new mode on the same modal machinery, parked chrome +
+cursor consume + same `editor.dialog` weave — with **[Save & Switch] [Discard & Switch (`Danger`)]
+[Cancel]**), whose Save & Switch runs the SAME guarded `SaveCurrentScene` then switches, Discard switches
+without saving, and Cancel stays. The dirty gate lives in this one initiator (pre-mortem #7), so the panel
+click and `scenes:select` are gated identically. `SwitchScene` is the game-agnostic seam (like
+`EditorTransport.Reload`): Examples wires it to the existing hand-off (`EditorSceneSwitch.Switch` — set
+`RequestedLevelComponent` for the level host only, then `ScreenController.LoadScreen(entry.ScreenName)`),
+Demos would wire plain `LoadScreen`. The world tears down wholesale and the shared `GameState.RunMode =
+Edit` survives (foundation), so the new screen composes a fresh overlay bound to the right scene id. The
+editor module gains **no** dependency on a game screen type.
+
+**Why:** the user's rule — "we create game screens in code and need a clear way to indicate which
+configuration files they load from" — plus the removal of the Load action: a screen declares its scene,
+the panel lists them, and selecting one loads it. Explicit per-screen scene ids are the fix for the
+all-screens-save-to-one-file hazard; the dirty gate in the single initiator is what stops a switch from
+silently discarding unsaved edits.
+**Breaks:** a screen whose overlay has no explicit scene id Saves to `manifest.startScene` (three screens
+clobbering one file); a switch path that skips the dirty gate silently loses edits (pre-mortem #7); the
+editor referencing a game screen type couples the module to a game; reading the filesystem in the pure
+catalog makes it un-unit-testable; tagging screen UI as scene-owned would serialize the menu's buttons.
+**Tests:** `MonoDreams.Tests/LevelEditor/SceneCatalogTests.cs` (merging + registration order, claiming,
+dangling backups, unresolved → screens only, no-host → no files, all-plain → empty, current detection,
+and the `DecideSwitch` truth table); `MonoDreams.Tests/LevelEditor/OptionalSceneLoadTests.cs` (source-first
+/ bundled / absent no-op / unresolved-skips-source); `MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs`
+(`ProjectTab_ShowsProjectInfo_AndTheScenesList`, `ProjectTab_CurrentEntry_ShowsDirtyMarker_WhenDirty`,
+`ProjectTab_NoCatalog_ShowsNoScenes`); `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs`
+(`ProjectTab_SceneCatalogRowClick_ForwardsTheEntryToTheSelectCallback`);
+`MonoDreams.Tests/LevelEditor/EditorDialogTests.cs` (`ConfirmSwitch_Confirm_RunsSaveAndSwitch_NotDiscard_AndCloses`,
+`ConfirmSwitch_Discard_SwitchesWithoutSaving_AndCloses`, `ConfirmSwitch_Cancel_DoesNeither_AndCloses`,
+`ConfirmSwitch_EnterConfirms_EscapeCancels`, `ConfirmSwitch_ClickDiscardThroughRealCursorPipeline_DiscardsOnRelease`);
+`MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs` (the `ScreenInfo` binding + enumeration).
+**Depends on:** foundation — "Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its
+`RunMode`) is the only survivor of a screen switch"; this file — "The editor right strip is a tabbed
+shell: Scene / Systems / Project tabs …" (the Project tab this renders in), "The editor history tracks a
+dirty save-point signal" (the dirty input to the gate), "Save is blocked while Playing or when no project
+root is resolved" (the guarded `SaveCurrentScene` that Save & Switch reuses), "The game boots native
+scenes native-first via `LoadLevelRequest`" (`NativeLevelLoader`, whose optional-load helper this uses);
+level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails loud otherwise)".
+
+## The editor history tracks a dirty save-point signal
+
+`EditorHistory` carries a monotonic `EditVersion` (bumped on every recorded push — including a
+transaction commit — plus every undo, redo, and `Clear`) and a `MarkSavePoint()`; `IsDirty` is
+`EditVersion != savePointVersion`. A fresh history is clean (both start at 0). `EditorOverlay.SaveCurrentScene`
+marks the save point on a successful write; the transport's `Restart` `Clear()` advances `EditVersion`
+(keeping it monotonic) **then re-marks clean** — a reload from disk has no unsaved edits. Mid-transaction
+pushes accumulate without bumping `EditVersion` (the world is live-edited but not yet recorded), so an
+aborted drag (`CancelTransaction`) leaves the dirtiness unchanged and a committed drag is exactly one
+dirty step. **Known conservative edge:** because `EditVersion` only advances, undoing back to the exact
+save-point world still reads dirty — the dirty gate errs toward prompting rather than silently discarding.
+
+**Why:** the Scenes-panel switch gate (and the dirty marker) needs a reliable "there are unsaved edits"
+signal, and every world mutation in Edit already flows through the history — so the history is the natural
+home for the bit. Monotonic-plus-save-point is the minimal correct model; the conservative undo edge is
+acceptable (a spurious confirm dialog is safe; a missed one loses work).
+**Breaks:** a save point that rewinds `EditVersion` on undo could read clean while edits remain unsaved
+(the switch would silently discard them); marking dirty mid-transaction would make an aborted drag read
+dirty; not re-marking clean after `Clear` would make a freshly-reloaded scene read dirty and prompt on the
+very next switch.
+**Tests:** `MonoDreams.Tests/LevelEditor/DirtyTrackingTests.cs` (`FreshHistory_IsClean`,
+`Push_MakesDirty_SavePoint_MakesClean_NextEditDirtyAgain`,
+`UndoRedo_AdvanceEditVersion_SoBackToSavePointStillReadsDirty`,
+`Transaction_CommitIsOneDirtyStep_MidTransactionIsNotYetDirty_CancelStaysClean`,
+`Clear_ResetsClean_ButEditVersionIsMonotonic`).
+**Depends on:** this file — "Bounded undo with drag-coalescing" (the history whose mutations this counts),
+"The transport's Restart rebuilds the scene from the original load request …" (the `Clear` that resets
+clean), "Game screens declare their bound scene …" (the switch gate that reads `IsDirty`).
 
 ## The editor's Save/Load dialog is a modal file-system navigator, project-root-scoped, that owns input while open
 
@@ -1443,8 +1557,13 @@ clicks do nothing" bug). (2) keyboard — the composing screen wires the host ke
 `ShouldSuppressInput` to `Dialog.IsOpen`, so every editor/game keyboard action (delete, undo/redo,
 frame, boundary-commit, and the game's Escape-to-exit) stands down while the dialog reads the keyboard
 for its name field (Backspace edits, Enter confirms, Escape cancels). Every action also has a public
-method so the headless `dialog:save-open|load-open|name <text>|confirm|cancel|cd <folder>|up|pick <file>`
-op grammar drives the whole flow with no real keyboard/mouse.
+method so the headless `dialog:save-open|load-open|name <text>|confirm|discard|cancel|cd <folder>|up|pick <file>`
+op grammar drives the whole flow with no real keyboard/mouse. **UX-C adds a third mode on this same
+machinery — `ConfirmSwitch`** (opened by `OpenConfirmSwitch`; `dialog:confirm` = Save &amp; Switch,
+`dialog:discard` = Discard &amp; Switch, `dialog:cancel`; Enter = Confirm, Escape = Cancel): a plain
+"Unsaved changes in &lt;scene&gt;" confirm with no browser/field, reusing the parked chrome + cursor
+consume + `editor.dialog` weave, so the switch-confirm modality can never leak a click to the tools
+behind it (pre-mortem #3).
 
 **Why:** the user needs to name a scene and pick which to load, and expected a real file browser (Rider
 hands-on feedback: the flat name-field / list dialogs "aren't what I expected"). Rooting at the project
