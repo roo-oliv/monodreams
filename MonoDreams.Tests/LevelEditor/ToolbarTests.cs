@@ -1,13 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Platform;
 using MonoDreams.State;
@@ -268,5 +272,70 @@ public class ToolbarTests
             DispatchSave(new GameState(new GameTime()) { RunMode = RunMode.Edit }, resolved);
             Assert.Equal(1, fake.WriteCount);
         });
+    }
+
+    // ---- UX2-B: the transport relocated to the Scene panel header ----------
+
+    /// <summary>The window top bar's button set slimmed — the transport (Play/Pause + Restart) left
+    /// it for the Scene panel header; the editing actions stay (they relocate in UX2-C, not now).</summary>
+    [Fact]
+    public void WindowBar_IsSlimmed_TransportRelocatedToTheHeader()
+    {
+        var windowActions = EditorChromeBuilder.DefaultButtons.Select(b => b.action).ToArray();
+        Assert.DoesNotContain(EditorToolbarAction.PlayPause, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.Restart, windowActions);
+        // The Scene header carries exactly the transport.
+        Assert.Equal(new[] { EditorToolbarAction.PlayPause, EditorToolbarAction.Restart },
+            EditorChromeBuilder.HeaderButtons.Select(b => b.action).ToArray());
+        // The editing actions stay on the window bar this wave.
+        Assert.Contains(EditorToolbarAction.Save, windowActions);
+        Assert.Contains(EditorToolbarAction.ToolMove, windowActions);
+        Assert.Contains(EditorToolbarAction.Undo, windowActions);
+        Assert.Contains(EditorToolbarAction.RefreshCatalog, windowActions);
+    }
+
+    /// <summary>The relocated transport dispatches through the SAME <c>ToolbarSystem</c> machinery from
+    /// the Scene header — and does so while Playing (transport is live in both states), unlike the
+    /// window-bar editing buttons which are inert in Play.</summary>
+    [Fact]
+    public void HeaderTransport_DispatchesFromTheHeader_WhilePlaying_WindowEditingInert()
+    {
+        using var world = new World();
+        var chrome = new EditorChromeBuilder(world, label => label.Length * 8f);
+        chrome.Build(1600, 900);
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent());
+
+        var dispatched = new List<EditorToolbarAction>();
+        using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a));
+
+        Rectangle BoundsOf(EditorToolbarAction action)
+        {
+            using var set = world.GetEntities().With<ToolbarButtonComponent>().AsSet();
+            foreach (var e in set.GetEntities())
+                if (e.Get<ToolbarButtonComponent>().Action == action) return e.Get<ToolbarButtonComponent>().Bounds;
+            return Rectangle.Empty;
+        }
+
+        var playing = new GameState(new GameTime()) { RunMode = RunMode.Play };
+        ref var input = ref cursor.Get<CursorInputComponent>();
+
+        // The header PlayPause button lives in the Scene header and dispatches while Playing.
+        var play = BoundsOf(EditorToolbarAction.PlayPause);
+        Assert.True(EditorChromeLayout.SceneHeader(1600, 900).Contains(play), "PlayPause is not in the Scene header");
+        input.ScreenPosition = new Vector2(play.Center.X, play.Center.Y);
+        input.LeftButtonReleased = true;
+        toolbar.Update(playing);
+        Assert.Contains(EditorToolbarAction.PlayPause, dispatched);
+
+        // A window-bar editing button (Save) is inert while Playing — a click belongs to the game.
+        dispatched.Clear();
+        var save = BoundsOf(EditorToolbarAction.Save);
+        Assert.True(EditorChromeLayout.TopBar(1600).Contains(save), "Save is not in the window top bar");
+        input.ScreenPosition = new Vector2(save.Center.X, save.Center.Y);
+        input.LeftButtonReleased = true;
+        toolbar.Update(playing);
+        Assert.DoesNotContain(EditorToolbarAction.Save, dispatched);
     }
 }

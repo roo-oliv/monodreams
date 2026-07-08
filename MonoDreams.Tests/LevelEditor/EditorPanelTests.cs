@@ -19,11 +19,12 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the <see cref="EditorPanelSystem"/> — the right-strip panel with the Systems, Scene and
-/// Inspector sections. Covers: the Systems section mirrors both pipelines and toggles an entry (the
-/// gated system actually stops); the panel refuses to disable itself; section + group collapse;
-/// the wheel scrolls whole clamped lines; the Scene tree selects an entity both ways
-/// (<c>SelectedComponent</c>); and the Inspector lists the selection's components and expands to
+/// Protects the <see cref="EditorPanelSystem"/> in BOTH roles (UX2-B): the LEFT tabbed panel
+/// (Entities / Systems / Scenes) and the dedicated RIGHT Inspector panel. Covers: the Systems tab
+/// mirrors both pipelines and toggles an entry (the gated system actually stops); the panel refuses
+/// to disable itself; section + group collapse; the wheel scrolls whole clamped lines; the Entities
+/// tree selects an entity both ways (<c>SelectedComponent</c>) — and a LEFT-panel tree click updates
+/// the RIGHT Inspector panel; and the Inspector panel lists the selection's components and expands to
 /// member values. Pure logic — a null font (layout-only) + a hand-built <see cref="ViewportManager"/>.
 /// </summary>
 public class EditorPanelTests
@@ -70,9 +71,10 @@ public class EditorPanelTests
 
     private Rectangle LineFor(EditorPanelSystem panel, ViewportManager vm, int rowIndex)
     {
-        // Rows live in the region BODY (below the tab strip) at the shell's runtime region sizes.
-        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight, vm.DevicePixelRatio,
-            panel.ShellState.RightWidthPt, panel.ShellState.BottomHeightPt);
+        // The left tabbed panel's rows live in the LEFT region BODY (below the tab strip) at the
+        // shell's runtime region sizes (UX2-B — the tab group moved to the left strip).
+        var panelRect = EditorChromeLayout.LeftPanel(vm.ScreenWidth, vm.ScreenHeight, vm.DevicePixelRatio,
+            panel.ShellState.LeftWidthPt, panel.ShellState.BottomHeightPt);
         var body = EditorChromeLayout.RegionBody(panelRect, vm.DevicePixelRatio);
         return SystemsPanelLayout.LineRect(body, rowIndex - panel.ScrollOffset);
     }
@@ -115,7 +117,7 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
-        panel.SetRightTab(EditorRightTab.Systems); // these tests exercise the Systems tab
+        panel.SetActiveTab(EditorPanelTab.Systems); // these tests exercise the Systems tab
         return (panel, update, logic, updatePipeline);
     }
 
@@ -132,7 +134,7 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
-        panel.SetRightTab(EditorRightTab.Systems); // these tests exercise the Systems tab
+        panel.SetActiveTab(EditorPanelTab.Systems); // these tests exercise the Systems tab
         return (panel, update);
     }
 
@@ -154,13 +156,12 @@ public class EditorPanelTests
         Assert.Contains("DRAW", labels);
         Assert.Contains("logic [freeze]", labels);
         Assert.Contains("renderMain", labels);
-        // The Systems tab shows only the Systems section — Scene/Inspector live on the Scene tab.
-        Assert.DoesNotContain(EditorPanelModel.SceneTitle, labels);
-        Assert.DoesNotContain(EditorPanelModel.InspectorTitle, labels);
+        // The Systems tab shows only the Systems section — the Entities tree lives on the Entities tab.
+        Assert.DoesNotContain(EditorPanelModel.EntitiesTitle, labels);
         // The tab bar labels are always present (persistent widgets).
-        Assert.Contains("Scene", labels);
+        Assert.Contains("Entities", labels);
         Assert.Contains("Systems", labels);
-        Assert.Contains("Project", labels);
+        Assert.Contains("Scenes", labels);
     }
 
     [Fact]
@@ -325,13 +326,13 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
-        panel.SetRightTab(EditorRightTab.Systems);
+        panel.SetActiveTab(EditorPanelTab.Systems);
 
         panel.Update(Edit());
         Assert.Equal(0, panel.ScrollOffset);
 
         // Rows scroll within the region BODY (below the tab strip).
-        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var panelRect = EditorChromeLayout.LeftPanel(vm.ScreenWidth, vm.ScreenHeight);
         var body = EditorChromeLayout.RegionBody(panelRect);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(body.Center.X, body.Center.Y);
@@ -348,8 +349,8 @@ public class EditorPanelTests
         panel.Update(Edit());
         Assert.Equal(0, panel.ScrollOffset);
 
-        // Wheel outside the panel does nothing.
-        input.ScreenPosition = new Vector2(10, 100);
+        // Wheel outside the (left) panel does nothing — the game-viewport centre is clear of it.
+        input.ScreenPosition = new Vector2(vm.ScreenWidth / 2f, vm.ScreenHeight / 2f);
         input.ScrollWheelDelta = -120;
         panel.Update(Edit());
         Assert.Equal(0, panel.ScrollOffset);
@@ -368,11 +369,11 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
-        panel.SetRightTab(EditorRightTab.Systems);
+        panel.SetActiveTab(EditorPanelTab.Systems);
 
         panel.Update(Edit());
 
-        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var panelRect = EditorChromeLayout.LeftPanel(vm.ScreenWidth, vm.ScreenHeight);
         var body = EditorChromeLayout.RegionBody(panelRect);
         var visible = SystemsPanelLayout.VisibleLineCount(body);
         Assert.True(panel.Rows.Count > visible, "test needs an overflowing panel");
@@ -528,7 +529,7 @@ public class EditorPanelTests
     }
 
     [Fact]
-    public void ProjectTab_SceneCatalogRowClick_ForwardsTheEntryToTheSelectCallback()
+    public void ScenesTab_SceneCatalogRowClick_ForwardsTheEntryToTheSelectCallback()
     {
         using var world = new World();
         var cursor = MakeCursor(world);
@@ -543,7 +544,7 @@ public class EditorPanelTests
             () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null),
             sceneCatalog: () => catalog,
             selectScene: (e, _) => picked = e);
-        panel.SetRightTab(EditorRightTab.Project);
+        panel.SetActiveTab(EditorPanelTab.Scenes);
 
         panel.Update(Edit());
         var idx = RowIndex(panel, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Label == "island");
@@ -595,18 +596,22 @@ public class EditorPanelTests
         Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "ChromeThing");
     }
 
-    // ---- Inspector: component list + member values -------------------------
+    // ---- Inspector panel (RightInspector role): component list + members ---
+
+    /// <summary>A dedicated Inspector-role panel (the right strip). Its body is the selection's
+    /// components — no tabs, no pipelines.</summary>
+    private static EditorPanelSystem MakeInspectorPanel(World world, ViewportManager vm) =>
+        new(world, vm, font: null, role: EditorPanelRole.RightInspector);
 
     [Fact]
-    public void Inspector_ListsSelectedEntityComponents_AndExpandsMembers()
+    public void InspectorPanel_ListsSelectedEntityComponents_AndExpandsMembers()
     {
         using var world = new World();
         MakeCursor(world);
         var vm = Vm();
         var hero = MakeSceneEntity(world, "Hero"); // Transform + EntityInfo
         hero.Set(new SelectedComponent());
-        using var panel = new EditorPanelSystem(world, vm, font: null,
-            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+        using var panel = MakeInspectorPanel(world, vm);
 
         panel.Update(Edit());
 
@@ -624,15 +629,52 @@ public class EditorPanelTests
     }
 
     [Fact]
-    public void Inspector_NoSelection_ShowsPlaceholder()
+    public void InspectorPanel_NoSelection_ShowsPlaceholder()
     {
         using var world = new World();
         MakeCursor(world);
         var vm = Vm();
-        using var panel = new EditorPanelSystem(world, vm, font: null,
-            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+        using var panel = MakeInspectorPanel(world, vm);
 
         panel.Update(Edit());
         Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no selection)");
+    }
+
+    // ---- Two-way selection ACROSS the two panels (UX2-B) -------------------
+
+    [Fact]
+    public void LeftTreeClick_UpdatesTheRightInspectorPanel()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var hero = MakeSceneEntity(world, "Hero"); // Transform + EntityInfo
+
+        // The two real panels the overlay composes, sharing ONE panel state — the left tabbed panel
+        // (Entities tab) and the dedicated right Inspector panel.
+        var shell = new EditorShellStateComponent();
+        var panelState = new EditorPanelStateComponent();
+        using var left = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null),
+            shellState: shell, role: EditorPanelRole.LeftTabs, panelState: panelState);
+        using var inspector = new EditorPanelSystem(world, vm, font: null,
+            shellState: shell, role: EditorPanelRole.RightInspector, panelState: panelState);
+
+        left.Update(Edit());
+        inspector.Update(Edit());
+        // Nothing selected yet → the Inspector shows the placeholder.
+        Assert.Contains(inspector.Rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no selection)");
+
+        // Click the Hero row in the LEFT panel's Entities tree.
+        var idx = RowIndex(left, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Hero");
+        Assert.True(idx >= 0);
+        ClickBody(left, vm, cursor, idx);
+        left.Update(Edit());
+        Assert.True(hero.Has<SelectedComponent>());
+
+        // Next frame the RIGHT Inspector panel binds to that same SelectedComponent — two-way across panels.
+        inspector.Update(Edit());
+        Assert.Contains(inspector.Rows, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == nameof(EntityInfoComponent));
+        Assert.DoesNotContain(inspector.Rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no selection)");
     }
 }

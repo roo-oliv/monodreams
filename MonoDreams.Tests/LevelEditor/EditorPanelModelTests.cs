@@ -15,11 +15,11 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the pure right-panel row assembler (<see cref="EditorPanelModel"/>): the three
-/// collapsible sections (Systems/Scene/Inspector), per-section collapse, per-pipeline-group
-/// collapse, the scene tree rows (indent + selection highlight + subtree collapse), and the
-/// Inspector component/member rows. No world I/O, no GraphicsDevice — the model is fed pre-built
-/// inputs, so these tests pin the exact row output.
+/// Protects the pure panel row assemblers (<see cref="EditorPanelModel"/>): the left tabbed panel's
+/// <c>Build</c> (Entities / Systems / Scenes tabs, per-section collapse, per-pipeline-group collapse,
+/// the scene tree rows with indent + selection highlight + subtree collapse) and the dedicated right
+/// Inspector panel's <c>BuildInspector</c> (component/member rows, no section header). No world I/O,
+/// no GraphicsDevice — the models are fed pre-built inputs, so these tests pin the exact row output.
 /// </summary>
 public class EditorPanelModelTests
 {
@@ -60,15 +60,13 @@ public class EditorPanelModelTests
         IReadOnlyList<EntitySceneTree.Node>? nodes = null,
         Func<Entity, string>? label = null,
         Entity selected = default,
-        IReadOnlyList<ComponentInspector.ComponentInfo>? inspector = null,
-        string? inspectorTitle = null,
-        EditorRightTab activeTab = EditorRightTab.Scene,
+        EditorPanelTab activeTab = EditorPanelTab.Entities,
         EditorProjectInfo project = default,
         IReadOnlyList<SceneCatalogEntry>? sceneCatalog = null,
         bool isDirty = false)
         => EditorPanelModel.Build(state, activeTab, update, draw,
             nodes ?? Array.Empty<EntitySceneTree.Node>(), label ?? (_ => ""),
-            selected, inspector, inspectorTitle, project, sceneCatalog, isDirty);
+            selected, project, sceneCatalog, isDirty);
 
     // ---- Section collapse -------------------------------------------------
 
@@ -78,48 +76,49 @@ public class EditorPanelModelTests
         var state = new EditorPanelStateComponent();
         var (update, draw) = FlatPipelines();
 
-        var rows = Build(state, update, draw, activeTab: EditorRightTab.Systems);
+        var rows = Build(state, update, draw, activeTab: EditorPanelTab.Systems);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Systems);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.PipelineEntry && r.Label == "logic [freeze]");
         Assert.Contains(rows, r => r.Kind == PanelRowKind.PipelineEntry && r.Label == "renderMain");
 
         state.SystemsCollapsed = true;
-        rows = Build(state, update, draw, activeTab: EditorRightTab.Systems);
+        rows = Build(state, update, draw, activeTab: EditorPanelTab.Systems);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Systems);
         Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.PipelineEntry);
         Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.PipelineSubheader);
     }
 
-    // ---- Tab filtering (UX-B) ---------------------------------------------
+    // ---- Tab filtering (UX2-B: Entities / Systems / Scenes) ----------------
 
     [Fact]
-    public void SceneTab_ShowsSceneAndInspector_NotSystems()
+    public void EntitiesTab_ShowsTheTree_NotInspectorNotSystems()
     {
-        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Scene);
-        Assert.Contains(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Scene);
-        Assert.Contains(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Inspector);
+        // The Entities tab is the tree ALONE — the Inspector left for its dedicated right panel.
+        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorPanelTab.Entities);
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Entities);
         Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Systems);
+        // No Inspector rows on the Entities tab (Inspector is BuildInspector, the right panel).
+        Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.InspectorComponent);
     }
 
     [Fact]
     public void SystemsTab_ShowsOnlySystems()
     {
         var (update, draw) = FlatPipelines();
-        var rows = Build(new EditorPanelStateComponent(), update, draw, activeTab: EditorRightTab.Systems);
+        var rows = Build(new EditorPanelStateComponent(), update, draw, activeTab: EditorPanelTab.Systems);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Systems);
-        Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Scene);
-        Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Inspector);
+        Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader && r.Section == EditorPanelSection.Entities);
     }
 
     [Fact]
-    public void ProjectTab_ShowsProjectInfo_AndTheScenesList()
+    public void ScenesTab_ShowsProjectInfo_AndTheScenesList()
     {
         var catalog = new[]
         {
             new SceneCatalogEntry("level_selection", "Level Selection", "LevelSelection", "level_selection", IsCurrent: false),
             new SceneCatalogEntry("island", "island", "Game", "island", IsCurrent: true),
         };
-        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project,
+        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorPanelTab.Scenes,
             project: new EditorProjectInfo("/games/isle", "Levels", "island"), sceneCatalog: catalog);
 
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("/games/isle"));
@@ -128,22 +127,22 @@ public class EditorPanelModelTests
         // Both catalog entries render as selectable scene rows; the current one is highlighted.
         Assert.Contains(rows, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Label == "Level Selection" && !r.Selected);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Label == "island" && r.Selected);
-        // No collapsible sections in the Project tab.
+        // No collapsible sections in the Scenes tab.
         Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader);
     }
 
     [Fact]
-    public void ProjectTab_CurrentEntry_ShowsDirtyMarker_WhenDirty()
+    public void ScenesTab_CurrentEntry_ShowsDirtyMarker_WhenDirty()
     {
         var catalog = new[]
         {
             new SceneCatalogEntry("island", "island", "Game", "island", IsCurrent: true),
             new SceneCatalogEntry("cove", "cove", "Game", "cove", IsCurrent: false),
         };
-        var clean = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project, sceneCatalog: catalog, isDirty: false);
+        var clean = Build(new EditorPanelStateComponent(), activeTab: EditorPanelTab.Scenes, sceneCatalog: catalog, isDirty: false);
         Assert.DoesNotContain(clean, r => r.Kind == PanelRowKind.SceneCatalogEntry && r.DirtyMarker);
 
-        var dirty = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project, sceneCatalog: catalog, isDirty: true);
+        var dirty = Build(new EditorPanelStateComponent(), activeTab: EditorPanelTab.Scenes, sceneCatalog: catalog, isDirty: true);
         var current = dirty.Single(r => r.Kind == PanelRowKind.SceneCatalogEntry && r.Selected);
         Assert.True(current.DirtyMarker);
         Assert.StartsWith("●", current.Label); // the Warning ● prefix
@@ -152,9 +151,9 @@ public class EditorPanelModelTests
     }
 
     [Fact]
-    public void ProjectTab_NoCatalog_ShowsNoScenes()
+    public void ScenesTab_NoCatalog_ShowsNoScenes()
     {
-        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project,
+        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorPanelTab.Scenes,
             project: new EditorProjectInfo(null, null, null));
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("(unresolved)"));
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no scenes)");
@@ -162,9 +161,9 @@ public class EditorPanelModelTests
     }
 
     [Fact]
-    public void ProjectTab_UnresolvedRoot_ShowsUnresolved()
+    public void ScenesTab_UnresolvedRoot_ShowsUnresolved()
     {
-        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorRightTab.Project,
+        var rows = Build(new EditorPanelStateComponent(), activeTab: EditorPanelTab.Scenes,
             project: new EditorProjectInfo(null, null, null));
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label.Contains("(unresolved)"));
     }
@@ -188,21 +187,18 @@ public class EditorPanelModelTests
     [Fact]
     public void SectionHeader_DisclosureState_ReflectsCollapse()
     {
-        var state = new EditorPanelStateComponent { SceneCollapsed = true };
-        var rows = Build(state, activeTab: EditorRightTab.Scene);
+        var state = new EditorPanelStateComponent { EntitiesCollapsed = true };
+        var rows = Build(state, activeTab: EditorPanelTab.Entities);
 
-        var scene = rows.Single(r => r.Section == EditorPanelSection.Scene && r.Kind == PanelRowKind.SectionHeader);
-        var inspector = rows.Single(r => r.Section == EditorPanelSection.Inspector && r.Kind == PanelRowKind.SectionHeader);
-        Assert.True(scene.Collapsible && !scene.Expanded); // collapsed → arrow shows collapsed
-        Assert.True(inspector.Expanded);
+        var entities = rows.Single(r => r.Section == EditorPanelSection.Entities && r.Kind == PanelRowKind.SectionHeader);
+        Assert.True(entities.Collapsible && !entities.Expanded); // collapsed → arrow shows collapsed
     }
 
     [Fact]
     public void HostTab_MapsSectionToItsTab()
     {
-        Assert.Equal(EditorRightTab.Systems, EditorPanelModel.HostTab(EditorPanelSection.Systems));
-        Assert.Equal(EditorRightTab.Scene, EditorPanelModel.HostTab(EditorPanelSection.Scene));
-        Assert.Equal(EditorRightTab.Scene, EditorPanelModel.HostTab(EditorPanelSection.Inspector));
+        Assert.Equal(EditorPanelTab.Systems, EditorPanelModel.HostTab(EditorPanelSection.Systems));
+        Assert.Equal(EditorPanelTab.Entities, EditorPanelModel.HostTab(EditorPanelSection.Entities));
     }
 
     // ---- Group collapse ---------------------------------------------------
@@ -213,7 +209,7 @@ public class EditorPanelModelTests
         var state = new EditorPanelStateComponent();
         var update = GroupPipeline();
 
-        var rows = Build(state, update, activeTab: EditorRightTab.Systems);
+        var rows = Build(state, update, activeTab: EditorPanelTab.Systems);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.PipelineEntry && r.Label == "logic [freeze]");
         Assert.Contains(rows, r => r.Kind == PanelRowKind.PipelineEntry && r.Label == "a");
         Assert.Contains(rows, r => r.Kind == PanelRowKind.PipelineEntry && r.Label == "b");
@@ -221,7 +217,7 @@ public class EditorPanelModelTests
         Assert.True(group.Collapsible && group.Expanded);
 
         state.CollapsedGroups.Add("logic");
-        rows = Build(state, update, activeTab: EditorRightTab.Systems);
+        rows = Build(state, update, activeTab: EditorPanelTab.Systems);
         Assert.Contains(rows, r => r.Label == "logic [freeze]"); // group row stays
         Assert.DoesNotContain(rows, r => r.Label == "a");        // children hidden
         Assert.DoesNotContain(rows, r => r.Label == "b");
@@ -234,7 +230,7 @@ public class EditorPanelModelTests
         var state = new EditorPanelStateComponent();
         var update = GroupPipeline();
 
-        var group = () => Build(state, update, activeTab: EditorRightTab.Systems).Single(r => r.Label == "logic [freeze]");
+        var group = () => Build(state, update, activeTab: EditorPanelTab.Systems).Single(r => r.Label == "logic [freeze]");
         Assert.Equal(PipelineEnabledState.On, group().CheckboxState);
         Assert.False(group().ShowMinusBar);
 
@@ -301,15 +297,17 @@ public class EditorPanelModelTests
 
     // ---- Inspector --------------------------------------------------------
 
+    // ---- Inspector (the dedicated right panel: BuildInspector) -------------
+
     [Fact]
-    public void Inspector_NoSelection_ShowsPlaceholder()
+    public void BuildInspector_NoSelection_ShowsPlaceholder()
     {
-        var rows = Build(new EditorPanelStateComponent(), inspector: null);
+        var rows = EditorPanelModel.BuildInspector(new EditorPanelStateComponent(), inspectorComponents: null, inspectorTitle: null);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no selection)");
     }
 
     [Fact]
-    public void Inspector_ListsComponents_AndExpandsToMemberValues()
+    public void BuildInspector_ListsComponents_AndExpandsToMemberValues_NoSectionHeader()
     {
         var state = new EditorPanelStateComponent();
         var comps = new List<ComponentInspector.ComponentInfo>
@@ -322,15 +320,17 @@ public class EditorPanelModelTests
             },
         };
 
-        var rows = Build(state, selected: default, inspector: comps, inspectorTitle: "Player");
-        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == "Player"); // title
+        var rows = EditorPanelModel.BuildInspector(state, comps, "Player");
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.Info && r.Label == "Player"); // body title row
+        // No section header — the region's slim header IS the title now (standalone Inspector panel).
+        Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.SectionHeader);
         var comp = rows.Single(r => r.Kind == PanelRowKind.InspectorComponent && r.Label == "Foo");
         Assert.True(comp.Collapsible);   // has members → expandable
         Assert.False(comp.Expanded);
         Assert.DoesNotContain(rows, r => r.Kind == PanelRowKind.InspectorMember); // members hidden by default
 
         state.ExpandedInspectorComponents.Add("N.Foo");
-        rows = Build(state, selected: default, inspector: comps, inspectorTitle: "Player");
+        rows = EditorPanelModel.BuildInspector(state, comps, "Player");
         Assert.True(rows.Single(r => r.Kind == PanelRowKind.InspectorComponent).Expanded);
         Assert.Contains(rows, r => r.Kind == PanelRowKind.InspectorMember && r.Label == "X: 1");
     }

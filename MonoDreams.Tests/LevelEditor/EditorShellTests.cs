@@ -57,19 +57,28 @@ public class EditorShellTests
     {
         const int w = 1600, h = 900;
         var (left, top, right, bottom) = EditorChromeLayout.ViewportInset();
+        var topBarH = EditorChromeLayout.TopBarHeight;
 
         var topBar = EditorChromeLayout.TopBar(w);
+        var leftPanel = EditorChromeLayout.LeftPanel(w, h);
         var rightPanel = EditorChromeLayout.RightPanel(w, h);
         var bottomBar = EditorChromeLayout.BottomBar(w, h);
+        var sceneHeader = EditorChromeLayout.SceneHeader(w, h);
 
-        // Top bar: full width, exactly the top margin tall.
-        Assert.Equal(new Rectangle(0, 0, w, top), topBar);
+        // UX2-B: left activates + the game-viewport top inset is the top bar PLUS the Scene header.
+        Assert.Equal(EditorChromeLayout.LeftPanelWidth, left);
+        Assert.Equal(topBarH + EditorChromeLayout.SceneHeaderHeight, top);
+
+        // Top bar: full width, the (thin, global) bar height.
+        Assert.Equal(new Rectangle(0, 0, w, topBarH), topBar);
         // Bottom strip: full width, exactly the bottom margin tall, flush with the window bottom.
         Assert.Equal(new Rectangle(0, h - bottom, w, bottom), bottomBar);
-        // Right panel: exactly the right margin wide, spanning between the two bars.
-        Assert.Equal(new Rectangle(w - right, top, right, h - top - bottom), rightPanel);
-        // No left strip reserved today.
-        Assert.Equal(0, left);
+        // Left + right panels: exactly their margins wide, spanning top bar → bottom shelf.
+        Assert.Equal(new Rectangle(0, topBarH, left, h - topBarH - bottom), leftPanel);
+        Assert.Equal(new Rectangle(w - right, topBarH, right, h - topBarH - bottom), rightPanel);
+        // The Scene panel header: the extra top inset, between the strips, below the top bar.
+        Assert.Equal(new Rectangle(left, topBarH, w - left - right, EditorChromeLayout.SceneHeaderHeight), sceneHeader);
+        Assert.Equal(top - topBarH, sceneHeader.Height); // the header IS the extra top inset
     }
 
     [Fact]
@@ -93,21 +102,28 @@ public class EditorShellTests
         using var world = new World();
         var chrome = BuiltChrome(world);
 
+        var topBar = EditorChromeLayout.TopBar(1600);
+        var sceneHeader = EditorChromeLayout.SceneHeader(1600, 900);
         using var buttons = world.GetEntities().With<ToolbarButtonComponent>().AsSet();
-        var count = 0;
+        var windowCount = 0;
+        var headerCount = 0;
         foreach (var button in buttons.GetEntities())
         {
-            count++;
             ref readonly var tb = ref button.Get<ToolbarButtonComponent>();
             ref readonly var visual = ref button.Get<SimpleButtonComponent>();
 
-            // Bounds are physical pixels inside the top bar, and the visual matches them.
-            Assert.True(EditorChromeLayout.TopBar(1600).Contains(tb.Bounds));
+            // Every button is physical pixels in EITHER the window top bar (editing actions) or the
+            // Scene panel header (transport — UX2-B), and the visual matches its bounds.
+            if (topBar.Contains(tb.Bounds)) windowCount++;
+            else if (sceneHeader.Contains(tb.Bounds)) headerCount++;
+            else Assert.Fail($"button {tb.Bounds} escapes both the top bar and the Scene header");
             Assert.Equal(tb.Bounds.Width, (int)visual.Size.X);
             Assert.Equal(tb.Bounds.Height, (int)visual.Size.Y);
             Assert.Equal(RenderTargetID.Editor, visual.Target);
         }
-        Assert.Equal(EditorChromeBuilder.DefaultButtons.Length, count);
+        // The window bar carries the editing set; the Scene header carries the transport set.
+        Assert.Equal(EditorChromeBuilder.DefaultButtons.Length, windowCount);
+        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length, headerCount);
         Assert.Equal(1600, chrome.LaidOutWidth);
         Assert.Equal(900, chrome.LaidOutHeight);
     }
@@ -118,10 +134,10 @@ public class EditorShellTests
         using var world = new World();
         BuiltChrome(world);
 
-        // The three panels + the splitters + the bottom "Assets" tab fill/underline are all fill-only
+        // The panels + the splitters + the bottom "Assets" tab fill/underline are all fill-only
         // meshes (SimpleButtonComponent without a ToolbarButtonComponent). Every one must be opaque
-        // (the premultiplied-alpha mesh rule) and on the Editor target; the three PANEL sizes must be
-        // present among them.
+        // (the premultiplied-alpha mesh rule) and on the Editor target; the PANEL + Scene-header sizes
+        // must be present among them (UX2-B added the left panel + the Scene header band).
         using var all = world.GetEntities().With<SimpleButtonComponent>().Without<ToolbarButtonComponent>().AsSet();
         var sizes = new List<Vector2>();
         foreach (var panel in all.GetEntities())
@@ -131,10 +147,13 @@ public class EditorShellTests
             Assert.Equal(byte.MaxValue, visual.FillColor.A); // opaque — readable over any level
             sizes.Add(visual.Size);
         }
-        Assert.Contains(new Vector2(1600, EditorChromeLayout.TopBarHeight), sizes);
-        Assert.Contains(new Vector2(EditorChromeLayout.RightPanelWidth,
-            900 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight), sizes);
-        Assert.Contains(new Vector2(1600, EditorChromeLayout.BottomBarHeight), sizes);
+        var innerH = 900 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight;
+        Assert.Contains(new Vector2(1600, EditorChromeLayout.TopBarHeight), sizes);                 // top bar
+        Assert.Contains(new Vector2(EditorChromeLayout.LeftPanelWidth, innerH), sizes);             // left panel
+        Assert.Contains(new Vector2(EditorChromeLayout.RightPanelWidth, innerH), sizes);            // right panel
+        Assert.Contains(new Vector2(1600, EditorChromeLayout.BottomBarHeight), sizes);              // bottom shelf
+        Assert.Contains(new Vector2(1600 - EditorChromeLayout.LeftPanelWidth - EditorChromeLayout.RightPanelWidth,
+            EditorChromeLayout.SceneHeaderHeight), sizes);                                          // Scene header
     }
 
     [Fact]
@@ -411,27 +430,30 @@ public class EditorShellTests
     public void ChromeLayout_AtDpr2_DoublesEveryPointMetric()
     {
         const int w = 3840, h = 2160; // a 1920×1080-point window on a 2× (Retina) backbuffer
+        const int topBar2 = 44 * 2, header2 = 40 * 2, left2 = 240 * 2, right2 = 280 * 2, bottom2 = 168 * 2;
 
         var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(2f);
-        Assert.Equal((0, 88, 560, 336), (left, top, right, bottom)); // bottom = BottomBarHeight(168) × 2
+        // left = LeftPanelWidth × 2; top = (TopBar 44 + SceneHeader 40) × 2; bottom = BottomBarHeight × 2.
+        Assert.Equal((left2, topBar2 + header2, right2, bottom2), (left, top, right, bottom));
 
-        Assert.Equal(new Rectangle(0, 0, w, 88), EditorChromeLayout.TopBar(w, 2f));
-        Assert.Equal(new Rectangle(w - 560, 88, 560, h - 88 - 336), EditorChromeLayout.RightPanel(w, h, 2f));
-        Assert.Equal(new Rectangle(0, h - 336, w, 336), EditorChromeLayout.BottomBar(w, h, 2f));
+        Assert.Equal(new Rectangle(0, 0, w, topBar2), EditorChromeLayout.TopBar(w, 2f));
+        Assert.Equal(new Rectangle(0, topBar2, left2, h - topBar2 - bottom2), EditorChromeLayout.LeftPanel(w, h, 2f));
+        Assert.Equal(new Rectangle(w - right2, topBar2, right2, h - topBar2 - bottom2), EditorChromeLayout.RightPanel(w, h, 2f));
+        Assert.Equal(new Rectangle(0, h - bottom2, w, bottom2), EditorChromeLayout.BottomBar(w, h, 2f));
+        Assert.Equal(new Rectangle(left2, topBar2, w - left2 - right2, header2), EditorChromeLayout.SceneHeader(w, h, 2f));
 
         // Button row: margins/gaps/heights double; widths are caller-scaled.
         var rects = EditorChromeLayout.ButtonRow(new[] { 100, 120 }, 2f);
-        Assert.Equal(new Rectangle(20, (88 - 60) / 2, 100, 60), rects[0]);
+        Assert.Equal(new Rectangle(20, (topBar2 - 60) / 2, 100, 60), rects[0]);
         Assert.Equal(rects[0].Right + 16, rects[1].X);
     }
 
     [Fact]
     public void ChromeLayout_DefaultScale_IsThePreDprLayout()
     {
-        // Byte-identical back-compat: scale 1 reproduces the point constants unscaled. (The bottom
-        // value tracks BottomBarHeight, raised 24 → 104 for the asset palette strip, then 104 → 168
-        // for the redesigned asset cards — icon on top, label on the bottom, FW3.)
-        Assert.Equal((0, 44, 280, 168), EditorChromeLayout.ViewportInset());
+        // scale 1 reproduces the point constants unscaled. UX2-B: left activates (240) and the top
+        // inset is the top bar (44) PLUS the Scene panel header (40) = 84; bottom tracks BottomBarHeight.
+        Assert.Equal((240, 44 + 40, 280, 168), EditorChromeLayout.ViewportInset());
         Assert.Equal(EditorChromeLayout.TopBar(1600), EditorChromeLayout.TopBar(1600, 1f));
     }
 
@@ -474,21 +496,23 @@ public class EditorShellTests
         shell.Update(Edit());
         Assert.Equal(2f, chrome.LaidOutScale);
 
-        // The inset the shell applied is the DPR-scaled one (88-px top bar, not 44).
+        // The inset the shell applied is the DPR-scaled one: top bar (88) + Scene header (80) = 168.
         Assert.True(vm.HasViewportInset);
-        Assert.True(vm.DestinationRectangle.Y >= 88);
+        Assert.True(vm.DestinationRectangle.Y >= (44 + 40) * 2);
 
-        // Every button renders inside the scaled top bar, and a device-pixel click at its centre
-        // hits: bounds (hit-test) == visual size/position (render), in the same device space.
+        // Every button renders inside the scaled top bar OR the scaled Scene header, and a device-pixel
+        // click at its centre hits: bounds (hit-test) == visual size/position (render), same device space.
         using var buttons = world.GetEntities().With<ToolbarButtonComponent>().AsSet();
         var dispatched = new List<EditorToolbarAction>();
         using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a));
         var topBar = EditorChromeLayout.TopBar(3840, 2f);
+        var sceneHeader = EditorChromeLayout.SceneHeader(3840, 2160, 2f);
         Entity first = default;
         foreach (var button in buttons.GetEntities())
         {
             ref readonly var tb = ref button.Get<ToolbarButtonComponent>();
-            Assert.True(topBar.Contains(tb.Bounds), $"button {tb.Bounds} escapes the scaled top bar");
+            Assert.True(topBar.Contains(tb.Bounds) || sceneHeader.Contains(tb.Bounds),
+                $"button {tb.Bounds} escapes both the scaled top bar and Scene header");
             ref readonly var visual = ref button.Get<SimpleButtonComponent>();
             Assert.Equal(tb.Bounds.Width, (int)visual.Size.X);
             Assert.Equal(tb.Bounds.Height, (int)visual.Size.Y);

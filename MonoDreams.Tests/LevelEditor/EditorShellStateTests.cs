@@ -34,10 +34,23 @@ public class EditorShellStateTests
     public void RegionSizes_DefaultToTheChromeLayoutConstants()
     {
         var state = new EditorShellStateComponent();
+        Assert.Equal(EditorChromeLayout.LeftPanelWidth, state.LeftWidthPt);
         Assert.Equal(EditorChromeLayout.RightPanelWidth, state.RightWidthPt);
         Assert.Equal(EditorChromeLayout.BottomBarHeight, state.BottomHeightPt);
+        Assert.Equal(EditorShellStateComponent.DefaultLeftWidthPt, EditorChromeLayout.LeftPanelWidth);
         Assert.Equal(EditorShellStateComponent.DefaultRightWidthPt, EditorChromeLayout.RightPanelWidth);
         Assert.Equal(EditorShellStateComponent.DefaultBottomHeightPt, EditorChromeLayout.BottomBarHeight);
+    }
+
+    [Fact]
+    public void LeftWidth_ClampsToItsRange()
+    {
+        var state = new EditorShellStateComponent { LeftWidthPt = 10 };
+        Assert.Equal(EditorShellStateComponent.MinLeftWidthPt, state.LeftWidthPt);
+        state.LeftWidthPt = 99999;
+        Assert.Equal(EditorShellStateComponent.MaxLeftWidthPt, state.LeftWidthPt);
+        state.LeftWidthPt = 320;
+        Assert.Equal(320, state.LeftWidthPt);
     }
 
     [Fact]
@@ -63,15 +76,16 @@ public class EditorShellStateTests
     }
 
     [Fact]
-    public void MarkedTerrain_ReservesLeftAndMenuBarAtZero_AndAssignsRegions()
+    public void MarkedTerrain_ReservesMenuBarAtZero_AndAssignsRegions()
     {
         var state = new EditorShellStateComponent();
-        Assert.Equal(0, state.LeftWidthPt);
+        // UX2-B: the left region is now active (the tab group); only the menu bar stays reserved at 0.
+        Assert.Equal(EditorChromeLayout.LeftPanelWidth, state.LeftWidthPt);
         Assert.Equal(0, state.MenuBarHeightPt);
-        Assert.Empty(state.RegionPanels[EditorRegion.Left]);
         Assert.Empty(state.RegionPanels[EditorRegion.MenuBar]);
-        Assert.Equal(new[] { EditorPanelKind.Scene, EditorPanelKind.Systems, EditorPanelKind.Project },
-            state.RegionPanels[EditorRegion.Right]);
+        Assert.Equal(new[] { EditorPanelKind.Entities, EditorPanelKind.Systems, EditorPanelKind.Scenes },
+            state.RegionPanels[EditorRegion.Left]);
+        Assert.Equal(new[] { EditorPanelKind.Inspector }, state.RegionPanels[EditorRegion.Right]);
         Assert.Equal(new[] { EditorPanelKind.Assets }, state.RegionPanels[EditorRegion.Bottom]);
     }
 
@@ -80,18 +94,37 @@ public class EditorShellStateTests
     [Fact]
     public void ViewportInset_UsesTheRuntimeRegionSizes()
     {
-        Assert.Equal((0, 44, 400, 200), EditorChromeLayout.ViewportInset(1f, 400, 200));
-        // DPR-2 doubles the custom sizes too.
-        Assert.Equal((0, 88, 800, 400), EditorChromeLayout.ViewportInset(2f, 400, 200));
+        // UX2-B: left activates + the top margin is the top bar PLUS the Scene panel header.
+        var top = EditorChromeLayout.TopBarHeight + EditorChromeLayout.SceneHeaderHeight;
+        Assert.Equal((240, top, 400, 200), EditorChromeLayout.ViewportInset(1f, 240, 400, 200));
+        // DPR-2 doubles every margin (incl. the header carved out of the viewport).
+        Assert.Equal((480, top * 2, 800, 400), EditorChromeLayout.ViewportInset(2f, 240, 400, 200));
     }
 
     [Fact]
-    public void RightPanelAndBottomBar_UseTheRuntimeSizes()
+    public void LeftRightAndBottom_UseTheRuntimeSizes()
     {
+        var left = EditorChromeLayout.LeftPanel(1600, 900, 1f, 260, 200);
+        Assert.Equal(new Rectangle(0, 44, 260, 900 - 44 - 200), left);
         var right = EditorChromeLayout.RightPanel(1600, 900, 1f, 400, 200);
         Assert.Equal(new Rectangle(1200, 44, 400, 900 - 44 - 200), right);
         var bottom = EditorChromeLayout.BottomBar(1600, 900, 1f, 200);
         Assert.Equal(new Rectangle(0, 700, 1600, 200), bottom);
+    }
+
+    [Fact]
+    public void SceneHeader_SitsBetweenTheStrips_BelowTheTopBar()
+    {
+        // The center region's header band: docked below the top bar, spanning between the left and
+        // right strips, SceneHeaderHeight tall (the extra top inset the viewport gives up).
+        var header = EditorChromeLayout.SceneHeader(1600, 900, 1f, 240, 280);
+        Assert.Equal(new Rectangle(240, EditorChromeLayout.TopBarHeight,
+            1600 - 240 - 280, EditorChromeLayout.SceneHeaderHeight), header);
+        // DPR-2 doubles the band (position + height).
+        var header2 = EditorChromeLayout.SceneHeader(3200, 1800, 2f, 240, 280);
+        Assert.Equal(EditorChromeLayout.TopBarHeight * 2, header2.Y);
+        Assert.Equal(EditorChromeLayout.SceneHeaderHeight * 2, header2.Height);
+        Assert.Equal(240 * 2, header2.X);
     }
 
     // ---- Tab strip + body geometry (DPR-2 doubles) -------------------------
@@ -137,11 +170,19 @@ public class EditorShellStateTests
     // ---- Splitter geometry (DPR-2 doubles) ---------------------------------
 
     [Fact]
-    public void RightSplitter_IsOnTheLeftEdge_BottomSplitterOnTheTopEdge()
+    public void Splitters_SitOnEachRegionsViewportFacingEdge()
     {
+        // Left strip: its splitter is on the RIGHT (viewport-facing) edge.
+        var left = EditorChromeLayout.LeftSplitter(1600, 900, 1f, 240, 168);
+        var leftPanel = EditorChromeLayout.LeftPanel(1600, 900, 1f, 240, 168);
+        Assert.Equal(leftPanel.Right - EditorChromeLayout.SplitterThickness, left.X);
+        Assert.Equal(EditorChromeLayout.SplitterThickness, left.Width);
+        Assert.Equal(leftPanel.Height, left.Height);
+
+        // Right strip: its splitter is on the LEFT (viewport-facing) edge.
         var right = EditorChromeLayout.RightSplitter(1600, 900, 1f, 280, 168);
         var panel = EditorChromeLayout.RightPanel(1600, 900, 1f, 280, 168);
-        Assert.Equal(panel.X, right.X);          // viewport-facing (left) edge
+        Assert.Equal(panel.X, right.X);
         Assert.Equal(EditorChromeLayout.SplitterThickness, right.Width);
         Assert.Equal(panel.Height, right.Height);
 
@@ -155,6 +196,8 @@ public class EditorShellStateTests
     [Fact]
     public void Splitters_AtDpr2_DoubleThickness()
     {
+        Assert.Equal(EditorChromeLayout.SplitterThickness * 2,
+            EditorChromeLayout.LeftSplitter(3840, 2160, 2f, 240, 168).Width);
         Assert.Equal(EditorChromeLayout.SplitterThickness * 2,
             EditorChromeLayout.RightSplitter(3840, 2160, 2f, 280, 168).Width);
         Assert.Equal(EditorChromeLayout.SplitterThickness * 2,
@@ -215,16 +258,16 @@ public class EditorShellStateTests
         using var panel = new EditorPanelSystem(world, vm, font: null,
             () => ((MonoDreams.LevelEditor.Composition.EditorPipelineRegistrar?)null, null), shell);
 
-        Assert.Equal(EditorRightTab.Scene, shell.ActiveRightTab); // default
+        Assert.Equal(EditorPanelTab.Entities, shell.ActiveLeftTab); // default (UX2-B)
 
-        panel.ToggleSection(EditorPanelSection.Systems);          // a Systems-section op...
-        Assert.Equal(EditorRightTab.Systems, shell.ActiveRightTab); // ...activates the Systems tab
+        panel.ToggleSection(EditorPanelSection.Systems);            // a Systems-section op...
+        Assert.Equal(EditorPanelTab.Systems, shell.ActiveLeftTab);  // ...activates the Systems tab
 
-        panel.ToggleSection(EditorPanelSection.Inspector);        // Inspector lives in the Scene tab
-        Assert.Equal(EditorRightTab.Scene, shell.ActiveRightTab);
+        panel.ToggleSection(EditorPanelSection.Entities);           // the tree lives in the Entities tab
+        Assert.Equal(EditorPanelTab.Entities, shell.ActiveLeftTab);
 
-        panel.SetRightTab(EditorRightTab.Project);
-        Assert.Equal(EditorRightTab.Project, shell.ActiveRightTab);
+        panel.SetActiveTab(EditorPanelTab.Scenes);
+        Assert.Equal(EditorPanelTab.Scenes, shell.ActiveLeftTab);
     }
 
     // ---- Live splitter drag through the shell system -----------------------
@@ -299,6 +342,38 @@ public class EditorShellStateTests
         Assert.Equal(EditorShellStateComponent.MaxRightWidthPt, state.RightWidthPt);
     }
 
+    [Fact]
+    public void LeftSplitterDrag_GrowsTheStrip_DragRight()
+    {
+        using var world = new World();
+        var (shell, _, state, cursor) = MakeShell(world);
+        using var _1 = shell;
+
+        var zone = EditorChromeLayout.LeftSplitter(1600, 900, 1f, state.LeftWidthPt, state.BottomHeightPt);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+
+        // Press on the splitter's right edge, then drag 80px to the RIGHT → the strip grows by 80pt.
+        input.ScreenPosition = new Vector2(zone.Center.X, zone.Center.Y);
+        input.LeftButton = true;
+        input.LeftButtonPressed = true;
+        shell.Update(Edit());
+        Assert.Equal(ShellDragKind.LeftSplitter, state.ActiveDrag);
+
+        input.LeftButtonPressed = false;
+        input.ScreenPosition = new Vector2(zone.Center.X + 80, zone.Center.Y);
+        shell.Update(Edit());
+        Assert.Equal(EditorShellStateComponent.DefaultLeftWidthPt + 80, state.LeftWidthPt);
+
+        // Release holds the token this frame; the next frame (button up) clears it.
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        shell.Update(Edit());
+        Assert.Equal(ShellDragKind.LeftSplitter, state.ActiveDrag);
+        input.LeftButtonReleased = false;
+        shell.Update(Edit());
+        Assert.Equal(ShellDragKind.None, state.ActiveDrag);
+    }
+
     // ---- Drag exclusion: a foreign drag mutes panel clicks -----------------
 
     [Fact]
@@ -312,28 +387,29 @@ public class EditorShellStateTests
         var shell = new EditorShellStateComponent();
         using var panel = new EditorPanelSystem(world, vm, font: null,
             () => ((MonoDreams.LevelEditor.Composition.EditorPipelineRegistrar?)null, null), shell);
-        panel.SetRightTab(EditorRightTab.Scene);
+        panel.SetActiveTab(EditorPanelTab.Entities);
 
         panel.Update(Edit());
-        var sceneHeaderIdx = -1;
+        var entitiesHeaderIdx = -1;
         for (var i = 0; i < panel.Rows.Count; i++)
-            if (panel.Rows[i].Kind == PanelRowKind.SectionHeader && panel.Rows[i].Section == EditorPanelSection.Scene)
-                sceneHeaderIdx = i;
-        Assert.True(sceneHeaderIdx >= 0);
+            if (panel.Rows[i].Kind == PanelRowKind.SectionHeader && panel.Rows[i].Section == EditorPanelSection.Entities)
+                entitiesHeaderIdx = i;
+        Assert.True(entitiesHeaderIdx >= 0);
 
         // Simulate the bottom-shelf scrollbar drag owning the pointer.
         shell.ActiveDrag = ShellDragKind.BottomScrollbar;
 
-        var body = EditorChromeLayout.RegionBody(EditorChromeLayout.RightPanel(1600, 900, 1f,
-            shell.RightWidthPt, shell.BottomHeightPt));
-        var line = SystemsPanelLayout.LineRect(body, sceneHeaderIdx - panel.ScrollOffset);
+        // The tabbed panel is the LEFT strip now (its region rect + runtime left width).
+        var body = EditorChromeLayout.RegionBody(EditorChromeLayout.LeftPanel(1600, 900, 1f,
+            shell.LeftWidthPt, shell.BottomHeightPt));
+        var line = SystemsPanelLayout.LineRect(body, entitiesHeaderIdx - panel.ScrollOffset);
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.ScreenPosition = new Vector2(line.Center.X, line.Center.Y);
         input.LeftButtonReleased = true;
         panel.Update(Edit());
 
-        // The foreign drag muted the click — the Scene section did not collapse.
-        Assert.False(panel.State.SceneCollapsed);
+        // The foreign drag muted the click — the Entities section did not collapse.
+        Assert.False(panel.State.EntitiesCollapsed);
     }
 
     // ---- Panel scrollbar-thumb drag scrolls the rows -----------------------
@@ -351,13 +427,14 @@ public class EditorShellStateTests
         for (var i = 0; i < 30; i++) update.Add($"s{i}", new NoopSystem(), EditTimeBehavior.RunNormally);
         update.Build();
         using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, null), shell);
-        panel.SetRightTab(EditorRightTab.Systems);
+        panel.SetActiveTab(EditorPanelTab.Systems);
 
         panel.Update(Edit());
         Assert.Equal(0, panel.ScrollOffset);
 
-        var body = EditorChromeLayout.RegionBody(EditorChromeLayout.RightPanel(1600, 300, 1f,
-            shell.RightWidthPt, shell.BottomHeightPt));
+        // The tabbed panel is the LEFT strip; its scrollbar shares the LeftScrollbar drag token.
+        var body = EditorChromeLayout.RegionBody(EditorChromeLayout.LeftPanel(1600, 300, 1f,
+            shell.LeftWidthPt, shell.BottomHeightPt));
         var track = EditorScrollbar.Track(body);
         var thumb = EditorScrollbar.Thumb(track, panel.Rows.Count,
             SystemsPanelLayout.VisibleLineCount(body), 0);
@@ -368,7 +445,7 @@ public class EditorShellStateTests
         input.LeftButton = true;
         input.LeftButtonPressed = true;
         panel.Update(Edit());
-        Assert.Equal(ShellDragKind.RightScrollbar, shell.ActiveDrag);
+        Assert.Equal(ShellDragKind.LeftScrollbar, shell.ActiveDrag);
 
         // Drag to the track bottom → scroll jumps to max.
         input.LeftButtonPressed = false;
@@ -392,8 +469,9 @@ public class EditorShellStateTests
             Ops = new List<EditorOp>
             {
                 new() { Frame = 0, Kind = EditorOpKind.ToolbarAction, Action = "panel:tab systems" },
-                new() { Frame = 1, Kind = EditorOpKind.ToolbarAction, Action = "shell:right 400" },
-                new() { Frame = 2, Kind = EditorOpKind.ToolbarAction, Action = "shell:bottom 200" },
+                new() { Frame = 1, Kind = EditorOpKind.ToolbarAction, Action = "shell:left 300" },
+                new() { Frame = 2, Kind = EditorOpKind.ToolbarAction, Action = "shell:right 400" },
+                new() { Frame = 3, Kind = EditorOpKind.ToolbarAction, Action = "shell:bottom 200" },
             },
         };
         using var driver = new EditorOpReplaySystem(world, plan,
@@ -401,9 +479,9 @@ public class EditorShellStateTests
             dispatchNamed: (name, _) => received.Add(name));
 
         var state = Edit();
-        for (var i = 0; i < 4; i++) driver.Update(state);
+        for (var i = 0; i < 5; i++) driver.Update(state);
 
-        Assert.Equal(new[] { "panel:tab systems", "shell:right 400", "shell:bottom 200" }, received);
+        Assert.Equal(new[] { "panel:tab systems", "shell:left 300", "shell:right 400", "shell:bottom 200" }, received);
     }
 
     private sealed class NoopSystem : DefaultEcs.System.ISystem<GameState>

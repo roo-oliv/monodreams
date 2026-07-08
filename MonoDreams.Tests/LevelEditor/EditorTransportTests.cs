@@ -242,16 +242,20 @@ public class EditorTransportTests
         Assert.False(sceneEntity.IsAlive);
     }
 
-    // ---- The toolbar transport buttons: left-most, live in BOTH modes; tools stay Paused-only ----
+    // ---- The transport buttons: the Scene panel header, live in BOTH modes; tools stay Paused-only ----
 
     [Fact]
-    public void DefaultToolbar_LeadsWithTheTransportButtons()
+    public void SceneHeader_LeadsWithTheTransportButtons()
     {
-        var actions = Array.ConvertAll(EditorChromeBuilder.DefaultButtons, b => b.action);
-        Assert.Equal(EditorToolbarAction.PlayPause, actions[0]);
-        Assert.Equal(EditorToolbarAction.Restart, actions[1]);
-        Assert.Contains(EditorToolbarAction.ToolMove, actions);
-        Assert.Contains(EditorToolbarAction.Save, actions);
+        // UX2-B: the transport relocated off the window bar to the Scene panel header, leading it.
+        var header = Array.ConvertAll(EditorChromeBuilder.HeaderButtons, b => b.action);
+        Assert.Equal(EditorToolbarAction.PlayPause, header[0]);
+        Assert.Equal(EditorToolbarAction.Restart, header[1]);
+        // The window bar keeps the editing actions (no transport).
+        var windowBar = Array.ConvertAll(EditorChromeBuilder.DefaultButtons, b => b.action);
+        Assert.DoesNotContain(EditorToolbarAction.PlayPause, windowBar);
+        Assert.Contains(EditorToolbarAction.ToolMove, windowBar);
+        Assert.Contains(EditorToolbarAction.Save, windowBar);
     }
 
     private static Entity MakeToolbarButton(World world, EditorToolbarAction action, Rectangle bounds)
