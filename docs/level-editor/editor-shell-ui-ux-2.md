@@ -119,6 +119,25 @@ gizmos). So:
 - Ops: `menu:open <viewport|entities|scenes|entity-menu>`, `menu:pick <item-path>`
   (e.g. `order/forward`), headless-testable like everything else.
 
+**Landed (UX2-D) — as-built decisions.** (1) The menu is a pure model
+(`EditorContextMenuModel`) + pure layout (`EditorContextMenuLayout`) +
+`EditorContextMenuSystem`; the same model renders via `OpenAt` (cursor) or
+`OpenBelow` (the header `Entity ▾` text button + a ▾ caret MESH — font-independent,
+the disclosure-arrow pattern). (2) The menu occupies a **new** `EditorTheme.Depths.Menu*`
+band **above** the tooltip (a menu and the dialog are never open at once, so the very
+top is safe; a menu is never occluded). (3) Right-click **detection** lives where the
+context is already resolved — the **viewport** right-click in `SelectionSystem`
+(reusing `TryPick`, gated to `SelectTransform` + not-gizmo-claimed) and the **panel**
+right-clicks in `EditorPanelSystem` (`ContextMenuRequested` + `EntityAtPoint`); the
+overlay's `OpenContextMenu` coordinator + the `menu:open`/`menu:pick`/`menu:close` ops
+share those paths. No `RightDown`/`RightUp` op was added — the interactive right-click
+is covered by system-level tests (`SelectionTests`/`EditorPanelTests`) and the headless
+flow uses `menu:open`/`menu:pick`. (4) The op verb is `menu:open entity` (not
+`entity-menu`). (5) Create Empty Scene is a new `EditorDialogSystem.CreateScene` mode
+(collision predicate + create callback injected, so the dialog stays game-agnostic);
+the overlay writes an empty world through `SceneWriter`/`CanonicalJson`, bundles via
+`EnsureLevelBundled(id)`, then switches through the dirty-gated `SelectScene`.
+
 ## 5. Scene mode / Game mode (wave UX2-F — depends on §6)
 
 The Scene panel header carries the **[Scene | Game] toggle** (two-segment control,

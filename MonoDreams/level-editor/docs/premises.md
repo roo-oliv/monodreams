@@ -456,21 +456,26 @@ scrollbar drag owns the pointer (`EditorShellStateComponent.IsDragging`), the to
 nothing — a drag that happens to release over a button must not fire it (the shell-state premise's
 weave-order-independent drag token).
 
-**UX2-B/-C: transport + tools relocated; window bar slimmed to icons.** UX2-B moved the transport
-(Play/Pause + Restart) off the window bar to the Scene panel header (`HeaderButtons`); UX2-C then moved
-the transform-tool cluster (`ToolMove`/`ToolRotate`/`ToolScale`/`ToolBoundary`/`ToggleSnap`) there too,
-so the Scene header now reads **transport cluster · separator gap · tool cluster** (the last transport
-button's index is the `separatorAfterIndex` of `EditorChromeLayout.ButtonRowIn`, inserting a wider
-`ClusterGap`). The window bar (`DefaultButtons`) keeps **Save / Undo / Redo / Refresh** — now ICON
-buttons — plus the still-text selection-context actions (`OrderForward`/`OrderBack`, the collider/vertex
-authoring) until UX2-D relocates them into context menus. Icon buttons are ~square (their width is the
-`ButtonHeight`); text buttons stay label-width. The dispatch/gating is unchanged (the ONE `ToolbarSystem`
-still hit-tests both rows; editing buttons dim while Playing, transport always live). How the buttons
-DRAW — the procedural icon meshes + the hover tooltip — is its own premise ("Toolbar icon buttons are
-procedural meshes tinted by state; a pooled tooltip names them on hover").
+**UX2-B/-C/-D: transport + tools relocated; Order left the bar; the Entity dropdown joined the header.**
+UX2-B moved the transport (Play/Pause + Restart) off the window bar to the Scene panel header
+(`HeaderButtons`); UX2-C then moved the transform-tool cluster
+(`ToolMove`/`ToolRotate`/`ToolScale`/`ToolBoundary`/`ToggleSnap`) there too, so the Scene header reads
+**transport cluster · separator gap · tool cluster** (the last transport button's index is the
+`separatorAfterIndex` of `EditorChromeLayout.ButtonRowIn`, inserting a wider `ClusterGap`). **UX2-D moved
+the within-band Order (`OrderForward`/`OrderBack`) buttons OFF the toolbar entirely** into the entity
+context menus — the `EditorToolbarAction`s and their dispatch stay (the menus fire them), only the
+buttons are gone; and it **appended a fixed `EntityMenu` ("Entity") text button + a ▾ caret mesh** to
+the header (its dispatch opens the entity context menu below it). The window bar (`DefaultButtons`) now
+keeps **Save / Undo / Redo / Refresh** (ICON buttons) plus the still-text **collider/vertex** authoring
+actions (their future home is a follow-up, not built this wave). Icon buttons are ~square (their width is
+the `ButtonHeight`); text buttons stay label-width (the Entity button reserves an extra caret allowance).
+The dispatch/gating is unchanged (the ONE `ToolbarSystem` still hit-tests both rows; editing buttons dim
+while Playing, transport always live; `EntityMenu` is an editing action). How the buttons DRAW — the
+procedural icon meshes + the hover tooltip — is its own premise ("Toolbar icon buttons are procedural
+meshes tinted by state; a pooled tooltip names them on hover").
 **Overflow risk:** the window row still lays out left-to-right with no wrap/scroll (`ButtonRow`); UX2-C's
-narrow icon squares plus relocating the 5 tools shortened it materially, and UX2-D removes the remaining
-text buttons.
+narrow icon squares plus relocating the 5 tools shortened it materially, and UX2-D removing the 2 Order
+buttons shortened it further (the collider/vertex text buttons remain).
 
 **Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
 "the editor tools shouldn't overlay the game screen but be placed around it … highres and
@@ -1318,6 +1323,16 @@ buttons AND the boundary-tool button are a radio over the modes (each disarms th
 `ToolBoundary` button disarms the palette then enters `Boundary`; a transform-tool button disarms
 the palette back to `SelectTransform`), as are Escape and right-click.
 
+**Right-click double-duty (UX2-D).** A right-click keeps meaning *disarm* while a tool is armed
+(`Place`/`Boundary` — the palette/boundary read `RightButtonPressed` and cancel), but in
+`SelectTransform` with nothing armed it now **opens the entity context menu**: `SelectionSystem`
+(dormant in the other modes) picks the entity under the cursor with the SAME `TryPick` used by the
+left-click selection, and on a HIT selects it (keeping an existing selection if it was the
+already-selected one) and raises `ViewportContextMenuRequested` for the overlay to open the menu. A
+right-click over **empty** viewport opens no menu and clears no selection (click-empty stays a
+left-click behavior); the gizmo's `PressClaimed` and the middle-drag camera nav are unaffected (right
+button only). So a stray menu can never eat an armed tool's cancel gesture (pre-mortem #5).
+
 **Why:** with placement live, a single viewport press would otherwise be claimed by three systems
 at once — a placement click would simultaneously re-pick (or click-empty-clear) the selection and
 grab a gizmo handle. One mode field on the existing shared state entity (extend, don't
@@ -1328,9 +1343,84 @@ conversely a selection click while armed stamps an unwanted prop; a stale `Place
 nothing armed mutes every tool family (the palette self-heals it back to `SelectTransform`).
 **Tests:** `MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
 (`ToolModalityTest_PlaceModePressNeitherSelectsNorDrags`,
-`ToolModalityTest_EscapeRestoresSelectTransform`, `ToolModalityTest_RightClickDisarms`).
+`ToolModalityTest_EscapeRestoresSelectTransform`, `ToolModalityTest_RightClickDisarms`);
+`MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`ViewportRightClick_OnEntity_SelectsAndRequestsMenu`,
+`ViewportRightClick_OnEmpty_NoMenuNoClear`, `ViewportRightClick_OnAlreadySelected_KeepsItAndRequestsMenu`,
+`ViewportRightClick_InPlaceMode_NoMenu`, `ViewportRightClick_WhenGizmoClaimed_NoMenu`,
+`ViewportRightClick_InPlayMode_Inert` — the UX2-D right-click double-duty).
 **Depends on:** this file — "Selection picks MAX final `LayerDepth` with a selection-owned
-tiebreak, target-aware" (the claim rule this composes with).
+tiebreak, target-aware" (the claim rule this composes with), "Editor context menus are a
+data-driven popup: one model, two anchors …" (the menu the right-click opens).
+
+## Editor context menus are a data-driven popup: one model, two anchors, modal like the dialog
+
+The `EditorContextMenu` primitive (UX2-D) is a popup list on the native-resolution `Editor` target,
+driven by a **pure menu MODEL** — a flat item list (`EditorMenuItem`: label, action-id `Path`,
+`Enabled`, `Danger`; `Separator`; a ONE-level `Submenu`) assembled by `EditorContextMenuModel`
+(`EntityMenu` / `EntitiesPanelMenu` / `ScenesPanelMenu`) and laid out by the pure
+`EditorContextMenuLayout` (fixed-width box clamped to the window; a submenu opens beside its parent,
+flipping left when there is no room). Because the content is DATA, the SAME model renders **two
+ways** — as a right-click **context menu** (`EditorContextMenuSystem.OpenAt`, at the cursor) or the
+Scene-header **`Entity ▾` dropdown** (`OpenBelow`, anchored under the button) — the discoverable twin
+of the right-click. A clicked/`menu:pick`ed leaf fires its action-id `Path` through a `dispatch`
+callback the overlay maps to the SAME shared editor instances (Order → the within-band nudges, Delete
+→ the snapshotting `DeleteEntityCommand`, Add Empty Entity → the undoable `CreateEntityCommand`, Create
+Empty Scene → the dialog), so the menu system stays game-agnostic.
+
+**Modality — the menu owns the pointer while open, like the dialog.** Each open frame it hit-tests its
+own items FIRST, then **consumes** the cursor's pointer edges (the `EditorDialogSystem` recipe), so no
+mouse-driven editor system downstream acts on the same click. It is woven **immediately after
+`editor.dialog`** (entry `editor.contextMenu`, `RunNormally`) so, in the rare case both could open, the
+dialog consumes first and wins; and `OpenAt` **refuses to open while blocked** (`isBlocked` = the dialog
+is open OR a shell splitter/scrollbar drag owns the pointer) — "if the dialog is open, menus never open".
+The keyboard half is the screen ORing `Menu.IsOpen` into the host keyboard system's `ShouldSuppressInput`
+(with `Dialog.IsOpen`), so **Escape closes the menu** instead of quitting the game. Closed by an item
+click, a click-away (closes without acting), or Escape. Items use the UX-A state model (instant hover
+fill — pooled rows never fade, pre-mortem #6; `Danger` label for destructive items; `TextDisabled` when
+disabled). Chrome rules hold: `SimpleButtonComponent` box/fills + `DynamicTextComponent` labels + a
+screen-baked ▸ triangle mesh, all on the `Editor` target, `EditorInfrastructureComponent`, **no
+`VisibleComponent`**, parked when closed, in a dedicated `EditorTheme.Depths.Menu*` band ABOVE the
+tooltip so a menu is never occluded.
+
+**Four surfaces, one primitive.** The viewport right-click opens the entity menu (Order ▸ Bring
+Forward / Send Backward, separator, Delete `Danger`) — see the tool-modality premise for the
+right-click composition; the Entities-panel right-click opens Add Empty Entity plus, when a tree row is
+under the cursor, that row's entity items above a separator (the panel raises `ContextMenuRequested` +
+exposes `EntityAtPoint`; the overlay selects the row entity and builds the menu); the Scenes-panel
+right-click opens Create Empty Scene…; the header `Entity ▾` button opens the entity menu below it,
+acting on the current selection (its items disabled when nothing is selected). Ops:
+`menu:open <viewport|entities|scenes|entity>` (viewport/entity use the current cursor position),
+`menu:pick <path>` (e.g. `order/forward`, `delete`, `add-empty`, `create-scene`), `menu:close` — all
+headless-testable; the Create-Empty-Scene modal is driven by the existing `dialog:name|confirm|cancel`
+grammar (its confirm routes to `ConfirmCreateScene`).
+
+**Why:** the design's §4 — a single data-driven popup that serves the viewport right-click, both panel
+right-clicks, and the discoverable header dropdown, without four bespoke widgets (the no-duplicate-ways
+tenet); modal capture is required or a stray viewport click/keystroke leaks to the tools behind it (most
+dangerously Escape quitting the game). One model + two anchors keeps the context menu and the header
+dropdown provably identical.
+**Breaks:** a menu that does not consume the pointer lets its item-click also select/place behind it; a
+menu that opens while the dialog is open (or during a splitter drag) fights it for the pointer; not
+ORing `Menu.IsOpen` into `ShouldSuppressInput` makes Escape quit the game instead of closing the menu;
+a `VisibleComponent` on the menu chrome pulls it into `MeshPrepSystem`, which overwrites the identity
+`WorldMatrix` its absolute-pixel vertices require; a menu below the dialog band is occluded by a modal.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (the pure model + layout — items /
+submenu / disabled / danger / `FindByPath`, height, window-clamp, submenu right/left flip; the system —
+open/close, `Pick` dispatches a submenu leaf + closes, disabled-pick no-op, `isBlocked` refuses to open,
+item-click dispatches + consumes the cursor, click-away closes, Escape closes, hover opens a submenu then
+item-click dispatches; the menu→command wiring — Order nudges the selected sprite, Delete is the
+snapshotting command + undo restores; `AddEmptyEntity`; the Create-Empty-Scene dialog collision refusal +
+accept + empty-name + the canonical empty-world write); `MonoDreams.Tests/LevelEditor/SelectionTests.cs`
+(the viewport right-click); `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs`
+(`RightClickInThePanel_RaisesTheContextMenuRequest_AndMapsTheRowEntity`).
+**Depends on:** this file — "Viewport presses belong to exactly one tool family" (the right-click
+composition), "Selection picks MAX final `LayerDepth` …" (the reused `TryPick`), "Editor-overlay entities
+are standalone; delete snapshots the disposed sub-graph" (the Delete item), "The editor's Save dialog is a
+modal three-action chooser …" (the modal machinery the Create-Empty-Scene mode extends + the cursor-consume
+recipe), "Game screens declare their bound scene … switching IS selecting" (the dirty-gated switch Create
+Empty Scene reuses), "Scene serialization is canonical and byte-stable …" (the empty scene's bytes); cursor
+— "Button press/release edges derive from CursorInputSystem's own previous-state" (why an item's release-edge
+action survives the menu's own consume).
 
 ## The palette hold-drag multi-stamps at arc-length spacing, coalesced into one undo step
 
@@ -1621,6 +1711,16 @@ Demos would wire plain `LoadScreen`. The world tears down wholesale and the shar
 Edit` survives (foundation), so the new screen composes a fresh overlay bound to the right scene id. The
 editor module gains **no** dependency on a game screen type.
 
+**Create Empty Scene (UX2-D).** A right-click in the Scenes panel offers **Create Empty Scene…**, which
+opens a small modal on the SAME dialog machinery (name field prefilled `untitled`, `Sanitize`d,
+Create/Cancel). Confirm **refuses an existing name loudly and keeps the dialog open** (the injected
+name-collision predicate), then writes a **minimal canonical `.mdscene`** — empty `entities[]` + the
+current camera/layers the writer emits for an empty world, built through `SceneWriter`/`CanonicalJson`
+(never hand-written JSON) — into `LevelsPath`, applies the SAME zero-touch `EnsureLevelBundled` treatment
+a Save gets, and then **switches to it through this same `SelectScene` flow** (the catalog re-scan
+surfaces the new file immediately, and a dirty working scene runs the confirm-on-switch gate first). It
+is blocked when no project root is resolved (nowhere versioned to write) — the Save-guard fail-safe.
+
 **Why:** the user's rule — "we create game screens in code and need a clear way to indicate which
 configuration files they load from" — plus the removal of the Load action: a screen declares its scene,
 the panel lists them, and selecting one loads it. Explicit per-screen scene ids are the fix for the
@@ -1640,6 +1740,8 @@ and the `DecideSwitch` truth table); `MonoDreams.Tests/LevelEditor/OptionalScene
 `MonoDreams.Tests/LevelEditor/EditorDialogTests.cs` (`ConfirmSwitch_Confirm_RunsSaveAndSwitch_NotDiscard_AndCloses`,
 `ConfirmSwitch_Discard_SwitchesWithoutSaving_AndCloses`, `ConfirmSwitch_Cancel_DoesNeither_AndCloses`,
 `ConfirmSwitch_EnterConfirms_EscapeCancels`, `ConfirmSwitch_ClickDiscardThroughRealCursorPipeline_DiscardsOnRelease`);
+`MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (Create Empty Scene — the dialog's collision
+refusal + accept + empty-name, and the canonical empty-world write on a fake FS — UX2-D);
 `MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs` (the `ScreenInfo` binding + enumeration).
 **Depends on:** foundation — "Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its
 `RunMode`) is the only survivor of a screen switch"; this file — "The editor's panels: a LEFT tabbed
