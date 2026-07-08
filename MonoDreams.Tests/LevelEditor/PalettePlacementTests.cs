@@ -248,12 +248,15 @@ public class PalettePlacementTests
         palette.ArmByIndex(1); // the sliced Props entry (Y-sorted band selected below)
         palette.SelectBand("Props");
 
-        // Follows the cursor's world position.
+        // Follows the cursor's world position — CENTRED: the transform position offsets by the
+        // source-space centre↔origin delta so the sprite's VISUAL centre (not its feet) sits under the
+        // cursor. For the 32×48 Y-sorted region: centre (16,24) − feet origin (16,48) = (0,−24), so
+        // the feet land 24 below the cursor → position = (50,60) − (0,−24) = (50,84).
         SetCursor(cursor, new Vector2(50, 60));
         palette.Update(Edit());
         Assert.True(palette.HasGhost);
         var ghost = palette.Ghost;
-        Assert.Equal(new Vector2(50, 60), ghost.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(50, 84), ghost.Get<TransformComponent>().Position);
 
         // Editor infrastructure, never scene content, tinted, feet-origin on the Y-sorted band.
         Assert.True(ghost.Has<EditorInfrastructureComponent>());
@@ -263,13 +266,15 @@ public class PalettePlacementTests
         Assert.Equal(new Vector2(16f, 48f), ghostSprite.Origin); // bottom-center of the 32×48 region
         Assert.Null(ghostSprite.AssetKey); // key-less: not a save candidate even by accident
 
-        // Snap quantizes the ghost (and thus the placement) position.
+        // Snap quantizes the ghost (and thus the placement) position — the transform/feet position,
+        // the SAME field snap quantized before centring: raw = (100.4,77.7) − (0,−24) = (100.4,101.7),
+        // snapped to the 16 grid = (96,96).
         ref var state = ref gizmoState.Get<GizmoStateComponent>();
         state.SnapEnabled = true;
         state.GridStep = 16f;
         SetCursor(cursor, new Vector2(100.4f, 77.7f));
         palette.Update(Edit());
-        Assert.Equal(new Vector2(96f, 80f), ghost.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(96f, 96f), ghost.Get<TransformComponent>().Position);
 
         // Outside the game viewport (over chrome/margins) the ghost hides off-screen.
         SetCursor(cursor, new Vector2(100.4f, 77.7f), outsideViewport: true);
@@ -311,7 +316,9 @@ public class PalettePlacementTests
         palette.Update(Edit());
         var placed = Assert.Single(PlacedProps(world));
         Assert.True(placed.Has<SceneObjectComponent>());
-        Assert.Equal(new Vector2(120, 80), placed.Get<TransformComponent>().Position);
+        // Centred: Ground is top-left origin (0,0) on the 32×32 fallback, so position = cursor −
+        // centre(16,16) = (120,80) − (16,16) = (104,64) (visual centre lands at the cursor).
+        Assert.Equal(new Vector2(104, 64), placed.Get<TransformComponent>().Position);
         var sprite = placed.Get<SpriteInfoComponent>();
         Assert.Equal("file:Island/props/tree01.png", sprite.AssetKey);
         Assert.Equal(0.9f, sprite.LayerDepth); // the Ground band's SOURCE depth
@@ -351,7 +358,9 @@ public class PalettePlacementTests
         var (serializer, history) = MakeInfra(world);
         using var palette = MakePalette(world, history, serializer);
 
-        // Deterministic spacing, snap off, a non-Y-sorted band (positions land raw at the cursor).
+        // Deterministic spacing, snap off, a non-Y-sorted band. Arc-length spacing is measured on the
+        // CURSOR path (unaffected by centring); each stamp's stored position is the CENTRED position
+        // (cursor − centre(16,16) for the 32×32 tile), so the stored x's are the cursor x's shifted −16.
         {
             ref var state = ref gizmoState.Get<GizmoStateComponent>();
             state.StampSpacing = 10f;
@@ -386,8 +395,9 @@ public class PalettePlacementTests
         var xs = new List<float>();
         foreach (var e in PlacedProps(world)) xs.Add(e.Get<TransformComponent>().Position.X);
         xs.Sort();
-        Assert.Equal(new[] { 0f, 10f, 20f, 30f, 40f, 50f }, xs);
-        Assert.Equal(50f, Selected(world)!.Value.Get<TransformComponent>().Position.X);
+        // Stamps earned at cursor x=0,10,20,30,40,50 (spacing 10 preserved); stored centred → −16 each.
+        Assert.Equal(new[] { -16f, -6f, 4f, 14f, 24f, 34f }, xs);
+        Assert.Equal(34f, Selected(world)!.Value.Get<TransformComponent>().Position.X);
 
         // One undo removes the entire coalesced stroke.
         history.Undo();

@@ -1295,13 +1295,33 @@ origin; their within-band order is authored (bring-forward/send-back, Slice 2). 
 mapping itself is supplied by the screen from ITS `DrawLayerMap` — the module never references a
 game's layer enum.
 
+**Placement centres the visual, not the origin, under the cursor.** The factory places the prop at
+the `Position` it is *given*; the palette computes that position so the sprite's **visual centre**
+(source `(W/2, H/2)`) lands under the cursor — `PalettePlacementSystem.SpritePlacementPosition`
+subtracts the source-space centre↔origin delta (rotated by the armed ghost rotation; placement scale
+is 1) from the cursor world point. It is the ONE function the ghost preview and every committed stamp
+share, so they can never disagree about "under the cursor". `Origin` is untouched (feet on a Y-sorted
+band, top-left otherwise) — only the position shifts, so the feet-origin / Y-sort behaviour above is
+preserved. **Grid-snap still quantizes the transform position** (the feet/origin point — the SAME
+field it quantized before centring), so with snap on the feet land on grid lines, not the
+free-floating centre. Triggers place at the raw (snapped) cursor — no sprite centre to offset.
+
 **Why:** top-down walk-behind depends on the sort key and the visual base being the same point;
 without the convention every prop needs a hand-tuned `YSortOffset` and a mis-set one reads as the
-player clipping through the prop.
+player clipping through the prop. Centring on the visual (not the feet/origin) is the user-reported
+fix — a prop placed with its feet under the cursor reads as landing above where you clicked.
 **Breaks:** props sort by their top-left corner — the player pops in front of a building while
-visually behind it; ghost preview and placed prop disagree about where "under the cursor" is.
+visually behind it; ghost preview and placed prop disagree about where "under the cursor" is (the
+shared position function prevents this); placing the origin rather than the centre under the cursor
+reads as off-centre; snapping the centre rather than the transform position would drift the feet off
+the grid the round-trip and Y-sort expect.
 **Tests:** `MonoDreams.Tests/LevelEditor/SpritePropFactoryTests.cs`
-(`FeetOriginOnYSortedBandTest`, `SpritePropStandardStackTest`, `SlicedEntrySourceRectTest`).
+(`FeetOriginOnYSortedBandTest`, `SpritePropStandardStackTest`, `SlicedEntrySourceRectTest`);
+`MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`GhostLifecycleTest_FollowsCursorSnapsParksAndDespawns` — the ghost follows the cursor centred and
+snap quantizes the centred transform position; `PlacementTest_SingleClickIsOneUndoStepAutoSelectAndRepeat`
+— a stamp lands centred; `MultiStampTest_HoldDragStampsAtSpacingAndCoalescesToOneUndoStep` — arc-length
+spacing preserved, every stamp centred).
 **Depends on:** rendering — `YSortSystem`'s `WorldPosition.Y + YSortOffset` key; this file — "The
 serializer persists SOURCE sort fields…" (Origin/YSortOffset are SOURCE fields that round-trip).
 

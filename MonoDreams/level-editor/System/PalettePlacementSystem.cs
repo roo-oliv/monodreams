@@ -735,7 +735,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             }
             else
             {
-                var position = PlacementPosition(input.WorldPosition);
+                var position = SpritePlacementPosition(input.WorldPosition, entry, band, texture);
                 Place(_ghost, position);
                 _ghost.Get<TransformComponent>().Rotation = _armedRotation; // ghost-rotate (Slice 4)
 
@@ -759,12 +759,47 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
     }
 
-    private Vector2 PlacementPosition(Vector2 cursorWorld)
+    /// <summary>
+    /// The transform position that lands <paramref name="entry"/>'s sprite with its <b>visual centre
+    /// at <paramref name="cursorWorld"/></b> (the placement-centering fix — the prop used to land with
+    /// its <c>Origin</c>, e.g. the feet, under the cursor, so it read off-centre). The feet-origin
+    /// convention is untouched: <c>Origin</c> stays feet-anchored on a Y-sorted band — only the
+    /// POSITION offsets by the source-space centre↔origin delta (rotated by the armed ghost rotation;
+    /// placement scale is 1). The resulting POSITION is then grid-snapped — the SAME field snap
+    /// quantized before (the transform position / feet point), so the existing snap premise stays
+    /// coherent (feet land on grid lines, not the free-floating visual centre). This ONE function
+    /// serves both the ghost preview and every committed stamp, so they can never disagree about
+    /// where "under the cursor" is.
+    /// </summary>
+    private Vector2 SpritePlacementPosition(Vector2 cursorWorld, AssetCatalogEntry entry, PaletteBand band,
+        Microsoft.Xna.Framework.Graphics.Texture2D? texture)
+    {
+        var source = SpritePropFactory.SourceRect(entry, texture);
+        var origin = band.YSorted ? SpritePropFactory.FeetOrigin(source) : Vector2.Zero;
+        var centre = new Vector2(source.Width / 2f, source.Height / 2f);
+        var offset = RotateVector(centre - origin, _armedRotation); // world offset (placement scale = 1)
+        return SnapPosition(cursorWorld - offset);
+    }
+
+    /// <summary>Grid-snaps <paramref name="position"/> to the shared snap settings, or returns it raw
+    /// when snap is off. Used on the centred sprite position (so snap quantizes the transform/feet
+    /// position, as before) and directly on the cursor for triggers (no sprite centre to offset).</summary>
+    private Vector2 SnapPosition(Vector2 position)
     {
         ref readonly var gizmo = ref GetGizmoStateEntity().Get<GizmoStateComponent>();
         return gizmo.SnapEnabled && gizmo.GridStep > 0f
-            ? GizmoTransform.Snap(cursorWorld, gizmo.GridStep)
-            : cursorWorld;
+            ? GizmoTransform.Snap(position, gizmo.GridStep)
+            : position;
+    }
+
+    /// <summary>Rotates <paramref name="v"/> by <paramref name="radians"/> (identity at 0, so the
+    /// common axis-aligned placement is exact).</summary>
+    private static Vector2 RotateVector(Vector2 v, float radians)
+    {
+        if (radians == 0f) return v;
+        var cos = MathF.Cos(radians);
+        var sin = MathF.Sin(radians);
+        return new Vector2(v.X * cos - v.Y * sin, v.X * sin + v.Y * cos);
     }
 
     /// <summary>Opens a coalesced stroke (one undo step for the whole hold-drag, the gizmo's
@@ -792,7 +827,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         var points = StrokeSampler.Sample(_lastStampWorld, cursorWorld, spacing);
         if (points.Count == 0) return;
         foreach (var raw in points)
-            StampAt(entry, band, PlacementPosition(raw), texture);
+            StampAt(entry, band, SpritePlacementPosition(raw, entry, band, texture), texture);
         _lastStampWorld = points[points.Count - 1];
     }
 
@@ -844,7 +879,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
             if (input.OutsideViewport || !input.LeftButtonPressed) return;
-            PlaceTrigger(type, PlacementPosition(input.WorldPosition));
+            PlaceTrigger(type, SnapPosition(input.WorldPosition));
             return; // single cursor
         }
     }
