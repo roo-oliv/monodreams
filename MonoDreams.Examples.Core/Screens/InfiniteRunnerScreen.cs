@@ -129,7 +129,7 @@ public class InfiniteRunnerScreen : IGameScreen
         if (debugInspector != null)
         {
             _inputMappingSystem.ShouldSuppressInput = () =>
-                debugInspector.WantsKeyboard || (_editor != null && _editor.Dialog.IsOpen);
+                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen));
         }
 #endif
 
@@ -312,7 +312,8 @@ public class InfiniteRunnerScreen : IGameScreen
         // while a Save/Load dialog owns the keys (the closure reads the field lazily; _editor is set
         // just below when the editor is composed). The mouse half is the dialog consuming the cursor
         // edges. A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
-        inputMappingSystem.ShouldSuppressInput = () => _editor != null && _editor.Dialog.IsOpen;
+        inputMappingSystem.ShouldSuppressInput = () =>
+            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -393,6 +394,8 @@ public class InfiniteRunnerScreen : IGameScreen
             p.Add("editor.cursorInput", _editor.CursorInput, EditTimeBehavior.RunNormally);
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
+            // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
+            p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
         }
         // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
         // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every

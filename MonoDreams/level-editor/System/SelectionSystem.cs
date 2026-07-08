@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
@@ -24,6 +25,15 @@ namespace MonoDreams.LevelEditor.System;
 /// a viewport press at all; in <see cref="EditorToolMode.Place"/> (and the future brush modes) the
 /// system is dormant — no pick and no click-empty clear, so a placement click cannot disturb the
 /// selection (the placement system auto-selects what it stamps).</para>
+///
+/// <para><b>Viewport right-click opens the entity menu (UX2-D).</b> Also only in
+/// <see cref="EditorToolMode.SelectTransform"/> (when a tool is armed, right-click-as-disarm belongs to
+/// the palette/boundary and this system is dormant), a RIGHT-button press picks the entity under the
+/// cursor with the SAME <see cref="TryPick"/> logic; on a HIT it selects that entity via
+/// <see cref="SelectExclusive"/> (keeping an existing selection when you right-clicked the
+/// already-selected one) and raises <see cref="ViewportContextMenuRequested"/> so the overlay opens the
+/// entity context menu at the cursor. A right-click over empty space opens no menu and clears no
+/// selection — click-empty stays a left-click behavior.</para>
 ///
 /// <para><b>Click-ownership: the gizmo's presses are skipped.</b> A press the gizmo claimed
 /// (<see cref="GizmoStateComponent.PressClaimed"/> — the press landed on the active tool's handle,
@@ -106,8 +116,14 @@ public sealed class SelectionSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>Fired when a RIGHT-button press in <see cref="EditorToolMode.SelectTransform"/> HITS an
+    /// entity in the viewport (UX2-D): the system selects the hit entity first (via
+    /// <see cref="SelectExclusive"/>), then raises this so the overlay opens the entity context menu at
+    /// the cursor. A right-click over empty space raises nothing and clears nothing (click-empty stays a
+    /// LEFT-click behavior). Null (the default / tests without a menu) makes the right-click select-only.</summary>
+    public Action<GameState>? ViewportContextMenuRequested { get; set; }
+
     // Per-frame pick state (no per-frame allocation in the hot path).
-    private bool _picking;
     private Vector2 _worldPoint;
     private Vector2 _virtualPoint;
     private bool _hasBest;
@@ -140,9 +156,6 @@ public sealed class SelectionSystem : ISystem<GameState>
     {
         if (!IsEnabled) return;
 
-        _picking = false;
-        _hasBest = false;
-
         // Edit-guarded: inert in Play.
         if (state.RunMode != RunMode.Edit) return;
 
@@ -151,48 +164,100 @@ public sealed class SelectionSystem : ISystem<GameState>
         // viewport press — no pick, no click-empty clear (a placement click must not deselect).
         if (ActiveToolMode() != EditorToolMode.SelectTransform) return;
 
-        ArmPickFromCursor();
-        if (!_picking) return;
+        // Read the single cursor (the editor screen creates exactly one): capture the press edge +
+        // points, then act OUTSIDE the iteration so component mutations don't disturb the set.
+        var leftPress = false;
+        var rightPress = false;
+        var worldPoint = Vector2.Zero;
+        var virtualPoint = Vector2.Zero;
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            // A press over the editor chrome / letterbox margins is not a scene click:
+            // WorldPosition AND VirtualPosition are frozen at their last inside-the-viewport values
+            // there, so picking (or clearing the selection) would act on a stale point.
+            if (input.OutsideViewport) return;
+            // Click-ownership: a press the gizmo claimed — it landed on the active tool's handle, or a
+            // handle drag is in progress — is not a scene click either (see the class doc). Same-frame
+            // read is safe: GizmoSystem writes the claim in the UPDATE pipeline; this runs at the end of
+            // the DRAW pipeline.
+            if (GizmoClaimedPress()) return;
+            leftPress = input.LeftButtonPressed;
+            rightPress = input.RightButtonPressed;
+            worldPoint = input.WorldPosition;
+            virtualPoint = input.VirtualPosition;
+            break; // single cursor
+        }
 
-        // Sprite candidates first, then the sprite-less proxy + boundary candidates, ONE ordering.
+        if (leftPress)
+        {
+            // Left click: select the topmost candidate; a click on empty space clears (click-empty).
+            if (TryPick(worldPoint, virtualPoint, out var hit))
+            {
+                ClearSelection();
+                hit.Set(new SelectedComponent());
+            }
+            else
+            {
+                ClearSelection();
+            }
+        }
+        else if (rightPress)
+        {
+            // Right click (UX2-D): open the entity context menu, but ONLY on a hit — a right-click over
+            // empty space opens no menu and clears NOTHING (click-empty stays a left-click behavior).
+            // Select the hit first (keeping it if it was already selected), then raise the request.
+            if (TryPick(worldPoint, virtualPoint, out var hit))
+            {
+                SelectExclusive(hit);
+                ViewportContextMenuRequested?.Invoke(state);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs the editor's topmost-pick against <paramref name="worldPoint"/> /
+    /// <paramref name="virtualPoint"/> — the SAME candidate evaluation (sprites, collider/boundary
+    /// proxies) + rank/depth/id ordering the left-click selection uses — and returns the winning entity.
+    /// Exposed so the viewport RIGHT-click (this system) and the <c>menu:open viewport</c> op (the
+    /// overlay) reuse ONE pick, never forking the topmost logic.
+    /// </summary>
+    public bool TryPick(Vector2 worldPoint, Vector2 virtualPoint, out Entity hit)
+    {
+        _worldPoint = worldPoint;
+        _virtualPoint = virtualPoint;
+        _hasBest = false;
+        _bestRank = 0;
+        _bestDepth = 0f;
+        _bestId = 0;
+        _best = default;
+
         foreach (var entity in _spriteSet.GetEntities())
             EvaluateSpriteCandidate(entity);
         EvaluateProxyCandidates();
         EvaluateBoundaryCandidates();
 
-        // Clear the previous selection (single-select). Materialize first — mutating components
-        // while iterating an EntitySet is unsafe.
-        ClearSelection();
-
-        if (_hasBest)
-            _best.Set(new SelectedComponent());
-        // else: click on empty space → selection stays cleared.
+        hit = _best;
+        return _hasBest;
     }
 
-    private void ArmPickFromCursor()
+    /// <summary>Single-selects <paramref name="target"/>: clears every OTHER selection tag and sets it
+    /// on the target (a no-op re-affirm when it is already the selection, so a right-click on the
+    /// already-selected entity keeps it). Shared by the viewport right-click, the panel row right-click,
+    /// and the <c>menu:open</c> ops.</summary>
+    public void SelectExclusive(Entity target)
     {
-        // Read the single cursor (the editor screen creates exactly one).
-        foreach (var cursor in _cursorSet.GetEntities())
-        {
-            ref readonly var input = ref cursor.Get<CursorInputComponent>();
-            if (!input.LeftButtonPressed) return; // only act on the press edge
-            // A press over the editor chrome / letterbox margins is not a scene click:
-            // WorldPosition AND VirtualPosition are frozen at their last inside-the-viewport
-            // values there, so picking (or clearing the selection) would act on a stale point.
-            if (input.OutsideViewport) return;
-            // Click-ownership: a press the gizmo claimed — it landed on the active tool's handle,
-            // or a handle drag is in progress — is not a scene click either. Rotate/scale handles
-            // (and a collider proxy's centre move-handle) routinely lie OUTSIDE the selected
-            // sprite's bounds; processing that press here would read as click-empty and clear the
-            // selection (or re-pick an overlapped sprite) in the very frame the drag began,
-            // killing the drag. Same-frame read is safe: GizmoSystem writes the claim in the
-            // UPDATE pipeline; this system runs at the end of the DRAW pipeline.
-            if (GizmoClaimedPress()) return;
-            _picking = true;
-            _worldPoint = input.WorldPosition;
-            _virtualPoint = input.VirtualPosition;
-            return;
-        }
+        if (!target.IsAlive) return;
+        List<Entity>? toClear = null;
+        foreach (var e in _selectedSet.GetEntities())
+            if (!e.Equals(target))
+                (toClear ??= new List<Entity>()).Add(e);
+        if (toClear != null)
+            foreach (var e in toClear)
+                if (e.IsAlive && e.Has<SelectedComponent>())
+                    e.Remove<SelectedComponent>();
+        if (!target.Has<SelectedComponent>())
+            target.Set(new SelectedComponent());
     }
 
     private void EvaluateSpriteCandidate(in Entity entity)

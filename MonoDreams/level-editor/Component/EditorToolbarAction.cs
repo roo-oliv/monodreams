@@ -79,6 +79,12 @@ public enum EditorToolbarAction
     /// (<c>PalettePlacementSystem.Refresh</c> — invalidates the texture cache too). Headless alias:
     /// the plain enum name <c>RefreshCatalog</c>.</summary>
     RefreshCatalog,
+
+    /// <summary>The Scene-panel header's <b>Entity ▾</b> dropdown button (UX2-D §4): opens the entity
+    /// context menu anchored below the button, acting on the current selection (the discoverable twin of
+    /// the viewport right-click — one model, two anchors). An editing action (Paused/Edit only). The
+    /// overlay maps it to <c>OpenContextMenu(EntityHeader)</c>.</summary>
+    EntityMenu,
 }
 
 /// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>

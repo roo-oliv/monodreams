@@ -28,6 +28,12 @@ public enum EditorDialogMode
     /// [Save &amp; Switch] [Discard &amp; Switch] [Cancel]. A plain 3-action confirm on the same modal
     /// machinery (parked chrome, cursor consume, same weave).</summary>
     ConfirmSwitch,
+
+    /// <summary>The Create-Empty-Scene modal (UX2-D §4): a name field (prefilled <c>untitled</c>,
+    /// <c>Sanitize</c>d) + [Create] [Cancel], opened from the Scenes-panel context menu. On confirm it
+    /// refuses an existing name (loud, stays open) then writes a minimal canonical scene + switches to
+    /// it. Same modal machinery (parked chrome, cursor consume, same weave).</summary>
+    CreateScene,
 }
 
 /// <summary>
@@ -101,6 +107,10 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private readonly Action<GameState> _onSaveScene;
     private readonly Action<GameState> _onSaveProject;
     private readonly Action<string, GameState> _onSaveBackup;
+    // Create Empty Scene (UX2-D): a name-collision predicate (loud refuse + keep open) and the create
+    // callback (write + bundle + switch); both null on a composition that offers no scene creation.
+    private readonly Func<string, bool>? _onSceneNameExists;
+    private readonly Action<string, GameState>? _onCreateScene;
     private readonly Func<KeyboardState> _getKeyboardState;
     private readonly EntitySet _cursorSet;
 
@@ -139,7 +149,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         Action<GameState> onSaveScene,
         Action<GameState> onSaveProject,
         Action<string, GameState> onSaveBackup,
-        Func<KeyboardState>? getKeyboardState = null)
+        Func<KeyboardState>? getKeyboardState = null,
+        Func<string, bool>? onSceneNameExists = null,
+        Action<string, GameState>? onCreateScene = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
@@ -147,6 +159,8 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _onSaveScene = onSaveScene ?? throw new ArgumentNullException(nameof(onSaveScene));
         _onSaveProject = onSaveProject ?? throw new ArgumentNullException(nameof(onSaveProject));
         _onSaveBackup = onSaveBackup ?? throw new ArgumentNullException(nameof(onSaveBackup));
+        _onSceneNameExists = onSceneNameExists;
+        _onCreateScene = onCreateScene;
         _getKeyboardState = getKeyboardState ?? Keyboard.GetState;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
@@ -178,6 +192,44 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _confirmMessage = $"Unsaved changes in {sceneId}.";
         _prevKeys = _getKeyboardState();
         _mode = EditorDialogMode.ConfirmSwitch;
+    }
+
+    /// <summary>Opens the Create-Empty-Scene modal (UX2-D §4): a name field prefilled <c>untitled</c>
+    /// (<c>Sanitize</c>d) + [Create] [Cancel]. Opened from the Scenes-panel context menu
+    /// (<c>menu:pick create-scene</c>); confirm goes through <see cref="ConfirmCreateScene"/>.</summary>
+    public void OpenCreateScene()
+    {
+        EnsureBuilt();
+        _field.Set(EditorTextField.Sanitize("untitled"));
+        _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
+        _mode = EditorDialogMode.CreateScene;
+    }
+
+    /// <summary>Confirms Create Empty Scene (headless <c>dialog:confirm</c> / Enter / the Create button):
+    /// sanitizes the field, <b>refuses loudly and stays open</b> on an empty result OR an existing name
+    /// (via the injected collision predicate), else closes and runs the create callback (write the
+    /// minimal scene + switch). No-op outside <see cref="EditorDialogMode.CreateScene"/>.</summary>
+    public void ConfirmCreateScene(GameState state)
+    {
+        if (_mode != EditorDialogMode.CreateScene) return;
+        var id = EditorTextField.Sanitize(_field.Value);
+        if (string.IsNullOrEmpty(id))
+        {
+            Logger.Warning(
+                "[level-editor] Create Empty Scene: the name is empty after reducing it to a safe file id " +
+                "(letters, digits, '-' and '_'). Type a valid name.");
+            return; // keep the dialog open
+        }
+        if (_onSceneNameExists?.Invoke(id) == true)
+        {
+            Logger.Warning(
+                $"[level-editor] Create Empty Scene refused: a scene named '{id}' already exists. " +
+                "Choose a different name.");
+            return; // keep the dialog open (loud refusal)
+        }
+        var action = _onCreateScene;
+        Close();
+        action?.Invoke(id, state);
     }
 
     /// <summary>The <b>Save Scene</b> action (headless <c>dialog:scene</c>): closes, then runs the
@@ -269,6 +321,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
                 if (_backupActive) ConfirmBackup(state);
                 else SaveScene(state);
                 return;
+            case EditorDialogMode.CreateScene:
+                ConfirmCreateScene(state);
+                return;
         }
     }
 
@@ -297,6 +352,15 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             HandleConfirmMouseAndConsume(state, scale);
             if (_mode == EditorDialogMode.None) { ParkAll(); return; }
             LayoutConfirm(state, scale);
+            return;
+        }
+
+        if (_mode == EditorDialogMode.CreateScene)
+        {
+            ReadCreateSceneKeyboard(state);
+            HandleCreateSceneMouseAndConsume(state, scale);
+            if (_mode == EditorDialogMode.None) { ParkAll(); return; }
+            LayoutCreateScene(state, scale);
             return;
         }
 
@@ -526,6 +590,97 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
         // Park the Save-only chrome (action rows + backup field).
         ParkBox(_fieldBox); Park(_fieldText);
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
+        {
+            ParkBox(_actionBox[i]); Park(_actionTitle[i]); Park(_actionSub[i]);
+        }
+    }
+
+    // ─── Create Empty Scene (UX2-D §4) ────────────────────────────────────────────────────────────
+
+    /// <summary>Create-scene keyboard: Enter = Create, Escape = Cancel, Backspace edits, and (unlike the
+    /// Save dialog's conditional field) typed characters ALWAYS edit the name — the field is the modal's
+    /// whole point.</summary>
+    private void ReadCreateSceneKeyboard(GameState state)
+    {
+        var keys = _getKeyboardState();
+        foreach (var key in keys.GetPressedKeys())
+        {
+            if (_prevKeys.IsKeyDown(key)) continue; // only newly-pressed this frame
+            switch (key)
+            {
+                case Keys.Enter: _prevKeys = keys; Confirm(state); return;
+                case Keys.Escape: _prevKeys = keys; Cancel(); return;
+                case Keys.Back: _field.Backspace(); continue;
+            }
+            var c = KeyToChar(key);
+            if (c != '\0') _field.Append(c);
+        }
+        _prevKeys = keys;
+    }
+
+    /// <summary>Hit-tests the Create-scene modal's Create/Cancel buttons against the cursor's native
+    /// <c>ScreenPosition</c> (reusing the Save dialog's bottom-right button geometry), then consumes the
+    /// cursor edges (the mouse half of the modal capture).</summary>
+    private void HandleCreateSceneMouseAndConsume(GameState state, float scale)
+    {
+        _hoverControl = -1;
+        _leftDown = false;
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref var input = ref cursor.Get<CursorInputComponent>();
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            var panel = EditorDialogLayout.CreateScenePanel(
+                _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+
+            _leftDown = input.LeftButton;
+            if (EditorDialogLayout.BackupConfirmButton(panel, scale).Contains(point)) _hoverControl = 3;      // Create
+            else if (EditorDialogLayout.SaveCancelButton(panel, scale).Contains(point)) _hoverControl = 4;    // Cancel
+
+            if (input.LeftButtonReleased)
+            {
+                if (EditorDialogLayout.BackupConfirmButton(panel, scale).Contains(point)) ConfirmCreateScene(state);
+                else if (EditorDialogLayout.SaveCancelButton(panel, scale).Contains(point)) Cancel();
+            }
+
+            ConsumeCursor(ref input);
+            cursor.NotifyChanged<CursorInputComponent>();
+            return; // single cursor
+        }
+    }
+
+    /// <summary>Lays out the Create-scene modal: backdrop + panel + title + the name field (with a
+    /// blinking caret) + [Create] (Accent label) [Cancel]; parks every Save-/confirm-only control.</summary>
+    private void LayoutCreateScene(GameState state, float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var panel = EditorDialogLayout.CreateScenePanel(w, h, scale);
+
+        PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
+        PlaceBox(_panel, panel);
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), "New Scene", EditorTheme.Text0, scale);
+
+        var field = EditorDialogLayout.CreateSceneField(panel, scale);
+        PlaceBox(_fieldBox, field);
+        SetBoxFill(_fieldBox, EditorTheme.Bg2);
+        var caretOn = (state.TotalTime % 1.0) < 0.5;
+        var shown = _field.Value + (caretOn ? "|" : string.Empty);
+        PlaceLabel(_fieldText, EditorDialogLayout.FieldText(field, scale), shown, EditorTheme.Text0, scale);
+
+        var create = EditorDialogLayout.BackupConfirmButton(panel, scale);
+        PlaceBox(_confirmBox, create);
+        SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 3, disabled: false, state.Time));
+        PlaceLabel(_confirmLabel, LabelInset(create, scale), "Create", EditorTheme.Accent, scale);
+
+        var cancel = EditorDialogLayout.SaveCancelButton(panel, scale);
+        PlaceBox(_cancelBox, cancel);
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 4, disabled: false, state.Time));
+        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
+
+        // Park the Save- + confirm-switch-only chrome (action rows, message, discard).
+        Park(_message);
+        ParkBox(_discardBox); Park(_discardLabel);
         for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
         {
             ParkBox(_actionBox[i]); Park(_actionTitle[i]); Park(_actionSub[i]);

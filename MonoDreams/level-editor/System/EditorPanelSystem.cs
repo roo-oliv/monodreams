@@ -108,6 +108,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>Raised on a RIGHT-button press inside this panel (UX2-D §4) — the overlay wires it (for
+    /// the LEFT strip only) to open the Entities/Scenes context menu at the cursor. Null (the Inspector
+    /// panel, or a composition with no context menus) makes right-clicks a no-op.</summary>
+    public Action<GameState>? ContextMenuRequested { get; set; }
+
     /// <summary>The current line-scroll offset (whole lines). Exposed for tests/tooling.</summary>
     public int ScrollOffset => _scroll;
 
@@ -362,7 +367,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     {
         foreach (var cursor in _cursorSet.GetEntities())
         {
-            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            ref var input = ref cursor.Get<CursorInputComponent>();
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
 
             // Scrollbar-thumb drag owns its own presses (runs even when the cursor left the panel so
@@ -378,6 +383,20 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (input.ScrollWheelDelta != 0 && body.Contains(point))
                 _scroll = SystemsPanelLayout.ClampScroll(
                     _scroll + SystemsPanelLayout.ScrollLines(input.ScrollWheelDelta), _rows.Count, body, scale);
+
+            // Right-click inside the panel opens its context menu (UX2-D §4): the overlay resolves the
+            // active tab (Entities → Add Empty Entity + the row's entity items; Scenes → Create Empty
+            // Scene…) and opens at the cursor. Consume the right-press so it does not ALSO reach a
+            // later system (e.g. the palette's right-click disarm). Only when a handler is wired (the
+            // left strip); the Inspector panel ignores right-clicks.
+            if (input.RightButtonPressed && ContextMenuRequested != null)
+            {
+                ContextMenuRequested(state);
+                input.RightButtonPressed = false;
+                input.RightButton = false;
+                cursor.NotifyChanged<CursorInputComponent>();
+                return;
+            }
 
             if (!input.LeftButtonReleased) return;
 
@@ -525,6 +544,29 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                     e.Remove<SelectedComponent>();
         if (!target.Has<SelectedComponent>())
             target.Set(new SelectedComponent());
+    }
+
+    /// <summary>The scene-tree entity whose row is under <paramref name="point"/> (device pixels), or
+    /// <c>default</c> when the point is not over a <see cref="PanelRowKind.SceneEntity"/> row — the
+    /// overlay uses this to build the Entities-panel context menu for the right-clicked row's entity
+    /// (mirroring the left-click row hit-test). Reads the current <see cref="Rows"/> (rebuilt each frame
+    /// before interaction), so it is valid during the <see cref="ContextMenuRequested"/> callback.</summary>
+    public Entity EntityAtPoint(Point point)
+    {
+        var scale = _viewportManager.DevicePixelRatio;
+        var panel = RegionRect(scale);
+        var body = EditorChromeLayout.RegionBody(panel, scale);
+        if (!body.Contains(point)) return default;
+        var visible = SystemsPanelLayout.VisibleLineCount(body, scale);
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            var vi = i - _scroll;
+            if (vi < 0 || vi >= visible) continue;
+            if (SystemsPanelLayout.LineRect(body, vi, scale).Contains(point) &&
+                _rows[i].Kind == PanelRowKind.SceneEntity)
+                return _rows[i].Entity;
+        }
+        return default;
     }
 
     // ---- Public toggles (also the headless op-channel surface) -------------

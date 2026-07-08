@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
+using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
@@ -69,6 +70,7 @@ public sealed class EditorCommandSystem : ISystem<GameState>
     private readonly EditorHistory _history;
     private readonly SceneSerializer _serializer;
     private readonly DrawLayerMap? _layers;
+    private readonly Camera? _camera;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _proxySet;
     private readonly Func<GameState, bool> _deleteRequested;
@@ -86,6 +88,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
     /// <see cref="BringForward"/>.</param>
     /// <param name="orderBackRequested">Optional keyboard nudge (e.g. PageDown) for
     /// <see cref="SendBack"/>.</param>
+    /// <param name="camera">The editor view camera — <see cref="AddEmptyEntity"/> positions a new empty
+    /// entity at the current view centre (<c>Camera.Position</c>). Null (a composition without a camera,
+    /// or a unit test) falls back to the world origin.</param>
     public EditorCommandSystem(
         World world,
         EditorHistory history,
@@ -95,12 +100,14 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         Func<GameState, bool> redoRequested,
         DrawLayerMap? layers = null,
         Func<GameState, bool>? orderForwardRequested = null,
-        Func<GameState, bool>? orderBackRequested = null)
+        Func<GameState, bool>? orderBackRequested = null,
+        Camera? camera = null)
     {
         _world = world;
         _history = history;
         _serializer = serializer;
         _layers = layers;
+        _camera = camera;
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _proxySet = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         _deleteRequested = deleteRequested;
@@ -465,6 +472,28 @@ public sealed class EditorCommandSystem : ISystem<GameState>
             if (i == edgeStart) after[j++] = midpoint;
         }
         _history.Push(BoundaryEditCommand.For(owner, after));
+    }
+
+    // ---- Add empty entity (UX2-D §4, Entities-panel context menu) ----
+
+    /// <summary>Creates a new empty save-root entity at the current view centre (<c>Camera.Position</c>,
+    /// else the world origin): a <c>TransformComponent</c> + <c>EntityInfoComponent("Empty")</c>, tagged
+    /// <c>SceneObjectComponent</c> by the <see cref="CreateEntityCommand"/> so it appears in the entity
+    /// tree, is selectable/inspectable, and serializes as a root. Undoable — one history entry (the
+    /// command reverts by disposing the created sub-graph). Public so the Entities-panel context menu and
+    /// the headless <c>menu:pick add-empty</c> op share one path.</summary>
+    public void AddEmptyEntity(GameState state)
+    {
+        const string action = "Add empty entity";
+        if (!GuardEdit(state, action)) return;
+        var position = _camera?.Position ?? Vector2.Zero;
+        _history.Push(new CreateEntityCommand(_world, _serializer, world =>
+        {
+            var e = world.CreateEntity();
+            e.Set(new TransformComponent(position));
+            e.Set(new EntityInfoComponent("Empty"));
+            return e;
+        }));
     }
 
     // ---- Shared plumbing ----

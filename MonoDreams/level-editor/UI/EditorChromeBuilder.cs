@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
+using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.UI;
 using MonoGame.Extended.BitmapFonts;
@@ -63,6 +64,7 @@ public sealed class EditorChromeBuilder
     private Entity _topBar, _leftPanel, _rightPanel, _bottomBar, _sceneHeader;
     private Entity _leftSplitter, _rightSplitter, _bottomSplitter;
     private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
+    private Entity _entityMenuCaret; // UX2-D: the ▾ caret mesh beside the header "Entity" text button
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _headerButtonEntities = new();
     private bool _built;
@@ -118,18 +120,17 @@ public sealed class EditorChromeBuilder
     /// The window top bar's buttons (UX2-B/-C: the thin GLOBAL bar). UX2-C relocated the transform-tool
     /// cluster (Move/Rotate/Scale/Boundary/Snap) into the Scene panel header (<see cref="HeaderButtons"/>),
     /// leaving the global editing actions: <b>Save / Undo / Redo</b> (icon buttons; the <c>label</c> is
-    /// their tooltip) plus the still-text selection-context actions — within-band Order and the
-    /// collider/vertex authoring — and <b>Refresh</b> (icon). UX2-D relocates the Order/selection-context
-    /// text buttons into context menus; until then they remain here as labels (no icon this wave).
+    /// their tooltip) plus the still-text collider/vertex authoring actions and <b>Refresh</b> (icon).
+    /// <b>UX2-D relocated the within-band Order (<c>Fwd</c>/<c>Back</c>) buttons OFF the window bar into
+    /// the entity context menus</b> (the actions + dispatch stay — the menus fire them); the
+    /// collider/vertex text buttons REMAIN here this phase (their future home is a follow-up).
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] DefaultButtons =
     {
         (EditorToolbarAction.Save, "Save"),
         (EditorToolbarAction.Undo, "Undo"),
         (EditorToolbarAction.Redo, "Redo"),
-        // Island-authoring Slice 2: within-band ordering + collider authoring (text — no icon this wave).
-        (EditorToolbarAction.OrderForward, "Fwd"),
-        (EditorToolbarAction.OrderBack, "Back"),
+        // Island-authoring Slice 2: collider authoring (text — no icon this wave). Order relocated (UX2-D).
         (EditorToolbarAction.ColliderAddBox, "+Box"),
         (EditorToolbarAction.ColliderAddConvex, "+Poly"),
         (EditorToolbarAction.ColliderRemove, "-Col"),
@@ -155,7 +156,13 @@ public sealed class EditorChromeBuilder
         (EditorToolbarAction.ToolScale, "Scale"),
         (EditorToolbarAction.ToolBoundary, "Boundary"),
         (EditorToolbarAction.ToggleSnap, "Snap to grid"),
+        // UX2-D: the fixed "Entity" dropdown (a TEXT button + a small ▾ caret mesh) — the discoverable
+        // twin of the viewport right-click, acting on the current selection.
+        (EditorToolbarAction.EntityMenu, "Entity"),
     };
+
+    /// <summary>Extra width (logical points) reserved past the <c>Entity</c> label for its ▾ caret.</summary>
+    private const int EntityCaretAllowance = 16;
 
     /// <summary>
     /// Builds the chrome entities (three panels + the toolbar buttons) laid out for the given
@@ -195,6 +202,10 @@ public sealed class EditorChromeBuilder
         // ToolbarSystem hit-tests + dispatches them alongside the window-bar buttons (dispatch
         // unchanged); IsTransport keeps the transport live in both transport states.
         CreateButtons(_headerButtons, _headerButtonEntities);
+
+        // UX2-D: the "Entity" dropdown's ▾ caret — a screen-baked triangle mesh (font-independent, the
+        // disclosure-arrow pattern) baked + positioned each Relayout beside the Entity text button.
+        if (HasHeaderAction(EditorToolbarAction.EntityMenu)) _entityMenuCaret = CreateIconMesh();
 
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;
@@ -242,6 +253,7 @@ public sealed class EditorChromeBuilder
         LayoutButtonRow(_headerButtonEntities,
             EditorChromeLayout.ButtonRowIn(sceneHeader, MeasureWidths(_headerButtons, scale), scale,
                 HeaderSeparatorIndex()), scale);
+        LayoutEntityMenuCaret(scale);
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
@@ -257,9 +269,17 @@ public sealed class EditorChromeBuilder
     {
         var widths = new int[buttons.Length];
         for (var i = 0; i < buttons.Length; i++)
-            widths[i] = EditorIcons.HasIcon(buttons[i].action)
-                ? EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale)          // square icon button
-                : EditorChromeLayout.ButtonWidth(_measureLabel(buttons[i].label) * scale, scale);
+        {
+            if (EditorIcons.HasIcon(buttons[i].action))
+                widths[i] = EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale); // square icon button
+            else
+            {
+                widths[i] = EditorChromeLayout.ButtonWidth(_measureLabel(buttons[i].label) * scale, scale);
+                // The Entity dropdown reserves extra room past its label for the ▾ caret (UX2-D).
+                if (buttons[i].action == EditorToolbarAction.EntityMenu)
+                    widths[i] += EditorChromeLayout.Px(EntityCaretAllowance, scale);
+            }
+        }
         return widths;
     }
 
@@ -271,6 +291,47 @@ public sealed class EditorChromeBuilder
         for (var i = 0; i < _headerButtons.Length; i++)
             if (_headerButtons[i].action.IsTransport()) last = i;
         return last;
+    }
+
+    private bool HasHeaderAction(EditorToolbarAction action)
+    {
+        foreach (var (a, _) in _headerButtons)
+            if (a == action) return true;
+        return false;
+    }
+
+    /// <summary>Bakes + positions the <c>Entity ▾</c> dropdown caret (UX2-D): a small down-pointing
+    /// triangle MESH (the font-independent disclosure-arrow pattern) in the right portion of the Entity
+    /// button's bounds, tinted <see cref="EditorTheme.Text1"/>. A no-op when the header has no Entity
+    /// button. The button reserved room for it via <see cref="EntityCaretAllowance"/>.</summary>
+    private void LayoutEntityMenuCaret(float scale)
+    {
+        if (!_entityMenuCaret.IsAlive) return;
+        for (var i = 0; i < _headerButtons.Length && i < _headerButtonEntities.Count; i++)
+        {
+            if (_headerButtons[i].action != EditorToolbarAction.EntityMenu) continue;
+            var bounds = _headerButtonEntities[i].Get<ToolbarButtonComponent>().Bounds;
+            var size = EditorChromeLayout.Px(8, scale);
+            var caret = new Rectangle(
+                bounds.Right - EditorChromeLayout.Px(EntityCaretAllowance, scale) + (EditorChromeLayout.Px(EntityCaretAllowance, scale) - size) / 2,
+                bounds.Y + (bounds.Height - size) / 2,
+                size, size);
+            var tri = SystemsPanelLayout.ArrowTriangle(caret, expanded: true); // down-pointing ▾
+            BakeMesh(_entityMenuCaret, new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], EditorTheme.Text1).Generate());
+            return;
+        }
+    }
+
+    private static void BakeMesh(Entity e, MeshData mesh)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Type = DrawElementType.Mesh;
+        dc.Vertices = mesh.Vertices;
+        dc.Indices = mesh.Indices;
+        dc.PrimitiveType = mesh.PrimitiveType;
+        dc.WorldMatrix = Matrix.Identity;
+        dc.Target = RenderTargetID.Editor;
+        dc.LayerDepth = EditorTheme.Depths.Label;
     }
 
     /// <summary>Positions a button set's visual bounds into the given laid-out rects. A text button also

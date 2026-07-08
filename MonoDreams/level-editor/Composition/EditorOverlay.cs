@@ -88,6 +88,10 @@ public sealed class EditorOverlay
     // The concrete reader (SceneReader is the ISystem view of it) — read SceneWasLoaded for the
     // empty-save guard.
     private readonly SceneReaderSystem _sceneReaderSystem;
+    // The concrete selection + context-menu systems: the viewport right-click callback + the menu:*
+    // ops call their public methods directly (like _editorCommands / _leftPanel).
+    private readonly SelectionSystem _selection;
+    private readonly EditorContextMenuSystem _menu;
     // Scene-catalog binding (UX-C), set late in the screen's Load (the screen name + ScreenController
     // + hand-off are only known there). Null until bound → the Scenes panel shows nothing / no switch.
     private string? _currentScreenName;
@@ -183,7 +187,7 @@ public sealed class EditorOverlay
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested,
-            layers, input.OrderForwardRequested, input.OrderBackRequested);
+            layers, input.OrderForwardRequested, input.OrderBackRequested, camera);
         var gizmo = new GizmoSystem(world, camera, History, viewportManager);
         var proxySync = new ProxySyncSystem(world, camera, viewportManager);
         Gizmo = gizmo;
@@ -206,7 +210,8 @@ public sealed class EditorOverlay
 
         OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay);
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
-        Selection = new SelectionSystem(world, camera);
+        _selection = new SelectionSystem(world, camera);
+        Selection = _selection;
 
         // Self-sufficient cursor (Wave 8a): a screen with no cursor pipeline (InfiniteRunner) asks
         // the overlay to bring its own — the input/position systems plus a minimal invisible
@@ -295,7 +300,27 @@ public sealed class EditorOverlay
             world, viewportManager, toolbarFont,
             onSaveScene: SaveCurrentScene,
             onSaveProject: SaveProject,
-            onSaveBackup: SaveBackupAs);
+            onSaveBackup: SaveBackupAs,
+            // Create Empty Scene (UX2-D §4): the collision predicate (loud refuse + keep open) and the
+            // create callback (write the minimal canonical scene + bundle + dirty-gated switch).
+            onSceneNameExists: SceneNameExists,
+            onCreateScene: CreateEmptyScene);
+
+        // The context-menu primitive (UX2-D §4): the viewport / Entities / Scenes / Entity-header menus.
+        // Woven immediately AFTER editor.dialog (so the dialog wins when both could open); a menu never
+        // opens while the dialog is open OR a shell drag owns the pointer (isBlocked). A clicked/picked
+        // item fires its action-id path through DispatchMenuAction (the overlay's map — the menu stays
+        // game-agnostic).
+        _menu = new EditorContextMenuSystem(
+            world, viewportManager, toolbarFont, DispatchMenuAction,
+            isBlocked: () => Dialog.IsOpen || _shellState.IsDragging);
+        Menu = _menu;
+        // The viewport right-click (SelectionSystem, SelectTransform + a hit) opens the entity menu at
+        // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
+        // left panel's right-click opens the Entities/Scenes menu (per the active tab).
+        _selection.ViewportContextMenuRequested = _ =>
+            _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), CursorScreenPoint());
+        _leftPanel.ContextMenuRequested = OpenLeftPanelContextMenu;
 
         // The asset palette + placement (island-authoring Slice 1): only when the screen supplies
         // both the catalog (the drop-folder scan) and its layer-band map — the module never
@@ -449,6 +474,14 @@ public sealed class EditorOverlay
     /// screen reads <c>Dialog.IsOpen</c> for that wiring and the headless <c>dialog:*</c> ops drive
     /// its public methods.</summary>
     public EditorDialogSystem Dialog { get; }
+
+    /// <summary>The context-menu primitive (UX2-D §4): the viewport / Entities / Scenes / Entity-header
+    /// popup menus. Weave immediately AFTER <see cref="Dialog"/> (registrar entry
+    /// <c>editor.contextMenu</c>, <c>RunNormally</c>) so, in the rare case both could open, the dialog
+    /// consumes the cursor first and wins. The screen ORs <c>Menu.IsOpen</c> into the host keyboard
+    /// system's <c>ShouldSuppressInput</c> (with <c>Dialog.IsOpen</c>) so Escape closes the menu; the
+    /// headless <c>menu:*</c> ops drive its public methods. Exposed concrete for that wiring.</summary>
+    public EditorContextMenuSystem Menu { get; }
 
     /// <summary>Editor pan/zoom/frame (Edit-guarded). Weave before <c>CursorPositionSystem</c>.</summary>
     public ISystem<GameState> CameraNav { get; }
@@ -644,6 +677,165 @@ public sealed class EditorOverlay
         return null;
     }
 
+    // ─── Context menus (UX2-D §4) ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens the right context menu for <paramref name="context"/> — the ONE coordinator both the real
+    /// right-click paths and the <c>menu:open</c> ops route through. <b>Viewport</b>: only in
+    /// <see cref="EditorToolMode.SelectTransform"/>, picks the entity under the cursor with the SAME
+    /// <see cref="SelectionSystem.TryPick"/> logic (empty → no menu), selects it, opens the entity menu
+    /// at the cursor. <b>EntitiesPanel</b>: selects the row entity under the cursor (if any) and opens
+    /// the Entities menu (its Order/Delete items enabled only when a row was hit). <b>ScenesPanel</b>:
+    /// opens the Create-Empty-Scene menu. <b>EntityHeader</b>: opens the entity menu below the header
+    /// <c>Entity ▾</c> button, acting on the current selection. Never opens while the dialog/menu is
+    /// already open.
+    /// </summary>
+    public void OpenContextMenu(EditorMenuContext context, GameState state)
+    {
+        if (Dialog.IsOpen || Menu.IsOpen) return;
+        switch (context)
+        {
+            case EditorMenuContext.Viewport:
+                if (!InSelectTransform()) return; // armed → right-click disarms (palette/boundary), no menu
+                if (!TryPickAtCursor(out var hit)) return; // empty viewport → no menu, no selection change
+                _selection.SelectExclusive(hit);
+                _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), CursorScreenPoint());
+                break;
+            case EditorMenuContext.EntitiesPanel:
+                var row = _leftPanel.EntityAtPoint(CursorScreenPoint());
+                if (row.IsAlive) _selection.SelectExclusive(row);
+                _menu.OpenAt(EditorContextMenuModel.EntitiesPanelMenu(row.IsAlive), CursorScreenPoint());
+                break;
+            case EditorMenuContext.ScenesPanel:
+                _menu.OpenAt(EditorContextMenuModel.ScenesPanelMenu(), CursorScreenPoint());
+                break;
+            case EditorMenuContext.EntityHeader:
+                _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection()), EntityButtonBounds());
+                break;
+        }
+    }
+
+    /// <summary>The left panel's right-click handler (wired to <c>EditorPanelSystem.ContextMenuRequested</c>
+    /// for the LEFT strip only): opens the Entities or Scenes context menu by the active tab (Systems tab
+    /// = no menu).</summary>
+    private void OpenLeftPanelContextMenu(GameState state)
+    {
+        switch (_shellState.ActiveLeftTab)
+        {
+            case EditorPanelTab.Entities: OpenContextMenu(EditorMenuContext.EntitiesPanel, state); break;
+            case EditorPanelTab.Scenes: OpenContextMenu(EditorMenuContext.ScenesPanel, state); break;
+        }
+    }
+
+    /// <summary>Maps a context-menu item's action-id <see cref="EditorMenuItem.Path"/> to the SAME shared
+    /// editor instances (no second history / command system): Order → the within-band nudges, Delete →
+    /// the snapshotting delete, Add Empty Entity → the undoable create, Create Empty Scene → the dialog.
+    /// The menu supplies the frame's <see cref="GameState"/>; each command guards itself (Edit-only).</summary>
+    private void DispatchMenuAction(string path, GameState state)
+    {
+        switch (path)
+        {
+            case EditorContextMenuModel.OrderForwardPath: _editorCommands.BringForward(state); break;
+            case EditorContextMenuModel.OrderBackPath: _editorCommands.SendBack(state); break;
+            case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
+            case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
+            case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;
+            default: Logger.Warning($"[level-editor] Unknown context-menu action '{path}'."); break;
+        }
+    }
+
+    /// <summary>The Create-Empty-Scene name-collision predicate the dialog uses to refuse an existing
+    /// name (loud, stays open): true when <c>&lt;LevelsPath&gt;/&lt;id&gt;.mdscene</c> already exists.</summary>
+    private bool SceneNameExists(string id)
+    {
+        var target = SceneFilePath(_projectContext, id);
+        return !string.IsNullOrEmpty(target) && PlatformServices.Current.FileExists(target!);
+    }
+
+    /// <summary>
+    /// Creates a minimal empty scene <paramref name="id"/> (UX2-D §4, the dialog's confirm callback):
+    /// writes <b>empty <c>entities[]</c> + the current camera/layers</b> the writer emits for an empty
+    /// world — through <see cref="SceneWriter"/> / <see cref="CanonicalJson"/>, never hand-written JSON —
+    /// into <see cref="EditorProjectContext.LevelsPath"/>, applies the SAME zero-touch bundling a Save
+    /// gets (<see cref="EnsureLevelBundled"/>), then switches to it through the NORMAL dirty-gated
+    /// <see cref="SelectScene"/> flow (the catalog re-scan shows the new file immediately). Blocked when
+    /// no project root is resolved (nowhere versioned to write). The dialog already refused an existing
+    /// name upstream.
+    /// </summary>
+    private void CreateEmptyScene(string id, GameState state)
+    {
+        if (_projectContext is not { Resolved: true })
+        {
+            Logger.Warning(
+                $"[level-editor] Create Empty Scene '{id}' is blocked: no project root resolved (no " +
+                $"{GameProject.FileName} found).");
+            return;
+        }
+        var target = SceneFilePath(_projectContext, id);
+        if (string.IsNullOrEmpty(target)) return;
+
+        // Build the empty scene from a throwaway empty world (zero SceneObjectComponent roots ⇒ empty
+        // entities[]) with the current camera + the screen's layers — the canonical bytes for an empty
+        // world — and write them through the shared serializer/writer.
+        using var emptyWorld = new World();
+        var writer = new SceneWriter(Serializer);
+        var scene = writer.BuildScene(emptyWorld, _camera, _layers);
+        var savedPath = writer.Save(scene, target);
+        if (savedPath == null) return;
+
+        EnsureLevelBundled(id); // same treatment a Save gets — the new level bundles on the next build
+        Logger.Info($"[level-editor] Created empty scene '{id}' at '{savedPath}'.");
+
+        // Switch to the new scene through the ONE dirty-gated initiator (a re-scan surfaces the file).
+        if (FindCatalogEntry(id) is { } entry) SelectScene(entry, state);
+        else Logger.Warning(
+            $"[level-editor] Created '{id}' but it did not surface in the scene catalog to switch to " +
+            "(no scene-file host screen, or the catalog is not bound).");
+    }
+
+    private bool InSelectTransform() =>
+        _gizmoState.IsAlive &&
+        _gizmoState.Get<GizmoStateComponent>().Mode == EditorToolMode.SelectTransform;
+
+    private bool HasSelection()
+    {
+        using var set = _world.GetEntities().With<SelectedComponent>().AsSet();
+        foreach (var _ in set.GetEntities()) return true;
+        return false;
+    }
+
+    private Point CursorScreenPoint()
+    {
+        using var set = _world.GetEntities().With<CursorInputComponent>().AsSet();
+        foreach (var cursor in set.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            return new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+        }
+        return Point.Zero;
+    }
+
+    private bool TryPickAtCursor(out Entity hit)
+    {
+        using var set = _world.GetEntities().With<CursorInputComponent>().AsSet();
+        foreach (var cursor in set.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            return _selection.TryPick(input.WorldPosition, input.VirtualPosition, out hit);
+        }
+        hit = default;
+        return false;
+    }
+
+    private Rectangle EntityButtonBounds()
+    {
+        using var set = _world.GetEntities().With<ToolbarButtonComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.Get<ToolbarButtonComponent>().Action == EditorToolbarAction.EntityMenu)
+                return e.Get<ToolbarButtonComponent>().Bounds;
+        return Rectangle.Empty; // no Entity button on this screen → open at the origin (clamped)
+    }
+
     /// <summary>The guarded Save the toolbar/dialog/switch all share: resolves the source path from the
     /// current scene id and writes through <see cref="SaveCurrentSceneTo"/> (which re-checks the Save
     /// guard + the empty-save guard and marks the history save point on success).</summary>
@@ -814,6 +1006,9 @@ public sealed class EditorOverlay
                 else
                     Palette.Refresh();
                 break;
+            // The Scene-header "Entity ▾" dropdown (UX2-D): open the entity menu below the button,
+            // acting on the current selection (the discoverable twin of the viewport right-click).
+            case EditorToolbarAction.EntityMenu: OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
         }
     }
 
@@ -874,7 +1069,7 @@ public sealed class EditorOverlay
         {
             History.MarkSavePoint(); // the on-disk scene now matches the world → clean (dirty tracking)
             if (IsUnderLevelsRoot(target))
-                EnsureLevelBundled();
+                EnsureLevelBundled(_sceneId);
             else
                 Logger.Info(
                     $"[level-editor] Saved scene '{_sceneId}' to '{savedPath}' OUTSIDE the levels dir " +
@@ -940,10 +1135,10 @@ public sealed class EditorOverlay
     /// written, so a brand-new level bundles to the title (desktop + web) on the next build with no
     /// manual MGCB editing. Idempotent — a no-op for a level whose entry already exists (every
     /// committed level, and every re-save). Desktop-editor-only file IO through
-    /// <see cref="IPlatformServices"/>; only reached from Save, which is already gated on a resolved
-    /// project root (<see cref="SaveBlock"/>). See <see cref="MgcbLevelBundle"/>.
+    /// <see cref="IPlatformServices"/>; only reached from Save (and the UX2-D Create Empty Scene), both
+    /// already gated on a resolved project root (<see cref="SaveBlock"/>). See <see cref="MgcbLevelBundle"/>.
     /// </summary>
-    private void EnsureLevelBundled()
+    private void EnsureLevelBundled(string sceneId)
     {
         var ctx = _projectContext;
         if (ctx is not { Resolved: true } || string.IsNullOrEmpty(ctx.ProjectRoot)) return;
@@ -953,16 +1148,16 @@ public sealed class EditorOverlay
         {
             Logger.Warning(
                 $"[level-editor] Zero-touch bundling skipped: no {MgcbLevelBundle.McgbFileName} at " +
-                $"'{mgcbPath}'. Add '{MgcbLevelBundle.CopyLine(_sceneId)}' by hand so '{_sceneId}' bundles to the title.");
+                $"'{mgcbPath}'. Add '{MgcbLevelBundle.CopyLine(sceneId)}' by hand so '{sceneId}' bundles to the title.");
             return;
         }
 
-        var updated = MgcbLevelBundle.EnsureCopyEntry(PlatformServices.Current.ReadAllText(mgcbPath), _sceneId, out var changed);
+        var updated = MgcbLevelBundle.EnsureCopyEntry(PlatformServices.Current.ReadAllText(mgcbPath), sceneId, out var changed);
         if (!changed) return;
 
         PlatformServices.Current.WriteAllText(mgcbPath, updated);
         Logger.Info(
-            $"[level-editor] Bundled new level '{_sceneId}': appended '{MgcbLevelBundle.CopyLine(_sceneId)}' to " +
+            $"[level-editor] Bundled new level '{sceneId}': appended '{MgcbLevelBundle.CopyLine(sceneId)}' to " +
             $"{MgcbLevelBundle.McgbFileName}. Rebuild to copy it into the title content.");
     }
 
@@ -1046,6 +1241,28 @@ public sealed class EditorOverlay
         const string panelPrefix = "panel:";
         const string shellPrefix = "shell:";
         const string scenesPrefix = "scenes:";
+        const string menuPrefix = "menu:";
+
+        if (name.StartsWith(menuPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // menu:open <viewport|entities|scenes|entity> | menu:pick <path> | menu:close
+            var rest = name.Substring(menuPrefix.Length);
+            var space = rest.IndexOf(' ');
+            var verb = space < 0 ? rest : rest.Substring(0, space);
+            var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
+            switch (verb.ToLowerInvariant())
+            {
+                case "open": OpenMenuByName(arg, name, state); break;
+                case "pick": _menu.Pick(arg, state); break;
+                case "close": _menu.Close(); break;
+                default:
+                    Logger.Warning(
+                        $"[level-editor] Editor-op '{name}': expected " +
+                        "menu:open <viewport|entities|scenes|entity>|pick <path>|close.");
+                    break;
+            }
+            return;
+        }
 
         if (name.StartsWith(scenesPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -1286,6 +1503,24 @@ public sealed class EditorOverlay
         }
     }
 
+    /// <summary>The <c>menu:open &lt;viewport|entities|scenes|entity&gt;</c> op — opens the named context
+    /// menu through the ONE <see cref="OpenContextMenu"/> coordinator (viewport / the Entity header use
+    /// the current cursor position; the panel menus read the row under the cursor).</summary>
+    private void OpenMenuByName(string arg, string name, GameState state)
+    {
+        switch (arg.Trim().ToLowerInvariant())
+        {
+            case "viewport": OpenContextMenu(EditorMenuContext.Viewport, state); break;
+            case "entities": OpenContextMenu(EditorMenuContext.EntitiesPanel, state); break;
+            case "scenes": OpenContextMenu(EditorMenuContext.ScenesPanel, state); break;
+            case "entity": OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
+            default:
+                Logger.Warning(
+                    $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity>.");
+                break;
+        }
+    }
+
     private void SetGizmoTool(GizmoTool tool)
     {
         if (!_gizmoState.IsAlive) return;
@@ -1306,6 +1541,20 @@ public sealed class EditorOverlay
         ref var state = ref _gizmoState.Get<GizmoStateComponent>();
         state.SnapEnabled = !state.SnapEnabled;
     }
+}
+
+/// <summary>Which context menu <see cref="EditorOverlay.OpenContextMenu"/> opens (UX2-D §4) — the four
+/// surfaces that share the two entity-menu anchors + the two panel menus.</summary>
+public enum EditorMenuContext
+{
+    /// <summary>The game viewport right-click (SelectTransform + a hit): the entity menu at the cursor.</summary>
+    Viewport,
+    /// <summary>The left panel's Entities tab right-click: Add Empty Entity (+ the row entity's items).</summary>
+    EntitiesPanel,
+    /// <summary>The left panel's Scenes tab right-click: Create Empty Scene….</summary>
+    ScenesPanel,
+    /// <summary>The Scene-header <c>Entity ▾</c> dropdown: the entity menu below the button.</summary>
+    EntityHeader,
 }
 
 /// <summary>Why the editor's Save is disabled — reported by <see cref="EditorOverlay.SaveBlock"/> so

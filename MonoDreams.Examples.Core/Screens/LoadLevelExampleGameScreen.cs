@@ -146,7 +146,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (debugInspector != null)
         {
             _inputMappingSystem.ShouldSuppressInput = () =>
-                debugInspector.WantsKeyboard || (_editor != null && _editor.Dialog.IsOpen);
+                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen));
         }
 #endif
 
@@ -207,7 +207,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // while a Save/Load dialog owns the keys (the closure reads the field lazily; _editor is set
         // below when the editor is composed). The mouse half is the dialog consuming the cursor edges.
         // A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
-        inputMappingSystem.ShouldSuppressInput = () => _editor != null && _editor.Dialog.IsOpen;
+        inputMappingSystem.ShouldSuppressInput = () =>
+            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -526,6 +527,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // Native-scene loading (LoadSceneRequest) — with the level-load group, message-driven.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
+            // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
+            p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
             // Boundary bake — reacts to a BoundaryComponent being added/changed (the tool's commit,
             // a scene load, a vertex edit) and generates the segment colliders. RunNormally: a
             // shipped game loading a native scene with a boundary must bake it too (§S2).

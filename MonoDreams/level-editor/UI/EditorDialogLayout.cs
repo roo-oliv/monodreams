@@ -149,6 +149,26 @@ public static class EditorDialogLayout
         return new Rectangle(cancel.X - Px(ButtonGap, scale) - w, panel.Bottom - Px(Padding, scale) - h, w, h);
     }
 
+    // ─── the Create Empty Scene modal (UX2-D §4) ─────────────────────────────────────────────────
+
+    /// <summary>The centred Create-Empty-Scene panel: a title over a single name field and a
+    /// [Create] [Cancel] button row (reusing the Save dialog's bottom-right button geometry).</summary>
+    public static Rectangle CreateScenePanel(int screenWidth, int screenHeight, float scale = 1f)
+    {
+        var w = Px(PanelWidth, scale);
+        var hPts = Padding + TitleHeight + Padding + FieldHeight + Padding + ButtonHeight + Padding;
+        var h = Px(hPts, scale);
+        return new Rectangle((screenWidth - w) / 2, (screenHeight - h) / 2, w, h);
+    }
+
+    /// <summary>The Create-Empty-Scene name field, below the title (full inner width).</summary>
+    public static Rectangle CreateSceneField(Rectangle panel, float scale)
+    {
+        var pad = Px(Padding, scale);
+        var top = panel.Y + pad + Px(TitleHeight, scale) + pad;
+        return new Rectangle(panel.X + pad, top, panel.Width - pad * 2, Px(FieldHeight, scale));
+    }
+
     // ─── confirm-on-switch modal (UX-C) ────────────────────────────────────────────────────────
 
     /// <summary>The centred confirm-on-switch panel (title + message + one button row).</summary>
