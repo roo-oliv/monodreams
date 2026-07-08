@@ -446,7 +446,19 @@ EDITING buttons (tools / Save / Load / Undo / Redo / Snap) dispatch only while P
 render with the theme's disabled fill (`EditorTheme.BgDisabled` + `TextDisabled`) while Playing (an
 undo racing live physics would be surprising; a viewport click belongs to the game). Every button
 fill/label color comes from `EditorTheme` and eases through the shared hover fade (see "Every
-level-editor color and depth is an `EditorTheme` role").
+level-editor color and depth is an `EditorTheme` role"). Also suppressed: while a shell splitter or
+scrollbar drag owns the pointer (`EditorShellStateComponent.IsDragging`), the toolbar dispatches
+nothing — a drag that happens to release over a button must not fire it (the shell-state premise's
+weave-order-independent drag token).
+
+**Deferred (UX-B): toolbar de-crowding.** The bar still carries all ~18 buttons, including the seven
+selection-context actions (`OrderForward`/`OrderBack`, `ColliderAddBox`/`AddConvex`/`Remove`,
+`VertexAdd`, and the boundary tool). The UX-B design (editor-shell-ui-ux §2.1) planned to relocate the
+context actions into small buttons under the Scene tab's Inspector, but that was dropped to keep the
+wave focused; it is a follow-up. **Overflow risk:** on a narrow window the button row runs off the
+right edge (`ButtonRow` lays out left-to-right with no wrap/scroll), so the right-most buttons can
+sit under the right strip or off-screen — relocating the context actions (or wrapping the row) is the
+fix.
 
 **Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
 "the editor tools shouldn't overlay the game screen but be placed around it … highres and
@@ -596,8 +608,8 @@ is the theme's `GhostTint`).
 (why translucency is precomputed opaque); level-editor — "The editor shell insets the game viewport
 and renders its chrome at native resolution" (the one Editor target + depth stack these colors paint
 into), "The editor toolbar's buttons drive the same shared editor instances" (the toolbar fills +
-hover fade), "The editor right strip is a stack of collapsible sections" (the pooled-row background
-fill + selected-row accent bar).
+hover fade), "The editor right strip is a tabbed shell: Scene / Systems / Project tabs over
+collapsible sections" (the pooled-row background fill + selected-row accent bar + the tab fills).
 
 ## Editor camera navigation pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation
 
@@ -868,71 +880,130 @@ hides children yet keeps the group row; child rows show the local-name label).
 **Depends on:** this file — "The pipeline registrar is the composition seam" (the binding + the
 derived tri-state), "The editor shell insets the game viewport and renders its chrome at native
 resolution" (the strip, the `ScreenPosition` rule, the no-`VisibleComponent` rule), "The editor
-right strip is a stack of collapsible sections" (the panel this section lives in).
+right strip is a tabbed shell: Scene / Systems / Project tabs over collapsible sections" (the panel
+this section — the Systems tab — lives in).
 
-## The editor right strip is a stack of collapsible sections: Systems, a Scene tree, and a selection-bound Inspector
+## The editor right strip is a tabbed shell: Scene / Systems / Project tabs over collapsible sections
 
-The right strip is `EditorPanelSystem` — one vertically scrolling stack of three **collapsible
-sections** whose in-session collapse/expand state lives in the pure-data
-`EditorPanelStateComponent` on an editor-infra entity (ECS purity — state in a component, behaviour
-in the system), and whose flat row list is assembled purely by `EditorPanelModel.Build` (unit-
-testable with hand-fed inputs — no world, no GraphicsDevice). Each section header toggles its whole
-body; the three:
+The right strip is `EditorPanelSystem` — a **tab bar** (**Scene | Systems | Project**) over a body
+of **collapsible sections**. The active tab lives in `EditorShellStateComponent.ActiveRightTab`
+(the shell-state premise below), and `EditorPanelModel.Build` **filters the body rows by the active
+tab** (pure, unit-testable with hand-fed inputs — no world, no GraphicsDevice); the per-section
+collapse/expand state lives in the pure-data `EditorPanelStateComponent` on an editor-infra entity
+(ECS purity — state in a component, behaviour in the system). The three tabs:
 
-- **Systems** — the pipeline listing (the premise above), now with per-group collapse.
-- **Scene** — the world's entities as a **tree**, built by the pure `EntitySceneTree.Build`: roots
-  first, each entity's `ChildOfComponent` descendants nested one indent deeper (pre-order), with
-  **editor-infrastructure entities hidden** (the section's `EntitySet` is
-  `With<TransformComponent> Without<EditorInfrastructureComponent>`, so chrome / gizmo overlays /
-  proxies / the cursor / the state entities never appear); a child of a hidden entity re-parents to
-  its nearest included ancestor. Each row is labelled by its `EntityInfoComponent` name (else type,
-  else a stable panel-local id) and is **selectable both ways**: clicking a row sets
-  `SelectedComponent` on that entity (the same tag `SelectionSystem` sets from a viewport click —
-  and the panel's chrome click is `OutsideViewport`, so `SelectionSystem` never clobbers it), and
-  the currently-selected entity is highlighted in the tree. An entity with children carries a
-  disclosure arrow that collapses its subtree.
-- **Inspector** — bound to the current selection: it lists that entity's **attached components**
-  (item 3 — every component type name via `ComponentInspector.Inspect` over DefaultEcs
-  `ReadAllComponents`, the same discovery the serializer registry uses), and each component row
-  expands (on demand — hidden by default) to its **member values** (item 4 — read-only
-  `name: value` rows reflected from the component's public fields/properties by
-  `ComponentInspector.ReadMembers`, culture-invariant floats, guarded per-member so an arbitrary
-  component — struct, tag, ref, null — never throws). No selection → "(no selection)"; the expand
-  set resets when the selection changes.
+- **Scene** — the world's entities as a **tree** (the `Scene` section) PLUS the selection-bound
+  **Inspector** (the `Inspector` section), both still collapsible within the tab. The tree is built
+  by the pure `EntitySceneTree.Build`: roots first, each entity's `ChildOfComponent` descendants
+  nested one indent deeper (pre-order), with **editor-infrastructure entities hidden** (the
+  `EntitySet` is `With<TransformComponent> Without<EditorInfrastructureComponent>`, so chrome / gizmo
+  overlays / proxies / the cursor / the state entities never appear); a child of a hidden entity
+  re-parents to its nearest included ancestor. Each row is labelled by its `EntityInfoComponent`
+  name (else type, else a stable panel-local id) and is **selectable both ways**: clicking a row
+  sets `SelectedComponent` (the same tag `SelectionSystem` sets from a viewport click — and the
+  panel's chrome click is `OutsideViewport`, so `SelectionSystem` never clobbers it), and the
+  selection is highlighted in the tree. The Inspector lists the selection's **attached components**
+  (`ComponentInspector.Inspect` over DefaultEcs `ReadAllComponents`) and each row expands (on demand)
+  to its **member values** (guarded per-member so an arbitrary component never throws); no selection
+  → "(no selection)".
+- **Systems** — the pipeline listing (the systems-panel premise above), with per-group collapse.
+- **Project** — project info rows: the project root path (**middle-truncated** to the strip width),
+  the levels dir, the current scene id, and a muted **"(scenes list lands in UX-C)"** placeholder.
+  The Scenes list + switch flow land in **UX-C** (this tab is where they will render).
 
-The panel is native-resolution chrome like the systems panel (Editor target, no `VisibleComponent`,
-`ScreenPosition` hit-test), reuses the systems-panel scroll model (`SystemsPanelLayout`), and —
-because the Scene/Inspector content is dynamic — **pools** its row visuals over the visible window
-(bounded entity count) rather than one entity per row. Headless-drivable through the overlay's named
-dispatch: `panel:systems|scene|inspector` (toggle a section), `panel:group <name>` (a pipeline
-group), `panel:inspect <type>` (a component's members), `panel:select <name>` (a scene entity).
+The tab bar is **per-tab persistent widgets** (each with its OWN hover-fade progress — never a
+pooled row, pre-mortem #6): the active tab renders a `Bg1` fill that merges into the body + a 3pt
+`Accent` underline, an inactive tab a `Bg0` fill (hover-fading toward `Bg2`) + a `Text1` label.
+Section collapse is unchanged; a **section op activates the tab that hosts its section first**
+(`EditorPanelModel.HostTab`), so the existing `panel:systems|scene|inspector|group|inspect|select`
+ops keep working against whichever tab hosts their target, and `panel:tab <scene|systems|project|assets>`
+switches a region's tab directly. Row content renders in the region **body** (below the tab strip),
+and when the rows overflow the body the panel draws a **slim scrollbar** (a `Border` track + a
+`BorderStrong` proportional thumb, draggable — see the shell-state premise — hidden when the rows
+fit). The panel is native-resolution chrome (Editor target, no `VisibleComponent`, `ScreenPosition`
+hit-test), reuses the systems-panel scroll model (`SystemsPanelLayout`), and — because the
+Scene/Inspector content is dynamic — **pools** its row visuals over the visible window (bounded
+entity count) rather than one entity per row. Live in both transport states.
 
-**Why:** the direct asks — "the right column should be collapsible sections", "a scene tree of the
-entities I can select", "see which components are on an entity", and "see the state (member/bar
-values) of each component when I want". Selection integrates both ways so the viewport and the tree
-are one selection, not two.
-**Breaks:** state on the system instead of a component violates ECS purity and would not survive the
-right lifecycle; not hiding `EditorInfrastructureComponent` entities floods the tree with chrome /
-gizmo / proxy noise; one-entity-per-row (instead of pooling) unbounds the entity count on a big
-scene; reflecting a component without per-member guards crashes the editor on the first component
-whose getter throws; a tree selection that `SelectionSystem` could clear (or vice-versa) would make
-the viewport and tree fight over one `SelectedComponent`.
-**Tests:** `MonoDreams.Tests/LevelEditor/EntitySceneTreeTests.cs` (roots-first / children-indented
-pre-order; editor-infra hidden; a child of a hidden parent promoted to a root / re-parented to the
-nearest included ancestor); `MonoDreams.Tests/LevelEditor/ComponentInspectorTests.cs` (the attached-
-component list; member reflection over mixed field types with invariant floats + null + a computed
-property; a tag component has no members; graceful on a dead entity);
-`MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs` (all three section headers always present
-with disclosure state; section collapse hides a body; scene rows indent + highlight the selection +
-subtree collapse; the Inspector lists components and expands to member rows; "(no selection)" /
-"(no scene entities)" placeholders); `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (a Scene row
-click sets `SelectedComponent`; an external selection is highlighted in the tree; `panel:select`
-selects by name headlessly; the Inspector lists the selection's components and expands to member
-values; editor-infra entities are hidden from the tree; section-header + group-arrow collapse).
-**Depends on:** this file — "The systems panel renders the registrar tree …" (the Systems section),
-"The editor shell insets the game viewport …" (the strip + chrome rules), "Selection picks MAX final
-`LayerDepth` …" (`SelectedComponent`, the two-way selection tag); foundation — `ChildOfComponent`
-(the tree edges), `EntityInfoComponent` (row labels).
+**Why:** the UX-B shell-structure design (editor-shell-ui-ux §2): the right strip must host more than
+one panel family without stacking them all in one scroll, and Blender's answer is tabbed regions —
+so any new tool has a home. Tabs keep each family's sections collapsible while the tab that is not
+showing costs nothing to render. Selection integrates both ways so the viewport and the tree are one
+selection, not two.
+**Breaks:** building every section every frame (no tab filter) re-stacks the old crowded strip;
+state on the system instead of a component violates ECS purity; not hiding
+`EditorInfrastructureComponent` entities floods the tree with chrome/gizmo/proxy noise;
+one-entity-per-row (instead of pooling) unbounds the entity count; reflecting a component without
+per-member guards crashes the editor on the first throwing getter; a tree selection that
+`SelectionSystem` could clear (or vice-versa) would make the viewport and tree fight over one
+`SelectedComponent`; a section op that did not activate its tab would silently no-op while a
+different tab shows.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs` (tab filtering — Scene tab shows
+Scene+Inspector not Systems, Systems tab shows only Systems, Project tab shows the info rows + the
+UX-C placeholder; `HostTab` maps a section to its tab; `MiddleEllipsis` keeps head+tail; section
+collapse; scene rows indent + highlight + subtree collapse; Inspector lists + expands);
+`MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (the Systems tab mirrors both pipelines with policy
+tags; a Scene row click sets `SelectedComponent`; `panel:select` headless; editor-infra hidden;
+section-header + group-arrow collapse; pooled visuals bounded by the window + the fixed tab/scrollbar
+overhead); `MonoDreams.Tests/LevelEditor/EditorShellStateTests.cs` (a section op activates the host
+tab; `SetRightTab`); `EntitySceneTreeTests.cs` / `ComponentInspectorTests.cs` (the tree + inspector
+data model).
+**Depends on:** this file — "The editor shell's region sizes, tabs, and drag ownership live in one
+shell-state component" (the active tab + the scrollbar drag), "The systems panel renders the
+registrar tree …" (the Systems tab), "The editor shell insets the game viewport …" (the strip +
+chrome rules), "Selection picks MAX final `LayerDepth` …" (`SelectedComponent`); foundation —
+`ChildOfComponent` (the tree edges), `EntityInfoComponent` (row labels).
+
+## The editor shell's region sizes, tabs, and drag ownership live in one shell-state component; splitters resize it and the inset derives from it
+
+`EditorShellStateComponent` (pure data on one editor-infra entity) is the **single source of truth**
+for the resizable region sizes (`RightWidthPt` clamped to 180..600, `BottomHeightPt` clamped to
+96..320 — defaults 280/168 mirror the pre-UX-B `EditorChromeLayout.RightPanelWidth`/`BottomBarHeight`
+byte-for-byte), the **active tab per region** (`ActiveRightTab`, `ActiveBottomTab`), and the **drag
+ownership** (`ActiveDrag`). `EditorChromeLayout`'s region methods and `ViewportInset` take these
+sizes (defaulting to the constants when omitted), so the game-viewport inset, the FinalDraw
+compositing, the mouse mapping, and every chrome system's per-frame layout **all derive from the one
+model** — the existing single-source invariant, now runtime-adjustable. Marked terrain: a
+region→panels map (`RegionPanels`) models the layout as data and reserves a `Left` strip + a
+`MenuBar` at size 0, so future drag-docking / a left strip / a menu bar are state mutations, not a
+rearchitect.
+
+**Splitters** are 4pt drag zones on each region's **viewport-facing edge** (the right strip's left
+edge, the bottom shelf's top edge), inside the reserved margin (so a press there is
+`OutsideViewport` and never a game click) and clear of the row/card content. `EditorShellSystem`
+owns them: a press claims `ActiveDrag`, a drag resizes the region (device-px delta → points via the
+DPR, clamped), and the shell relayouts the chrome + re-applies the inset **the same frame** (no
+cached region rect survives a resize — pre-mortem #2). **Scrollbar thumbs** (right strip, bottom
+shelf) share the SAME `ActiveDrag` token, owned by their own panel/palette. The token is claimed on
+the press edge and **held through the release edge, cleared the frame after** (when the button is
+fully up): so on the release edge every other chrome consumer still sees a non-`None` value and
+stands down — making "a splitter/scrollbar drag never also fires a panel row / card / tab / toolbar
+click" independent of pipeline weave order (pre-mortem #3). The toolbar additionally suppresses all
+dispatch while `IsDragging` (a drag that releases over a button must not fire it). New ops:
+`shell:right <pt>` / `shell:bottom <pt>` (resize, clamped) and `panel:tab <…>` (switch a tab).
+
+**Why:** UX-B makes the strip/shelf resizable and tabbed, and the inset+mouse-mapping must never
+desync from what compositing shows — so region sizes and the active tab must live in ONE model that
+every consumer re-reads each frame. The single drag token is what keeps a splitter drag from
+double-firing as a click without relying on system order.
+**Breaks:** two sources for a region size desync every world pick by the margin delta (the class of
+bug the viewport-inset premise exists for); an unclamped resize hides the viewport or a panel; a
+splitter drag that also fires a row/card/toolbar click on the same press (no shared token) mis-toggles
+a system or arms a prop mid-resize; a cached region rect across a splitter-drag frame mis-hits every
+control.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorShellStateTests.cs` (region-size clamp + defaults ==
+the chrome constants; marked-terrain regions; `ViewportInset`/`RightPanel`/`BottomBar` honour the
+runtime sizes; tab-strip / `RegionBody` / splitter / scrollbar geometry with DPR-2 doubling of every
+new metric; a live right-splitter drag through `EditorShellSystem` grows the strip, clamps at max,
+and releases the token the frame after; a foreign drag mutes a panel click; a panel scrollbar-thumb
+drag scrolls the rows; the headless `panel:tab`/`shell:right`/`shell:bottom` ops reach the named
+dispatch); `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (the pre-DPR inset byte-identical at
+scale 1, the DPR-2 doubling, the splitter/tab fills opaque on the Editor target).
+**Depends on:** rendering — "The viewport inset moves compositing and mouse mapping together" (the
+inset this feeds); this file — "The editor shell insets the game viewport and renders its chrome at
+native resolution" (the chrome layout + device-pixel space), "The editor right strip is a tabbed
+shell …" (the active tab + scrollbar this state drives), "The palette lists assets as cards …" (the
+bottom shelf's scrollbar + tab strip).
 
 ## Panel disclosure arrows are triangle MESHES, not font glyphs
 
@@ -968,7 +1039,8 @@ expanded ▾ then, after an arrow-click collapse, the collapsed ▸ triangle; `G
 `WhilePlaying_StaysInteractive`, `Wheel_ScrollsByClampedLines`, `PooledVisuals_AreBoundedByTheVisibleWindow`
 stay green through the change).
 **Depends on:** this file — "The systems panel renders the registrar tree …" and "The editor right strip
-is a stack of collapsible sections" (the rows whose carets these are); rendering — the mesh
+is a tabbed shell: Scene / Systems / Project tabs over collapsible sections" (the rows whose carets
+these are); rendering — the mesh
 `DrawComponent` draw path (`MasterRenderSystem` skips an invalid mesh) and `FilledTriangleMeshGenerator`;
 "The editor shell insets the game viewport …" (the Editor target + the no-`VisibleComponent` chrome rule).
 
@@ -1267,7 +1339,12 @@ lives in `PaletteLayout` so it is unit-testable without a GraphicsDevice. `Edito
 was raised (104 → 168 logical points) to give the cards real screen real estate — the game viewport
 inset shrinks by the same amount, automatically, because the shell + mouse mapping both derive from
 `ViewportInset`. Hit-testing is card-body-then-chip: a click on the chip cycles the band (never
-arms), a click anywhere else on the card arms placement.
+arms), a click anywhere else on the card arms placement. **UX-B:** the shelf height is now the
+runtime `EditorShellStateComponent.BottomHeightPt` (the bottom splitter resizes it) and the palette
+renders in the shelf **body below its "Assets" tab strip** (`EditorChromeLayout.RegionBody`); when
+the cards overflow, the palette draws the same slim `Border`/`BorderStrong` scrollbar as the right
+strip (draggable, sharing the shell drag token — the shell-state premise), and it stands down while
+any foreign splitter/scrollbar drag owns the pointer.
 
 **Why:** the user's report that the palette assets "should be bigger, take a little more height … and
 be actual cards with the icon/preview on top and text on the bottom" — flat text rows are hard to
