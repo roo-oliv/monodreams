@@ -147,8 +147,15 @@ public class LevelSelectionScreen : IGameScreen
         if (_editor != null)
         {
             // The transport's Restart rebuilds the menu from scratch: the sweep disposed the UI
-            // entities (the cursor survives), so re-running the builder IS the original load.
-            _editor.Transport.Reload = CreateLevelSelectionUI;
+            // entities (the cursor survives), so re-running the builder IS the original load. It must
+            // ALSO re-run the optional scene load (UX-D) — otherwise a Restart (e.g. after Save Backup As)
+            // rebuilds the code UI but drops the bound scene's placed content. Source-first via the shared
+            // helper, so a backup-reload restores the last SAVE, not the last build.
+            _editor.Transport.Reload = () =>
+            {
+                CreateLevelSelectionUI();
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            };
             // Optional scene load (UX-C): bring level_selection.mdscene up under the code-built menu
             // UI if it exists (source-first, then bundled; absent → silently skip). The code UI stays.
             NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);

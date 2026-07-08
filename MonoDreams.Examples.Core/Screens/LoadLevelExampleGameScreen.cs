@@ -484,7 +484,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
                 fileTextureLoader: nativeAssetTextures.Load);
         }
-        var nativeSceneProbe = NativeLevelLoader.CreateProbe(_world, _content.RootDirectory);
+        // Source-first when the editor's project is resolved (UX-D pre-mortem #5): a Restart-after-Save
+        // re-publishes LoadLevelRequest through this probe, and the source tree — not the stale bundle —
+        // must win. A shipped build (null context) keeps the bundled TitleContainer path byte-identical.
+        var nativeSceneProbe = NativeLevelLoader.CreateProbe(_world, _content.RootDirectory, _projectContext);
 
         var p = _updatePipeline;
         p.AddGroup("input", EditTimeBehavior.RunNormally, g =>

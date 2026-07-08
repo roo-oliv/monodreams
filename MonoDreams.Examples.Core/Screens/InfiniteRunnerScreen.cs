@@ -143,13 +143,17 @@ public class InfiniteRunnerScreen : IGameScreen
         if (_editor != null)
         {
             // The transport's Restart re-runs exactly this load (the sweep disposed the runner
-            // entities — treadmill, player, spawn point, HUD, and everything the spawner added).
+            // entities — treadmill, player, spawn point, HUD, and everything the spawner added). It must
+            // ALSO re-run the optional scene load (UX-D) — otherwise a Restart (e.g. after Save Backup As)
+            // rebuilds the code entities but drops the bound scene's placed content. Source-first via the
+            // shared helper, so a backup-reload restores the last SAVE, not the last build.
             _editor.Transport.Reload = () =>
             {
                 CreateTreadmill();
                 CreatePlayer();
                 CreateSpawnPoint();
                 CreateScoreHUD(content);
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
             };
             // Optional scene load (UX-C): bring infinite_runner.mdscene up under the code-built runner
             // if it exists (source-first, then bundled; absent → skip). The code entities stay.

@@ -177,6 +177,130 @@ public class NativeFirstLoadTests
         Assert.True(captured.FromContent); // bundled content read (TitleContainer) in production
     }
 
+    // ---- Source-first (UX-D pre-mortem #5): a resolved editor context makes the probe read the SOURCE
+    //      tree; an unresolved context keeps the bundled path byte-identical ----
+
+    /// <summary>A resolved editor context rooted at <c>/proj</c> (env var → an in-memory manifest under
+    /// <c>Content/</c>), so <c>LevelsPath == /proj/Content/Levels</c> — mirrors OptionalSceneLoadTests.</summary>
+    private static EditorProjectContext ResolvedContext()
+    {
+        const string root = "/proj";
+        var manifestPath = Path.Combine(root, "Content", GameProject.FileName);
+        var manifestJson = CanonicalJson.Serialize(new GameProject { StartScene = "island" });
+        return EditorProjectContext.Resolve(
+            baseDirectory: Path.Combine("/somewhere", "bin") + Path.DirectorySeparatorChar,
+            getEnvironmentVariable: name => name == EditorProjectContext.ProjectRootVariable ? root : null,
+            fileExists: p => p == manifestPath,
+            readAllText: _ => manifestJson);
+    }
+
+    /// <summary>Writes a 1-entity native scene whose sole prop sits at <paramref name="pos"/>, to
+    /// <paramref name="path"/> in <paramref name="fake"/> — so a reload's position identifies WHICH file
+    /// was read.</summary>
+    private static void WriteMarkerScene(InMemoryPlatformServices fake, string path, Vector2 pos)
+    {
+        using var w = new World();
+        var e = w.CreateEntity();
+        e.Set(new SceneObjectComponent());
+        e.Set(new EntityInfoComponent("Prop", "marker"));
+        e.Set(new TransformComponent(pos));
+        // The writer routes through PlatformServices.Current (the ambient fake set by WithPlatform).
+        new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(w, path, camera: null, layers: null);
+    }
+
+    [Fact]
+    public void Probe_WithResolvedContext_ResolvesSourceFirst_PublishingTheSourcePath()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            var ctx = ResolvedContext();
+            var sourcePath = Path.Combine(ctx.LevelsPath!, "island" + SceneWriter.SceneFileExtension);
+
+            using var world = new World();
+            LoadSceneRequest captured = default;
+            var count = 0;
+            world.Subscribe((in LoadSceneRequest m) => { captured = m; count++; });
+
+            // Source exists; the bundled copy also "exists" — source-first must still win.
+            var probe = NativeLevelLoader.CreateProbe(world, "Content", ctx,
+                exists: _ => true, fromContent: false, sourceExists: p => p == sourcePath);
+
+            Assert.True(probe("island"));
+            Assert.Equal(1, count);
+            Assert.Equal(sourcePath, captured.Path);   // the SOURCE path, not the content-relative one
+            Assert.False(captured.FromContent);          // fromContent:false = a source-tree read
+        });
+    }
+
+    [Fact]
+    public void Probe_WithNullContext_SkipsSourceFirst_AndUsesTheBundledPathUnchanged()
+    {
+        using var world = new World();
+        LoadSceneRequest captured = default;
+        var count = 0;
+        world.Subscribe((in LoadSceneRequest m) => { captured = m; count++; });
+
+        // Null context → the source branch is never entered (sourceExists must not be probed).
+        var probe = NativeLevelLoader.CreateProbe(world, "Content", projectContext: null,
+            exists: _ => true, sourceExists: _ => throw new InvalidOperationException("source must not be probed when unresolved"));
+
+        Assert.True(probe("island"));
+        Assert.Equal(1, count);
+        Assert.Equal(NativeLevelLoader.ContentRelativePath("island"), captured.Path); // bundled, unchanged
+        Assert.True(captured.FromContent);
+    }
+
+    /// <summary>
+    /// The stale-bundle regression (UX-D pre-mortem #5): the bundled copy holds OLD bytes, the source tree
+    /// holds NEW bytes (an editor Save that has not been re-bundled yet). A Restart re-publishes
+    /// <c>LoadLevelRequest</c> through the probe → with a RESOLVED context the world must reflect the
+    /// SOURCE (the last save); with an UNRESOLVED context it falls back to the bundled copy. Driven through
+    /// the real <see cref="SceneReaderSystem"/> so the loaded world's marker position proves which file won.
+    /// </summary>
+    [Fact]
+    public void StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            var ctx = ResolvedContext();
+            var sourcePath = Path.Combine(ctx.LevelsPath!, "island" + SceneWriter.SceneFileExtension);
+            var bundledRel = NativeLevelLoader.ContentRelativePath("island"); // "Levels/island.mdscene"
+
+            var newPos = new Vector2(999, 1); // the last SAVE (source tree)
+            var oldPos = new Vector2(7, 7);    // the last BUILD (stale bundle)
+            WriteMarkerScene(fake, sourcePath, newPos);
+            WriteMarkerScene(fake, bundledRel, oldPos);
+
+            // Resolved context → source-first → the world reflects the SOURCE (NEW) bytes.
+            using (var world = new World())
+            {
+                using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
+                    content: null, loadTexture: _ => null);
+                var probe = NativeLevelLoader.CreateProbe(world, "Content", ctx,
+                    exists: _ => true, fromContent: false, sourceExists: p => p == sourcePath);
+                Assert.True(probe("island"));
+                var loaded = CollectEntitiesWith<TransformComponent>(world);
+                Assert.Single(loaded);
+                Assert.Equal(newPos, loaded[0].Get<TransformComponent>().Position); // SOURCE won
+            }
+
+            // Unresolved context → bundled → the world reflects the (stale) BUNDLE (OLD) bytes.
+            using (var world = new World())
+            {
+                using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
+                    content: null, loadTexture: _ => null);
+                var probe = NativeLevelLoader.CreateProbe(world, "Content", projectContext: null,
+                    exists: _ => true, fromContent: false);
+                Assert.True(probe("island"));
+                var loaded = CollectEntitiesWith<TransformComponent>(world);
+                Assert.Single(loaded);
+                Assert.Equal(oldPos, loaded[0].Get<TransformComponent>().Position); // BUNDLE (byte-identical path)
+            }
+        });
+    }
+
     // ---- The committed Examples sample.mdscene is byte-locked to the canonical serializer output ----
 
     /// <summary>
