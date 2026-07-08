@@ -247,14 +247,16 @@ public class EditorTransportTests
     [Fact]
     public void SceneHeader_LeadsWithTheTransportButtons()
     {
-        // UX2-B: the transport relocated off the window bar to the Scene panel header, leading it.
+        // UX2-B: the transport relocated off the window bar to the Scene panel header, leading it;
+        // UX2-C: the transform tools joined it in the header (transport cluster, then tool cluster).
         var header = Array.ConvertAll(EditorChromeBuilder.HeaderButtons, b => b.action);
         Assert.Equal(EditorToolbarAction.PlayPause, header[0]);
         Assert.Equal(EditorToolbarAction.Restart, header[1]);
-        // The window bar keeps the editing actions (no transport).
+        Assert.Contains(EditorToolbarAction.ToolMove, header);
+        // The window bar keeps the remaining editing actions (no transport, no transform tools).
         var windowBar = Array.ConvertAll(EditorChromeBuilder.DefaultButtons, b => b.action);
         Assert.DoesNotContain(EditorToolbarAction.PlayPause, windowBar);
-        Assert.Contains(EditorToolbarAction.ToolMove, windowBar);
+        Assert.DoesNotContain(EditorToolbarAction.ToolMove, windowBar);
         Assert.Contains(EditorToolbarAction.Save, windowBar);
     }
 

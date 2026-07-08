@@ -3,6 +3,7 @@ using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
@@ -21,8 +22,18 @@ namespace MonoDreams.LevelEditor.System;
 /// through <c>EditorTransport</c>), Save → open the three-action Save dialog, Undo/Redo →
 /// <c>EditorHistory</c>, and the tool/snap actions → the shared <see cref="GizmoStateComponent"/>.
 /// (There is no Load action — a scene is opened via the Scenes panel.) It also tracks per-button
-/// hover, tints the button fill, and keeps the Play/Pause toggle button's label in sync with the
-/// transport state.
+/// hover, tints the button fill, keeps the Play/Pause toggle button's icon/label in sync with the
+/// transport state, and — UX2-C — <b>bakes each icon button's glyph mesh</b> in a state-driven colour.
+///
+/// <para><b>Icon buttons (UX2-C).</b> A button with a <see cref="ToolbarButtonComponent.IconEntity"/>
+/// renders a procedural glyph mesh (<see cref="EditorIcons"/>) instead of a text label — a screen-baked
+/// <c>DrawComponent</c> (identity <c>WorldMatrix</c>, native Editor target, no <c>VisibleComponent</c>)
+/// refilled here each frame, the disclosure-arrow pattern. The glyph colour reads the button's state:
+/// <c>TextDisabled</c> when inert, <c>Success</c> for the Snap toggle when on, <c>Accent</c> for the
+/// ACTIVE transform/boundary tool (the radio over the shared gizmo state), else a hover-fade from
+/// <c>Text1</c> (idle) to <c>Text0</c> (hovered). The Play/Pause toggle swaps Play↔Pause with the
+/// transport state (the icon analog of the old label swap). The button BODY keeps its existing
+/// hover-fade / pressed fill.</para>
 ///
 /// <para><b>Transport model: live in BOTH modes.</b> Under the editor run configuration the shell
 /// never collapses, so the toolbar hit-tests in both transport states. What changes with the state
@@ -47,6 +58,7 @@ namespace MonoDreams.LevelEditor.System;
 public sealed class ToolbarSystem : AEntitySetSystem<GameState>
 {
     private readonly EntitySet _cursorSet;
+    private readonly EntitySet _gizmoSet;
     private readonly Action<EditorToolbarAction, GameState> _dispatch;
     private readonly Func<EditorToolbarAction, GameState, bool>? _isEditingActionBlocked;
     private readonly Func<bool>? _isInputSuppressed;
@@ -55,6 +67,8 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     private Vector2 _cursorPoint;
     private bool _clicked;
     private bool _leftDown;
+    private bool _gizmoPresent;
+    private GizmoStateComponent _gizmo;
 
     /// <param name="world">The screen's world (the toolbar buttons + cursor live here).</param>
     /// <param name="dispatch">Fires a clicked button's action + the frame's state.</param>
@@ -76,6 +90,9 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
         _isEditingActionBlocked = isEditingActionBlocked;
         _isInputSuppressed = isInputSuppressed;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
+        // The shared gizmo state (tool / snap / mode) drives the ACTIVE-tool icon tint. There is exactly
+        // one; absent (unit tests that build bare buttons) → every button reads as inactive.
+        _gizmoSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
     }
 
     protected override void PreUpdate(GameState state)
@@ -91,7 +108,15 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
             _cursorPoint = input.ScreenPosition; // native-pixel hit-test (Editor target chrome)
             _clicked = input.LeftButtonReleased;  // a click = press then release over the button
             _leftDown = input.LeftButton;         // held → the instant "pressed" fill
-            return;
+            break;
+        }
+
+        _gizmoPresent = false;
+        foreach (var gizmo in _gizmoSet.GetEntities())
+        {
+            _gizmo = gizmo.Get<GizmoStateComponent>();
+            _gizmoPresent = true;
+            break;
         }
     }
 
@@ -99,34 +124,83 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     {
         ref var button = ref entity.Get<ToolbarButtonComponent>();
 
-        // The Play/Pause toggle button's label mirrors the transport state every frame.
+        // The Play/Pause toggle mirrors the transport state every frame — its tooltip (and, if this
+        // is a text button, its label) swap Play↔Pause; the icon swap is handled by EditorIcons.Resolve.
         if (button.Action == EditorToolbarAction.PlayPause)
+        {
+            button.Tooltip = state.RunMode == RunMode.Play ? "Pause" : "Play";
             SyncPlayPauseLabel(entity, state);
+        }
 
         // Transport buttons are live in both modes; editing buttons only while Paused (Edit) — and
         // an editing button may be additionally gated (e.g. Save while the project is unresolved).
         var active = (state.RunMode == RunMode.Edit || button.Action.IsTransport())
                      && !(_isEditingActionBlocked?.Invoke(button.Action, state) ?? false);
 
-        var over = _cursorPresent && active && button.Bounds.Contains(_cursorPoint);
+        // Two hover notions: `over` (drives the fill + dispatch, needs the button active) and the raw
+        // cursor-in-bounds (drives the tooltip delay — a dimmed button can still explain itself).
+        var overRaw = _cursorPresent && button.Bounds.Contains(_cursorPoint);
+        var over = overRaw && active;
         button.IsHovered = over;
+        button.IsActive = _gizmoPresent && button.Action.IsActiveIn(_gizmo);
 
         // Per-widget hover fade (framerate-independent, ~120ms): idle Bg2 → hover Bg3. Stored on the
-        // component so it survives frame to frame; a disabled button eases back to idle (over is false
-        // while inactive). Pressed (held over the control) snaps to Bg4 instantly.
+        // component so it survives frame to frame; a disabled button eases back to idle. The tooltip
+        // hover clock accumulates while resting over the button and resets on move-off or a press.
         button.HoverProgress = EditorTheme.AdvanceHover(button.HoverProgress, over, state.Time);
+        button.HoverSeconds = overRaw && !_leftDown ? button.HoverSeconds + state.Time : 0f;
 
         if (entity.Has<SimpleButtonComponent>())
         {
             ref var visual = ref entity.Get<SimpleButtonComponent>();
             visual.FillColor = EditorTheme.ControlFill(
                 disabled: !active, selected: false, pressed: over && _leftDown, button.HoverProgress);
-            // Disabled buttons dim their label too, so the Playing state reads at a glance.
+            // A text button dims its label while inert (the Playing state reads at a glance); an icon
+            // button's glyph carries the state colour instead (baked below).
             SetLabelColor(entity, active ? EditorTheme.Text0 : EditorTheme.TextDisabled);
         }
 
+        BakeIcon(ref button, active, state);
+
         if (over && _clicked && !(_isInputSuppressed?.Invoke() ?? false))
             _dispatch(button.Action, state);
+    }
+
+    /// <summary>Refills an icon button's screen-baked glyph mesh with the state-driven colour, sized to
+    /// the button's <c>Bounds</c>. A text button (no <see cref="ToolbarButtonComponent.IconEntity"/>) is
+    /// a no-op.</summary>
+    private void BakeIcon(ref ToolbarButtonComponent button, bool active, GameState state)
+    {
+        if (button.IconEntity is not { IsAlive: true } iconEntity || !iconEntity.Has<DrawComponent>())
+            return;
+        if (EditorIcons.Resolve(button.Action, state.RunMode == RunMode.Play) is not { } glyph)
+            return;
+
+        var color = IconColor(button.Action, active, button.HoverProgress);
+        var rect = EditorIcons.CenteredIconRect(button.Bounds);
+        var mesh = EditorIcons.Build(glyph, rect, color);
+
+        ref var dc = ref iconEntity.Get<DrawComponent>();
+        dc.Type = DrawElementType.Mesh;
+        dc.Vertices = mesh.Vertices;
+        dc.Indices = mesh.Indices;
+        dc.PrimitiveType = mesh.PrimitiveType;
+        dc.WorldMatrix = Matrix.Identity;
+        dc.Target = RenderTargetID.Editor;
+        dc.LayerDepth = EditorTheme.Depths.Label;
+    }
+
+    /// <summary>The icon glyph colour for a button's state (priority): disabled → <c>TextDisabled</c>;
+    /// the Snap toggle when on → <c>Success</c>; the active transform/boundary tool → <c>Accent</c>;
+    /// otherwise a hover-fade from <c>Text1</c> (idle) to <c>Text0</c> (hovered).</summary>
+    private Color IconColor(EditorToolbarAction action, bool active, float hoverProgress)
+    {
+        if (!active) return EditorTheme.TextDisabled;
+        if (action == EditorToolbarAction.ToggleSnap && _gizmoPresent && _gizmo.SnapEnabled)
+            return EditorTheme.Success;
+        if (action != EditorToolbarAction.ToggleSnap && _gizmoPresent && action.IsActiveIn(_gizmo))
+            return EditorTheme.Accent;
+        return Color.Lerp(EditorTheme.Text1, EditorTheme.Text0, MathHelper.Clamp(hoverProgress, 0f, 1f));
     }
 
     private static void SyncPlayPauseLabel(in Entity button, GameState state)
@@ -152,6 +226,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     public override void Dispose()
     {
         _cursorSet.Dispose();
+        _gizmoSet.Dispose();
         base.Dispose();
     }
 }

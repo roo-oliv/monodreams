@@ -172,7 +172,8 @@ public static class EditorTheme
         public const float Thumbnail = 0.56f;
         /// <summary>Palette per-asset band-mark chip badge — above the thumbnail, below labels.</summary>
         public const float Chip = 0.58f;
-        /// <summary>Labels + disclosure arrows.</summary>
+        /// <summary>Labels, disclosure arrows + toolbar button icons (UX2-C) — the font-independent mesh
+        /// glyphs share the label band, above their button/row fill.</summary>
         public const float Label = 0.6f;
         /// <summary>Modal dialog backdrop dimmer.</summary>
         public const float DialogBackdrop = 0.70f;
@@ -180,7 +181,12 @@ public static class EditorTheme
         public const float DialogPanel = 0.74f;
         /// <summary>Modal dialog controls (buttons, field, rows).</summary>
         public const float DialogControl = 0.80f;
-        /// <summary>Modal dialog labels (topmost).</summary>
+        /// <summary>Modal dialog labels (topmost of the dialog band).</summary>
         public const float DialogLabel = 0.86f;
+        /// <summary>The hover tooltip box + outline (UX2-C) — above EVERYTHING, including the dialog, so
+        /// a tooltip is never occluded by the modal it may hover over.</summary>
+        public const float Tooltip = 0.90f;
+        /// <summary>The hover tooltip's label — just above its box.</summary>
+        public const float TooltipLabel = 0.92f;
     }
 }

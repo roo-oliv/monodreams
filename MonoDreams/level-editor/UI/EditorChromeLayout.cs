@@ -67,6 +67,10 @@ public static class EditorChromeLayout
     /// <summary>Horizontal gap between toolbar buttons, logical points.</summary>
     public const int ButtonGap = 8;
 
+    /// <summary>Extra horizontal gap between button CLUSTERS in a row (logical points) — UX2-C: the
+    /// Scene panel header sets the transport cluster apart from the tool cluster with this wider gap.</summary>
+    public const int ClusterGap = 18;
+
     /// <summary>Horizontal label padding inside a button, logical points.</summary>
     public const int ButtonPaddingX = 10;
 
@@ -226,19 +230,23 @@ public static class EditorChromeLayout
     /// <summary>
     /// Lays a button row out left-to-right inside a bar rectangle, vertically centered, starting past
     /// the left row margin. Returns one rectangle per entry of <paramref name="buttonWidths"/>, in
-    /// order. Used by both the window top bar and the Scene panel header (UX2-B transport).
+    /// order. Used by both the window top bar and the Scene panel header (UX2-B transport + UX2-C tools).
+    /// <paramref name="separatorAfterIndex"/> (default -1 = none) inserts an extra <see cref="ClusterGap"/>
+    /// after that button — the Scene header sets the transport cluster apart from the tool cluster.
     /// </summary>
-    public static Rectangle[] ButtonRowIn(Rectangle bar, IReadOnlyList<int> buttonWidths, float scale = 1f)
+    public static Rectangle[] ButtonRowIn(Rectangle bar, IReadOnlyList<int> buttonWidths, float scale = 1f,
+        int separatorAfterIndex = -1)
     {
         var rects = new Rectangle[buttonWidths.Count];
         var height = Px(ButtonHeight, scale);
         var gap = Px(ButtonGap, scale);
+        var clusterGap = Px(ClusterGap, scale);
         var x = bar.X + Px(RowMarginX, scale);
         var y = bar.Y + (bar.Height - height) / 2;
         for (var i = 0; i < buttonWidths.Count; i++)
         {
             rects[i] = new Rectangle(x, y, buttonWidths[i], height);
-            x += buttonWidths[i] + gap;
+            x += buttonWidths[i] + gap + (i == separatorAfterIndex ? clusterGap : 0);
         }
         return rects;
     }

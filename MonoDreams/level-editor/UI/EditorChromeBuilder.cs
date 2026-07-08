@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
@@ -63,9 +64,7 @@ public sealed class EditorChromeBuilder
     private Entity _leftSplitter, _rightSplitter, _bottomSplitter;
     private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
     private readonly List<Entity> _buttonEntities = new();
-    private readonly List<Entity> _labelEntities = new();
     private readonly List<Entity> _headerButtonEntities = new();
-    private readonly List<Entity> _headerLabelEntities = new();
     private bool _built;
 
     /// <summary>The window size the chrome was last laid out for (0 until <see cref="Build"/>).</summary>
@@ -116,43 +115,46 @@ public sealed class EditorChromeBuilder
     }
 
     /// <summary>
-    /// The window top bar's buttons (UX2-B: the thin GLOBAL bar) — the transport relocated to the
-    /// Scene panel header (<see cref="HeaderButtons"/>), leaving the global editing actions: the
-    /// transform tools, Save, Undo/Redo, Snap, the selection-context collider/order actions, the
-    /// boundary tool, and Refresh. (The tools relocate into the Scene header in UX2-C, not now.)
+    /// The window top bar's buttons (UX2-B/-C: the thin GLOBAL bar). UX2-C relocated the transform-tool
+    /// cluster (Move/Rotate/Scale/Boundary/Snap) into the Scene panel header (<see cref="HeaderButtons"/>),
+    /// leaving the global editing actions: <b>Save / Undo / Redo</b> (icon buttons; the <c>label</c> is
+    /// their tooltip) plus the still-text selection-context actions — within-band Order and the
+    /// collider/vertex authoring — and <b>Refresh</b> (icon). UX2-D relocates the Order/selection-context
+    /// text buttons into context menus; until then they remain here as labels (no icon this wave).
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] DefaultButtons =
     {
-        (EditorToolbarAction.ToolMove, "Move"),
-        (EditorToolbarAction.ToolRotate, "Rotate"),
-        (EditorToolbarAction.ToolScale, "Scale"),
         (EditorToolbarAction.Save, "Save"),
         (EditorToolbarAction.Undo, "Undo"),
         (EditorToolbarAction.Redo, "Redo"),
-        (EditorToolbarAction.ToggleSnap, "Snap"),
-        // Island-authoring Slice 2: within-band ordering + collider authoring on the selection.
+        // Island-authoring Slice 2: within-band ordering + collider authoring (text — no icon this wave).
         (EditorToolbarAction.OrderForward, "Fwd"),
         (EditorToolbarAction.OrderBack, "Back"),
         (EditorToolbarAction.ColliderAddBox, "+Box"),
         (EditorToolbarAction.ColliderAddConvex, "+Poly"),
         (EditorToolbarAction.ColliderRemove, "-Col"),
         (EditorToolbarAction.VertexAdd, "+Vtx"),
-        // Island-authoring Slice 3: the freeform boundary tool (a radio with the transform tools).
-        (EditorToolbarAction.ToolBoundary, "Bound"),
         (EditorToolbarAction.RefreshCatalog, "Refresh"),
     };
 
     /// <summary>
-    /// The Scene panel header's buttons (UX2-B: the transport relocated off the window bar) — the
-    /// Play/Pause single toggle (its label <c>ToolbarSystem</c> swaps with the state, sized here for
-    /// the wider "Pause") and Restart. They dispatch in BOTH transport states (<c>IsTransport</c>),
-    /// unlike the window bar's editing actions. Same <c>ToolbarButtonComponent</c>/<c>ToolbarSystem</c>
-    /// machinery — laid out in the header rect, dispatch unchanged.
+    /// The Scene panel header's buttons (UX2-B transport + UX2-C tools) — icon buttons whose
+    /// <c>label</c> is the hover tooltip. Order: the <b>transport cluster</b> (Play/Pause single toggle —
+    /// its icon <c>ToolbarSystem</c> swaps with the state — and Restart), a separator gap, then the
+    /// <b>tool cluster</b> (Move/Rotate/Scale/Boundary/Snap — a radio over <c>GizmoState</c>). The
+    /// transport dispatches in BOTH transport states (<c>IsTransport</c>); the tools are Paused-only, like
+    /// the window bar's editing actions. Same <c>ToolbarButtonComponent</c>/<c>ToolbarSystem</c> machinery
+    /// — the ONE toolbar system hit-tests + dispatches both rows.
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] HeaderButtons =
     {
-        (EditorToolbarAction.PlayPause, "Pause"),
+        (EditorToolbarAction.PlayPause, "Play"),
         (EditorToolbarAction.Restart, "Restart"),
+        (EditorToolbarAction.ToolMove, "Move"),
+        (EditorToolbarAction.ToolRotate, "Rotate"),
+        (EditorToolbarAction.ToolScale, "Scale"),
+        (EditorToolbarAction.ToolBoundary, "Boundary"),
+        (EditorToolbarAction.ToggleSnap, "Snap to grid"),
     };
 
     /// <summary>
@@ -186,22 +188,13 @@ public sealed class EditorChromeBuilder
         _bottomTabUnderline = CreateFill(EditorTheme.Accent, EditorTheme.Depths.TabUnderline);
         _bottomTabLabel = CreateLabel("Assets");
 
-        foreach (var (action, label) in _buttons)
-        {
-            var labelEntity = CreateLabel(label);
-            _labelEntities.Add(labelEntity);
-            _buttonEntities.Add(CreateButton(action, labelEntity));
-        }
+        // The window top bar's buttons (icon where an icon exists, else a text label).
+        CreateButtons(_buttons, _buttonEntities);
 
-        // The Scene-header transport buttons — same ToolbarButtonComponent machinery, so the ONE
+        // The Scene-header transport + tool buttons — same ToolbarButtonComponent machinery, so the ONE
         // ToolbarSystem hit-tests + dispatches them alongside the window-bar buttons (dispatch
-        // unchanged); IsTransport keeps them live in both transport states.
-        foreach (var (action, label) in _headerButtons)
-        {
-            var labelEntity = CreateLabel(label);
-            _headerLabelEntities.Add(labelEntity);
-            _headerButtonEntities.Add(CreateButton(action, labelEntity));
-        }
+        // unchanged); IsTransport keeps the transport live in both transport states.
+        CreateButtons(_headerButtons, _headerButtonEntities);
 
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;
@@ -241,12 +234,14 @@ public sealed class EditorChromeBuilder
         // The bottom shelf's static "Assets" tab in its tab strip (below the splitter).
         LayoutBottomTab(bottomBar, scale);
 
-        // The window top bar's editing buttons, then the Scene header's transport buttons — both
-        // through the same button-row layout (the header anchors inside the carved-out header rect).
-        LayoutButtonRow(_buttonEntities, _labelEntities, _buttons,
+        // The window top bar's editing buttons, then the Scene header's transport + tool clusters — both
+        // through the same button-row layout (the header anchors inside the carved-out header rect, with
+        // a cluster gap separating the transport from the tools).
+        LayoutButtonRow(_buttonEntities,
             EditorChromeLayout.ButtonRow(MeasureWidths(_buttons, scale), scale), scale);
-        LayoutButtonRow(_headerButtonEntities, _headerLabelEntities, _headerButtons,
-            EditorChromeLayout.ButtonRowIn(sceneHeader, MeasureWidths(_headerButtons, scale), scale), scale);
+        LayoutButtonRow(_headerButtonEntities,
+            EditorChromeLayout.ButtonRowIn(sceneHeader, MeasureWidths(_headerButtons, scale), scale,
+                HeaderSeparatorIndex()), scale);
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
@@ -256,18 +251,32 @@ public sealed class EditorChromeBuilder
         LaidOutBottomHeightPt = bottomHeightPt;
     }
 
-    /// <summary>Per-button pixel widths for a button set (label width measured + scaled + padded).</summary>
+    /// <summary>Per-button pixel widths for a button set: an icon button is a square (button height);
+    /// a text button is its label width measured + scaled + padded.</summary>
     private int[] MeasureWidths((EditorToolbarAction action, string label)[] buttons, float scale)
     {
         var widths = new int[buttons.Length];
         for (var i = 0; i < buttons.Length; i++)
-            widths[i] = EditorChromeLayout.ButtonWidth(_measureLabel(buttons[i].label) * scale, scale);
+            widths[i] = EditorIcons.HasIcon(buttons[i].action)
+                ? EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale)          // square icon button
+                : EditorChromeLayout.ButtonWidth(_measureLabel(buttons[i].label) * scale, scale);
         return widths;
     }
 
-    /// <summary>Positions a button set (button visual bounds + label) into the given laid-out rects.</summary>
-    private void LayoutButtonRow(List<Entity> buttonEntities, List<Entity> labelEntities,
-        (EditorToolbarAction action, string label)[] buttons, Rectangle[] rects, float scale)
+    /// <summary>The index of the last transport button in the header set — the cluster separator sits
+    /// after it, so the transport reads apart from the tool cluster (UX2-C). -1 when none.</summary>
+    private int HeaderSeparatorIndex()
+    {
+        var last = -1;
+        for (var i = 0; i < _headerButtons.Length; i++)
+            if (_headerButtons[i].action.IsTransport()) last = i;
+        return last;
+    }
+
+    /// <summary>Positions a button set's visual bounds into the given laid-out rects. A text button also
+    /// positions its label; an icon button carries no label — <c>ToolbarSystem</c> bakes its glyph mesh
+    /// from the button <c>Bounds</c> each frame (identity-matrix screen-baked mesh).</summary>
+    private void LayoutButtonRow(List<Entity> buttonEntities, Rectangle[] rects, float scale)
     {
         var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
         var labelOffsetY = (EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale) - labelHeight) / 2f;
@@ -279,13 +288,17 @@ public sealed class EditorChromeBuilder
             button.Bounds = bounds;
             ref var visual = ref buttonEntities[i].Get<SimpleButtonComponent>();
             visual.Size = new Vector2(bounds.Width, bounds.Height);
-            // Label glyphs scale with the DPR: same physical size, denser pixels (see the class
-            // doc's Text choice — at scale 1 this is the historical 1/3 downscale).
-            ref var text = ref labelEntities[i].Get<DynamicTextComponent>();
-            text.Scale = LabelScale * scale;
-            PlaceEntity(labelEntities[i],
-                new Vector2(bounds.X + EditorChromeLayout.Px(EditorChromeLayout.ButtonPaddingX, scale),
-                    bounds.Y + labelOffsetY));
+            // A text button positions its label; icon buttons have none (glyph baked from Bounds).
+            if (visual.TextEntity is { IsAlive: true } label && label.Has<DynamicTextComponent>())
+            {
+                // Label glyphs scale with the DPR: same physical size, denser pixels (see the class
+                // doc's Text choice — at scale 1 this is the historical 1/3 downscale).
+                ref var text = ref label.Get<DynamicTextComponent>();
+                text.Scale = LabelScale * scale;
+                PlaceEntity(label,
+                    new Vector2(bounds.X + EditorChromeLayout.Px(EditorChromeLayout.ButtonPaddingX, scale),
+                        bounds.Y + labelOffsetY));
+            }
         }
     }
 
@@ -374,7 +387,44 @@ public sealed class EditorChromeBuilder
         return text;
     }
 
-    private Entity CreateButton(EditorToolbarAction action, Entity labelEntity)
+    /// <summary>Creates each button of a set into <paramref name="into"/> in order: an
+    /// action with an icon (<see cref="EditorIcons.HasIcon"/>) becomes an ICON button (a screen-baked
+    /// glyph mesh + the label as its hover tooltip); an action without one stays a TEXT button (its
+    /// label rendered, no tooltip — the Order/collider/vertex actions until UX2-D relocates them).</summary>
+    private void CreateButtons((EditorToolbarAction action, string label)[] buttons, List<Entity> into)
+    {
+        foreach (var (action, label) in buttons)
+        {
+            if (EditorIcons.HasIcon(action))
+                into.Add(CreateButton(action, labelEntity: null, iconEntity: CreateIconMesh(), tooltip: label));
+            else
+                into.Add(CreateButton(action, labelEntity: CreateLabel(label), iconEntity: null, tooltip: null));
+        }
+    }
+
+    /// <summary>A screen-baked ICON mesh entity: a raw <see cref="DrawComponent"/> the
+    /// <c>ToolbarSystem</c> refills each frame with the glyph geometry + state colour — identity
+    /// <c>WorldMatrix</c>, native Editor target at the label depth, no <c>VisibleComponent</c> (chrome
+    /// rule) and no <c>SimpleButtonComponent</c> (so <c>ButtonMeshPrepSystem</c> never touches it). The
+    /// disclosure-arrow mesh pattern, applied to the icon set.</summary>
+    private Entity CreateIconMesh()
+    {
+        var icon = _world.CreateEntity();
+        icon.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        icon.Set(new TransformComponent(Vector2.Zero));
+        icon.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Editor,
+            LayerDepth = EditorTheme.Depths.Label,
+            WorldMatrix = Matrix.Identity,
+            Vertices = Array.Empty<VertexPositionColor>(),
+            Indices = Array.Empty<int>(),
+        });
+        return icon;
+    }
+
+    private Entity CreateButton(EditorToolbarAction action, Entity? labelEntity, Entity? iconEntity, string? tooltip)
     {
         var button = _world.CreateEntity();
         button.Set(new EditorInfrastructureComponent()); // survives a transport Restart
@@ -395,6 +445,8 @@ public sealed class EditorChromeBuilder
             Bounds = Rectangle.Empty, // Relayout fills it
             IsHovered = false,
             IsActive = false,
+            IconEntity = iconEntity,
+            Tooltip = tooltip,
         });
         return button;
     }

@@ -237,6 +237,7 @@ public class DemoLauncherScreen : IGameScreen
             {
                 g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
                 g.Add("clicks", _editor.Overlay.ToolbarClicks);
+                g.Add("tooltip", _editor.Overlay.Tooltip);
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Overlay.Inspector, EditTimeBehavior.RunNormally);

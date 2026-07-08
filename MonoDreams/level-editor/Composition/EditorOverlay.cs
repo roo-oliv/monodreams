@@ -249,6 +249,9 @@ public sealed class EditorOverlay
             // A shell splitter/scrollbar drag that happens to release over the toolbar must not also
             // fire the button (the drag holds the shared token through its release edge).
             isInputSuppressed: () => _shellState.IsDragging);
+        // The ONE pooled hover tooltip for the icon buttons (UX2-C) — reads the per-button hover clock
+        // ToolbarClicks advances, so it weaves right AFTER ToolbarClicks in the editor.toolbar group.
+        Tooltip = new EditorTooltipSystem(world, viewportManager, toolbarFont);
         // The two editor panels (UX2-B) share ONE collapse/expand state component (ECS purity: the
         // state lives once, both panels read/write their own fields). On an editor-infra entity so it
         // is discoverable + survives a transport Restart.
@@ -410,6 +413,11 @@ public sealed class EditorOverlay
     /// <summary>The toolbar click dispatch (native-pixel hit-test). Weave right after
     /// <see cref="ToolbarMeshPrep"/> (see there).</summary>
     public ISystem<GameState> ToolbarClicks { get; }
+
+    /// <summary>The icon-button hover tooltip (UX2-C): the ONE pooled box + label on the Editor target,
+    /// shown after a short hover. Weave as the LAST child of the <c>editor.toolbar</c> group (after
+    /// <see cref="ToolbarClicks"/>, whose per-button hover clock it reads), <c>RunNormally</c>.</summary>
+    public ISystem<GameState> Tooltip { get; }
 
     // The concrete panels: the headless panel:* ops drive their section/group/tree/inspector toggles
     // directly (like _editorCommands for the selection-edit ops).

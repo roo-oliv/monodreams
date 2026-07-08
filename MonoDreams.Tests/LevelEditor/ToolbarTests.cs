@@ -6,6 +6,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Message;
@@ -15,6 +16,7 @@ using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Platform;
 using MonoDreams.State;
+using MonoDreams.UI;
 using Xunit;
 
 namespace MonoDreams.Tests.LevelEditor;
@@ -36,6 +38,9 @@ namespace MonoDreams.Tests.LevelEditor;
 public class ToolbarTests
 {
     private const string SceneFileName = "toolbar-test.scene.json";
+
+    private static GameState Edit() => new(new GameTime()) { RunMode = RunMode.Edit };
+    private static GameState Play() => new(new GameTime()) { RunMode = RunMode.Play };
 
     /// <summary>In-memory platform capturing the Save write (PS3 writes via WriteAllText) so the Save
     /// test asserts the writer ran without a disk.</summary>
@@ -274,24 +279,96 @@ public class ToolbarTests
         });
     }
 
-    // ---- UX2-B: the transport relocated to the Scene panel header ----------
+    // ---- UX2-B/-C: transport + tool relocation to the Scene panel header ----------
 
-    /// <summary>The window top bar's button set slimmed — the transport (Play/Pause + Restart) left
-    /// it for the Scene panel header; the editing actions stay (they relocate in UX2-C, not now).</summary>
+    /// <summary>The window top bar slimmed further in UX2-C: the transform-tool cluster
+    /// (Move/Rotate/Scale/Boundary/Snap) left it for the Scene panel header (joining the UX2-B
+    /// transport), leaving Save/Undo/Redo/Refresh plus the still-text selection-context actions.</summary>
     [Fact]
-    public void WindowBar_IsSlimmed_TransportRelocatedToTheHeader()
+    public void WindowBar_IsSlimmed_ToolsRelocatedToTheHeader()
     {
         var windowActions = EditorChromeBuilder.DefaultButtons.Select(b => b.action).ToArray();
+        var headerActions = EditorChromeBuilder.HeaderButtons.Select(b => b.action).ToArray();
+
+        // The transport left the window bar (UX2-B); the transform tools left it too (UX2-C).
         Assert.DoesNotContain(EditorToolbarAction.PlayPause, windowActions);
         Assert.DoesNotContain(EditorToolbarAction.Restart, windowActions);
-        // The Scene header carries exactly the transport.
-        Assert.Equal(new[] { EditorToolbarAction.PlayPause, EditorToolbarAction.Restart },
-            EditorChromeBuilder.HeaderButtons.Select(b => b.action).ToArray());
-        // The editing actions stay on the window bar this wave.
+        Assert.DoesNotContain(EditorToolbarAction.ToolMove, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ToolRotate, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ToolScale, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ToolBoundary, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ToggleSnap, windowActions);
+
+        // The header leads with the transport cluster, then the tool cluster.
+        Assert.Equal(EditorToolbarAction.PlayPause, headerActions[0]);
+        Assert.Equal(EditorToolbarAction.Restart, headerActions[1]);
+        Assert.Contains(EditorToolbarAction.ToolMove, headerActions);
+        Assert.Contains(EditorToolbarAction.ToolRotate, headerActions);
+        Assert.Contains(EditorToolbarAction.ToolScale, headerActions);
+        Assert.Contains(EditorToolbarAction.ToolBoundary, headerActions);
+        Assert.Contains(EditorToolbarAction.ToggleSnap, headerActions);
+
+        // The remaining editing actions stay on the window bar this wave.
         Assert.Contains(EditorToolbarAction.Save, windowActions);
-        Assert.Contains(EditorToolbarAction.ToolMove, windowActions);
         Assert.Contains(EditorToolbarAction.Undo, windowActions);
+        Assert.Contains(EditorToolbarAction.Redo, windowActions);
         Assert.Contains(EditorToolbarAction.RefreshCatalog, windowActions);
+        Assert.Contains(EditorToolbarAction.OrderForward, windowActions);
+    }
+
+    /// <summary>UX2-C icon reality: the icon buttons (transport, tools, Save/Undo/Redo/Refresh) render a
+    /// glyph MESH tinted by state — <c>Accent</c> for the active radio tool, <c>Success</c> for the Snap
+    /// toggle when on, <c>TextDisabled</c> while inert (Playing) — and carry no text label; the
+    /// selection-context actions stay TEXT buttons (a label, no icon).</summary>
+    [Fact]
+    public void IconButtons_BakeGlyphMeshes_TintedByState()
+    {
+        using var world = new World();
+        var chrome = new EditorChromeBuilder(world, label => label.Length * 8f);
+        chrome.Build(1600, 900);
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent());
+        var gizmo = world.CreateEntity();
+        gizmo.Set(GizmoStateComponent.Default); // Move tool active, snap off
+
+        using var toolbar = new ToolbarSystem(world, (_, _) => { });
+
+        Entity ButtonOf(EditorToolbarAction action)
+        {
+            using var set = world.GetEntities().With<ToolbarButtonComponent>().AsSet();
+            foreach (var e in set.GetEntities())
+                if (e.Get<ToolbarButtonComponent>().Action == action) return e;
+            return default;
+        }
+
+        var move = ButtonOf(EditorToolbarAction.ToolMove);
+        var snap = ButtonOf(EditorToolbarAction.ToggleSnap);
+        var order = ButtonOf(EditorToolbarAction.OrderForward);
+
+        // Icon buttons carry an IconEntity and no label; the text button is the reverse.
+        Assert.NotNull(move.Get<ToolbarButtonComponent>().IconEntity);
+        Assert.Null(move.Get<SimpleButtonComponent>().TextEntity);
+        Assert.Null(order.Get<ToolbarButtonComponent>().IconEntity);
+        Assert.NotNull(order.Get<SimpleButtonComponent>().TextEntity);
+
+        // Paused: the Move tool is active → its glyph is baked in Accent; Snap is off → not Success.
+        toolbar.Update(Edit());
+        var moveIcon = move.Get<ToolbarButtonComponent>().IconEntity!.Value;
+        Assert.True(moveIcon.Get<DrawComponent>().Vertices!.Length > 0);
+        Assert.Equal(EditorTheme.Accent, moveIcon.Get<DrawComponent>().Vertices![0].Color);
+        var snapIcon = snap.Get<ToolbarButtonComponent>().IconEntity!.Value;
+        Assert.NotEqual(EditorTheme.Success, snapIcon.Get<DrawComponent>().Vertices![0].Color);
+
+        // Turn snap on → the Snap glyph tints Success.
+        ref var gs = ref gizmo.Get<GizmoStateComponent>();
+        gs.SnapEnabled = true;
+        toolbar.Update(Edit());
+        Assert.Equal(EditorTheme.Success, snapIcon.Get<DrawComponent>().Vertices![0].Color);
+
+        // Playing: the tool is an editing action → inert → its glyph dims to TextDisabled.
+        toolbar.Update(Play());
+        Assert.Equal(EditorTheme.TextDisabled, moveIcon.Get<DrawComponent>().Vertices![0].Color);
     }
 
     /// <summary>The relocated transport dispatches through the SAME <c>ToolbarSystem</c> machinery from
