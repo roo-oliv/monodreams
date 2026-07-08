@@ -5,26 +5,24 @@ using Microsoft.Xna.Framework;
 namespace MonoDreams.LevelEditor.UI;
 
 /// <summary>
-/// Pure layout math for the editor's Save / Load <b>file-system navigator</b> dialog, in
-/// <b>physical screen pixels</b> (the dialog is chrome on <c>RenderTargetID.Editor</c>, native window
-/// resolution — see <see cref="EditorChromeLayout"/>). The dialog is a Blender-style directory
-/// browser: a title, a <b>breadcrumb</b> row with an <b>up</b> button, a scrollable list of
-/// <b>folder + scene-file rows</b>, (in Save mode) a <b>filename field</b>, and the confirm/cancel
-/// buttons. Every function takes a <c>scale</c> (the viewport manager's device-pixel ratio) and
-/// multiplies the logical-point metrics by it, so the dialog keeps its physical size on a HiDPI
-/// backbuffer. World-free and cursor-free so it is unit-testable like
-/// <see cref="EditorChromeLayout"/> / <see cref="SystemsPanelLayout"/>.
+/// Pure layout math for the editor's modal dialogs, in <b>physical screen pixels</b> (the dialog is
+/// chrome on <c>RenderTargetID.Editor</c>, native window resolution — see <see cref="EditorChromeLayout"/>).
+/// Two live shapes (UX-D):
+/// <list type="bullet">
+///   <item><b>Save</b> — a title over three stacked full-width action rows (Save Scene / Save Project /
+///   Save Backup As…), each a title + subtitle line, and a bottom Cancel button. When the backup action
+///   is armed a name field + a Confirm button are revealed above Cancel (the panel grows to fit them).</item>
+///   <item><b>Confirm-on-switch</b> (UX-C) — a title + message + one row of three equal-width buttons
+///   (Save &amp; Switch / Discard &amp; Switch / Cancel).</item>
+/// </list>
+/// Every function takes a <c>scale</c> (the viewport manager's device-pixel ratio) and multiplies the
+/// logical-point metrics by it, so the dialog keeps its physical size on a HiDPI backbuffer. World-free
+/// and cursor-free so it is unit-testable like <see cref="EditorChromeLayout"/> / <see cref="SystemsPanelLayout"/>.
 /// </summary>
 public static class EditorDialogLayout
 {
     /// <summary>Dialog panel width, logical points.</summary>
-    public const int PanelWidth = 520;
-
-    /// <summary>Load-dialog panel height, logical points (title + breadcrumb + list + button row).</summary>
-    public const int LoadPanelHeight = 420;
-
-    /// <summary>Save-dialog panel height, logical points (Load + a filename field row).</summary>
-    public const int SavePanelHeight = 470;
+    public const int PanelWidth = 460;
 
     /// <summary>Confirm-on-switch panel height, logical points (title + message + one button row) —
     /// the modal shown when a Scenes-panel switch would discard unsaved edits (UX-C §3.3).</summary>
@@ -36,22 +34,31 @@ public static class EditorDialogLayout
     /// <summary>Title text row height, logical points.</summary>
     public const int TitleHeight = 26;
 
-    /// <summary>Breadcrumb / up-button row height, logical points.</summary>
-    public const int BreadcrumbHeight = 26;
+    /// <summary>A Save action row's height, logical points (a title line + a subtitle line).</summary>
+    public const int ActionHeight = 58;
 
-    /// <summary>The up-directory button width, logical points (docked at the breadcrumb row's right).</summary>
-    public const int UpButtonWidth = 52;
+    /// <summary>Gap between the three Save action rows (and before the revealed field), logical points.</summary>
+    public const int ActionGap = 10;
 
-    /// <summary>Name-field height, logical points (Save mode).</summary>
+    /// <summary>The number of stacked Save actions (Save Scene / Save Project / Save Backup As…).</summary>
+    public const int SaveActionCount = 3;
+
+    /// <summary>Backup name-field height, logical points (shown only when the backup action is armed).</summary>
     public const int FieldHeight = 34;
 
     /// <summary>Dialog button height / width / gap, logical points.</summary>
     public const int ButtonHeight = 30;
-    public const int ButtonWidth = 96;
+    public const int ButtonWidth = 110;
     public const int ButtonGap = 12;
 
-    /// <summary>List row height (folder / file), logical points.</summary>
-    public const int RowHeight = 26;
+    /// <summary>Where an action row's title line is drawn (top line), left-inset.</summary>
+    private const int ActionTitleOffsetY = 9;
+
+    /// <summary>Where an action row's subtitle line is drawn (below the title), left-inset.</summary>
+    private const int ActionSubtitleOffsetY = 31;
+
+    /// <summary>Left inset of an action row's text, logical points.</summary>
+    private const int ActionTextInsetX = 12;
 
     /// <summary>A logical-point metric in screen pixels at <paramref name="scale"/>, rounded.</summary>
     public static int Px(int points, float scale) => (int)MathF.Round(points * scale);
@@ -60,52 +67,60 @@ public static class EditorDialogLayout
     public static Rectangle Backdrop(int screenWidth, int screenHeight) =>
         new(0, 0, Math.Max(1, screenWidth), Math.Max(1, screenHeight));
 
-    /// <summary>The centred dialog panel for the given kind (Load is shorter; Save adds a field row).</summary>
-    public static Rectangle Panel(int screenWidth, int screenHeight, bool isLoad, float scale = 1f)
-    {
-        var w = Px(PanelWidth, scale);
-        var h = Px(isLoad ? LoadPanelHeight : SavePanelHeight, scale);
-        return new Rectangle((screenWidth - w) / 2, (screenHeight - h) / 2, w, h);
-    }
-
     /// <summary>The title text position (top-left of the title row, inside the padding).</summary>
     public static Vector2 Title(Rectangle panel, float scale) =>
         new(panel.X + Px(Padding, scale), panel.Y + Px(Padding, scale));
-
-    /// <summary>The top Y of the breadcrumb row (below the title).</summary>
-    private static int BreadcrumbTop(Rectangle panel, float scale) =>
-        panel.Y + Px(Padding, scale) + Px(TitleHeight, scale) + Px(Padding, scale) / 2;
-
-    /// <summary>The breadcrumb (current-path) rectangle — the left part of the breadcrumb row, left of
-    /// the up button.</summary>
-    public static Rectangle Breadcrumb(Rectangle panel, float scale)
-    {
-        var pad = Px(Padding, scale);
-        var upW = Px(UpButtonWidth, scale) + pad / 2;
-        return new Rectangle(panel.X + pad, BreadcrumbTop(panel, scale),
-            panel.Width - pad * 2 - upW, Px(BreadcrumbHeight, scale));
-    }
-
-    /// <summary>The up-directory button rectangle (docked at the breadcrumb row's right).</summary>
-    public static Rectangle UpButton(Rectangle panel, float scale)
-    {
-        var pad = Px(Padding, scale);
-        var w = Px(UpButtonWidth, scale);
-        return new Rectangle(panel.Right - pad - w, BreadcrumbTop(panel, scale), w, Px(BreadcrumbHeight, scale));
-    }
 
     /// <summary>Where a row/button's text is drawn, left-inset and vertically centred for a glyph run
     /// of <paramref name="lineHeight"/> px.</summary>
     public static Vector2 TextInset(Rectangle rect, float lineHeight, float scale) =>
         new(rect.X + Px(8, scale), rect.Y + (rect.Height - lineHeight) / 2f);
 
-    /// <summary>The Save dialog's filename-field rectangle (above the button row).</summary>
-    public static Rectangle Field(Rectangle panel, float scale)
+    // ─── the three-action Save dialog (UX-D) ─────────────────────────────────────────────────────
+
+    /// <summary>The Save panel's logical-point height for the given backup state (armed reveals the
+    /// name field + a Confirm button above Cancel, so the panel grows by a field row).</summary>
+    private static int SavePanelHeightPoints(bool backupActive)
+    {
+        var h = Padding + TitleHeight + Padding                          // top pad + title + gap
+              + SaveActionCount * ActionHeight + (SaveActionCount - 1) * ActionGap // the action rows
+              + Padding + ButtonHeight + Padding;                        // gap + button row + bottom pad
+        if (backupActive) h += ActionGap + FieldHeight;                  // the revealed field row
+        return h;
+    }
+
+    /// <summary>The centred Save panel (taller when the backup name field is revealed).</summary>
+    public static Rectangle SavePanel(int screenWidth, int screenHeight, bool backupActive, float scale = 1f)
+    {
+        var w = Px(PanelWidth, scale);
+        var h = Px(SavePanelHeightPoints(backupActive), scale);
+        return new Rectangle((screenWidth - w) / 2, (screenHeight - h) / 2, w, h);
+    }
+
+    /// <summary>The rectangle of Save action row <paramref name="index"/> (0 = Save Scene, 1 = Save
+    /// Project, 2 = Save Backup As…), full inner width, stacked below the title.</summary>
+    public static Rectangle SaveAction(Rectangle panel, int index, float scale)
     {
         var pad = Px(Padding, scale);
-        var h = Px(FieldHeight, scale);
-        var top = panel.Bottom - pad - Px(ButtonHeight, scale) - pad / 2 - h;
-        return new Rectangle(panel.X + pad, top, panel.Width - pad * 2, h);
+        var top = panel.Y + pad + Px(TitleHeight, scale) + pad
+                  + index * (Px(ActionHeight, scale) + Px(ActionGap, scale));
+        return new Rectangle(panel.X + pad, top, panel.Width - pad * 2, Px(ActionHeight, scale));
+    }
+
+    /// <summary>The action row's title-line text position (top line).</summary>
+    public static Vector2 ActionTitle(Rectangle action, float scale) =>
+        new(action.X + Px(ActionTextInsetX, scale), action.Y + Px(ActionTitleOffsetY, scale));
+
+    /// <summary>The action row's subtitle-line text position (below the title).</summary>
+    public static Vector2 ActionSubtitle(Rectangle action, float scale) =>
+        new(action.X + Px(ActionTextInsetX, scale), action.Y + Px(ActionSubtitleOffsetY, scale));
+
+    /// <summary>The backup name-field rectangle (revealed below the action rows when backup is armed).</summary>
+    public static Rectangle BackupField(Rectangle panel, float scale)
+    {
+        var pad = Px(Padding, scale);
+        var top = SaveAction(panel, SaveActionCount - 1, scale).Bottom + Px(ActionGap, scale);
+        return new Rectangle(panel.X + pad, top, panel.Width - pad * 2, Px(FieldHeight, scale));
     }
 
     /// <summary>Where the field's text (and trailing caret) is drawn, inset inside the field box.</summary>
@@ -116,8 +131,8 @@ public static class EditorDialogLayout
         return new Vector2(field.X + inset, field.Y + (field.Height - textH) / 2f);
     }
 
-    /// <summary>The confirm button (Save), docked bottom-right inside the panel.</summary>
-    public static Rectangle ConfirmButton(Rectangle panel, float scale)
+    /// <summary>The Cancel button, docked bottom-right (always present in the Save dialog).</summary>
+    public static Rectangle SaveCancelButton(Rectangle panel, float scale)
     {
         var pad = Px(Padding, scale);
         var w = Px(ButtonWidth, scale);
@@ -125,52 +140,14 @@ public static class EditorDialogLayout
         return new Rectangle(panel.Right - pad - w, panel.Bottom - pad - h, w, h);
     }
 
-    /// <summary>The cancel button, left of the confirm button (Load reuses it as its only button).</summary>
-    public static Rectangle CancelButton(Rectangle panel, bool isLoad, float scale)
+    /// <summary>The backup Confirm button, left of Cancel (shown only when the backup name field is armed).</summary>
+    public static Rectangle BackupConfirmButton(Rectangle panel, float scale)
     {
-        var pad = Px(Padding, scale);
         var w = Px(ButtonWidth, scale);
         var h = Px(ButtonHeight, scale);
-        var right = isLoad
-            ? panel.Right - pad                                      // Load: cancel is the rightmost button
-            : ConfirmButton(panel, scale).X - Px(ButtonGap, scale);  // Save: cancel sits left of Save
-        return new Rectangle(right - w, panel.Bottom - pad - h, w, h);
+        var cancel = SaveCancelButton(panel, scale);
+        return new Rectangle(cancel.X - Px(ButtonGap, scale) - w, panel.Bottom - Px(Padding, scale) - h, w, h);
     }
-
-    /// <summary>The top Y of the scrollable folder/file list region (below the breadcrumb row).</summary>
-    public static int ListTop(Rectangle panel, float scale) =>
-        BreadcrumbTop(panel, scale) + Px(BreadcrumbHeight, scale) + Px(Padding, scale) / 2;
-
-    /// <summary>The bottom Y of the list region — above the button row (Load) or above the filename
-    /// field (Save, which reserves an extra field row).</summary>
-    public static int ListBottom(Rectangle panel, bool isSave, float scale)
-    {
-        var pad = Px(Padding, scale);
-        var bottom = panel.Bottom - pad - Px(ButtonHeight, scale) - pad / 2;
-        if (isSave) bottom -= Px(FieldHeight, scale) + pad / 2;
-        return bottom;
-    }
-
-    /// <summary>How many list rows fit in the region for the given mode.</summary>
-    public static int VisibleRowCount(Rectangle panel, bool isSave, float scale)
-    {
-        var region = ListBottom(panel, isSave, scale) - ListTop(panel, scale);
-        var rowH = Px(RowHeight, scale);
-        return rowH <= 0 ? 0 : Math.Max(0, region / rowH);
-    }
-
-    /// <summary>The rectangle of the <paramref name="visibleIndex"/>-th visible list row.</summary>
-    public static Rectangle Row(Rectangle panel, int visibleIndex, float scale)
-    {
-        var pad = Px(Padding, scale);
-        var rowH = Px(RowHeight, scale);
-        return new Rectangle(panel.X + pad, ListTop(panel, scale) + visibleIndex * rowH,
-            panel.Width - pad * 2, rowH);
-    }
-
-    /// <summary>Where the "no project root" / "empty folder" message is drawn (inside the list region).</summary>
-    public static Vector2 Message(Rectangle panel, float scale) =>
-        new(panel.X + Px(Padding, scale), ListTop(panel, scale) + Px(4, scale));
 
     // ─── confirm-on-switch modal (UX-C) ────────────────────────────────────────────────────────
 

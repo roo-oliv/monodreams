@@ -30,11 +30,9 @@ public enum EditorToolbarAction
     /// <summary>Select the scale tool.</summary>
     ToolScale,
 
-    /// <summary>Save the current scene (the screen calls <c>SceneWriter.Save</c>).</summary>
+    /// <summary>Open the Save dialog (Save Scene / Save Project / Save Backup As…). There is no Load
+    /// action — a scene is opened by selecting it in the Scenes panel (UX-C/UX-D).</summary>
     Save,
-
-    /// <summary>Load a scene (the screen publishes a <c>LoadSceneRequest</c>).</summary>
-    Load,
 
     /// <summary>Undo the most recent edit (the screen calls <c>EditorHistory.Undo</c>).</summary>
     Undo,

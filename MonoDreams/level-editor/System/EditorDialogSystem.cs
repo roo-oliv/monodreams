@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -9,6 +8,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
@@ -22,34 +22,39 @@ public enum EditorDialogMode
 {
     /// <summary>No dialog is open.</summary>
     None,
-    /// <summary>The Save browser: navigate to a folder, type a name, Save / Cancel.</summary>
+    /// <summary>The three-action Save dialog: Save Scene / Save Project / Save Backup As….</summary>
     Save,
-    /// <summary>The Load browser: navigate to a folder, pick a <c>.mdscene</c> file / Cancel.</summary>
-    Load,
     /// <summary>The confirm-on-switch modal (UX-C): "Unsaved changes in &lt;scene&gt;" with
-    /// [Save &amp; Switch] [Discard &amp; Switch] [Cancel]. No browser, no field — a plain 3-action
-    /// confirm on the same modal machinery (parked chrome, cursor consume, same weave).</summary>
+    /// [Save &amp; Switch] [Discard &amp; Switch] [Cancel]. A plain 3-action confirm on the same modal
+    /// machinery (parked chrome, cursor consume, same weave).</summary>
     ConfirmSwitch,
 }
 
 /// <summary>
-/// The editor's modal <b>Save / Load file-system navigator</b> — a Blender-style directory browser,
-/// native-resolution chrome on <c>RenderTargetID.Editor</c> (screen-space, DPR-scaled), built from the
-/// same engine primitives as the rest of the shell (<see cref="SimpleButtonComponent"/> fills/outlines
-/// prepped by the woven <c>ButtonMeshPrepSystem</c>, <see cref="DynamicTextComponent"/> labels), laid
-/// out by the pure <see cref="EditorDialogLayout"/> and hit-tested against the cursor's raw
-/// <see cref="CursorInputComponent.ScreenPosition"/> — never <c>VirtualPosition</c>, which is frozen
-/// over the chrome margins. Per the chrome rule the dialog entities carry <b>no</b>
-/// <c>VisibleComponent</c>; they are shown/hidden by parking off-screen (the SystemsPanel idiom).
+/// The editor's modal <b>Save dialog</b> — native-resolution chrome on <c>RenderTargetID.Editor</c>
+/// (screen-space, DPR-scaled), built from the same engine primitives as the rest of the shell
+/// (<see cref="SimpleButtonComponent"/> fills/outlines prepped by the woven <c>ButtonMeshPrepSystem</c>,
+/// <see cref="DynamicTextComponent"/> labels), laid out by the pure <see cref="EditorDialogLayout"/> and
+/// hit-tested against the cursor's raw <see cref="CursorInputComponent.ScreenPosition"/> — never
+/// <c>VirtualPosition</c>, which is frozen over the chrome margins. Per the chrome rule the dialog
+/// entities carry <b>no</b> <c>VisibleComponent</c>; they are shown/hidden by parking off-screen (the
+/// SystemsPanel idiom).
 ///
-/// <para><b>The browser.</b> The pure <see cref="EditorFileBrowser"/> owns navigation: it lists a
-/// directory's subfolders + <c>.mdscene</c> files, descends (<see cref="EnterDirectory"/>) and climbs
-/// (<see cref="GoUp"/>) <b>bounded at the project root</b>, and opens at the project's scenes dir
-/// (<c>LevelsPath</c>). It is NOT a free OS file picker: it never escapes the project root, and scenes
-/// live under <c>Content/Levels</c> so they bundle + load per the persistence design (see the
-/// browser's own doc and the level-editor premises). The dialog renders folder rows as
-/// <c>name/</c> and scene rows as the id; a click on a folder descends, a click on a file <b>loads</b>
-/// it (Load) or fills the filename field to overwrite it (Save).</para>
+/// <para><b>The three actions (UX-D §4).</b> The Save dialog replaces the removed file-system navigator
+/// with three stacked full-width actions, each a title + a subtitle:</para>
+/// <list type="number">
+///   <item><b>Save Scene</b> (primary, <see cref="EditorTheme.Accent"/>) — the guarded save of the
+///   current scene id (source-tree write + zero-touch bundling + save-point mark). Enter picks it.</item>
+///   <item><b>Save Project</b> — v1 saves the same single in-memory scene through the same path; it is
+///   the terrain for multi-scene sessions and never blanket-writes scenes not in memory.</item>
+///   <item><b>Save Backup As…</b> — clicking it <b>arms</b> a name field (prefilled
+///   <c>&lt;sceneId&gt;-backup</c>) + a Confirm; confirming writes <c>&lt;name&gt;.mdscene</c> WITHOUT
+///   rebinding the scene id / marking the save point / bundling, then reloads the bound scene from disk
+///   (via the transport's Restart) — the working scene returns to its on-disk truth.</item>
+/// </list>
+/// The dialog stays <b>game-agnostic</b>: each action fires a callback the overlay supplies (which run
+/// the SAME guarded Save / Restart paths the toolbar uses), so this system knows nothing of
+/// <c>SceneWriter</c> / project paths.
 ///
 /// <para><b>Modality (the dialog owns input while open).</b> Two facets: (1) <b>mouse</b> — after
 /// hit-testing its own controls, the system <b>consumes the cursor's pointer edges</b> (clears the
@@ -57,37 +62,33 @@ public enum EditorDialogMode
 /// downstream this frame sees no click and does not act — no per-system edit needed. (2)
 /// <b>keyboard</b> — the composing screen wires the host keyboard system's <c>ShouldSuppressInput</c>
 /// to <see cref="IsOpen"/>, so every editor/game key (delete, undo/redo, the game's Escape-to-exit)
-/// stands down while the dialog reads the keyboard for its own field. Escape cancels; Enter confirms
-/// (Save). The release-edge action survives its own consume only because the cursor derives its edges
-/// from its OWN previous-state (the EF1 cursor premise), not from the level fields the dialog clears.</para>
+/// stands down while the dialog reads the keyboard for the backup name field. Escape cancels; Enter
+/// confirms (Save Scene, or the backup when its field is armed). The release-edge action survives its
+/// own consume only because the cursor derives its edges from its OWN previous-state (the EF1 cursor
+/// premise), not from the level fields the dialog clears.</para>
 ///
 /// <para><b>Headless-drivable.</b> Every action has a public method (<see cref="OpenSave"/> /
-/// <see cref="OpenLoad"/> / <see cref="SetName"/> / <see cref="Confirm"/> / <see cref="Cancel"/> /
-/// <see cref="EnterDirectory"/> / <see cref="GoUp"/> / <see cref="PickFile"/>) so the <c>dialog:*</c>
-/// editor-op grammar drives the full flow with no real keyboard/mouse — see
-/// <c>EditorOverlay.DispatchNamedAction</c> (<c>save-open</c> / <c>load-open</c> / <c>name</c> /
-/// <c>confirm</c> / <c>cancel</c> / <c>cd</c> / <c>up</c> / <c>pick</c>).</para>
-///
-/// <para><b>Game-agnostic.</b> It knows nothing of <c>SceneWriter</c> / project paths: the confirm /
-/// pick outcomes fire callbacks the overlay supplies with the resolved <b>absolute file path</b>
-/// (which run the SAME guarded Save / Load paths the toolbar used), and the browsable tree comes from
-/// injected providers (<see cref="BrowserRoots"/> + a <c>listDirectory</c> function) — so the module
-/// never touches the filesystem and the whole flow is unit-testable in-process with no GraphicsDevice.
-/// </para>
+/// <see cref="SaveScene"/> / <see cref="SaveProject"/> / <see cref="ArmBackup"/> / <see cref="SetName"/> /
+/// <see cref="ConfirmBackup"/> / <see cref="Backup"/> / <see cref="Confirm"/> / <see cref="Cancel"/>) so
+/// the <c>dialog:*</c> editor-op grammar (<c>save-open</c> / <c>scene</c> / <c>project</c> / <c>name</c>
+/// / <c>backup</c> / <c>confirm</c> / <c>discard</c> / <c>cancel</c>) drives the full flow with no real
+/// keyboard/mouse — see <c>EditorOverlay.DispatchNamedAction</c>.</para>
 /// </summary>
 public sealed class EditorDialogSystem : ISystem<GameState>
 {
     // Colors + depths come from EditorTheme (the module's single source): the dialog band sits ABOVE
     // the shell chrome (panels 0.1 / buttons 0.5 / labels 0.6) so the modal covers the toolbar + panel.
 
-    // Per-widget hover-fade progress for the three persistent dialog buttons (Confirm / Cancel / Up) —
-    // stored on the system (the buttons are parked persistent entities, so their fade state lives
-    // alongside, never keyed to a pooled row — pre-mortem #6). Advanced framerate-independently.
-    private float _confirmHover, _cancelHover, _upHover, _discardHover;
-    private int _hoverControl = -1; // 0=confirm, 1=cancel, 2=up, 4=discard(confirm-switch), else row+3, or -1
+    // Per-widget hover-fade progress (persistent buttons store it on the system, never a pooled row —
+    // pre-mortem #6). Advanced framerate-independently.
+    private readonly float[] _actionHover = new float[EditorDialogLayout.SaveActionCount];
+    private float _confirmHover, _cancelHover, _discardHover;
+    // Which control the cursor is over: 0..2 = a Save action row, 3 = the backup/Save&Switch confirm,
+    // 4 = Cancel, 5 = the confirm-switch Discard, or -1 = none.
+    private int _hoverControl = -1;
     private bool _leftDown;
 
-    // Confirm-on-switch state (UX-C): the callbacks + message for the current confirm, set by OpenConfirmSwitch.
+    // Confirm-on-switch state (UX-C): the callbacks for the current confirm, set by OpenConfirmSwitch.
     private Action<GameState>? _onSwitchConfirmed; // Save & Switch (the primary/Enter action)
     private Action<GameState>? _onSwitchDiscarded; // Discard & Switch
     private string _confirmMessage = string.Empty;
@@ -97,22 +98,24 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private readonly World _world;
     private readonly ViewportManager _viewportManager;
     private readonly BitmapFont? _font;
-    private readonly Action<string, GameState> _onSaveConfirmed;
-    private readonly Action<string, GameState> _onLoadSelected;
-    private readonly Func<BrowserRoots> _getRoots;
+    private readonly Action<GameState> _onSaveScene;
+    private readonly Action<GameState> _onSaveProject;
+    private readonly Action<string, GameState> _onSaveBackup;
     private readonly Func<KeyboardState> _getKeyboardState;
     private readonly EntitySet _cursorSet;
 
     private readonly EditorTextField _field = new();
-    private readonly EditorFileBrowser _browser;
     private EditorDialogMode _mode = EditorDialogMode.None;
-    private int _scroll;
+    private string _sceneId = string.Empty;
+    private bool _backupActive; // the Save Backup As… name field is revealed/armed
     private KeyboardState _prevKeys;
 
     private bool _built;
-    private Entity _backdrop, _panel, _title, _breadcrumb, _upBox, _upLabel, _fieldBox, _fieldText,
+    private Entity _backdrop, _panel, _title, _fieldBox, _fieldText,
         _confirmBox, _confirmLabel, _discardBox, _discardLabel, _cancelBox, _cancelLabel, _message;
-    private readonly List<(Entity box, Entity label)> _rows = new();
+    private readonly Entity[] _actionBox = new Entity[EditorDialogLayout.SaveActionCount];
+    private readonly Entity[] _actionTitle = new Entity[EditorDialogLayout.SaveActionCount];
+    private readonly Entity[] _actionSub = new Entity[EditorDialogLayout.SaveActionCount];
 
     public bool IsEnabled { get; set; } = true;
 
@@ -123,67 +126,43 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     /// <summary>The open dialog kind (or <see cref="EditorDialogMode.None"/>). Exposed for tests.</summary>
     public EditorDialogMode Mode => _mode;
 
-    /// <summary>The current Save-name field value (raw, pre-sanitize). Exposed for tests.</summary>
+    /// <summary>Whether the Save Backup As… name field is currently armed/revealed. Exposed for tests.</summary>
+    public bool IsBackupArmed => _backupActive;
+
+    /// <summary>The current backup-name field value (raw, pre-sanitize). Exposed for tests.</summary>
     public string NameValue => _field.Value;
-
-    /// <summary>The browser's current directory (null when unresolved). Exposed for tests.</summary>
-    public string? CurrentDirectory => _browser.CurrentDir;
-
-    /// <summary>The subfolders in the current directory. Exposed for tests.</summary>
-    public IReadOnlyList<string> Directories => _browser.Directories;
-
-    /// <summary>The <c>.mdscene</c> ids in the current directory. Exposed for tests.</summary>
-    public IReadOnlyList<string> Files => _browser.Files;
-
-    /// <summary>Whether the up-directory control would move (false at the project-root boundary).</summary>
-    public bool CanGoUp => _browser.CanGoUp;
-
-    /// <summary>The breadcrumb path display string. Exposed for tests.</summary>
-    public string BreadcrumbText => _browser.BreadcrumbText;
 
     public EditorDialogSystem(
         World world,
         ViewportManager viewportManager,
         BitmapFont? font,
-        Action<string, GameState> onSaveConfirmed,
-        Action<string, GameState> onLoadSelected,
-        Func<BrowserRoots> getRoots,
-        Func<string, RawDirectory> listDirectory,
+        Action<GameState> onSaveScene,
+        Action<GameState> onSaveProject,
+        Action<string, GameState> onSaveBackup,
         Func<KeyboardState>? getKeyboardState = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
         _font = font; // null = layout-only (tests run no text prep, mirroring EditorChromeBuilder's seam)
-        _onSaveConfirmed = onSaveConfirmed ?? throw new ArgumentNullException(nameof(onSaveConfirmed));
-        _onLoadSelected = onLoadSelected ?? throw new ArgumentNullException(nameof(onLoadSelected));
-        _getRoots = getRoots ?? throw new ArgumentNullException(nameof(getRoots));
-        _browser = new EditorFileBrowser(listDirectory ?? throw new ArgumentNullException(nameof(listDirectory)));
+        _onSaveScene = onSaveScene ?? throw new ArgumentNullException(nameof(onSaveScene));
+        _onSaveProject = onSaveProject ?? throw new ArgumentNullException(nameof(onSaveProject));
+        _onSaveBackup = onSaveBackup ?? throw new ArgumentNullException(nameof(onSaveBackup));
         _getKeyboardState = getKeyboardState ?? Keyboard.GetState;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
     // ─── public API (toolbar dispatch, headless ops, tests) ──────────────────────────────────────
 
-    /// <summary>Opens the Save browser rooted at the project scenes dir, with the field prefilled to
-    /// <paramref name="defaultName"/> (the current scene id).</summary>
-    public void OpenSave(string defaultName)
+    /// <summary>Opens the Save dialog for scene id <paramref name="sceneId"/> (used in the subtitles and
+    /// as the <c>&lt;sceneId&gt;-backup</c> field prefill). The backup field starts disarmed.</summary>
+    public void OpenSave(string sceneId)
     {
         EnsureBuilt();
-        _field.Set(defaultName);
-        _browser.Open(_getRoots());
-        _scroll = 0;
+        _sceneId = sceneId ?? string.Empty;
+        _backupActive = false;
+        _field.Set(EditorTextField.Sanitize(_sceneId + "-backup"));
         _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
         _mode = EditorDialogMode.Save;
-    }
-
-    /// <summary>Opens the Load browser rooted at the project scenes dir.</summary>
-    public void OpenLoad()
-    {
-        EnsureBuilt();
-        _browser.Open(_getRoots());
-        _scroll = 0;
-        _prevKeys = _getKeyboardState();
-        _mode = EditorDialogMode.Load;
     }
 
     /// <summary>Opens the confirm-on-switch modal (UX-C): the message names
@@ -201,6 +180,68 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _mode = EditorDialogMode.ConfirmSwitch;
     }
 
+    /// <summary>The <b>Save Scene</b> action (headless <c>dialog:scene</c>): closes, then runs the
+    /// guarded save-current-scene callback. No-op outside <see cref="EditorDialogMode.Save"/>.</summary>
+    public void SaveScene(GameState state)
+    {
+        if (_mode != EditorDialogMode.Save) return;
+        var action = _onSaveScene;
+        Close();
+        action.Invoke(state);
+    }
+
+    /// <summary>The <b>Save Project</b> action (headless <c>dialog:project</c>): closes, then runs the
+    /// save-project callback (v1 = the same single scene through the same guarded path). No-op outside
+    /// <see cref="EditorDialogMode.Save"/>.</summary>
+    public void SaveProject(GameState state)
+    {
+        if (_mode != EditorDialogMode.Save) return;
+        var action = _onSaveProject;
+        Close();
+        action.Invoke(state);
+    }
+
+    /// <summary>Arms the <b>Save Backup As…</b> action: reveals the name field (prefilled at
+    /// <see cref="OpenSave"/>). No-op outside <see cref="EditorDialogMode.Save"/>. A click on the backup
+    /// row calls this; a subsequent confirm writes the backup.</summary>
+    public void ArmBackup()
+    {
+        if (_mode != EditorDialogMode.Save) return;
+        _backupActive = true;
+    }
+
+    /// <summary>Replaces the backup-name field value (the headless <c>dialog:name</c> op).</summary>
+    public void SetName(string text) => _field.Set(text);
+
+    /// <summary>Confirms the backup: sanitizes the field to a safe file id and, when non-empty, closes
+    /// and runs the backup callback (write <c>&lt;name&gt;.mdscene</c> then Restart). An empty result
+    /// keeps the dialog open and logs. No-op unless the backup field is armed.</summary>
+    public void ConfirmBackup(GameState state)
+    {
+        if (_mode != EditorDialogMode.Save || !_backupActive) return;
+        var id = EditorTextField.Sanitize(_field.Value);
+        if (string.IsNullOrEmpty(id))
+        {
+            Logger.Warning(
+                "[level-editor] Save Backup As: the name is empty after reducing it to a safe file id " +
+                "(letters, digits, '-' and '_'). Type a valid name.");
+            return; // keep the dialog open
+        }
+        var action = _onSaveBackup;
+        Close();
+        action.Invoke(id, state);
+    }
+
+    /// <summary>One-shot backup (the headless <c>dialog:backup &lt;name&gt;</c> op): arm the field, set
+    /// the name, and confirm in a single call. No-op outside <see cref="EditorDialogMode.Save"/>.</summary>
+    public void Backup(string name, GameState state)
+    {
+        if (_mode != EditorDialogMode.Save) return;
+        _backupActive = true;
+        _field.Set(name);
+        ConfirmBackup(state);
+    }
+
     /// <summary>The confirm-switch dialog's <b>Discard &amp; Switch</b> action (the headless
     /// <c>dialog:discard</c> op / the Danger button): closes, then invokes the discard callback
     /// (switch without saving). No-op outside <see cref="EditorDialogMode.ConfirmSwitch"/>.</summary>
@@ -212,76 +253,23 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         action?.Invoke(state);
     }
 
-    /// <summary>Replaces the Save-name field value (the headless <c>dialog:name</c> op).</summary>
-    public void SetName(string text) => _field.Set(text);
-
-    /// <summary>Descends into a listed subfolder (the headless <c>dialog:cd &lt;name&gt;</c> op / a
-    /// folder-row click).</summary>
-    public void EnterDirectory(string name)
-    {
-        if (_browser.Enter(name)) _scroll = 0;
-    }
-
-    /// <summary>Climbs to the parent directory, bounded at the project root (the headless
-    /// <c>dialog:up</c> op / the up-button click).</summary>
-    public void GoUp()
-    {
-        _browser.Up();
-        _scroll = 0;
-    }
-
-    /// <summary>Picks a scene file by id in the current directory (the headless <c>dialog:pick</c> /
-    /// <c>dialog:load</c> op / a file-row click). In Load mode it fires the load callback (with the
-    /// resolved absolute path) and closes; in Save mode it fills the filename field so the user can
-    /// overwrite that file.</summary>
-    public void PickFile(string id, GameState state)
-    {
-        if (string.IsNullOrEmpty(id)) return;
-        if (_mode == EditorDialogMode.Save) { _field.Set(id); return; }
-        var path = _browser.FilePath(id);
-        if (string.IsNullOrEmpty(path))
-        {
-            Logger.Warning("[level-editor] Load: no project root resolved, so there is nothing to load.");
-            return;
-        }
-        _onLoadSelected(path!, state);
-        Close();
-    }
-
-    /// <summary>Confirms the Save dialog: sanitizes the field to a safe file id and, when non-empty,
-    /// resolves it to <c>&lt;current-dir&gt;/&lt;id&gt;.mdscene</c>, fires the save callback and closes;
-    /// an empty result (or an unresolved root) keeps the dialog open and logs. (Load acts via
-    /// <see cref="PickFile"/>.)</summary>
+    /// <summary>The focused/default confirm (the headless <c>dialog:confirm</c> op / Enter): in
+    /// <see cref="EditorDialogMode.ConfirmSwitch"/> it is Save &amp; Switch; in the Save dialog it is
+    /// <see cref="ConfirmBackup"/> while the backup field is armed, else <see cref="SaveScene"/>.</summary>
     public void Confirm(GameState state)
     {
-        if (_mode == EditorDialogMode.ConfirmSwitch)
+        switch (_mode)
         {
-            // Save & Switch (the primary confirm-switch action): close, then run the save-then-switch
-            // callback the gate supplied.
-            var action = _onSwitchConfirmed;
-            Close();
-            action?.Invoke(state);
-            return;
+            case EditorDialogMode.ConfirmSwitch:
+                var action = _onSwitchConfirmed;
+                Close();
+                action?.Invoke(state);
+                return;
+            case EditorDialogMode.Save:
+                if (_backupActive) ConfirmBackup(state);
+                else SaveScene(state);
+                return;
         }
-        if (_mode != EditorDialogMode.Save) return;
-        var id = EditorTextField.Sanitize(_field.Value);
-        if (string.IsNullOrEmpty(id))
-        {
-            Logger.Warning(
-                "[level-editor] Save dialog: the name is empty after reducing it to a safe file id " +
-                "(letters, digits, '-' and '_'). Type a valid name.");
-            return; // keep the dialog open
-        }
-        var path = _browser.FilePath(id);
-        if (string.IsNullOrEmpty(path))
-        {
-            Logger.Warning(
-                "[level-editor] Save dialog: no project root resolved, so there is nowhere to write. " +
-                "Set MONODREAMS_PROJECT_ROOT in the run configuration.");
-            return; // keep the dialog open
-        }
-        _onSaveConfirmed(path!, state);
-        Close();
     }
 
     /// <summary>Closes any open dialog (Escape / Cancel / the headless <c>dialog:cancel</c> op).</summary>
@@ -312,14 +300,11 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             return;
         }
 
-        if (_mode == EditorDialogMode.Save) ReadSaveKeyboard(state);
-        else ReadLoadKeyboard();
-
-        HandleMouseAndConsume(state, scale);
-
+        // Save mode.
+        ReadSaveKeyboard(state);
+        HandleSaveMouseAndConsume(state, scale);
         if (_mode == EditorDialogMode.None) { ParkAll(); return; }
-
-        LayoutAndRender(state, scale);
+        LayoutSave(state, scale);
     }
 
     /// <summary>Confirm-switch keyboard: Enter = Save &amp; Switch (the primary), Escape = Cancel.</summary>
@@ -333,8 +318,77 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         else if (escape) Cancel();
     }
 
+    /// <summary>Save-dialog keyboard: Escape cancels; Enter confirms (Save Scene, or the backup when its
+    /// field is armed). While the backup field is armed, typed characters edit the name (Backspace too);
+    /// otherwise typing is ignored (the actions are click/Enter-driven).</summary>
+    private void ReadSaveKeyboard(GameState state)
+    {
+        var keys = _getKeyboardState();
+        foreach (var key in keys.GetPressedKeys())
+        {
+            if (_prevKeys.IsKeyDown(key)) continue; // only newly-pressed this frame
+            switch (key)
+            {
+                case Keys.Enter: _prevKeys = keys; Confirm(state); return;
+                case Keys.Escape: _prevKeys = keys; Cancel(); return;
+                case Keys.Back: if (_backupActive) _field.Backspace(); continue;
+            }
+            if (!_backupActive) continue;
+            var c = KeyToChar(key);
+            if (c != '\0') _field.Append(c);
+        }
+        _prevKeys = keys;
+    }
+
+    // ─── mouse (Save dialog) ───────────────────────────────────────────────────────────────────
+
+    /// <summary>Hit-tests the Save dialog's controls against the cursor's native <c>ScreenPosition</c>,
+    /// then <b>consumes</b> the cursor's pointer edges so no editor system downstream acts on the same
+    /// click this frame (the mouse half of the modal capture).</summary>
+    private void HandleSaveMouseAndConsume(GameState state, float scale)
+    {
+        _hoverControl = -1;
+        _leftDown = false;
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref var input = ref cursor.Get<CursorInputComponent>();
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            var panel = EditorDialogLayout.SavePanel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight,
+                _backupActive, scale);
+
+            _leftDown = input.LeftButton;
+            _hoverControl = ComputeSaveHover(panel, scale, point);
+
+            if (input.LeftButtonReleased)
+            {
+                if (EditorDialogLayout.SaveAction(panel, 0, scale).Contains(point)) SaveScene(state);
+                else if (EditorDialogLayout.SaveAction(panel, 1, scale).Contains(point)) SaveProject(state);
+                else if (EditorDialogLayout.SaveAction(panel, 2, scale).Contains(point)) ArmBackup();
+                else if (_backupActive && EditorDialogLayout.BackupConfirmButton(panel, scale).Contains(point)) ConfirmBackup(state);
+                else if (EditorDialogLayout.SaveCancelButton(panel, scale).Contains(point)) Cancel();
+            }
+
+            ConsumeCursor(ref input);
+            cursor.NotifyChanged<CursorInputComponent>();
+            return; // single cursor
+        }
+    }
+
+    /// <summary>Which Save control the cursor is over (mirrors the release hit-test order so hover and
+    /// click agree): 0..2 = an action row, 3 = the backup Confirm, 4 = Cancel, or -1.</summary>
+    private int ComputeSaveHover(Rectangle panel, float scale, Point point)
+    {
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
+            if (EditorDialogLayout.SaveAction(panel, i, scale).Contains(point)) return i;
+        if (_backupActive && EditorDialogLayout.BackupConfirmButton(panel, scale).Contains(point)) return 3;
+        if (EditorDialogLayout.SaveCancelButton(panel, scale).Contains(point)) return 4;
+        return -1;
+    }
+
+    // ─── mouse (confirm-switch) ─────────────────────────────────────────────────────────────────
+
     /// <summary>Hit-tests the confirm-switch buttons against the cursor's native <c>ScreenPosition</c>
-    /// and consumes the cursor edges (modal), exactly like <see cref="HandleMouseAndConsume"/>.</summary>
+    /// and consumes the cursor edges (modal), exactly like <see cref="HandleSaveMouseAndConsume"/>.</summary>
     private void HandleConfirmMouseAndConsume(GameState state, float scale)
     {
         _hoverControl = -1;
@@ -347,9 +401,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             var buttons = EditorDialogLayout.ConfirmButtons(panel, scale);
 
             _leftDown = input.LeftButton;
-            if (buttons[0].Contains(point)) _hoverControl = 0;       // Save & Switch
-            else if (buttons[1].Contains(point)) _hoverControl = 4;  // Discard & Switch
-            else if (buttons[2].Contains(point)) _hoverControl = 1;  // Cancel
+            if (buttons[0].Contains(point)) _hoverControl = 3;       // Save & Switch
+            else if (buttons[1].Contains(point)) _hoverControl = 5;  // Discard & Switch
+            else if (buttons[2].Contains(point)) _hoverControl = 4;  // Cancel
 
             if (input.LeftButtonReleased)
             {
@@ -358,17 +412,93 @@ public sealed class EditorDialogSystem : ISystem<GameState>
                 else if (buttons[2].Contains(point)) Cancel();
             }
 
-            input.LeftButtonPressed = input.RightButtonPressed = input.MiddleButtonPressed = false;
-            input.LeftButtonReleased = input.RightButtonReleased = input.MiddleButtonReleased = false;
-            input.LeftButton = input.RightButton = input.MiddleButton = false;
-            input.ScrollWheelDelta = 0;
+            ConsumeCursor(ref input);
             cursor.NotifyChanged<CursorInputComponent>();
             return; // single cursor
         }
     }
 
+    /// <summary>Clears the cursor's pointer edges + button level fields for this frame (the modal
+    /// consume). The dialog's own release-edge action survives because <c>CursorInputSystem</c> derives
+    /// its edges from its own previous hardware state, not these fields (the EF1 cursor premise).</summary>
+    private static void ConsumeCursor(ref CursorInputComponent input)
+    {
+        input.LeftButtonPressed = input.RightButtonPressed = input.MiddleButtonPressed = false;
+        input.LeftButtonReleased = input.RightButtonReleased = input.MiddleButtonReleased = false;
+        input.LeftButton = input.RightButton = input.MiddleButton = false;
+        input.ScrollWheelDelta = 0;
+    }
+
+    // ─── layout + render (Save dialog) ───────────────────────────────────────────────────────────
+
+    private void LayoutSave(GameState state, float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var panel = EditorDialogLayout.SavePanel(w, h, _backupActive, scale);
+
+        PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
+        PlaceBox(_panel, panel);
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), "Save", EditorTheme.Text0, scale);
+
+        // The three actions (Save Scene is the primary — Accent outline).
+        PlaceAction(0, panel, scale, state, primary: true,
+            "Save Scene", $"{_sceneId}{SceneWriter.SceneFileExtension}", EditorTheme.Text1);
+        PlaceAction(1, panel, scale, state, primary: false,
+            "Save Project", $"every unsaved scene + project files (currently: {_sceneId})", EditorTheme.Text1);
+        PlaceAction(2, panel, scale, state, primary: false,
+            "Save Backup As...", $"then reloads {_sceneId} from disk (discards unsaved edits)", EditorTheme.Warning);
+
+        // The backup name field + Confirm (revealed only when armed).
+        if (_backupActive)
+        {
+            var field = EditorDialogLayout.BackupField(panel, scale);
+            PlaceBox(_fieldBox, field);
+            SetBoxFill(_fieldBox, EditorTheme.Bg2);
+            var caretOn = (state.TotalTime % 1.0) < 0.5;
+            var shown = _field.Value + (caretOn ? "|" : string.Empty);
+            PlaceLabel(_fieldText, EditorDialogLayout.FieldText(field, scale), shown, EditorTheme.Text0, scale);
+
+            var confirm = EditorDialogLayout.BackupConfirmButton(panel, scale);
+            PlaceBox(_confirmBox, confirm);
+            SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 3, disabled: false, state.Time));
+            PlaceLabel(_confirmLabel, LabelInset(confirm, scale), "Confirm", EditorTheme.Text0, scale);
+        }
+        else
+        {
+            ParkBox(_fieldBox); Park(_fieldText);
+            ParkBox(_confirmBox); Park(_confirmLabel);
+        }
+
+        // Cancel is always present.
+        var cancel = EditorDialogLayout.SaveCancelButton(panel, scale);
+        PlaceBox(_cancelBox, cancel);
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 4, disabled: false, state.Time));
+        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
+
+        // Park confirm-switch-only chrome.
+        Park(_message);
+        ParkBox(_discardBox); Park(_discardLabel);
+    }
+
+    /// <summary>Places one Save action row (box + title line + subtitle line). The primary action gets an
+    /// <see cref="EditorTheme.Accent"/> outline; the fill eases through the shared hover recipe.</summary>
+    private void PlaceAction(int index, Rectangle panel, float scale, GameState state, bool primary,
+        string title, string subtitle, Color subtitleColor)
+    {
+        var rect = EditorDialogLayout.SaveAction(panel, index, scale);
+        PlaceBox(_actionBox[index], rect);
+        SetBoxFill(_actionBox[index], DialogButtonFill(ref _actionHover[index], index, disabled: false, state.Time));
+        SetBoxOutline(_actionBox[index], primary ? EditorTheme.Accent : EditorTheme.BorderStrong);
+        PlaceLabel(_actionTitle[index], EditorDialogLayout.ActionTitle(rect, scale), title,
+            primary ? EditorTheme.Accent : EditorTheme.Text0, scale);
+        PlaceLabel(_actionSub[index], EditorDialogLayout.ActionSubtitle(rect, scale), subtitle, subtitleColor, scale);
+    }
+
+    // ─── layout + render (confirm-switch) ───────────────────────────────────────────────────────
+
     /// <summary>Lays out the confirm-switch modal: backdrop + panel + title + message + the three
-    /// buttons (Discard styled <see cref="EditorTheme.Danger"/>); parks every browser-only control.</summary>
+    /// buttons (Discard styled <see cref="EditorTheme.Danger"/>); parks every Save-only control.</summary>
     private void LayoutConfirm(GameState state, float scale)
     {
         var w = _viewportManager.ScreenWidth;
@@ -382,122 +512,24 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         PlaceLabel(_message, EditorDialogLayout.ConfirmMessage(panel, scale), _confirmMessage, EditorTheme.Text1, scale);
 
         PlaceBox(_confirmBox, buttons[0]);
-        SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 0, disabled: false, state.Time));
+        SetBoxOutline(_confirmBox, EditorTheme.BorderStrong);
+        SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 3, disabled: false, state.Time));
         PlaceLabel(_confirmLabel, LabelInset(buttons[0], scale), "Save & Switch", EditorTheme.Text0, scale);
 
         PlaceBox(_discardBox, buttons[1]);
-        SetBoxFill(_discardBox, DialogButtonFill(ref _discardHover, 4, disabled: false, state.Time));
+        SetBoxFill(_discardBox, DialogButtonFill(ref _discardHover, 5, disabled: false, state.Time));
         PlaceLabel(_discardLabel, LabelInset(buttons[1], scale), "Discard & Switch", EditorTheme.Danger, scale);
 
         PlaceBox(_cancelBox, buttons[2]);
-        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 1, disabled: false, state.Time));
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 4, disabled: false, state.Time));
         PlaceLabel(_cancelLabel, LabelInset(buttons[2], scale), "Cancel", EditorTheme.Text0, scale);
 
-        // Park the browser-only chrome (breadcrumb / up / field / list rows).
-        Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
+        // Park the Save-only chrome (action rows + backup field).
         ParkBox(_fieldBox); Park(_fieldText);
-        ParkRows();
-    }
-
-    private void ReadSaveKeyboard(GameState state)
-    {
-        var keys = _getKeyboardState();
-        foreach (var key in keys.GetPressedKeys())
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
         {
-            if (_prevKeys.IsKeyDown(key)) continue; // only newly-pressed this frame
-            switch (key)
-            {
-                case Keys.Back: _field.Backspace(); continue;
-                case Keys.Enter: _prevKeys = keys; Confirm(state); return;
-                case Keys.Escape: _prevKeys = keys; Cancel(); return;
-            }
-            var c = KeyToChar(key);
-            if (c != '\0') _field.Append(c);
+            ParkBox(_actionBox[i]); Park(_actionTitle[i]); Park(_actionSub[i]);
         }
-        _prevKeys = keys;
-    }
-
-    private void ReadLoadKeyboard()
-    {
-        var keys = _getKeyboardState();
-        var escapePressed = keys.IsKeyDown(Keys.Escape) && !_prevKeys.IsKeyDown(Keys.Escape);
-        _prevKeys = keys;
-        if (escapePressed) Cancel();
-    }
-
-    /// <summary>Hit-tests the dialog's controls against the cursor's native <c>ScreenPosition</c>,
-    /// then <b>consumes</b> the cursor's pointer edges so no editor system downstream acts on the
-    /// same click/scroll this frame (the mouse half of the modal capture).</summary>
-    private void HandleMouseAndConsume(GameState state, float scale)
-    {
-        _hoverControl = -1;
-        _leftDown = false;
-        foreach (var cursor in _cursorSet.GetEntities())
-        {
-            ref var input = ref cursor.Get<CursorInputComponent>();
-            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
-            var isSave = _mode == EditorDialogMode.Save;
-            var panel = EditorDialogLayout.Panel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight,
-                !isSave, scale);
-
-            // Per-frame hover for the interaction states (the fills apply it in LayoutAndRender/RenderList):
-            // which control the cursor is over, and whether the left button is held (the pressed fill).
-            _leftDown = input.LeftButton;
-            _hoverControl = ComputeHoverControl(panel, isSave, scale, point);
-
-            if (input.ScrollWheelDelta != 0 && panel.Contains(point))
-                ScrollList(panel, isSave, scale, input.ScrollWheelDelta);
-
-            if (input.LeftButtonReleased)
-            {
-                if (EditorDialogLayout.CancelButton(panel, !isSave, scale).Contains(point))
-                {
-                    Cancel();
-                }
-                else if (isSave && EditorDialogLayout.ConfirmButton(panel, scale).Contains(point))
-                {
-                    Confirm(state);
-                }
-                else if (_browser.Resolved && EditorDialogLayout.UpButton(panel, scale).Contains(point))
-                {
-                    GoUp();
-                }
-                else if (_browser.Resolved)
-                {
-                    HitTestRow(panel, isSave, scale, point, state);
-                }
-            }
-
-            // Consume the pointer for this frame (modal): downstream mouse systems see no edges.
-            input.LeftButtonPressed = input.RightButtonPressed = input.MiddleButtonPressed = false;
-            input.LeftButtonReleased = input.RightButtonReleased = input.MiddleButtonReleased = false;
-            input.LeftButton = input.RightButton = input.MiddleButton = false;
-            input.ScrollWheelDelta = 0;
-            cursor.NotifyChanged<CursorInputComponent>();
-            return; // single cursor
-        }
-    }
-
-    /// <summary>Which control the cursor is over, for the interaction-state fills: 0 = Confirm,
-    /// 1 = Cancel, 2 = Up, <c>3 + visibleRowIndex</c> = a list row, or -1 = none. Mirrors the
-    /// release hit-test order so hover and click agree.</summary>
-    private int ComputeHoverControl(Rectangle panel, bool isSave, float scale, Point point)
-    {
-        if (EditorDialogLayout.CancelButton(panel, !isSave, scale).Contains(point)) return 1;
-        if (isSave && EditorDialogLayout.ConfirmButton(panel, scale).Contains(point)) return 0;
-        if (_browser.Resolved && EditorDialogLayout.UpButton(panel, scale).Contains(point)) return 2;
-        if (_browser.Resolved)
-        {
-            var count = _browser.EntryCount;
-            var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
-            for (var vi = 0; vi < visible; vi++)
-            {
-                var i = _scroll + vi;
-                if (i >= count) break;
-                if (EditorDialogLayout.Row(panel, vi, scale).Contains(point)) return 3 + vi;
-            }
-        }
-        return -1;
     }
 
     /// <summary>A dialog button's fill: eases its own hover progress (persistent buttons store it on
@@ -515,134 +547,10 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         e.Get<SimpleButtonComponent>().FillColor = fill;
     }
 
-    /// <summary>Maps a clicked visible row to a folder (descend) or a scene file (Load: load / Save:
-    /// fill the name), folders listed before files.</summary>
-    private void HitTestRow(Rectangle panel, bool isSave, float scale, Point point, GameState state)
+    private static void SetBoxOutline(Entity e, Color outline)
     {
-        var count = _browser.EntryCount;
-        if (count == 0) return;
-        var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
-        for (var vi = 0; vi < visible; vi++)
-        {
-            var i = _scroll + vi;
-            if (i >= count) break;
-            if (!EditorDialogLayout.Row(panel, vi, scale).Contains(point)) continue;
-            if (_browser.IsDirectory(i))
-                EnterDirectory(_browser.Directories[i]);
-            else
-                PickFile(_browser.Files[i - _browser.Directories.Count], state);
-            return;
-        }
-    }
-
-    private void ScrollList(Rectangle panel, bool isSave, float scale, int wheelDelta)
-    {
-        var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
-        var max = Math.Max(0, _browser.EntryCount - visible);
-        _scroll = Math.Clamp(_scroll + (wheelDelta > 0 ? -1 : 1), 0, max);
-    }
-
-    // ─── layout + render ───────────────────────────────────────────────────────────────────────
-
-    private void LayoutAndRender(GameState state, float scale)
-    {
-        var isSave = _mode == EditorDialogMode.Save;
-        var w = _viewportManager.ScreenWidth;
-        var h = _viewportManager.ScreenHeight;
-        var panel = EditorDialogLayout.Panel(w, h, !isSave, scale);
-
-        PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
-        PlaceBox(_panel, panel);
-        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), isSave ? "Save Scene" : "Load Scene",
-            EditorTheme.Text0, scale);
-
-        // Cancel is always present (Load's only button; Save's second button).
-        var cancel = EditorDialogLayout.CancelButton(panel, !isSave, scale);
-        PlaceBox(_cancelBox, cancel);
-        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 1, disabled: false, state.Time));
-        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
-
-        if (!_browser.Resolved)
-        {
-            // No project root: show the actionable message, hide the browser controls.
-            PlaceLabel(_message, EditorDialogLayout.Message(panel, scale),
-                _browser.Message ?? "No project root resolved.", EditorTheme.Text0, scale);
-            Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
-            ParkBox(_fieldBox); Park(_fieldText);
-            ParkBox(_confirmBox); Park(_confirmLabel);
-            ParkRows();
-            return;
-        }
-
-        // Breadcrumb (current path) + up-directory button.
-        var breadcrumb = EditorDialogLayout.Breadcrumb(panel, scale);
-        PlaceLabel(_breadcrumb, LabelInset(breadcrumb, scale), _browser.BreadcrumbText,
-            EditorTheme.Text0, scale);
-        var up = EditorDialogLayout.UpButton(panel, scale);
-        PlaceBox(_upBox, up);
-        SetBoxFill(_upBox, DialogButtonFill(ref _upHover, 2, disabled: !_browser.CanGoUp, state.Time));
-        PlaceLabel(_upLabel, LabelInset(up, scale), "Up",
-            _browser.CanGoUp ? EditorTheme.Text0 : EditorTheme.TextDisabled, scale);
-
-        if (isSave)
-        {
-            var confirm = EditorDialogLayout.ConfirmButton(panel, scale);
-            PlaceBox(_confirmBox, confirm);
-            SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 0, disabled: false, state.Time));
-            PlaceLabel(_confirmLabel, LabelInset(confirm, scale), "Save", EditorTheme.Text0, scale);
-
-            var field = EditorDialogLayout.Field(panel, scale);
-            PlaceBox(_fieldBox, field);
-            var caretOn = (state.TotalTime % 1.0) < 0.5;
-            var shown = _field.Value + (caretOn ? "|" : string.Empty);
-            PlaceLabel(_fieldText, EditorDialogLayout.FieldText(field, scale), shown,
-                EditorTheme.Text0, scale);
-        }
-        else
-        {
-            ParkBox(_confirmBox); Park(_confirmLabel);
-            ParkBox(_fieldBox); Park(_fieldText);
-        }
-
-        RenderList(panel, isSave, scale);
-    }
-
-    private void RenderList(Rectangle panel, bool isSave, float scale)
-    {
-        var count = _browser.EntryCount;
-        if (count == 0)
-        {
-            PlaceLabel(_message, EditorDialogLayout.Message(panel, scale),
-                _browser.Message ?? "Empty folder.", EditorTheme.Text0, scale);
-            ParkRows();
-            return;
-        }
-
-        Park(_message);
-        var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
-        _scroll = Math.Clamp(_scroll, 0, Math.Max(0, count - visible));
-
-        for (var vi = 0; vi < visible; vi++)
-        {
-            var i = _scroll + vi;
-            EnsureRow(vi);
-            var (box, label) = _rows[vi];
-            if (i >= count) { ParkBox(box); Park(label); continue; }
-
-            var rect = EditorDialogLayout.Row(panel, vi, scale);
-            PlaceBox(box, rect);
-            SetBoxFill(box, _hoverControl == 3 + vi ? EditorTheme.Bg3 : EditorTheme.Bg2); // instant row hover
-            var isDir = _browser.IsDirectory(i);
-            // Folders are suffixed "/" (and tinted with the accent) so they read distinctly from files.
-            var text = isDir ? _browser.Directories[i] + "/" : _browser.Files[i - _browser.Directories.Count];
-            var color = isDir ? EditorTheme.Success : EditorTheme.Text0;
-            PlaceLabel(label, LabelInset(rect, scale), text, color, scale);
-        }
-        for (var vi = visible; vi < _rows.Count; vi++)
-        {
-            ParkBox(_rows[vi].box);
-            Park(_rows[vi].label);
-        }
+        if (!e.IsAlive) return;
+        e.Get<SimpleButtonComponent>().Color = outline;
     }
 
     private Vector2 LabelInset(Rectangle rect, float scale)
@@ -659,9 +567,12 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _backdrop = CreateBox(EditorTheme.Bg0, EditorTheme.Bg0, 0f, EditorTheme.Depths.DialogBackdrop);
         _panel = CreateBox(EditorTheme.Bg1, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogPanel);
         _title = CreateLabel(EditorTheme.Depths.DialogLabel);
-        _breadcrumb = CreateLabel(EditorTheme.Depths.DialogLabel);
-        _upBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
-        _upLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
+        {
+            _actionBox[i] = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
+            _actionTitle[i] = CreateLabel(EditorTheme.Depths.DialogLabel);
+            _actionSub[i] = CreateLabel(EditorTheme.Depths.DialogLabel);
+        }
         _fieldBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
         _fieldText = CreateLabel(EditorTheme.Depths.DialogLabel);
         _confirmBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
@@ -674,16 +585,6 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _message = CreateLabel(EditorTheme.Depths.DialogLabel);
         _built = true;
         ParkAll();
-    }
-
-    private void EnsureRow(int index)
-    {
-        while (_rows.Count <= index)
-        {
-            var box = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1f, EditorTheme.Depths.DialogControl);
-            var label = CreateLabel(EditorTheme.Depths.DialogLabel);
-            _rows.Add((box, label));
-        }
     }
 
     private Entity CreateBox(Color fill, Color outline, float thickness, float depth)
@@ -752,18 +653,15 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private void ParkAll()
     {
         ParkBox(_backdrop); ParkBox(_panel); Park(_title);
-        Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
         ParkBox(_fieldBox); Park(_fieldText);
         ParkBox(_confirmBox); Park(_confirmLabel);
         ParkBox(_discardBox); Park(_discardLabel);
         ParkBox(_cancelBox); Park(_cancelLabel);
         Park(_message);
-        ParkRows();
-    }
-
-    private void ParkRows()
-    {
-        foreach (var (box, label) in _rows) { ParkBox(box); Park(label); }
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
+        {
+            ParkBox(_actionBox[i]); Park(_actionTitle[i]); Park(_actionSub[i]);
+        }
     }
 
     private static void ParkBox(Entity e)

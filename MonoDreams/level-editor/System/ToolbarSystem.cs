@@ -18,16 +18,17 @@ namespace MonoDreams.LevelEditor.System;
 /// <see cref="ToolbarButtonComponent"/> and, on a click (left button released over a button), hands
 /// the button's <see cref="EditorToolbarAction"/> plus the frame's <see cref="GameState"/> to a
 /// dispatch callback the composer supplies — which wires the transport (Play/Pause / Restart
-/// through <c>EditorTransport</c>), Save → <c>SceneWriter</c>, Load → publish
-/// <c>LoadSceneRequest</c>, Undo/Redo → <c>EditorHistory</c>, and the tool/snap actions → the
-/// shared <see cref="GizmoStateComponent"/>. It also tracks per-button hover, tints the button
-/// fill, and keeps the Play/Pause toggle button's label in sync with the transport state.
+/// through <c>EditorTransport</c>), Save → open the three-action Save dialog, Undo/Redo →
+/// <c>EditorHistory</c>, and the tool/snap actions → the shared <see cref="GizmoStateComponent"/>.
+/// (There is no Load action — a scene is opened via the Scenes panel.) It also tracks per-button
+/// hover, tints the button fill, and keeps the Play/Pause toggle button's label in sync with the
+/// transport state.
 ///
 /// <para><b>Transport model: live in BOTH modes.</b> Under the editor run configuration the shell
 /// never collapses, so the toolbar hit-tests in both transport states. What changes with the state
 /// is which buttons are active: the TRANSPORT buttons (<see cref="EditorToolbarAction.PlayPause"/>
 /// / <see cref="EditorToolbarAction.Restart"/>) dispatch always — they are how you leave either
-/// state — while the EDITING buttons (tools / Save / Load / Undo / Redo / Snap) dispatch only
+/// state — while the EDITING buttons (tools / Save / Undo / Redo / Snap) dispatch only
 /// while Paused (<see cref="RunMode.Edit"/>) and render with the disabled fill while Playing
 /// (in Play a click belongs to the game; an undo racing live physics would be surprising).</para>
 ///

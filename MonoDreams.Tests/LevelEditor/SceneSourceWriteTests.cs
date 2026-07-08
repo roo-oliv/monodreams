@@ -12,6 +12,8 @@ using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.UI;
+using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Platform;
 using MonoDreams.State;
 using Xunit;
@@ -265,6 +267,126 @@ public class SceneSourceWriteTests
 
             // load → save equals the source file byte-for-byte (ids restored, ordering stable).
             Assert.Equal(firstBytes, fake.Files[path]);
+        });
+    }
+
+    // ---- Save Project (UX-D §4): v1 writes the current (only-in-memory) scene through the same guarded
+    //      path + marks the save point. It never blanket-writes scenes not in memory. ----
+
+    /// <summary>A command that moves the sole scene root, so the working world is dirty AND visibly edited
+    /// (the edit is reverted when Restart reloads from disk).</summary>
+    private sealed class SetPositionCommand : IEditorCommand
+    {
+        private readonly Entity _entity;
+        private readonly Vector2 _to;
+        private Vector2 _from;
+        public SetPositionCommand(Entity entity, Vector2 to) { _entity = entity; _to = to; }
+        public void Apply(World world) { _from = _entity.Get<TransformComponent>().Position; SetPos(_to); }
+        public void Revert(World world) => SetPos(_from);
+        private void SetPos(Vector2 p) { ref var t = ref _entity.Get<TransformComponent>(); t.Position = p; _entity.NotifyChanged<TransformComponent>(); }
+    }
+
+    private static Entity SingleSceneRoot(World world)
+    {
+        using var set = world.GetEntities().With<SceneObjectComponent>().AsSet();
+        foreach (var e in set.GetEntities()) return e;
+        throw new InvalidOperationException("no scene root");
+    }
+
+    [Fact]
+    public void SaveProject_WritesTheCurrentSceneThroughTheSamePath_MarksTheSavePoint_SingleSceneV1()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            var ctx = ResolvedContext();
+            var path = EditorOverlay.SceneFilePath(ctx, "island")!;
+
+            using var world = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+            var history = new EditorHistory(world);
+            var root = MakeRoot(world, new Vector2(1, 2));
+            history.Push(new SetPositionCommand(root, new Vector2(3, 4))); // an edit → dirty
+            Assert.True(history.IsDirty);
+
+            // Mirror EditorOverlay.SaveProject == SaveCurrentScene: write <sceneId>.mdscene + MarkSavePoint.
+            new SceneWriter(serializer).Save(world, path, camera: null, layers: null);
+            history.MarkSavePoint();
+
+            // The ONE current scene was written to its file; the save point is marked (clean); no other
+            // .mdscene file was blanket-written.
+            Assert.True(fake.Files.ContainsKey(path));
+            Assert.False(history.IsDirty);
+            Assert.Single(fake.Files, kv => kv.Key.EndsWith(SceneWriter.SceneFileExtension, StringComparison.Ordinal));
+        });
+    }
+
+    // ---- Save Backup As (UX-D §4): writes a DANGLING <name>.mdscene into LevelsPath WITHOUT rebinding
+    //      the scene id, WITHOUT marking the save point, and WITHOUT a bundle copy line; then Restart
+    //      reloads the BOUND scene from disk (the working scene returns to its on-disk truth). ----
+
+    [Fact]
+    public void SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            const string boundSceneId = "island";
+            const string backupId = "island-backup";
+            var ctx = ResolvedContext(boundSceneId);
+            var boundPath = EditorOverlay.SceneFilePath(ctx, boundSceneId)!;
+            var backupPath = EditorOverlay.SceneFilePath(ctx, backupId)!;
+
+            // The on-disk bound scene (what Restart reloads) holds the marker at (5,5).
+            using (var seed = new World())
+            {
+                MakeRoot(seed, new Vector2(5, 5));
+                new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(seed, boundPath);
+            }
+
+            // A Content.mgcb that already bundles the bound scene but NOT the backup — so a bundling step,
+            // if it fired, would be observable as a new copy line.
+            var mgcbPath = Path.Combine(ctx.ProjectRoot!, MgcbLevelBundle.McgbFileName);
+            var originalMgcb = MgcbLevelBundle.BeginLine(boundSceneId) + "\n" + MgcbLevelBundle.CopyLine(boundSceneId) + "\n";
+            fake.Files[mgcbPath] = originalMgcb;
+
+            // The working world: the bound scene loaded (SceneWasLoaded = true) + an unsaved edit (dirty).
+            using var world = new World();
+            var serializer = new SceneSerializer(NewEngineRegistry());
+            var history = new EditorHistory(world);
+            using var reader = new SceneReaderSystem(world, serializer, content: null, loadTexture: _ => null);
+            world.Publish(new LoadSceneRequest(boundPath, fromContent: false));
+            var root = SingleSceneRoot(world);
+            Assert.Equal(new Vector2(5, 5), root.Get<TransformComponent>().Position);
+            history.Push(new SetPositionCommand(root, new Vector2(77, 77))); // an unsaved live edit
+            Assert.True(history.IsDirty);
+            Assert.Equal(new Vector2(77, 77), root.Get<TransformComponent>().Position);
+
+            var transport = new EditorTransport(world, history)
+            {
+                Reload = () => world.Publish(new LoadSceneRequest(boundPath, fromContent: false)),
+            };
+            var state = new GameState(new GameTime()) { RunMode = RunMode.Edit };
+
+            // Mirror EditorOverlay.SaveBackupAs(backupId, state): sanitize + write <backup>.mdscene, then
+            // deliberately DO NOT MarkSavePoint and DO NOT append the MGCB copy line, then Restart.
+            var id = EditorTextField.Sanitize(backupId);
+            new SceneWriter(serializer).Save(world, EditorOverlay.SceneFilePath(ctx, id)!, camera: null, layers: null);
+
+            // ── phase 1: the backup write's effects (before Restart) ──
+            Assert.True(fake.Files.ContainsKey(backupPath));          // the dangling backup file exists
+            Assert.True(fake.Files.ContainsKey(boundPath));           // the bound file is untouched by the backup
+            Assert.True(history.IsDirty);                             // save point NOT marked → still dirty
+            Assert.Equal(originalMgcb, fake.Files[mgcbPath]);         // NO copy line added for the backup
+            // …and the skipped bundling step WOULD have changed the mgcb (proving the skip is deliberate).
+            MgcbLevelBundle.EnsureCopyEntry(originalMgcb, backupId, out var wouldHaveBundled);
+            Assert.True(wouldHaveBundled);
+
+            // ── phase 2: Restart reloads the BOUND scene from disk ──
+            transport.Restart(state);
+            var reloaded = SingleSceneRoot(world);
+            Assert.Equal(new Vector2(5, 5), reloaded.Get<TransformComponent>().Position); // back to on-disk truth
+            Assert.False(history.IsDirty);                            // Restart's Clear re-marks clean
         });
     }
 }

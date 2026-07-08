@@ -114,7 +114,6 @@ public sealed class EditorChromeBuilder
         (EditorToolbarAction.ToolRotate, "Rotate"),
         (EditorToolbarAction.ToolScale, "Scale"),
         (EditorToolbarAction.Save, "Save"),
-        (EditorToolbarAction.Load, "Load"),
         (EditorToolbarAction.Undo, "Undo"),
         (EditorToolbarAction.Redo, "Redo"),
         (EditorToolbarAction.ToggleSnap, "Snap"),

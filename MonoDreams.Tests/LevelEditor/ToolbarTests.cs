@@ -94,9 +94,6 @@ public class ToolbarTests
                 case EditorToolbarAction.Save:
                     new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
                     break;
-                case EditorToolbarAction.Load:
-                    world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
-                    break;
                 case EditorToolbarAction.Undo: history.Undo(); break;
                 case EditorToolbarAction.Redo: history.Redo(); break;
             }
@@ -160,12 +157,9 @@ public class ToolbarTests
             Assert.Equal(1, fake.WriteCount);
             Assert.True(fake.Files.ContainsKey(SceneFileName));
 
-            // ---- Load publishes a LoadSceneRequest (the SceneReaderSystem handles it in the screen) ----
+            // ---- (There is no Load action — a scene is opened via the Scenes panel, UX-C/UX-D. The
+            //      LoadSceneRequest subscription below stays wired but no toolbar action publishes one.) ----
             Assert.Empty(loadRequests);
-            dispatch(EditorToolbarAction.Load);
-            Assert.Single(loadRequests);
-            Assert.Equal(SceneFileName, loadRequests[0].Path);
-            Assert.False(loadRequests[0].FromContent);
 
             // ---- Undo / Redo drive the shared history ----
             var box = new int[] { 0 };

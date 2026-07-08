@@ -149,9 +149,6 @@ public class HeadlessEditorOpTests
                     case EditorToolbarAction.Save:
                         new SceneWriter(serializer).Save(world, SceneFileName, camera, layers: null);
                         break;
-                    case EditorToolbarAction.Load:
-                        world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
-                        break;
                     case EditorToolbarAction.Undo: history.Undo(); break;
                     case EditorToolbarAction.Redo: history.Redo(); break;
                     case EditorToolbarAction.ToolMove:
