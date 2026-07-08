@@ -21,9 +21,13 @@
 > ordered before the cursor's world-pos derivation) are all live below, plus the
 > **transport model** (the editor is always-on under the run flag; Play/Pause +
 > Restart replace the retired F1 mode toggle; Restart rebuilds from the original
-> load and discards unsaved edits), and the **project-persistence PS1** invariant
+> load and discards unsaved edits), the **project-persistence PS1** invariant
 > (canonical, byte-stable scene serialization + a persisted stable scene-local id
-> ordering `entities[]`). No premise here ships `Tests: none yet`.
+> ordering `entities[]`), and the **UX2 phase** invariants (UX2-B left tabs + right
+> Inspector + region headers; UX2-C procedural icon buttons + tooltips; UX2-D context
+> menus; UX2-E the camera-rig view/authored split; and **UX2-F** the Scene/Game-mode
+> sandbox — snapshot on enter, reader-shared restore on exit, Save blocked in Game
+> mode, one-owner transport). No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -493,9 +497,20 @@ left-anchored transport/tool row, the Blender nav-corner affordance), a fixed he
 from `HeaderButtons`. It is an ordinary `ToolbarButtonComponent`, so the ONE `ToolbarSystem` hit-tests +
 dispatches it and bakes its glyph; an editing action (Paused-only), it snaps the editor VIEW onto the
 camera rig (`view:camera` — see "The editor splits the free VIEW from the authored camera rig").
+**UX2-F: the Scene header leads with the `[Scene | Game]` mode toggle** (`EditorToolbarAction.ModeScene`/
+`ModeGame`) — two adjacent tab-style segments at the header START, before the transport cluster, laid out
+by `EditorChromeLayout.ModeToggleSegments` (the transport row is offset right by
+`ModeToggleReservedWidth`, one geometry source). They are ordinary `ToolbarButtonComponent`s (each a
+`SimpleButtonComponent` fill + a label + a raw-mesh accent underline on `UnderlineEntity`), so the ONE
+`ToolbarSystem` hit-tests + dispatches them — but it renders them **tab-style** (its `RenderSegment`: the
+active segment, resolved from an injected `Func<EditorViewMode>` seam, = `Bg1` fill + `Accent` underline +
+`Text0` label; inactive = `Bg0 → Bg2` hover-faded fill + empty underline + `Text1` label — mirroring the
+left-strip tabs, NOT `ControlFill`). They are **live in both transport states** (`IsModeToggle`, like
+`IsTransport`) because exiting the sandbox must work while Playing (see "The Game-mode sandbox …").
 **Overflow risk:** the window row still lays out left-to-right with no wrap/scroll (`ButtonRow`); UX2-C's
 narrow icon squares plus relocating the 5 tools shortened it materially, and UX2-D removing the 2 Order
-buttons shortened it further (the collider/vertex text buttons remain).
+buttons shortened it further (the collider/vertex text buttons remain); UX2-F's toggle + the transport
+offset consume a fixed slice at the header's left, but the header wraps nothing either.
 
 **Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
 "the editor tools shouldn't overlay the game screen but be placed around it … highres and
@@ -518,7 +533,12 @@ buttons carry a glyph mesh + no label and tint by state; `HeaderTransport_Dispat
 the header leads with the transport, then the tool cluster);
 `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (native `ScreenPosition` hit-test dispatches in
 Edit, misses outside the bounds, inert in Play; window buttons in the top bar + transport in the
-Scene header).
+Scene header; the header count includes the mode-toggle segments + the Camera-view button);
+`MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs`
+(`ModeToggleSegments_AreInTheSceneHeader_HitTestAndDispatch_DprScaled` — the two segments sit in the
+header, are DPR-scaled + adjacent, hit-test + dispatch `ModeScene`/`ModeGame` even while Playing;
+`ModeToggleSegment_RendersTabStyle_ActiveSegmentUnderlined` — the active segment gets `Bg1` + a
+non-empty accent underline, following the view mode).
 **Depends on:** ui — `SimpleButtonComponent` / `ButtonMeshPrepSystem`; cursor —
 `CursorInputComponent.ScreenPosition`; level-editor — "The editor shell insets the game viewport
 and renders its chrome at native resolution", "Bounded undo with drag-coalescing", "Scene
@@ -937,7 +957,7 @@ that system, a group toggle cascades to all descendant leaves, `GetEnabledState`
 all/none/mixed through nesting, and the group gate's own `IsEnabled` is never the toggle axis).
 **Depends on:** foundation — "Edit-time behaviour is a per-system policy honoured by `GatedSystem`".
 
-## The editor run flag composes the always-on editor and the transport owns RunMode
+## The editor run flag composes the always-on editor and the transport owns RunMode (and the Scene/Game ViewMode)
 
 The editor run configuration — the `--editor` launch arg **or** the `MONODREAMS_EDITOR=1`/`true`
 environment variable, both settable in an IDE run configuration and parsed by the pure
@@ -947,7 +967,10 @@ camera nav, scene save/load, headless channel) and boots the transport **Paused*
 (`ScreenController.State.RunMode = RunMode.Edit`). From there the editor is ALWAYS visible — no
 key toggles it away (the F1 mode toggle is retired end-to-end) — and `RunMode` is flipped
 exclusively by the `EditorTransport`: the toolbar's Play/Pause + Restart buttons or the headless
-`Play`/`Pause`/`Restart` ops. The boot mutation is an explicit host-level opt-in **after**
+`Play`/`Pause`/`Restart` ops. Since UX2-F the transport is ALSO the one owner of the `EditorViewMode`
+(`Scene` / `Game`, default `Scene`), flipped by the `[Scene | Game]` header toggle or the
+`mode:scene`/`mode:game` ops — ONE owner for both axes (see "The Game-mode sandbox …"). The boot
+mutation is an explicit host-level opt-in **after**
 construction: `GameState` still *constructs* as `Play` (preserving foundation's "Default
 `RunMode = Play` preserves all existing pipelines"). With the flag off — the default — screens
 compose **without** the overlay (nothing editor-related is constructed) and, because nothing then
@@ -1369,7 +1392,10 @@ parsers subscribe to the component **added** event — a re-publish over a still
 *Changed* and never re-parses), dispose every scene entity, then invoke the screen-recorded
 `Reload` (each screen registers "re-publish my original load request" in `Load`: the game screen
 re-publishes `LoadLevelRequest(levelId)`, the menu re-runs its UI builder, the runner re-runs its
-create methods). Restart while Playing also lands **Paused**. **Unsaved live edits since the load
+create methods). Restart while Playing also lands **Paused**; Restart **in Game mode (UX2-F) also
+lands Scene mode with the in-memory sandbox snapshot dropped** — the snapshot IS an unsaved edit, so
+Restart's discard contract covers it with no special case (the disk reload is the source of truth;
+see "The Game-mode sandbox …"). **Unsaved live edits since the load
 are DISCARDED** — the standard play-mode trade-off; Save first to keep them. The survival boundary
 is exclusion by editor markers (the engine has no entity↔level association): an entity survives
 when it carries `EditorInfrastructureComponent` (every editor-owned entity — chrome, panel rows,
@@ -1423,6 +1449,81 @@ resolves `LoadLevelRequest` native-only" (the source-first probe the reload goes
 "The editor run flag composes the always-on editor and the transport owns RunMode", "Bounded undo with
 drag-coalescing" (the history the restart clears), "The editor's Save dialog is a modal three-action
 chooser …" (Save Backup As… composes write + Restart).
+
+## The Game-mode sandbox snapshots the scene, restores it through the reader on exit, and blocks Save (UX2-F)
+
+`EditorTransport` is the ONE owner of BOTH `GameState.RunMode` AND the `EditorViewMode`
+(`Scene` / `Game`, default `Scene`) — one owner for both axes. **Scene mode** edits the real scene
+through the free editor view; **Game mode** is a Unity-style sandbox: the viewport looks through the
+game camera, you may poke entities while Paused "just to test", and all sandbox edits are DISCARDED on
+exit. The mechanism:
+
+- **Enter Game** (the `[Scene | Game]` toggle while Paused, or AUTOMATICALLY when Play is pressed in
+  Scene mode): the transport takes an **in-memory snapshot FIRST** — `SceneWriter.BuildScene(world,
+  rig.AsCamera(), layers)` → a held `SceneData` (no file I/O) — plus the `EditorHistory` dirty state
+  and the Scene-mode VIEW (the live `Camera`), **before** anything flips `RunMode` to Play
+  (pre-mortem #7: `EditorTransport.Play` calls `EnterGameMode` *before* `state.RunMode = Play`, so no
+  simulation frame can mutate the scene before it is captured). Then the view adopts the game camera
+  (`EditorCameraRig.SnapViewToRig`). Pressing Play while already in Game mode does NOT re-snapshot —
+  **one snapshot per Game-mode session**.
+- **In Game mode**: Play/Pause/Restart and the editing tools work exactly as in Scene mode (no new
+  gating). **Save is blocked** — a third `SaveBlockReason.GameMode` (checked after `Playing`, before
+  `NoProjectRoot`) that the toolbar Save button dims on and that the dialog actions, the `dialog:*`
+  ops, and the headless dispatch all refuse through the SAME `EditorOverlay.SaveBlock` guard. The
+  Scenes-panel dirty `●` reflects the SNAPSHOT's captured dirty state, not the sandbox churn (an
+  `isDirty` seam returns `Transport.SnapshotWasDirty` while in Game mode).
+- **Exit to Scene** (the toggle): land Paused (`RunMode = Edit`), dispose the sandbox scene entities
+  (REUSING the transport's Restart sweep — `EditorInfrastructureComponent` / cursor / `KeepAlive`
+  survive), restore the snapshot **through the reader** — the overlay publishes an **in-memory
+  `LoadSceneRequest(SceneData)`** so re-tag, texture rehydration (content AND `file:` keys),
+  `DrawComponent` restore, and camera-rig re-sync are all SHARED with the file load path (pre-mortem
+  #2: the reader is the ONLY restore implementation; a forked restore reintroduces the blank-screen /
+  empty-save class of bug) — then `EditorHistory.Clear()` (undo after exit is a no-op — pre-mortem #3)
+  + `MarkDirty()` restoring the captured dirty state, then restore the captured Scene VIEW (overriding
+  the reader's auto-frame). Sandbox edits vanish: **Scene mode always shows exactly what Save would
+  write.**
+- **Restart in Game mode**: unchanged core semantics (disk reload, lands Paused) and additionally
+  lands **Scene mode** with the snapshot dropped (see "The transport's Restart …"). The mode also
+  resets to Scene on scene switch (a Scenes-panel switch while in Game mode `ExitToSceneMode` FIRST,
+  then runs the normal dirty gate on the RESTORED state — one gate flavor, no bypass) and on screen
+  switch / fresh overlay (a new overlay constructs in Scene mode).
+- **The `[Scene | Game]` toggle** is two tab-style segments at the START of the Scene panel header
+  (ops `mode:scene` / `mode:game`, actions `EditorToolbarAction.ModeScene`/`ModeGame`), dispatched by
+  the ONE `ToolbarSystem` and live in BOTH transport states (exiting the sandbox must work while
+  Playing) — see the toolbar premise.
+
+**Why:** user-confirmed Unity model — a designer wants to poke the running scene "just to test"
+without those pokes ever leaking into the saved level. Reusing the reader for the restore keeps
+"what you edit is what ships" true after any sandbox session, and snapshotting before the Play flip
+keeps the restore point uncorrupted.
+**Breaks:** a snapshot taken after `RunMode = Play` bakes a simulated frame into the restore point
+(pre-mortem #7); a forked restore path forgets re-tag / rehydration / `DrawComponent` and reloads
+blank or saves empty (pre-mortem #2); not clearing history dangles undo against restored entities
+(pre-mortem #3); a saveable sandbox writes throwaway pokes into the versioned level; a switch that
+gates on sandbox churn (not the restored state) mis-prompts; reflecting sandbox dirtiness on the
+Scenes panel lies about unsaved work.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs`
+(`EnterGameMove_Exit_RestoresPositionExactly_UndoNoOp_DirtyAndViewRestored`;
+`Exit_RestoresTheCapturedDirtyState_NotSandboxChurn`;
+`PlayInSceneMode_SnapshotsBeforeRunModeFlipsToPlay_AndAutoEntersGame`;
+`PlayInGameMode_DoesNotReSnapshot_OneSnapshotPerSession`;
+`SaveBlock_GameMode_IsDistinguishable_PlayingWins_SceneModeSavesAgain` +
+`ToolbarSaveButton_IsInertInGameMode_ViaTheSharedGuard`;
+`RestartInGameMode_LandsSceneMode_ReloadsDiskState_DropsSnapshot`;
+`Camera_Enter_AdoptsRig_Exit_RestoresSceneView_RigUntouched`;
+`GameModeRoundTrip_SharesTheReader_FileKeySpriteKeepsTextureRehydrationAndDrawComponent`;
+`ModeToggleSegments_AreInTheSceneHeader_HitTestAndDispatch_DprScaled` +
+`ModeToggleSegment_RendersTabStyle_ActiveSegmentUnderlined`);
+`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs::Transport_OwnsViewMode_DefaultScene_ToggleEntersAndExits_ExitLandsPaused`.
+**Depends on:** this file — "The transport's Restart rebuilds the scene …" (the sweep reused + the
+Scene-mode reset), "Scene round-trip reconstructs from registered components …" (the reader restore
+the in-memory overload shares), "A loaded sprite entity carries a `DrawComponent` …" (the
+`DrawComponent` restore + rig re-sync + view framing), "The editor splits the free VIEW from the
+authored camera rig" (`AsCamera`/`SnapViewToRig`/`SyncFromScene`), "The editor history tracks a dirty
+save-point signal" (`MarkDirty` restoring the captured dirty state), "Save is blocked while Playing or
+when no project root is resolved" (the third reason), "Game screens declare their bound scene …" (the
+switch exits Game first), "The editor toolbar's buttons drive the same shared editor instances …" (the
+toggle's home).
 
 ## Viewport presses belong to exactly one tool family: `EditorToolMode` gates selection, gizmo, and placement
 
@@ -1724,18 +1825,22 @@ raised inset at DPR 1 and 2).
 native resolution" (the `ViewportInset` the strip height feeds, and the device-pixel space the cards
 render in); rendering — the `SimpleButtonComponent`/`DynamicTextComponent` chrome primitives.
 
-## Save is blocked while Playing or when no project root is resolved
+## Save is blocked while Playing, in Game mode, or when no project root is resolved
 
-`EditorOverlay.DispatchToolbarAction`'s Save case no-ops with a loud `Logger.Warning` in TWO
-distinguishable cases (`EditorOverlay.SaveBlock` → `SaveBlockReason.Playing` /
-`SaveBlockReason.NoProjectRoot`; `Playing` is checked first): (1) while `RunMode == Play` — saving
+`EditorOverlay.DispatchToolbarAction`'s Save case no-ops with a loud `Logger.Warning` in THREE
+distinguishable cases (`EditorOverlay.SaveBlock(state, projectContext, viewMode)` →
+`SaveBlockReason.Playing` / `SaveBlockReason.GameMode` / `SaveBlockReason.NoProjectRoot`, checked in
+that precedence): (1) while `RunMode == Play` — saving
 is an authoring act over the **paused** scene, and a mid-Play save would bake transient run state (a
 mid-air player, in-flight velocities, half-resolved collisions) into the scene file as if it were
-authored truth; (2) while the editor's `EditorProjectContext` is unresolved (no `game.mdproj` found —
-a shipped/relocated build, a console, or an unset `MONODREAMS_PROJECT_ROOT` with nothing to walk up
-to) — there is nowhere versioned to write. The toolbar renders the Save button dimmed for EITHER
-cause (the transport rule dims all editing buttons while Playing; a small per-button gate additionally
-dims Save while Paused-but-unresolved), and this guard closes the remaining dispatch paths (the
+authored truth; (2) while the editor is in the **Game-mode sandbox** (UX2-F) — sandbox edits are
+expressly not-to-be-saved (they discard on exit), so Save reflects the real Scene-mode scene, not the
+sandbox (see "The Game-mode sandbox …"); (3) while the editor's `EditorProjectContext` is unresolved
+(no `game.mdproj` found — a shipped/relocated build, a console, or an unset `MONODREAMS_PROJECT_ROOT`
+with nothing to walk up to) — there is nowhere versioned to write. The toolbar renders the Save button
+dimmed for ANY cause (the transport rule dims all editing buttons while Playing; a small per-button
+gate additionally dims Save while Paused-but-blocked — `NoProjectRoot` OR `GameMode`), and this guard
+closes the remaining dispatch paths (the
 headless `ToolbarAction` op, any programmatic dispatch). The two reasons are reported separately so
 the log/toolbar can tell the user WHY. Undo/Redo keep their existing Paused-only toolbar gating;
 the transport buttons stay live in both states (there is no Load button — a scene is opened via the
@@ -1746,8 +1851,9 @@ it no longer writes immediately — it OPENS the three-action Save dialog, and e
 dialog's action callback: **Save Scene** and **Save Project** both route through `SaveCurrentScene`
 (Save Project is v1 single-scene — it saves the ONE in-memory scene through the same path and never
 blanket-writes the on-disk set), and **Save Backup As…** routes through `SaveBackupAs`. **All three
-re-apply this exact guard** (Playing / no-project-root) as defense-in-depth, and the empty-save guard
-below covers a backup too (see "The editor's Save dialog is a modal three-action chooser …").
+re-apply this exact guard** (Playing / Game-mode / no-project-root) as defense-in-depth, and the
+empty-save guard below covers a backup too (see "The editor's Save dialog is a modal three-action
+chooser …").
 
 **The empty-save guard (UX-C §3.5, pre-mortem #4).** Beyond the two `SaveBlock` causes above,
 `SaveCurrentSceneTo` applies one more world-state guard the pure `SaveBlock` cannot express: it
@@ -1778,6 +1884,9 @@ committed level (the empty-save footgun).
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs`
 (`SaveGuardTest_BlockedWhilePlayingOrWithoutAProjectRoot`,
 `SaveGuardTest_DispatchNoOpsWhileBlockedAndSavesWhenAllowed`);
+`MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs`
+(`SaveBlock_GameMode_IsDistinguishable_PlayingWins_SceneModeSavesAgain`,
+`ToolbarSaveButton_IsInertInGameMode_ViaTheSharedGuard` — the third `GameMode` cause + precedence);
 `MonoDreams.Tests/LevelEditor/EmptySaveGuardTests.cs` (`EmptySaveRefused_TruthTable` — the
 (rootCount, wasLoaded) truth table incl. the never-loaded-but-file-exists case;
 `SceneReader_SceneWasLoaded_StartsFalse_FlipsTrueAfterALoad`);
@@ -1812,7 +1921,10 @@ stays **untagged / never serialized**: the existing `SceneObjectComponent` membe
 ownership policy — screen UI is code-owned, only loaded/placed/editor-created content is scene-owned.
 
 **There is no Load action — switching IS selecting.** Clicking a Scenes-panel row (or the `scenes:select
-<key>` op) routes through the ONE initiator `EditorOverlay.SelectScene`, whose decision is the pure
+<key>` op) routes through the ONE initiator `EditorOverlay.SelectScene`. When the editor is in the
+**Game-mode sandbox** (UX2-F) it `ExitToSceneMode` **first** (a full snapshot restore per "The Game-mode
+sandbox …"), so the dirty gate below then runs on the RESTORED real scene, never on sandbox churn — one
+gate flavor, no bypass. The decision is the pure
 `SceneCatalog.DecideSwitch(entry, isDirty)`: the current entry → no-op; a **clean** world → the
 host-supplied `SwitchScene(entry)` callback fires immediately; a **dirty** world → a modal confirm-on-switch
 (the `EditorDialogSystem` `ConfirmSwitch` mode — a new mode on the same modal machinery, parked chrome +
@@ -1872,7 +1984,11 @@ level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-o
 transaction commit — plus every undo, redo, and `Clear`) and a `MarkSavePoint()`; `IsDirty` is
 `EditVersion != savePointVersion`. A fresh history is clean (both start at 0). `EditorOverlay.SaveCurrentScene`
 marks the save point on a successful write; the transport's `Restart` `Clear()` advances `EditVersion`
-(keeping it monotonic) **then re-marks clean** — a reload from disk has no unsaved edits. Mid-transaction
+(keeping it monotonic) **then re-marks clean** — a reload from disk has no unsaved edits. The Game-mode
+exit (UX2-F) `Clear()`s and then, if the pre-entry state was dirty, calls `MarkDirty()` — which advances
+`EditVersion` past the save point WITHOUT recording an undo entry — so the RESTORED Scene-mode dirtiness
+is reproduced while undo/redo stay empty (undo after exit is a no-op — see "The Game-mode sandbox …").
+Mid-transaction
 pushes accumulate without bumping `EditVersion` (the world is live-edited but not yet recorded), so an
 aborted drag (`CancelTransaction`) leaves the dirtiness unchanged and a committed drag is exactly one
 dirty step. **Known conservative edge:** because `EditVersion` only advances, undoing back to the exact
@@ -1890,7 +2006,9 @@ very next switch.
 `Push_MakesDirty_SavePoint_MakesClean_NextEditDirtyAgain`,
 `UndoRedo_AdvanceEditVersion_SoBackToSavePointStillReadsDirty`,
 `Transaction_CommitIsOneDirtyStep_MidTransactionIsNotYetDirty_CancelStaysClean`,
-`Clear_ResetsClean_ButEditVersionIsMonotonic`).
+`Clear_ResetsClean_ButEditVersionIsMonotonic`);
+`MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs::Exit_RestoresTheCapturedDirtyState_NotSandboxChurn`
+(the `MarkDirty()` restore of a captured dirty state after `Clear`, undo/redo empty).
 **Depends on:** this file — "Bounded undo with drag-coalescing" (the history whose mutations this counts),
 "The transport's Restart rebuilds the scene from the original load request …" (the `Clear` that resets
 clean), "Game screens declare their bound scene …" (the switch gate that reads `IsDirty`).

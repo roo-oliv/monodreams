@@ -175,6 +175,26 @@ active segment `Accent`-underlined, mirroring the tab visuals).
 - `EditorTransport` owns the mode (alongside `RunMode` — it is transport state);
   ops: `mode:scene` / `mode:game`.
 
+**Landed (UX2-F) — as-built decisions.** (1) The in-memory restore entry point is a **`LoadSceneRequest(SceneData)`
+overload** (the reader branches on `message.Scene`, sharing its `Load(scene, …)` with the file path) — chosen over
+a public reader method so **every** load still flows through the ONE message + subscriber, keeping the
+message-driven premise coherent; the overlay's `RestoreSnapshot` seam simply `world.Publish(new LoadSceneRequest(snapshot))`.
+(2) `EditorTransport` owns `EditorViewMode` + the Game-mode operations, with the heavy work behind seams the overlay
+wires to the SHARED instances (`CaptureSnapshot` = `SceneWriter.BuildScene(world, rig.AsCamera(), layers)`,
+`RestoreSnapshot`, `CaptureView`/`RestoreView` = the live `Camera`, `SnapViewToRig` = the rig) — the same settable-seam
+pattern as `Reload`/`KeepAlive`, so the transport stays unit-testable. (3) **Snapshot timing:** `Play` calls
+`EnterGameMode` *before* `state.RunMode = Play` (pre-mortem #7), asserted by an order test that observes `RunMode ==
+Edit` at capture time. (4) The captured dirty state is restored on exit via a new `EditorHistory.MarkDirty()` (advance
+`EditVersion` past the save point without an undo entry) after `Clear()`. (5) `SaveBlockReason.GameMode` slots between
+`Playing` and `NoProjectRoot`; `SaveBlock` gained an optional `viewMode` param (defaults `Scene`, so pre-UX2-F callers
+are byte-identical), and the toolbar Save-dim predicate + the dialog/ops/dispatch all refuse through it. (6) The
+`[Scene | Game]` toggle is **two ordinary `ToolbarButtonComponent` segments** (`ModeScene`/`ModeGame`) the ONE
+`ToolbarSystem` hit-tests + dispatches — no new pipeline system, no screen-weaving churn — rendered **tab-style** by a
+`RenderSegment` branch reading an injected `Func<EditorViewMode>` seam + a new `UnderlineEntity`; `IsModeToggle` joins
+`IsTransport` in the "live in both modes" gate. `EditorChromeLayout.ModeToggleSegments`/`ModeToggleReservedWidth` is the
+one geometry source (the transport row offsets right by the reserved width). (7) `SelectScene` `ExitToSceneMode` first
+when in Game mode; `Restart` resets `ViewMode = Scene` and drops the snapshot.
+
 ## 6. The camera rig: view/camera split + camera-as-entity (wave UX2-E)
 
 Today the editor **drives the one `Camera` directly** in Edit (`CameraNavSystem`),

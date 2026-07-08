@@ -449,12 +449,48 @@ Claude Code. The authoritative design is
   sharing `TryPublishSourceFirst` with UX-C's optional load; the bound menu/runner screens re-run their optional
   scene load inside `Transport.Reload`.
 
-**Pending — UX-E (toolbar de-crowding).** The top bar still carries all ~17 buttons; the seven
-selection-context actions (order forward/back, collider add-box/add-convex/remove, vertex add, boundary)
-were planned to relocate into small action buttons under the Scene tab's Inspector (contextual UI where
-Blender puts it), so the row stops overflowing narrow windows. Deferred from UX-B to keep the wave focused;
-see editor-shell-ui-ux §2.1 and the toolbar premise's "Deferred (UX-B): toolbar de-crowding" note (overflow
-risk on narrow windows until it lands).
+**UX-E was superseded by the UX2 phase.** The planned toolbar de-crowding (relocating the selection-context
+actions off the bar) is subsumed by UX2's panel-local headers + context menus (UX2-B/-C/-D moved the
+transport + tools + menus into the Scene header and the Order actions into context menus). See the UX2 phase
+below.
+
+## UX2 phase (UX2-A–UX2-F) — panel modularity, modes, camera rig
+
+A second UX pass (user-confirmed 2026-07-08) that re-founds the shell layout on Unity/Blender lines and adds
+the run-mode split the editor had deferred. Like the UX phase it runs orthogonally to Waves A–F. The
+authoritative design is [`editor-shell-ui-ux-2.md`](editor-shell-ui-ux-2.md); the invariants live in
+[`MonoDreams/level-editor/docs/premises.md`](../../MonoDreams/level-editor/docs/premises.md).
+
+- **UX2-A — placement centering + the scale-composition fix.** `MasterRenderSystem` composes
+  `scale = (Size / source) * element.Scale` so a gizmo-scaled sprite's drawn quad matches its hit-test quad;
+  the palette ghost + placed stamp land with the sprite's visual centre at the cursor (one shared position
+  function), feet-origin untouched.
+- **UX2-B — left tabs + dedicated right Inspector + region-header framework.** The left region activates as the
+  **Entities / Systems / Scenes** tab group; the right region becomes the dedicated **Inspector**; each region
+  owns a header band (`EditorChromeLayout.TabStrip`/`RegionBody`), and the center region's **Scene panel header**
+  is carved out of the game viewport (the transport relocates there). `LeftWidthPt` + a left splitter join the
+  shell-state model; ops rename (`panel:tab <entities|systems|scenes>`).
+- **UX2-C — `EditorIcons` procedural glyphs + tooltips.** A pure line/triangle geometry library (Lucide as the
+  visual reference, nothing imported — the module ships no binary atlas) renders the transport/tool/window-bar
+  buttons as screen-baked mesh glyphs tinted by state; a single pooled hover tooltip names each icon button.
+- **UX2-D — `EditorContextMenu` + the Entity menu + Add/Create.** A data-driven popup (one model, two anchors)
+  drives the viewport / Entities / Scenes right-click menus + the fixed `Entity ▾` header menu; **Order** relocates
+  off the toolbar into the entity menus; right-click adds an empty entity / creates an empty scene.
+- **UX2-E — the camera rig (view/authored split).** The editor materializes a standalone **camera-rig** entity
+  from `scene.camera` (never scene membership); the shared `Camera` becomes the free VIEW, the rig holds the
+  authored game-camera state, Save serializes the rig, a frustum glyph shows it when the view differs, and a
+  Scene-header **Camera view** button (`view:camera`) snaps the view back onto it.
+- **UX2-F — Scene / Game mode sandbox.** `EditorTransport` owns a `[Scene | Game]` `EditorViewMode` alongside
+  `RunMode` (ONE owner). Entering Game snapshots the scene in memory (before Play flips RunMode) and looks
+  through the game camera; edits are a sandbox; **Save is blocked** (`SaveBlockReason.GameMode`); exiting restores
+  the snapshot **through the reader** (an in-memory `LoadSceneRequest(SceneData)` — the ONE restore path) and the
+  captured dirty state + Scene view; Restart lands Scene mode; a scene switch exits Game first. The `[Scene | Game]`
+  header toggle segments (ops `mode:scene`/`mode:game`) are ordinary `ToolbarButtonComponent`s the ONE
+  `ToolbarSystem` hit-tests + renders tab-style, live in both transport states.
+
+**Named leftover (UX2, not built).** The collider/vertex authoring buttons (`+Box`/`+Poly`/`-Col`/`+Vtx`) stay
+on the window top bar this phase; their natural home is a future **Inspector "add component" surface** (UX2-D §4
+noted it, deliberately deferred — relocating them needs the Inspector to grow an authoring affordance).
 
 ## Cross-wave invariants (the things that must keep holding)
 
