@@ -426,6 +426,45 @@ static elements unexpectedly.
 **Tests:** none yet.
 **Depends on:** —
 
+## A sprite's drawn quad honors `Transform.WorldScale` exactly once
+
+`MasterRenderSystem`'s Sprite draw scale is `(DrawComponent.Size / SourceRectangle) ·
+DrawComponent.Scale` (`MasterRenderSystem.ComputeSpriteScale`). `SpritePrepSystem` writes
+`DrawComponent.Size = SpriteInfoComponent.Size` (the SOURCE size) and `DrawComponent.Scale =
+Transform.WorldScale` as **two separate fields — `WorldScale` is never pre-baked into `Size`**.
+Composing the two (not discarding `Scale` whenever a source rect exists, which was the bug) is what
+makes a world-scaled sprite's drawn quad equal the quad `GizmoTransform.SpriteWorldQuad` hit-tests —
+the selection outline, picking and collider proxies all use that same `WorldScale · (Size / source)`
+product. With **no** source rectangle the raw `Scale` applies (the nine-patch / pre-sized-texture
+path, untouched). Because `DrawComponent.Scale` defaults to `Vector2.One` and only `SpritePrepSystem`
+ever writes a non-unit value, the composition is **byte-identical** to the pre-fix `Size / source` for
+every unscaled sprite — including entities that set `Size` deliberately and never touch `Scale` (the
+palette thumbnail on the Editor target; the textured cursor), so they never double-scale.
+
+**Why:** a gizmo scale-drag mutates `Transform.Scale`; before the fix the outline and colliders
+(transform math) grew but the sprite — whose draw scale discarded `Scale` in the source-rect branch —
+did not (the user-reported "scaling grows the box but not the art" bug). The one invariant: the drawn
+quad and the hit-test quad are the SAME quad, so what you grab is what you see. **Audit (the fix's
+mandatory pre-mortem — does any writer pre-bake `WorldScale` into `Size`?):** no. Every
+`DrawComponent.Size` writer — `SpritePrepSystem`, `SceneReaderSystem.RestoreDrawComponents` (bare,
+`Size` unset → `SpritePrepSystem` fills it next frame), the palette ghost (via
+`SpriteInfoComponent.Size` → `SpritePrepSystem`), the palette thumbnail, the textured cursor — sets
+`Size` to a source/destination pixel size independent of the transform scale, so composing multiplies
+the world scale in exactly once.
+**Breaks:** discarding `Scale` in the source-rect branch (the pre-fix behavior) leaves every placed
+prop un-scalable — outline and sprite diverge. Pre-baking `WorldScale` into any `Size` writer AND
+composing multiplies it twice (the sprite grows quadratically per drag). A thumbnail/cursor path that
+sets both a non-unit `Scale` and a deliberate `Size` double-scales.
+**Tests:** `MonoDreams.Tests/Rendering/SpriteDrawScaleTests.cs` (a 2×3 world-scaled source-rect
+sprite's drawn quad matches `SpriteWorldQuad`; unit scale is byte-identical to the old `Size /
+source`; a deliberate-`Size` unit-`Scale` sprite — the thumbnail/cursor path — does not double-scale;
+no source rect uses the raw `Scale`).
+**Depends on:** "Layer-depth ownership pipeline" (`SpritePrepSystem` populates `DrawComponent` from
+`SpriteInfoComponent` + the transform each frame); level-editor — "The gizmo applies a quantized
+(snap-on) or raw (snap-off) transform edit, honoring Origin" (the `WorldScale` edit whose visual this
+reflects) and "Y-sorted props use the feet-origin convention, factory-applied"
+(`SpriteWorldQuad`'s Size/source/origin inputs).
+
 ## Y-sort tiebreaker is parent-child bias only
 
 `YSortSystem` uses a minimal epsilon (`1e-6f` in
