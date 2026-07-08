@@ -65,6 +65,7 @@ public sealed class EditorChromeBuilder
     private Entity _leftSplitter, _rightSplitter, _bottomSplitter;
     private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
     private Entity _entityMenuCaret; // UX2-D: the ▾ caret mesh beside the header "Entity" text button
+    private Entity _cameraViewButton; // UX2-E: the right-corner "Camera view" nav button (icon)
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _headerButtonEntities = new();
     private bool _built;
@@ -207,6 +208,13 @@ public sealed class EditorChromeBuilder
         // disclosure-arrow pattern) baked + positioned each Relayout beside the Entity text button.
         if (HasHeaderAction(EditorToolbarAction.EntityMenu)) _entityMenuCaret = CreateIconMesh();
 
+        // UX2-E: the fixed Scene-header nav-corner button — a right-anchored icon button (the
+        // back-to-camera-view affordance), separate from the left-anchored header row so it stays in the
+        // corner. The ONE ToolbarSystem hit-tests + dispatches it (and bakes its Camera glyph) like any
+        // other ToolbarButtonComponent; it is an editing action (Paused-only), dimmed while Playing.
+        _cameraViewButton = CreateButton(
+            EditorToolbarAction.CameraView, labelEntity: null, iconEntity: CreateIconMesh(), tooltip: "Camera view");
+
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;
     }
@@ -254,6 +262,7 @@ public sealed class EditorChromeBuilder
             EditorChromeLayout.ButtonRowIn(sceneHeader, MeasureWidths(_headerButtons, scale), scale,
                 HeaderSeparatorIndex()), scale);
         LayoutEntityMenuCaret(scale);
+        LayoutCameraViewButton(sceneHeader, scale);
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
@@ -320,6 +329,18 @@ public sealed class EditorChromeBuilder
             BakeMesh(_entityMenuCaret, new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], EditorTheme.Text1).Generate());
             return;
         }
+    }
+
+    /// <summary>Positions the UX2-E camera-view nav button at the Scene header's right corner (its
+    /// <c>ToolbarSystem</c> bakes the Camera glyph from these <c>Bounds</c> each frame). Right-anchored,
+    /// so it never overlaps the left-anchored transport/tool row.</summary>
+    private void LayoutCameraViewButton(Rectangle sceneHeader, float scale)
+    {
+        if (!_cameraViewButton.IsAlive) return;
+        var rect = EditorChromeLayout.SceneHeaderNavButton(sceneHeader, scale);
+        PlaceEntity(_cameraViewButton, new Vector2(rect.X, rect.Y));
+        _cameraViewButton.Get<ToolbarButtonComponent>().Bounds = rect;
+        _cameraViewButton.Get<SimpleButtonComponent>().Size = new Vector2(rect.Width, rect.Height);
     }
 
     private static void BakeMesh(Entity e, MeshData mesh)

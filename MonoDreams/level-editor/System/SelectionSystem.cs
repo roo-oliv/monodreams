@@ -10,6 +10,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Selection;
+using MonoDreams.LevelEditor.Transform;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.System;
@@ -111,6 +112,7 @@ public sealed class SelectionSystem : ISystem<GameState>
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _proxySet;
     private readonly EntitySet _boundarySet;
+    private readonly EntitySet _cameraRigSet;
     private readonly EntitySet _gizmoStateSet;
     private int _nextEditorId;
 
@@ -149,6 +151,8 @@ public sealed class SelectionSystem : ISystem<GameState>
             .With<GizmoProxyComponent>().With<TransformComponent>().With<DrawComponent>().AsSet();
         _boundarySet = world.GetEntities()
             .With<BoundaryComponent>().With<TransformComponent>().AsSet();
+        _cameraRigSet = world.GetEntities()
+            .With<CameraRigComponent>().With<TransformComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
     }
 
@@ -236,6 +240,7 @@ public sealed class SelectionSystem : ISystem<GameState>
             EvaluateSpriteCandidate(entity);
         EvaluateProxyCandidates();
         EvaluateBoundaryCandidates();
+        EvaluateCameraRigCandidate();
 
         hit = _best;
         return _hasBest;
@@ -367,6 +372,46 @@ public sealed class SelectionSystem : ISystem<GameState>
         }
     }
 
+    /// <summary>
+    /// Folds the camera RIG (UX2-E) into the pick: a click within the border tolerance of the authored
+    /// camera's frustum world-rect selects the rig entity (rank Main; depth
+    /// <see cref="ProxyBorderPickDepth"/> — the same on-top rank a proxy/boundary border has; id the
+    /// shared tiebreak). Like a collider proxy it is a <b>border-only</b> candidate — the frustum's fill
+    /// never shadows a sprite under it. Skipped when no camera is available (the frustum world-rect needs
+    /// the camera's virtual resolution). The rig is then moved by the ordinary gizmo (a
+    /// <c>TransformEditCommand</c> on its own transform) — it is a first-class selectable entity, not a
+    /// collider proxy, so it needs no <c>ProxyBindingKind</c>.
+    /// </summary>
+    private void EvaluateCameraRigCandidate()
+    {
+        if (_camera == null) return;
+        var invZoom = _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
+        var tolerance = ProxyBorderPickTolerancePixels * invZoom;
+        var rank = TargetRank(RenderTargetID.Main); // the frustum is a world-space outline on Main
+
+        foreach (var rig in _cameraRigSet.GetEntities())
+        {
+            if (!rig.IsAlive) continue;
+            var corners = CameraRigGlyph.FrustumWorldCorners(
+                rig.Get<TransformComponent>().Position, rig.Get<CameraRigComponent>().Zoom,
+                _camera.VirtualWidth, _camera.VirtualHeight);
+            if (!ProxyGeometry.BorderContains(corners, _worldPoint, tolerance)) continue;
+
+            if (!rig.Has<EditorIdComponent>())
+                rig.Set(new EditorIdComponent(_nextEditorId++));
+            var id = rig.Get<EditorIdComponent>().Id;
+
+            if (Beats(rank, ProxyBorderPickDepth, id, _hasBest, _bestRank, _bestDepth, _bestId))
+            {
+                _hasBest = true;
+                _bestRank = rank;
+                _bestDepth = ProxyBorderPickDepth;
+                _bestId = id;
+                _best = rig;
+            }
+        }
+    }
+
     /// <summary>The active coarse tool mode (see <see cref="EditorToolMode"/>). No gizmo-state
     /// entity — e.g. a selection-only composition — means the default
     /// <see cref="EditorToolMode.SelectTransform"/>.</summary>
@@ -449,6 +494,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         _selectedSet.Dispose();
         _proxySet.Dispose();
         _boundarySet.Dispose();
+        _cameraRigSet.Dispose();
         _gizmoStateSet.Dispose();
     }
 }

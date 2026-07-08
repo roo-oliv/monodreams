@@ -84,6 +84,7 @@ public sealed class EditorOverlay
     private string _sceneId;
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
+    private readonly EditorCameraRig _cameraRig;
     private readonly EditorShellStateComponent _shellState = new();
     // The concrete reader (SceneReader is the ISystem view of it) — read SceneWasLoaded for the
     // empty-save guard.
@@ -177,12 +178,23 @@ public sealed class EditorOverlay
 
         Transport = new EditorTransport(world, History);
 
+        // The camera rig (UX2-E): the authored game-camera state as a standalone entity, split from the
+        // free editor VIEW (the shared Camera CameraNavSystem drives). It re-syncs from scene.camera on
+        // every load (the reader's rig seam below), Save reads scene.camera FROM it (not the view), and
+        // it emits its frustum glyph in the overlay-prep pass. Constructed before the reader so the seam
+        // is ready for the first load.
+        _cameraRig = new EditorCameraRig(world, camera, viewportManager);
+
         // The file-asset texture loader is always composed (a loaded scene can carry file: keys
         // whether or not this screen shows a palette); textures load lazily, and a missing file
         // shows the magenta placeholder instead of an invisible sprite.
         AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
+        // The rig seam (applyCameraToRig) makes THIS reader the editor path: scene.camera → the rig, and
+        // the live VIEW auto-frames the content. (A shipped reader with no seam applies scene.camera to
+        // the live camera directly — see SceneReaderSystem.)
         _sceneReaderSystem = new SceneReaderSystem(world, Serializer, content,
-            fileTextureLoader: AssetTextures.Load, camera: camera);
+            fileTextureLoader: AssetTextures.Load, camera: camera,
+            applyCameraToRig: _cameraRig.SyncFromScene);
         SceneReader = _sceneReaderSystem;
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
@@ -208,7 +220,7 @@ public sealed class EditorOverlay
             () => Palette?.ArmedTrigger);
         TriggerOverlay = triggerOverlay;
 
-        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay);
+        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraRig);
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
         _selection = new SelectionSystem(world, camera);
         Selection = _selection;
@@ -380,6 +392,12 @@ public sealed class EditorOverlay
     /// screen-infrastructure exclusions (<see cref="EditorTransport.KeepAlive"/>) — in
     /// <c>Load</c>, once it knows what it loaded.</summary>
     public EditorTransport Transport { get; }
+
+    /// <summary>The camera rig (UX2-E): the authored game-camera state as a standalone entity, split
+    /// from the free editor VIEW. Save reads <c>scene.camera</c> from it; every load re-syncs it; the
+    /// <c>view:camera</c> op / header button snaps the view onto it; its frustum glyph draws in the
+    /// overlay-prep pass. Exposed so tests + a future Game-mode transport (UX2-F) can read it.</summary>
+    public EditorCameraRig CameraRig => _cameraRig;
 
     /// <summary>Native-scene loading (<c>LoadSceneRequest</c>). Weave with the level-load group.</summary>
     public ISystem<GameState> SceneReader { get; }
@@ -779,7 +797,7 @@ public sealed class EditorOverlay
         // world — and write them through the shared serializer/writer.
         using var emptyWorld = new World();
         var writer = new SceneWriter(Serializer);
-        var scene = writer.BuildScene(emptyWorld, _camera, _layers);
+        var scene = writer.BuildScene(emptyWorld, _cameraRig.AsCamera(), _layers);
         var savedPath = writer.Save(scene, target);
         if (savedPath == null) return;
 
@@ -908,7 +926,7 @@ public sealed class EditorOverlay
         }
 
         var writer = new SceneWriter(Serializer);
-        var scene = writer.BuildScene(_world, _camera, _layers);
+        var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
         WarnIfNotShipReady(scene);
         var savedPath = writer.Save(scene, target);
         if (savedPath == null) return;
@@ -1009,6 +1027,9 @@ public sealed class EditorOverlay
             // The Scene-header "Entity ▾" dropdown (UX2-D): open the entity menu below the button,
             // acting on the current selection (the discoverable twin of the viewport right-click).
             case EditorToolbarAction.EntityMenu: OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
+            // The Scene-header nav-corner button (UX2-E): snap the free VIEW onto the authored camera rig
+            // (Camera := rig). An editing action — the toolbar dims/suppresses it while Playing.
+            case EditorToolbarAction.CameraView: _cameraRig.SnapViewToRig(); break;
         }
     }
 
@@ -1056,7 +1077,7 @@ public sealed class EditorOverlay
 
         // Build once so the ship-readiness lint (PS6) can inspect the exact scene being written.
         var writer = new SceneWriter(Serializer);
-        var scene = writer.BuildScene(_world, _camera, _layers);
+        var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
         WarnIfNotShipReady(scene);
         var savedPath = writer.Save(scene, target);
         // Zero-touch bundling (PS6): append the MGCB /copy: entry for a NEW level so it bundles to the
@@ -1242,6 +1263,19 @@ public sealed class EditorOverlay
         const string shellPrefix = "shell:";
         const string scenesPrefix = "scenes:";
         const string menuPrefix = "menu:";
+        const string viewPrefix = "view:";
+
+        if (name.StartsWith(viewPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // view:camera — snap the free editor VIEW onto the authored camera rig (UX2-E), the headless
+            // twin of the Scene-header nav-corner button. Routes through the same DispatchToolbarAction.
+            var verb = name.Substring(viewPrefix.Length).Trim();
+            if (string.Equals(verb, "camera", StringComparison.OrdinalIgnoreCase))
+                DispatchToolbarAction(EditorToolbarAction.CameraView, state);
+            else
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected view:camera.");
+            return;
+        }
 
         if (name.StartsWith(menuPrefix, StringComparison.OrdinalIgnoreCase))
         {

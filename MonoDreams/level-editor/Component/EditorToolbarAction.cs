@@ -85,6 +85,12 @@ public enum EditorToolbarAction
     /// the viewport right-click — one model, two anchors). An editing action (Paused/Edit only). The
     /// overlay maps it to <c>OpenContextMenu(EntityHeader)</c>.</summary>
     EntityMenu,
+
+    /// <summary>The Scene-panel header's <b>Camera view</b> nav-corner button (UX2-E §6, right corner):
+    /// snaps the free editor VIEW to the authored camera rig (<c>Camera := rig state</c>) — the
+    /// back-to-camera-view affordance. An editing action (Paused/Edit only). Headless alias:
+    /// <c>view:camera</c>. The overlay maps it to <c>EditorCameraRig.SnapViewToRig</c>.</summary>
+    CameraView,
 }
 
 /// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>

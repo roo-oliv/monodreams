@@ -103,6 +103,11 @@ public static class EditorTheme
     public static readonly Color OverlayBoundary = Color.Aqua;
     /// <summary>The in-progress boundary lay preview line.</summary>
     public static readonly Color OverlayBoundaryPreview = Color.Orange;
+    /// <summary>The authored game-camera rig's frustum glyph (bounds + X) — UX2-E. A cool
+    /// light-steel-blue, distinct from the warm props and the other overlay accents (cyan proxy /
+    /// yellow selection / aqua boundary), so "the camera is over there" reads at a glance. A NEW role
+    /// (no pre-theme value to preserve), authored here like every other overlay color.</summary>
+    public static readonly Color CameraGlyph = new(158, 190, 228);
     /// <summary>A trigger zone's Edit-only outline (amber).</summary>
     public static readonly Color OverlayTrigger = new(255, 196, 64);
     /// <summary>The armed-trigger placement ghost (the trigger tint, dimmed). A sprite/overlay tint
@@ -147,6 +152,9 @@ public static class EditorTheme
     {
         /// <summary>Collider-proxy outlines — beneath the gizmo and the opaque panels.</summary>
         public const float ProxyOverlay = 0.02f;
+        /// <summary>The camera-rig frustum glyph (UX2-E) — above the proxy outlines, below the gizmo
+        /// handles so the rig's move handle draws over its own frustum when the rig is selected.</summary>
+        public const float CameraGlyph = 0.03f;
         /// <summary>Gizmo handles + selection outline — just above the proxy band.</summary>
         public const float GizmoOverlay = 0.04f;
         /// <summary>Opaque shell panel backgrounds (top bar, right strip, bottom shelf).</summary>

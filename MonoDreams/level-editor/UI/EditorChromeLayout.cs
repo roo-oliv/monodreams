@@ -257,4 +257,21 @@ public static class EditorChromeLayout
     /// </summary>
     public static Rectangle[] ButtonRow(IReadOnlyList<int> buttonWidths, float scale = 1f) =>
         ButtonRowIn(new Rectangle(0, 0, 1, Px(TopBarHeight, scale)), buttonWidths, scale);
+
+    /// <summary>
+    /// The Scene panel header's <b>nav-corner button</b> (UX2-E): a square icon button
+    /// (<see cref="ButtonHeight"/> a side) docked at the header's RIGHT edge, inset by the row margin
+    /// and vertically centered — the Blender back-to-camera-view affordance, opposite the left-anchored
+    /// transport/tool row so it never collides with it. Right-anchored (unlike
+    /// <see cref="ButtonRowIn"/>'s left-to-right flow), so it stays in the corner as the header widens.
+    /// </summary>
+    public static Rectangle SceneHeaderNavButton(Rectangle sceneHeader, float scale = 1f)
+    {
+        var size = Px(ButtonHeight, scale);
+        var margin = Px(RowMarginX, scale);
+        return new Rectangle(
+            sceneHeader.Right - margin - size,
+            sceneHeader.Y + (sceneHeader.Height - size) / 2,
+            size, size);
+    }
 }

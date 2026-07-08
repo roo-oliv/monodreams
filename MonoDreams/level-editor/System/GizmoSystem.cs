@@ -221,7 +221,8 @@ public sealed class GizmoSystem : ISystem<GameState>
         // A collider proxy edits component-local spatial data: only Move applies this wave, so the
         // active tool is forced to Move regardless of the toolbar selection (rotate/scale handles
         // would imply an edit the write-back cannot express yet — documented follow-up).
-        var tool = target.Has<GizmoProxyComponent>() ? GizmoTool.Move : gizmo.Tool;
+        var tool = target.Has<GizmoProxyComponent>() || target.Has<CameraRigComponent>()
+            ? GizmoTool.Move : gizmo.Tool;
 
         // Target-aware space: Main-target entities are world-space (cursor WorldPosition, handle
         // hit-tests sized by 1/Zoom); UI/HUD/Scroll-target entities are screen-space (their
@@ -267,7 +268,8 @@ public sealed class GizmoSystem : ISystem<GameState>
         }
 
         ref readonly var gizmo = ref GetGizmoState();
-        var tool = target.Has<GizmoProxyComponent>() ? GizmoTool.Move : gizmo.Tool;
+        var tool = target.Has<GizmoProxyComponent>() || target.Has<CameraRigComponent>()
+            ? GizmoTool.Move : gizmo.Tool;
         var pivot = target.Get<TransformComponent>().WorldPosition;
         var space = OverlaySpace(target);
         // The scale handle's SOURCE-space offset mirrors the hit-test's (world units ÷ zoom /

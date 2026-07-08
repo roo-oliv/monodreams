@@ -141,6 +141,16 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         if (!GuardEdit(state, "Delete")) return;
         if (!TryGetSelected(out var selected)) return;
 
+        // The camera rig (UX2-E) is not deletable — it is editor-materialized from scene.camera on every
+        // load, never scene content. Refuse loudly rather than tearing down the authored-camera entity.
+        if (selected.Has<CameraRigComponent>())
+        {
+            Logger.Warning(
+                "[level-editor] Delete refused: the camera rig is not deletable — it is materialized " +
+                "from scene.camera on every load. Move it, or edit the camera through the Inspector.");
+            return;
+        }
+
         if (selected.Has<GizmoProxyComponent>())
         {
             var binding = selected.Get<GizmoProxyComponent>();

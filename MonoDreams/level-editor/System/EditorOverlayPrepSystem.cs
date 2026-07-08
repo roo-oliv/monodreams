@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using DefaultEcs.System;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.System;
@@ -33,6 +34,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     private readonly ProxySyncSystem _proxySync;
     private readonly BoundaryToolSystem? _boundary;
     private readonly TriggerOverlaySystem? _triggers;
+    private readonly EditorCameraRig? _cameraRig;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -42,13 +44,18 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     /// <param name="triggers">Optional trigger overlay (Slice 3): its
     /// <see cref="TriggerOverlaySystem.EmitOverlays"/> bakes trigger-zone outlines + the placement
     /// ghost.</param>
+    /// <param name="cameraRig">Optional camera rig (UX2-E): its <see cref="EditorCameraRig.EmitGlyph"/>
+    /// bakes the authored-camera frustum glyph (bounds + X) into this same pass when the view differs
+    /// from the rig.</param>
     public EditorOverlayPrepSystem(GizmoSystem gizmo, ProxySyncSystem proxySync,
-        BoundaryToolSystem? boundary = null, TriggerOverlaySystem? triggers = null)
+        BoundaryToolSystem? boundary = null, TriggerOverlaySystem? triggers = null,
+        EditorCameraRig? cameraRig = null)
     {
         _gizmo = gizmo ?? throw new ArgumentNullException(nameof(gizmo));
         _proxySync = proxySync ?? throw new ArgumentNullException(nameof(proxySync));
         _boundary = boundary;
         _triggers = triggers;
+        _cameraRig = cameraRig;
     }
 
     public void Update(GameState state)
@@ -58,6 +65,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
         _proxySync.EmitOverlays(state);
         _boundary?.EmitOverlays(state);
         _triggers?.EmitOverlays(state);
+        _cameraRig?.EmitGlyph(state);
     }
 
     public void Dispose()

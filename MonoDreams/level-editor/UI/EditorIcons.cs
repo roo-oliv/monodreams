@@ -41,6 +41,7 @@ public static class EditorIcons
         Move, Rotate, Scale, Boundary, Snap,
         Play, Pause, Restart,
         Save, Undo, Redo, Refresh,
+        Camera,
     }
 
     /// <summary>The fraction of the smaller button dimension the glyph square occupies (centered) — the
@@ -71,6 +72,7 @@ public static class EditorIcons
         EditorToolbarAction.Undo => EditorIcon.Undo,
         EditorToolbarAction.Redo => EditorIcon.Redo,
         EditorToolbarAction.RefreshCatalog => EditorIcon.Refresh,
+        EditorToolbarAction.CameraView => EditorIcon.Camera,
         _ => null,
     };
 
@@ -117,6 +119,7 @@ public static class EditorIcons
             case EditorIcon.Refresh: pen.Mirror = true; CircularArrow(pen); break; // ↻ = the mirror
             case EditorIcon.Undo: AngularArrow(pen); break;        // ↶
             case EditorIcon.Redo: pen.Mirror = true; AngularArrow(pen); break;     // ↷ = the mirror
+            case EditorIcon.Camera: Camera(pen); break;
             default: throw new ArgumentOutOfRangeException(nameof(icon), icon, "Unknown editor icon.");
         }
         return pen.ToMesh();
@@ -186,6 +189,18 @@ public static class EditorIcons
         p.FillQuad(0.36f, 0.18f, 0.64f, 0.38f);
         // The label plate (bottom).
         p.FillQuad(0.34f, 0.54f, 0.66f, 0.78f);
+    }
+
+    /// <summary>Camera view — a view FRUSTUM: a closed trapezoid narrow at the left (the camera eye)
+    /// widening to the right (the far plane), the "back to camera view" nav-corner glyph (UX2-E). One
+    /// closed shape (like <see cref="Boundary"/>'s pentagon) — reads as a frustum at ~16pt.</summary>
+    private static void Camera(Pen p)
+    {
+        // Narrow left edge (eye), wide right edge (far plane), two slanted sides — TL→TR→BR→BL closed.
+        p.Line(0.20f, 0.40f, 0.85f, 0.18f); // top side
+        p.Line(0.85f, 0.18f, 0.85f, 0.82f); // far plane (right)
+        p.Line(0.85f, 0.82f, 0.20f, 0.60f); // bottom side
+        p.Line(0.20f, 0.60f, 0.20f, 0.40f); // eye edge (left)
     }
 
     /// <summary>Play ▶ — a filled right-pointing triangle.</summary>

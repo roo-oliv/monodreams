@@ -67,6 +67,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     private readonly Func<string, Texture2D> _loadTexture;
     private readonly Func<string, Texture2D?>? _fileTextureLoader;
     private readonly Camera? _camera;
+    private readonly Action<SceneCameraData?>? _applyCameraToRig;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -84,9 +85,15 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// the asset drop folder — see <see cref="Assets.FileAssetKey"/>); wire
     /// <c>FileAssetTextureLoader.Load</c>, which returns a visible magenta placeholder (with a loud
     /// warning) for a missing file so the entity is never silently invisible.
-    /// <paramref name="camera"/> (optional; the overlay supplies the screen's live camera) enables the
-    /// post-load auto-frame — centering + zoom-fitting the camera on the loaded content when the scene
-    /// has no active camera-follow target. Null (the pure round-trip tests) simply skips auto-framing.
+    /// <paramref name="camera"/> (optional; the overlay supplies the screen's live camera / VIEW)
+    /// positions that VIEW on load; null (the pure round-trip tests) skips all camera positioning.
+    /// <paramref name="applyCameraToRig"/> (optional; the editor overlay wires it to
+    /// <c>EditorCameraRig.SyncFromScene</c>) is the <b>editor rig seam</b>: when present it hands the
+    /// loaded <c>scene.camera</c> to the rig (the authored game-camera state lives on the rig), and the
+    /// live VIEW is auto-framed on the content so the designer sees the scene regardless of where the
+    /// authored camera sits (UX2-E). When ABSENT (a shipped game — no editor overlay), there is no rig
+    /// and the live camera IS the authored camera: <c>scene.camera</c> is applied to it directly (or, for
+    /// a legacy camera-less scene, the camera auto-frames on content, byte-identical to pre-UX2-E).
     /// </summary>
     public SceneReaderSystem(
         World world,
@@ -94,7 +101,8 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         ContentManager content,
         Func<string, Texture2D>? loadTexture = null,
         Func<string, Texture2D?>? fileTextureLoader = null,
-        Camera? camera = null)
+        Camera? camera = null,
+        Action<SceneCameraData?>? applyCameraToRig = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -102,6 +110,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         _loadTexture = loadTexture ?? (key => _content.Load<Texture2D>(key));
         _fileTextureLoader = fileTextureLoader;
         _camera = camera;
+        _applyCameraToRig = applyCameraToRig;
         _world.Subscribe<LoadSceneRequest>(On);
     }
 
@@ -133,7 +142,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
             RestoreDrawComponents(created);
 
-            AutoFrameLoadedContent(created);
+            ApplyCamera(scene, created);
 
             SceneWasLoaded = true; // a real load happened → the empty-save guard now permits an empty save
 
@@ -269,19 +278,71 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     }
 
     /// <summary>
-    /// Auto-frames the camera on the loaded content's AABB — but only when a <see cref="Camera"/> was
-    /// supplied AND the scene has no <b>active</b> <see cref="CameraFollowTargetComponent"/> (a
-    /// prop-only scene has no player, so nothing else will move the camera onto the content). This
-    /// centers the camera and zoom-fits the content (via the pure <see cref="CameraNav"/> frame-scene
-    /// math, the same used by <see cref="CameraNavSystem"/>), so a loaded off-origin scene is visible
-    /// instead of blank with the camera stuck at (0,0). When a follow target IS present it leaves the
-    /// camera untouched — <c>CameraFollowSystem</c> owns the camera in Play. No content → no-op.
+    /// Routes the loaded <c>scene.camera</c> and positions the camera on load — the view/camera split
+    /// (UX2-E). The persisted form stays <c>scene.camera</c>; who consumes it depends on whether the
+    /// editor is composed:
+    /// <list type="bullet">
+    ///   <item><b>Editor present</b> (<see cref="_applyCameraToRig"/> wired): the authored camera goes
+    ///   to the <b>rig</b> (the seam), and the free <b>VIEW</b> (the live <see cref="Camera"/>)
+    ///   auto-frames on the content so the designer sees the scene regardless of where the authored
+    ///   camera sits. The rig holds the authored state; the glyph shows it when the view differs.</item>
+    ///   <item><b>Shipped</b> (no rig seam): the live camera IS the authored camera. When
+    ///   <c>scene.camera</c> is present it is applied to the camera directly (respecting the authored
+    ///   view); a legacy camera-less scene auto-frames on content — byte-identical to pre-UX2-E.</item>
+    /// </list>
+    /// In BOTH cases the camera is left untouched when a null camera was supplied (a pure round-trip
+    /// test, or the reference shipped reader that relies on <c>CameraFollowSystem</c>) or an <b>active</b>
+    /// <see cref="CameraFollowTargetComponent"/> is present (<c>CameraFollowSystem</c> owns the camera in
+    /// Play — the reader must not fight it).
     /// </summary>
-    private void AutoFrameLoadedContent(List<Entity> entities)
+    private void ApplyCamera(SceneData scene, List<Entity> created)
     {
-        if (_camera == null) return;
-        if (HasActiveFollowTarget()) return;
+        // The rig (editor only) always receives the authored camera — even when the VIEW is left alone
+        // (a follow target present, or a null view camera): the rig owns the authored state, the view is
+        // just what the viewport looks through.
+        _applyCameraToRig?.Invoke(scene.Camera);
 
+        if (_camera == null) return;         // no live VIEW supplied → nothing to position
+        if (HasActiveFollowTarget()) return; // CameraFollowSystem owns it (Play) — don't fight it
+
+        if (_applyCameraToRig != null)
+        {
+            // Editor: the authored state is on the rig; the free view frames the content.
+            FrameViewOnContent(created);
+        }
+        else if (scene.Camera != null)
+        {
+            // Shipped: no rig — the live camera IS the authored camera, so respect the persisted view.
+            ApplySceneCameraToView(scene.Camera);
+        }
+        else
+        {
+            // Shipped, legacy/camera-less scene: auto-frame on content (byte-identical to pre-UX2-E).
+            FrameViewOnContent(created);
+        }
+    }
+
+    /// <summary>Applies a persisted <see cref="SceneCameraData"/> to the live VIEW — the shipped path's
+    /// "the authored camera is the game camera" (the rig only exists under the editor).</summary>
+    private void ApplySceneCameraToView(SceneCameraData camera)
+    {
+        _camera!.Position = new Vector2(
+            camera.Position.Length > 0 ? camera.Position[0] : 0f,
+            camera.Position.Length > 1 ? camera.Position[1] : 0f);
+        _camera.Zoom = camera.Zoom;
+        _camera.Rotation = camera.Rotation;
+        Logger.Info(
+            $"[level-editor] Applied scene.camera to the view: center={_camera.Position}, zoom={_camera.Zoom:F3}.");
+    }
+
+    /// <summary>
+    /// Centres + zoom-fits the live VIEW on the loaded content's AABB (via the pure
+    /// <see cref="CameraNav"/> frame-scene math, the same <see cref="CameraNavSystem"/> uses), so a
+    /// loaded off-origin scene is visible instead of blank with the camera stuck at (0,0). No content →
+    /// no-op. Callers guarantee <see cref="_camera"/> is non-null and no active follow target is present.
+    /// </summary>
+    private void FrameViewOnContent(List<Entity> entities)
+    {
         var quads = new List<Vector2[]>();
         foreach (var entity in entities)
         {
@@ -292,13 +353,13 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
         if (CameraNav.ContentBounds(quads) is not { } aabb) return; // no content: leave the camera as-is
 
-        _camera.Position = CameraNav.Center(aabb);
+        _camera!.Position = CameraNav.Center(aabb);
         if (aabb.Width > 0 && aabb.Height > 0)
             _camera.Zoom = CameraNav.FitZoom(aabb, _camera.VirtualWidth, _camera.VirtualHeight,
                 FrameMargin, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
 
         Logger.Info(
-            $"[level-editor] Auto-framed camera on loaded content: center={_camera.Position}, zoom={_camera.Zoom:F3}.");
+            $"[level-editor] Auto-framed the view on loaded content: center={_camera.Position}, zoom={_camera.Zoom:F3}.");
     }
 
     /// <summary>Whether any live entity carries an <b>active</b> <see cref="CameraFollowTargetComponent"/>
