@@ -70,8 +70,11 @@ public class EditorPanelTests
 
     private Rectangle LineFor(EditorPanelSystem panel, ViewportManager vm, int rowIndex)
     {
-        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        return SystemsPanelLayout.LineRect(panelRect, rowIndex - panel.ScrollOffset);
+        // Rows live in the region BODY (below the tab strip) at the shell's runtime region sizes.
+        var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight, vm.DevicePixelRatio,
+            panel.ShellState.RightWidthPt, panel.ShellState.BottomHeightPt);
+        var body = EditorChromeLayout.RegionBody(panelRect, vm.DevicePixelRatio);
+        return SystemsPanelLayout.LineRect(body, rowIndex - panel.ScrollOffset);
     }
 
     private void ClickBody(EditorPanelSystem panel, ViewportManager vm, Entity cursor, int rowIndex)
@@ -112,6 +115,7 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        panel.SetRightTab(EditorRightTab.Systems); // these tests exercise the Systems tab
         return (panel, update, logic, updatePipeline);
     }
 
@@ -128,6 +132,7 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        panel.SetRightTab(EditorRightTab.Systems); // these tests exercise the Systems tab
         return (panel, update);
     }
 
@@ -149,9 +154,13 @@ public class EditorPanelTests
         Assert.Contains("DRAW", labels);
         Assert.Contains("logic [freeze]", labels);
         Assert.Contains("renderMain", labels);
-        // The other two sections' headers are always present too.
-        Assert.Contains(EditorPanelModel.SceneTitle, labels);
-        Assert.Contains(EditorPanelModel.InspectorTitle, labels);
+        // The Systems tab shows only the Systems section — Scene/Inspector live on the Scene tab.
+        Assert.DoesNotContain(EditorPanelModel.SceneTitle, labels);
+        Assert.DoesNotContain(EditorPanelModel.InspectorTitle, labels);
+        // The tab bar labels are always present (persistent widgets).
+        Assert.Contains("Scene", labels);
+        Assert.Contains("Systems", labels);
+        Assert.Contains("Project", labels);
     }
 
     [Fact]
@@ -316,13 +325,16 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        panel.SetRightTab(EditorRightTab.Systems);
 
         panel.Update(Edit());
         Assert.Equal(0, panel.ScrollOffset);
 
+        // Rows scroll within the region BODY (below the tab strip).
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
+        var body = EditorChromeLayout.RegionBody(panelRect);
         ref var input = ref cursor.Get<CursorInputComponent>();
-        input.ScreenPosition = new Vector2(panelRect.Center.X, panelRect.Center.Y);
+        input.ScreenPosition = new Vector2(body.Center.X, body.Center.Y);
 
         input.ScrollWheelDelta = -120; // one notch down
         panel.Update(Edit());
@@ -330,7 +342,7 @@ public class EditorPanelTests
 
         input.ScrollWheelDelta = -120 * 100; // clamps to max
         panel.Update(Edit());
-        Assert.Equal(SystemsPanelLayout.MaxScroll(panel.Rows.Count, panelRect), panel.ScrollOffset);
+        Assert.Equal(SystemsPanelLayout.MaxScroll(panel.Rows.Count, body), panel.ScrollOffset);
 
         input.ScrollWheelDelta = 120 * 100; // clamps to 0
         panel.Update(Edit());
@@ -356,27 +368,34 @@ public class EditorPanelTests
         draw.Add("renderMain", new CountingSystem(), EditTimeBehavior.RunNormally);
         draw.Build();
         using var panel = new EditorPanelSystem(world, vm, font: null, () => (update, draw));
+        panel.SetRightTab(EditorRightTab.Systems);
 
         panel.Update(Edit());
 
         var panelRect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight);
-        var visible = SystemsPanelLayout.VisibleLineCount(panelRect);
+        var body = EditorChromeLayout.RegionBody(panelRect);
+        var visible = SystemsPanelLayout.VisibleLineCount(body);
         Assert.True(panel.Rows.Count > visible, "test needs an overflowing panel");
 
         // Pooling: the panel creates a fixed pool sized to the visible window (one label + three
         // screen-baked meshes per slot — the disclosure arrow, the row background fill, and the
-        // selected-row accent bar), NOT one entity per row — so the entity count is bounded by the
-        // window even though there are far more rows. Labels are DynamicText; the three are mesh
-        // DrawComponents (empty when unused, but the entity still exists).
-        const int meshesPerRow = 3; // arrow + row-fill + accent-bar
+        // selected-row accent bar), NOT one entity per row. Persistent chrome adds a fixed,
+        // row-count-independent overhead: the 3 tab widgets (each a fill mesh + label + underline
+        // mesh) and the 2 scrollbar meshes (track + thumb). So the entity count is bounded by the
+        // window + a constant, never by the row count.
+        const int meshesPerRow = 3;      // arrow + row-fill + accent-bar
+        const int tabCount = 3;          // Scene / Systems / Project
+        const int tabLabels = tabCount;  // one label each
+        const int tabMeshes = tabCount * 2; // fill + underline each
+        const int scrollbarMeshes = 2;   // track + thumb
         int labelEntities;
         using (var set = world.GetEntities().With<DynamicTextComponent>().AsSet())
             labelEntities = set.GetEntities().Length;
         int meshEntities;
         using (var set = world.GetEntities().With<DrawComponent>().AsSet())
             meshEntities = set.GetEntities().Length;
-        Assert.Equal(visible, labelEntities);
-        Assert.Equal(visible * meshesPerRow, meshEntities);
+        Assert.Equal(visible + tabLabels, labelEntities);
+        Assert.Equal(visible * meshesPerRow + tabMeshes + scrollbarMeshes, meshEntities);
         Assert.True(labelEntities < panel.Rows.Count, "pooling should bound entities below the row count");
     }
 

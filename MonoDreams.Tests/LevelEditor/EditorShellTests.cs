@@ -118,8 +118,10 @@ public class EditorShellTests
         using var world = new World();
         BuiltChrome(world);
 
-        // Three panels (fill-only meshes) + the buttons all carry SimpleButtonComponent; panels
-        // are the ones without a ToolbarButtonComponent.
+        // The three panels + the splitters + the bottom "Assets" tab fill/underline are all fill-only
+        // meshes (SimpleButtonComponent without a ToolbarButtonComponent). Every one must be opaque
+        // (the premultiplied-alpha mesh rule) and on the Editor target; the three PANEL sizes must be
+        // present among them.
         using var all = world.GetEntities().With<SimpleButtonComponent>().Without<ToolbarButtonComponent>().AsSet();
         var sizes = new List<Vector2>();
         foreach (var panel in all.GetEntities())
@@ -129,7 +131,6 @@ public class EditorShellTests
             Assert.Equal(byte.MaxValue, visual.FillColor.A); // opaque — readable over any level
             sizes.Add(visual.Size);
         }
-        Assert.Equal(3, sizes.Count);
         Assert.Contains(new Vector2(1600, EditorChromeLayout.TopBarHeight), sizes);
         Assert.Contains(new Vector2(EditorChromeLayout.RightPanelWidth,
             900 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight), sizes);

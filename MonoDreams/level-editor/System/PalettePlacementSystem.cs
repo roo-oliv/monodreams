@@ -4,9 +4,11 @@ using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Brush;
 using MonoDreams.LevelEditor.Component;
@@ -150,12 +152,16 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private readonly List<ItemButton> _items = new();
     private readonly List<TriggerButton> _triggerItems = new();
     private readonly List<BandButton> _bandButtons = new();
+    private readonly EditorShellStateComponent _shellState;
     private bool _leftDown; // cursor left-button held this frame (drives the "pressed" fill)
     private Entity _emptyHint;
+    private Entity _scrollTrack;
+    private Entity _scrollThumb;
     private bool _built;
 
     private int _scroll;
     private int _laidOutWidth, _laidOutHeight, _laidOutScroll = -1;
+    private int _laidOutBottomHeightPt = -1;
     private float _laidOutScale;
 
     private int _armedIndex = -1;
@@ -193,10 +199,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         IReadOnlyList<TriggerType>? triggerTypes = null,
         Func<GameState, bool>? rotateCwRequested = null,
         Func<GameState, bool>? rotateCcwRequested = null,
-        AssetBandConfig? bandConfig = null)
+        AssetBandConfig? bandConfig = null,
+        EditorShellStateComponent? shellState = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _shellState = shellState ?? new EditorShellStateComponent();
         // Per-asset band marks (FW3). Null = in-memory (a screen with no drop-folder root, or a
         // test) — marks then live only for the session; resolution still works (marked→its band).
         _bandConfig = bandConfig ?? new AssetBandConfig();
@@ -493,16 +501,26 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         if (_built)
         {
             var scale = _viewportManager!.DevicePixelRatio;
-            var strip = EditorChromeLayout.BottomBar(
-                _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            var strip = PaletteStrip(scale);
             _scroll = PaletteLayout.ClampScroll(_scroll, TotalRows(), strip, scale);
             if (_laidOutWidth != _viewportManager.ScreenWidth ||
                 _laidOutHeight != _viewportManager.ScreenHeight ||
                 _laidOutScroll != _scroll ||
-                _laidOutScale != scale)
+                _laidOutScale != scale ||
+                _laidOutBottomHeightPt != _shellState.BottomHeightPt)
                 PositionChrome(strip, scale);
             ReflectState(state, hovered, editing);
         }
+    }
+
+    /// <summary>The palette's usable strip — the bottom shelf (at the shell's runtime height) BELOW
+    /// its tab strip (the Assets tab). Every layout/hit-test derives from this, so a bottom-splitter
+    /// resize flows through automatically (the single-source-of-truth rule).</summary>
+    private Rectangle PaletteStrip(float scale)
+    {
+        var shelf = EditorChromeLayout.BottomBar(
+            _viewportManager!.ScreenWidth, _viewportManager.ScreenHeight, scale, _shellState.BottomHeightPt);
+        return EditorChromeLayout.RegionBody(shelf, scale);
     }
 
     // ---- Strip interaction (raw ScreenPosition, like the toolbar / systems panel) ----
@@ -521,14 +539,27 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (!_built) return (-1, -1);
 
             var scale = _viewportManager!.DevicePixelRatio;
-            var strip = EditorChromeLayout.BottomBar(
-                _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            var strip = PaletteStrip(scale);
+
+            // Scrollbar-thumb drag owns its own presses (shares the ONE ActiveDrag token); runs even
+            // off the strip so a fast drag keeps tracking.
+            HandleScrollbarDrag(strip, in input, scale);
+
+            // A drag (this scrollbar, a splitter, or the right strip's scrollbar) owns the pointer —
+            // stand down so it never also arms a card / picks a band (pre-mortem #3).
+            if (_shellState.ActiveDrag != ShellDragKind.None) return (-1, -1);
+
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
             if (!strip.Contains(point)) return (-1, -1);
 
             if (input.ScrollWheelDelta != 0)
                 _scroll = PaletteLayout.ClampScroll(
                     _scroll + PaletteLayout.ScrollRows(input.ScrollWheelDelta), TotalRows(), strip, scale);
+
+            // A click on the scrollbar track (not a thumb press) is consumed, never armed.
+            if (EditorScrollbar.NeedsScrollbar(TotalRows(), PaletteLayout.VisibleRowCount(strip, scale)) &&
+                EditorScrollbar.Track(strip, scale).Contains(point))
+                return (-1, -1);
 
             // Band selector row.
             for (var i = 0; i < _bandButtons.Count; i++)
@@ -578,6 +609,94 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     {
         var position = button.Get<TransformComponent>().Position;
         return new Rectangle((int)position.X, (int)position.Y, (int)visual.Size.X, (int)visual.Size.Y);
+    }
+
+    /// <summary>The bottom-shelf scrollbar-thumb drag lifecycle: claim on a thumb press, track the
+    /// thumb (in whole card rows) while held / on release, and release the shared token the frame
+    /// AFTER (button fully up) so it never also arms a card.</summary>
+    private void HandleScrollbarDrag(Rectangle strip, in CursorInputComponent input, float scale)
+    {
+        if (_shellState.ActiveDrag == ShellDragKind.BottomScrollbar &&
+            !input.LeftButton && !input.LeftButtonReleased)
+            _shellState.ActiveDrag = ShellDragKind.None;
+
+        var total = TotalRows();
+        var visible = PaletteLayout.VisibleRowCount(strip, scale);
+        var track = EditorScrollbar.Track(strip, scale);
+
+        if (_shellState.ActiveDrag == ShellDragKind.BottomScrollbar && (input.LeftButton || input.LeftButtonReleased))
+        {
+            var thumbTop = input.ScreenPosition.Y - _shellState.DragGrabPixel;
+            _scroll = EditorScrollbar.ScrollFromThumbTop(track, total, visible, thumbTop, scale);
+            return;
+        }
+
+        if (_shellState.ActiveDrag == ShellDragKind.None && input.LeftButtonPressed &&
+            EditorScrollbar.NeedsScrollbar(total, visible))
+        {
+            var thumb = EditorScrollbar.Thumb(track, total, visible, _scroll, scale);
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            if (thumb.Contains(point))
+            {
+                _shellState.ActiveDrag = ShellDragKind.BottomScrollbar;
+                _shellState.DragGrabPixel = input.ScreenPosition.Y - thumb.Y;
+            }
+        }
+    }
+
+    // ---- Screen-baked scrollbar meshes (identity WorldMatrix, native Editor target, no VisibleComponent) ----
+
+    private Entity CreateScrollMesh()
+    {
+        var mesh = _world.CreateEntity();
+        mesh.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        mesh.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        mesh.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Editor,
+            LayerDepth = EditorTheme.Depths.Scrollbar,
+            WorldMatrix = Matrix.Identity,
+            Vertices = Array.Empty<VertexPositionColor>(),
+            Indices = Array.Empty<int>(),
+        });
+        return mesh;
+    }
+
+    private static void SetScrollMesh(Entity e, MeshData mesh)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Type = DrawElementType.Mesh;
+        dc.Vertices = mesh.Vertices;
+        dc.Indices = mesh.Indices;
+        dc.PrimitiveType = mesh.PrimitiveType;
+        dc.WorldMatrix = Matrix.Identity;
+        dc.Target = RenderTargetID.Editor;
+        dc.LayerDepth = EditorTheme.Depths.Scrollbar;
+    }
+
+    private static void ClearScrollMesh(Entity e)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Vertices = Array.Empty<VertexPositionColor>();
+        dc.Indices = Array.Empty<int>();
+    }
+
+    private void PositionScrollbar(Rectangle strip, float scale)
+    {
+        if (!_scrollTrack.IsAlive || !_scrollThumb.IsAlive) return;
+        var total = TotalRows();
+        var visible = PaletteLayout.VisibleRowCount(strip, scale);
+        if (!EditorScrollbar.NeedsScrollbar(total, visible))
+        {
+            ClearScrollMesh(_scrollTrack);
+            ClearScrollMesh(_scrollThumb);
+            return;
+        }
+        var track = EditorScrollbar.Track(strip, scale);
+        var thumb = EditorScrollbar.Thumb(track, total, visible, _scroll, scale);
+        SetScrollMesh(_scrollTrack, new FilledRectangleMeshGenerator(track, EditorTheme.Border).Generate());
+        SetScrollMesh(_scrollThumb, new FilledRectangleMeshGenerator(thumb, EditorTheme.BorderStrong).Generate());
     }
 
     // ---- Ghost + place ----
@@ -816,6 +935,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         if (_catalog.Entries.Count == 0 && _triggerItems.Count == 0)
             _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
 
+        _scrollTrack = CreateScrollMesh();
+        _scrollThumb = CreateScrollMesh();
+
         _built = true;
     }
 
@@ -983,10 +1105,13 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                           + (EditorChromeLayout.Px(PaletteLayout.CardLabelHeight, scale) - labelHeight) / 2f), scale);
         }
 
+        PositionScrollbar(strip, scale);
+
         _laidOutWidth = _viewportManager!.ScreenWidth;
         _laidOutHeight = _viewportManager.ScreenHeight;
         _laidOutScroll = _scroll;
         _laidOutScale = scale;
+        _laidOutBottomHeightPt = _shellState.BottomHeightPt;
     }
 
     private void PlaceButton(Entity button, Entity label, Rectangle rect, float labelHeight, float scale)
@@ -1214,6 +1339,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (trigger.Label.IsAlive) trigger.Label.Dispose();
         }
         if (_emptyHint.IsAlive) _emptyHint.Dispose();
+        if (_scrollTrack.IsAlive) _scrollTrack.Dispose();
+        if (_scrollThumb.IsAlive) _scrollThumb.Dispose();
         _bandButtons.Clear();
         _items.Clear();
         _triggerItems.Clear();

@@ -2,11 +2,14 @@
 using System;
 using DefaultEcs;
 using DefaultEcs.System;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.UI;
 
 namespace MonoDreams.LevelEditor.System;
 
@@ -17,28 +20,29 @@ namespace MonoDreams.LevelEditor.System;
 /// always visible and the game simply runs inside the inset viewport. Each frame it maintains:
 ///
 /// <list type="number">
-///   <item><b>The viewport inset.</b> It applies <see cref="EditorChromeLayout.ViewportInset"/> to
-///   the <see cref="ViewportManager"/> (<c>SetViewportInset</c>), shrinking the aspect-fit game
-///   viewport into the center of the window with the chrome margins reserved around it. Because
-///   the ViewportManager is the single source of truth, BOTH the FinalDraw compositing AND
-///   <c>ScaleMouseToVirtualCoordinates</c> follow the same rectangle: clicks in the inset game
-///   viewport keep mapping to correct world positions with no extra math; clicks in the margins
-///   map outside (null) and are consumed by the chrome in screen space.</item>
-///   <item><b>Chrome layout.</b> The native-resolution chrome (panels + toolbar) lays out in
-///   physical pixels, so the system relayouts it whenever the window size differs from the last
-///   laid-out size (covers live window resize).</item>
+///   <item><b>Region splitters (UX-B).</b> It hit-tests the two splitter drag zones (the right
+///   strip's left edge, the bottom shelf's top edge) against the cursor's raw
+///   <c>ScreenPosition</c> and, on a drag, resizes <see cref="EditorShellStateComponent.RightWidthPt"/>
+///   / <see cref="EditorShellStateComponent.BottomHeightPt"/> (device-px delta → points via the
+///   DPR). A splitter drag claims the shared <see cref="EditorShellStateComponent.ActiveDrag"/>
+///   token on the press edge and holds it through the release edge (cleared the frame after), so
+///   the panel / palette / toolbar stand down and the drag never also fires a row / card / button
+///   click. The zones sit in the reserved margins (a drag there is <c>OutsideViewport</c>, so
+///   viewport tools are muted already).</item>
+///   <item><b>The viewport inset.</b> It applies <see cref="EditorChromeLayout.ViewportInset"/>
+///   (derived from the shell state's region sizes) to the <see cref="ViewportManager"/>
+///   (<c>SetViewportInset</c>). Because the ViewportManager is the single source of truth, BOTH the
+///   FinalDraw compositing AND <c>ScaleMouseToVirtualCoordinates</c> follow the same rectangle.</item>
+///   <item><b>Chrome layout.</b> The native-resolution chrome (panels + toolbar + splitters + the
+///   bottom tab) lays out in physical pixels, so the system relayouts it whenever the window size,
+///   the DPR, OR a region size (a splitter drag) differs from the last laid-out values.</item>
 ///   <item><b>The cursor.</b> The OS cursor is the one visible pointer (it must reach the chrome
-///   margins, where the game cursor's position mapping nulls out) and the in-game HUD cursor
-///   sprite is hidden (its controller's <c>IsVisible</c> plus clearing the stale draw texture) —
-///   in both transport states, since the chrome is always interactive. Applied once (the shell
-///   never flips back while composed), so nothing else driving cursor visibility is fought per
-///   frame.</item>
+///   margins) and the in-game HUD cursor sprite is hidden — in both transport states.</item>
 /// </list>
 ///
 /// <para>A screen without the editor composed never constructs this system, and its viewport stays
 /// the historical full-window letterbox — byte-identical. <see cref="Dispose"/> clears the inset
-/// and re-hides the OS cursor — the ViewportManager and the host Game outlive the screen, so a
-/// screen swap must not leak the shell onto the next screen.</para>
+/// and re-hides the OS cursor.</para>
 /// </summary>
 public sealed class EditorShellSystem : ISystem<GameState>
 {
@@ -46,48 +50,148 @@ public sealed class EditorShellSystem : ISystem<GameState>
     private readonly EditorChromeBuilder _chrome;
     private readonly Action<bool>? _setOsCursorVisible;
     private readonly EntitySet _cursorSet;
+    private readonly EntitySet _cursorInputSet;
+    private readonly EditorShellStateComponent _state;
 
     private bool _cursorApplied;
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>The shared region-layout state (region sizes, active tabs, drag ownership). Exposed
+    /// for tests.</summary>
+    public EditorShellStateComponent State => _state;
+
     public EditorShellSystem(
         World world,
         ViewportManager viewportManager,
         EditorChromeBuilder chrome,
-        Action<bool>? setOsCursorVisible = null)
+        Action<bool>? setOsCursorVisible = null,
+        EditorShellStateComponent? shellState = null)
     {
         if (world == null) throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
         _chrome = chrome ?? throw new ArgumentNullException(nameof(chrome));
         _setOsCursorVisible = setOsCursorVisible;
+        _state = shellState ?? new EditorShellStateComponent();
         _cursorSet = world.GetEntities().With<CursorControllerComponent>().AsSet();
+        _cursorInputSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
 
-        // Native chrome tracks the window AND the device-pixel ratio: relayout when either
-        // changed (or on entry). The DPR scales the chrome's point-based metrics so its physical
-        // size is stable on a device-resolution (HiDPI) backbuffer — see EditorChromeLayout.
         var scale = _viewportManager.DevicePixelRatio;
+
+        // Splitters first: a drag mutates the region sizes this frame, so the relayout + inset below
+        // (and every chrome system's re-read of the layout) reflect the new sizes with no lag.
+        HandleSplitters(scale);
+
+        // Native chrome tracks the window, the DPR, AND the runtime region sizes: relayout when any
+        // changed (or on entry). The DPR scales the chrome's point-based metrics.
         if (_chrome.LaidOutWidth != _viewportManager.ScreenWidth ||
             _chrome.LaidOutHeight != _viewportManager.ScreenHeight ||
-            _chrome.LaidOutScale != scale)
-            _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            _chrome.LaidOutScale != scale ||
+            _chrome.LaidOutRightWidthPt != _state.RightWidthPt ||
+            _chrome.LaidOutBottomHeightPt != _state.BottomHeightPt)
+            _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
+                _state.RightWidthPt, _state.BottomHeightPt);
 
-        var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(scale);
+        var (left, top, right, bottom) =
+            EditorChromeLayout.ViewportInset(scale, _state.RightWidthPt, _state.BottomHeightPt);
         _viewportManager.SetViewportInset(left, top, right, bottom); // no-op when unchanged
 
-        // One pointer at a time, in both transport states: the OS cursor (it must reach the
-        // chrome), never the game cursor sprite. Applied once — game entities created later in
-        // Load are covered because the first Update runs after Load.
+        RecolorSplitters(scale);
+
+        // One pointer at a time, in both transport states.
         if (!_cursorApplied)
         {
             ApplyEditorCursor();
             _cursorApplied = true;
         }
+    }
+
+    // ---- Splitters (own the shared drag token; device-px → pt via the DPR) ----
+
+    private void HandleSplitters(float scale)
+    {
+        foreach (var cursor in _cursorInputSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            var w = _viewportManager.ScreenWidth;
+            var h = _viewportManager.ScreenHeight;
+
+            // Clear a finished splitter drag the frame AFTER release (button fully up) — see the
+            // ShellDragKind doc: holding the token through the release edge is what makes the
+            // "splitter drag never also clicks" exclusion independent of weave order.
+            if ((_state.ActiveDrag == ShellDragKind.RightSplitter ||
+                 _state.ActiveDrag == ShellDragKind.BottomSplitter) &&
+                !input.LeftButton && !input.LeftButtonReleased)
+                _state.ActiveDrag = ShellDragKind.None;
+
+            // Continue / finalise the owned drag (the release edge still carries the final position).
+            if (_state.ActiveDrag == ShellDragKind.RightSplitter && (input.LeftButton || input.LeftButtonReleased))
+            {
+                var deltaPt = (_state.DragGrabPixel - input.ScreenPosition.X) / scale; // drag left → grow
+                _state.RightWidthPt = (int)MathF.Round(_state.DragGrabValue + deltaPt);
+            }
+            else if (_state.ActiveDrag == ShellDragKind.BottomSplitter && (input.LeftButton || input.LeftButtonReleased))
+            {
+                var deltaPt = (_state.DragGrabPixel - input.ScreenPosition.Y) / scale; // drag up → grow
+                _state.BottomHeightPt = (int)MathF.Round(_state.DragGrabValue + deltaPt);
+            }
+
+            // Claim on the press edge (only when no other drag owns the pointer).
+            if (_state.ActiveDrag == ShellDragKind.None && input.LeftButtonPressed)
+            {
+                var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+                if (EditorChromeLayout.RightSplitter(w, h, scale, _state.RightWidthPt, _state.BottomHeightPt).Contains(point))
+                {
+                    _state.ActiveDrag = ShellDragKind.RightSplitter;
+                    _state.DragGrabValue = _state.RightWidthPt;
+                    _state.DragGrabPixel = input.ScreenPosition.X;
+                }
+                else if (EditorChromeLayout.BottomSplitter(w, h, scale, _state.BottomHeightPt).Contains(point))
+                {
+                    _state.ActiveDrag = ShellDragKind.BottomSplitter;
+                    _state.DragGrabValue = _state.BottomHeightPt;
+                    _state.DragGrabPixel = input.ScreenPosition.Y;
+                }
+            }
+            return;
+        }
+    }
+
+    private void RecolorSplitters(float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var point = CursorPoint();
+        var rightZone = EditorChromeLayout.RightSplitter(w, h, scale, _state.RightWidthPt, _state.BottomHeightPt);
+        var bottomZone = EditorChromeLayout.BottomSplitter(w, h, scale, _state.BottomHeightPt);
+
+        SetSplitterFill(_chrome.RightSplitter,
+            _state.ActiveDrag == ShellDragKind.RightSplitter || (point is { } p1 && rightZone.Contains(p1)));
+        SetSplitterFill(_chrome.BottomSplitter,
+            _state.ActiveDrag == ShellDragKind.BottomSplitter || (point is { } p2 && bottomZone.Contains(p2)));
+    }
+
+    private static void SetSplitterFill(Entity splitter, bool strong)
+    {
+        if (!splitter.IsAlive || !splitter.Has<SimpleButtonComponent>()) return;
+        ref var visual = ref splitter.Get<SimpleButtonComponent>();
+        visual.FillColor = strong ? EditorTheme.BorderStrong : EditorTheme.Border;
+        visual.Color = visual.FillColor;
+    }
+
+    private Point? CursorPoint()
+    {
+        foreach (var cursor in _cursorInputSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            return new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+        }
+        return null;
     }
 
     private void ApplyEditorCursor()
@@ -100,8 +204,6 @@ public sealed class EditorShellSystem : ISystem<GameState>
             controller.IsVisible = false;
             if (cursor.Has<DrawComponent>())
             {
-                // CursorDrawPrepSystem skips invisible cursors but leaves the last texture on the
-                // DrawComponent — clear it so the sprite disappears rather than freezing in place.
                 ref var draw = ref cursor.Get<DrawComponent>();
                 draw.Texture = null;
             }
@@ -115,5 +217,6 @@ public sealed class EditorShellSystem : ISystem<GameState>
         _viewportManager.ClearViewportInset();
         _setOsCursorVisible?.Invoke(false);
         _cursorSet.Dispose();
+        _cursorInputSet.Dispose();
     }
 }

@@ -48,6 +48,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     private readonly EntitySet _cursorSet;
     private readonly Action<EditorToolbarAction, GameState> _dispatch;
     private readonly Func<EditorToolbarAction, GameState, bool>? _isEditingActionBlocked;
+    private readonly Func<bool>? _isInputSuppressed;
 
     private bool _cursorPresent;
     private Vector2 _cursorPoint;
@@ -61,12 +62,18 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     /// click is suppressed even while Paused. The overlay wires it to the save-guard's "no project
     /// root" cause so Save dims while the project is unresolved (the "Playing" cause is already
     /// covered by the transport rule). Null (the default) preserves the pre-PS2 behaviour.</param>
+    /// <param name="isInputSuppressed">Optional global suppress: while it returns <c>true</c> the
+    /// toolbar dispatches nothing (a shell splitter/scrollbar drag owns the pointer — a drag that
+    /// happens to release over a toolbar button must not also fire it). Null (the default) never
+    /// suppresses.</param>
     public ToolbarSystem(World world, Action<EditorToolbarAction, GameState> dispatch,
-        Func<EditorToolbarAction, GameState, bool>? isEditingActionBlocked = null)
+        Func<EditorToolbarAction, GameState, bool>? isEditingActionBlocked = null,
+        Func<bool>? isInputSuppressed = null)
         : base(world.GetEntities().With<ToolbarButtonComponent>().With<TransformComponent>().AsSet())
     {
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
         _isEditingActionBlocked = isEditingActionBlocked;
+        _isInputSuppressed = isInputSuppressed;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
 
@@ -117,7 +124,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
             SetLabelColor(entity, active ? EditorTheme.Text0 : EditorTheme.TextDisabled);
         }
 
-        if (over && _clicked)
+        if (over && _clicked && !(_isInputSuppressed?.Invoke() ?? false))
             _dispatch(button.Action, state);
     }
 

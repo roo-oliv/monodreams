@@ -61,12 +61,14 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private readonly ViewportManager _viewportManager;
     private readonly BitmapFont? _font;
     private readonly Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> _pipelines;
+    private readonly Func<EditorProjectInfo> _projectInfo;
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _sceneSet;
     private readonly EntitySet _selectedSet;
     private readonly Entity _stateEntity;
     private readonly EditorPanelStateComponent _state;
+    private readonly EditorShellStateComponent _shellState;
 
     // Stable display ids for entities with no EntityInfo name (a panel-local render detail).
     private readonly Dictionary<Entity, int> _displayIds = new();
@@ -74,6 +76,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     private readonly List<PanelRow> _rows = new();
     private readonly List<RowVisual> _pool = new();
+    private readonly List<TabButton> _tabs = new();
+    private Entity _scrollTrack;
+    private Entity _scrollThumb;
     private int _scroll;
 
     public bool IsEnabled { get; set; } = true;
@@ -84,8 +89,26 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     /// <summary>The pure-data panel state (collapse/expand flags). Exposed for tests.</summary>
     public EditorPanelStateComponent State => _state;
 
+    /// <summary>The shared region-layout state (active tab, region sizes, drag ownership). Exposed
+    /// for tests.</summary>
+    public EditorShellStateComponent ShellState => _shellState;
+
     /// <summary>The last-built flat row list (post-collapse). Exposed for tests.</summary>
     public IReadOnlyList<PanelRow> Rows => _rows;
+
+    /// <summary>One right-strip tab (Scene / Systems / Project) as a persistent chrome widget: a
+    /// screen-baked fill mesh + a label + an Accent underline (shown only while active), with its
+    /// OWN hover-fade progress (never a pooled row — pre-mortem #6).</summary>
+    private sealed class TabButton
+    {
+        public EditorRightTab Tab;
+        public string Label = string.Empty;
+        public Entity Fill;
+        public Entity LabelEntity;
+        public Entity Underline;
+        public float HoverProgress;
+        public Rectangle Bounds;
+    }
 
     /// <summary>One pooled row's visual entities (repurposed each frame for whichever row is at
     /// this slot; unused ones are parked off-screen). <see cref="Arrow"/>, <see cref="BgFill"/> and
@@ -107,12 +130,16 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         World world,
         ViewportManager viewportManager,
         BitmapFont? font,
-        Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> pipelines)
+        Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> pipelines,
+        EditorShellStateComponent? shellState = null,
+        Func<EditorProjectInfo>? projectInfo = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
         _font = font; // null = layout-only (tests run no text prep, mirroring EditorChromeBuilder's seam)
         _pipelines = pipelines ?? throw new ArgumentNullException(nameof(pipelines));
+        _projectInfo = projectInfo ?? (() => default);
+        _shellState = shellState ?? new EditorShellStateComponent();
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         // Scene candidates: entities with a transform, minus the editor's own machinery (chrome,
@@ -125,6 +152,24 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         _stateEntity.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         _state = new EditorPanelStateComponent();
         _stateEntity.Set(_state);
+
+        // The right-strip tab bar (persistent widgets) + the scrollbar (screen-baked meshes).
+        foreach (var (tab, label) in new[]
+                 {
+                     (EditorRightTab.Scene, "Scene"),
+                     (EditorRightTab.Systems, "Systems"),
+                     (EditorRightTab.Project, "Project"),
+                 })
+            _tabs.Add(new TabButton
+            {
+                Tab = tab,
+                Label = label,
+                Fill = CreateMesh(EditorTheme.Depths.Button),
+                LabelEntity = CreateText(),
+                Underline = CreateMesh(EditorTheme.Depths.TabUnderline),
+            });
+        _scrollTrack = CreateMesh(EditorTheme.Depths.Scrollbar);
+        _scrollThumb = CreateMesh(EditorTheme.Depths.Scrollbar);
     }
 
     public void Update(GameState state)
@@ -134,18 +179,24 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
         var scale = _viewportManager.DevicePixelRatio;
         var panel = EditorChromeLayout.RightPanel(
-            _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale);
+            _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
+            _shellState.RightWidthPt, _shellState.BottomHeightPt);
+        var tabStrip = EditorChromeLayout.TabStrip(panel, scale);
+        var body = EditorChromeLayout.RegionBody(panel, scale); // rows live below the tab strip
 
         SyncInspectorSelection();
 
-        // Build the flat rows for hit-testing, handle clicks/scroll (which may mutate collapse state
-        // or the selection), then rebuild so the visuals reflect the post-click state this same frame.
+        // Build the flat rows for hit-testing, handle clicks/scroll (which may mutate collapse state,
+        // the selection, the active tab or the scroll), then rebuild so the visuals reflect the
+        // post-click state this same frame.
         BuildRows();
-        HandleInteraction(panel, scale);
+        HandleInteraction(panel, tabStrip, body, scale, state.Time);
         BuildRows();
 
-        _scroll = SystemsPanelLayout.ClampScroll(_scroll, _rows.Count, panel, scale);
-        PositionVisuals(panel, scale);
+        _scroll = SystemsPanelLayout.ClampScroll(_scroll, _rows.Count, body, scale);
+        PositionTabs(tabStrip, scale, state.Time);
+        PositionVisuals(body, scale);
+        PositionScrollbar(body, scale);
     }
 
     // ---- Model assembly ----------------------------------------------------
@@ -176,7 +227,21 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         }
 
         _rows.AddRange(EditorPanelModel.Build(
-            _state, update, draw, nodes, SceneLabel, selected, inspector, inspectorTitle));
+            _state, _shellState.ActiveRightTab, update, draw, nodes, SceneLabel, selected,
+            inspector, inspectorTitle, ProjectInfo()));
+    }
+
+    /// <summary>The Project-tab info, with the root middle-truncated to the panel's char budget so a
+    /// long absolute path stays legible (head + tail visible).</summary>
+    private EditorProjectInfo ProjectInfo()
+    {
+        var info = _projectInfo();
+        // A crude char budget from the strip width (the exact pixel width varies with the font; a
+        // middle ellipsis degrades gracefully if the estimate is off).
+        var budget = Math.Max(8, _shellState.RightWidthPt / 7);
+        return info with { ProjectRoot = EditorPanelModel.MiddleEllipsis(info.ProjectRoot, budget) is { Length: > 0 } t
+            ? t
+            : info.ProjectRoot };
     }
 
     private List<Entity> MaterializeScene()
@@ -214,26 +279,50 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Interaction -------------------------------------------------------
 
-    private void HandleInteraction(Rectangle panel, float scale)
+    private void HandleInteraction(Rectangle panel, Rectangle tabStrip, Rectangle body, float scale, float dt)
     {
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+
+            // Scrollbar-thumb drag owns its own presses (runs even when the cursor left the panel so
+            // a fast drag keeps tracking); it shares the ONE ActiveDrag token with splitters/palette.
+            HandleScrollbarDrag(body, in input, scale);
+
+            // A drag (this scrollbar, a splitter, or the palette's scrollbar) owns the pointer this
+            // frame — stand down so the drag never also fires a tab / row click (pre-mortem #3).
+            if (_shellState.ActiveDrag != ShellDragKind.None) return;
+
             if (!panel.Contains(point)) return;
 
-            if (input.ScrollWheelDelta != 0)
+            if (input.ScrollWheelDelta != 0 && body.Contains(point))
                 _scroll = SystemsPanelLayout.ClampScroll(
-                    _scroll + SystemsPanelLayout.ScrollLines(input.ScrollWheelDelta), _rows.Count, panel, scale);
+                    _scroll + SystemsPanelLayout.ScrollLines(input.ScrollWheelDelta), _rows.Count, body, scale);
 
             if (!input.LeftButtonReleased) return;
 
-            var visible = SystemsPanelLayout.VisibleLineCount(panel, scale);
+            // Tab bar: a click switches the active tab.
+            if (tabStrip.Contains(point))
+            {
+                var rects = ComputeTabRects(tabStrip, scale);
+                for (var i = 0; i < _tabs.Count; i++)
+                    if (rects[i].Contains(point)) { SetRightTab(_tabs[i].Tab); return; }
+                return;
+            }
+
+            // A click on the scrollbar track (not a thumb press) is consumed, not passed to a row.
+            if (EditorScrollbar.NeedsScrollbar(_rows.Count, SystemsPanelLayout.VisibleLineCount(body, scale)) &&
+                EditorScrollbar.Track(body, scale).Contains(point))
+                return;
+
+            // Rows.
+            var visible = SystemsPanelLayout.VisibleLineCount(body, scale);
             for (var i = 0; i < _rows.Count; i++)
             {
                 var vi = i - _scroll;
                 if (vi < 0 || vi >= visible) continue;
-                var line = SystemsPanelLayout.LineRect(panel, vi, scale);
+                var line = SystemsPanelLayout.LineRect(body, vi, scale);
                 if (!line.Contains(point)) continue;
                 HandleClick(_rows[i], line, point, scale);
                 return;
@@ -241,6 +330,55 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             return;
         }
     }
+
+    /// <summary>The right scrollbar-thumb drag lifecycle: claim on a thumb press, track the thumb to
+    /// the cursor while held (and on the release edge), and release the shared token the frame AFTER
+    /// (button fully up) so the release never also clicks a row.</summary>
+    private void HandleScrollbarDrag(Rectangle body, in CursorInputComponent input, float scale)
+    {
+        // Clear a finished drag (button fully up).
+        if (_shellState.ActiveDrag == ShellDragKind.RightScrollbar &&
+            !input.LeftButton && !input.LeftButtonReleased)
+            _shellState.ActiveDrag = ShellDragKind.None;
+
+        var total = _rows.Count;
+        var visible = SystemsPanelLayout.VisibleLineCount(body, scale);
+        var track = EditorScrollbar.Track(body, scale);
+
+        // Continue / finalise the owned drag.
+        if (_shellState.ActiveDrag == ShellDragKind.RightScrollbar && (input.LeftButton || input.LeftButtonReleased))
+        {
+            var thumbTop = input.ScreenPosition.Y - _shellState.DragGrabPixel;
+            _scroll = EditorScrollbar.ScrollFromThumbTop(track, total, visible, thumbTop, scale);
+            return;
+        }
+
+        // Claim on a thumb press.
+        if (_shellState.ActiveDrag == ShellDragKind.None && input.LeftButtonPressed &&
+            EditorScrollbar.NeedsScrollbar(total, visible))
+        {
+            var thumb = EditorScrollbar.Thumb(track, total, visible, _scroll, scale);
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            if (thumb.Contains(point))
+            {
+                _shellState.ActiveDrag = ShellDragKind.RightScrollbar;
+                _shellState.DragGrabPixel = input.ScreenPosition.Y - thumb.Y; // grab offset within the thumb
+            }
+        }
+    }
+
+    private Rectangle[] ComputeTabRects(Rectangle tabStrip, float scale)
+    {
+        var widths = new int[_tabs.Count];
+        for (var i = 0; i < _tabs.Count; i++)
+            widths[i] = EditorChromeLayout.TabWidth(MeasureLabel(_tabs[i].Label) * scale, scale);
+        return EditorChromeLayout.TabRow(tabStrip, widths, scale);
+    }
+
+    /// <summary>A label's width in LOGICAL points (already <c>LabelScale</c>-scaled), matching the
+    /// chrome builder's measure seam. A null font (layout-only tests) falls back to a char estimate.</summary>
+    private float MeasureLabel(string label) =>
+        (_font?.MeasureString(label).Width ?? label.Length * 8f) * EditorChromeBuilder.LabelScale;
 
     private void HandleClick(PanelRow row, Rectangle line, Point point, float scale)
     {
@@ -302,9 +440,16 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Public toggles (also the headless op-channel surface) -------------
 
-    /// <summary>Collapses/expands a section body (headless <c>panel:systems|scene|inspector</c>).</summary>
+    /// <summary>Sets the right strip's active tab (headless <c>panel:tab &lt;scene|systems|project&gt;</c>
+    /// and the tab-bar clicks).</summary>
+    public void SetRightTab(EditorRightTab tab) => _shellState.ActiveRightTab = tab;
+
+    /// <summary>Collapses/expands a section body (headless <c>panel:systems|scene|inspector</c>).
+    /// Activates the tab that HOSTS the section first, so a section op issued while a different tab
+    /// is showing still works (UX-B §2.2).</summary>
     public void ToggleSection(EditorPanelSection section)
     {
+        _shellState.ActiveRightTab = EditorPanelModel.HostTab(section);
         switch (section)
         {
             case EditorPanelSection.Systems: _state.SystemsCollapsed = !_state.SystemsCollapsed; break;
@@ -314,10 +459,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     }
 
     /// <summary>Collapses/expands a pipeline group's children by its full name (headless
-    /// <c>panel:group &lt;name&gt;</c>).</summary>
+    /// <c>panel:group &lt;name&gt;</c>). A group lives in the Systems tab — activate it.</summary>
     public void ToggleGroupCollapsed(string groupName)
     {
         if (string.IsNullOrEmpty(groupName)) return;
+        _shellState.ActiveRightTab = EditorRightTab.Systems;
         if (!_state.CollapsedGroups.Add(groupName))
             _state.CollapsedGroups.Remove(groupName);
     }
@@ -334,6 +480,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     public void ToggleInspectorComponentKey(string componentKey)
     {
         if (string.IsNullOrEmpty(componentKey)) return;
+        _shellState.ActiveRightTab = EditorRightTab.Scene; // the Inspector lives in the Scene tab
         // Resolve a short name (e.g. "TransformComponent") to the current selection's full key.
         var key = ResolveInspectorKey(componentKey);
         if (key == null) return;
@@ -364,6 +511,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (string.Equals(info.Name, name, StringComparison.Ordinal) ||
                 string.Equals(info.Type, name, StringComparison.Ordinal))
             {
+                _shellState.ActiveRightTab = EditorRightTab.Scene; // the tree lives in the Scene tab
                 SelectEntity(e);
                 return true;
             }
@@ -373,12 +521,67 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Rendering (pooled visuals) ----------------------------------------
 
-    private void PositionVisuals(Rectangle panel, float scale)
+    /// <summary>Positions the right-strip tab bar (persistent widgets): each tab's fill (active =
+    /// <c>Bg1</c> merging into the body, inactive = <c>Bg0</c> with a hover fade), its label
+    /// (active <c>Text0</c> / inactive <c>Text1</c>), and the active tab's 3pt <c>Accent</c>
+    /// underline.</summary>
+    private void PositionTabs(Rectangle tabStrip, float scale, float dt)
     {
-        var visible = SystemsPanelLayout.VisibleLineCount(panel, scale);
+        var rects = ComputeTabRects(tabStrip, scale);
+        var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
+        for (var i = 0; i < _tabs.Count; i++)
+        {
+            var tab = _tabs[i];
+            var rect = rects[i];
+            tab.Bounds = rect;
+            var active = _shellState.ActiveRightTab == tab.Tab;
+            var hover = !active && CursorOver(rect) && !_shellState.IsDragging;
+            tab.HoverProgress = EditorTheme.AdvanceHover(tab.HoverProgress, hover, dt);
+
+            var fill = active ? EditorTheme.Bg1 : Color.Lerp(EditorTheme.Bg0, EditorTheme.Bg2, tab.HoverProgress);
+            SetMeshAt(tab.Fill, new FilledRectangleMeshGenerator(rect, fill).Generate(), EditorTheme.Depths.Button);
+
+            if (active)
+                SetMeshAt(tab.Underline,
+                    new FilledRectangleMeshGenerator(EditorChromeLayout.TabUnderline(rect, scale), EditorTheme.Accent).Generate(),
+                    EditorTheme.Depths.TabUnderline);
+            else
+                ClearMesh(tab.Underline);
+
+            var labelPos = new Vector2(
+                rect.X + EditorChromeLayout.Px(EditorChromeLayout.TabPaddingX, scale),
+                rect.Y + (rect.Height - labelHeight) / 2f);
+            SetText(tab.LabelEntity, tab.Label, labelPos, scale, active ? EditorTheme.Text0 : EditorTheme.Text1);
+        }
+    }
+
+    /// <summary>Draws the slim scrollbar (Border track + BorderStrong thumb) when the rows overflow
+    /// the body's visible window, and hides it (empties the meshes) when they fit.</summary>
+    private void PositionScrollbar(Rectangle body, float scale)
+    {
+        var total = _rows.Count;
+        var visible = SystemsPanelLayout.VisibleLineCount(body, scale);
+        if (!EditorScrollbar.NeedsScrollbar(total, visible))
+        {
+            ClearMesh(_scrollTrack);
+            ClearMesh(_scrollThumb);
+            return;
+        }
+
+        var track = EditorScrollbar.Track(body, scale);
+        var thumb = EditorScrollbar.Thumb(track, total, visible, _scroll, scale);
+        SetMeshAt(_scrollTrack, new FilledRectangleMeshGenerator(track, EditorTheme.Border).Generate(),
+            EditorTheme.Depths.Scrollbar);
+        SetMeshAt(_scrollThumb, new FilledRectangleMeshGenerator(thumb, EditorTheme.BorderStrong).Generate(),
+            EditorTheme.Depths.Scrollbar);
+    }
+
+    private void PositionVisuals(Rectangle body, float scale)
+    {
+        var visible = SystemsPanelLayout.VisibleLineCount(body, scale);
         EnsurePool(visible);
         var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
-        var hoveredRow = HoveredRow(panel, scale, visible);
+        var hoveredRow = HoveredRow(body, scale, visible);
 
         for (var i = 0; i < _pool.Count; i++)
         {
@@ -391,24 +594,35 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             }
 
             var row = _rows[rowIndex];
-            var line = SystemsPanelLayout.LineRect(panel, i, scale);
+            var line = SystemsPanelLayout.LineRect(body, i, scale);
             ConfigureVisual(visual, row, line, scale, labelHeight, rowIndex == hoveredRow);
         }
     }
 
-    private int HoveredRow(Rectangle panel, float scale, int visible)
+    private int HoveredRow(Rectangle body, float scale, int visible)
     {
+        if (_shellState.IsDragging) return -1;
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
-            if (!panel.Contains(point)) return -1;
+            if (!body.Contains(point)) return -1;
             for (var vi = 0; vi < visible; vi++)
-                if (SystemsPanelLayout.LineRect(panel, vi, scale).Contains(point))
+                if (SystemsPanelLayout.LineRect(body, vi, scale).Contains(point))
                     return _scroll + vi;
             return -1;
         }
         return -1;
+    }
+
+    private bool CursorOver(Rectangle rect)
+    {
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            return rect.Contains(new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y));
+        }
+        return false;
     }
 
     private void ConfigureVisual(RowVisual visual, PanelRow row, Rectangle line, float scale,
@@ -656,6 +870,15 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (visual.AccentBar.IsAlive) visual.AccentBar.Dispose();
         }
         _pool.Clear();
+        foreach (var tab in _tabs)
+        {
+            if (tab.Fill.IsAlive) tab.Fill.Dispose();
+            if (tab.LabelEntity.IsAlive) tab.LabelEntity.Dispose();
+            if (tab.Underline.IsAlive) tab.Underline.Dispose();
+        }
+        _tabs.Clear();
+        if (_scrollTrack.IsAlive) _scrollTrack.Dispose();
+        if (_scrollThumb.IsAlive) _scrollThumb.Dispose();
         if (_stateEntity.IsAlive) _stateEntity.Dispose();
         _cursorSet.Dispose();
         _sceneSet.Dispose();

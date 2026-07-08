@@ -83,6 +83,7 @@ public sealed class EditorOverlay
     private string _sceneId;
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
+    private readonly EditorShellStateComponent _shellState = new();
 
     /// <summary>
     /// Builds the overlay over the screen's own world/camera/layers. <paramref name="toolbarFont"/>
@@ -153,6 +154,13 @@ public sealed class EditorOverlay
         _gizmoState = world.CreateEntity();
         _gizmoState.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         _gizmoState.Set(GizmoStateComponent.Default);
+
+        // The single shell-state entity (UX-B): the ONE source of the resizable region sizes, the
+        // active tab per region, and the drag ownership shared by the shell / panel / palette. On an
+        // editor-infra entity so it is discoverable + survives a transport Restart.
+        var shellStateEntity = world.CreateEntity();
+        shellStateEntity.Set(new EditorInfrastructureComponent());
+        shellStateEntity.Set(_shellState);
 
         Transport = new EditorTransport(world, History);
 
@@ -227,15 +235,18 @@ public sealed class EditorOverlay
         // cause is already covered by the toolbar's transport rule.
         ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction,
             (action, state) => action == EditorToolbarAction.Save
-                               && SaveBlock(state, _projectContext) == SaveBlockReason.NoProjectRoot);
-        // The right-strip editor panel (Systems + Scene + Inspector sections). The Systems section
-        // binds lazily to the pipelines the screen hands over via BindPipelines — they don't exist
-        // yet while the overlay itself is being constructed; the Scene + Inspector sections read the
-        // live world directly.
+                               && SaveBlock(state, _projectContext) == SaveBlockReason.NoProjectRoot,
+            // A shell splitter/scrollbar drag that happens to release over the toolbar must not also
+            // fire the button (the drag holds the shared token through its release edge).
+            isInputSuppressed: () => _shellState.IsDragging);
+        // The right-strip editor panel (Scene / Systems / Project tabs). The Systems tab binds lazily
+        // to the pipelines the screen hands over via BindPipelines — they don't exist yet while the
+        // overlay itself is being constructed; the Scene + Project tabs read live state directly.
         _editorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
-            () => (UpdatePipeline, DrawPipeline));
+            () => (UpdatePipeline, DrawPipeline), _shellState,
+            () => new EditorProjectInfo(_projectContext?.ProjectRoot, _projectContext?.LevelsPath, _sceneId));
         SystemsPanel = _editorPanel;
-        Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible);
+        Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible, _shellState);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
 
@@ -265,7 +276,7 @@ public sealed class EditorOverlay
             Palette = new PalettePlacementSystem(
                 world, assetCatalog, paletteBands, AssetTextures, Serializer, History,
                 viewportManager, toolbarFont, input.CancelRequested, triggerTypes,
-                input.RotateCwRequested, input.RotateCcwRequested, bandConfig);
+                input.RotateCwRequested, input.RotateCcwRequested, bandConfig, _shellState);
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -809,6 +820,8 @@ public sealed class EditorOverlay
     /// palette ghost, <c>panel:systems|scene|inspector</c> collapse a right-strip section,
     /// <c>panel:group &lt;name&gt;</c> collapses a pipeline group, <c>panel:inspect &lt;type&gt;</c>
     /// expands a component's member values, <c>panel:select &lt;name&gt;</c> selects a scene entity,
+    /// <c>panel:tab &lt;scene|systems|project|assets&gt;</c> switches a region's active tab,
+    /// <c>shell:right &lt;pt&gt;</c> / <c>shell:bottom &lt;pt&gt;</c> resize a region (clamped),
     /// and anything else parses as a plain
     /// <see cref="EditorToolbarAction"/> into <see cref="DispatchToolbarAction"/> — so every
     /// scripted editor action shares one grammar. Loud on unknown names / a palette op without a
@@ -826,6 +839,7 @@ public sealed class EditorOverlay
         const string ghostPrefix = "ghost:";
         const string dialogPrefix = "dialog:";
         const string panelPrefix = "panel:";
+        const string shellPrefix = "shell:";
 
         if (name.StartsWith(panelPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -838,6 +852,7 @@ public sealed class EditorOverlay
             var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
             switch (verb.ToLowerInvariant())
             {
+                case "tab": SetPanelTab(arg, name); break;
                 case "systems": _editorPanel.ToggleSection(EditorPanelSection.Systems); break;
                 case "scene": _editorPanel.ToggleSection(EditorPanelSection.Scene); break;
                 case "inspector": _editorPanel.ToggleSection(EditorPanelSection.Inspector); break;
@@ -850,7 +865,30 @@ public sealed class EditorOverlay
                 default:
                     Logger.Warning(
                         $"[level-editor] Editor-op '{name}': expected " +
-                        "panel:systems|scene|inspector|group <name>|inspect <type>|select <name>.");
+                        "panel:tab <scene|systems|project|assets>|systems|scene|inspector|group <name>|inspect <type>|select <name>.");
+                    break;
+            }
+            return;
+        }
+
+        if (name.StartsWith(shellPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // shell:right <pt> | shell:bottom <pt> — resize a region (clamped by the shell state).
+            var rest = name.Substring(shellPrefix.Length);
+            var space = rest.IndexOf(' ');
+            var verb = space < 0 ? rest : rest.Substring(0, space);
+            var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
+            if (!int.TryParse(arg, out var pt))
+            {
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected shell:right <pt> or shell:bottom <pt>.");
+                return;
+            }
+            switch (verb.ToLowerInvariant())
+            {
+                case "right": _shellState.RightWidthPt = pt; break;
+                case "bottom": _shellState.BottomHeightPt = pt; break;
+                default:
+                    Logger.Warning($"[level-editor] Editor-op '{name}': expected shell:right <pt> or shell:bottom <pt>.");
                     break;
             }
             return;
@@ -1001,6 +1039,23 @@ public sealed class EditorOverlay
             DispatchToolbarAction(action, state);
         else
             Logger.Warning($"[level-editor] Editor-op: unknown action '{name}'.");
+    }
+
+    /// <summary>The <c>panel:tab &lt;scene|systems|project|assets&gt;</c> op — switches the right
+    /// strip's active tab, or (assets) the bottom shelf's.</summary>
+    private void SetPanelTab(string arg, string name)
+    {
+        switch (arg.Trim().ToLowerInvariant())
+        {
+            case "scene": _editorPanel.SetRightTab(EditorRightTab.Scene); break;
+            case "systems": _editorPanel.SetRightTab(EditorRightTab.Systems); break;
+            case "project": _editorPanel.SetRightTab(EditorRightTab.Project); break;
+            case "assets": _shellState.ActiveBottomTab = EditorBottomTab.Assets; break;
+            default:
+                Logger.Warning(
+                    $"[level-editor] Editor-op '{name}': expected panel:tab <scene|systems|project|assets>.");
+                break;
+        }
     }
 
     private void SetGizmoTool(GizmoTool tool)

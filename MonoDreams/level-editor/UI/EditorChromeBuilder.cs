@@ -56,6 +56,8 @@ public sealed class EditorChromeBuilder
     private (EditorToolbarAction action, string label)[] _buttons =
         Array.Empty<(EditorToolbarAction, string)>();
     private Entity _topBar, _rightPanel, _bottomBar;
+    private Entity _rightSplitter, _bottomSplitter;
+    private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _labelEntities = new();
     private bool _built;
@@ -69,6 +71,20 @@ public sealed class EditorChromeBuilder
     /// <summary>The device-pixel-ratio the chrome was last laid out for (see
     /// <see cref="Relayout"/>; 0 until <see cref="Build"/>).</summary>
     public float LaidOutScale { get; private set; }
+
+    /// <summary>The right strip width (logical points) the chrome was last laid out for — the shell
+    /// system relayouts when the runtime <c>RightWidthPt</c> changes (a splitter drag).</summary>
+    public int LaidOutRightWidthPt { get; private set; }
+
+    /// <summary>The bottom shelf height (logical points) the chrome was last laid out for.</summary>
+    public int LaidOutBottomHeightPt { get; private set; }
+
+    /// <summary>The right strip's left-edge splitter visual — the shell system recolours it (idle
+    /// <c>Border</c> / hovered-or-dragging <c>BorderStrong</c>) each frame.</summary>
+    public Entity RightSplitter => _rightSplitter;
+
+    /// <summary>The bottom shelf's top-edge splitter visual (see <see cref="RightSplitter"/>).</summary>
+    public Entity BottomSplitter => _bottomSplitter;
 
     public EditorChromeBuilder(World world, BitmapFont font)
         : this(world, label => font.MeasureString(label).Width * LabelScale)
@@ -130,6 +146,14 @@ public sealed class EditorChromeBuilder
         _rightPanel = CreatePanel(EditorTheme.Bg1);
         _bottomBar = CreatePanel(EditorTheme.Bg1);
 
+        // Region splitters (the shell recolours them per hover/drag) and the bottom shelf's single
+        // static "Assets" tab (marks the terrain: the same tab strip as the right strip, one tab).
+        _rightSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
+        _bottomSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
+        _bottomTabFill = CreateFill(EditorTheme.Bg1, EditorTheme.Depths.Button); // active = merges into the shelf body
+        _bottomTabUnderline = CreateFill(EditorTheme.Accent, EditorTheme.Depths.TabUnderline);
+        _bottomTabLabel = CreateLabel("Assets");
+
         foreach (var (action, label) in _buttons)
         {
             var labelEntity = CreateLabel(label);
@@ -147,13 +171,26 @@ public sealed class EditorChromeBuilder
     /// and label glyphs scale with it so the chrome keeps its physical size on a HiDPI
     /// backbuffer; see <c>EditorChromeLayout</c>). Idempotent for unchanged inputs.
     /// </summary>
-    public void Relayout(int screenWidth, int screenHeight, float scale = 1f)
+    public void Relayout(int screenWidth, int screenHeight, float scale = 1f,
+        int rightWidthPt = EditorChromeLayout.RightPanelWidth,
+        int bottomHeightPt = EditorChromeLayout.BottomBarHeight)
     {
         if (!_built) throw new InvalidOperationException("Build the editor chrome before Relayout.");
 
+        var rightPanel = EditorChromeLayout.RightPanel(screenWidth, screenHeight, scale, rightWidthPt, bottomHeightPt);
+        var bottomBar = EditorChromeLayout.BottomBar(screenWidth, screenHeight, scale, bottomHeightPt);
         PlacePanel(_topBar, EditorChromeLayout.TopBar(screenWidth, scale));
-        PlacePanel(_rightPanel, EditorChromeLayout.RightPanel(screenWidth, screenHeight, scale));
-        PlacePanel(_bottomBar, EditorChromeLayout.BottomBar(screenWidth, screenHeight, scale));
+        PlacePanel(_rightPanel, rightPanel);
+        PlacePanel(_bottomBar, bottomBar);
+
+        // Splitters on the viewport-facing edges (recoloured by the shell each frame).
+        PlacePanel(_rightSplitter,
+            EditorChromeLayout.RightSplitter(screenWidth, screenHeight, scale, rightWidthPt, bottomHeightPt));
+        PlacePanel(_bottomSplitter,
+            EditorChromeLayout.BottomSplitter(screenWidth, screenHeight, scale, bottomHeightPt));
+
+        // The bottom shelf's static "Assets" tab in its tab strip (below the splitter).
+        LayoutBottomTab(bottomBar, scale);
 
         var widths = new int[_buttons.Length];
         for (var i = 0; i < _buttons.Length; i++)
@@ -182,6 +219,29 @@ public sealed class EditorChromeBuilder
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
         LaidOutScale = scale;
+        LaidOutRightWidthPt = rightWidthPt;
+        LaidOutBottomHeightPt = bottomHeightPt;
+    }
+
+    /// <summary>Positions the bottom shelf's single static "Assets" tab (fill + label + active-accent
+    /// underline) in the shelf's tab strip, sized to its label — the same tab geometry the right
+    /// strip's tabs use, so the two strips read consistently.</summary>
+    private void LayoutBottomTab(Rectangle bottomBar, float scale)
+    {
+        var strip = EditorChromeLayout.TabStrip(bottomBar, scale);
+        var labelWidthPx = _measureLabel("Assets") * scale;
+        var tabWidth = EditorChromeLayout.TabWidth(labelWidthPx, scale);
+        var tab = EditorChromeLayout.TabRow(strip, new[] { tabWidth }, scale)[0];
+
+        PlacePanel(_bottomTabFill, tab);
+        PlacePanel(_bottomTabUnderline, EditorChromeLayout.TabUnderline(tab, scale));
+
+        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
+        ref var text = ref _bottomTabLabel.Get<DynamicTextComponent>();
+        text.Scale = LabelScale * scale;
+        PlaceEntity(_bottomTabLabel, new Vector2(
+            tab.X + EditorChromeLayout.Px(EditorChromeLayout.TabPaddingX, scale),
+            tab.Y + (tab.Height - labelHeight) / 2f));
     }
 
     // NOTE: chrome entities deliberately carry NO VisibleComponent. It is only load-bearing on
@@ -208,6 +268,25 @@ public sealed class EditorChromeBuilder
             LayerDepth = EditorTheme.Depths.Panel,
         });
         return panel;
+    }
+
+    /// <summary>A fill-only <c>SimpleButtonComponent</c> mesh at an arbitrary depth (splitters, tab
+    /// fills, tab underlines) — like <see cref="CreatePanel"/> but not pinned to the panel depth.</summary>
+    private Entity CreateFill(Color color, float depth)
+    {
+        var fill = _world.CreateEntity();
+        fill.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        fill.Set(new TransformComponent(Vector2.Zero));
+        fill.Set(new SimpleButtonComponent
+        {
+            Size = Vector2.One,
+            LineThickness = 0f,
+            Color = color,
+            FillColor = color,
+            Target = RenderTargetID.Editor,
+            LayerDepth = depth,
+        });
+        return fill;
     }
 
     private Entity CreateLabel(string label)

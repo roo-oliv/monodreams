@@ -151,14 +151,21 @@ public static class EditorTheme
         public const float GizmoOverlay = 0.04f;
         /// <summary>Opaque shell panel backgrounds (top bar, right strip, bottom shelf).</summary>
         public const float Panel = 0.1f;
+        /// <summary>The region splitter lines (right strip / bottom shelf resize edges) — just above
+        /// the panels they edge so they read over the panel fill.</summary>
+        public const float Splitter = 0.12f;
         /// <summary>Right-strip row background fill (hover / selected) — above the panel, behind
         /// controls.</summary>
         public const float RowFill = 0.3f;
         /// <summary>The selected row's 3pt Accent left-edge bar — just above <see cref="RowFill"/> so
         /// it reads over the fill.</summary>
         public const float RowAccentBar = 0.31f;
-        /// <summary>Buttons / cards / checkboxes.</summary>
+        /// <summary>The scrollbar track + thumb — above the row fills, below the controls/labels.</summary>
+        public const float Scrollbar = 0.35f;
+        /// <summary>Buttons / cards / checkboxes / tab fills.</summary>
         public const float Button = 0.5f;
+        /// <summary>The active tab's 3pt Accent underline — just above the tab fill, below labels.</summary>
+        public const float TabUnderline = 0.52f;
         /// <summary>The indeterminate (mixed) checkbox minus bar — above the checkbox, below labels.</summary>
         public const float CheckboxMark = 0.55f;
         /// <summary>Palette card art thumbnails — above the card fill, below its label.</summary>

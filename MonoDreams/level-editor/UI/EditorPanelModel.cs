@@ -8,20 +8,28 @@ using MonoDreams.LevelEditor.Inspector;
 
 namespace MonoDreams.LevelEditor.UI;
 
-/// <summary>The three collapsible sections stacked in the editor's right strip.</summary>
+/// <summary>The collapsible sections the editor's right strip can stack — now distributed across the
+/// Scene / Systems / Project tabs (<c>EditorRightTab</c>). Scene tab = <see cref="Scene"/> +
+/// <see cref="Inspector"/>; Systems tab = <see cref="Systems"/>; the Project tab shows info rows
+/// (no collapsible section).</summary>
 public enum EditorPanelSection
 {
     /// <summary>The pipeline listing (every registrar entry of both pipelines) — the Wave-8 systems
-    /// panel, now a section with per-group collapse.</summary>
+    /// panel, now a section with per-group collapse. Hosted by the Systems tab.</summary>
     Systems,
 
     /// <summary>The world's entities as a parent/child tree — selectable, two-way with the
-    /// viewport selection.</summary>
+    /// viewport selection. Hosted by the Scene tab.</summary>
     Scene,
 
-    /// <summary>The selected entity's attached components + (on demand) their member values.</summary>
+    /// <summary>The selected entity's attached components + (on demand) their member values. Hosted
+    /// by the Scene tab.</summary>
     Inspector,
 }
+
+/// <summary>The project-tab info the model renders (root path, levels dir, current scene id). Null
+/// <see cref="ProjectRoot"/> = the project is unresolved (Save disabled).</summary>
+public readonly record struct EditorProjectInfo(string? ProjectRoot, string? LevelsDir, string? SceneId);
 
 /// <summary>What a single panel row represents (drives its visuals + click behavior).</summary>
 public enum PanelRowKind
@@ -121,45 +129,95 @@ public static class EditorPanelModel
     private const string UpdateSub = "UPDATE";
     private const string DrawSub = "DRAW";
 
+    /// <summary>The muted placeholder the Project tab shows until the Scenes list lands (UX-C).</summary>
+    public const string ScenesListPlaceholder = "(scenes list lands in UX-C)";
+
     /// <summary>
-    /// Builds the flat row list. <paramref name="update"/>/<paramref name="draw"/> may be null
-    /// (pipelines not yet bound → the Systems body shows nothing). <paramref name="sceneNodes"/> is
-    /// the pre-order tree from <see cref="EntitySceneTree.Build"/>; <paramref name="sceneLabel"/>
-    /// names an entity; <paramref name="selected"/> is the currently-selected entity (highlighted +
-    /// the Inspector binds to it). <paramref name="inspectorComponents"/> is null when nothing is
-    /// selected (the Inspector shows "(no selection)").
+    /// Builds the flat row list for the ACTIVE right-strip tab (<paramref name="activeTab"/>):
+    /// <c>Scene</c> → the Scene tree + the Inspector sections; <c>Systems</c> → the pipeline listing;
+    /// <c>Project</c> → project info rows (<paramref name="project"/>). Only the active tab's rows
+    /// are produced — the tab bar itself is rendered separately (persistent tab entities), not as
+    /// pooled rows. <paramref name="update"/>/<paramref name="draw"/> may be null (pipelines not yet
+    /// bound → the Systems body shows nothing). <paramref name="sceneNodes"/> is the pre-order tree
+    /// from <see cref="EntitySceneTree.Build"/>; <paramref name="sceneLabel"/> names an entity;
+    /// <paramref name="selected"/> is the currently-selected entity (highlighted + the Inspector
+    /// binds to it). <paramref name="inspectorComponents"/> is null when nothing is selected (the
+    /// Inspector shows "(no selection)").
     /// </summary>
     public static List<PanelRow> Build(
         EditorPanelStateComponent state,
+        EditorRightTab activeTab,
         EditorPipelineRegistrar? update,
         EditorPipelineRegistrar? draw,
         IReadOnlyList<EntitySceneTree.Node> sceneNodes,
         Func<Entity, string> sceneLabel,
         Entity selected,
         IReadOnlyList<ComponentInspector.ComponentInfo>? inspectorComponents,
-        string? inspectorTitle)
+        string? inspectorTitle,
+        EditorProjectInfo project = default)
     {
         var rows = new List<PanelRow>();
 
-        // ---- Systems ----
-        rows.Add(SectionHeader(EditorPanelSection.Systems, SystemsTitle, !state.SystemsCollapsed));
-        if (!state.SystemsCollapsed)
+        switch (activeTab)
         {
-            AppendPipeline(rows, state, UpdateSub, update);
-            AppendPipeline(rows, state, DrawSub, draw);
+            case EditorRightTab.Systems:
+                rows.Add(SectionHeader(EditorPanelSection.Systems, SystemsTitle, !state.SystemsCollapsed));
+                if (!state.SystemsCollapsed)
+                {
+                    AppendPipeline(rows, state, UpdateSub, update);
+                    AppendPipeline(rows, state, DrawSub, draw);
+                }
+                break;
+
+            case EditorRightTab.Project:
+                AppendProject(rows, project);
+                break;
+
+            case EditorRightTab.Scene:
+            default:
+                rows.Add(SectionHeader(EditorPanelSection.Scene, SceneTitle, !state.SceneCollapsed));
+                if (!state.SceneCollapsed)
+                    AppendScene(rows, state, sceneNodes, sceneLabel, selected);
+
+                rows.Add(SectionHeader(EditorPanelSection.Inspector, InspectorTitle, !state.InspectorCollapsed));
+                if (!state.InspectorCollapsed)
+                    AppendInspector(rows, state, inspectorComponents, inspectorTitle);
+                break;
         }
 
-        // ---- Scene ----
-        rows.Add(SectionHeader(EditorPanelSection.Scene, SceneTitle, !state.SceneCollapsed));
-        if (!state.SceneCollapsed)
-            AppendScene(rows, state, sceneNodes, sceneLabel, selected);
-
-        // ---- Inspector ----
-        rows.Add(SectionHeader(EditorPanelSection.Inspector, InspectorTitle, !state.InspectorCollapsed));
-        if (!state.InspectorCollapsed)
-            AppendInspector(rows, state, inspectorComponents, inspectorTitle);
-
         return rows;
+    }
+
+    /// <summary>The tab (<see cref="EditorRightTab"/>) that HOSTS a given collapsible section — a
+    /// section op issued from the headless channel activates this tab first (UX-B §2.2: existing
+    /// <c>panel:*</c> ops keep working against whichever tab hosts their section).</summary>
+    public static EditorRightTab HostTab(EditorPanelSection section) => section switch
+    {
+        EditorPanelSection.Systems => EditorRightTab.Systems,
+        _ => EditorRightTab.Scene, // Scene + Inspector both live in the Scene tab
+    };
+
+    /// <summary>Middle-truncates a path to <paramref name="maxChars"/> with a central ellipsis
+    /// ("/very/long/…/scene") so the head (drive/root) and tail (file) stay legible in the Project
+    /// tab. Pure — the panel supplies the char budget from its body width.</summary>
+    public static string MiddleEllipsis(string? text, int maxChars)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        if (maxChars <= 1 || text!.Length <= maxChars) return text ?? string.Empty;
+        const string ellipsis = "…";
+        var keep = maxChars - ellipsis.Length;
+        if (keep <= 0) return ellipsis;
+        var head = (keep + 1) / 2;
+        var tail = keep - head;
+        return text.Substring(0, head) + ellipsis + text.Substring(text.Length - tail);
+    }
+
+    private static void AppendProject(List<PanelRow> rows, EditorProjectInfo project)
+    {
+        rows.Add(Info($"Project: {(string.IsNullOrEmpty(project.ProjectRoot) ? "(unresolved)" : project.ProjectRoot)}", depth: 1));
+        rows.Add(Info($"Levels: {(string.IsNullOrEmpty(project.LevelsDir) ? "-" : project.LevelsDir)}", depth: 1));
+        rows.Add(Info($"Scene: {(string.IsNullOrEmpty(project.SceneId) ? "-" : project.SceneId)}", depth: 1));
+        rows.Add(Info(ScenesListPlaceholder, depth: 1));
     }
 
     private static PanelRow SectionHeader(EditorPanelSection section, string title, bool expanded) => new()
