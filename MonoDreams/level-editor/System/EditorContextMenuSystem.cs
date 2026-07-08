@@ -332,11 +332,12 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
 
             ParkBox(v.Sep);
 
-            // Hover fill (INSTANT — pooled rows never fade, pre-mortem #6): hovered enabled row = Bg3.
+            // Hover fill (INSTANT — pooled rows never fade, pre-mortem #6): hovered enabled row = Bg3,
+            // or Bg4 while the button is held over it (the pressed feedback, matching ControlFill).
             if (i == hovered && item.Enabled)
             {
                 PlaceBox(v.Fill, rect);
-                SetBoxFill(v.Fill, EditorTheme.Bg3);
+                SetBoxFill(v.Fill, _leftDown ? EditorTheme.Bg4 : EditorTheme.Bg3);
             }
             else
             {
