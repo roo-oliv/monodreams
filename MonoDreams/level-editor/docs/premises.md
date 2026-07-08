@@ -129,10 +129,12 @@ SOURCE fields are written; the derived-depth *reproduction* across a full save�
 A scene saves the registered components of every `SceneObjectComponent`-tagged root **plus** each
 root's `ChildOfComponent` descendant closure, so a factory's sub-graph (e.g. a player and its
 orbiting orbs) round-trips with its parent graph intact even though only the root is tagged.
-Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar) are
+Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar, and the UX2-E
+camera rig — never `SceneObjectComponent`-tagged, so it never enters `entities[]`, pre-mortem #4) are
 untagged → excluded; Blender-origin entities are untagged in this wave (their save is deferred) →
 view-only. `SceneWriter` computes the closure, serializes it through the Wave-2 `SceneSerializer`
-into a `SceneData` (attaching the active `Camera` state and the `DrawLayerMap` banding), and writes
+into a `SceneData` (attaching the **camera rig's** state as `scene.camera` — UX2-E: the writer reads the
+authored camera FROM the rig, not the live view — and the `DrawLayerMap` banding), and writes
 the canonical JSON through `IPlatformServices.WriteAllText` into the versioned project source tree
 (`ProjectRoot/LevelsDir/<sceneId>.mdscene` — PS3; see "The editor Save writes versioned `.mdscene`
 into the project source tree"). Loading is a
@@ -168,7 +170,7 @@ swallowing an unregistered key would silently lose a designer's data.
 sprite root + a `ChildOf` child, write, reload via `LoadSceneRequest`, assert Transform + `SpriteInfo`
 SOURCE sort fields + `AssetKey` + texture rehydration + parent graph + camera/layers reproduce;
 `MembershipFilterTest` — only tagged roots + their `ChildOf` closure serialize, transient/untagged
-and Blender-style entities excluded; `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
+and Blender-style entities excluded, and the UX2-E camera rig excluded (pre-mortem #4); `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
 frame recomputes the identical derived `DrawComponent.LayerDepth`;
 `ReloadedSceneReTagsRoots_LoadEditSaveIsAFixedPoint` — save mixed content, reload, edit a loaded
 transform, re-save: the same 3 roots reproduce, the boundary bake child stays excluded, and the edit
@@ -191,14 +193,21 @@ sprite's own `SpriteInfoComponent.Target`, mirroring `SpritePropFactory` (the au
 every reconstructed sprite that lacks one. Only sprites are restored: `DrawComponent`'s mesh/text
 payloads are not serializable today, so a sprite is the only serialized renderable.
 
-Additionally, when the reader is given the screen's live `Camera` **and** the loaded scene has **no
-active** `CameraFollowTargetComponent` (a dressed prop-only scene has no player, so nothing else moves
-the camera onto the content), it **auto-frames** the camera on the loaded content's world-space AABB
-(centre + zoom-fit, via the pure `CameraNav` frame-scene math) — so an off-origin scene (e.g.
-`Blender_Level` at ~(1275,−530)) is visible instead of the camera sitting at (0,0) while the content is
-elsewhere. When an active follow target IS present the reader leaves the camera untouched
-(`CameraFollowSystem` owns it in Play). No content ⇒ no-op. The `Camera` is an optional reader ctor
-param (the overlay supplies the screen's camera; the pure round-trip tests pass null and skip framing).
+Additionally the reader **positions the camera on load** — a view/camera split (UX2-E). What consumes
+`scene.camera` depends on whether the editor is composed (the reader's optional `applyCameraToRig` seam):
+- **Editor present** (the overlay wires the seam to `EditorCameraRig.SyncFromScene`): `scene.camera` goes
+  to the **rig** (the authored game-camera state lives there), and the free **VIEW** (the live `Camera`)
+  **auto-frames on content** — centre + zoom-fit of the loaded content's world-space AABB via the pure
+  `CameraNav` frame-scene math — so an off-origin scene (e.g. `Blender_Level` at ~(1275,−530)) is visible
+  regardless of where the authored camera sits.
+- **Shipped** (no seam): the live camera IS the authored camera, so `scene.camera` is applied to it
+  directly when present (respecting the authored view); a legacy camera-less scene auto-frames on content
+  (byte-identical to pre-UX2-E — every prior scene saved `camera: null`).
+In BOTH cases the camera is left untouched when a null `Camera` was supplied (the pure round-trip tests,
+and the reference shipped reader that relies on `CameraFollowSystem`) or an **active**
+`CameraFollowTargetComponent` is present (`CameraFollowSystem` owns it in Play — the reader must not
+fight it). No content ⇒ auto-frame is a no-op. The `Camera` (the view) is an optional reader ctor param;
+the `applyCameraToRig` seam is the editor-only rig materialization hook.
 
 **Why:** the render pipeline's `SpriteInfoComponent ⇒ DrawComponent` pairing is what puts a sprite on
 screen; the reader reconstructs the transient `DrawComponent` rather than serializing it (which would
@@ -213,11 +222,16 @@ content would jump to a degenerate AABB.
 after load the camera sits on the off-origin content and the REAL `CullingSystem` tags the sprite
 `VisibleComponent`, i.e. it reaches the draw path at the content region; `ReloadedScene_WithActiveFollowTarget_LeavesCameraAlone`
 — an active follow target keeps the camera at its position, and the `DrawComponent` restore still runs).
+The UX2-E split is protected by `MonoDreams.Tests/LevelEditor/CameraRigTests.cs`
+(`RigMaterializesFromLoad_FileCameraBecomesRigState_ViewFramesContent` — editor path: file camera → rig,
+view frames content; `ShippedReader_NoRigSeam_AppliesSceneCameraToTheLiveCamera` — shipped path: no seam →
+scene.camera applied to the live camera).
 **Depends on:** rendering — `SpritePrepSystem`'s `[With(DrawComponent, …)]` query and `CullingSystem`'s
 `VisibleComponent` add (the draw-path gates); this file — "Editor camera navigation pans/zooms/frames
-the scene directly" (the `CameraNav` frame-scene math reused); "Y-sorted props use the feet-origin
-convention, factory-applied" (`SpritePropFactory`, the pairing this mirrors); camera —
-`CameraFollowTargetComponent` (the follow-target signal that suppresses auto-framing).
+the scene directly" (the `CameraNav` frame-scene math reused), "The editor splits the free VIEW from the
+authored camera rig" (the rig the editor path routes `scene.camera` to); "Y-sorted props use the
+feet-origin convention, factory-applied" (`SpritePropFactory`, the pairing this mirrors); camera —
+`CameraFollowTargetComponent` (the follow-target signal that suppresses camera positioning).
 
 ## Scene serialization is canonical and byte-stable; `entities[]` is ordered by a persisted stable scene-local id
 
@@ -473,6 +487,12 @@ The dispatch/gating is unchanged (the ONE `ToolbarSystem` still hit-tests both r
 while Playing, transport always live; `EntityMenu` is an editing action). How the buttons DRAW — the
 procedural icon meshes + the hover tooltip — is its own premise ("Toolbar icon buttons are procedural
 meshes tinted by state; a pooled tooltip names them on hover").
+**UX2-E: the Scene header gained a right-corner "Camera view" nav button** (`EditorToolbarAction.CameraView`,
+the Camera frustum icon) — right-anchored via `EditorChromeLayout.SceneHeaderNavButton` (opposite the
+left-anchored transport/tool row, the Blender nav-corner affordance), a fixed header affordance separate
+from `HeaderButtons`. It is an ordinary `ToolbarButtonComponent`, so the ONE `ToolbarSystem` hit-tests +
+dispatches it and bakes its glyph; an editing action (Paused-only), it snaps the editor VIEW onto the
+camera rig (`view:camera` — see "The editor splits the free VIEW from the authored camera rig").
 **Overflow risk:** the window row still lays out left-to-right with no wrap/scroll (`ButtonRow`); UX2-C's
 narrow icon squares plus relocating the 5 tools shortened it materially, and UX2-D removing the 2 Order
 buttons shortened it further (the collider/vertex text buttons remain).
@@ -506,9 +526,10 @@ round-trip reconstructs from registered components, not factories".
 
 ## Toolbar icon buttons are procedural meshes tinted by state; a pooled tooltip names them on hover
 
-The editor toolbar's transport (Play/Pause, Restart), transform tools (Move/Rotate/Scale/Boundary/Snap)
-and window-bar Save/Undo/Redo/Refresh buttons render a procedural ICON mesh instead of a text label
-(UX2-C). `EditorIcons` is a **pure geometry library**: each glyph is a line/triangle primitive list
+The editor toolbar's transport (Play/Pause, Restart), transform tools (Move/Rotate/Scale/Boundary/Snap),
+window-bar Save/Undo/Redo/Refresh and the UX2-E Scene-header **Camera view** (a frustum trapezoid glyph)
+buttons render a procedural ICON mesh instead of a text label (UX2-C).
+`EditorIcons` is a **pure geometry library**: each glyph is a line/triangle primitive list
 authored in a unit box and instantiated into a pixel rect — the `SystemsPanelLayout.ArrowTriangle`
 disclosure-caret pattern generalized to a whole set. **Lucide is the visual REFERENCE only; nothing is
 imported** (no content-pipeline step — the source-distributed module ships no binary atlas, and
@@ -704,18 +725,24 @@ bar + the tab fills).
 
 ## Editor camera navigation pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation
 
-In `RunMode.Edit` the editor — not `CameraFollowSystem` — owns the camera (the §9 interaction
-matrix: camera-follow is `Freeze`-gated, "in Edit the editor drives `Camera.Position`/`Zoom`
-directly"). `CameraNavSystem` provides that drive: **pan** (middle-mouse drag → the camera moves the
-opposite way to the cursor's virtual-pixel delta so the grabbed world point stays under the cursor —
-`Position -= virtualDelta / Zoom`), **zoom** (scroll wheel → a geometric step on `Camera.Zoom`,
-clamped to a sane range, default 0.25–4.0), and **frame-scene** (a key edge centres the camera on the
-AABB of all renderable content — every `SpriteInfoComponent` + `TransformComponent` entity, via the
-pure `GizmoTransform.SpriteWorldQuad` corners — and zoom-fits it with a margin; **no content is a
-no-op**). The system is **Edit-guarded** (inert in Play — it must not fight `CameraFollowSystem`) and is
-registered **before `CursorPositionSystem`** so the camera mutation it makes this frame is the camera
-state `CursorPositionSystem` reads when deriving the cursor's world position — no one-frame lag between
-a pan/zoom and the cursor's world coordinate. Pan reads the cursor's **virtual** (pre-camera) position,
+In `RunMode.Edit` the editor — not `CameraFollowSystem` — drives the shared `Camera` (the §9
+interaction matrix: camera-follow is `Freeze`-gated). **The shared `Camera` is the free editor VIEW —
+whatever the viewport looks through — NOT the authored game camera.** The authored game-camera state
+(what `scene.camera` persists) lives on the standalone **camera rig** (UX2-E — see "The editor splits
+the free VIEW from the authored camera rig" below); `CameraNavSystem` moves the VIEW freely without
+touching the rig, and **Save serializes the rig, never the view**, so panning/zooming the editor no
+longer moves the game camera. `CameraFollowTargetComponent` semantics are untouched: in Play the
+follow system drives the same shared `Camera` as before. `CameraNavSystem` provides the view drive:
+**pan** (middle-mouse drag → the camera moves the opposite way to the cursor's virtual-pixel delta so
+the grabbed world point stays under the cursor — `Position -= virtualDelta / Zoom`), **zoom** (scroll
+wheel → a geometric step on `Camera.Zoom`, clamped to a sane range, default 0.25–4.0), and
+**frame-scene** (a key edge centres the camera on the AABB of all renderable content — every
+`SpriteInfoComponent` + `TransformComponent` entity, via the pure `GizmoTransform.SpriteWorldQuad`
+corners — and zoom-fits it with a margin; **no content is a no-op**). The system is **Edit-guarded**
+(inert in Play — it must not fight `CameraFollowSystem`) and is registered **before
+`CursorPositionSystem`** so the camera mutation it makes this frame is the camera state
+`CursorPositionSystem` reads when deriving the cursor's world position — no one-frame lag between a
+pan/zoom and the cursor's world coordinate. Pan reads the cursor's **virtual** (pre-camera) position,
 so it never feeds back on the camera it just moved. The math (pan sign, zoom clamp, AABB centre/fit)
 is the pure, world-free `Navigation/CameraNav` so it is unit-testable without a real `Camera` or cursor.
 
@@ -736,7 +763,85 @@ framing on empty content would jump/zoom to a degenerate AABB instead of no-op'i
 **Depends on:** rendering — the `Camera` class (`Position`/`Zoom`/`VirtualScreenToWorld`); cursor —
 `CursorInputComponent` (`MiddleButton` / `ScrollWheelDelta` / `VirtualPosition`) and `CursorPositionSystem`
 (which derives the cursor's world position from the camera — hence the ordering); foundation — the
-run-state model (`GameState.RunMode` + the `Freeze`-gated `CameraFollowSystem` the editor replaces in Edit).
+run-state model (`GameState.RunMode` + the `Freeze`-gated `CameraFollowSystem` the editor replaces in Edit);
+this file — "The editor splits the free VIEW from the authored camera rig" (the rig this view drive is now
+distinct from).
+
+## The editor splits the free VIEW from the authored camera rig; Save serializes the rig, not the view
+
+Under the editor the shared `Camera` is the free **VIEW** (`CameraNavSystem` pans/zooms/frames it — see
+above). The **authored game-camera state** — the position/zoom/rotation `scene.camera` persists — lives on
+a standalone **camera rig** entity the overlay materializes (`EditorCameraRig`): a `TransformComponent`
+(position = the camera centre, so the ordinary gizmo moves it via a `TransformEditCommand` — the write-back
+target is the rig's own transform, needing no new proxy machinery) + a `CameraRigComponent` (zoom + rotation;
+the immutable virtual size stays on the shared `Camera`) + `EditorInfrastructureComponent` + a mesh
+`DrawComponent` on the native `Editor` target (the frustum glyph, identity `WorldMatrix`, **no**
+`VisibleComponent` — the chrome rule; `CullingSystem` ignores it, having no `SpriteInfoComponent`). **The
+`.mdscene` format is unchanged** — `scene.camera` stays the persisted form; the rig is just where the editor
+holds it. Invariants:
+
+- **The rig is NEVER `SceneObjectComponent`-tagged**, so it never enters `entities[]` (pre-mortem #4);
+  `SceneWriter.BuildScene` reads `scene.camera` FROM the rig (the overlay passes `EditorCameraRig.AsCamera()`),
+  never the live view — so **moving the VIEW never dirties the scene nor changes what Save writes**, while
+  moving the RIG is an ordinary undoable transform edit (dirty as any edit).
+- **It is materialized/re-synced from `scene.camera` on every load** (`SceneReaderSystem`'s optional rig seam →
+  `EditorCameraRig.SyncFromScene`); Restart/reload/switch rebuild its STATE, not its IDENTITY — the rig entity
+  carries `EditorInfrastructureComponent`, so it survives the transport's teardown sweep and the reload re-syncs
+  it (like every other scene rebuild — unsaved rig moves are discarded).
+- **It is selectable and gizmo-movable** through the ORDINARY editor path: `SelectionSystem` folds it into the
+  SAME pick as the collider proxies — a **border-pick on its frustum world-rect** at
+  `ProxyBorderPickDepth` (the frustum's fill never shadows a sprite under it) — and the gizmo moves it with a
+  `TransformEditCommand` (forced to the Move tool this wave, like a proxy). It is a **first-class entity**, not a
+  collider proxy, so it uses NO `ProxyBindingKind` (the proxy seam is for component-local spatial data that is
+  NOT its own entity; the rig IS an entity). It is **not deletable** — `EditorCommandSystem.DeleteSelection`
+  refuses it with a loud warning.
+- **The glyph** draws the rig's frustum world-rect (virtual resolution ÷ rig zoom, centred on the rig) as bounds
+  + the X of corner diagonals, through the existing overlay-projection path (`EditorOverlayPrepSystem` →
+  `EditorCameraRig.EmitGlyph`, on the `Editor` target, clipped to the game viewport, in the `EditorTheme.CameraGlyph`
+  role at `Depths.CameraGlyph`). It shows only while the view **differs** from the rig (position/zoom epsilon —
+  `CameraRigGlyph.PositionEpsilon` = 0.5 world units, `ZoomEpsilon` = 1e-3); when they match ("you ARE the camera")
+  it hides (empty mesh), as it does outside Edit. A large pan that scrolls the frustum off-screen clips it to
+  nothing (`OverlayMeshClip`) — "pan back to see it".
+- **Back-to-camera-view**: the Scene-header right-corner nav button (`EditorToolbarAction.CameraView`, the Camera
+  frustum icon) + the `view:camera` op snap the view onto the rig (`Camera := rig`), so the view matches and the
+  glyph hides. An editing action (dispatches Paused only).
+- **Shipped games (no editor overlay) have no rig.** `SceneReaderSystem` with no rig seam applies `scene.camera`
+  to the live camera directly when present (respecting the authored view), else auto-frames — the reader's
+  camera split (see the reader premise). The reference shipped screen passes the reader no camera, so
+  `CameraFollowSystem` still owns it, byte-identical to before.
+- **Play / the future Game mode** are NOT wired this wave: entering Play, `CameraFollowSystem` (unfrozen) drives
+  the shared `Camera` exactly as today. UX2-F will set `Camera := rig` on Game-mode entry, reading the rig state
+  this premise makes available.
+
+**Why:** the user's ask — "the camera visible when you're not in camera view", Blender's bounds + X glyph, a
+back-to-camera-view button — requires separating the free editor view from the authored game camera; today
+panning the editor LITERALLY moved the game camera (Save captured the live view). The rig makes the authored
+camera a thing the designer sees (the glyph) and edits (select + move) without disturbing the view, and Save now
+captures authored truth, not wherever the designer happened to be looking.
+**Breaks:** tagging the rig `SceneObjectComponent` serializes a camera entity into `entities[]` and breaks the
+format (pre-mortem #4); capturing the live view at Save (the pre-UX2-E behaviour) means panning the editor
+silently re-authors the game camera; a `ChildOf`-parented or non-infrastructure rig is cascade-disposed by the
+live `DisposeOrphans` or the Restart sweep; a fill-based (not border) frustum pick shadows every sprite inside
+the frustum; a `VisibleComponent` on the glyph pulls it into `MeshPrepSystem`, which overwrites the identity
+`WorldMatrix` its screen-baked vertices require; a deletable rig strands the authored camera.
+**Tests:** `MonoDreams.Tests/LevelEditor/CameraRigTests.cs` (`FrustumWorldCorners_*` + `ViewMatchesRig_*` — the
+pure glyph math + epsilon; `RigMaterializesFromLoad_*` — file camera → rig state, view frames content;
+`SaveReadsRig_NotView` + `MovingTheView_DoesNotChangeWhatSaveWrites_NorDirtyTheHistory`;
+`CameraRig_IsNeverSceneMembership`; `Glyph_HiddenWhenViewMatchesRig_*` + `Glyph_DprAndInsetProjection_ClipsToTheGameViewport`;
+`SnapViewToRig_*`; `RigBorderPick_SelectsTheRig_*` + `RigMoveDrag_IsOneUndoStep_UndoRestores`;
+`RigDelete_IsRefused_*`; `RigSurvivesRestart_AndReSyncsFromTheFile`; `ShippedReader_NoRigSeam_AppliesSceneCameraToTheLiveCamera`);
+`MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` (`MembershipFilterTest` — the rig excluded);
+`MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (the header carries the extra Camera-view nav button).
+**Depends on:** this file — "Editor camera navigation pans/zooms/frames the scene directly" (the view drive the
+rig is now distinct from), "A loaded sprite entity carries a `DrawComponent` … and the reader auto-frames the
+camera on content" (the reader's editor/shipped camera split), "Selection picks MAX final `LayerDepth` …" (the
+border-pick ordering the rig joins), "The gizmo applies a quantized … transform edit" (the move it is edited by),
+"Collider shapes are edited through standalone gizmo proxies" (the border-pick sibling — the rig is a first-class
+entity, not a `ProxyBindingKind`), "The transport's Restart rebuilds the scene …" (the sweep the rig survives),
+"Editor-overlay entities are standalone …" (the standalone + infra rules), "Every level-editor color and depth is
+an `EditorTheme` role" (the `CameraGlyph` role + depth), "Toolbar icon buttons are procedural meshes …" (the
+Camera icon + the nav button); rendering — the `Camera` class + `MasterRenderSystem`'s mesh Editor pass; camera —
+`CameraFollowTargetComponent` (untouched; drives the shared `Camera` in Play).
 
 ## Injected editor cursor/op state survives the input pass; the op channel holds the session open
 
@@ -1209,6 +1314,12 @@ case (a future spline-control-point binding for the road tool, Waves D/F, is the
 never a second proxy mechanism. Boundary vertices differ only in that they materialise on PLAIN
 selection (a boundary IS its points — no shape proxy to click through) and carry no convexity
 constraint (an open polyline), writing back through `BoundaryEditCommand` (which re-fires the bake).
+**Not everything border-picked is a proxy.** The UX2-E camera rig reuses the SAME border-pick ordering
+(`SelectionSystem` folds its frustum rect in at `ProxyBorderPickDepth`, exactly like a collider/boundary
+border) but is a **first-class entity** — its `TransformComponent` IS the edited data, so the ordinary
+gizmo moves it via a `TransformEditCommand` and it needs NO `ProxyBindingKind`. The proxy seam exists
+precisely because colliders are NOT entities; the rig is, so it stays off the seam (see "The editor
+splits the free VIEW from the authored camera rig").
 
 **Why:** the user clicked the red collider debug outlines and couldn't drag them (the outlines are
 unselectable per-frame visualization entities with no back-link); restructuring colliders as child
@@ -1262,7 +1373,9 @@ create methods). Restart while Playing also lands **Paused**. **Unsaved live edi
 are DISCARDED** — the standard play-mode trade-off; Save first to keep them. The survival boundary
 is exclusion by editor markers (the engine has no entity↔level association): an entity survives
 when it carries `EditorInfrastructureComponent` (every editor-owned entity — chrome, panel rows,
-gizmo overlays/proxies, the gizmo-state entity — is tagged at creation), when it is the cursor
+gizmo overlays/proxies, the gizmo-state entity, and the UX2-E **camera rig** — is tagged at creation; the
+rig's IDENTITY thus survives while its STATE re-syncs from `scene.camera` on the reload, like every other
+scene rebuild — see "The editor splits the free VIEW from the authored camera rig"), when it is the cursor
 pipeline (`CursorControllerComponent`/`CursorInputComponent` — screen input infrastructure, not
 scene content), or when the screen's `KeepAlive` predicate names it (system-constructed screen
 infrastructure held by reference, e.g. the dialogue UI root via `DialogueStateComponent`) — keeps
@@ -1297,6 +1410,8 @@ survive; unsaved-edit discard demonstrated — edit a transform through the hist
 value is back at the loaded state and undo is a no-op; the world-level components are removed;
 restart while Playing lands Paused; a reloadless restart is a loud no-op; the headless
 `Play`/`Pause`/`Restart` ops drive the same paths);
+`MonoDreams.Tests/LevelEditor/CameraRigTests.cs::RigSurvivesRestart_AndReSyncsFromTheFile` (the camera
+rig's identity survives the sweep and its state re-syncs from the file — unsaved rig moves discarded);
 `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled`
 (the reload reads the SOURCE bytes under a resolved context — the pre-mortem #5 regression);
 `MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs::SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene`
