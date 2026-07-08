@@ -51,6 +51,11 @@ namespace MonoDreams.Examples.Screens;
 /// </summary>
 public class InfiniteRunnerScreen : IGameScreen
 {
+    /// <summary>The scene id this screen is bound to (UX-C): its editor Save writes
+    /// <c>infinite_runner.mdscene</c>, and its optional-scene-load brings that scene up under the
+    /// code-built runner entities. Referenced by the host's <see cref="ScreenInfo"/>.</summary>
+    public const string BoundSceneId = "infinite_runner";
+
     private readonly Game _game;
     private readonly GraphicsDevice _graphicsDevice;
     private readonly ContentManager _content;
@@ -136,6 +141,7 @@ public class InfiniteRunnerScreen : IGameScreen
         Logger.Info("InfiniteRunner screen loaded.");
 
         if (_editor != null)
+        {
             // The transport's Restart re-runs exactly this load (the sweep disposed the runner
             // entities — treadmill, player, spawn point, HUD, and everything the spawner added).
             _editor.Transport.Reload = () =>
@@ -145,6 +151,14 @@ public class InfiniteRunnerScreen : IGameScreen
                 CreateSpawnPoint();
                 CreateScoreHUD(content);
             };
+            // Optional scene load (UX-C): bring infinite_runner.mdscene up under the code-built runner
+            // if it exists (source-first, then bundled; absent → skip). The code entities stay.
+            NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            // The Scenes panel + the dirty-gated switch (Examples hand-off).
+            _editor.BindSceneCatalog(ScreenName.InfiniteRunner,
+                () => screenController.RegisteredScreens,
+                entry => EditorSceneSwitch.Switch(screenController, entry));
+        }
     }
 
     private void CreateTreadmill()
@@ -335,6 +349,7 @@ public class InfiniteRunnerScreen : IGameScreen
                 requestExit: _game.Exit,
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
                 provideCursorPipeline: true,
+                sceneId: BoundSceneId, // explicit per-screen id (UX-C) — Save targets infinite_runner.mdscene
                 projectContext: _projectContext);
             // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
             if (_editor.HasEditorOpPlan) _editor.CursorInput.SkipHardwareRead = true;

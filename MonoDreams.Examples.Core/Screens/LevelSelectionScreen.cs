@@ -53,6 +53,12 @@ namespace MonoDreams.Examples.Screens;
 /// </summary>
 public class LevelSelectionScreen : IGameScreen
 {
+    /// <summary>The scene id this screen is bound to (UX-C): its editor Save writes
+    /// <c>level_selection.mdscene</c>, and on boot its optional-scene-load brings that scene up under
+    /// the code-built menu UI. Referenced by the host's <see cref="ScreenInfo"/> so the binding is
+    /// declared once.</summary>
+    public const string BoundSceneId = "level_selection";
+
     private readonly ContentManager _content;
     private readonly Game _game;
     private readonly GraphicsDevice _graphicsDevice;
@@ -139,9 +145,18 @@ public class LevelSelectionScreen : IGameScreen
         CreateLevelSelectionUI();
 
         if (_editor != null)
+        {
             // The transport's Restart rebuilds the menu from scratch: the sweep disposed the UI
             // entities (the cursor survives), so re-running the builder IS the original load.
             _editor.Transport.Reload = CreateLevelSelectionUI;
+            // Optional scene load (UX-C): bring level_selection.mdscene up under the code-built menu
+            // UI if it exists (source-first, then bundled; absent → silently skip). The code UI stays.
+            NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            // The Scenes panel + the dirty-gated switch (Examples hand-off).
+            _editor.BindSceneCatalog(ScreenName.LevelSelection,
+                () => screenController.RegisteredScreens,
+                entry => EditorSceneSwitch.Switch(screenController, entry));
+        }
     }
 
     [Subscribe]
@@ -316,6 +331,7 @@ public class LevelSelectionScreen : IGameScreen
                 debugDir,
                 requestExit: _game.Exit,
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
+                sceneId: BoundSceneId, // explicit per-screen id (UX-C) — Save targets level_selection.mdscene
                 projectContext: _projectContext);
             // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
             if (_editor.HasEditorOpPlan) cursorInputSystem.SkipHardwareRead = true;

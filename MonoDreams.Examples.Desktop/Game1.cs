@@ -192,12 +192,20 @@ public class Game1 : Game
         // is screen-agnostic — the menu and the runner are scenes like any level). The runner has
         // no cursor pipeline of its own, so its overlay brings one (provideCursorPipeline inside
         // the screen). The run flag is the ONLY way into the editor (transport model).
-        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
+        // UX-C: each screen declares its editor-facing ScreenInfo — the Scenes panel reads which
+        // configuration file a screen loads from. The menu + runner are bound to one scene id each; the
+        // Game screen is the level-parameterized HOST (it loads whatever scene is requested), so every
+        // .mdscene not claimed by a binding is listed under it. Explicit ids kill the pre-UX-C hazard
+        // where all three screens defaulted to manifest.startScene and would save to the same file.
+        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext),
+            new ScreenInfo("Level Selection", LevelSelectionScreen.BoundSceneId));
         // In the export op the Game screen composes the LDtk/Blender import machinery (importMode); a
         // normal / editor boot composes native-only (the parsers are not wired to live game boot, PS5).
         var importMode = _exportSceneId != null;
-        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, importMode: importMode));
-        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext));
+        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, importMode: importMode),
+            new ScreenInfo("Game", BoundSceneId: null, HostsSceneFiles: true));
+        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext),
+            new ScreenInfo("Infinite Runner", InfiniteRunnerScreen.BoundSceneId));
 
         if (_editor)
         {

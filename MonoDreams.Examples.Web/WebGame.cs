@@ -79,12 +79,17 @@ namespace MonoDreams.Examples.Web
             // editor — overlay on every screen + transport boots Paused) is not wired here yet —
             // a browser has no launch args/env vars, so the web equivalent (a query-string switch
             // read through JS interop) is a documented follow-up.
+            // Same screen set + editor-facing ScreenInfo as desktop Game1 (the editor isn't wired on
+            // web yet, but the info keeps the two heads aligned and costs nothing when unused).
             _screenController.RegisterScreen(ScreenName.LevelSelection,
-                () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+                () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch),
+                new ScreenInfo("Level Selection", LevelSelectionScreen.BoundSceneId));
             _screenController.RegisterScreen(ScreenName.Game,
-                () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+                () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch),
+                new ScreenInfo("Game", BoundSceneId: null, HostsSceneFiles: true));
             _screenController.RegisterScreen(ScreenName.InfiniteRunner,
-                () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch));
+                () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch),
+                new ScreenInfo("Infinite Runner", InfiniteRunnerScreen.BoundSceneId));
 
             // Web has no file-based replay plan (the desktop skip-to-level mechanism), so it
             // always takes desktop's default branch: open the level-selection menu.

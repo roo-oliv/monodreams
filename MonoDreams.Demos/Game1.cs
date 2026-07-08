@@ -131,16 +131,24 @@ public class Game1 : Game
         // host- and screen-agnostic — a demo is a scene like any level). Each screen brings its
         // own cursor pipeline, so the overlay never doubles it; keys come from the engine's
         // DefaultEditorKeys via the DemoEditor helper.
+        // UX-C: demo screens declare plain display-name ScreenInfo (no bound scene, not a scene host —
+        // the demos have no project context, so the editor's Scenes panel lists them as screens only
+        // and shows no scene files). The editor is still composed on every demo (universal overlay).
         _screenController.RegisterScreen(DemoScreens.Launcher,
-            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
+            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            new ScreenInfo("Launcher"));
         _screenController.RegisterScreen(DemoScreens.Camera,
-            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
+            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            new ScreenInfo("Camera Demo"));
         _screenController.RegisterScreen(DemoScreens.Physics,
-            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor));
+            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor),
+            new ScreenInfo("Physics Demo"));
         _screenController.RegisterScreen(DemoScreens.Dialogue,
-            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
+            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            new ScreenInfo("Dialogue Demo"));
         _screenController.RegisterScreen(DemoScreens.Ui,
-            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor));
+            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            new ScreenInfo("UI Demo"));
 
         if (_editor)
         {

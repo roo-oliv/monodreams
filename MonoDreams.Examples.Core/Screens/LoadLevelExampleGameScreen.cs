@@ -170,20 +170,32 @@ public class LoadLevelExampleGameScreen : IGameScreen
             _world.Publish(new LoadLevelRequest(levelId));
 
             if (_editor != null)
+            {
+                // The Game screen is the level-parameterized HOST: its scene id is the level it was
+                // asked to load (UX-C) — so Save targets <levelId>.mdscene, not the manifest default.
+                _editor.SetSceneId(levelId);
                 // The transport's Restart re-publishes this exact load request (the screen records
                 // what it loaded); the transport clears CurrentLevelComponent + disposes the scene
                 // entities first, so the parsers re-parse from scratch. Unsaved edits are discarded.
                 _editor.Transport.Reload = () => _world.Publish(new LoadLevelRequest(levelId));
+            }
 
             // Remove the service so it doesn't interfere with future screen loads
             screenController.Game.Services.RemoveService(typeof(RequestedLevelComponent));
         }
 
         if (_editor != null)
+        {
             // Screen infrastructure the restart sweep must keep: DialogueSystem creates its UI
             // sub-graph once at construction and holds it by reference — its root carries
             // DialogueStateComponent, and keeps propagate to ChildOf descendants.
             _editor.Transport.KeepAlive = e => e.Has<MonoDreams.Dialogue.DialogueStateComponent>();
+            // The Scenes panel + the dirty-gated switch (Examples hand-off). The Game screen hosts
+            // every unclaimed .mdscene, so the Scenes list is richest here.
+            _editor.BindSceneCatalog(ScreenName.Game,
+                () => screenController.RegisteredScreens,
+                entry => EditorSceneSwitch.Switch(screenController, entry));
+        }
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()
