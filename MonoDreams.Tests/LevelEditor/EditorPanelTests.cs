@@ -677,4 +677,37 @@ public class EditorPanelTests
         Assert.Contains(inspector.Rows, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == nameof(EntityInfoComponent));
         Assert.DoesNotContain(inspector.Rows, r => r.Kind == PanelRowKind.Info && r.Label == "(no selection)");
     }
+
+    // ---- UX2-D: the left panel's right-click raises the context-menu request + maps the row entity ----
+
+    [Fact]
+    public void RightClickInThePanel_RaisesTheContextMenuRequest_AndMapsTheRowEntity()
+    {
+        using var world = new World();
+        var vm = Vm();
+        var cursor = MakeCursor(world);
+        var entity = MakeSceneEntity(world, "Tree");
+        using var panel = new EditorPanelSystem(world, vm, font: null);
+        panel.SetActiveTab(EditorPanelTab.Entities);
+
+        var requests = 0;
+        panel.ContextMenuRequested = _ => requests++;
+
+        panel.Update(Edit()); // build the rows so we can find the entity's row
+        var rowIndex = RowIndex(panel, r => r.Kind == PanelRowKind.SceneEntity && r.Entity == entity);
+        Assert.True(rowIndex >= 0);
+        var line = LineFor(panel, vm, rowIndex);
+
+        // A right-press over the row fires the request; EntityAtPoint maps the row's screen point back
+        // to the entity (the overlay uses it to build the Entities menu for that row).
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(line.Center.X, line.Center.Y);
+        input.RightButtonPressed = input.RightButton = true;
+        panel.Update(Edit());
+
+        Assert.Equal(1, requests);
+        Assert.Equal(entity, panel.EntityAtPoint(new Point(line.Center.X, line.Center.Y)));
+        // The right-press was consumed (so it does not also reach the palette's disarm downstream).
+        Assert.False(cursor.Get<CursorInputComponent>().RightButtonPressed);
+    }
 }

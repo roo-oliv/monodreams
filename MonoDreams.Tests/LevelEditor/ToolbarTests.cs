@@ -313,7 +313,15 @@ public class ToolbarTests
         Assert.Contains(EditorToolbarAction.Undo, windowActions);
         Assert.Contains(EditorToolbarAction.Redo, windowActions);
         Assert.Contains(EditorToolbarAction.RefreshCatalog, windowActions);
-        Assert.Contains(EditorToolbarAction.OrderForward, windowActions);
+        // UX2-D: the within-band Order buttons left the TOOLBAR ENTIRELY (into the entity context
+        // menus); neither bar carries them. The collider/vertex authoring text buttons remain.
+        Assert.DoesNotContain(EditorToolbarAction.OrderForward, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.OrderBack, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.OrderForward, headerActions);
+        Assert.DoesNotContain(EditorToolbarAction.OrderBack, headerActions);
+        Assert.Contains(EditorToolbarAction.ColliderAddBox, windowActions);
+        // UX2-D: the fixed "Entity ▾" dropdown lives in the Scene-panel header.
+        Assert.Contains(EditorToolbarAction.EntityMenu, headerActions);
     }
 
     /// <summary>UX2-C icon reality: the icon buttons (transport, tools, Save/Undo/Redo/Refresh) render a
@@ -344,13 +352,14 @@ public class ToolbarTests
 
         var move = ButtonOf(EditorToolbarAction.ToolMove);
         var snap = ButtonOf(EditorToolbarAction.ToggleSnap);
-        var order = ButtonOf(EditorToolbarAction.OrderForward);
+        // A still-text selection-context button (UX2-D relocated Order into menus, so use a collider one).
+        var textButton = ButtonOf(EditorToolbarAction.ColliderAddBox);
 
         // Icon buttons carry an IconEntity and no label; the text button is the reverse.
         Assert.NotNull(move.Get<ToolbarButtonComponent>().IconEntity);
         Assert.Null(move.Get<SimpleButtonComponent>().TextEntity);
-        Assert.Null(order.Get<ToolbarButtonComponent>().IconEntity);
-        Assert.NotNull(order.Get<SimpleButtonComponent>().TextEntity);
+        Assert.Null(textButton.Get<ToolbarButtonComponent>().IconEntity);
+        Assert.NotNull(textButton.Get<SimpleButtonComponent>().TextEntity);
 
         // Paused: the Move tool is active → its glyph is baked in Accent; Snap is off → not Success.
         toolbar.Update(Edit());

@@ -25,7 +25,7 @@ namespace MonoDreams.Tests.LevelEditor;
 public class SelectionTests
 {
     private static Entity MakeCursor(World world, Vector2 worldPoint, bool leftPressed,
-        Vector2? virtualPoint = null)
+        Vector2? virtualPoint = null, bool rightPressed = false)
     {
         var cursor = world.CreateEntity();
         cursor.Set(new CursorControllerComponent(CursorType.Default));
@@ -35,8 +35,21 @@ public class SelectionTests
             VirtualPosition = virtualPoint ?? worldPoint,
             LeftButtonPressed = leftPressed,
             LeftButton = leftPressed,
+            RightButtonPressed = rightPressed,
+            RightButton = rightPressed,
         });
         return cursor;
+    }
+
+    private static Entity MakeGizmoState(World world,
+        EditorToolMode mode = EditorToolMode.SelectTransform, bool pressClaimed = false)
+    {
+        var e = world.CreateEntity();
+        var g = GizmoStateComponent.Default;
+        g.Mode = mode;
+        g.PressClaimed = pressClaimed;
+        e.Set(g);
+        return e;
     }
 
     /// <summary>A 10×10 sprite at <paramref name="position"/> (origin top-left), already "rendered"
@@ -306,5 +319,126 @@ public class SelectionTests
         var selectedCount = 0;
         foreach (var _ in set.GetEntities()) selectedCount++;
         Assert.Equal(1, selectedCount);
+    }
+
+    // ---- Viewport right-click opens the entity context menu (UX2-D §4) ----
+
+    /// <summary>A right-click over an entity in SelectTransform selects it and raises the
+    /// context-menu request (the overlay opens the entity menu at the cursor).</summary>
+    [Fact]
+    public void ViewportRightClick_OnEntity_SelectsAndRequestsMenu()
+    {
+        using var world = new World();
+        var sprite = MakeSprite(world, new Vector2(0, 0), finalDepth: 0.8f);
+        MakeCursor(world, new Vector2(5, 5), leftPressed: false, rightPressed: true);
+        MakeGizmoState(world);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Edit());
+
+        Assert.Equal(1, requests);
+        Assert.Equal(sprite, Selected(world));
+    }
+
+    /// <summary>A right-click over EMPTY space opens no menu and clears NOTHING (click-empty stays a
+    /// left-click behavior) — a prior selection survives.</summary>
+    [Fact]
+    public void ViewportRightClick_OnEmpty_NoMenuNoClear()
+    {
+        using var world = new World();
+        var sprite = MakeSprite(world, new Vector2(0, 0), finalDepth: 0.8f);
+        var cursor = MakeCursor(world, new Vector2(5, 5), leftPressed: true);
+        MakeGizmoState(world);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Edit()); // left-click selects the sprite
+        Assert.Equal(sprite, Selected(world));
+
+        // Right-click far away (empty): no menu request, selection preserved.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.WorldPosition = input.VirtualPosition = new Vector2(500, 500);
+        input.LeftButtonPressed = input.LeftButton = false;
+        input.RightButtonPressed = input.RightButton = true;
+        selection.Update(Edit());
+
+        Assert.Equal(0, requests);
+        Assert.Equal(sprite, Selected(world)); // NOT cleared
+    }
+
+    /// <summary>Right-click the ALREADY-selected entity keeps it selected and still opens the menu.</summary>
+    [Fact]
+    public void ViewportRightClick_OnAlreadySelected_KeepsItAndRequestsMenu()
+    {
+        using var world = new World();
+        var sprite = MakeSprite(world, new Vector2(0, 0), finalDepth: 0.8f);
+        sprite.Set(new SelectedComponent());
+        MakeCursor(world, new Vector2(5, 5), leftPressed: false, rightPressed: true);
+        MakeGizmoState(world);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Edit());
+
+        Assert.Equal(1, requests);
+        Assert.Equal(sprite, Selected(world));
+    }
+
+    /// <summary>In a non-SelectTransform mode (a tool armed) the viewport right-click is dormant here —
+    /// right-click-as-disarm belongs to the palette/boundary, and no menu opens.</summary>
+    [Fact]
+    public void ViewportRightClick_InPlaceMode_NoMenu()
+    {
+        using var world = new World();
+        MakeSprite(world, new Vector2(0, 0), finalDepth: 0.8f);
+        MakeCursor(world, new Vector2(5, 5), leftPressed: false, rightPressed: true);
+        MakeGizmoState(world, EditorToolMode.Place);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Edit());
+
+        Assert.Equal(0, requests);
+        Assert.Null(Selected(world));
+    }
+
+    /// <summary>A right-press the gizmo claimed (a handle press / drag) never opens the menu.</summary>
+    [Fact]
+    public void ViewportRightClick_WhenGizmoClaimed_NoMenu()
+    {
+        using var world = new World();
+        MakeSprite(world, new Vector2(0, 0), finalDepth: 0.8f);
+        MakeCursor(world, new Vector2(5, 5), leftPressed: false, rightPressed: true);
+        MakeGizmoState(world, pressClaimed: true);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Edit());
+
+        Assert.Equal(0, requests);
+    }
+
+    /// <summary>In Play the viewport right-click is inert (Edit-guarded), like the left-click.</summary>
+    [Fact]
+    public void ViewportRightClick_InPlayMode_Inert()
+    {
+        using var world = new World();
+        MakeSprite(world, new Vector2(0, 0), finalDepth: 0.8f);
+        MakeCursor(world, new Vector2(5, 5), leftPressed: false, rightPressed: true);
+        MakeGizmoState(world);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Play());
+
+        Assert.Equal(0, requests);
+        Assert.Null(Selected(world));
     }
 }
