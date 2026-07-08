@@ -13,6 +13,7 @@ using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
@@ -60,10 +61,10 @@ public sealed class BoundaryToolSystem : ISystem<GameState>
     public const float OutlinePixelThickness = 2f;
 
     /// <summary>The committed boundary outline color (distinct from the proxy cyan / gizmo yellow).</summary>
-    public static readonly Color OutlineColor = Color.Aqua;
+    public static readonly Color OutlineColor = EditorTheme.OverlayBoundary;
 
     /// <summary>The in-progress lay preview color.</summary>
-    public static readonly Color PreviewColor = Color.Orange;
+    public static readonly Color PreviewColor = EditorTheme.OverlayBoundaryPreview;
 
     private readonly World _world;
     private readonly Camera _camera;

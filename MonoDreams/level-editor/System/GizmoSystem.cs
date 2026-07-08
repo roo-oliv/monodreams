@@ -14,6 +14,7 @@ using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
@@ -123,7 +124,7 @@ public sealed class GizmoSystem : ISystem<GameState>
 
     /// <summary>The gizmo overlays' depth band on the Editor target: above the proxy outlines
     /// (<see cref="ProxySyncSystem.ProxyLayerDepth"/>), below the shell's opaque panels
-    /// (<c>EditorChromeBuilder.PanelDepth</c> = 0.1) — so the panels clip the overlays wherever
+    /// (<c>EditorTheme.Depths.Panel</c> = 0.1) — so the panels clip the overlays wherever
     /// the chrome margins are.</summary>
     public const float OverlayLayerDepth = 0.04f;
 
@@ -715,7 +716,7 @@ public sealed class GizmoSystem : ISystem<GameState>
     private static MeshData BuildOutline(Entity target, Vector2 pivot, in OverlayProjection projection)
     {
         var thickness = projection.ToScreenSize(OutlinePixelThickness);
-        var color = Color.Yellow;
+        var color = EditorTheme.OverlaySelection;
 
         // A selected collider proxy outlines its bound shape (the same border the pick tested),
         // so the selection feedback traces the thing being edited. A vertex handle outlines as a
@@ -786,16 +787,16 @@ public sealed class GizmoSystem : ISystem<GameState>
                 var arm = projection.ToScreenSize(MoveHandlePixelRadius * 2.4f);
                 var th = projection.ToScreenSize(OutlinePixelThickness);
                 return new CompositeMeshGenerator()
-                    .Add(new LineMeshGenerator(center, center + new Vector2(arm, 0f), th, Color.OrangeRed))
-                    .Add(new LineMeshGenerator(center, center + new Vector2(0f, -arm), th, Color.LimeGreen))
-                    .Add(new CircleMeshGenerator(center, r, Color.White, 18))
+                    .Add(new LineMeshGenerator(center, center + new Vector2(arm, 0f), th, EditorTheme.GizmoAxisX))
+                    .Add(new LineMeshGenerator(center, center + new Vector2(0f, -arm), th, EditorTheme.GizmoAxisY))
+                    .Add(new CircleMeshGenerator(center, r, EditorTheme.GizmoHandle, 18))
                     .Generate();
             }
             case GizmoTool.Rotate:
             {
                 var ring = projection.ToScreenSize(RotateRingPixelRadius);
                 var th = projection.ToScreenSize(RotateRingPixelTolerance * 0.6f);
-                return new CircleOutlineMeshGenerator(center, ring, th, Color.DeepSkyBlue, 28).Generate();
+                return new CircleOutlineMeshGenerator(center, ring, th, EditorTheme.GizmoRotate, 28).Generate();
             }
             case GizmoTool.Scale:
             {
@@ -807,8 +808,8 @@ public sealed class GizmoSystem : ISystem<GameState>
                 var box = new Rectangle(
                     (int)(handlePos.X - r), (int)(handlePos.Y - r), (int)(r * 2f), (int)(r * 2f));
                 return new CompositeMeshGenerator()
-                    .Add(new LineMeshGenerator(center, handlePos, th, Color.Gold))
-                    .Add(new FilledRectangleMeshGenerator(box, Color.Gold))
+                    .Add(new LineMeshGenerator(center, handlePos, th, EditorTheme.GizmoScale))
+                    .Add(new FilledRectangleMeshGenerator(box, EditorTheme.GizmoScale))
                     .Generate();
             }
             default:
@@ -827,13 +828,13 @@ public sealed class GizmoSystem : ISystem<GameState>
         var r = projection.ToScreenSize(MoveHandlePixelRadius);
         var half = projection.ToScreenSize(ResizeHandlePixelHalfSize);
         var composite = new CompositeMeshGenerator()
-            .Add(new CircleMeshGenerator(center, r, Color.White, 18));
+            .Add(new CircleMeshGenerator(center, r, EditorTheme.GizmoHandle, 18));
         foreach (var handle in BoxResize.Handles)
         {
             var p = projection.ToScreen(BoxResize.HandleWorld(boxMin, boxMax, handle));
             var square = new Rectangle(
                 (int)(p.X - half), (int)(p.Y - half), (int)(half * 2f), (int)(half * 2f));
-            composite.Add(new FilledRectangleMeshGenerator(square, Color.Gold));
+            composite.Add(new FilledRectangleMeshGenerator(square, EditorTheme.GizmoScale));
         }
         return composite.Generate();
     }

@@ -45,36 +45,9 @@ namespace MonoDreams.LevelEditor.UI;
 public sealed class EditorChromeBuilder
 {
     /// <summary>Label scale: PPMondwest's 48px source at 1/3 ≈ 16px native-pixel labels (an exact
-    /// integer divisor of the source size, minimizing downscale artifacts).</summary>
+    /// integer divisor of the source size, minimizing downscale artifacts). A layout METRIC (geometry,
+    /// not style) so it stays here; every color + depth lives in <see cref="EditorTheme"/>.</summary>
     public const float LabelScale = 1f / 3f;
-
-    // The shell palette: opaque dark panels so chrome reads over any level (the old HUD toolbar
-    // was semi-transparent over the game — white-on-white on light levels).
-    public static readonly Color TopBarColor = new(32, 32, 38);
-    public static readonly Color SidePanelColor = new(26, 26, 31);
-    public static readonly Color BottomBarColor = new(32, 32, 38);
-    public static readonly Color ButtonFill = new(52, 52, 62);
-    public static readonly Color ButtonHoverFill = new(76, 76, 94);
-    /// <summary>Fill for a toolbar button that is currently inactive (the editing actions while
-    /// the transport is Playing — only Play/Pause + Restart dispatch there).</summary>
-    public static readonly Color ButtonDisabledFill = new(38, 38, 44);
-    public static readonly Color ButtonOutline = new(150, 150, 162);
-    public static readonly Color LabelColor = new(235, 235, 240);
-    // Systems-panel accents (the panel reuses this single palette site).
-    public static readonly Color CheckboxOnFill = new(96, 168, 112);
-    /// <summary>The indeterminate minus bar drawn over a Mixed group checkbox (dark, so it reads
-    /// against <see cref="CheckboxOnFill"/> — the Gmail/Material partial-selection mark).</summary>
-    public static readonly Color CheckboxMixedMark = new(26, 26, 31);
-    public static readonly Color HeaderLabelColor = new(150, 150, 162);
-    public static readonly Color DisabledLabelColor = new(140, 140, 150);
-
-    // Depths within the Editor target: panels behind buttons/checkboxes behind labels.
-    // Public so sibling chrome builders (the systems panel) stack onto the same bands.
-    public const float PanelDepth = 0.1f;
-    public const float ButtonDepth = 0.5f;
-    /// <summary>The mixed-state minus bar sits above its checkbox, below the labels.</summary>
-    public const float CheckboxMarkDepth = 0.55f;
-    public const float LabelDepth = 0.6f;
 
     private readonly World _world;
     private readonly BitmapFont? _font;
@@ -153,9 +126,9 @@ public sealed class EditorChromeBuilder
         _built = true;
         _buttons = buttons ?? DefaultButtons;
 
-        _topBar = CreatePanel(TopBarColor);
-        _rightPanel = CreatePanel(SidePanelColor);
-        _bottomBar = CreatePanel(BottomBarColor);
+        _topBar = CreatePanel(EditorTheme.Bg1);
+        _rightPanel = CreatePanel(EditorTheme.Bg1);
+        _bottomBar = CreatePanel(EditorTheme.Bg1);
 
         foreach (var (action, label) in _buttons)
         {
@@ -232,7 +205,7 @@ public sealed class EditorChromeBuilder
             Color = color,
             FillColor = color,
             Target = RenderTargetID.Editor,
-            LayerDepth = PanelDepth,
+            LayerDepth = EditorTheme.Depths.Panel,
         });
         return panel;
     }
@@ -245,10 +218,10 @@ public sealed class EditorChromeBuilder
         text.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Editor,
-            LayerDepth = LabelDepth,
+            LayerDepth = EditorTheme.Depths.Label,
             TextContent = label,
             Font = _font!,
-            Color = LabelColor,
+            Color = EditorTheme.Text0,
             Scale = LabelScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
@@ -265,11 +238,11 @@ public sealed class EditorChromeBuilder
         {
             Size = Vector2.One, // Relayout sets the real size
             LineThickness = 1.5f,
-            Color = ButtonOutline,
-            FillColor = ButtonFill,
+            Color = EditorTheme.BorderStrong,
+            FillColor = EditorTheme.Bg2,
             TextEntity = labelEntity,
             Target = RenderTargetID.Editor,
-            LayerDepth = ButtonDepth,
+            LayerDepth = EditorTheme.Depths.Button,
         });
         button.Set(new ToolbarButtonComponent
         {

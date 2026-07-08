@@ -13,6 +13,7 @@ using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Transform;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
@@ -42,10 +43,10 @@ namespace MonoDreams.LevelEditor.System;
 public sealed class TriggerOverlaySystem : ISystem<GameState>
 {
     /// <summary>The trigger outline color (amber — distinct from proxy cyan, gizmo yellow, boundary aqua).</summary>
-    public static readonly Color OutlineColor = new(255, 196, 64);
+    public static readonly Color OutlineColor = EditorTheme.OverlayTrigger;
 
     /// <summary>The armed-trigger ghost color (the outline tint, dimmed).</summary>
-    public static readonly Color GhostColor = new Color(255, 196, 64) * 0.7f;
+    public static readonly Color GhostColor = EditorTheme.OverlayTriggerGhost;
 
     /// <summary>Outline stroke thickness in virtual pixels (aspect-fit scaled to screen).</summary>
     public const float OutlinePixelThickness = 2f;

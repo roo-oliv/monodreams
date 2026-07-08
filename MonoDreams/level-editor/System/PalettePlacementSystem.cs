@@ -80,20 +80,16 @@ namespace MonoDreams.LevelEditor.System;
 /// </summary>
 public sealed class PalettePlacementSystem : ISystem<GameState>
 {
-    /// <summary>The ghost preview's tint (semi-transparent white — premultiplied).</summary>
-    public static readonly Color GhostColor = Color.White * 0.55f;
+    /// <summary>The ghost preview's tint — <see cref="EditorTheme.GhostTint"/> (a sprite tint, so its
+    /// alpha is fine; the opaque rule is a mesh-path rule).</summary>
+    public static readonly Color GhostColor = EditorTheme.GhostTint;
 
-    /// <summary>The fill of the armed item's button (the palette's "active" accent).</summary>
-    public static readonly Color ArmedItemFill = EditorChromeBuilder.CheckboxOnFill;
+    /// <summary>The item thumbnails' draw depth on the Editor target — above the card fill, below the
+    /// label (see <see cref="EditorTheme.Depths"/>).</summary>
+    private const float ThumbnailDepth = EditorTheme.Depths.Thumbnail;
 
-    /// <summary>The item thumbnails' draw depth on the Editor target — above the button fill
-    /// (<see cref="EditorChromeBuilder.ButtonDepth"/> 0.5) so it shows over the button, below the
-    /// label (<see cref="EditorChromeBuilder.LabelDepth"/> 0.6).</summary>
-    private const float ThumbnailDepth = 0.56f;
-
-    /// <summary>The band-chip badge's fill draw depth — above the thumbnail (0.56) so the badge is
-    /// never hidden by the preview, below the label band (0.6).</summary>
-    private const float ChipDepth = 0.58f;
+    /// <summary>The band-chip badge's fill draw depth — above the thumbnail, below the label band.</summary>
+    private const float ChipDepth = EditorTheme.Depths.Chip;
 
     /// <summary>The per-press rotation step (radians) the ghost-rotate keys (Q/E) apply — 45°, so a
     /// road piece reaches the four cardinal + four diagonal orientations in whole steps (Slice 4).</summary>
@@ -128,6 +124,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         public Entity Chip;         // the per-asset band-mark chip badge (click to cycle the band)
         public Entity ChipLabel;    // the chip's letter (band initial, or "-" for unmarked/auto)
         public (int Row, int X) Flowed;
+        public float HoverProgress; // per-widget hover fade — lives here, never on a pooled row (#6)
     }
 
     // A trigger-type button (island-authoring Slice 3), flowed in the SAME card grid after the
@@ -138,11 +135,22 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         public Entity Button;
         public Entity Label;
         public (int Row, int X) Flowed;
+        public float HoverProgress;
+    }
+
+    // A layer-band selector button. A class (not a tuple) so its per-widget hover fade lives alongside.
+    private sealed class BandButton
+    {
+        public int Index;
+        public Entity Button;
+        public Entity Label;
+        public float HoverProgress;
     }
 
     private readonly List<ItemButton> _items = new();
     private readonly List<TriggerButton> _triggerItems = new();
-    private readonly List<(int Index, Entity Button, Entity Label)> _bandButtons = new();
+    private readonly List<BandButton> _bandButtons = new();
+    private bool _leftDown; // cursor left-button held this frame (drives the "pressed" fill)
     private Entity _emptyHint;
     private bool _built;
 
@@ -493,7 +501,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 _laidOutScroll != _scroll ||
                 _laidOutScale != scale)
                 PositionChrome(strip, scale);
-            ReflectState(hovered, editing);
+            ReflectState(state, hovered, editing);
         }
     }
 
@@ -504,6 +512,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            _leftDown = input.LeftButton; // drives the "pressed" fill in ReflectState
 
             // Right-click disarms from anywhere (viewport or chrome) — the standard escape hatch.
             if (input.RightButtonPressed && _armedIndex >= 0)
@@ -791,7 +800,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         for (var i = 0; i < _bands.Count; i++)
         {
             var label = CreateLabel(_bands[i].Name);
-            _bandButtons.Add((i, CreateButton(label), label));
+            _bandButtons.Add(new BandButton { Index = i, Button = CreateButton(label), Label = label });
         }
 
         foreach (var entry in _catalog.Entries)
@@ -827,10 +836,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         text.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Editor,
-            LayerDepth = EditorChromeBuilder.LabelDepth,
+            LayerDepth = EditorTheme.Depths.Label,
             TextContent = label,
             Font = _font!,
-            Color = EditorChromeBuilder.LabelColor,
+            Color = EditorTheme.Text0,
             Scale = EditorChromeBuilder.LabelScale,
             IsRevealed = true,
             VisibleCharacterCount = 0, // blanked while parked; the layout pass reveals it
@@ -848,11 +857,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             Size = Vector2.One, // the layout pass sets the real size
             LineThickness = 1f,
-            Color = EditorChromeBuilder.ButtonOutline,
-            FillColor = EditorChromeBuilder.ButtonFill,
+            Color = EditorTheme.BorderStrong,
+            FillColor = EditorTheme.Bg2,
             TextEntity = labelEntity,
             Target = RenderTargetID.Editor,
-            LayerDepth = EditorChromeBuilder.ButtonDepth,
+            LayerDepth = EditorTheme.Depths.Button,
         });
         // NOTE: no VisibleComponent (chrome rule) and no ToolbarButtonComponent (the palette owns
         // its own hit-testing; ToolbarSystem must not dispatch for these).
@@ -915,8 +924,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             Size = Vector2.One,
             LineThickness = 1f,
-            Color = EditorChromeBuilder.ButtonOutline,
-            FillColor = EditorChromeBuilder.ButtonFill,
+            Color = EditorTheme.BorderStrong,
+            FillColor = EditorTheme.Bg2,
             TextEntity = labelEntity,
             Target = RenderTargetID.Editor,
             LayerDepth = ChipDepth, // above the thumbnail so the badge shows over the preview
@@ -1095,7 +1104,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         draw.Size = new Vector2(dest.Width, dest.Height);
         draw.Origin = Vector2.Zero;
         draw.Rotation = 0f;
-        draw.Color = Color.White;
+        draw.Color = EditorTheme.NeutralTint;
         draw.LayerDepth = ThumbnailDepth;
     }
 
@@ -1117,50 +1126,55 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         entity.NotifyChanged<TransformComponent>();
     }
 
-    private void ReflectState((int Band, int Item) hovered, bool editing)
+    private void ReflectState(GameState state, (int Band, int Item) hovered, bool editing)
     {
-        for (var i = 0; i < _bandButtons.Count; i++)
+        var dt = state.Time;
+
+        // Band selector: the current band reads as SELECTED (AccentSoft fill + Accent border); the
+        // rest idle Bg2 / hover-fade Bg3 / pressed Bg4; all dimmed to BgDisabled while Playing.
+        foreach (var band in _bandButtons)
         {
-            ref var visual = ref _bandButtons[i].Button.Get<SimpleButtonComponent>();
-            visual.FillColor = _bandButtons[i].Index == _bandIndex
-                ? ArmedItemFill
-                : hovered.Band == i && editing
-                    ? EditorChromeBuilder.ButtonHoverFill
-                    : EditorChromeBuilder.ButtonFill;
+            var selected = band.Index == _bandIndex;
+            var over = editing && hovered.Band == band.Index;
+            band.HoverProgress = EditorTheme.AdvanceHover(band.HoverProgress, over, dt);
+            ref var visual = ref band.Button.Get<SimpleButtonComponent>();
+            visual.FillColor = EditorTheme.ControlFill(
+                disabled: !editing, selected, pressed: over && _leftDown, band.HoverProgress);
+            visual.Color = selected ? EditorTheme.Accent : EditorTheme.BorderStrong;
         }
 
+        // Item cards: ARMED reads as selection (AccentSoft fill + Accent border — not the old green);
+        // otherwise idle / hover-fade / pressed; the band chip goes solid Accent when marked.
         for (var i = 0; i < _items.Count; i++)
         {
-            ref var visual = ref _items[i].Button.Get<SimpleButtonComponent>();
-            visual.FillColor = !editing
-                ? EditorChromeBuilder.ButtonDisabledFill
-                : i == _armedIndex
-                    ? ArmedItemFill
-                    : hovered.Item == i
-                        ? EditorChromeBuilder.ButtonHoverFill
-                        : EditorChromeBuilder.ButtonFill;
+            var item = _items[i];
+            var armed = i == _armedIndex;
+            var over = editing && hovered.Item == i;
+            item.HoverProgress = EditorTheme.AdvanceHover(item.HoverProgress, over, dt);
+            ref var visual = ref item.Button.Get<SimpleButtonComponent>();
+            visual.FillColor = EditorTheme.ControlFill(
+                disabled: !editing, selected: armed, pressed: over && _leftDown, item.HoverProgress);
+            visual.Color = armed ? EditorTheme.Accent : EditorTheme.BorderStrong;
 
-            // The band-chip badge: filled with the "active" accent when the asset is permanently
-            // marked, plain otherwise — so a glance shows which assets have a fixed band.
-            ref var chipVisual = ref _items[i].Chip.Get<SimpleButtonComponent>();
+            // The band-chip badge: solid Accent when the asset is permanently marked, plain Bg2
+            // otherwise (dimmed while Playing) — so a glance shows which assets have a fixed band.
+            ref var chipVisual = ref item.Chip.Get<SimpleButtonComponent>();
             chipVisual.FillColor = !editing
-                ? EditorChromeBuilder.ButtonDisabledFill
-                : MarkedBandName(_items[i].Entry) != null
-                    ? ArmedItemFill
-                    : EditorChromeBuilder.ButtonFill;
+                ? EditorTheme.BgDisabled
+                : MarkedBandName(item.Entry) != null ? EditorTheme.Accent : EditorTheme.Bg2;
         }
 
         for (var j = 0; j < _triggerItems.Count; j++)
         {
+            var trigger = _triggerItems[j];
             var hoverIndex = _items.Count + j;
-            ref var visual = ref _triggerItems[j].Button.Get<SimpleButtonComponent>();
-            visual.FillColor = !editing
-                ? EditorChromeBuilder.ButtonDisabledFill
-                : j == _armedTrigger
-                    ? ArmedItemFill
-                    : hovered.Item == hoverIndex
-                        ? EditorChromeBuilder.ButtonHoverFill
-                        : EditorChromeBuilder.ButtonFill;
+            var armed = j == _armedTrigger;
+            var over = editing && hovered.Item == hoverIndex;
+            trigger.HoverProgress = EditorTheme.AdvanceHover(trigger.HoverProgress, over, dt);
+            ref var visual = ref trigger.Button.Get<SimpleButtonComponent>();
+            visual.FillColor = EditorTheme.ControlFill(
+                disabled: !editing, selected: armed, pressed: over && _leftDown, trigger.HoverProgress);
+            visual.Color = armed ? EditorTheme.Accent : EditorTheme.BorderStrong;
         }
     }
 
@@ -1188,10 +1202,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     {
         EndStroke(); // never leave an open transaction on the shared history
         DespawnGhost();
-        foreach (var (_, button, label) in _bandButtons)
+        foreach (var b in _bandButtons)
         {
-            if (button.IsAlive) button.Dispose();
-            if (label.IsAlive) label.Dispose();
+            if (b.Button.IsAlive) b.Button.Dispose();
+            if (b.Label.IsAlive) b.Label.Dispose();
         }
         foreach (var item in _items) DisposeItem(item);
         foreach (var trigger in _triggerItems)

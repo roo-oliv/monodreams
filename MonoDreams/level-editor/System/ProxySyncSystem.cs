@@ -11,6 +11,7 @@ using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Transform;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 
@@ -70,7 +71,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
 {
     /// <summary>The proxy outlines' depth band on the Editor target: just under the gizmo
     /// overlays (<see cref="GizmoSystem.OverlayLayerDepth"/> = 0.04) and under the shell's opaque
-    /// panels (<c>EditorChromeBuilder.PanelDepth</c> = 0.1), which therefore cover them over the
+    /// panels (<c>EditorTheme.Depths.Panel</c> = 0.1), which therefore cover them over the
     /// chrome margins. (The SELECTION pick still ranks proxies by
     /// <c>SelectionSystem.ProxyBorderPickDepth</c> — a constant decoupled from this visual
     /// depth.)</summary>
@@ -89,7 +90,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
 
     /// <summary>The proxy outline color — distinct from the debug outlines (red/green/gray) and
     /// the gizmo's selection yellow.</summary>
-    public static readonly Color OutlineColor = Color.Cyan;
+    public static readonly Color OutlineColor = EditorTheme.OverlayAccent;
 
     private readonly World _world;
     private readonly Camera _camera;

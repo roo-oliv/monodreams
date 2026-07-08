@@ -363,17 +363,20 @@ public class EditorPanelTests
         var visible = SystemsPanelLayout.VisibleLineCount(panelRect);
         Assert.True(panel.Rows.Count > visible, "test needs an overflowing panel");
 
-        // Pooling: the panel creates a fixed pool sized to the visible window (one label + one arrow
-        // MESH per slot), NOT one entity per row — so the entity count is bounded by the window even
-        // though there are far more rows. Labels are DynamicText; arrows are mesh DrawComponents.
+        // Pooling: the panel creates a fixed pool sized to the visible window (one label + three
+        // screen-baked meshes per slot — the disclosure arrow, the row background fill, and the
+        // selected-row accent bar), NOT one entity per row — so the entity count is bounded by the
+        // window even though there are far more rows. Labels are DynamicText; the three are mesh
+        // DrawComponents (empty when unused, but the entity still exists).
+        const int meshesPerRow = 3; // arrow + row-fill + accent-bar
         int labelEntities;
         using (var set = world.GetEntities().With<DynamicTextComponent>().AsSet())
             labelEntities = set.GetEntities().Length;
-        int arrowMeshEntities;
+        int meshEntities;
         using (var set = world.GetEntities().With<DrawComponent>().AsSet())
-            arrowMeshEntities = set.GetEntities().Length;
+            meshEntities = set.GetEntities().Length;
         Assert.Equal(visible, labelEntities);
-        Assert.Equal(visible, arrowMeshEntities);
+        Assert.Equal(visible * meshesPerRow, meshEntities);
         Assert.True(labelEntities < panel.Rows.Count, "pooling should bound entities below the row count");
     }
 

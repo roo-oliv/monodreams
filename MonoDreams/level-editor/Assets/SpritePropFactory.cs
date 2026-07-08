@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
+using MonoDreams.LevelEditor.UI;
 
 namespace MonoDreams.LevelEditor.Assets;
 
@@ -62,7 +63,7 @@ public static class SpritePropFactory
             AssetKey = entry.AssetKey, // the file: key — what the scene serializes + rehydrates
             Source = source,
             Size = new Vector2(source.Width, source.Height),
-            Color = Color.White,
+            Color = EditorTheme.NeutralTint,
             Target = RenderTargetID.Main,
             // SOURCE sort fields per the band (never the derived DrawComponent.LayerDepth):
             LayerDepth = band.LayerDepth,

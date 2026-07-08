@@ -88,14 +88,19 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     public IReadOnlyList<PanelRow> Rows => _rows;
 
     /// <summary>One pooled row's visual entities (repurposed each frame for whichever row is at
-    /// this slot; unused ones are parked off-screen). <see cref="Arrow"/> is a screen-baked
-    /// disclosure-triangle MESH (not a text glyph — see <see cref="ConfigureVisual"/>).</summary>
+    /// this slot; unused ones are parked off-screen). <see cref="Arrow"/>, <see cref="BgFill"/> and
+    /// <see cref="AccentBar"/> are screen-baked MESHES (not text/glyphs — see
+    /// <see cref="ConfigureVisual"/>): identity <c>WorldMatrix</c>, native Editor target, no
+    /// <c>VisibleComponent</c>. Hover/selection highlight is INSTANT on pooled rows (a fade would
+    /// smear across scroll as the pool repurposes rows — pre-mortem #6).</summary>
     private sealed class RowVisual
     {
         public Entity Label;
         public Entity Checkbox;
         public Entity MinusBar;
         public Entity Arrow;
+        public Entity BgFill;     // full-row background fill (hover Bg3 / selected AccentSoft)
+        public Entity AccentBar;  // the selected scene row's 3pt Accent left-edge bar
     }
 
     public EditorPanelSystem(
@@ -409,18 +414,44 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private void ConfigureVisual(RowVisual visual, PanelRow row, Rectangle line, float scale,
         float labelHeight, bool hovered)
     {
+        // Row background + selected accent bar — screen-baked meshes on the Editor target (identity
+        // WorldMatrix, like the arrows). Selected scene row = AccentSoft fill + a 3pt Accent left bar;
+        // a hovered interactive row = Bg3 fill (INSTANT — a pooled row must not fade, or the highlight
+        // smears across scroll as the pool repurposes rows). Otherwise both meshes are emptied.
+        var selectedRow = row.Kind == PanelRowKind.SceneEntity && row.Selected;
+        if (selectedRow)
+        {
+            SetMeshAt(visual.BgFill, new FilledRectangleMeshGenerator(line, EditorTheme.AccentSoft).Generate(),
+                EditorTheme.Depths.RowFill);
+            var bar = new Rectangle(line.X, line.Y, Math.Max(1, EditorChromeLayout.Px(3, scale)), line.Height);
+            SetMeshAt(visual.AccentBar, new FilledRectangleMeshGenerator(bar, EditorTheme.Accent).Generate(),
+                EditorTheme.Depths.RowAccentBar);
+        }
+        else if (hovered && row.Interactive)
+        {
+            SetMeshAt(visual.BgFill, new FilledRectangleMeshGenerator(line, EditorTheme.Bg3).Generate(),
+                EditorTheme.Depths.RowFill);
+            ClearMesh(visual.AccentBar);
+        }
+        else
+        {
+            ClearMesh(visual.BgFill);
+            ClearMesh(visual.AccentBar);
+        }
+
         // Arrow (disclosure) — a filled triangle MESH (not a font glyph), so the indicator never
         // depends on the BitmapFont's Unicode coverage. Right-pointing ▸ collapsed, down ▾ expanded.
         if (row.Collapsible)
         {
             var arrow = SystemsPanelLayout.ArrowRect(line, row.Depth, scale);
             var tri = SystemsPanelLayout.ArrowTriangle(arrow, row.Expanded);
-            SetArrowMesh(visual.Arrow,
-                new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], RowColor(row, hovered)).Generate());
+            SetMeshAt(visual.Arrow,
+                new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], RowColor(row)).Generate(),
+                EditorTheme.Depths.Label);
         }
         else
         {
-            ClearArrowMesh(visual.Arrow);
+            ClearMesh(visual.Arrow);
         }
 
         // Checkbox + minus bar — only for pipeline rows.
@@ -430,15 +461,15 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             Place(visual.Checkbox, new Vector2(box.X, box.Y));
             Resize(visual.Checkbox, box);
             SetFill(visual.Checkbox, row.CheckboxState == PipelineEnabledState.Off
-                ? Color.Transparent
-                : EditorChromeBuilder.CheckboxOnFill);
+                ? Color.Transparent            // "no fill" — allowlisted; the A==0 mesh is skipped
+                : EditorTheme.Success);        // checkbox-on stays "on/enabled" green
 
             if (row.ShowMinusBar)
             {
                 var bar = SystemsPanelLayout.MinusBarRect(box, scale);
                 Place(visual.MinusBar, new Vector2(bar.X, bar.Y));
                 Resize(visual.MinusBar, bar);
-                SetFill(visual.MinusBar, EditorChromeBuilder.CheckboxMixedMark);
+                SetFill(visual.MinusBar, EditorTheme.Bg1); // dark bar reads against the Success checkbox
             }
             else
             {
@@ -455,23 +486,23 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         var labelPos = row.HasCheckbox
             ? SystemsPanelLayout.LabelPosition(line, labelHeight, row.Depth, scale)
             : SystemsPanelLayout.LabelPositionNoCheckbox(line, labelHeight, row.Depth, scale);
-        SetText(visual.Label, row.Label, labelPos, scale, RowColor(row, hovered));
+        SetText(visual.Label, row.Label, labelPos, scale, RowColor(row));
     }
 
-    /// <summary>The label/arrow color for a row given its kind, state, selection and hover.</summary>
-    private static Color RowColor(PanelRow row, bool hovered) => row.Kind switch
+    /// <summary>The label/arrow text color for a row, by kind (hover + selection are conveyed by the
+    /// row background fill + accent bar now, so the label color is hover-independent — Text0 primary,
+    /// Text1 subtitles/headers, TextMuted de-emphasized, TextDisabled for an off pipeline entry).</summary>
+    private static Color RowColor(PanelRow row) => row.Kind switch
     {
-        PanelRowKind.SectionHeader => hovered ? Color.White : EditorChromeBuilder.LabelColor,
-        PanelRowKind.PipelineSubheader => EditorChromeBuilder.HeaderLabelColor,
-        PanelRowKind.PipelineEntry => hovered ? Color.White
-            : row.CheckboxState != PipelineEnabledState.Off
-                ? EditorChromeBuilder.LabelColor
-                : EditorChromeBuilder.DisabledLabelColor,
-        PanelRowKind.SceneEntity => row.Selected ? EditorChromeBuilder.CheckboxOnFill
-            : hovered ? Color.White : EditorChromeBuilder.LabelColor,
-        PanelRowKind.InspectorComponent => hovered ? Color.White : EditorChromeBuilder.LabelColor,
-        PanelRowKind.InspectorMember => EditorChromeBuilder.DisabledLabelColor,
-        _ => EditorChromeBuilder.DisabledLabelColor,
+        PanelRowKind.SectionHeader => EditorTheme.Text0,
+        PanelRowKind.PipelineSubheader => EditorTheme.Text1,
+        PanelRowKind.PipelineEntry => row.CheckboxState != PipelineEnabledState.Off
+            ? EditorTheme.Text0
+            : EditorTheme.TextDisabled,
+        PanelRowKind.SceneEntity => EditorTheme.Text0,
+        PanelRowKind.InspectorComponent => EditorTheme.Text0,
+        PanelRowKind.InspectorMember => EditorTheme.TextMuted,
+        _ => EditorTheme.TextMuted,
     };
 
     private void EnsurePool(int count)
@@ -481,35 +512,38 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             {
                 Label = CreateText(),
                 Checkbox = CreateBox(SystemsPanelLayout.CheckboxSize, SystemsPanelLayout.CheckboxSize,
-                    lineThickness: 1.5f, outline: EditorChromeBuilder.ButtonOutline, depth: EditorChromeBuilder.ButtonDepth),
+                    lineThickness: 1.5f, outline: EditorTheme.BorderStrong, depth: EditorTheme.Depths.Button),
                 MinusBar = CreateBox(SystemsPanelLayout.MinusBarWidth, SystemsPanelLayout.MinusBarHeight,
-                    lineThickness: 0f, outline: Color.Transparent, depth: EditorChromeBuilder.CheckboxMarkDepth),
-                Arrow = CreateArrowMesh(),
+                    lineThickness: 0f, outline: Color.Transparent, depth: EditorTheme.Depths.CheckboxMark),
+                Arrow = CreateMesh(EditorTheme.Depths.Label),
+                BgFill = CreateMesh(EditorTheme.Depths.RowFill),
+                AccentBar = CreateMesh(EditorTheme.Depths.RowAccentBar),
             });
     }
 
-    /// <summary>Creates a disclosure-arrow MESH entity: a raw <see cref="DrawComponent"/> the panel
-    /// bakes a filled triangle into each frame (mirroring the gizmo overlays' screen-baked meshes) —
-    /// identity <c>WorldMatrix</c>, native Editor target, no <c>VisibleComponent</c> (the chrome rule)
-    /// and no <c>SimpleButtonComponent</c> (so <c>ButtonMeshPrepSystem</c> never touches it).</summary>
-    private Entity CreateArrowMesh()
+    /// <summary>Creates a screen-baked MESH entity: a raw <see cref="DrawComponent"/> the panel bakes
+    /// geometry into each frame (mirroring the gizmo overlays' screen-baked meshes) — identity
+    /// <c>WorldMatrix</c>, native Editor target at <paramref name="depth"/>, no <c>VisibleComponent</c>
+    /// (the chrome rule) and no <c>SimpleButtonComponent</c> (so <c>ButtonMeshPrepSystem</c> never
+    /// touches it). Used for disclosure arrows, row background fills, and the selected-row accent bar.</summary>
+    private Entity CreateMesh(float depth)
     {
-        var arrow = _world.CreateEntity();
-        arrow.Set(new EditorInfrastructureComponent()); // survives a transport Restart
-        arrow.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
-        arrow.Set(new DrawComponent
+        var mesh = _world.CreateEntity();
+        mesh.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        mesh.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        mesh.Set(new DrawComponent
         {
             Type = DrawElementType.Mesh,
             Target = RenderTargetID.Editor,
-            LayerDepth = EditorChromeBuilder.LabelDepth,
+            LayerDepth = depth,
             WorldMatrix = Matrix.Identity,
             Vertices = Array.Empty<VertexPositionColor>(),
             Indices = Array.Empty<int>(),
         });
-        return arrow;
+        return mesh;
     }
 
-    private static void SetArrowMesh(Entity e, MeshData mesh)
+    private static void SetMeshAt(Entity e, MeshData mesh, float depth)
     {
         ref var dc = ref e.Get<DrawComponent>();
         dc.Type = DrawElementType.Mesh;
@@ -518,12 +552,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         dc.PrimitiveType = mesh.PrimitiveType;
         dc.WorldMatrix = Matrix.Identity;
         dc.Target = RenderTargetID.Editor;
-        dc.LayerDepth = EditorChromeBuilder.LabelDepth;
+        dc.LayerDepth = depth;
     }
 
-    /// <summary>Hides an arrow by emptying its mesh (an invalid mesh is skipped by
+    /// <summary>Hides a screen-baked mesh by emptying it (an invalid mesh is skipped by
     /// <c>MasterRenderSystem</c>) — the mesh analog of parking a text/box entity off-screen.</summary>
-    private static void ClearArrowMesh(Entity e)
+    private static void ClearMesh(Entity e)
     {
         ref var dc = ref e.Get<DrawComponent>();
         dc.Vertices = Array.Empty<VertexPositionColor>();
@@ -538,10 +572,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         text.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Editor,
-            LayerDepth = EditorChromeBuilder.LabelDepth,
+            LayerDepth = EditorTheme.Depths.Label,
             TextContent = string.Empty,
             Font = _font!,
-            Color = EditorChromeBuilder.LabelColor,
+            Color = EditorTheme.Text0,
             Scale = EditorChromeBuilder.LabelScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,
@@ -573,8 +607,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         Park(visual.Label);
         Park(visual.Checkbox);
         Park(visual.MinusBar);
-        Park(visual.Arrow);
-        ClearArrowMesh(visual.Arrow); // a parked mesh position does nothing (identity matrix) — empty it
+        // Screen-baked meshes carry their position in their vertices (identity matrix), so parking
+        // the transform does nothing — empty the mesh to hide it.
+        ClearMesh(visual.Arrow);
+        ClearMesh(visual.BgFill);
+        ClearMesh(visual.AccentBar);
     }
 
     private static void Park(Entity entity) => Place(entity, SystemsPanelLayout.ParkedPosition);
@@ -615,6 +652,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (visual.Checkbox.IsAlive) visual.Checkbox.Dispose();
             if (visual.MinusBar.IsAlive) visual.MinusBar.Dispose();
             if (visual.Arrow.IsAlive) visual.Arrow.Dispose();
+            if (visual.BgFill.IsAlive) visual.BgFill.Dispose();
+            if (visual.AccentBar.IsAlive) visual.AccentBar.Dispose();
         }
         _pool.Clear();
         if (_stateEntity.IsAlive) _stateEntity.Dispose();

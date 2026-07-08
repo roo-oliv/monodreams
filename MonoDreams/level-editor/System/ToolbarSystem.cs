@@ -52,6 +52,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     private bool _cursorPresent;
     private Vector2 _cursorPoint;
     private bool _clicked;
+    private bool _leftDown;
 
     /// <param name="world">The screen's world (the toolbar buttons + cursor live here).</param>
     /// <param name="dispatch">Fires a clicked button's action + the frame's state.</param>
@@ -73,6 +74,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     {
         _cursorPresent = false;
         _clicked = false;
+        _leftDown = false;
 
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -80,6 +82,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
             _cursorPresent = true;
             _cursorPoint = input.ScreenPosition; // native-pixel hit-test (Editor target chrome)
             _clicked = input.LeftButtonReleased;  // a click = press then release over the button
+            _leftDown = input.LeftButton;         // held → the instant "pressed" fill
             return;
         }
     }
@@ -100,15 +103,18 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
         var over = _cursorPresent && active && button.Bounds.Contains(_cursorPoint);
         button.IsHovered = over;
 
-        // Hover tint on the engine button fill (the mesh is rebuilt by ButtonMeshPrepSystem, so
-        // the tint shows on the next prep — one frame, imperceptible). Inactive buttons render
-        // with the disabled fill so the Playing state reads at a glance.
+        // Per-widget hover fade (framerate-independent, ~120ms): idle Bg2 → hover Bg3. Stored on the
+        // component so it survives frame to frame; a disabled button eases back to idle (over is false
+        // while inactive). Pressed (held over the control) snaps to Bg4 instantly.
+        button.HoverProgress = EditorTheme.AdvanceHover(button.HoverProgress, over, state.Time);
+
         if (entity.Has<SimpleButtonComponent>())
         {
             ref var visual = ref entity.Get<SimpleButtonComponent>();
-            visual.FillColor = !active
-                ? EditorChromeBuilder.ButtonDisabledFill
-                : over ? EditorChromeBuilder.ButtonHoverFill : EditorChromeBuilder.ButtonFill;
+            visual.FillColor = EditorTheme.ControlFill(
+                disabled: !active, selected: false, pressed: over && _leftDown, button.HoverProgress);
+            // Disabled buttons dim their label too, so the Playing state reads at a glance.
+            SetLabelColor(entity, active ? EditorTheme.Text0 : EditorTheme.TextDisabled);
         }
 
         if (over && _clicked)
@@ -125,6 +131,14 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
         // While Playing the button offers "Pause"; while Paused it offers "Play". The button was
         // laid out for the wider label, so the swap never moves the row.
         text.TextContent = state.RunMode == RunMode.Play ? "Pause" : "Play";
+    }
+
+    private static void SetLabelColor(in Entity button, Color color)
+    {
+        if (!button.Has<SimpleButtonComponent>()) return;
+        var textEntity = button.Get<SimpleButtonComponent>().TextEntity;
+        if (textEntity is not { IsAlive: true } label || !label.Has<DynamicTextComponent>()) return;
+        label.Get<DynamicTextComponent>().Color = color;
     }
 
     public override void Dispose()

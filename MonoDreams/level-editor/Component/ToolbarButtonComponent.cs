@@ -27,6 +27,11 @@ public struct ToolbarButtonComponent
     /// <summary>True while the cursor is over this button — drives a hover tint, set by the system.</summary>
     public bool IsHovered;
 
+    /// <summary>Per-widget hover-fade progress in [0,1] (0 = idle fill, 1 = full hover fill), eased
+    /// framerate-independently by <c>ToolbarSystem</c> each frame (<c>EditorTheme.AdvanceHover</c>).
+    /// Lives on the button component — never keyed to a pooled entity — so the ~120ms fade is stable.</summary>
+    public float HoverProgress;
+
     /// <summary>True for a toggle/active-state button (e.g. the snap toggle or the currently selected
     /// tool) so the system can render it in an "on" tint. The screen/system sets this to reflect the
     /// gizmo state.</summary>

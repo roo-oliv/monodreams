@@ -73,15 +73,15 @@ public enum EditorDialogMode
 /// </summary>
 public sealed class EditorDialogSystem : ISystem<GameState>
 {
-    private static readonly Color BackdropColor = new(10, 10, 14);
-    private static readonly Color PanelColor = new(30, 30, 36);
+    // Colors + depths come from EditorTheme (the module's single source): the dialog band sits ABOVE
+    // the shell chrome (panels 0.1 / buttons 0.5 / labels 0.6) so the modal covers the toolbar + panel.
 
-    // Dialog depths sit ABOVE the shell chrome (panels 0.1 / buttons 0.5 / labels 0.6) so the modal
-    // covers the toolbar + systems panel.
-    private const float BackdropDepth = 0.70f;
-    private const float PanelDepth = 0.74f;
-    private const float ControlDepth = 0.80f;
-    private const float LabelDepth = 0.86f;
+    // Per-widget hover-fade progress for the three persistent dialog buttons (Confirm / Cancel / Up) —
+    // stored on the system (the buttons are parked persistent entities, so their fade state lives
+    // alongside, never keyed to a pooled row — pre-mortem #6). Advanced framerate-independently.
+    private float _confirmHover, _cancelHover, _upHover;
+    private int _hoverControl = -1; // 0=confirm, 1=cancel, 2=up, else a visible row index + 3, or -1
+    private bool _leftDown;
 
     private static readonly Vector2 ParkPosition = new(-100000f, -100000f);
 
@@ -300,6 +300,8 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     /// same click/scroll this frame (the mouse half of the modal capture).</summary>
     private void HandleMouseAndConsume(GameState state, float scale)
     {
+        _hoverControl = -1;
+        _leftDown = false;
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref var input = ref cursor.Get<CursorInputComponent>();
@@ -307,6 +309,11 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             var isSave = _mode == EditorDialogMode.Save;
             var panel = EditorDialogLayout.Panel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight,
                 !isSave, scale);
+
+            // Per-frame hover for the interaction states (the fills apply it in LayoutAndRender/RenderList):
+            // which control the cursor is over, and whether the left button is held (the pressed fill).
+            _leftDown = input.LeftButton;
+            _hoverControl = ComputeHoverControl(panel, isSave, scale, point);
 
             if (input.ScrollWheelDelta != 0 && panel.Contains(point))
                 ScrollList(panel, isSave, scale, input.ScrollWheelDelta);
@@ -339,6 +346,43 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             cursor.NotifyChanged<CursorInputComponent>();
             return; // single cursor
         }
+    }
+
+    /// <summary>Which control the cursor is over, for the interaction-state fills: 0 = Confirm,
+    /// 1 = Cancel, 2 = Up, <c>3 + visibleRowIndex</c> = a list row, or -1 = none. Mirrors the
+    /// release hit-test order so hover and click agree.</summary>
+    private int ComputeHoverControl(Rectangle panel, bool isSave, float scale, Point point)
+    {
+        if (EditorDialogLayout.CancelButton(panel, !isSave, scale).Contains(point)) return 1;
+        if (isSave && EditorDialogLayout.ConfirmButton(panel, scale).Contains(point)) return 0;
+        if (_browser.Resolved && EditorDialogLayout.UpButton(panel, scale).Contains(point)) return 2;
+        if (_browser.Resolved)
+        {
+            var count = _browser.EntryCount;
+            var visible = EditorDialogLayout.VisibleRowCount(panel, isSave, scale);
+            for (var vi = 0; vi < visible; vi++)
+            {
+                var i = _scroll + vi;
+                if (i >= count) break;
+                if (EditorDialogLayout.Row(panel, vi, scale).Contains(point)) return 3 + vi;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>A dialog button's fill: eases its own hover progress (persistent buttons store it on
+    /// the system, never a pooled row — pre-mortem #6) and maps state → fill via the shared recipe.</summary>
+    private Color DialogButtonFill(ref float hover, int controlId, bool disabled, float dt)
+    {
+        var hovered = _hoverControl == controlId;
+        hover = EditorTheme.AdvanceHover(hover, hovered && !disabled, dt);
+        return EditorTheme.ControlFill(disabled, selected: false, pressed: hovered && _leftDown && !disabled, hover);
+    }
+
+    private static void SetBoxFill(Entity e, Color fill)
+    {
+        if (!e.IsAlive) return;
+        e.Get<SimpleButtonComponent>().FillColor = fill;
     }
 
     /// <summary>Maps a clicked visible row to a folder (descend) or a scene file (Load: load / Save:
@@ -380,18 +424,19 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
         PlaceBox(_panel, panel);
         PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), isSave ? "Save Scene" : "Load Scene",
-            EditorChromeBuilder.LabelColor, scale);
+            EditorTheme.Text0, scale);
 
         // Cancel is always present (Load's only button; Save's second button).
         var cancel = EditorDialogLayout.CancelButton(panel, !isSave, scale);
         PlaceBox(_cancelBox, cancel);
-        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorChromeBuilder.LabelColor, scale);
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 1, disabled: false, state.Time));
+        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
 
         if (!_browser.Resolved)
         {
             // No project root: show the actionable message, hide the browser controls.
             PlaceLabel(_message, EditorDialogLayout.Message(panel, scale),
-                _browser.Message ?? "No project root resolved.", EditorChromeBuilder.LabelColor, scale);
+                _browser.Message ?? "No project root resolved.", EditorTheme.Text0, scale);
             Park(_breadcrumb); ParkBox(_upBox); Park(_upLabel);
             ParkBox(_fieldBox); Park(_fieldText);
             ParkBox(_confirmBox); Park(_confirmLabel);
@@ -402,24 +447,26 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         // Breadcrumb (current path) + up-directory button.
         var breadcrumb = EditorDialogLayout.Breadcrumb(panel, scale);
         PlaceLabel(_breadcrumb, LabelInset(breadcrumb, scale), _browser.BreadcrumbText,
-            EditorChromeBuilder.LabelColor, scale);
+            EditorTheme.Text0, scale);
         var up = EditorDialogLayout.UpButton(panel, scale);
         PlaceBox(_upBox, up);
+        SetBoxFill(_upBox, DialogButtonFill(ref _upHover, 2, disabled: !_browser.CanGoUp, state.Time));
         PlaceLabel(_upLabel, LabelInset(up, scale), "Up",
-            _browser.CanGoUp ? EditorChromeBuilder.LabelColor : EditorChromeBuilder.DisabledLabelColor, scale);
+            _browser.CanGoUp ? EditorTheme.Text0 : EditorTheme.TextDisabled, scale);
 
         if (isSave)
         {
             var confirm = EditorDialogLayout.ConfirmButton(panel, scale);
             PlaceBox(_confirmBox, confirm);
-            PlaceLabel(_confirmLabel, LabelInset(confirm, scale), "Save", EditorChromeBuilder.LabelColor, scale);
+            SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 0, disabled: false, state.Time));
+            PlaceLabel(_confirmLabel, LabelInset(confirm, scale), "Save", EditorTheme.Text0, scale);
 
             var field = EditorDialogLayout.Field(panel, scale);
             PlaceBox(_fieldBox, field);
             var caretOn = (state.TotalTime % 1.0) < 0.5;
             var shown = _field.Value + (caretOn ? "|" : string.Empty);
             PlaceLabel(_fieldText, EditorDialogLayout.FieldText(field, scale), shown,
-                EditorChromeBuilder.LabelColor, scale);
+                EditorTheme.Text0, scale);
         }
         else
         {
@@ -436,7 +483,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         if (count == 0)
         {
             PlaceLabel(_message, EditorDialogLayout.Message(panel, scale),
-                _browser.Message ?? "Empty folder.", EditorChromeBuilder.LabelColor, scale);
+                _browser.Message ?? "Empty folder.", EditorTheme.Text0, scale);
             ParkRows();
             return;
         }
@@ -454,10 +501,11 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
             var rect = EditorDialogLayout.Row(panel, vi, scale);
             PlaceBox(box, rect);
+            SetBoxFill(box, _hoverControl == 3 + vi ? EditorTheme.Bg3 : EditorTheme.Bg2); // instant row hover
             var isDir = _browser.IsDirectory(i);
             // Folders are suffixed "/" (and tinted with the accent) so they read distinctly from files.
             var text = isDir ? _browser.Directories[i] + "/" : _browser.Files[i - _browser.Directories.Count];
-            var color = isDir ? EditorChromeBuilder.CheckboxOnFill : EditorChromeBuilder.LabelColor;
+            var color = isDir ? EditorTheme.Success : EditorTheme.Text0;
             PlaceLabel(label, LabelInset(rect, scale), text, color, scale);
         }
         for (var vi = visible; vi < _rows.Count; vi++)
@@ -478,19 +526,19 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private void EnsureBuilt()
     {
         if (_built) return;
-        _backdrop = CreateBox(BackdropColor, BackdropColor, 0f, BackdropDepth);
-        _panel = CreateBox(PanelColor, EditorChromeBuilder.ButtonOutline, 1.5f, PanelDepth);
-        _title = CreateLabel(LabelDepth);
-        _breadcrumb = CreateLabel(LabelDepth);
-        _upBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
-        _upLabel = CreateLabel(LabelDepth);
-        _fieldBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
-        _fieldText = CreateLabel(LabelDepth);
-        _confirmBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
-        _confirmLabel = CreateLabel(LabelDepth);
-        _cancelBox = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1.5f, ControlDepth);
-        _cancelLabel = CreateLabel(LabelDepth);
-        _message = CreateLabel(LabelDepth);
+        _backdrop = CreateBox(EditorTheme.Bg0, EditorTheme.Bg0, 0f, EditorTheme.Depths.DialogBackdrop);
+        _panel = CreateBox(EditorTheme.Bg1, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogPanel);
+        _title = CreateLabel(EditorTheme.Depths.DialogLabel);
+        _breadcrumb = CreateLabel(EditorTheme.Depths.DialogLabel);
+        _upBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
+        _upLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
+        _fieldBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
+        _fieldText = CreateLabel(EditorTheme.Depths.DialogLabel);
+        _confirmBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
+        _confirmLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
+        _cancelBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.DialogControl);
+        _cancelLabel = CreateLabel(EditorTheme.Depths.DialogLabel);
+        _message = CreateLabel(EditorTheme.Depths.DialogLabel);
         _built = true;
         ParkAll();
     }
@@ -499,8 +547,8 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     {
         while (_rows.Count <= index)
         {
-            var box = CreateBox(EditorChromeBuilder.ButtonFill, EditorChromeBuilder.ButtonOutline, 1f, ControlDepth);
-            var label = CreateLabel(LabelDepth);
+            var box = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1f, EditorTheme.Depths.DialogControl);
+            var label = CreateLabel(EditorTheme.Depths.DialogLabel);
             _rows.Add((box, label));
         }
     }
@@ -535,7 +583,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             LayerDepth = depth,
             TextContent = string.Empty,
             Font = _font!,
-            Color = EditorChromeBuilder.LabelColor,
+            Color = EditorTheme.Text0,
             Scale = EditorChromeBuilder.LabelScale,
             IsRevealed = true,
             VisibleCharacterCount = int.MaxValue,

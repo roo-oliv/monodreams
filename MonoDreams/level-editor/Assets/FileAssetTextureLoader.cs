@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.Assets;
@@ -28,7 +29,7 @@ namespace MonoDreams.LevelEditor.Assets;
 public sealed class FileAssetTextureLoader
 {
     /// <summary>The placeholder color for a missing asset file (also its conventional name).</summary>
-    public static readonly Color PlaceholderColor = Color.Magenta;
+    public static readonly Color PlaceholderColor = EditorTheme.PlaceholderMagenta;
 
     /// <summary>The generated placeholder's square size in pixels — big enough to be unmissable.</summary>
     public const int PlaceholderSize = 32;

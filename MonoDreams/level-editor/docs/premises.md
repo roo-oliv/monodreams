@@ -443,8 +443,10 @@ entity / one `EditorTransport` — the toolbar never constructs a second. Under 
 the toolbar is live in BOTH transport states (the chrome pass always renders while the editor is
 composed): the transport buttons dispatch always — they are how you leave either state — while the
 EDITING buttons (tools / Save / Load / Undo / Redo / Snap) dispatch only while Paused (`Edit`) and
-render with the disabled fill while Playing (an undo racing live physics would be surprising; a
-viewport click belongs to the game).
+render with the theme's disabled fill (`EditorTheme.BgDisabled` + `TextDisabled`) while Playing (an
+undo racing live physics would be surprising; a viewport click belongs to the game). Every button
+fill/label color comes from `EditorTheme` and eases through the shared hover fade (see "Every
+level-editor color and depth is an `EditorTheme` role").
 
 **Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
 "the editor tools shouldn't overlay the game screen but be placed around it … highres and
@@ -544,6 +546,55 @@ screen-baked at the expected pixels).
 "Three render targets, two behaviors" (+ `ViewportManager.DevicePixelRatio`); cursor —
 `CursorInputSystem` (ScreenPosition × DPR) and `CursorPositionSystem` (sets `OutsideViewport`);
 foundation — "Default RunMode=Play" (the flag-off/Play path must stay byte-identical).
+
+## Every level-editor color and depth is an `EditorTheme` role; visual translucency is precomputed opaque
+
+`MonoDreams/level-editor/UI/EditorTheme.cs` is the **single source of every color and depth** in the
+module — chrome (toolbar, right strip, dialog, palette) AND viewport overlays (gizmo handles,
+selection outline, collider-proxy / boundary / trigger outlines). Roles carry intent, not decoration:
+`Accent` = "selected / the primary action", `Success` = "on/enabled", `Warning` / `Danger` =
+"destructive-adjacent / destructive"; the `Bg0..Bg4` / `Border*` / `Text*` ramps are the neutral
+warm-dark palette; the overlay colors (`OverlayAccent`, `GizmoAxisX/Y`, `OverlayBoundary`, …) are
+migrated verbatim from their XNA named colors, so the migration is byte-identical to the pre-theme
+render. `EditorTheme.Depths` consolidates the one Editor-target depth stack in one place (overlays
+0.02–0.04 < panel 0.1 < row fill 0.3 < buttons 0.5 < checkbox mark 0.55 < thumbnail 0.56 < chip 0.58
+< labels 0.6 < dialog 0.70–0.86). No color or depth literal lives anywhere else in the module: a
+source-scan test forbids `new Color(` and any `Color.<name>` token (allowlisting only `Color.Lerp` /
+`Color.Transparent`) outside `EditorTheme.cs`, so adding a color means adding a role, consciously.
+**Because the Editor mesh path composites premultiplied alpha, every "translucent" mesh fill is a
+precomputed OPAQUE blend** — `AccentSoft` is `Accent` blended into `Bg1`, never `Accent × α` (which
+would blow out near-white); the only alpha in the theme is on SPRITE tints (`GhostTint`), where alpha
+is legitimate. Interaction states share one recipe — `EditorTheme.ControlFill(disabled, selected,
+pressed, hoverProgress)` maps a widget's state to its fill (idle `Bg2` → hover `Bg3` → pressed `Bg4`;
+selected/armed `AccentSoft` + an `Accent` border/edge; disabled `BgDisabled`) — and the ~120ms hover
+fade is the engine's framerate-independent ease (`EditorTheme.AdvanceHover`, speed 18, the
+`ButtonVisualSystem` recipe). Fade progress lives on each widget's OWN component/struct
+(`ToolbarButtonComponent.HoverProgress`, the palette card/band/trigger structs, dialog-system fields)
+— NEVER on a pooled right-strip row, which highlights INSTANTLY (a fade keyed to a repurposed pool
+entity would smear across scroll).
+
+**Why:** the pre-theme de-facto palette scattered across `EditorChromeBuilder`, `EditorDialogSystem`,
+`PalettePlacementSystem` and `EditorPanelSystem` drifts — colors diverge, intent blurs, and a
+"subtle" translucent mesh fill turns near-white under premultiplied compositing. One typed source + a
+lint keeps the strict palette strict and the depth stack legible in one place.
+**Breaks:** re-introducing a raw `Color` or a named XNA token in the module fails the lint; "fixing"
+`AccentSoft` to `Accent × alpha` (or giving any mesh fill partial alpha) renders it near-white (the
+premultiplied-alpha bug); keying a hover fade to a pooled row smears the highlight across scroll
+(pre-mortem #6); a fill that bypasses `ControlFill`'s priority order loses the
+disabled/selected/pressed states.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorThemeLintTests.cs` (no `new Color(` / named token
+outside `EditorTheme.cs`; the theme file itself is the one that names them);
+`EditorShellTests.ChromeBuilder_PanelsAreOpaqueAndCoverTheMargins` (panel fills stay opaque
+`A==255`); `EditorPanelTests.PooledVisuals_AreBoundedByTheVisibleWindow` (the pooled row's label +
+three screen-baked meshes — arrow, row fill, accent bar — stay window-bounded);
+`PalettePlacementTests.GhostLifecycleTest_FollowsCursorSnapsParksAndDespawns` (the ghost sprite tint
+is the theme's `GhostTint`).
+**Depends on:** rendering — "The mesh render path uses premultiplied alpha — UI fills must be opaque"
+(why translucency is precomputed opaque); level-editor — "The editor shell insets the game viewport
+and renders its chrome at native resolution" (the one Editor target + depth stack these colors paint
+into), "The editor toolbar's buttons drive the same shared editor instances" (the toolbar fills +
+hover fade), "The editor right strip is a stack of collapsible sections" (the pooled-row background
+fill + selected-row accent bar).
 
 ## Editor camera navigation pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation
 
