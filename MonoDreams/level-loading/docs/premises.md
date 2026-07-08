@@ -37,27 +37,33 @@ over LDtk-/Blender-shaped worlds) and
 `LevelLoadRequestSystem` is the load dispatcher on `LoadLevelRequest`. At game boot
 (`enableLegacyLdtkFallback: false`, the default) it is **native-only**: the composed
 `tryLoadNativeScene` `Func<string,bool>` (built by `NativeLevelLoader.CreateProbe` in
-`level-editor`) is called FIRST for every request; it probes for a bundled
-`Content/Levels/<id>.mdscene` via `TitleContainer` (the console-portable read) and,
-on a hit, loads it through the native reader (`SceneReaderSystem`, generalized off
-the editor-only `LoadSceneRequest`) and returns `true` — `LevelLoadRequestSystem`
-then returns. **No native scene ⇒ it fails loud** (a logged error, no entities), with
-no legacy LDtk/Blender attempt. The legacy LDtk `Content.Load<LDtkLevel>` path runs
-**only** when a caller explicitly opts in with `enableLegacyLdtkFallback: true` — the
+`level-editor`) is called FIRST for every request. The probe resolves the scene
+**source-first when an editor `EditorProjectContext` is resolved** (UX-D): a resolved
+context + an existing source `<LevelsPath>/<id>.mdscene` publishes
+`LoadSceneRequest(sourcePath, fromContent:false)`; otherwise it probes the bundled
+`Content/Levels/<id>.mdscene` via `TitleContainer` (`fromContent:true`, the console-portable
+read). A **null** context (a shipped / console / web build) skips the source branch entirely,
+so the bundled path is byte-identical to before. On a hit it loads through the native reader
+(`SceneReaderSystem`, generalized off the editor-only `LoadSceneRequest`) and returns `true` —
+`LevelLoadRequestSystem` then returns. **No native scene ⇒ it fails loud** (a logged error, no
+entities), with no legacy LDtk/Blender attempt. The legacy LDtk `Content.Load<LDtkLevel>` path
+runs **only** when a caller explicitly opts in with `enableLegacyLdtkFallback: true` — the
 import op's dedicated composition, never the shipped boot. The delegate is a plain
 `Func<string,bool>` so `level-loading` never depends upward on `level-editor`; the
 native reader runs in BOTH run modes and in a plain game with no editor composed (a
 shipped game boots native scenes too).
 
-**Source-first optional load (editor, UX-C).** Alongside this boot probe,
-`NativeLevelLoader` exposes a `TryPublishSceneLoad(world, contentRoot, sceneId, projectContext)`
-helper an editor-bound screen calls in `Load` to bring its scene up under its code-built
-content **if it exists**: source-first (`LoadSceneRequest(sourcePath, fromContent:false)` when
-the project root is resolved and the source `.mdscene` exists — the source tree is authoritative
-the moment the editor Saves, before the next build restages the bundled copy), else the bundled
-`TitleContainer` probe (`fromContent:true`), else a silent no-op. It publishes `LoadSceneRequest`
-**directly** (never through `LevelLoadRequestSystem`), so it stays off the LDtk `CurrentLevelComponent`
-path; UX-D reuses the same source-first logic for the transport's Restart reload.
+**Source-first is why Restart-after-Save is honest (UX-D, pre-mortem #5).** The transport's
+Restart re-publishes the screen's original `LoadLevelRequest`, which goes through this same
+probe. Without source-first the probe would read the **bundled** copy — stale the moment the
+editor Saves to the source tree (the bundle only updates at the next build) — so a Restart would
+silently revert to the *last build*, not the last save. The resolved-context source-first branch
+makes the reload reflect the last SAVE. `CreateProbe` and the editor-bound-screen
+`TryPublishSceneLoad(world, contentRoot, sceneId, projectContext)` optional load share ONE
+source-first resolution (`NativeLevelLoader.TryPublishSourceFirst`), so the boot probe, the
+Restart reload, and the bound-screen load all agree. `TryPublishSceneLoad` publishes
+`LoadSceneRequest` **directly** (never through `LevelLoadRequestSystem`), so it stays off the
+LDtk `CurrentLevelComponent` path.
 
 **Why:** native `.mdscene` is the game's real level format (the shipped game reads
 bundled scenes via `TitleContainer`, exactly like `blender_level.json`). A single
@@ -74,7 +80,12 @@ boots the committed `Levels/sample.mdscene` native),
 (the migrated `Blender_Level` boots native, no Blender parse), and
 `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
 (no native scene ⇒ fail loud, no LDtk boot), plus in-process
-`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`.
+`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`
+(`Probe_WithResolvedContext_ResolvesSourceFirst_PublishingTheSourcePath`,
+`Probe_WithNullContext_SkipsSourceFirst_AndUsesTheBundledPathUnchanged`,
+`StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled` — the source-first
+probe + the pre-mortem #5 regression) and
+`MonoDreams.Tests/LevelEditor/OptionalSceneLoadTests.cs` (the shared source-first helper).
 **Depends on:** level-editor — "The game boots native scenes native-first via
 LoadLevelRequest".
 
@@ -92,7 +103,12 @@ editor writes scenes (file IO into the source tree, PS3).
 **Zero-touch for new levels (PS6).** MGCB's `.mgcb` is an explicit list with **no glob
 syntax**, so a new level's `/copy:` line is added WITHOUT a human: on first Save the
 editor appends it (see level-editor — "New levels bundle zero-touch: the editor appends
-the MGCB `/copy:` entry on first save"; idempotent, desktop-editor-only). A build-time
+the MGCB `/copy:` entry on first save"; idempotent, desktop-editor-only). **Backups
+(Save Backup As…, UX-D) are deliberately NOT bundled** — a backup is a dangling
+`<name>.mdscene` written to `Content/Levels` for safekeeping, not a shippable level, so the
+editor skips the `/copy:` append for it. It still shows in the Scenes panel (it lives under
+`LevelsPath`) and loads source-first in the editor; it simply never joins the title content
+until a designer promotes it (renames/re-saves it as a real scene, which then bundles). A build-time
 `Content.npl` Nopipeline regen was rejected — a full regen sweeps the gitignored Island
 placeholder-art pack into the MGCB texture build (the recursive `*.png` group) and breaks
 a fresh checkout — so the `.npl` `Levels/*.mdscene` copy group is a **declarative record

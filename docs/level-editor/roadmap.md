@@ -415,6 +415,47 @@ appends the MGCB `/copy:` entry on first save; `MgcbLevelBundle`) + docs consoli
 - **Cross-scene references / multi-level graph.** v1 persists + boots single scenes by id; an Exit
   trigger's string identity is the seam. *Trigger:* the first door between two levels.
 
+## UX phase (UX-A–UX-D) — editor shell + project model
+
+Ran orthogonally to Waves A–F (it re-founds *how the editor looks and how scenes are chosen*, not
+*which tools produce them*), converging the shell structure on Blender and the visual identity on
+Claude Code. The authoritative design is
+[`editor-shell-ui-ux.md`](editor-shell-ui-ux.md); the invariants live in
+[`MonoDreams/level-editor/docs/premises.md`](../../MonoDreams/level-editor/docs/premises.md).
+
+- **UX-A — `EditorTheme` (strict palette + depth stack).** One `MonoDreams/level-editor/UI/EditorTheme.cs`
+  is the single source of every color + depth in the module (chrome AND viewport overlays): warm-dark
+  `Bg0..Bg4`/`Border*`/`Text*` ramps + intent roles (`Accent` = selected/primary, `Success` = on,
+  `Warning`/`Danger` = destructive-adjacent/destructive), precomputed-opaque blends (the premultiplied
+  rule), the shared `ControlFill` + `AdvanceHover` interaction recipe, and a source-scan lint forbidding
+  any raw `new Color(` / named XNA token outside the theme file.
+- **UX-B — tabbed shell (regions, splitters, tabs, scrollbars).** `EditorShellStateComponent` is the ONE
+  model for the resizable region sizes + active tab per region + drag ownership; the region rects and the
+  viewport inset derive from it. Splitters resize the right strip / bottom shelf; the right strip is
+  **Scene | Systems | Project** tabs, the bottom shelf an **Assets** tab; scrollbars appear on overflow.
+  (Toolbar de-crowding was scoped here but deferred → UX-E.)
+- **UX-C — screen↔scene binding + Scenes panel + dirty gate.** Game screens declare `ScreenInfo(DisplayName,
+  BoundSceneId, HostsSceneFiles)` at registration (foundation seam); the Project tab's `SceneCatalog` merges
+  bound screens + `.mdscene` files under `LevelsPath`; **switching IS selecting** (no Load action) through the
+  one initiator `EditorOverlay.SelectScene`, dirty-gated by the `EditorDialogSystem` `ConfirmSwitch` modal.
+  `EditorHistory` gained a monotonic `EditVersion` + `MarkSavePoint` (`IsDirty`), the empty-save guard, and
+  `NativeLevelLoader.TryPublishSceneLoad` (the source-first optional load a bound screen runs in `Load`).
+- **UX-D — three-action Save dialog + source-first reload (this wave).** The toolbar Save button opens a modal
+  chooser — **Save Scene** / **Save Project** (single-scene v1) / **Save Backup As…** (writes a dangling
+  `<name>.mdscene`, no bundle/save-point, then reloads the bound scene via Restart) — replacing the deleted
+  file-system navigator (`EditorFileBrowser`, the Load dialog mode, the toolbar Load button +
+  `EditorToolbarAction.Load`). `NativeLevelLoader.CreateProbe` gained the resolved `EditorProjectContext` so a
+  Restart-after-Save resolves **source-first** (the source tree wins over the stale bundle — pre-mortem #5),
+  sharing `TryPublishSourceFirst` with UX-C's optional load; the bound menu/runner screens re-run their optional
+  scene load inside `Transport.Reload`.
+
+**Pending — UX-E (toolbar de-crowding).** The top bar still carries all ~17 buttons; the seven
+selection-context actions (order forward/back, collider add-box/add-convex/remove, vertex add, boundary)
+were planned to relocate into small action buttons under the Scene tab's Inspector (contextual UI where
+Blender puts it), so the row stops overflowing narrow windows. Deferred from UX-B to keep the wave focused;
+see editor-shell-ui-ux §2.1 and the toolbar premise's "Deferred (UX-B): toolbar de-crowding" note (overflow
+risk on narrow windows until it lands).
+
 ## Cross-wave invariants (the things that must keep holding)
 
 - **C1/C2 never break.** No wave introduces a parallel renderer or a second scene model.

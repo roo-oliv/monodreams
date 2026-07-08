@@ -434,15 +434,17 @@ manager's `DevicePixelRatio`; the chrome sits in the margins where the virtual m
 and `VirtualPosition` is frozen) against the button `Bounds` and hands
 the action plus the frame's `GameState` to a dispatch supplied by the overlay — which wires the
 left-most TRANSPORT buttons (Play/Pause — one toggle whose label `ToolbarSystem` syncs with the
-state — and Restart) through the shared `EditorTransport`, Save through
-`SceneWriter.Save(world, file, camera, layers)` (the **same** `SceneSerializer`), Load by publishing a
-`LoadSceneRequest` (handled by the registered `SceneReaderSystem`), Undo/Redo on the **same**
-`EditorHistory`, snap-toggle flipping the shared `GizmoStateComponent.SnapEnabled`, and tool-select
-setting the shared `GizmoStateComponent.Tool`. There is exactly one `EditorHistory` / one gizmo-state
+state — and Restart) through the shared `EditorTransport`, **Save by OPENING the three-action Save
+dialog** (Save Scene / Save Project / Save Backup As… — the write runs in the dialog's action callback
+through the shared `SceneWriter`, UX-D), Undo/Redo on the **same** `EditorHistory`, snap-toggle flipping
+the shared `GizmoStateComponent.SnapEnabled`, and tool-select setting the shared
+`GizmoStateComponent.Tool`. **There is no Load button** — `EditorToolbarAction.Load` and the file
+navigator were removed in UX-D; the only load affordance is selecting a scene in the **Scenes panel**
+(see "Game screens declare their bound scene …"). There is exactly one `EditorHistory` / one gizmo-state
 entity / one `EditorTransport` — the toolbar never constructs a second. Under the transport model
 the toolbar is live in BOTH transport states (the chrome pass always renders while the editor is
 composed): the transport buttons dispatch always — they are how you leave either state — while the
-EDITING buttons (tools / Save / Load / Undo / Redo / Snap) dispatch only while Paused (`Edit`) and
+EDITING buttons (tools / Save / Undo / Redo / Snap) dispatch only while Paused (`Edit`) and
 render with the theme's disabled fill (`EditorTheme.BgDisabled` + `TextDisabled`) while Playing (an
 undo racing live physics would be surprising; a viewport click belongs to the game). Every button
 fill/label color comes from `EditorTheme` and eases through the shared hover fade (see "Every
@@ -471,8 +473,8 @@ edits); hit-testing `VirtualPosition` (frozen in the margins — buttons dead or
 buttons live while Playing (undo fighting live physics); transport buttons Edit-guarded (Playing
 becomes a one-way door).
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`ToolbarWiringTest` — tool-select sets the
-tool, snap-toggle flips the flag, Save invokes `SceneWriter` through a fake `IPlatformServices`, Load
-publishes a `LoadSceneRequest`, Undo/Redo drive the shared history, empty-stack undo is a no-op);
+tool, snap-toggle flips the flag, Save invokes `SceneWriter` through a fake `IPlatformServices`,
+Undo/Redo drive the shared history, empty-stack undo is a no-op — there is no Load action);
 `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (native `ScreenPosition` hit-test dispatches in
 Edit, misses outside the bounds, inert in Play).
 **Depends on:** ui — `SimpleButtonComponent` / `ButtonMeshPrepSystem`; cursor —
@@ -1151,6 +1153,17 @@ propagate DOWN the `ChildOf` chain. A Restart with no recorded `Reload` is a **l
 (warning, nothing disposed): tearing the world down with no way to rebuild it would strand the
 designer on a blank screen.
 
+**Source-first reload (UX-D, pre-mortem #5).** The screen's `Reload` re-publishes its original
+`LoadLevelRequest`, which resolves through `NativeLevelLoader.CreateProbe`. That probe now resolves
+**source-first when the editor project is resolved** — so a Restart reflects the last **Save** to the
+source tree, not the stale bundled copy from the last build (see level-loading — "`LevelLoadRequestSystem`
+resolves `LoadLevelRequest` native-only"). A bound menu/runner screen (no `LoadLevelRequest`) instead
+re-runs its optional `NativeLevelLoader.TryPublishSceneLoad` **inside** `Reload`, so a Restart on those
+screens restores the bound scene's placed content too, not just the code-built UI. **Save Backup As…
+(UX-D) composes exactly this:** it writes the dangling backup file, then calls `Restart` to return the
+working scene to its on-disk (source) truth — the backup captured the edits; the working scene reloads
+clean.
+
 **Why:** direct user directive — the F1 toggle is retired; "play/pause and restart buttons to play
 the game, pause it or reset it" are the way the designer moves between editing and playing, and
 restart must be trustworthy: it either fully rebuilds the loaded scene or refuses loudly.
@@ -1159,18 +1172,25 @@ restart crashes or silently no-ops against the wrong world); a restart that skip
 `CurrentLevelComponent` removal never re-parses (the documented broken-hot-reload path); a sweep
 without the editor-marker exclusion disposes the chrome/panel/gizmo state (the editor UI vanishes
 on restart); disposing the cursor pipeline kills all mouse input for the session; a silent no-op
-restart (or a teardown without reload) strands a blank world.
+restart (or a teardown without reload) strands a blank world; a reload that read the **bundled** copy
+would silently revert to the last build, not the last save (the stale-bundle bug — pre-mortem #5).
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorTransportTests.cs` (restart disposes scene entities
 and re-runs the recorded load; editor infrastructure + cursor + `KeepAlive`-named sub-graphs
 survive; unsaved-edit discard demonstrated — edit a transform through the history, restart, the
 value is back at the loaded state and undo is a no-op; the world-level components are removed;
 restart while Playing lands Paused; a reloadless restart is a loud no-op; the headless
-`Play`/`Pause`/`Restart` ops drive the same paths).
+`Play`/`Pause`/`Restart` ops drive the same paths);
+`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled`
+(the reload reads the SOURCE bytes under a resolved context — the pre-mortem #5 regression);
+`MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs::SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene`
+(Save Backup As… composes a write + Restart that reloads the bound scene).
 **Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
 transport is the only mode owner); level-loading — the `LoadLevelRequest` →
-`CurrentLevelComponent`-added parse trigger this premise routes around; this file — "The editor run
-flag composes the always-on editor and the transport owns RunMode", "Bounded undo with
-drag-coalescing" (the history the restart clears).
+`CurrentLevelComponent`-added parse trigger this premise routes around, and "`LevelLoadRequestSystem`
+resolves `LoadLevelRequest` native-only" (the source-first probe the reload goes through); this file —
+"The editor run flag composes the always-on editor and the transport owns RunMode", "Bounded undo with
+drag-coalescing" (the history the restart clears), "The editor's Save dialog is a modal three-action
+chooser …" (Save Backup As… composes write + Restart).
 
 ## Viewport presses belong to exactly one tool family: `EditorToolMode` gates selection, gizmo, and placement
 
@@ -1380,14 +1400,17 @@ to) — there is nowhere versioned to write. The toolbar renders the Save button
 cause (the transport rule dims all editing buttons while Playing; a small per-button gate additionally
 dims Save while Paused-but-unresolved), and this guard closes the remaining dispatch paths (the
 headless `ToolbarAction` op, any programmatic dispatch). The two reasons are reported separately so
-the log/toolbar can tell the user WHY. Undo/Redo/Load keep their existing Paused-only toolbar gating;
-the transport buttons stay live in both states. (PS3 repoints the actual write from the ephemeral
-build-output path to the resolved source tree — see "The editor Save writes versioned `.mdscene` into
-the project source tree" — so the `NoProjectRoot` gate is now also what keeps the write target valid.)
-When Save is **not** blocked it no longer writes immediately — it OPENS the Save dialog (name the
-scene, then confirm), and the write runs in the dialog's confirm callback through the same
-`SaveCurrentScene`, which re-applies this exact guard as defense-in-depth (see "The editor's Save/Load
-dialogs are modal editor-native chrome that own input while open").
+the log/toolbar can tell the user WHY. Undo/Redo keep their existing Paused-only toolbar gating;
+the transport buttons stay live in both states (there is no Load button — a scene is opened via the
+Scenes panel, UX-C/UX-D). (PS3 repoints the actual write from the ephemeral build-output path to the
+resolved source tree — see "The editor Save writes versioned `.mdscene` into the project source tree" —
+so the `NoProjectRoot` gate is now also what keeps the write target valid.) When Save is **not** blocked
+it no longer writes immediately — it OPENS the three-action Save dialog, and each write runs in the
+dialog's action callback: **Save Scene** and **Save Project** both route through `SaveCurrentScene`
+(Save Project is v1 single-scene — it saves the ONE in-memory scene through the same path and never
+blanket-writes the on-disk set), and **Save Backup As…** routes through `SaveBackupAs`. **All three
+re-apply this exact guard** (Playing / no-project-root) as defense-in-depth, and the empty-save guard
+below covers a backup too (see "The editor's Save dialog is a modal three-action chooser …").
 
 **The empty-save guard (UX-C §3.5, pre-mortem #4).** Beyond the two `SaveBlock` causes above,
 `SaveCurrentSceneTo` applies one more world-state guard the pure `SaveBlock` cannot express: it
@@ -1400,6 +1423,10 @@ existence is deliberately NOT a factor). The escape hatch is the reader's `Scene
 one-way session flag (set true on the first successful `LoadSceneRequest`): a designer who deliberately
 **emptied a loaded scene** may still save it empty. On a successful write `SaveCurrentSceneTo` also calls
 `EditorHistory.MarkSavePoint()` (see "The editor history tracks a dirty save-point signal").
+**Save Backup As… (UX-D) obeys the SAME guards** — the two `SaveBlock` causes and the empty-save guard —
+but on success it deliberately does **not** `MarkSavePoint` (the working scene is still dirty vs disk)
+and does not append the MGCB copy line (a backup is dangling); it then reloads the bound scene via
+Restart.
 
 **Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
 is nearly free) AND the project-persistence trap (project-persistence plan §4): a mid-Play save
@@ -1416,7 +1443,12 @@ committed level (the empty-save footgun).
 `SaveGuardTest_DispatchNoOpsWhileBlockedAndSavesWhenAllowed`);
 `MonoDreams.Tests/LevelEditor/EmptySaveGuardTests.cs` (`EmptySaveRefused_TruthTable` — the
 (rootCount, wasLoaded) truth table incl. the never-loaded-but-file-exists case;
-`SceneReader_SceneWasLoaded_StartsFalse_FlipsTrueAfterALoad`).
+`SceneReader_SceneWasLoaded_StartsFalse_FlipsTrueAfterALoad`);
+`MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs`
+(`SaveProject_WritesTheCurrentSceneThroughTheSamePath_MarksTheSavePoint_SingleSceneV1` — Save Project is
+single-scene v1, writes one file, never blanket-writes;
+`SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene` — backup obeys the
+guards but marks nothing and bundles nothing).
 **Depends on:** this file — "The editor run flag composes the always-on editor and the transport
 owns RunMode" (Playing = `RunMode.Play` with the shell composed); "The project manifest anchors the
 editor's project root; unresolved is fail-safe" (the `NoProjectRoot` cause).
@@ -1514,32 +1546,34 @@ very next switch.
 "The transport's Restart rebuilds the scene from the original load request …" (the `Clear` that resets
 clean), "Game screens declare their bound scene …" (the switch gate that reads `IsDirty`).
 
-## The editor's Save/Load dialog is a modal file-system navigator, project-root-scoped, that owns input while open
+## The editor's Save dialog is a modal three-action chooser (Save Scene / Save Project / Save Backup As…) that owns input while open
 
-The toolbar's Save and Load buttons open a modal **Blender-style directory browser**
-(`EditorDialogSystem`, weave entry `editor.dialog`) rather than acting immediately. Both modes share
-the browser: a **breadcrumb** of the current path, an **up-directory** button, and a scrollable list
-of the current directory's **subfolders** (rendered `name/`, click to descend) and **`.mdscene`
-files** (rendered as the id). **Save** adds a **filename field** (prefilled with the current scene id;
-clicking a file fills it, to overwrite) — confirm sanitizes the typed name to a safe file id
-(`EditorTextField.Sanitize`: letters/digits/`-`/`_` only, edge-trimmed; empty ⇒ refused, dialog stays
-open), resolves it to `<current-dir>/<id>.mdscene`, sets that id as the editor's scene id, and writes
-through the SAME guarded save (overwriting an existing file with a logged note). **Load** — clicking a
-`.mdscene` row publishes the SAME `LoadSceneRequest(absolutePath, fromContent:false)` the toolbar Load
-used, with the browser-resolved absolute path. The navigation MODEL is the pure, filesystem-free
-`EditorFileBrowser` (it takes an injected `listDirectory` and does the `.mdscene` filter + folder/file
-classification + bounded navigation on top); the pure geometry is `EditorDialogLayout`.
+The toolbar's Save button (and `dialog:save-open`) opens a modal **three-action chooser**
+(`EditorDialogSystem`, weave entry `editor.dialog`) rather than acting immediately — replacing the
+retired file-system navigator (UX-D §4). The file-picking rationale is gone: **there is no Load
+action and no filename typing to pick an existing scene** — a scene is opened by selecting it in the
+**Scenes panel** (see "Game screens declare their bound scene …"), so the dialog only writes. Three
+stacked full-width actions (a title + a `Text1` subtitle each, the Claude-Code-style "clear actions"
+list), laid out by the pure `EditorDialogLayout`:
 
-**Scoping — the browser is NOT an OS file picker.** It is rooted (up-bounded) at the **project root**
-(`EditorProjectContext.ProjectRoot`) — `up` stops there and never climbs into the wider OS filesystem —
-and it **opens at the project's scenes dir** (`LevelsPath` = `Content/Levels`), because per the
-persistence design a scene must live under `Content/Levels` to be MGCB-`/copy:`-bundled into the title
-and loaded native-first by the shipped game. Navigating up to `Content/` or the root is allowed for
-orientation, but only a save written **directly into `LevelsPath`** is auto-bundled (the
-`./Levels/<id>.mdscene` copy line can only address that dir; a save the designer navigated elsewhere is
-authored but logged as not-bundled). When the project root is **unresolved** the browser shows the
-actionable "set `MONODREAMS_PROJECT_ROOT`" message and lists nothing (the overlay supplies the roots +
-lister; the module never reads the filesystem).
+1. **Save Scene** (primary, `Accent` outline + `Accent` title) — subtitle `<sceneId>.mdscene` — the
+   existing guarded `EditorOverlay.SaveCurrentScene` (source-tree write + zero-touch bundling +
+   ship-lint warning + `MarkSavePoint`). Enter picks it.
+2. **Save Project** — subtitle "every unsaved scene + project files (currently: `<sceneId>`)" —
+   `EditorOverlay.SaveProject`, which v1 saves the current scene (the only one in memory) through the
+   SAME guarded path; it must **never** blanket-write scenes not in memory (it is the terrain for
+   multi-scene sessions).
+3. **Save Backup As…** — clicking it **arms** a name field (prefilled `<sceneId>-backup`, `Sanitize`d)
+   + a Confirm; confirm runs `EditorOverlay.SaveBackupAs`, which writes `<name>.mdscene` into
+   `LevelsPath` **without** rebinding the scene id, **without** `MarkSavePoint`, and **without**
+   bundling (a backup is dangling by design — logged "not bundled"), then **reloads the bound scene
+   from disk** via the transport's `Restart` (teardown + screen-recorded reload + history clear ⇒
+   clean). Its subtitle carries the `Warning`-colored "then reloads `<sceneId>` from disk (discards
+   unsaved edits)".
+
+Escape/Cancel closes. Enter = Save Scene, or confirm-backup while the name field is armed. Each action
+fires a callback the overlay supplies (running the SAME shared `SceneWriter` / `History` / `Transport`
+instances), so the dialog stays **game-agnostic** — it knows nothing of `SceneWriter` / project paths.
 
 The dialog is built the way the systems panel is — native-resolution chrome on `RenderTargetID.Editor`,
 `SimpleButtonComponent` + `DynamicTextComponent`, `ScreenPosition` hit-test, **no `VisibleComponent`**
@@ -1556,55 +1590,58 @@ of `LeftButton` would make its own release edge unobservable the next frame (the
 clicks do nothing" bug). (2) keyboard — the composing screen wires the host keyboard system's
 `ShouldSuppressInput` to `Dialog.IsOpen`, so every editor/game keyboard action (delete, undo/redo,
 frame, boundary-commit, and the game's Escape-to-exit) stands down while the dialog reads the keyboard
-for its name field (Backspace edits, Enter confirms, Escape cancels). Every action also has a public
-method so the headless `dialog:save-open|load-open|name <text>|confirm|discard|cancel|cd <folder>|up|pick <file>`
-op grammar drives the whole flow with no real keyboard/mouse. **UX-C adds a third mode on this same
-machinery — `ConfirmSwitch`** (opened by `OpenConfirmSwitch`; `dialog:confirm` = Save &amp; Switch,
-`dialog:discard` = Discard &amp; Switch, `dialog:cancel`; Enter = Confirm, Escape = Cancel): a plain
-"Unsaved changes in &lt;scene&gt;" confirm with no browser/field, reusing the parked chrome + cursor
-consume + `editor.dialog` weave, so the switch-confirm modality can never leak a click to the tools
-behind it (pre-mortem #3).
+for the backup name field (Backspace edits, Enter confirms, Escape cancels; typing is ignored until the
+backup field is armed). Every action also has a public method so the headless
+`dialog:save-open|scene|project|name <text>|backup <name>|confirm|discard|cancel` op grammar drives the
+whole flow with no real keyboard/mouse (`dialog:confirm` = the focused/default action; `dialog:backup
+<name>` is a one-shot arm+set+confirm). **The `ConfirmSwitch` mode (UX-C) stays live on this same
+machinery** (opened by `OpenConfirmSwitch`; `dialog:confirm` = Save &amp; Switch, `dialog:discard` =
+Discard &amp; Switch, `dialog:cancel`; Enter = Confirm, Escape = Cancel): a plain "Unsaved changes in
+&lt;scene&gt;" confirm with no field, reusing the parked chrome + cursor consume + `editor.dialog` weave,
+so the switch-confirm modality can never leak a click to the tools behind it (pre-mortem #3). After the
+navigator's removal the system has exactly two live modes: `Save` and `ConfirmSwitch`.
 
-**Why:** the user needs to name a scene and pick which to load, and expected a real file browser (Rider
-hands-on feedback: the flat name-field / list dialogs "aren't what I expected"). Rooting at the project
-root (not the OS root) keeps the browser inside the versionable project and steers scenes into
-`Content/Levels`, the only place they bundle + load — a free OS picker would let a designer save a scene
-somewhere the build can never reach. A modal must capture input or a stray viewport click/keystroke
-leaks to the tools behind it — most dangerously typing a name with `z`/`y` (undo/redo) or hitting Escape
-(quit the game). Reusing the `ui` dialog machinery would force `VisibleComponent` onto Editor chrome and
-break the chrome-render invariant, so the dialog is editor-native but still built from the shared UI
-primitives (no parallel draw components — the no-duplicate-ways tenet).
-**Breaks:** an OS-wide picker lets a scene land where MGCB never copies it (a level that boots in the
-editor but is missing from a shipped build); without the mouse edge-consumption a click meant for a
-dialog button also selects/places behind it; without the keyboard suppression, typing a filename fires
+**Why:** the project model re-founding (UX-C/UX-D) makes a file picker redundant — screens declare their
+scene, the Scenes panel lists them, and selecting one loads it — so Save need only *write*, and a
+short "clear actions" chooser is a better fit than a directory browser (the Claude-Code visual identity).
+A modal must capture input or a stray viewport click/keystroke leaks to the tools behind it — most
+dangerously typing a backup name with `z`/`y` (undo/redo) or hitting Escape (quit the game). Reusing the
+`ui` dialog machinery would force `VisibleComponent` onto Editor chrome and break the chrome-render
+invariant, so the dialog is editor-native but still built from the shared UI primitives (no parallel draw
+components — the no-duplicate-ways tenet).
+**Breaks:** a Save Project that blanket-wrote the on-disk set (not the in-memory scene) would clobber
+scenes the designer never touched; a backup that marked the save point (or bundled, or rebound the scene
+id) would masquerade as the working scene's save; without the mouse edge-consumption a click meant for a
+dialog button also selects/places behind it; without the keyboard suppression, typing a backup name fires
 editor hotkeys (undo/redo/delete) and Escape quits the game mid-edit; using `ui.DialogSystem` would add
 `VisibleComponent` to Editor chrome and double-offset the pre-baked meshes.
-**Tests:** `MonoDreams.Tests/LevelEditor/EditorFileBrowserTests.cs`
-(`Open_ListsScenes_FiltersNonSceneFiles_AndClassifiesFolders`, `Enter_DescendsIntoASubfolder`,
-`Enter_UnknownFolder_IsANoOp`, `Up_ClimbsButIsBoundedAtTheProjectRoot`,
-`FilePath_ResolvesTheSceneUnderTheCurrentDir`, `Breadcrumb_ShowsThePathFromTheRootLeaf`,
-`Unresolved_ShowsTheMessage_AndListsNothing` — the pure navigation model + scoping) and
-`MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
 (`EditorTextField_AppendBackspaceSetClear`, `EditorTextField_Sanitize`,
-`SaveDialog_OpenNameConfirm_WritesSanitizedIdUnderTheCurrentDir_AndCloses`,
-`SaveDialog_Cancel_WritesNothingAndCloses`, `SaveDialog_EmptyAfterSanitize_KeepsDialogOpenAndDoesNotSave`,
-`SaveDialog_ConfirmRespectsTheSaveGuard_AndWritesToLevelsPath`, `SaveDialog_KeyboardTypingBackspaceEnter`,
-`SaveDialog_EscapeCloses`, `LoadDialog_ListsFoldersAndScenes_AndPickingOneFiresLoadWithTheResolvedPath`,
-`Dialog_NavigatesIntoASubfolder_AndUpIsBoundedAtTheProjectRoot`,
-`SaveDialog_PickingAFile_FillsTheNameField_ToOverwrite`,
-`LoadDialog_UnresolvedRoot_ShowsMessageAndDoesNotCrash`,
-`OpenDialog_ConsumesTheCursor_SoAViewportClickDoesNotSelect`,
-`SaveDialog_ClickThroughRealCursorPipeline_ConfirmsOnRelease` — a scripted press→release through the
-REAL `CursorInputSystem → editor.dialog` woven order confirms the dialog, the EF1 regression that the
-injected-edge tests missed).
+`SaveDialog_Opens_WithThreeActions_BackupDisarmed_AndPrefilledBackupName`,
+`SaveDialog_SaveScene_InvokesTheSaveSceneCallback_AndCloses`,
+`SaveDialog_SaveProject_InvokesTheSaveProjectCallback_AndCloses`,
+`SaveDialog_Backup_ArmRevealsField_ThenConfirmPassesSanitizedName_AndCloses`,
+`SaveDialog_Backup_EmptyNameAfterSanitize_KeepsDialogOpen_AndDoesNotWrite`,
+`SaveDialog_BackupOneShot_ArmsSetsAndConfirms_InOneCall`, `SaveDialog_Cancel_InvokesNothing_AndCloses`,
+`SaveDialog_Escape_Closes`, `SaveDialog_Enter_PicksSaveScene_WhenBackupDisarmed`,
+`SaveDialog_Enter_ConfirmsBackup_WhenBackupArmed`, `SaveDialog_BackupField_KeyboardTypingBackspace`,
+`SaveDialog_TypingIsIgnored_WhenBackupDisarmed`, `OpenDialog_ConsumesTheCursor_SoAViewportClickDoesNotSelect`,
+`SaveDialog_ClickSaveSceneThroughRealCursorPipeline_InvokesOnRelease` — the EF1 press→release regression
+through the REAL `CursorInputSystem → editor.dialog` order — plus the `ConfirmSwitch_*` mode tests) and
+`MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs`
+(`SaveProject_WritesTheCurrentSceneThroughTheSamePath_MarksTheSavePoint_SingleSceneV1`,
+`SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene` — the backup
+semantics: dangling file written, scene id unchanged, save point not marked, no MGCB copy line, then
+Restart reloads the bound scene from disk).
 **Depends on:** this file — "Save is blocked while Playing or when no project root is resolved" (the
-confirm re-applies the guard); "The editor Save writes versioned `.mdscene` into the project source
-tree" (the write target + `Content/Levels` bundling home); "The project manifest anchors the editor's
-project root" (`ProjectRoot`/`LevelsPath`); "The systems panel renders the registrar tree …" (the sibling
-native-chrome widget it mirrors); cursor — "Button press/release edges derive from CursorInputSystem's
-own previous-state, immune to consumers clearing the level fields" (why the dialog's release-edge action
-survives its own pointer-edge consume); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput`
-(the keyboard-half seam); rendering — "Editor-target chrome carries no `VisibleComponent`" (the chrome rule).
+actions re-apply the guard; backup obeys it too); "The editor Save writes versioned `.mdscene` into the
+project source tree" (the write target + `Content/Levels` bundling home); "The transport's Restart
+rebuilds the scene from the original load request …" (the backup's reload); "Game screens declare their
+bound scene …" (the Scenes panel that replaced the Load affordance); cursor — "Button press/release edges
+derive from CursorInputSystem's own previous-state, immune to consumers clearing the level fields" (why the
+dialog's release-edge action survives its own pointer-edge consume); foundation —
+`AKeyboardInputHandlingSystem.ShouldSuppressInput` (the keyboard-half seam); rendering — "Editor-target
+chrome carries no `VisibleComponent`" (the chrome rule).
 
 ## The project manifest anchors the editor's project root; unresolved is fail-safe
 
@@ -1710,14 +1747,22 @@ gate); foundation — `IPlatformServices` (`WriteAllText` / `CreateDirectory` / 
 
 A saved `.mdscene` is loadable as the game's **real level** (PS4): `LoadLevelRequest(id)` resolves
 **native-first**. `NativeLevelLoader.CreateProbe` builds the `Func<string,bool>` handed to
-`LevelLoadRequestSystem`; per request it probes the bundled `Content/Levels/<id>.mdscene` via
-`TitleContainer` and, on a hit, publishes a `LoadSceneRequest(rel, fromContent:true)` (returning `true`)
-so the **same** `SceneReaderSystem` that serves the editor's Load also serves the game boot — the reader
-is thus generalized off the editor-only `LoadSceneRequest`. It runs in **both run modes** and **with no
-editor composed**: `LoadLevelExampleGameScreen` reuses the overlay's reader when the editor is present,
-else builds a standalone one (engine **and game** serializers — PS5), so a shipped game boots native
-scenes too. When no `.mdscene` exists for the id the boot dispatcher **fails loud** — the LDtk/Blender
-loaders are import-only (PS5) and not wired to boot, so there is no silent legacy attempt. The bundled
+`LevelLoadRequestSystem`; per request it resolves **source-first when an editor `EditorProjectContext`
+is resolved** (UX-D, pre-mortem #5): a resolved context + an existing source
+`<LevelsPath>/<id>.mdscene` publishes `LoadSceneRequest(sourcePath, fromContent:false)`; otherwise it
+probes the bundled `Content/Levels/<id>.mdscene` via `TitleContainer` and publishes
+`LoadSceneRequest(rel, fromContent:true)`. **A null context (a shipped / console / web build) skips the
+source branch entirely — byte-identical to the pre-UX-D bundled path.** On a hit (returning `true`) the
+**same** `SceneReaderSystem` that serves the editor's Save-then-reload also serves the game boot — the
+reader is thus generalized off the editor-only `LoadSceneRequest`. Source-first is what makes a
+Restart-after-Save honest: the source tree is authoritative the moment the editor Saves, while the
+bundled copy is stale until the next build; the probe shares its source-first resolution with the
+bound-screen optional load (`NativeLevelLoader.TryPublishSourceFirst`). It runs in **both run modes** and
+**with no editor composed**: `LoadLevelExampleGameScreen` reuses the overlay's reader when the editor is
+present, else builds a standalone one (engine **and game** serializers — PS5), so a shipped game boots
+native scenes too. When no `.mdscene` exists for the id the boot dispatcher **fails loud** — the
+LDtk/Blender loaders are import-only (PS5) and not wired to boot, so there is no silent legacy attempt.
+The bundled
 `game.mdproj` (read at boot via
 `ManifestBoot.TryReadManifest` over `TitleContainer`) drives the entry: `ManifestBoot.ResolveStartScene`
 returns the manifest's `startScene` **only** when a native scene exists for it, else `null` so the host
@@ -1735,7 +1780,11 @@ not-yet-committed level would send the game into a failing LDtk load instead of 
 **Tests:** `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`
 (`NativeFirst_LoadsScene_ViaTheNativeReader_WithNoEditorComposed`,
 `NoNativeScene_ProbeReturnsFalse_AndPublishesNothing`, `CommittedSampleScene_MatchesTheCanonicalShape`,
-`CommittedSampleScene_LoadsBackViaTheNativeReader`), `MonoDreams.Tests/LevelEditor/ManifestBootTests.cs`,
+`CommittedSampleScene_LoadsBackViaTheNativeReader`,
+`Probe_WithResolvedContext_ResolvesSourceFirst_PublishingTheSourcePath`,
+`Probe_WithNullContext_SkipsSourceFirst_AndUsesTheBundledPathUnchanged`,
+`StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled` — the UX-D source-first probe +
+the pre-mortem #5 regression), `MonoDreams.Tests/LevelEditor/ManifestBootTests.cs`,
 `MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the real headless game boots the committed
 sample).
 **Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails

@@ -48,18 +48,19 @@ path (the editor-op / replay channel authors edges directly and tracks its own p
 **Why:** reusing the level field as the previous state means a consumer that forces
 `LeftButton = false` every frame makes `LeftButtonReleased = !LeftButton && prevLeft` forever
 false (`prevLeft` reads the cleared level) — so a system acting on the release edge (the
-Save/Load dialog buttons) can never observe its own click. This was the confirmed cause of the
-"clicking Save/Load dialog buttons does nothing" bug. Owning the previous state makes the edge
+Save dialog buttons) can never observe its own click. This was the confirmed cause of the
+"clicking dialog buttons does nothing" bug. Owning the previous state makes the edge
 derivation robust to ANY pointer-edge consumer, present or future.
 **Breaks:** any modal / overlay that consumes pointer edges by also clearing the button level
 silently kills its own (and every subsequent) click while open; the release edge is
 structurally unobservable.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
-(`SaveDialog_ClickThroughRealCursorPipeline_ConfirmsOnRelease` — a scripted press→release
-through the real `CursorInputSystem → editor.dialog` order confirms the dialog, exercising the
+(`SaveDialog_ClickSaveSceneThroughRealCursorPipeline_InvokesOnRelease` and
+`ConfirmSwitch_ClickDiscardThroughRealCursorPipeline_DiscardsOnRelease` — scripted press→releases
+through the real `CursorInputSystem → editor.dialog` order act on the release edge, exercising the
 consume→edge interaction the injected-edge tests bypassed).
-**Depends on:** level-editor — "The editor's Save/Load dialogs are modal editor-native chrome
-that own input while open" (the consumer this protects).
+**Depends on:** level-editor — "The editor's Save dialog is a modal three-action chooser
+(Save Scene / Save Project / Save Backup As…) that owns input while open" (the consumer this protects).
 
 ## `CursorPositionSystem` must run after the camera updates
 
