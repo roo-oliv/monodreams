@@ -11,6 +11,17 @@ using MonoDreams.State;
 
 namespace MonoDreams.Screen;
 
+/// <summary>
+/// The editor-facing metadata a screen declares at registration (foundation seam, UX-C): a
+/// human-readable <paramref name="DisplayName"/>, the scene id the screen loads from
+/// (<paramref name="BoundSceneId"/>, null when the screen is not tied to one scene file), and whether
+/// the screen is the level-parameterized <b>host</b> that loads whatever scene is requested
+/// (<paramref name="HostsSceneFiles"/>). The editor's Scenes panel reads these — code is the source of
+/// truth for which configuration file a screen loads from — but this record is pure data with no
+/// dependency on the editor, so registering info never pulls the editor into a plain game.
+/// </summary>
+public sealed record ScreenInfo(string DisplayName, string? BoundSceneId = null, bool HostsSceneFiles = false);
+
 public class ScreenController(
     Game game,
     IParallelRunner runner,
@@ -42,14 +53,29 @@ public class ScreenController(
     public World CurrentWorld => _screen.current?.World;
 
     private readonly Dictionary<string, Func<IGameScreen>> _screenCreators = new();
+    // Registration-order list of (name, info) so the editor's Scenes panel enumerates screens in the
+    // order the host declared them (Dictionary enumeration order is not part of its contract).
+    private readonly List<(string Name, ScreenInfo Info)> _registered = new();
 
-    public void RegisterScreen(string screenName, Func<IGameScreen> creator)
+    /// <summary>Registers a screen with default <see cref="ScreenInfo"/> (display name = the screen
+    /// name, no bound scene, not a scene host). The additive overload is the pre-UX-C behaviour.</summary>
+    public void RegisterScreen(string screenName, Func<IGameScreen> creator) =>
+        RegisterScreen(screenName, creator, new ScreenInfo(screenName));
+
+    /// <summary>Registers a screen with explicit editor-facing <see cref="ScreenInfo"/> (display name,
+    /// bound scene id, host flag). Duplicate names throw, exactly as the default overload.</summary>
+    public void RegisterScreen(string screenName, Func<IGameScreen> creator, ScreenInfo info)
     {
         if (!_screenCreators.TryAdd(screenName, creator))
         {
             throw new ArgumentException($"Screen '{screenName}' is already registered.");
         }
+        _registered.Add((screenName, info));
     }
+
+    /// <summary>The registered screens with their <see cref="ScreenInfo"/>, in registration order —
+    /// the editor's Scenes panel reads this to list screen-bound scenes (UX-C). Read-only.</summary>
+    public IReadOnlyList<(string Name, ScreenInfo Info)> RegisteredScreens => _registered;
 
     public void Update(GameTime gameTime)
     {
