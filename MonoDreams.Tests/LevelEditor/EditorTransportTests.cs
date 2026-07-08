@@ -242,6 +242,32 @@ public class EditorTransportTests
         Assert.False(sceneEntity.IsAlive);
     }
 
+    // ---- The transport owns BOTH RunMode and the Scene/Game ViewMode (UX2-F, one owner) ----
+
+    [Fact]
+    public void Transport_OwnsViewMode_DefaultScene_ToggleEntersAndExits_ExitLandsPaused()
+    {
+        using var world = new World();
+        var (transport, _) = MakeTransport(world);
+
+        // Default is Scene mode (the boot view mode alongside the boot RunMode).
+        Assert.Equal(EditorViewMode.Scene, transport.ViewMode);
+
+        // The toggle enters Game mode (the snapshot seams are unwired here → a graceful no-snapshot
+        // toggle; the enter/exit content behaviour is covered by EditorGameModeTests with the seams).
+        var state = Paused();
+        transport.ToggleViewMode(state);
+        Assert.Equal(EditorViewMode.Game, transport.ViewMode);
+
+        // A toggle back to Scene lands Paused (Edit) even if the sandbox was Playing — the ONE owner
+        // flips RunMode as part of the exit.
+        transport.Play(state);
+        Assert.Equal(RunMode.Play, state.RunMode);
+        transport.ToggleViewMode(state);
+        Assert.Equal(EditorViewMode.Scene, transport.ViewMode);
+        Assert.Equal(RunMode.Edit, state.RunMode);
+    }
+
     // ---- The transport buttons: the Scene panel header, live in BOTH modes; tools stay Paused-only ----
 
     [Fact]
