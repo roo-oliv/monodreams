@@ -126,7 +126,7 @@ public sealed class GizmoSystem : ISystem<GameState>
     /// (<see cref="ProxySyncSystem.ProxyLayerDepth"/>), below the shell's opaque panels
     /// (<c>EditorTheme.Depths.Panel</c> = 0.1) — so the panels clip the overlays wherever
     /// the chrome margins are.</summary>
-    public const float OverlayLayerDepth = 0.04f;
+    public const float OverlayLayerDepth = EditorTheme.Depths.GizmoOverlay;
 
     private readonly World _world;
     private readonly Camera _camera;

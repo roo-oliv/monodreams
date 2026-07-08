@@ -558,9 +558,12 @@ warm-dark palette; the overlay colors (`OverlayAccent`, `GizmoAxisX/Y`, `Overlay
 migrated verbatim from their XNA named colors, so the migration is byte-identical to the pre-theme
 render. `EditorTheme.Depths` consolidates the one Editor-target depth stack in one place (overlays
 0.02–0.04 < panel 0.1 < row fill 0.3 < buttons 0.5 < checkbox mark 0.55 < thumbnail 0.56 < chip 0.58
-< labels 0.6 < dialog 0.70–0.86). No color or depth literal lives anywhere else in the module: a
-source-scan test forbids `new Color(` and any `Color.<name>` token (allowlisting only `Color.Lerp` /
-`Color.Transparent`) outside `EditorTheme.cs`, so adding a color means adding a role, consciously.
+< labels 0.6 < dialog 0.70–0.86) — the overlay systems' render-depth constants alias it
+(`ProxySyncSystem.ProxyLayerDepth = Depths.ProxyOverlay`), so no render-depth literal lives elsewhere
+(`SelectionSystem`'s pick-ranking constants are a separate concern — selection z-order, not the render
+stack). No color literal lives anywhere else in the module either: a source-scan test forbids
+`new Color(` and any `Color.<name>` token (allowlisting only `Color.Lerp` / `Color.Transparent`)
+outside `EditorTheme.cs`, so adding a color means adding a role, consciously.
 **Because the Editor mesh path composites premultiplied alpha, every "translucent" mesh fill is a
 precomputed OPAQUE blend** — `AccentSoft` is `Accent` blended into `Bg1`, never `Accent × α` (which
 would blow out near-white); the only alpha in the theme is on SPRITE tints (`GhostTint`), where alpha

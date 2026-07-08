@@ -75,7 +75,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
     /// chrome margins. (The SELECTION pick still ranks proxies by
     /// <c>SelectionSystem.ProxyBorderPickDepth</c> — a constant decoupled from this visual
     /// depth.)</summary>
-    public const float ProxyLayerDepth = 0.02f;
+    public const float ProxyLayerDepth = EditorTheme.Depths.ProxyOverlay;
 
     /// <summary>Outline thickness in VIRTUAL pixels (aspect-fit scaled to screen pixels by the
     /// emission — never zoom-compensated) — deliberately thicker than the debug outline's 0.5 so
