@@ -432,6 +432,7 @@ public class InfiniteRunnerScreen : IGameScreen
                 g.Add("clicks", _editor.ToolbarClicks);
             });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.inspector", _editor.Inspector, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
             // The overlay's cursor projection — AFTER camera-nav so the camera mutation this
             // frame is what the cursor's world position derives from (no one-frame lag).

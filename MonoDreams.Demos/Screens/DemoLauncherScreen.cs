@@ -239,6 +239,7 @@ public class DemoLauncherScreen : IGameScreen
                 g.Add("clicks", _editor.Overlay.ToolbarClicks);
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.inspector", _editor.Overlay.Inspector, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),

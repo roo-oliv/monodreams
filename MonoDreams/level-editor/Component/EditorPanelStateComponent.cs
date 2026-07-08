@@ -6,13 +6,13 @@ using DefaultEcs;
 namespace MonoDreams.LevelEditor.Component;
 
 /// <summary>
-/// The right-strip editor panel's collapse / expand UI state — pure data on a single editor-owned
-/// entity (ECS purity: the <b>state</b> lives in a component, the <b>behavior</b> in
-/// <c>EditorPanelSystem</c>). The panel is a vertical stack of collapsible <b>sections</b>
-/// (Systems, Scene, Inspector), each of whose body can collapse; within the Systems section a
-/// pipeline <b>group</b> row can collapse its children; within the Scene section an entity row can
-/// collapse its child subtree; and within the Inspector a component row can expand to show its
-/// member values.
+/// The editor panels' collapse / expand UI state — pure data on a single editor-owned entity (ECS
+/// purity: the <b>state</b> lives in a component, the <b>behavior</b> in <c>EditorPanelSystem</c>),
+/// shared by the left tabbed panel and the dedicated right Inspector panel (UX2-B). The left panel
+/// stacks collapsible <b>sections</b> (Systems, Entities), each of whose body can collapse; within
+/// the Systems section a pipeline <b>group</b> row can collapse its children; within the Entities
+/// section an entity row can collapse its child subtree. The right Inspector panel expands a
+/// component row to show its member values.
 ///
 /// <para>All state is <b>in-session</b> (no persistence — the transport Restart re-tags a fresh
 /// state entity, and stale <see cref="Entity"/> keys simply never match again). Defaults are
@@ -25,11 +25,8 @@ public sealed class EditorPanelStateComponent
     /// <summary>Whether the "Systems" section body (the pipeline listing) is collapsed to its header.</summary>
     public bool SystemsCollapsed;
 
-    /// <summary>Whether the "Scene" section body (the entity tree) is collapsed to its header.</summary>
-    public bool SceneCollapsed;
-
-    /// <summary>Whether the "Inspector" section body (the selection's components) is collapsed.</summary>
-    public bool InspectorCollapsed;
+    /// <summary>Whether the "Entities" section body (the entity tree) is collapsed to its header.</summary>
+    public bool EntitiesCollapsed;
 
     /// <summary>The full names of the pipeline <b>groups</b> whose children are hidden (absent =
     /// expanded). Keyed by <c>EditorPipelineEntry.Name</c> (e.g. <c>"editor.toolbar"</c>).</summary>

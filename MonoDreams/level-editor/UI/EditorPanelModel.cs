@@ -8,34 +8,31 @@ using MonoDreams.LevelEditor.Inspector;
 
 namespace MonoDreams.LevelEditor.UI;
 
-/// <summary>The collapsible sections the editor's right strip can stack — now distributed across the
-/// Scene / Systems / Project tabs (<c>EditorRightTab</c>). Scene tab = <see cref="Scene"/> +
-/// <see cref="Inspector"/>; Systems tab = <see cref="Systems"/>; the Project tab shows info rows
-/// (no collapsible section).</summary>
+/// <summary>The collapsible sections the editor's LEFT strip can stack — distributed across the
+/// Entities / Systems / Scenes tabs (<c>EditorPanelTab</c>). Entities tab = <see cref="Entities"/>
+/// (the tree ALONE — the Inspector left for its dedicated right panel); Systems tab =
+/// <see cref="Systems"/>; the Scenes tab shows info rows (no collapsible section). The Inspector is
+/// no longer a section — it is <c>EditorPanelModel.BuildInspector</c> in the dedicated right panel.</summary>
 public enum EditorPanelSection
 {
     /// <summary>The pipeline listing (every registrar entry of both pipelines) — the Wave-8 systems
-    /// panel, now a section with per-group collapse. Hosted by the Systems tab.</summary>
+    /// panel, a section with per-group collapse. Hosted by the Systems tab.</summary>
     Systems,
 
     /// <summary>The world's entities as a parent/child tree — selectable, two-way with the
-    /// viewport selection. Hosted by the Scene tab.</summary>
-    Scene,
-
-    /// <summary>The selected entity's attached components + (on demand) their member values. Hosted
-    /// by the Scene tab.</summary>
-    Inspector,
+    /// viewport selection AND the dedicated Inspector panel. Hosted by the Entities tab.</summary>
+    Entities,
 }
 
-/// <summary>The project-tab info the model renders (root path, levels dir, current scene id). Null
+/// <summary>The Scenes-tab info the model renders (root path, levels dir, current scene id). Null
 /// <see cref="ProjectRoot"/> = the project is unresolved (Save disabled).</summary>
 public readonly record struct EditorProjectInfo(string? ProjectRoot, string? LevelsDir, string? SceneId);
 
 /// <summary>What a single panel row represents (drives its visuals + click behavior).</summary>
 public enum PanelRowKind
 {
-    /// <summary>A section header (Systems / Scene / Inspector) — clicking collapses/expands the
-    /// whole section body.</summary>
+    /// <summary>A section header (Systems / Entities) — clicking collapses/expands the whole section
+    /// body.</summary>
     SectionHeader,
 
     /// <summary>The "UPDATE" / "DRAW" separator inside the Systems section (non-interactive).</summary>
@@ -55,7 +52,7 @@ public enum PanelRowKind
     /// <summary>An Inspector member <c>name: value</c> row (read-only).</summary>
     InspectorMember,
 
-    /// <summary>A Scenes-panel entry (Project tab) — clicking it switches to that scene/screen
+    /// <summary>A Scenes-panel entry (Scenes tab) — clicking it switches to that scene/screen
     /// through the dirty-gated select flow.</summary>
     SceneCatalogEntry,
 
@@ -135,36 +132,33 @@ public sealed class PanelRow
 public static class EditorPanelModel
 {
     public const string SystemsTitle = "SYSTEMS";
-    public const string SceneTitle = "SCENE";
+    public const string EntitiesTitle = "ENTITIES";
     public const string InspectorTitle = "INSPECTOR";
     private const string UpdateSub = "UPDATE";
     private const string DrawSub = "DRAW";
 
-    /// <summary>The Scenes-list header row shown in the Project tab.</summary>
+    /// <summary>The Scenes-list header row shown in the Scenes tab.</summary>
     public const string ScenesTitle = "Scenes";
 
     /// <summary>
-    /// Builds the flat row list for the ACTIVE right-strip tab (<paramref name="activeTab"/>):
-    /// <c>Scene</c> → the Scene tree + the Inspector sections; <c>Systems</c> → the pipeline listing;
-    /// <c>Project</c> → project info rows (<paramref name="project"/>). Only the active tab's rows
-    /// are produced — the tab bar itself is rendered separately (persistent tab entities), not as
-    /// pooled rows. <paramref name="update"/>/<paramref name="draw"/> may be null (pipelines not yet
-    /// bound → the Systems body shows nothing). <paramref name="sceneNodes"/> is the pre-order tree
-    /// from <see cref="EntitySceneTree.Build"/>; <paramref name="sceneLabel"/> names an entity;
-    /// <paramref name="selected"/> is the currently-selected entity (highlighted + the Inspector
-    /// binds to it). <paramref name="inspectorComponents"/> is null when nothing is selected (the
-    /// Inspector shows "(no selection)").
+    /// Builds the flat row list for the ACTIVE left-strip tab (<paramref name="activeTab"/>):
+    /// <c>Entities</c> → the entity tree (ALONE — the Inspector is a separate panel now);
+    /// <c>Systems</c> → the pipeline listing; <c>Scenes</c> → project info + the scene catalog
+    /// (<paramref name="project"/>/<paramref name="sceneCatalog"/>). Only the active tab's rows are
+    /// produced — the tab bar itself is rendered separately (persistent tab entities), not as pooled
+    /// rows. <paramref name="update"/>/<paramref name="draw"/> may be null (pipelines not yet bound →
+    /// the Systems body shows nothing). <paramref name="sceneNodes"/> is the pre-order tree from
+    /// <see cref="EntitySceneTree.Build"/>; <paramref name="sceneLabel"/> names an entity;
+    /// <paramref name="selected"/> is the currently-selected entity (highlighted in the tree).
     /// </summary>
     public static List<PanelRow> Build(
         EditorPanelStateComponent state,
-        EditorRightTab activeTab,
+        EditorPanelTab activeTab,
         EditorPipelineRegistrar? update,
         EditorPipelineRegistrar? draw,
         IReadOnlyList<EntitySceneTree.Node> sceneNodes,
         Func<Entity, string> sceneLabel,
         Entity selected,
-        IReadOnlyList<ComponentInspector.ComponentInfo>? inspectorComponents,
-        string? inspectorTitle,
         EditorProjectInfo project = default,
         IReadOnlyList<MonoDreams.LevelEditor.Composition.SceneCatalogEntry>? sceneCatalog = null,
         bool isDirty = false)
@@ -173,7 +167,7 @@ public static class EditorPanelModel
 
         switch (activeTab)
         {
-            case EditorRightTab.Systems:
+            case EditorPanelTab.Systems:
                 rows.Add(SectionHeader(EditorPanelSection.Systems, SystemsTitle, !state.SystemsCollapsed));
                 if (!state.SystemsCollapsed)
                 {
@@ -182,32 +176,46 @@ public static class EditorPanelModel
                 }
                 break;
 
-            case EditorRightTab.Project:
+            case EditorPanelTab.Scenes:
                 AppendProject(rows, project, sceneCatalog, isDirty);
                 break;
 
-            case EditorRightTab.Scene:
+            case EditorPanelTab.Entities:
             default:
-                rows.Add(SectionHeader(EditorPanelSection.Scene, SceneTitle, !state.SceneCollapsed));
-                if (!state.SceneCollapsed)
+                rows.Add(SectionHeader(EditorPanelSection.Entities, EntitiesTitle, !state.EntitiesCollapsed));
+                if (!state.EntitiesCollapsed)
                     AppendScene(rows, state, sceneNodes, sceneLabel, selected);
-
-                rows.Add(SectionHeader(EditorPanelSection.Inspector, InspectorTitle, !state.InspectorCollapsed));
-                if (!state.InspectorCollapsed)
-                    AppendInspector(rows, state, inspectorComponents, inspectorTitle);
                 break;
         }
 
         return rows;
     }
 
-    /// <summary>The tab (<see cref="EditorRightTab"/>) that HOSTS a given collapsible section — a
-    /// section op issued from the headless channel activates this tab first (UX-B §2.2: existing
-    /// <c>panel:*</c> ops keep working against whichever tab hosts their section).</summary>
-    public static EditorRightTab HostTab(EditorPanelSection section) => section switch
+    /// <summary>
+    /// Builds the flat row list for the dedicated <b>Inspector panel</b> (the right region — UX2-B):
+    /// the selected entity's attached component rows, each expandable (on demand) to its member
+    /// values, exactly the content the old Inspector section carried — but standalone (the region's
+    /// slim header is its title, so there is no in-body section header). Null
+    /// <paramref name="inspectorComponents"/> → "(no selection)". Pure; unit-testable with hand-fed
+    /// inputs, no world.
+    /// </summary>
+    public static List<PanelRow> BuildInspector(
+        EditorPanelStateComponent state,
+        IReadOnlyList<ComponentInspector.ComponentInfo>? inspectorComponents,
+        string? inspectorTitle)
     {
-        EditorPanelSection.Systems => EditorRightTab.Systems,
-        _ => EditorRightTab.Scene, // Scene + Inspector both live in the Scene tab
+        var rows = new List<PanelRow>();
+        AppendInspector(rows, state, inspectorComponents, inspectorTitle);
+        return rows;
+    }
+
+    /// <summary>The tab (<see cref="EditorPanelTab"/>) that HOSTS a given collapsible section — a
+    /// section op issued from the headless channel activates this tab first (existing <c>panel:*</c>
+    /// ops keep working against whichever tab hosts their section).</summary>
+    public static EditorPanelTab HostTab(EditorPanelSection section) => section switch
+    {
+        EditorPanelSection.Systems => EditorPanelTab.Systems,
+        _ => EditorPanelTab.Entities, // the tree lives in the Entities tab
     };
 
     /// <summary>Middle-truncates a path to <paramref name="maxChars"/> with a central ellipsis

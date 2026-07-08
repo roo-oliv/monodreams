@@ -249,17 +249,33 @@ public sealed class EditorOverlay
             // A shell splitter/scrollbar drag that happens to release over the toolbar must not also
             // fire the button (the drag holds the shared token through its release edge).
             isInputSuppressed: () => _shellState.IsDragging);
-        // The right-strip editor panel (Scene / Systems / Project tabs). The Systems tab binds lazily
-        // to the pipelines the screen hands over via BindPipelines — they don't exist yet while the
-        // overlay itself is being constructed; the Scene + Project tabs read live state directly.
-        _editorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
+        // The two editor panels (UX2-B) share ONE collapse/expand state component (ECS purity: the
+        // state lives once, both panels read/write their own fields). On an editor-infra entity so it
+        // is discoverable + survives a transport Restart.
+        var panelStateEntity = world.CreateEntity();
+        panelStateEntity.Set(new EditorInfrastructureComponent());
+        var panelState = new EditorPanelStateComponent();
+        panelStateEntity.Set(panelState);
+
+        // The LEFT-strip tabbed panel (Entities / Systems / Scenes). The Systems tab binds lazily to
+        // the pipelines the screen hands over via BindPipelines — they don't exist yet while the
+        // overlay itself is being constructed; the Entities + Scenes tabs read live state directly.
+        _leftPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
             () => (UpdatePipeline, DrawPipeline), _shellState,
             () => new EditorProjectInfo(_projectContext?.ProjectRoot, _projectContext?.LevelsPath, _sceneId),
-            // UX-C: the Project tab's Scenes list + the dirty-gated switch, both bound late (BindSceneCatalog).
+            // UX-C: the Scenes tab's list + the dirty-gated switch, both bound late (BindSceneCatalog).
             sceneCatalog: BuildCatalog,
             selectScene: SelectScene,
-            isDirty: () => History.IsDirty);
-        SystemsPanel = _editorPanel;
+            isDirty: () => History.IsDirty,
+            role: EditorPanelRole.LeftTabs,
+            panelState: panelState);
+        SystemsPanel = _leftPanel;
+
+        // The RIGHT-strip dedicated Inspector panel (selection-bound components + members) — the same
+        // parameterized panel system, RightInspector role, sharing the one panel state.
+        _inspectorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
+            shellState: _shellState, role: EditorPanelRole.RightInspector, panelState: panelState);
+        Inspector = _inspectorPanel;
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible, _shellState);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
         ChromeLayer = RenderLayer.Native(() => ChromeRender.CurrentTarget!);
@@ -395,19 +411,26 @@ public sealed class EditorOverlay
     /// <see cref="ToolbarMeshPrep"/> (see there).</summary>
     public ISystem<GameState> ToolbarClicks { get; }
 
-    // The concrete right-strip panel: the headless panel:* ops drive its section/group/tree/inspector
-    // toggles directly (like _editorCommands for the selection-edit ops).
-    private readonly EditorPanelSystem _editorPanel;
+    // The concrete panels: the headless panel:* ops drive their section/group/tree/inspector toggles
+    // directly (like _editorCommands for the selection-edit ops).
+    private readonly EditorPanelSystem _leftPanel;
+    private readonly EditorPanelSystem _inspectorPanel;
 
-    /// <summary>The right-strip editor panel in the shell's right strip: three collapsible sections —
-    /// <b>Systems</b> (every bound registrar entry of both pipelines, groups indented + collapsible,
-    /// tri-state group checkboxes, live enabled toggle), <b>Scene</b> (the world's entities as a
-    /// selectable parent/child tree), and <b>Inspector</b> (the selected entity's components +
-    /// on-demand member values). Weave after the <c>editor.toolbar</c> group (whose mesh prep bakes
-    /// its checkbox meshes). The Systems section requires <see cref="BindPipelines"/>; the Scene +
-    /// Inspector sections work immediately. Kept the <c>editor.systemsPanel</c> entry name so every
-    /// screen weaves it unchanged.</summary>
+    /// <summary>The LEFT-strip tabbed panel (UX2-B): <b>Entities</b> (the world's entities as a
+    /// selectable parent/child tree), <b>Systems</b> (every bound registrar entry of both pipelines,
+    /// groups indented + collapsible, tri-state group checkboxes, live enabled toggle), and
+    /// <b>Scenes</b> (the scene catalog + project info). Weave after the <c>editor.toolbar</c> group
+    /// (whose mesh prep bakes its checkbox meshes). The Systems tab requires <see cref="BindPipelines"/>;
+    /// the Entities + Scenes tabs work immediately. Kept the <c>editor.systemsPanel</c> entry name +
+    /// the <c>SystemsPanel</c> hook so every screen weaves it unchanged.</summary>
     public ISystem<GameState> SystemsPanel { get; }
+
+    /// <summary>The RIGHT-strip dedicated Inspector panel (UX2-B): a slim title header over the
+    /// selected entity's attached components, each expandable to its member values (the same pooled-row
+    /// machinery as the left panel). Weave right after <see cref="SystemsPanel"/> as its own
+    /// <c>editor.inspector</c> entry, <c>RunNormally</c>. A tree click in the left panel sets
+    /// <c>SelectedComponent</c>, which this panel reads — two-way selection across the two panels.</summary>
+    public ISystem<GameState> Inspector { get; }
 
     /// <summary>The modal Save dialog + the confirm-on-switch modal (native-resolution chrome). Weave
     /// EARLY in the update pipeline — after the cursor input read, before the editing tools + toolbar
@@ -988,11 +1011,13 @@ public sealed class EditorOverlay
     /// <c>order:forward</c>/<c>order:back</c> nudge the selection's within-band order,
     /// <c>collider:addBox</c>/<c>addConvex</c>/<c>remove</c>/<c>addVertex</c>/<c>deleteVertex</c>
     /// drive the collider authoring actions, <c>ghost:cw</c>/<c>ghost:ccw</c> rotate the armed
-    /// palette ghost, <c>panel:systems|scene|inspector</c> collapse a right-strip section,
+    /// palette ghost, <c>panel:systems|entities</c> collapse a left-strip section (UX2-B: the
+    /// <c>Inspector</c> section dissolved into the dedicated right panel — no toggle op),
     /// <c>panel:group &lt;name&gt;</c> collapses a pipeline group, <c>panel:inspect &lt;type&gt;</c>
-    /// expands a component's member values, <c>panel:select &lt;name&gt;</c> selects a scene entity,
-    /// <c>panel:tab &lt;scene|systems|project|assets&gt;</c> switches a region's active tab,
-    /// <c>shell:right &lt;pt&gt;</c> / <c>shell:bottom &lt;pt&gt;</c> resize a region (clamped),
+    /// expands a component's member values in the Inspector panel, <c>panel:select &lt;name&gt;</c>
+    /// selects a scene entity, <c>panel:tab &lt;entities|systems|scenes|assets&gt;</c> switches a
+    /// region's active tab, <c>shell:right &lt;pt&gt;</c> / <c>shell:bottom &lt;pt&gt;</c> /
+    /// <c>shell:left &lt;pt&gt;</c> resize a region (clamped),
     /// <c>scenes:select &lt;key&gt;</c> switches to a Scenes-panel entry (dirty-gated),
     /// and anything else parses as a plain
     /// <see cref="EditorToolbarAction"/> into <see cref="DispatchToolbarAction"/> — so every
@@ -1036,9 +1061,11 @@ public sealed class EditorOverlay
 
         if (name.StartsWith(panelPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            // panel:systems|scene|inspector (toggle a section), panel:group <fullName> (toggle a
-            // pipeline group's children), panel:inspect <typeName> (toggle a component's members),
-            // panel:select <entityName> (select a scene entity by its EntityInfo name/type).
+            // panel:systems|entities (toggle a section), panel:group <fullName> (toggle a pipeline
+            // group's children), panel:inspect <typeName> (toggle a component's members in the
+            // Inspector panel), panel:select <entityName> (select a scene entity by its EntityInfo
+            // name/type). UX2-B: the Inspector section dissolved into the dedicated right panel, so
+            // panel:inspector was removed (the Inspector is always shown — nothing to toggle).
             var rest = name.Substring(panelPrefix.Length);
             var space = rest.IndexOf(' ');
             var verb = space < 0 ? rest : rest.Substring(0, space);
@@ -1046,19 +1073,18 @@ public sealed class EditorOverlay
             switch (verb.ToLowerInvariant())
             {
                 case "tab": SetPanelTab(arg, name); break;
-                case "systems": _editorPanel.ToggleSection(EditorPanelSection.Systems); break;
-                case "scene": _editorPanel.ToggleSection(EditorPanelSection.Scene); break;
-                case "inspector": _editorPanel.ToggleSection(EditorPanelSection.Inspector); break;
-                case "group": _editorPanel.ToggleGroupCollapsed(arg); break;
-                case "inspect": _editorPanel.ToggleInspectorComponentKey(arg); break;
+                case "systems": _leftPanel.ToggleSection(EditorPanelSection.Systems); break;
+                case "entities": _leftPanel.ToggleSection(EditorPanelSection.Entities); break;
+                case "group": _leftPanel.ToggleGroupCollapsed(arg); break;
+                case "inspect": _inspectorPanel.ToggleInspectorComponentKey(arg); break;
                 case "select":
-                    if (!_editorPanel.SelectEntityByName(arg))
+                    if (!_leftPanel.SelectEntityByName(arg))
                         Logger.Warning($"[level-editor] Editor-op '{name}': no scene entity named '{arg}'.");
                     break;
                 default:
                     Logger.Warning(
                         $"[level-editor] Editor-op '{name}': expected " +
-                        "panel:tab <scene|systems|project|assets>|systems|scene|inspector|group <name>|inspect <type>|select <name>.");
+                        "panel:tab <entities|systems|scenes|assets>|systems|entities|group <name>|inspect <type>|select <name>.");
                     break;
             }
             return;
@@ -1066,22 +1092,24 @@ public sealed class EditorOverlay
 
         if (name.StartsWith(shellPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            // shell:right <pt> | shell:bottom <pt> — resize a region (clamped by the shell state).
+            // shell:left <pt> | shell:right <pt> | shell:bottom <pt> — resize a region (clamped by the
+            // shell state).
             var rest = name.Substring(shellPrefix.Length);
             var space = rest.IndexOf(' ');
             var verb = space < 0 ? rest : rest.Substring(0, space);
             var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
             if (!int.TryParse(arg, out var pt))
             {
-                Logger.Warning($"[level-editor] Editor-op '{name}': expected shell:right <pt> or shell:bottom <pt>.");
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected shell:left|right|bottom <pt>.");
                 return;
             }
             switch (verb.ToLowerInvariant())
             {
+                case "left": _shellState.LeftWidthPt = pt; break;
                 case "right": _shellState.RightWidthPt = pt; break;
                 case "bottom": _shellState.BottomHeightPt = pt; break;
                 default:
-                    Logger.Warning($"[level-editor] Editor-op '{name}': expected shell:right <pt> or shell:bottom <pt>.");
+                    Logger.Warning($"[level-editor] Editor-op '{name}': expected shell:left|right|bottom <pt>.");
                     break;
             }
             return;
@@ -1233,19 +1261,19 @@ public sealed class EditorOverlay
             Logger.Warning($"[level-editor] Editor-op: unknown action '{name}'.");
     }
 
-    /// <summary>The <c>panel:tab &lt;scene|systems|project|assets&gt;</c> op — switches the right
+    /// <summary>The <c>panel:tab &lt;entities|systems|scenes|assets&gt;</c> op — switches the left
     /// strip's active tab, or (assets) the bottom shelf's.</summary>
     private void SetPanelTab(string arg, string name)
     {
         switch (arg.Trim().ToLowerInvariant())
         {
-            case "scene": _editorPanel.SetRightTab(EditorRightTab.Scene); break;
-            case "systems": _editorPanel.SetRightTab(EditorRightTab.Systems); break;
-            case "project": _editorPanel.SetRightTab(EditorRightTab.Project); break;
+            case "entities": _leftPanel.SetActiveTab(EditorPanelTab.Entities); break;
+            case "systems": _leftPanel.SetActiveTab(EditorPanelTab.Systems); break;
+            case "scenes": _leftPanel.SetActiveTab(EditorPanelTab.Scenes); break;
             case "assets": _shellState.ActiveBottomTab = EditorBottomTab.Assets; break;
             default:
                 Logger.Warning(
-                    $"[level-editor] Editor-op '{name}': expected panel:tab <scene|systems|project|assets>.");
+                    $"[level-editor] Editor-op '{name}': expected panel:tab <entities|systems|scenes|assets>.");
                 break;
         }
     }

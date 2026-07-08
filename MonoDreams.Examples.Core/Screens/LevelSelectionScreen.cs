@@ -404,6 +404,7 @@ public class LevelSelectionScreen : IGameScreen
                 g.Add("clicks", _editor.ToolbarClicks);
             });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.inspector", _editor.Inspector, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);

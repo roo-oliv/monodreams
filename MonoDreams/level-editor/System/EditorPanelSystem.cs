@@ -21,27 +21,46 @@ using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.LevelEditor.System;
 
+/// <summary>Which region + content shape an <see cref="EditorPanelSystem"/> instance renders (UX2-B):
+/// the framework parameterizes the ONE panel system over the two regions rather than forking a
+/// second class.</summary>
+public enum EditorPanelRole
+{
+    /// <summary>The LEFT strip: a tab bar (Entities / Systems / Scenes) over the active tab's body,
+    /// its splitter/scrollbar on the strip's right edge.</summary>
+    LeftTabs,
+
+    /// <summary>The RIGHT strip: the dedicated Inspector (a slim title header, no tabs; the
+    /// selection-bound component list + expandable members), its splitter on the strip's left edge.</summary>
+    RightInspector,
+}
+
 /// <summary>
-/// The editor's <b>right-strip panel</b> (extends the Wave-8 systems panel): a single vertically
-/// scrolling stack of three collapsible <b>sections</b> — <b>Systems</b> (every
-/// <see cref="EditorPipelineRegistrar"/> entry of both pipelines, in order, with per-<b>group</b>
-/// collapse and the live tri-state enabled toggle), <b>Scene</b> (the world's entities as a
-/// parent/child tree, selectable both ways with the viewport), and <b>Inspector</b> (the selected
-/// entity's attached components, each expandable to its member values). It keeps the entry name
-/// <c>editor.systemsPanel</c> and the overlay's <c>SystemsPanel</c> hook so every screen weaves it
-/// unchanged.
+/// The editor's tabbed left panel AND dedicated right Inspector panel — ONE system parameterized by
+/// an <see cref="EditorPanelRole"/> (UX2-B), extending the Wave-8 systems panel. As
+/// <see cref="EditorPanelRole.LeftTabs"/> it is a tab bar (<b>Entities</b> — the world's entities as
+/// a parent/child tree, selectable both ways with the viewport; <b>Systems</b> — every
+/// <see cref="EditorPipelineRegistrar"/> entry of both pipelines with per-<b>group</b> collapse + the
+/// live tri-state enabled toggle; <b>Scenes</b> — the scene catalog + project info) over a body of
+/// collapsible sections. As <see cref="EditorPanelRole.RightInspector"/> it has a slim title header
+/// and its body is the selected entity's attached components, each expandable to its member values.
+/// The left panel keeps the entry name <c>editor.systemsPanel</c> and the overlay's
+/// <c>SystemsPanel</c> hook so every screen weaves it unchanged; the Inspector is the new
+/// <c>editor.inspector</c> entry.
 ///
 /// <para><b>Sections + groups collapse.</b> Each section header toggles its whole body; a Systems
-/// group row's arrow toggles its children; a Scene entity row's arrow toggles its subtree; an
+/// group row's arrow toggles its children; an Entities entity row's arrow toggles its subtree; an
 /// Inspector component row toggles its member rows. In-session state lives in the pure-data
-/// <see cref="EditorPanelStateComponent"/> on an editor-infra entity (ECS purity), and the flat row
-/// list is assembled purely by <see cref="EditorPanelModel.Build"/> — the panel's rendering is a
-/// thin pooled projection of that model.</para>
+/// <see cref="EditorPanelStateComponent"/> (shared by both panels via injection — ECS purity), and
+/// the flat row list is assembled purely by <see cref="EditorPanelModel.Build"/> /
+/// <see cref="EditorPanelModel.BuildInspector"/> — the panel's rendering is a thin pooled projection
+/// of that model.</para>
 ///
-/// <para><b>Two-way selection.</b> A Scene row click sets <c>SelectedComponent</c> on that entity
-/// (the same tag <c>SelectionSystem</c> sets from a viewport click); the currently-selected entity
-/// is highlighted in the tree and drives the Inspector. Chrome clicks are <c>OutsideViewport</c>,
-/// so <c>SelectionSystem</c> never clobbers a tree selection.</para>
+/// <para><b>Two-way selection across panels.</b> An Entities-tree row click (LEFT panel) sets
+/// <c>SelectedComponent</c> on that entity (the same tag <c>SelectionSystem</c> sets from a viewport
+/// click); the RIGHT Inspector panel reads that same tag and binds to it — a tree click in the left
+/// panel updates the right inspector next frame. Chrome clicks are <c>OutsideViewport</c>, so
+/// <c>SelectionSystem</c> never clobbers a tree selection.</para>
 ///
 /// <para><b>Chrome, native pixels.</b> Rows are ordinary chrome entities on
 /// <c>RenderTargetID.Editor</c> laid out by the pure <see cref="SystemsPanelLayout"/> and hit-tested
@@ -60,6 +79,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private readonly World _world;
     private readonly ViewportManager _viewportManager;
     private readonly BitmapFont? _font;
+    private readonly EditorPanelRole _role;
+    private readonly ShellDragKind _scrollDrag; // this panel's scrollbar-thumb drag token (Left/Right)
     private readonly Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> _pipelines;
     private readonly Func<EditorProjectInfo> _projectInfo;
     private readonly Func<IReadOnlyList<SceneCatalogEntry>> _sceneCatalog;
@@ -69,9 +90,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _sceneSet;
     private readonly EntitySet _selectedSet;
-    private readonly Entity _stateEntity;
+    private readonly Entity _stateEntity; // default = not created (the state was injected)
     private readonly EditorPanelStateComponent _state;
     private readonly EditorShellStateComponent _shellState;
+    private Entity _titleLabel; // RightInspector: the slim header title ("Inspector"); default for LeftTabs
 
     // Stable display ids for entities with no EntityInfo name (a panel-local render detail).
     private readonly Dictionary<Entity, int> _displayIds = new();
@@ -99,12 +121,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     /// <summary>The last-built flat row list (post-collapse). Exposed for tests.</summary>
     public IReadOnlyList<PanelRow> Rows => _rows;
 
-    /// <summary>One right-strip tab (Scene / Systems / Project) as a persistent chrome widget: a
+    /// <summary>One left-strip tab (Entities / Systems / Scenes) as a persistent chrome widget: a
     /// screen-baked fill mesh + a label + an Accent underline (shown only while active), with its
     /// OWN hover-fade progress (never a pooled row — pre-mortem #6).</summary>
     private sealed class TabButton
     {
-        public EditorRightTab Tab;
+        public EditorPanelTab Tab;
         public string Label = string.Empty;
         public Entity Fill;
         public Entity LabelEntity;
@@ -133,17 +155,21 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         World world,
         ViewportManager viewportManager,
         BitmapFont? font,
-        Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)> pipelines,
+        Func<(EditorPipelineRegistrar? Update, EditorPipelineRegistrar? Draw)>? pipelines = null,
         EditorShellStateComponent? shellState = null,
         Func<EditorProjectInfo>? projectInfo = null,
         Func<IReadOnlyList<SceneCatalogEntry>>? sceneCatalog = null,
         Action<SceneCatalogEntry, GameState>? selectScene = null,
-        Func<bool>? isDirty = null)
+        Func<bool>? isDirty = null,
+        EditorPanelRole role = EditorPanelRole.LeftTabs,
+        EditorPanelStateComponent? panelState = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
         _font = font; // null = layout-only (tests run no text prep, mirroring EditorChromeBuilder's seam)
-        _pipelines = pipelines ?? throw new ArgumentNullException(nameof(pipelines));
+        _role = role;
+        _scrollDrag = role == EditorPanelRole.LeftTabs ? ShellDragKind.LeftScrollbar : ShellDragKind.RightScrollbar;
+        _pipelines = pipelines ?? (() => (null, null));
         _projectInfo = projectInfo ?? (() => default);
         _sceneCatalog = sceneCatalog ?? (() => Array.Empty<SceneCatalogEntry>());
         _selectScene = selectScene;
@@ -157,26 +183,46 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             .With<TransformComponent>().Without<EditorInfrastructureComponent>().AsSet();
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
 
-        _stateEntity = world.CreateEntity();
-        _stateEntity.Set(new EditorInfrastructureComponent()); // survives a transport Restart
-        _state = new EditorPanelStateComponent();
-        _stateEntity.Set(_state);
+        // The collapse/expand state is shared by both panels: the overlay creates it once and injects
+        // it into both. A lone panel (tests) creates + owns its own state entity.
+        if (panelState != null)
+        {
+            _state = panelState;
+        }
+        else
+        {
+            _stateEntity = world.CreateEntity();
+            _stateEntity.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+            _state = new EditorPanelStateComponent();
+            _stateEntity.Set(_state);
+        }
 
-        // The right-strip tab bar (persistent widgets) + the scrollbar (screen-baked meshes).
-        foreach (var (tab, label) in new[]
-                 {
-                     (EditorRightTab.Scene, "Scene"),
-                     (EditorRightTab.Systems, "Systems"),
-                     (EditorRightTab.Project, "Project"),
-                 })
-            _tabs.Add(new TabButton
-            {
-                Tab = tab,
-                Label = label,
-                Fill = CreateMesh(EditorTheme.Depths.Button),
-                LabelEntity = CreateText(),
-                Underline = CreateMesh(EditorTheme.Depths.TabUnderline),
-            });
+        if (_role == EditorPanelRole.LeftTabs)
+        {
+            // The left-strip tab bar (persistent widgets).
+            foreach (var (tab, label) in new[]
+                     {
+                         (EditorPanelTab.Entities, "Entities"),
+                         (EditorPanelTab.Systems, "Systems"),
+                         (EditorPanelTab.Scenes, "Scenes"),
+                     })
+                _tabs.Add(new TabButton
+                {
+                    Tab = tab,
+                    Label = label,
+                    Fill = CreateMesh(EditorTheme.Depths.Button),
+                    LabelEntity = CreateText(),
+                    Underline = CreateMesh(EditorTheme.Depths.TabUnderline),
+                });
+        }
+        else
+        {
+            // The Inspector's slim header title (no tabs) — the panel-header framework for the right
+            // region: a fixed label in the region's header band.
+            _titleLabel = CreateText();
+        }
+
+        // The scrollbar (screen-baked meshes) — both roles.
         _scrollTrack = CreateMesh(EditorTheme.Depths.Scrollbar);
         _scrollThumb = CreateMesh(EditorTheme.Depths.Scrollbar);
     }
@@ -187,26 +233,35 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         // Live in BOTH transport states — inspecting the pipeline/scene while Playing is the point.
 
         var scale = _viewportManager.DevicePixelRatio;
-        var panel = EditorChromeLayout.RightPanel(
-            _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
-            _shellState.RightWidthPt, _shellState.BottomHeightPt);
-        var tabStrip = EditorChromeLayout.TabStrip(panel, scale);
-        var body = EditorChromeLayout.RegionBody(panel, scale); // rows live below the tab strip
+        var panel = RegionRect(scale);
+        var header = EditorChromeLayout.TabStrip(panel, scale); // the region header band (tabs or title)
+        var body = EditorChromeLayout.RegionBody(panel, scale); // rows live below the header
 
-        SyncInspectorSelection();
+        // The Inspector panel tracks selection changes (clearing stale expand state); the left tabbed
+        // panel does not own the Inspector's expand set.
+        if (_role == EditorPanelRole.RightInspector) SyncInspectorSelection();
 
         // Build the flat rows for hit-testing, handle clicks/scroll (which may mutate collapse state,
         // the selection, the active tab or the scroll), then rebuild so the visuals reflect the
         // post-click state this same frame.
         BuildRows();
-        HandleInteraction(panel, tabStrip, body, scale, state);
+        HandleInteraction(panel, header, body, scale, state);
         BuildRows();
 
         _scroll = SystemsPanelLayout.ClampScroll(_scroll, _rows.Count, body, scale);
-        PositionTabs(tabStrip, scale, state.Time);
+        if (_role == EditorPanelRole.LeftTabs) PositionTabs(header, scale, state.Time);
+        else PositionTitle(header, scale);
         PositionVisuals(body, scale);
         PositionScrollbar(body, scale);
     }
+
+    /// <summary>This panel's region rectangle by role — the left strip or the right strip — at the
+    /// shell's runtime region sizes (never a cached rect; re-read every frame).</summary>
+    private Rectangle RegionRect(float scale) => _role == EditorPanelRole.LeftTabs
+        ? EditorChromeLayout.LeftPanel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
+            _shellState.LeftWidthPt, _shellState.BottomHeightPt)
+        : EditorChromeLayout.RightPanel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
+            _shellState.RightWidthPt, _shellState.BottomHeightPt);
 
     // ---- Model assembly ----------------------------------------------------
 
@@ -222,27 +277,36 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     private void BuildRows()
     {
-        var (update, draw) = _pipelines();
-        var selected = FirstSelected();
-
         _rows.Clear();
-        var nodes = EntitySceneTree.Build(MaterializeScene());
-        IReadOnlyList<ComponentInspector.ComponentInfo>? inspector = null;
-        string? inspectorTitle = null;
-        if (selected.IsAlive)
+
+        // The dedicated Inspector panel: the selection's components + members only.
+        if (_role == EditorPanelRole.RightInspector)
         {
-            inspector = ComponentInspector.Inspect(selected);
-            inspectorTitle = SceneLabel(selected);
+            var sel = FirstSelected();
+            IReadOnlyList<ComponentInspector.ComponentInfo>? inspector = null;
+            string? inspectorTitle = null;
+            if (sel.IsAlive)
+            {
+                inspector = ComponentInspector.Inspect(sel);
+                inspectorTitle = SceneLabel(sel);
+            }
+            _rows.AddRange(EditorPanelModel.BuildInspector(_state, inspector, inspectorTitle));
+            return;
         }
 
-        // Only build the scene catalog when the Project tab is showing — the provider scans the
-        // levels dir (filesystem IO), so it must not run every frame on the Scene/Systems tabs.
-        var catalog = _shellState.ActiveRightTab == EditorRightTab.Project
+        // The left tabbed panel: the active tab's body.
+        var (update, draw) = _pipelines();
+        var selected = FirstSelected();
+        var nodes = EntitySceneTree.Build(MaterializeScene());
+
+        // Only build the scene catalog when the Scenes tab is showing — the provider scans the
+        // levels dir (filesystem IO), so it must not run every frame on the Entities/Systems tabs.
+        var catalog = _shellState.ActiveLeftTab == EditorPanelTab.Scenes
             ? _sceneCatalog()
             : (IReadOnlyList<SceneCatalogEntry>)Array.Empty<SceneCatalogEntry>();
         _rows.AddRange(EditorPanelModel.Build(
-            _state, _shellState.ActiveRightTab, update, draw, nodes, SceneLabel, selected,
-            inspector, inspectorTitle, ProjectInfo(), catalog, _isDirty()));
+            _state, _shellState.ActiveLeftTab, update, draw, nodes, SceneLabel, selected,
+            ProjectInfo(), catalog, _isDirty()));
     }
 
     /// <summary>The Project-tab info, with the root middle-truncated to the panel's char budget so a
@@ -251,8 +315,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     {
         var info = _projectInfo();
         // A crude char budget from the strip width (the exact pixel width varies with the font; a
-        // middle ellipsis degrades gracefully if the estimate is off).
-        var budget = Math.Max(8, _shellState.RightWidthPt / 7);
+        // middle ellipsis degrades gracefully if the estimate is off). The Scenes tab lives in the
+        // LEFT strip now.
+        var budget = Math.Max(8, _shellState.LeftWidthPt / 7);
         return info with { ProjectRoot = EditorPanelModel.MiddleEllipsis(info.ProjectRoot, budget) is { Length: > 0 } t
             ? t
             : info.ProjectRoot };
@@ -293,7 +358,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Interaction -------------------------------------------------------
 
-    private void HandleInteraction(Rectangle panel, Rectangle tabStrip, Rectangle body, float scale, GameState state)
+    private void HandleInteraction(Rectangle panel, Rectangle header, Rectangle body, float scale, GameState state)
     {
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -316,12 +381,16 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
             if (!input.LeftButtonReleased) return;
 
-            // Tab bar: a click switches the active tab.
-            if (tabStrip.Contains(point))
+            // Header band: LeftTabs → a click switches the active tab; RightInspector → the header is
+            // the title band, consumed (no-op) so it never leaks to a row.
+            if (header.Contains(point))
             {
-                var rects = ComputeTabRects(tabStrip, scale);
-                for (var i = 0; i < _tabs.Count; i++)
-                    if (rects[i].Contains(point)) { SetRightTab(_tabs[i].Tab); return; }
+                if (_role == EditorPanelRole.LeftTabs)
+                {
+                    var rects = ComputeTabRects(header, scale);
+                    for (var i = 0; i < _tabs.Count; i++)
+                        if (rects[i].Contains(point)) { SetActiveTab(_tabs[i].Tab); return; }
+                }
                 return;
             }
 
@@ -345,13 +414,14 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         }
     }
 
-    /// <summary>The right scrollbar-thumb drag lifecycle: claim on a thumb press, track the thumb to
-    /// the cursor while held (and on the release edge), and release the shared token the frame AFTER
-    /// (button fully up) so the release never also clicks a row.</summary>
+    /// <summary>This panel's scrollbar-thumb drag lifecycle (its own <see cref="_scrollDrag"/> token —
+    /// Left/Right): claim on a thumb press, track the thumb to the cursor while held (and on the
+    /// release edge), and release the shared token the frame AFTER (button fully up) so the release
+    /// never also clicks a row.</summary>
     private void HandleScrollbarDrag(Rectangle body, in CursorInputComponent input, float scale)
     {
         // Clear a finished drag (button fully up).
-        if (_shellState.ActiveDrag == ShellDragKind.RightScrollbar &&
+        if (_shellState.ActiveDrag == _scrollDrag &&
             !input.LeftButton && !input.LeftButtonReleased)
             _shellState.ActiveDrag = ShellDragKind.None;
 
@@ -360,7 +430,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         var track = EditorScrollbar.Track(body, scale);
 
         // Continue / finalise the owned drag.
-        if (_shellState.ActiveDrag == ShellDragKind.RightScrollbar && (input.LeftButton || input.LeftButtonReleased))
+        if (_shellState.ActiveDrag == _scrollDrag && (input.LeftButton || input.LeftButtonReleased))
         {
             var thumbTop = input.ScreenPosition.Y - _shellState.DragGrabPixel;
             _scroll = EditorScrollbar.ScrollFromThumbTop(track, total, visible, thumbTop, scale);
@@ -375,7 +445,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
             if (thumb.Contains(point))
             {
-                _shellState.ActiveDrag = ShellDragKind.RightScrollbar;
+                _shellState.ActiveDrag = _scrollDrag;
                 _shellState.DragGrabPixel = input.ScreenPosition.Y - thumb.Y; // grab offset within the thumb
             }
         }
@@ -459,21 +529,20 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Public toggles (also the headless op-channel surface) -------------
 
-    /// <summary>Sets the right strip's active tab (headless <c>panel:tab &lt;scene|systems|project&gt;</c>
+    /// <summary>Sets the left strip's active tab (headless <c>panel:tab &lt;entities|systems|scenes&gt;</c>
     /// and the tab-bar clicks).</summary>
-    public void SetRightTab(EditorRightTab tab) => _shellState.ActiveRightTab = tab;
+    public void SetActiveTab(EditorPanelTab tab) => _shellState.ActiveLeftTab = tab;
 
-    /// <summary>Collapses/expands a section body (headless <c>panel:systems|scene|inspector</c>).
-    /// Activates the tab that HOSTS the section first, so a section op issued while a different tab
-    /// is showing still works (UX-B §2.2).</summary>
+    /// <summary>Collapses/expands a section body (headless <c>panel:systems|entities</c>). Activates
+    /// the tab that HOSTS the section first, so a section op issued while a different tab is showing
+    /// still works.</summary>
     public void ToggleSection(EditorPanelSection section)
     {
-        _shellState.ActiveRightTab = EditorPanelModel.HostTab(section);
+        _shellState.ActiveLeftTab = EditorPanelModel.HostTab(section);
         switch (section)
         {
             case EditorPanelSection.Systems: _state.SystemsCollapsed = !_state.SystemsCollapsed; break;
-            case EditorPanelSection.Scene: _state.SceneCollapsed = !_state.SceneCollapsed; break;
-            case EditorPanelSection.Inspector: _state.InspectorCollapsed = !_state.InspectorCollapsed; break;
+            case EditorPanelSection.Entities: _state.EntitiesCollapsed = !_state.EntitiesCollapsed; break;
         }
     }
 
@@ -482,7 +551,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     public void ToggleGroupCollapsed(string groupName)
     {
         if (string.IsNullOrEmpty(groupName)) return;
-        _shellState.ActiveRightTab = EditorRightTab.Systems;
+        _shellState.ActiveLeftTab = EditorPanelTab.Systems;
         if (!_state.CollapsedGroups.Add(groupName))
             _state.CollapsedGroups.Remove(groupName);
     }
@@ -495,11 +564,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     }
 
     /// <summary>Shows/hides an Inspector component's member rows by its full type name (headless
-    /// <c>panel:inspect &lt;typeName&gt;</c>). Accepts a short or full type name.</summary>
+    /// <c>panel:inspect &lt;typeName&gt;</c>). Accepts a short or full type name. The Inspector is the
+    /// standalone right panel now (always shown), so this activates no tab.</summary>
     public void ToggleInspectorComponentKey(string componentKey)
     {
         if (string.IsNullOrEmpty(componentKey)) return;
-        _shellState.ActiveRightTab = EditorRightTab.Scene; // the Inspector lives in the Scene tab
         // Resolve a short name (e.g. "TransformComponent") to the current selection's full key.
         var key = ResolveInspectorKey(componentKey);
         if (key == null) return;
@@ -530,7 +599,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (string.Equals(info.Name, name, StringComparison.Ordinal) ||
                 string.Equals(info.Type, name, StringComparison.Ordinal))
             {
-                _shellState.ActiveRightTab = EditorRightTab.Scene; // the tree lives in the Scene tab
+                _shellState.ActiveLeftTab = EditorPanelTab.Entities; // the tree lives in the Entities tab
                 SelectEntity(e);
                 return true;
             }
@@ -553,7 +622,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             var tab = _tabs[i];
             var rect = rects[i];
             tab.Bounds = rect;
-            var active = _shellState.ActiveRightTab == tab.Tab;
+            var active = _shellState.ActiveLeftTab == tab.Tab;
             var hover = !active && CursorOver(rect) && !_shellState.IsDragging;
             tab.HoverProgress = EditorTheme.AdvanceHover(tab.HoverProgress, hover, dt);
 
@@ -572,6 +641,18 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 rect.Y + (rect.Height - labelHeight) / 2f);
             SetText(tab.LabelEntity, tab.Label, labelPos, scale, active ? EditorTheme.Text0 : EditorTheme.Text1);
         }
+    }
+
+    /// <summary>Positions the dedicated Inspector panel's slim header title (the panel-header
+    /// framework's right-region header — a fixed "Inspector" label, no tabs).</summary>
+    private void PositionTitle(Rectangle header, float scale)
+    {
+        if (!_titleLabel.IsAlive) return;
+        var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
+        var labelPos = new Vector2(
+            header.X + EditorChromeLayout.Px(EditorChromeLayout.TabPaddingX, scale) + EditorChromeLayout.Px(EditorChromeLayout.SplitterThickness, scale),
+            header.Y + (header.Height - labelHeight) / 2f);
+        SetText(_titleLabel, EditorPanelModel.InspectorTitle, labelPos, scale, EditorTheme.Text0);
     }
 
     /// <summary>Draws the slim scrollbar (Border track + BorderStrong thumb) when the rows overflow
@@ -899,6 +980,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (tab.Underline.IsAlive) tab.Underline.Dispose();
         }
         _tabs.Clear();
+        if (_titleLabel.IsAlive) _titleLabel.Dispose();
         if (_scrollTrack.IsAlive) _scrollTrack.Dispose();
         if (_scrollThumb.IsAlive) _scrollThumb.Dispose();
         if (_stateEntity.IsAlive) _stateEntity.Dispose();
