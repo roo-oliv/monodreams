@@ -456,14 +456,21 @@ scrollbar drag owns the pointer (`EditorShellStateComponent.IsDragging`), the to
 nothing — a drag that happens to release over a button must not fire it (the shell-state premise's
 weave-order-independent drag token).
 
-**UX2-B: transport relocated; window bar slimmed.** The transport (Play/Pause + Restart) moved off the
-window bar to the Scene panel header (`HeaderButtons`); the window bar (`DefaultButtons`) keeps the
-editing actions — the transform tools, Save, Undo/Redo, Snap, the seven selection-context actions
-(`OrderForward`/`OrderBack`, `ColliderAddBox`/`AddConvex`/`Remove`, `VertexAdd`, the boundary tool),
-and Refresh (~15 buttons). Later waves de-crowd it further: UX2-C swaps the tools to icons + relocates
-them into the Scene header, and UX2-D moves the Order/selection-context actions into context menus.
-**Overflow risk:** the window row still lays out left-to-right with no wrap/scroll (`ButtonRow`), so on
-a narrow window the right-most buttons can sit under the right strip until UX2-C/D thin the row.
+**UX2-B/-C: transport + tools relocated; window bar slimmed to icons.** UX2-B moved the transport
+(Play/Pause + Restart) off the window bar to the Scene panel header (`HeaderButtons`); UX2-C then moved
+the transform-tool cluster (`ToolMove`/`ToolRotate`/`ToolScale`/`ToolBoundary`/`ToggleSnap`) there too,
+so the Scene header now reads **transport cluster · separator gap · tool cluster** (the last transport
+button's index is the `separatorAfterIndex` of `EditorChromeLayout.ButtonRowIn`, inserting a wider
+`ClusterGap`). The window bar (`DefaultButtons`) keeps **Save / Undo / Redo / Refresh** — now ICON
+buttons — plus the still-text selection-context actions (`OrderForward`/`OrderBack`, the collider/vertex
+authoring) until UX2-D relocates them into context menus. Icon buttons are ~square (their width is the
+`ButtonHeight`); text buttons stay label-width. The dispatch/gating is unchanged (the ONE `ToolbarSystem`
+still hit-tests both rows; editing buttons dim while Playing, transport always live). How the buttons
+DRAW — the procedural icon meshes + the hover tooltip — is its own premise ("Toolbar icon buttons are
+procedural meshes tinted by state; a pooled tooltip names them on hover").
+**Overflow risk:** the window row still lays out left-to-right with no wrap/scroll (`ButtonRow`); UX2-C's
+narrow icon squares plus relocating the 5 tools shortened it materially, and UX2-D removes the remaining
+text buttons.
 
 **Why:** the contract item 14 (engine-native, web-capable, no ImGui) + the Wave-7 user directive
 "the editor tools shouldn't overlay the game screen but be placed around it … highres and
@@ -478,10 +485,12 @@ becomes a one-way door).
 **Tests:** `MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`ToolbarWiringTest` — tool-select sets the
 tool, snap-toggle flips the flag, Save invokes `SceneWriter` through a fake `IPlatformServices`,
 Undo/Redo drive the shared history, empty-stack undo is a no-op — there is no Load action;
-`WindowBar_IsSlimmed_TransportRelocatedToTheHeader` — the transport is in `HeaderButtons` not
-`DefaultButtons`; `HeaderTransport_DispatchesFromTheHeader_WhilePlaying_WindowEditingInert` — the
-header PlayPause dispatches through the one `ToolbarSystem` while Playing, window-bar Save is inert);
-`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs` (`SceneHeader_LeadsWithTheTransportButtons`);
+`WindowBar_IsSlimmed_ToolsRelocatedToTheHeader` — the transport AND the transform tools are in
+`HeaderButtons` not `DefaultButtons` (UX2-C); `IconButtons_BakeGlyphMeshes_TintedByState` — the icon
+buttons carry a glyph mesh + no label and tint by state; `HeaderTransport_DispatchesFromTheHeader_WhilePlaying_WindowEditingInert`
+— the header PlayPause dispatches through the one `ToolbarSystem` while Playing, window-bar Save is inert);
+`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs` (`SceneHeader_LeadsWithTheTransportButtons` —
+the header leads with the transport, then the tool cluster);
 `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (native `ScreenPosition` hit-test dispatches in
 Edit, misses outside the bounds, inert in Play; window buttons in the top bar + transport in the
 Scene header).
@@ -489,6 +498,65 @@ Scene header).
 `CursorInputComponent.ScreenPosition`; level-editor — "The editor shell insets the game viewport
 and renders its chrome at native resolution", "Bounded undo with drag-coalescing", "Scene
 round-trip reconstructs from registered components, not factories".
+
+## Toolbar icon buttons are procedural meshes tinted by state; a pooled tooltip names them on hover
+
+The editor toolbar's transport (Play/Pause, Restart), transform tools (Move/Rotate/Scale/Boundary/Snap)
+and window-bar Save/Undo/Redo/Refresh buttons render a procedural ICON mesh instead of a text label
+(UX2-C). `EditorIcons` is a **pure geometry library**: each glyph is a line/triangle primitive list
+authored in a unit box and instantiated into a pixel rect — the `SystemsPanelLayout.ArrowTriangle`
+disclosure-caret pattern generalized to a whole set. **Lucide is the visual REFERENCE only; nothing is
+imported** (no content-pipeline step — the source-distributed module ships no binary atlas, and
+`Content.mgcb` is a guarded file), and every shape stays ≤3 visual strokes so it reads at ~16pt logical.
+`ToolbarSystem` bakes each icon button's glyph EVERY frame into a screen-baked `DrawComponent` (identity
+`WorldMatrix`, native `Editor` target, `EditorInfrastructureComponent`, **no `VisibleComponent`, no
+`SimpleButtonComponent`**) — the same mesh-chrome rules the disclosure arrows and gizmo overlays obey —
+in a state-driven colour: `TextDisabled` while inert → `Success` for the Snap toggle when on → `Accent`
+for the ACTIVE radio tool (Move/Rotate/Scale/Boundary, resolved from the shared `GizmoStateComponent`
+via `EditorToolbarAction.IsActiveIn`) → else a hover-fade `Text1`(idle)→`Text0`(hovered). Play/Pause
+swaps its glyph AND tooltip with the transport state (`EditorIcons.Resolve` — the icon analog of the old
+label swap). An action with **no** icon (`EditorIcons.ForAction` returns null — the Order/collider/vertex
+selection-context actions this wave) stays a TEXT button with its label rendered; **text stays where text
+is content** (tabs, rows, menus, dialog actions). DPR scaling is **pure rect scaling** (every vertex is
+`rect.TopLeft + unit·rect.Size`, thickness/arrowheads are rect fractions), and Undo/Redo + Restart/Refresh
+are exact horizontal **mirrors** (the same shape drawn with `u → 1-u`).
+
+Hovering any icon button ~0.45s (`EditorTooltip.HoverDelaySeconds`) shows **ONE pooled tooltip** — a
+`Bg2` box + `Border` outline mesh + a `Text0` label on the `Editor` target — near the cursor, offset a
+few points and **clamped to the window** (`EditorTooltip.Position`), above the dialog band
+(`EditorTheme.Depths.Tooltip` > `DialogLabel`), so it is never occluded. `EditorTooltipSystem` scans the
+buttons for the one whose per-button `HoverSeconds` clock (advanced — and **reset to 0 on move-off /
+press** — by `ToolbarSystem`, which weaves before it in the `editor.toolbar` group) crossed the delay,
+reads its `Tooltip` text, and parks the visual (empties the box mesh + blanks the label) when none. The
+tooltip is live in BOTH transport states (hovering a transport button while Playing still explains it).
+The tooltip preserves the discoverability the label-free icon buttons would otherwise lose.
+
+**Why:** the same rationale as "Panel disclosure arrows are triangle MESHES, not font glyphs" — the mesh
+path is font-independent (the BitmapFont has no icon glyphs), DPR-crisp and theme-colored — now extended
+to a whole icon set; importing Lucide's TTF/SVG would add a content-pipeline step to a source-distributed
+module against a guarded `Content.mgcb`. A dozen text labels made the bar wide and read as prose, not
+tools; icons de-crowd it, and the tooltip keeps every button self-describing.
+**Breaks:** giving an icon/tooltip mesh a `VisibleComponent` or `SimpleButtonComponent` pulls it into
+`MeshPrepSystem`/`ButtonMeshPrepSystem`, which overwrite the identity `WorldMatrix` its absolute-pixel
+vertices require; a raw `Color`/XNA token in `EditorIcons`/`EditorTooltip*` trips the palette lint (they
+take an `EditorTheme` role); an un-clamped tooltip draws off-screen; not resetting `HoverSeconds` on a
+press leaves a stale tooltip over a drag; a tooltip below the dialog band is occluded by a modal.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorIconsTests.cs` (every glyph's geometry stays inside its
+rect + bakes the given colour; Undo/Redo + Restart/Refresh are exact horizontal mirrors; DPR scaling is
+pure rect scaling; `CenteredIconRect` centers + doubles; `ForAction`/`HasIcon`/`Resolve` mapping;
+`IsActiveIn` radio + snap); `MonoDreams.Tests/LevelEditor/EditorTooltipTests.cs` (the delay gate, the
+offset + window clamp incl. box-wider-than-window, symmetric padding, DPR-2 doubling);
+`MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`IconButtons_BakeGlyphMeshes_TintedByState` — icon
+buttons bake a glyph mesh + carry no label and tint Accent/Success/TextDisabled by state, text buttons
+keep a label; `WindowBar_IsSlimmed_ToolsRelocatedToTheHeader`).
+**Depends on:** level-editor — "The editor toolbar's buttons drive the same shared editor instances …"
+(the buttons these skin + the transport/editing gating), "Panel disclosure arrows are triangle MESHES,
+not font glyphs" (the pattern this generalizes), "Every level-editor color and depth is an `EditorTheme`
+role" (the icon/tooltip colours + the new `Depths.Tooltip` band + the lint), "The editor shell insets the
+game viewport and renders its chrome at native resolution" (the `Editor` target + the no-`VisibleComponent`
+mesh-chrome rule); rendering — `LineMeshGenerator` / `FilledTriangleMeshGenerator` / `FilledRectangleMeshGenerator`
+/ `RectangleOutlineMeshGenerator` (the primitives) and the mesh `DrawComponent` draw path
+(`MasterRenderSystem` skips an invalid/empty mesh — how a parked tooltip hides).
 
 ## The editor shell insets the game viewport and renders its chrome at native resolution
 
@@ -1071,7 +1139,9 @@ guaranteed to carry the Unicode triangle glyphs — which looked like a stray le
 feedback: the `v` reads as a typo, not a disclosure arrow). Drawing it as a mesh removes the font-glyph
 dependency entirely and gives a crisp, native-resolution, DPR-correct Blender-like caret. Meshes are
 already the editor's font-independent draw path (gizmo handles, selection outlines), so this reuses it
-rather than adding a new draw component (the no-duplicate-ways tenet).
+rather than adding a new draw component (the no-duplicate-ways tenet). **This same "meshes, not font
+glyphs" rationale now covers the whole toolbar icon set** (UX2-C) — the caret was the seed of
+`EditorIcons` (see "Toolbar icon buttons are procedural meshes tinted by state …").
 **Breaks:** rendering the caret as a font glyph reintroduces the coverage dependency (a missing glyph
 box, or the `v` mis-read as text); giving the arrow entity a `VisibleComponent` (or a
 `SimpleButtonComponent`) would pull it into `MeshPrepSystem`/`ButtonMeshPrepSystem`, overwriting the
@@ -1086,7 +1156,8 @@ expanded ▾ then, after an arrow-click collapse, the collapsed ▸ triangle; `G
 stay green through the change).
 **Depends on:** this file — "The systems panel renders the registrar tree …" and "The editor's panels:
 a LEFT tabbed panel (Entities/Systems/Scenes), a dedicated RIGHT Inspector, and a region-owned header
-framework" (the rows whose carets these are); rendering — the mesh
+framework" (the rows whose carets these are), "Toolbar icon buttons are procedural meshes tinted by
+state …" (the toolbar icon set this pattern seeded); rendering — the mesh
 `DrawComponent` draw path (`MasterRenderSystem` skips an invalid mesh) and `FilledTriangleMeshGenerator`;
 "The editor shell insets the game viewport …" (the Editor target + the no-`VisibleComponent` chrome rule).
 
