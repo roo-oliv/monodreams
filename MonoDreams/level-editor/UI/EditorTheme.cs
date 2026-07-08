@@ -188,5 +188,13 @@ public static class EditorTheme
         public const float Tooltip = 0.90f;
         /// <summary>The hover tooltip's label — just above its box.</summary>
         public const float TooltipLabel = 0.92f;
+        /// <summary>The context-menu box + item fills + separators (UX2-D) — a dedicated band ABOVE the
+        /// tooltip so a popup menu is never occluded (the menu and the dialog are never open at once,
+        /// so sharing the very top is safe).</summary>
+        public const float MenuPanel = 0.94f;
+        /// <summary>Context-menu item hover fills + separator lines — above the box, below the labels.</summary>
+        public const float MenuControl = 0.96f;
+        /// <summary>Context-menu item labels + submenu ▸ caret meshes (topmost of the menu band).</summary>
+        public const float MenuLabel = 0.98f;
     }
 }
