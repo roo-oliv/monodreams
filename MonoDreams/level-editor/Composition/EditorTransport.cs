@@ -1,18 +1,22 @@
 #nullable enable
 using System;
 using DefaultEcs;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Level;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.Composition;
 
 /// <summary>
-/// The editor's <b>transport</b>: the one owner of <see cref="GameState.RunMode"/> under the editor
-/// run configuration. With the editor composed, the shell and chrome are ALWAYS visible — no key
+/// The editor's <b>transport</b>: the one owner of <see cref="GameState.RunMode"/> — and, since
+/// UX2-F, of the <see cref="ViewMode"/> (<see cref="EditorViewMode.Scene"/> /
+/// <see cref="EditorViewMode.Game"/>) — under the editor run configuration. ONE owner for both.
+/// With the editor composed, the shell and chrome are ALWAYS visible — no key
 /// toggles the editor away — and the designer drives the game like a media player:
 ///
 /// <list type="bullet">
@@ -76,10 +80,59 @@ public sealed class EditorTransport
     /// descendants too.</summary>
     public Func<Entity, bool>? KeepAlive { get; set; }
 
-    /// <summary>Resume the game (Playing = <see cref="RunMode.Play"/>). No-op when already playing.</summary>
+    // ─── Scene / Game view mode (UX2-F) — the transport is the ONE owner of both RunMode and ViewMode ───
+
+    /// <summary>
+    /// The editor's view mode (UX2-F), owned here alongside <see cref="GameState.RunMode"/> — ONE
+    /// owner for both. <see cref="EditorViewMode.Scene"/> (default): the free editor view edits the
+    /// REAL scene. <see cref="EditorViewMode.Game"/>: a Unity-style sandbox — the viewport looks
+    /// through the game camera, edits are allowed while Paused "just to test", and are DISCARDED on
+    /// exit (restored from the in-memory snapshot). Save is blocked in Game mode.
+    /// </summary>
+    public EditorViewMode ViewMode { get; private set; } = EditorViewMode.Scene;
+
+    /// <summary>The dirty state captured when Game mode was entered — what the Scenes-panel dirty
+    /// <c>●</c> reflects while in Game mode (the SNAPSHOT's dirtiness, not sandbox churn). Meaningful
+    /// only while <see cref="ViewMode"/> is <see cref="EditorViewMode.Game"/>.</summary>
+    public bool SnapshotWasDirty { get; private set; }
+
+    /// <summary>Builds the in-memory Game-mode snapshot (<c>SceneWriter.BuildScene(world,
+    /// rig.AsCamera(), layers)</c> — a <see cref="SceneData"/>, no file I/O). Wired by the overlay
+    /// after construction (like <see cref="Reload"/>). Null disables Game mode.</summary>
+    public Func<SceneData>? CaptureSnapshot { get; set; }
+
+    /// <summary>Restores a snapshot THROUGH THE READER (the overlay publishes an in-memory
+    /// <c>LoadSceneRequest</c>) — so re-tag, texture rehydration, <c>DrawComponent</c> restore, and
+    /// camera-rig re-sync are all SHARED with the file load path (pre-mortem #2), never
+    /// re-implemented. Wired by the overlay.</summary>
+    public Action<SceneData>? RestoreSnapshot { get; set; }
+
+    /// <summary>Captures the free editor VIEW (the live <c>Camera</c> position/zoom/rotation) so exit
+    /// can restore exactly where the designer was looking. Wired by the overlay.</summary>
+    public Func<CameraViewSnapshot>? CaptureView { get; set; }
+
+    /// <summary>Restores a captured editor VIEW onto the live <c>Camera</c> — applied on exit AFTER
+    /// the reader's auto-frame, so the captured Scene view wins. Wired by the overlay.</summary>
+    public Action<CameraViewSnapshot>? RestoreView { get; set; }
+
+    /// <summary>Snaps the free VIEW onto the camera rig (<c>Camera := rig state</c>) — the game-camera
+    /// view adopted on Game-mode entry. Wired by the overlay to <c>EditorCameraRig.SnapViewToRig</c>.</summary>
+    public Action? SnapViewToRig { get; set; }
+
+    // Held while in Game mode; dropped on exit / Restart.
+    private SceneData? _snapshot;
+    private CameraViewSnapshot _snapshotView;
+
+    /// <summary>Resume the game (Playing = <see cref="RunMode.Play"/>). No-op when already playing.
+    /// <para><b>Auto-enter Game mode (UX2-F, pre-mortem #7).</b> Pressing Play while in
+    /// <see cref="EditorViewMode.Scene"/> first enters Game mode — and the snapshot is taken
+    /// <b>before</b> <see cref="GameState.RunMode"/> flips to Play, so no simulation frame can mutate
+    /// the scene before it is captured. Pressing Play while already in Game mode does NOT re-snapshot
+    /// (one snapshot per Game-mode session).</para></summary>
     public void Play(GameState state)
     {
         if (state.RunMode == RunMode.Play) return;
+        if (ViewMode == EditorViewMode.Scene) EnterGameMode(state); // snapshot BEFORE the RunMode flip
         state.RunMode = RunMode.Play;
         Logger.Info("[level-editor] Transport: Playing.");
     }
@@ -100,6 +153,70 @@ public sealed class EditorTransport
         else Play(state);
     }
 
+    // ─── Scene / Game view-mode transitions (UX2-F) ────────────────────────────────────────────────
+
+    /// <summary>The <c>[Scene | Game]</c> toggle: enter Game mode from Scene, or exit to Scene from
+    /// Game (see <see cref="EnterGameMode"/> / <see cref="ExitToSceneMode"/>).</summary>
+    public void ToggleViewMode(GameState state)
+    {
+        if (ViewMode == EditorViewMode.Scene) EnterGameMode(state);
+        else ExitToSceneMode(state);
+    }
+
+    /// <summary>
+    /// Enters the Game-mode sandbox (UX2-F): <b>snapshots the scene FIRST</b> —
+    /// <see cref="CaptureSnapshot"/> (an in-memory <see cref="SceneData"/>, no file I/O) plus the
+    /// current history dirty state and the Scene-mode VIEW — <b>before</b> anything can flip
+    /// <see cref="GameState.RunMode"/> to Play (pre-mortem #7), then adopts the game-camera view
+    /// (<see cref="SnapViewToRig"/>). No-op when already in Game mode (one snapshot per session).
+    /// Does NOT itself change <see cref="GameState.RunMode"/> — the toggle enters while Paused; the
+    /// Play button flips RunMode after this returns.
+    /// </summary>
+    public void EnterGameMode(GameState state)
+    {
+        if (ViewMode == EditorViewMode.Game) return;
+
+        _snapshot = CaptureSnapshot?.Invoke();      // held in memory — the restore point
+        SnapshotWasDirty = _history.IsDirty;         // the Scenes-panel ● reflects THIS while in Game
+        _snapshotView = CaptureView?.Invoke() ?? default;
+
+        ViewMode = EditorViewMode.Game;
+        SnapViewToRig?.Invoke();                     // Camera := rig state (the authored game-camera view)
+
+        Logger.Info("[level-editor] Transport: entered Game mode (sandbox) — scene snapshotted; " +
+                    "edits discard on exit, Save blocked.");
+    }
+
+    /// <summary>
+    /// Exits the Game-mode sandbox back to Scene mode (UX2-F): lands <b>Paused</b>
+    /// (<see cref="RunMode.Edit"/>), disposes the sandbox scene entities (REUSING the Restart sweep —
+    /// editor infrastructure / cursor / KeepAlive survive), restores the snapshot <b>through the
+    /// reader</b> (<see cref="RestoreSnapshot"/> — the shared restore path re-tags, rehydrates
+    /// textures, restores <c>DrawComponent</c>s, and re-syncs the camera rig), then clears the undo
+    /// history (undo after exit is a no-op — pre-mortem #3) and restores the captured dirty state and
+    /// Scene VIEW. Sandbox edits vanish: <b>Scene mode always shows exactly what Save would write.</b>
+    /// No-op when already in Scene mode.
+    /// </summary>
+    public void ExitToSceneMode(GameState state)
+    {
+        if (ViewMode == EditorViewMode.Scene) return;
+
+        state.RunMode = RunMode.Edit;                // land Paused before restoring
+        DisposeSceneEntities();                      // the SAME sweep Restart uses (infra/cursor/keep survive)
+
+        if (_snapshot != null) RestoreSnapshot?.Invoke(_snapshot); // through the reader (shared path)
+
+        _history.Clear();                            // restored entities invalidate old commands (Restart rule)
+        if (SnapshotWasDirty) _history.MarkDirty();  // restore the captured dirty state
+        RestoreView?.Invoke(_snapshotView);          // override the reader's auto-frame with the Scene view
+
+        _snapshot = null;
+        ViewMode = EditorViewMode.Scene;
+
+        Logger.Info("[level-editor] Transport: exited Game mode — sandbox discarded, scene restored " +
+                    "from the snapshot. Paused.");
+    }
+
     /// <summary>
     /// Return the world to the state of the original load (see the class doc for the exact
     /// sequence and the survival boundary). Lands Paused. Unsaved edits are discarded.
@@ -118,6 +235,13 @@ public sealed class EditorTransport
         state.RunMode = RunMode.Edit; // Paused first, so nothing simulates over the teardown
         _history.Clear();             // undo entries reference the entities about to die
 
+        // UX2-F: Restart also lands in Scene mode with the snapshot dropped. The snapshot IS an unsaved
+        // edit, and Restart's contract is "discards unsaved edits" — so no special case: the disk reload
+        // below is the source of truth, and the sandbox snapshot is simply forgotten.
+        _snapshot = null;
+        SnapshotWasDirty = false;
+        ViewMode = EditorViewMode.Scene;
+
         // The world-level level components must go BEFORE the re-publish: the LDtk parsers react
         // to CurrentLevelComponent ADDED (a Set over a present component fires Changed instead).
         _world.Remove<CurrentLevelComponent>();
@@ -127,7 +251,7 @@ public sealed class EditorTransport
         Reload();
 
         Logger.Info("[level-editor] Transport: Restart — scene rebuilt from the original load " +
-                    "request; unsaved edits discarded. Paused.");
+                    "request; unsaved edits (incl. any Game-mode sandbox) discarded. Scene mode, Paused.");
     }
 
     private void DisposeSceneEntities()
@@ -166,4 +290,28 @@ public sealed class EditorTransport
         }
         return false;
     }
+}
+
+/// <summary>
+/// The editor's view mode (UX2-F), owned by <see cref="EditorTransport"/> alongside
+/// <see cref="RunMode"/>. <see cref="Scene"/> edits the real scene through the free editor view;
+/// <see cref="Game"/> is a Unity-style sandbox looking through the game camera whose edits are
+/// discarded on exit. Default <see cref="Scene"/>.
+/// </summary>
+public enum EditorViewMode
+{
+    /// <summary>Edit the real scene through the free editor view (default).</summary>
+    Scene,
+    /// <summary>Sandbox: look through the game camera; edits discard on exit; Save blocked.</summary>
+    Game,
+}
+
+/// <summary>A snapshot of the free editor VIEW (the live <c>Camera</c>) — position / zoom / rotation —
+/// captured on Game-mode entry and restored on exit so the designer returns to exactly where they were
+/// looking. Plain value data.</summary>
+public readonly struct CameraViewSnapshot(Vector2 position, float zoom, float rotation)
+{
+    public readonly Vector2 Position = position;
+    public readonly float Zoom = zoom;
+    public readonly float Rotation = rotation;
 }

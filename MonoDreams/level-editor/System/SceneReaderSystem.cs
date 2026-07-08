@@ -119,19 +119,53 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     {
         if (!IsEnabled) return;
 
+        // In-memory restore (UX2-F): an already-built SceneData (the Game-mode sandbox snapshot) is
+        // reconstructed through the EXACT same pipeline as a file load — no second restore path
+        // (pre-mortem #2). Otherwise read + deserialize the JSON from the path.
+        if (message.Scene is { } inMemory)
+        {
+            Logger.Info("[level-editor] Restoring scene from an in-memory snapshot (no file read).");
+            Load(inMemory, "<in-memory>");
+            return;
+        }
+
         var path = message.Path;
         Logger.Info($"[level-editor] Loading scene '{path}' (fromContent={message.FromContent}).");
 
+        SceneData? scene;
         try
         {
             var json = ReadSceneJson(path, message.FromContent);
-            var scene = CanonicalJson.Deserialize<SceneData>(json);
-            if (scene == null)
-            {
-                Logger.Error($"[level-editor] Scene '{path}' deserialized to null; aborting load.");
-                return;
-            }
+            scene = CanonicalJson.Deserialize<SceneData>(json);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[level-editor] Error reading scene '{path}': {ex.Message}\n{ex.StackTrace}");
+            throw;
+        }
 
+        if (scene == null)
+        {
+            Logger.Error($"[level-editor] Scene '{path}' deserialized to null; aborting load.");
+            return;
+        }
+
+        Load(scene, path);
+    }
+
+    /// <summary>
+    /// Reconstructs <paramref name="scene"/> into the world and finishes the load — the ONE restore
+    /// implementation shared by the file path and the UX2-F in-memory snapshot restore
+    /// (<see cref="LoadSceneRequest(SceneData)"/>): two-pass create + deserialize + wire-parents
+    /// (from components, not factories), re-tag roots, rehydrate textures (content AND <c>file:</c>
+    /// keys), restore the transient <c>DrawComponent</c>, then route <c>scene.camera</c> to the rig /
+    /// view. Throws loud on an unregistered component key. <paramref name="pathForLogging"/> only names
+    /// the source in the log line.
+    /// </summary>
+    private void Load(SceneData scene, string pathForLogging)
+    {
+        try
+        {
             // Two-pass create + deserialize + wire-parents (reconstructs from components, not factories).
             // Throws loud on an unregistered component key — do not swallow that here; let it surface.
             var created = _serializer.Deserialize(_world, scene);
@@ -146,11 +180,11 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
             SceneWasLoaded = true; // a real load happened → the empty-save guard now permits an empty save
 
-            Logger.Info($"[level-editor] Loaded scene '{path}': {created.Count} entities.");
+            Logger.Info($"[level-editor] Loaded scene '{pathForLogging}': {created.Count} entities.");
         }
         catch (Exception ex)
         {
-            Logger.Error($"[level-editor] Error loading scene '{path}': {ex.Message}\n{ex.StackTrace}");
+            Logger.Error($"[level-editor] Error loading scene '{pathForLogging}': {ex.Message}\n{ex.StackTrace}");
             throw;
         }
     }

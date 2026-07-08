@@ -71,6 +71,10 @@ public static class EditorChromeLayout
     /// Scene panel header sets the transport cluster apart from the tool cluster with this wider gap.</summary>
     public const int ClusterGap = 18;
 
+    /// <summary>Width of ONE segment of the <c>[Scene | Game]</c> mode toggle (UX2-F), logical points —
+    /// the two segments are equal-width, sized to fit "Scene"/"Game" at the label scale with padding.</summary>
+    public const int ModeSegmentWidth = 52;
+
     /// <summary>Horizontal label padding inside a button, logical points.</summary>
     public const int ButtonPaddingX = 10;
 
@@ -274,4 +278,33 @@ public static class EditorChromeLayout
             sceneHeader.Y + (sceneHeader.Height - size) / 2,
             size, size);
     }
+
+    // ── The [Scene | Game] mode toggle (UX2-F): two adjacent segments at the header's START ──────────
+
+    /// <summary>
+    /// The two <c>[Scene | Game]</c> mode-toggle segment rectangles (UX2-F), laid out at the START of
+    /// the Scene panel header — before the transport cluster — as two <b>adjacent, equal-width</b>
+    /// segments (<see cref="ModeSegmentWidth"/> each, <see cref="ButtonHeight"/> tall, vertically
+    /// centered), starting past the left row margin. Index 0 = Scene, index 1 = Game. Right-anchored
+    /// nothing; the transport row starts after <see cref="ModeToggleReservedWidth"/>.
+    /// </summary>
+    public static Rectangle[] ModeToggleSegments(Rectangle sceneHeader, float scale = 1f)
+    {
+        var w = Px(ModeSegmentWidth, scale);
+        var h = Px(ButtonHeight, scale);
+        var x = sceneHeader.X + Px(RowMarginX, scale);
+        var y = sceneHeader.Y + (sceneHeader.Height - h) / 2;
+        return new[]
+        {
+            new Rectangle(x, y, w, h),
+            new Rectangle(x + w, y, w, h),
+        };
+    }
+
+    /// <summary>The horizontal space (screen pixels) the mode toggle reserves at the header's start
+    /// before the transport row begins: the two segments plus a <see cref="ClusterGap"/> separating
+    /// them from the transport cluster. The chrome builder offsets the header button row by this so the
+    /// transport never overlaps the toggle.</summary>
+    public static int ModeToggleReservedWidth(float scale = 1f) =>
+        2 * Px(ModeSegmentWidth, scale) + Px(ClusterGap, scale);
 }

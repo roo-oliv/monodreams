@@ -65,6 +65,19 @@ public sealed class EditorHistory
     /// here <see cref="IsDirty"/> is false until the next mutation.</summary>
     public void MarkSavePoint() => _savePointVersion = _editVersion;
 
+    /// <summary>
+    /// Forces <see cref="IsDirty"/> true by advancing <see cref="EditVersion"/> past the save point,
+    /// WITHOUT recording an undo entry (the stacks are untouched). This is how the Game-mode exit
+    /// restores a captured "was dirty" state after <see cref="Clear"/> (which leaves the history
+    /// clean): the snapshot's pre-entry dirty flag is re-applied so exiting the sandbox reproduces the
+    /// Scene-mode dirtiness, while undo/redo stay empty (the restored entities have no live commands —
+    /// pre-mortem #3). A no-op when already dirty.
+    /// </summary>
+    public void MarkDirty()
+    {
+        if (_editVersion == _savePointVersion) _editVersion++;
+    }
+
     /// <summary>Current number of undoable entries (≤ <see cref="Capacity"/>).</summary>
     public int Count => _undo.Count;
 

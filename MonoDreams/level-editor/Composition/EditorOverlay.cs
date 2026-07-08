@@ -196,6 +196,23 @@ public sealed class EditorOverlay
             fileTextureLoader: AssetTextures.Load, camera: camera,
             applyCameraToRig: _cameraRig.SyncFromScene);
         SceneReader = _sceneReaderSystem;
+
+        // UX2-F: wire the transport's Game-mode sandbox seams to the SHARED instances (Transport was
+        // constructed above; the rig + reader now exist). The snapshot is a SceneData built from the rig
+        // camera + layers (no file I/O); the restore publishes an in-memory LoadSceneRequest so it runs
+        // the SAME reader pipeline as a file load (re-tag / rehydrate / DrawComponent / rig re-sync —
+        // pre-mortem #2, the reader is the ONE restore path); the view capture/restore is the live VIEW
+        // (Camera) state; and Game-mode entry adopts the game-camera view (the rig).
+        Transport.CaptureSnapshot = () => new SceneWriter(Serializer).BuildScene(world, _cameraRig.AsCamera(), layers);
+        Transport.RestoreSnapshot = snapshot => world.Publish(new LoadSceneRequest(snapshot));
+        Transport.CaptureView = () => new CameraViewSnapshot(camera.Position, camera.Zoom, camera.Rotation);
+        Transport.RestoreView = view =>
+        {
+            camera.Position = view.Position;
+            camera.Zoom = view.Zoom;
+            camera.Rotation = view.Rotation;
+        };
+        Transport.SnapViewToRig = _cameraRig.SnapViewToRig;
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested,
@@ -257,12 +274,16 @@ public sealed class EditorOverlay
         // named children of an `editor.toolbar` registrar group — every system stays visible and
         // individually toggleable in the systems panel.
         ToolbarMeshPrep = new ButtonMeshPrepSystem(world);
-        // The Save button additionally dims (and its click is suppressed) while the project is
-        // unresolved, even when Paused — the "no project root" save-guard cause. The "Playing"
-        // cause is already covered by the toolbar's transport rule.
+        // The Save button additionally dims (and its click is suppressed) while Paused for a cause the
+        // transport rule does not already cover: the project is unresolved (NoProjectRoot) OR the editor
+        // is in the Game-mode sandbox (GameMode — UX2-F). The "Playing" cause is already covered by the
+        // toolbar's transport rule (editing buttons dim while Playing).
         ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction,
             (action, state) => action == EditorToolbarAction.Save
-                               && SaveBlock(state, _projectContext) == SaveBlockReason.NoProjectRoot,
+                               && SaveBlock(state, _projectContext, Transport.ViewMode)
+                                   is SaveBlockReason.NoProjectRoot or SaveBlockReason.GameMode,
+            viewMode: () => Transport.ViewMode,
+            viewportManager: viewportManager,
             // A shell splitter/scrollbar drag that happens to release over the toolbar must not also
             // fire the button (the drag holds the shared token through its release edge).
             isInputSuppressed: () => _shellState.IsDragging);
@@ -286,7 +307,11 @@ public sealed class EditorOverlay
             // UX-C: the Scenes tab's list + the dirty-gated switch, both bound late (BindSceneCatalog).
             sceneCatalog: BuildCatalog,
             selectScene: SelectScene,
-            isDirty: () => History.IsDirty,
+            // UX2-F: in Game mode the dirty ● reflects the SNAPSHOT's captured dirty state, not the
+            // sandbox churn (the sandbox is discarded on exit, so its edits never count as unsaved work).
+            isDirty: () => Transport.ViewMode == EditorViewMode.Game
+                ? Transport.SnapshotWasDirty
+                : History.IsDirty,
             role: EditorPanelRole.LeftTabs,
             panelState: panelState);
         SystemsPanel = _leftPanel;
@@ -655,6 +680,11 @@ public sealed class EditorOverlay
     /// </summary>
     public void SelectScene(SceneCatalogEntry entry, GameState state)
     {
+        // UX2-F: a switch while in the Game-mode sandbox EXITS Game mode first (full snapshot restore),
+        // so the normal dirty gate below runs on the RESTORED real scene — not on sandbox churn. One
+        // gate flavor, no bypass (design §5 item 7).
+        if (Transport.ViewMode == EditorViewMode.Game) Transport.ExitToSceneMode(state);
+
         switch (SceneCatalog.DecideSwitch(entry, History.IsDirty))
         {
             case SceneSwitchDecision.NoOp:
@@ -891,12 +921,17 @@ public sealed class EditorOverlay
     /// </summary>
     public void SaveBackupAs(string backupName, GameState state)
     {
-        switch (SaveBlock(state, _projectContext))
+        switch (SaveBlock(state, _projectContext, Transport.ViewMode))
         {
             case SaveBlockReason.Playing:
                 Logger.Warning(
                     "[level-editor] Save Backup As is blocked while the transport is Playing — saving " +
                     "mid-simulation would bake transient run state into the backup. Pause first.");
+                return;
+            case SaveBlockReason.GameMode:
+                Logger.Warning(
+                    "[level-editor] Save Backup As is blocked in Game mode — the sandbox is not saved " +
+                    "(its edits discard on exit). Return to Scene mode first.");
                 return;
             case SaveBlockReason.NoProjectRoot:
                 Logger.Warning(
@@ -988,12 +1023,17 @@ public sealed class EditorOverlay
                 // actionable cause and do NOT open (the toolbar already dims/deactivates the button for
                 // either cause; this closes the headless/dispatch path). The confirm re-checks
                 // (SaveCurrentScene) as defense-in-depth.
-                switch (SaveBlock(state, _projectContext))
+                switch (SaveBlock(state, _projectContext, Transport.ViewMode))
                 {
                     case SaveBlockReason.Playing:
                         Logger.Warning(
                             "[level-editor] Save is blocked while the transport is Playing — saving " +
                             "mid-simulation would bake transient run state into the scene. Pause first.");
+                        return;
+                    case SaveBlockReason.GameMode:
+                        Logger.Warning(
+                            "[level-editor] Save is blocked in Game mode — the sandbox is not saved (its " +
+                            "edits discard on exit). Return to Scene mode to save the real scene.");
                         return;
                     case SaveBlockReason.NoProjectRoot:
                         Logger.Warning(
@@ -1030,6 +1070,10 @@ public sealed class EditorOverlay
             // The Scene-header nav-corner button (UX2-E): snap the free VIEW onto the authored camera rig
             // (Camera := rig). An editing action — the toolbar dims/suppresses it while Playing.
             case EditorToolbarAction.CameraView: _cameraRig.SnapViewToRig(); break;
+            // The [Scene | Game] mode toggle (UX2-F): exit the sandbox to Scene, or enter the Game
+            // sandbox. Each is a no-op when already in that mode. Dispatches in BOTH transport states.
+            case EditorToolbarAction.ModeScene: Transport.ExitToSceneMode(state); break;
+            case EditorToolbarAction.ModeGame: Transport.EnterGameMode(state); break;
         }
     }
 
@@ -1043,12 +1087,17 @@ public sealed class EditorOverlay
     /// </summary>
     private void SaveCurrentSceneTo(string target, GameState state)
     {
-        switch (SaveBlock(state, _projectContext))
+        switch (SaveBlock(state, _projectContext, Transport.ViewMode))
         {
             case SaveBlockReason.Playing:
                 Logger.Warning(
                     "[level-editor] Save is blocked while the transport is Playing — saving " +
                     "mid-simulation would bake transient run state into the scene. Pause first.");
+                return;
+            case SaveBlockReason.GameMode:
+                Logger.Warning(
+                    "[level-editor] Save is blocked in Game mode — the sandbox is not saved (its edits " +
+                    "discard on exit). Return to Scene mode to save the real scene.");
                 return;
             case SaveBlockReason.NoProjectRoot:
                 Logger.Warning(
@@ -1184,20 +1233,26 @@ public sealed class EditorOverlay
 
     /// <summary>
     /// The save guard's distinguishable reasons: Save dispatches only while the transport is Paused
-    /// (<see cref="RunMode.Edit"/>) AND the project root is resolved. Pure — named by the save-guard
-    /// premise and its test. The two causes are reported separately so the toolbar/log can tell the
-    /// user WHY Save is off. <see cref="SaveBlockReason.Playing"/> takes precedence (checked first).
+    /// (<see cref="RunMode.Edit"/>), in <see cref="EditorViewMode.Scene"/>, AND the project root is
+    /// resolved. Pure — named by the save-guard premise and its test. The causes are reported
+    /// separately so the toolbar/log can tell the user WHY Save is off. Precedence:
+    /// <see cref="SaveBlockReason.Playing"/> (checked first) → <see cref="SaveBlockReason.GameMode"/>
+    /// (UX2-F) → <see cref="SaveBlockReason.NoProjectRoot"/>. <paramref name="viewMode"/> defaults to
+    /// <see cref="EditorViewMode.Scene"/> so a Scene-mode call reads exactly as before UX2-F.
     /// </summary>
-    public static SaveBlockReason SaveBlock(GameState state, EditorProjectContext? projectContext)
+    public static SaveBlockReason SaveBlock(GameState state, EditorProjectContext? projectContext,
+        EditorViewMode viewMode = EditorViewMode.Scene)
     {
         if (state.RunMode == RunMode.Play) return SaveBlockReason.Playing;
+        if (viewMode == EditorViewMode.Game) return SaveBlockReason.GameMode;
         if (projectContext is not { Resolved: true }) return SaveBlockReason.NoProjectRoot;
         return SaveBlockReason.None;
     }
 
     /// <summary>Whether Save is blocked for any reason (see <see cref="SaveBlock"/>).</summary>
-    public static bool IsSaveBlocked(GameState state, EditorProjectContext? projectContext) =>
-        SaveBlock(state, projectContext) != SaveBlockReason.None;
+    public static bool IsSaveBlocked(GameState state, EditorProjectContext? projectContext,
+        EditorViewMode viewMode = EditorViewMode.Scene) =>
+        SaveBlock(state, projectContext, viewMode) != SaveBlockReason.None;
 
     /// <summary>
     /// The scene id the editor holds: an explicit <paramref name="sceneId"/> wins; otherwise the
@@ -1264,6 +1319,7 @@ public sealed class EditorOverlay
         const string scenesPrefix = "scenes:";
         const string menuPrefix = "menu:";
         const string viewPrefix = "view:";
+        const string modePrefix = "mode:";
 
         if (name.StartsWith(viewPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -1274,6 +1330,21 @@ public sealed class EditorOverlay
                 DispatchToolbarAction(EditorToolbarAction.CameraView, state);
             else
                 Logger.Warning($"[level-editor] Editor-op '{name}': expected view:camera.");
+            return;
+        }
+
+        if (name.StartsWith(modePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // mode:scene | mode:game — the [Scene | Game] view-mode toggle (UX2-F), the headless twin of
+            // the header segments. Routes through the SAME DispatchToolbarAction paths (Transport.Exit /
+            // Enter), each a no-op when already in that mode.
+            var verb = name.Substring(modePrefix.Length).Trim();
+            if (string.Equals(verb, "scene", StringComparison.OrdinalIgnoreCase))
+                DispatchToolbarAction(EditorToolbarAction.ModeScene, state);
+            else if (string.Equals(verb, "game", StringComparison.OrdinalIgnoreCase))
+                DispatchToolbarAction(EditorToolbarAction.ModeGame, state);
+            else
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected mode:scene or mode:game.");
             return;
         }
 
@@ -1595,11 +1666,14 @@ public enum EditorMenuContext
 /// the toolbar can dim the right button and the log can name the cause.</summary>
 public enum SaveBlockReason
 {
-    /// <summary>Save is allowed (Paused + a resolved project root).</summary>
+    /// <summary>Save is allowed (Paused + Scene mode + a resolved project root).</summary>
     None,
     /// <summary>Blocked because the transport is Playing — a mid-simulation save would bake transient
     /// run state into the scene.</summary>
     Playing,
+    /// <summary>Blocked because the editor is in the Game-mode sandbox (UX2-F) — sandbox edits are
+    /// expressly not-to-be-saved (they discard on exit); Save reflects the real scene, not the sandbox.</summary>
+    GameMode,
     /// <summary>Blocked because no project root resolved (shipped build / relocated output / console /
     /// no <c>game.mdproj</c>) — there is nowhere versioned to write.</summary>
     NoProjectRoot,

@@ -58,4 +58,12 @@ public struct ToolbarButtonComponent
     /// (reset to 0 on move-off or a press), read by <c>EditorTooltipSystem</c> to pick the button whose
     /// tooltip to show. Lives on the button (never a pooled entity) so the timing is stable.</summary>
     public float HoverSeconds;
+
+    /// <summary>The screen-baked mesh entity that draws a <c>[Scene | Game]</c> mode-toggle segment's
+    /// <b>active accent underline</b> (UX2-F), or <c>null</c> for a non-segment button. When set,
+    /// <c>ToolbarSystem</c> fills it with an <c>Accent</c> bar along the segment's bottom edge while
+    /// that segment is the active view mode, and empties it otherwise — mirroring the tab underline.
+    /// A raw <c>DrawComponent</c> mesh (identity <c>WorldMatrix</c>, native Editor target, no
+    /// <c>VisibleComponent</c>), like <see cref="IconEntity"/>.</summary>
+    public Entity? UnderlineEntity;
 }

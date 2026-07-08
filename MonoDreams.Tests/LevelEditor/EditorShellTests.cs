@@ -122,9 +122,10 @@ public class EditorShellTests
             Assert.Equal(RenderTargetID.Editor, visual.Target);
         }
         // The window bar carries the editing set; the Scene header carries the transport set PLUS the
-        // UX2-E right-corner "Camera view" nav button (a fixed header affordance, not part of HeaderButtons).
+        // UX2-E right-corner "Camera view" nav button and the UX2-F [Scene | Game] mode-toggle segments
+        // (fixed header affordances, not part of HeaderButtons).
         Assert.Equal(EditorChromeBuilder.DefaultButtons.Length, windowCount);
-        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length + 1, headerCount);
+        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length + 1 + 2, headerCount);
         Assert.Equal(1600, chrome.LaidOutWidth);
         Assert.Equal(900, chrome.LaidOutHeight);
     }
