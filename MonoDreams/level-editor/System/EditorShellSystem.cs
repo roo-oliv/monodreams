@@ -20,9 +20,11 @@ namespace MonoDreams.LevelEditor.System;
 /// always visible and the game simply runs inside the inset viewport. Each frame it maintains:
 ///
 /// <list type="number">
-///   <item><b>Region splitters (UX-B).</b> It hit-tests the two splitter drag zones (the right
-///   strip's left edge, the bottom shelf's top edge) against the cursor's raw
-///   <c>ScreenPosition</c> and, on a drag, resizes <see cref="EditorShellStateComponent.RightWidthPt"/>
+///   <item><b>Region splitters (UX-B/UX2-B).</b> It hit-tests the three splitter drag zones (the
+///   left strip's right edge, the right strip's left edge, the bottom shelf's top edge) against the
+///   cursor's raw <c>ScreenPosition</c> and, on a drag, resizes
+///   <see cref="EditorShellStateComponent.LeftWidthPt"/> /
+///   <see cref="EditorShellStateComponent.RightWidthPt"/>
 ///   / <see cref="EditorShellStateComponent.BottomHeightPt"/> (device-px delta → points via the
 ///   DPR). A splitter drag claims the shared <see cref="EditorShellStateComponent.ActiveDrag"/>
 ///   token on the press edge and holds it through the release edge (cleared the frame after), so
@@ -92,13 +94,14 @@ public sealed class EditorShellSystem : ISystem<GameState>
         if (_chrome.LaidOutWidth != _viewportManager.ScreenWidth ||
             _chrome.LaidOutHeight != _viewportManager.ScreenHeight ||
             _chrome.LaidOutScale != scale ||
+            _chrome.LaidOutLeftWidthPt != _state.LeftWidthPt ||
             _chrome.LaidOutRightWidthPt != _state.RightWidthPt ||
             _chrome.LaidOutBottomHeightPt != _state.BottomHeightPt)
             _chrome.Relayout(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
-                _state.RightWidthPt, _state.BottomHeightPt);
+                _state.LeftWidthPt, _state.RightWidthPt, _state.BottomHeightPt);
 
         var (left, top, right, bottom) =
-            EditorChromeLayout.ViewportInset(scale, _state.RightWidthPt, _state.BottomHeightPt);
+            EditorChromeLayout.ViewportInset(scale, _state.LeftWidthPt, _state.RightWidthPt, _state.BottomHeightPt);
         _viewportManager.SetViewportInset(left, top, right, bottom); // no-op when unchanged
 
         RecolorSplitters(scale);
@@ -124,13 +127,19 @@ public sealed class EditorShellSystem : ISystem<GameState>
             // Clear a finished splitter drag the frame AFTER release (button fully up) — see the
             // ShellDragKind doc: holding the token through the release edge is what makes the
             // "splitter drag never also clicks" exclusion independent of weave order.
-            if ((_state.ActiveDrag == ShellDragKind.RightSplitter ||
+            if ((_state.ActiveDrag == ShellDragKind.LeftSplitter ||
+                 _state.ActiveDrag == ShellDragKind.RightSplitter ||
                  _state.ActiveDrag == ShellDragKind.BottomSplitter) &&
                 !input.LeftButton && !input.LeftButtonReleased)
                 _state.ActiveDrag = ShellDragKind.None;
 
             // Continue / finalise the owned drag (the release edge still carries the final position).
-            if (_state.ActiveDrag == ShellDragKind.RightSplitter && (input.LeftButton || input.LeftButtonReleased))
+            if (_state.ActiveDrag == ShellDragKind.LeftSplitter && (input.LeftButton || input.LeftButtonReleased))
+            {
+                var deltaPt = (input.ScreenPosition.X - _state.DragGrabPixel) / scale; // drag right → grow
+                _state.LeftWidthPt = (int)MathF.Round(_state.DragGrabValue + deltaPt);
+            }
+            else if (_state.ActiveDrag == ShellDragKind.RightSplitter && (input.LeftButton || input.LeftButtonReleased))
             {
                 var deltaPt = (_state.DragGrabPixel - input.ScreenPosition.X) / scale; // drag left → grow
                 _state.RightWidthPt = (int)MathF.Round(_state.DragGrabValue + deltaPt);
@@ -145,7 +154,13 @@ public sealed class EditorShellSystem : ISystem<GameState>
             if (_state.ActiveDrag == ShellDragKind.None && input.LeftButtonPressed)
             {
                 var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
-                if (EditorChromeLayout.RightSplitter(w, h, scale, _state.RightWidthPt, _state.BottomHeightPt).Contains(point))
+                if (EditorChromeLayout.LeftSplitter(w, h, scale, _state.LeftWidthPt, _state.BottomHeightPt).Contains(point))
+                {
+                    _state.ActiveDrag = ShellDragKind.LeftSplitter;
+                    _state.DragGrabValue = _state.LeftWidthPt;
+                    _state.DragGrabPixel = input.ScreenPosition.X;
+                }
+                else if (EditorChromeLayout.RightSplitter(w, h, scale, _state.RightWidthPt, _state.BottomHeightPt).Contains(point))
                 {
                     _state.ActiveDrag = ShellDragKind.RightSplitter;
                     _state.DragGrabValue = _state.RightWidthPt;
@@ -167,9 +182,12 @@ public sealed class EditorShellSystem : ISystem<GameState>
         var w = _viewportManager.ScreenWidth;
         var h = _viewportManager.ScreenHeight;
         var point = CursorPoint();
+        var leftZone = EditorChromeLayout.LeftSplitter(w, h, scale, _state.LeftWidthPt, _state.BottomHeightPt);
         var rightZone = EditorChromeLayout.RightSplitter(w, h, scale, _state.RightWidthPt, _state.BottomHeightPt);
         var bottomZone = EditorChromeLayout.BottomSplitter(w, h, scale, _state.BottomHeightPt);
 
+        SetSplitterFill(_chrome.LeftSplitter,
+            _state.ActiveDrag == ShellDragKind.LeftSplitter || (point is { } p0 && leftZone.Contains(p0)));
         SetSplitterFill(_chrome.RightSplitter,
             _state.ActiveDrag == ShellDragKind.RightSplitter || (point is { } p1 && rightZone.Contains(p1)));
         SetSplitterFill(_chrome.BottomSplitter,

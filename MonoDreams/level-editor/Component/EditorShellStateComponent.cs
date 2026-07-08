@@ -4,19 +4,20 @@ using System.Collections.Generic;
 
 namespace MonoDreams.LevelEditor.Component;
 
-/// <summary>The right strip's active tab (a stack of panels the tab hosts). Scene = the entity tree
-/// + Inspector; Systems = the pipeline listing; Project = project info (the Scenes list lands in
-/// UX-C).</summary>
-public enum EditorRightTab
+/// <summary>A left-strip tab (region-agnostic by name so a future region can reuse it — UX2-B moved
+/// the tab group from the right strip to the left). <see cref="Entities"/> = the entity tree;
+/// <see cref="Systems"/> = the pipeline listing; <see cref="Scenes"/> = the scene catalog + project
+/// info. The Inspector is no longer a tab — it is the dedicated right panel.</summary>
+public enum EditorPanelTab
 {
-    /// <summary>Entity tree + selection-bound Inspector (today's Scene + Inspector sections).</summary>
-    Scene,
+    /// <summary>The world's entities as a tree (was the "Scene" tab; the Inspector left it).</summary>
+    Entities,
 
-    /// <summary>The pipeline registrar listing (today's Systems section).</summary>
+    /// <summary>The pipeline registrar listing (unchanged content).</summary>
     Systems,
 
-    /// <summary>Project info (root path, levels dir, current scene id) — the Scenes list is UX-C.</summary>
-    Project,
+    /// <summary>The scene catalog + project info (was the "Project" tab).</summary>
+    Scenes,
 }
 
 /// <summary>The bottom shelf's active tab. One tab today (Assets — the palette); more shelves are
@@ -38,11 +39,17 @@ public enum ShellDragKind
     /// <summary>No drag in progress — chrome clicks fire normally.</summary>
     None,
 
+    /// <summary>Resizing the left strip via its viewport-facing (right-edge) splitter.</summary>
+    LeftSplitter,
+
     /// <summary>Resizing the right strip via its viewport-facing (left-edge) splitter.</summary>
     RightSplitter,
 
     /// <summary>Resizing the bottom shelf via its viewport-facing (top-edge) splitter.</summary>
     BottomSplitter,
+
+    /// <summary>Dragging the left strip's scrollbar thumb.</summary>
+    LeftScrollbar,
 
     /// <summary>Dragging the right strip's scrollbar thumb.</summary>
     RightScrollbar,
@@ -51,18 +58,19 @@ public enum ShellDragKind
     BottomScrollbar,
 }
 
-/// <summary>A shell region — the marked-terrain layout model. Only <see cref="Right"/> and
-/// <see cref="Bottom"/> are built in UX-B; <see cref="Left"/> and <see cref="MenuBar"/> are reserved
-/// at size 0 so future drag-docking is a state mutation, not a rearchitect.</summary>
+/// <summary>A shell region — the marked-terrain layout model. <see cref="Left"/> (UX2-B: the tab
+/// group), <see cref="Right"/> (the Inspector) and <see cref="Bottom"/> (the Assets shelf) are built;
+/// <see cref="MenuBar"/> is reserved at size 0 so a future menu bar is a state mutation, not a
+/// rearchitect.</summary>
 public enum EditorRegion
 {
     /// <summary>A menu-bar strip above the toolbar (reserved at 0pt today).</summary>
     MenuBar,
 
-    /// <summary>A left panel strip (reserved at 0pt today).</summary>
+    /// <summary>The left panel strip (Entities / Systems / Scenes tabs — UX2-B).</summary>
     Left,
 
-    /// <summary>The right panel strip (Scene / Systems / Project tabs).</summary>
+    /// <summary>The right panel strip (the dedicated Inspector — UX2-B).</summary>
     Right,
 
     /// <summary>The bottom shelf (Assets tab).</summary>
@@ -78,13 +86,13 @@ public enum EditorPanelKind
     Systems,
 
     /// <summary>The world's entities as a tree.</summary>
-    Scene,
+    Entities,
 
     /// <summary>The selected entity's components + members.</summary>
     Inspector,
 
-    /// <summary>Project info (root, levels dir, current scene id).</summary>
-    Project,
+    /// <summary>The scene catalog + project info (root, levels dir, current scene id).</summary>
+    Scenes,
 
     /// <summary>The asset palette.</summary>
     Assets,
@@ -100,17 +108,21 @@ public enum EditorPanelKind
 /// runtime-adjustable).
 ///
 /// <para><b>Marked terrain.</b> <see cref="RegionPanels"/> models the region → panels assignment as
-/// data, and <see cref="Left"/>/<see cref="EditorRegion.MenuBar"/> are reserved at size 0 — day-1
-/// builds neither, but the architecture already permits future drag-docking / a left strip / a menu
-/// bar as pure state mutations.</para>
+/// data, and <see cref="EditorRegion.MenuBar"/> is reserved at size 0 — day-1 builds no menu bar, but
+/// the architecture already permits a future menu bar / drag-docking as pure state mutations.</para>
 ///
 /// <para>All state is <b>in-session</b> (no persistence). The clamp ranges keep a resized strip
-/// usable — the defaults reproduce the pre-UX-B constants (<c>EditorChromeLayout.RightPanelWidth</c>
-/// / <c>BottomBarHeight</c>) byte-for-byte when nothing touches them.</para>
+/// usable — the defaults reproduce <c>EditorChromeLayout</c>'s constants
+/// (<c>LeftPanelWidth</c> / <c>RightPanelWidth</c> / <c>BottomBarHeight</c>) byte-for-byte when
+/// nothing touches them.</para>
 /// </summary>
 public sealed class EditorShellStateComponent
 {
     // ── Region-size clamps (logical points) ─────────────────────────────────────────────────────
+    /// <summary>The left strip's minimum width, logical points.</summary>
+    public const int MinLeftWidthPt = 180;
+    /// <summary>The left strip's maximum width, logical points.</summary>
+    public const int MaxLeftWidthPt = 600;
     /// <summary>The right strip's minimum width, logical points.</summary>
     public const int MinRightWidthPt = 180;
     /// <summary>The right strip's maximum width, logical points.</summary>
@@ -120,6 +132,9 @@ public sealed class EditorShellStateComponent
     /// <summary>The bottom shelf's maximum height, logical points.</summary>
     public const int MaxBottomHeightPt = 320;
 
+    /// <summary>The left strip's default width, logical points — mirrors
+    /// <c>EditorChromeLayout.LeftPanelWidth</c> so an untouched shell is byte-identical.</summary>
+    public const int DefaultLeftWidthPt = 240;
     /// <summary>The right strip's default width, logical points — mirrors
     /// <c>EditorChromeLayout.RightPanelWidth</c> so an untouched shell is byte-identical.</summary>
     public const int DefaultRightWidthPt = 280;
@@ -127,8 +142,18 @@ public sealed class EditorShellStateComponent
     /// <c>EditorChromeLayout.BottomBarHeight</c> so an untouched shell is byte-identical.</summary>
     public const int DefaultBottomHeightPt = 168;
 
+    private int _leftWidthPt = DefaultLeftWidthPt;
     private int _rightWidthPt = DefaultRightWidthPt;
     private int _bottomHeightPt = DefaultBottomHeightPt;
+
+    /// <summary>The left strip width in logical points, always clamped to
+    /// <c>[<see cref="MinLeftWidthPt"/>, <see cref="MaxLeftWidthPt"/>]</c> (UX2-B activated the left
+    /// region UX-B reserved at 0).</summary>
+    public int LeftWidthPt
+    {
+        get => _leftWidthPt;
+        set => _leftWidthPt = Math.Clamp(value, MinLeftWidthPt, MaxLeftWidthPt);
+    }
 
     /// <summary>The right strip width in logical points, always clamped to
     /// <c>[<see cref="MinRightWidthPt"/>, <see cref="MaxRightWidthPt"/>]</c>.</summary>
@@ -146,15 +171,12 @@ public sealed class EditorShellStateComponent
         set => _bottomHeightPt = Math.Clamp(value, MinBottomHeightPt, MaxBottomHeightPt);
     }
 
-    /// <summary>The left strip width — reserved at 0 (marked terrain).</summary>
-    public int LeftWidthPt => 0;
-
     /// <summary>The menu-bar strip height — reserved at 0 (marked terrain).</summary>
     public int MenuBarHeightPt => 0;
 
     // ── Active tabs (one per region) ─────────────────────────────────────────────────────────────
-    /// <summary>The right strip's active tab (default <see cref="EditorRightTab.Scene"/>).</summary>
-    public EditorRightTab ActiveRightTab = EditorRightTab.Scene;
+    /// <summary>The left strip's active tab (default <see cref="EditorPanelTab.Entities"/>).</summary>
+    public EditorPanelTab ActiveLeftTab = EditorPanelTab.Entities;
 
     /// <summary>The bottom shelf's active tab (default — and only — <see cref="EditorBottomTab.Assets"/>).</summary>
     public EditorBottomTab ActiveBottomTab = EditorBottomTab.Assets;
@@ -177,14 +199,15 @@ public sealed class EditorShellStateComponent
 
     // ── Marked terrain: region → panels ──────────────────────────────────────────────────────────
     /// <summary>The region → hosted-panels assignment (marked terrain). A future drag-rearrange is a
-    /// reassignment here, not new plumbing. <see cref="EditorRegion.MenuBar"/> / <see cref="EditorRegion.Left"/>
-    /// are present-but-empty (reserved at size 0).</summary>
+    /// reassignment here, not new plumbing. <see cref="EditorRegion.MenuBar"/> is present-but-empty
+    /// (reserved at size 0). UX2-B: the tab group lives in <see cref="EditorRegion.Left"/> and the
+    /// Inspector is the dedicated <see cref="EditorRegion.Right"/> panel.</summary>
     public readonly IReadOnlyDictionary<EditorRegion, IReadOnlyList<EditorPanelKind>> RegionPanels =
         new Dictionary<EditorRegion, IReadOnlyList<EditorPanelKind>>
         {
             [EditorRegion.MenuBar] = Array.Empty<EditorPanelKind>(),
-            [EditorRegion.Left] = Array.Empty<EditorPanelKind>(),
-            [EditorRegion.Right] = new[] { EditorPanelKind.Scene, EditorPanelKind.Systems, EditorPanelKind.Project },
+            [EditorRegion.Left] = new[] { EditorPanelKind.Entities, EditorPanelKind.Systems, EditorPanelKind.Scenes },
+            [EditorRegion.Right] = new[] { EditorPanelKind.Inspector },
             [EditorRegion.Bottom] = new[] { EditorPanelKind.Assets },
         };
 }

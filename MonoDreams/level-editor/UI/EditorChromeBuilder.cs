@@ -15,10 +15,12 @@ namespace MonoDreams.LevelEditor.UI;
 /// Builds the Blender-style editor chrome (Wave 7) on the <b>Editor</b> render target — a native
 /// window-resolution target composited 1:1 over the whole window (see
 /// <c>RenderTargetID.Editor</c>) — so the shell is crisp and readable independent of the game's
-/// virtual resolution. It creates: solid opaque panel backgrounds for the reserved margins (top
-/// bar + right panel strip + bottom strip — the same margins <c>ViewportManager.SetViewportInset</c>
-/// reserves, via <see cref="EditorChromeLayout.ViewportInset"/>), and the toolbar buttons inside
-/// the top bar, sized in real pixels. This replaces the Wave-4b HUD-virtual toolbar (which was
+/// virtual resolution. It creates: solid opaque panel backgrounds for the reserved margins (thin
+/// global top bar + LEFT panel strip + right panel + bottom strip + the center region's Scene panel
+/// header carved out of the game viewport — the same margins <c>ViewportManager.SetViewportInset</c>
+/// reserves, via <see cref="EditorChromeLayout.ViewportInset"/>), the window top bar's editing
+/// buttons, and the Scene header's transport buttons (UX2-B relocated Play/Pause + Restart off the
+/// window bar), all sized in real pixels. This replaces the Wave-4b HUD-virtual toolbar (which was
 /// authored at 800×600 and upscaled — blurry and low-contrast over light levels).
 ///
 /// <para>Everything reuses the engine's UI/mesh primitives — panels and button fills/outlines are
@@ -55,11 +57,15 @@ public sealed class EditorChromeBuilder
 
     private (EditorToolbarAction action, string label)[] _buttons =
         Array.Empty<(EditorToolbarAction, string)>();
-    private Entity _topBar, _rightPanel, _bottomBar;
-    private Entity _rightSplitter, _bottomSplitter;
+    private (EditorToolbarAction action, string label)[] _headerButtons =
+        Array.Empty<(EditorToolbarAction, string)>();
+    private Entity _topBar, _leftPanel, _rightPanel, _bottomBar, _sceneHeader;
+    private Entity _leftSplitter, _rightSplitter, _bottomSplitter;
     private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _labelEntities = new();
+    private readonly List<Entity> _headerButtonEntities = new();
+    private readonly List<Entity> _headerLabelEntities = new();
     private bool _built;
 
     /// <summary>The window size the chrome was last laid out for (0 until <see cref="Build"/>).</summary>
@@ -72,12 +78,20 @@ public sealed class EditorChromeBuilder
     /// <see cref="Relayout"/>; 0 until <see cref="Build"/>).</summary>
     public float LaidOutScale { get; private set; }
 
+    /// <summary>The left strip width (logical points) the chrome was last laid out for — the shell
+    /// system relayouts when the runtime <c>LeftWidthPt</c> changes (a splitter drag).</summary>
+    public int LaidOutLeftWidthPt { get; private set; }
+
     /// <summary>The right strip width (logical points) the chrome was last laid out for — the shell
     /// system relayouts when the runtime <c>RightWidthPt</c> changes (a splitter drag).</summary>
     public int LaidOutRightWidthPt { get; private set; }
 
     /// <summary>The bottom shelf height (logical points) the chrome was last laid out for.</summary>
     public int LaidOutBottomHeightPt { get; private set; }
+
+    /// <summary>The left strip's right-edge splitter visual — the shell system recolours it (idle
+    /// <c>Border</c> / hovered-or-dragging <c>BorderStrong</c>) each frame.</summary>
+    public Entity LeftSplitter => _leftSplitter;
 
     /// <summary>The right strip's left-edge splitter visual — the shell system recolours it (idle
     /// <c>Border</c> / hovered-or-dragging <c>BorderStrong</c>) each frame.</summary>
@@ -102,14 +116,13 @@ public sealed class EditorChromeBuilder
     }
 
     /// <summary>
-    /// The default toolbar contents: the TRANSPORT controls first (left-most — Play/Pause is one
-    /// toggle button whose label <c>ToolbarSystem</c> swaps with the state, sized here for the
-    /// wider "Pause"; Restart rebuilds the scene from the original load), then the editing tools.
+    /// The window top bar's buttons (UX2-B: the thin GLOBAL bar) — the transport relocated to the
+    /// Scene panel header (<see cref="HeaderButtons"/>), leaving the global editing actions: the
+    /// transform tools, Save, Undo/Redo, Snap, the selection-context collider/order actions, the
+    /// boundary tool, and Refresh. (The tools relocate into the Scene header in UX2-C, not now.)
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] DefaultButtons =
     {
-        (EditorToolbarAction.PlayPause, "Pause"),
-        (EditorToolbarAction.Restart, "Restart"),
         (EditorToolbarAction.ToolMove, "Move"),
         (EditorToolbarAction.ToolRotate, "Rotate"),
         (EditorToolbarAction.ToolScale, "Scale"),
@@ -130,23 +143,43 @@ public sealed class EditorChromeBuilder
     };
 
     /// <summary>
+    /// The Scene panel header's buttons (UX2-B: the transport relocated off the window bar) — the
+    /// Play/Pause single toggle (its label <c>ToolbarSystem</c> swaps with the state, sized here for
+    /// the wider "Pause") and Restart. They dispatch in BOTH transport states (<c>IsTransport</c>),
+    /// unlike the window bar's editing actions. Same <c>ToolbarButtonComponent</c>/<c>ToolbarSystem</c>
+    /// machinery — laid out in the header rect, dispatch unchanged.
+    /// </summary>
+    public static readonly (EditorToolbarAction action, string label)[] HeaderButtons =
+    {
+        (EditorToolbarAction.PlayPause, "Pause"),
+        (EditorToolbarAction.Restart, "Restart"),
+    };
+
+    /// <summary>
     /// Builds the chrome entities (three panels + the toolbar buttons) laid out for the given
     /// window size, and returns the button entities in order. Call once; use
     /// <see cref="Relayout"/> for size changes.
     /// </summary>
     public IReadOnlyList<Entity> Build(int screenWidth, int screenHeight,
-        (EditorToolbarAction action, string label)[]? buttons = null)
+        (EditorToolbarAction action, string label)[]? buttons = null,
+        (EditorToolbarAction action, string label)[]? headerButtons = null)
     {
         if (_built) throw new InvalidOperationException("Editor chrome is already built.");
         _built = true;
         _buttons = buttons ?? DefaultButtons;
+        _headerButtons = headerButtons ?? HeaderButtons;
 
         _topBar = CreatePanel(EditorTheme.Bg1);
+        _leftPanel = CreatePanel(EditorTheme.Bg1);
         _rightPanel = CreatePanel(EditorTheme.Bg1);
         _bottomBar = CreatePanel(EditorTheme.Bg1);
+        // The center region's Scene panel header band (UX2-B) — carved out of the game viewport, hosts
+        // the transport now and later the tool cluster / menus / mode toggle / camera button.
+        _sceneHeader = CreatePanel(EditorTheme.Bg1);
 
         // Region splitters (the shell recolours them per hover/drag) and the bottom shelf's single
-        // static "Assets" tab (marks the terrain: the same tab strip as the right strip, one tab).
+        // static "Assets" tab (marks the terrain: the same tab strip as the left strip, one tab).
+        _leftSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
         _rightSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
         _bottomSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
         _bottomTabFill = CreateFill(EditorTheme.Bg1, EditorTheme.Depths.Button); // active = merges into the shelf body
@@ -160,6 +193,16 @@ public sealed class EditorChromeBuilder
             _buttonEntities.Add(CreateButton(action, labelEntity));
         }
 
+        // The Scene-header transport buttons — same ToolbarButtonComponent machinery, so the ONE
+        // ToolbarSystem hit-tests + dispatches them alongside the window-bar buttons (dispatch
+        // unchanged); IsTransport keeps them live in both transport states.
+        foreach (var (action, label) in _headerButtons)
+        {
+            var labelEntity = CreateLabel(label);
+            _headerLabelEntities.Add(labelEntity);
+            _headerButtonEntities.Add(CreateButton(action, labelEntity));
+        }
+
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;
     }
@@ -171,18 +214,25 @@ public sealed class EditorChromeBuilder
     /// backbuffer; see <c>EditorChromeLayout</c>). Idempotent for unchanged inputs.
     /// </summary>
     public void Relayout(int screenWidth, int screenHeight, float scale = 1f,
+        int leftWidthPt = EditorChromeLayout.LeftPanelWidth,
         int rightWidthPt = EditorChromeLayout.RightPanelWidth,
         int bottomHeightPt = EditorChromeLayout.BottomBarHeight)
     {
         if (!_built) throw new InvalidOperationException("Build the editor chrome before Relayout.");
 
+        var leftPanel = EditorChromeLayout.LeftPanel(screenWidth, screenHeight, scale, leftWidthPt, bottomHeightPt);
         var rightPanel = EditorChromeLayout.RightPanel(screenWidth, screenHeight, scale, rightWidthPt, bottomHeightPt);
         var bottomBar = EditorChromeLayout.BottomBar(screenWidth, screenHeight, scale, bottomHeightPt);
+        var sceneHeader = EditorChromeLayout.SceneHeader(screenWidth, screenHeight, scale, leftWidthPt, rightWidthPt);
         PlacePanel(_topBar, EditorChromeLayout.TopBar(screenWidth, scale));
+        PlacePanel(_leftPanel, leftPanel);
         PlacePanel(_rightPanel, rightPanel);
         PlacePanel(_bottomBar, bottomBar);
+        PlacePanel(_sceneHeader, sceneHeader);
 
         // Splitters on the viewport-facing edges (recoloured by the shell each frame).
+        PlacePanel(_leftSplitter,
+            EditorChromeLayout.LeftSplitter(screenWidth, screenHeight, scale, leftWidthPt, bottomHeightPt));
         PlacePanel(_rightSplitter,
             EditorChromeLayout.RightSplitter(screenWidth, screenHeight, scale, rightWidthPt, bottomHeightPt));
         PlacePanel(_bottomSplitter,
@@ -191,35 +241,52 @@ public sealed class EditorChromeBuilder
         // The bottom shelf's static "Assets" tab in its tab strip (below the splitter).
         LayoutBottomTab(bottomBar, scale);
 
-        var widths = new int[_buttons.Length];
-        for (var i = 0; i < _buttons.Length; i++)
-            widths[i] = EditorChromeLayout.ButtonWidth(_measureLabel(_buttons[i].label) * scale, scale);
-        var rects = EditorChromeLayout.ButtonRow(widths, scale);
-
-        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
-        var labelOffsetY = (EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale) - labelHeight) / 2f;
-        for (var i = 0; i < _buttonEntities.Count; i++)
-        {
-            var bounds = rects[i];
-            PlaceEntity(_buttonEntities[i], new Vector2(bounds.X, bounds.Y));
-            ref var button = ref _buttonEntities[i].Get<ToolbarButtonComponent>();
-            button.Bounds = bounds;
-            ref var visual = ref _buttonEntities[i].Get<SimpleButtonComponent>();
-            visual.Size = new Vector2(bounds.Width, bounds.Height);
-            // Label glyphs scale with the DPR: same physical size, denser pixels (see the class
-            // doc's Text choice — at scale 1 this is the historical 1/3 downscale).
-            ref var text = ref _labelEntities[i].Get<DynamicTextComponent>();
-            text.Scale = LabelScale * scale;
-            PlaceEntity(_labelEntities[i],
-                new Vector2(bounds.X + EditorChromeLayout.Px(EditorChromeLayout.ButtonPaddingX, scale),
-                    bounds.Y + labelOffsetY));
-        }
+        // The window top bar's editing buttons, then the Scene header's transport buttons — both
+        // through the same button-row layout (the header anchors inside the carved-out header rect).
+        LayoutButtonRow(_buttonEntities, _labelEntities, _buttons,
+            EditorChromeLayout.ButtonRow(MeasureWidths(_buttons, scale), scale), scale);
+        LayoutButtonRow(_headerButtonEntities, _headerLabelEntities, _headerButtons,
+            EditorChromeLayout.ButtonRowIn(sceneHeader, MeasureWidths(_headerButtons, scale), scale), scale);
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
         LaidOutScale = scale;
+        LaidOutLeftWidthPt = leftWidthPt;
         LaidOutRightWidthPt = rightWidthPt;
         LaidOutBottomHeightPt = bottomHeightPt;
+    }
+
+    /// <summary>Per-button pixel widths for a button set (label width measured + scaled + padded).</summary>
+    private int[] MeasureWidths((EditorToolbarAction action, string label)[] buttons, float scale)
+    {
+        var widths = new int[buttons.Length];
+        for (var i = 0; i < buttons.Length; i++)
+            widths[i] = EditorChromeLayout.ButtonWidth(_measureLabel(buttons[i].label) * scale, scale);
+        return widths;
+    }
+
+    /// <summary>Positions a button set (button visual bounds + label) into the given laid-out rects.</summary>
+    private void LayoutButtonRow(List<Entity> buttonEntities, List<Entity> labelEntities,
+        (EditorToolbarAction action, string label)[] buttons, Rectangle[] rects, float scale)
+    {
+        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
+        var labelOffsetY = (EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale) - labelHeight) / 2f;
+        for (var i = 0; i < buttonEntities.Count && i < rects.Length; i++)
+        {
+            var bounds = rects[i];
+            PlaceEntity(buttonEntities[i], new Vector2(bounds.X, bounds.Y));
+            ref var button = ref buttonEntities[i].Get<ToolbarButtonComponent>();
+            button.Bounds = bounds;
+            ref var visual = ref buttonEntities[i].Get<SimpleButtonComponent>();
+            visual.Size = new Vector2(bounds.Width, bounds.Height);
+            // Label glyphs scale with the DPR: same physical size, denser pixels (see the class
+            // doc's Text choice — at scale 1 this is the historical 1/3 downscale).
+            ref var text = ref labelEntities[i].Get<DynamicTextComponent>();
+            text.Scale = LabelScale * scale;
+            PlaceEntity(labelEntities[i],
+                new Vector2(bounds.X + EditorChromeLayout.Px(EditorChromeLayout.ButtonPaddingX, scale),
+                    bounds.Y + labelOffsetY));
+        }
     }
 
     /// <summary>Positions the bottom shelf's single static "Assets" tab (fill + label + active-accent

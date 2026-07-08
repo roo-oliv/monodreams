@@ -8,18 +8,21 @@ namespace MonoDreams.LevelEditor.UI;
 /// <summary>
 /// Pure layout math for the Blender-style editor shell, all in <b>physical screen pixels</b>
 /// (the chrome renders at native window resolution — see <c>RenderTargetID.Editor</c>). The shell
-/// reserves margins around the game viewport: a top bar (the toolbar), a right panel strip
-/// (the Scene / Systems / Project tabs), and a bottom shelf (the Assets palette). The same numbers
-/// feed two consumers that must never disagree: the chrome entity layout (panels + buttons) and the
-/// <c>ViewportManager.SetViewportInset</c> call that shrinks the game viewport — both derive
-/// from <see cref="ViewportInset"/>, so the panels always exactly cover the reserved margins.
-/// World-free and cursor-free so it is unit-testable like <c>CameraNav</c>/<c>GizmoTransform</c>.
+/// reserves margins around the game viewport: a thin global top bar (the window toolbar), a LEFT
+/// panel strip (the Entities / Systems / Scenes tabs — UX2-B), a right panel (the dedicated
+/// Inspector), a bottom shelf (the Assets palette), and — carved out of the game viewport itself,
+/// below the top bar — the CENTER region's <b>Scene panel header</b> (the transport + future tools).
+/// The same numbers feed two consumers that must never disagree: the chrome entity layout (panels +
+/// buttons) and the <c>ViewportManager.SetViewportInset</c> call that shrinks the game viewport —
+/// both derive from <see cref="ViewportInset"/>, so the panels always exactly cover the reserved
+/// margins and the Scene header sits exactly in the extra top inset it adds. World-free and
+/// cursor-free so it is unit-testable like <c>CameraNav</c>/<c>GizmoTransform</c>.
 ///
-/// <para><b>Runtime-resizable regions (UX-B).</b> The right strip width and bottom shelf height are
-/// no longer fixed constants: the region methods take the current sizes in logical points (from
-/// <c>EditorShellStateComponent</c>). The parameters DEFAULT to <see cref="RightPanelWidth"/> /
-/// <see cref="BottomBarHeight"/>, so every call that omits them (and every pre-UX-B test) is
-/// byte-identical to the old fixed layout.</para>
+/// <para><b>Runtime-resizable regions (UX-B/UX2-B).</b> The LEFT strip width, right strip width and
+/// bottom shelf height are no longer fixed constants: the region methods take the current sizes in
+/// logical points (from <c>EditorShellStateComponent</c>). The parameters DEFAULT to
+/// <see cref="LeftPanelWidth"/> / <see cref="RightPanelWidth"/> / <see cref="BottomBarHeight"/>, so
+/// every call that omits them stays consistent with the shell defaults.</para>
 ///
 /// <para><b>Device-pixel-ratio scaling.</b> The metric constants are authored in LOGICAL points
 /// (a 44-point toolbar). Every layout function takes a <c>scale</c> — the viewport manager's
@@ -47,9 +50,16 @@ public static class EditorChromeLayout
     /// shows the empty strip.</summary>
     public const int BottomBarHeight = 168;
 
-    /// <summary>No left strip today (kept as an explicit 0 so the inset shape is symmetrical). A left
-    /// region is marked terrain (reserved at 0 in <c>EditorShellStateComponent</c>).</summary>
-    public const int LeftPanelWidth = 0;
+    /// <summary>The left panel strip's DEFAULT width, logical points — the runtime width lives in
+    /// <c>EditorShellStateComponent.LeftWidthPt</c> (default = this). The Entities / Systems / Scenes
+    /// tabs' home (UX2-B activated the left region UX-B reserved at 0).</summary>
+    public const int LeftPanelWidth = 240;
+
+    /// <summary>The center region's <b>Scene panel header</b> band height, logical points — carved
+    /// out of the game viewport just below the top bar (so <see cref="ViewportInset"/>'s top margin is
+    /// <see cref="TopBarHeight"/> + this). Hosts the transport (UX2-B) and, in later waves, the tool
+    /// cluster / Entity menu / mode toggle / camera button (the panel-header framework slots).</summary>
+    public const int SceneHeaderHeight = 40;
 
     /// <summary>Toolbar button height, logical points (fits the top bar with breathing room).</summary>
     public const int ButtonHeight = 30;
@@ -81,15 +91,40 @@ public static class EditorChromeLayout
 
     /// <summary>The viewport-inset margins the shell reserves, in screen pixels at
     /// <paramref name="scale"/> — pass to <c>ViewportManager.SetViewportInset(left, top, right,
-    /// bottom)</c>. <paramref name="rightWidthPt"/>/<paramref name="bottomHeightPt"/> default to the
-    /// fixed constants (byte-identical to the pre-UX-B inset).</summary>
+    /// bottom)</c>. The <b>left</b> margin is the (now active) left strip; the <b>top</b> margin is
+    /// the global top bar PLUS the Scene panel header carved out of the game viewport (UX2-B — one
+    /// inset source, so compositing + mouse mapping + <c>OutsideViewport</c> all follow the header for
+    /// free). <paramref name="leftWidthPt"/>/<paramref name="rightWidthPt"/>/<paramref name="bottomHeightPt"/>
+    /// default to the shell constants.</summary>
     public static (int Left, int Top, int Right, int Bottom) ViewportInset(
-        float scale = 1f, int rightWidthPt = RightPanelWidth, int bottomHeightPt = BottomBarHeight) =>
-        (Px(LeftPanelWidth, scale), Px(TopBarHeight, scale), Px(rightWidthPt, scale), Px(bottomHeightPt, scale));
+        float scale = 1f, int leftWidthPt = LeftPanelWidth, int rightWidthPt = RightPanelWidth,
+        int bottomHeightPt = BottomBarHeight) =>
+        (Px(leftWidthPt, scale), Px(TopBarHeight, scale) + Px(SceneHeaderHeight, scale),
+            Px(rightWidthPt, scale), Px(bottomHeightPt, scale));
 
-    /// <summary>The top bar rectangle: full window width, docked at the top.</summary>
+    /// <summary>The top bar rectangle: full window width, docked at the top (the thin global bar).</summary>
     public static Rectangle TopBar(int screenWidth, float scale = 1f) =>
         new(0, 0, Math.Max(1, screenWidth), Px(TopBarHeight, scale));
+
+    /// <summary>The LEFT panel strip: between the top bar and the bottom shelf, docked left (the
+    /// Entities / Systems / Scenes tabs' home). <paramref name="leftWidthPt"/>/<paramref name="bottomHeightPt"/>
+    /// default to the shell constants.</summary>
+    public static Rectangle LeftPanel(int screenWidth, int screenHeight, float scale = 1f,
+        int leftWidthPt = LeftPanelWidth, int bottomHeightPt = BottomBarHeight) => new(
+        0,
+        Px(TopBarHeight, scale),
+        Px(leftWidthPt, scale),
+        Math.Max(1, screenHeight - Px(TopBarHeight, scale) - Px(bottomHeightPt, scale)));
+
+    /// <summary>The center region's <b>Scene panel header</b> band: docked below the top bar, between
+    /// the left and right strips, <see cref="SceneHeaderHeight"/> tall — the extra top inset the
+    /// viewport gives up. Hosts the transport (UX2-B) and later header controls.</summary>
+    public static Rectangle SceneHeader(int screenWidth, int screenHeight, float scale = 1f,
+        int leftWidthPt = LeftPanelWidth, int rightWidthPt = RightPanelWidth) => new(
+        Px(leftWidthPt, scale),
+        Px(TopBarHeight, scale),
+        Math.Max(1, screenWidth - Px(leftWidthPt, scale) - Px(rightWidthPt, scale)),
+        Px(SceneHeaderHeight, scale));
 
     /// <summary>The right panel strip: between the top bar and the bottom shelf, docked right.
     /// <paramref name="rightWidthPt"/>/<paramref name="bottomHeightPt"/> default to the fixed
@@ -152,6 +187,17 @@ public static class EditorChromeLayout
 
     // ── Splitters (on the viewport-facing edge of each resizable region) ─────────────────────────
 
+    /// <summary>The left strip's splitter drag zone — a thin vertical band on the strip's
+    /// <b>right</b> (viewport-facing) edge, inside the reserved left margin (so a drag there is
+    /// <c>OutsideViewport</c> and never a game click).</summary>
+    public static Rectangle LeftSplitter(int screenWidth, int screenHeight, float scale = 1f,
+        int leftWidthPt = LeftPanelWidth, int bottomHeightPt = BottomBarHeight)
+    {
+        var panel = LeftPanel(screenWidth, screenHeight, scale, leftWidthPt, bottomHeightPt);
+        var t = Px(SplitterThickness, scale);
+        return new Rectangle(panel.Right - t, panel.Y, t, panel.Height);
+    }
+
     /// <summary>The right strip's splitter drag zone — a thin vertical band on the strip's
     /// <b>left</b> (viewport-facing) edge, inside the reserved margin (so a drag there is
     /// <c>OutsideViewport</c> and never a game click) and clear of the row content (which starts past
@@ -178,16 +224,17 @@ public static class EditorChromeLayout
         (int)MathF.Ceiling(labelWidth) + Px(ButtonPaddingX, scale) * 2;
 
     /// <summary>
-    /// Lays the toolbar buttons out left-to-right inside the top bar, vertically centered.
-    /// Returns one rectangle per entry of <paramref name="buttonWidths"/>, in order.
+    /// Lays a button row out left-to-right inside a bar rectangle, vertically centered, starting past
+    /// the left row margin. Returns one rectangle per entry of <paramref name="buttonWidths"/>, in
+    /// order. Used by both the window top bar and the Scene panel header (UX2-B transport).
     /// </summary>
-    public static Rectangle[] ButtonRow(IReadOnlyList<int> buttonWidths, float scale = 1f)
+    public static Rectangle[] ButtonRowIn(Rectangle bar, IReadOnlyList<int> buttonWidths, float scale = 1f)
     {
         var rects = new Rectangle[buttonWidths.Count];
         var height = Px(ButtonHeight, scale);
         var gap = Px(ButtonGap, scale);
-        var x = Px(RowMarginX, scale);
-        var y = (Px(TopBarHeight, scale) - height) / 2;
+        var x = bar.X + Px(RowMarginX, scale);
+        var y = bar.Y + (bar.Height - height) / 2;
         for (var i = 0; i < buttonWidths.Count; i++)
         {
             rects[i] = new Rectangle(x, y, buttonWidths[i], height);
@@ -195,4 +242,11 @@ public static class EditorChromeLayout
         }
         return rects;
     }
+
+    /// <summary>
+    /// Lays the window top bar's buttons out left-to-right, vertically centered. A thin wrapper over
+    /// <see cref="ButtonRowIn"/> anchored at the top-bar origin — byte-identical to the pre-UX2-B row.
+    /// </summary>
+    public static Rectangle[] ButtonRow(IReadOnlyList<int> buttonWidths, float scale = 1f) =>
+        ButtonRowIn(new Rectangle(0, 0, 1, Px(TopBarHeight, scale)), buttonWidths, scale);
 }
