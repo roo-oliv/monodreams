@@ -1,7 +1,8 @@
 #nullable enable
 using System.Globalization;
-using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Transform;
+using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.UI;
 
@@ -16,9 +17,12 @@ namespace MonoDreams.LevelEditor.UI;
 /// the contextual status (<see cref="LeftStatus"/>): the selected entity's name (or "No selection")
 /// and the scene-entity count.</para>
 ///
-/// <para><b>Right.</b> The scene id and the view mode (<see cref="Right"/>). The dirty marker is a
-/// <see cref="EditorTheme.Warning"/>-colored dot the system draws as a MESH (the bitmap font has no
-/// bullet glyph), gated on the injected dirty state — it is not part of these strings.</para>
+/// <para><b>Right (PF-B).</b> The ACTIVE viewport tab's id and — on the Game tab — its transport state
+/// (<see cref="Right"/>): <c>island</c> on the Scene tab, <c>island | Playing</c> / <c>island | Paused</c>
+/// on the Game tab (the run state replaces the retired "Scene mode" / "Game mode" words — the tab strip
+/// now shows which context is active). The dirty marker is a <see cref="EditorTheme.Warning"/>-colored dot
+/// the system draws as a MESH (the bitmap font has no bullet glyph), gated on the injected dirty state — it
+/// is not part of these strings.</para>
 ///
 /// <para><b>ASCII only.</b> The chrome's bitmap font (PPMondwest) has no <c>Δ</c> / <c>×</c> / <c>°</c> /
 /// <c>·</c> / <c>●</c> glyphs, so the readout uses <c>dX</c>/<c>dY</c>, <c>x</c> for the scale factor,
@@ -28,10 +32,6 @@ public static class StatusBarModel
 {
     /// <summary>The confirm/cancel hint that tails every modal readout.</summary>
     public const string ConfirmHint = "LMB/Enter confirm | RMB/Esc cancel";
-
-    /// <summary>The view-mode label shown on the right (matches the header toggle's segment labels).</summary>
-    public static string ModeLabel(EditorViewMode mode) =>
-        mode == EditorViewMode.Game ? "Game mode" : "Scene mode";
 
     /// <summary>
     /// The left readout while a modal transform is active. Format:
@@ -82,10 +82,15 @@ public static class StatusBarModel
         return $"{name}  |  {entityCount} {noun}";
     }
 
-    /// <summary>The right side: the scene id and the current view mode. The dirty dot (a Warning mesh)
+    /// <summary>The right side (PF-B): the ACTIVE viewport tab's id, plus its transport state on the
+    /// <see cref="ViewportContextKind.Game"/> tab (<c>Playing</c> / <c>Paused</c>). The Scene tab (and a
+    /// future Prefab tab, which never plays) show the id alone — the tab strip already names the active
+    /// context, so the run state is only meaningful for the Game sandbox. The dirty dot (a Warning mesh)
     /// is drawn separately by the system, gated on the injected dirty state.</summary>
-    public static string Right(string sceneId, EditorViewMode mode) =>
-        $"{sceneId}  |  {ModeLabel(mode)}";
+    public static string Right(string tabId, ViewportContextKind activeKind, RunMode runMode) =>
+        activeKind == ViewportContextKind.Game
+            ? $"{tabId}  |  {(runMode == RunMode.Play ? "Playing" : "Paused")}"
+            : tabId;
 
     private static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
 }

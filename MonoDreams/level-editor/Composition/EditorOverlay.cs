@@ -187,7 +187,10 @@ public sealed class EditorOverlay
         shellStateEntity.Set(new EditorInfrastructureComponent());
         shellStateEntity.Set(_shellState);
 
-        Transport = new EditorTransport(world, History);
+        // The transport owns RunMode AND drives the ViewportContextStack (PF-B — the ONE tab-switching
+        // mechanism). It is handed the shared shell state (so the stack rewrites the tab-strip descriptors
+        // the tab-strip system reads) and the current scene id (the Scene tab's id).
+        Transport = new EditorTransport(world, History, _shellState, _sceneId);
 
         // The camera rig (UX2-E): the authored game-camera state as a standalone entity, split from the
         // free editor VIEW (the shared Camera CameraNavSystem drives). It re-syncs from scene.camera on
@@ -196,8 +199,11 @@ public sealed class EditorOverlay
         // is ready for the first load.
         // UX3-D: the "Camera" overlay toggle + the Game-mode sandbox gate the frustum glyph. Transport
         // is already constructed above; the lambda reads both at emit time.
+        // PF-B: the rig glyph is SCENE-CONTEXT-ONLY (the obvious PF-D seam — a prefab context has no rig,
+        // so its glyph must not show either). For PF-B (Scene / Game only) this equals "hidden while the
+        // Game tab is active".
         _cameraRig = new EditorCameraRig(world, camera, viewportManager,
-            glyphVisible: () => Settings.ShowCameraGlyph && Transport.ViewMode != EditorViewMode.Game);
+            glyphVisible: () => Settings.ShowCameraGlyph && Transport.ActiveContextKind == ViewportContextKind.Scene);
 
         // The file-asset texture loader is always composed (a loaded scene can carry file: keys
         // whether or not this screen shows a palette); textures load lazily, and a missing file
@@ -233,7 +239,7 @@ public sealed class EditorOverlay
         // UX3-D gates: the Game-mode sandbox hides ALL gizmo overlays; "Outline Selected" (off) hides
         // only the selection outline (selection unaffected).
         var gizmo = new GizmoSystem(world, camera, History, viewportManager,
-            viewportOverlaysVisible: () => Transport.ViewMode != EditorViewMode.Game,
+            viewportOverlaysVisible: () => Transport.ActiveContextKind != ViewportContextKind.Game,
             selectionOutlineVisible: () => Settings.OutlineSelected);
         var proxySync = new ProxySyncSystem(world, camera, viewportManager);
         Gizmo = gizmo;
@@ -258,7 +264,7 @@ public sealed class EditorOverlay
         // (GizmoStateComponent.GridStep), hidden outside Edit / when off / in the Game-mode sandbox.
         var grid = new EditorGrid(world, camera, viewportManager,
             spacing: () => GridSpacing,
-            visible: () => Settings.ShowGrid && Transport.ViewMode != EditorViewMode.Game);
+            visible: () => Settings.ShowGrid && Transport.ActiveContextKind != ViewportContextKind.Game);
         OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraRig, grid);
         _cameraNav = new CameraNavSystem(world, camera);
         CameraNav = _cameraNav;
@@ -303,16 +309,23 @@ public sealed class EditorOverlay
         // toolbar's transport rule (editing buttons dim while Playing).
         ToolbarClicks = new ToolbarSystem(world, DispatchToolbarAction,
             (action, state) => action == EditorToolbarAction.Save
-                               && SaveBlock(state, _projectContext, Transport.ViewMode)
+                               && SaveBlock(state, _projectContext, Transport.ActiveContextKind)
                                    is SaveBlockReason.NoProjectRoot or SaveBlockReason.GameMode,
-            viewMode: () => Transport.ViewMode,
-            viewportManager: viewportManager,
             // A shell splitter/scrollbar drag that happens to release over the toolbar must not also
             // fire the button (the drag holds the shared token through its release edge).
             isInputSuppressed: () => _shellState.IsDragging);
         // The ONE pooled hover tooltip for the icon buttons (UX2-C) — reads the per-button hover clock
         // ToolbarClicks advances, so it weaves right AFTER ToolbarClicks in the editor.toolbar group.
         Tooltip = new EditorTooltipSystem(world, viewportManager, toolbarFont);
+        // PF-B: the viewport tab strip ([Scene] [▶ Game ×]) at the Scene header's start — replaces the
+        // retired Scene/Game mode toggle. Descriptor-driven from the shell state the ViewportContextStack
+        // writes; clicks route to the transport (SwitchToTab / the dirty-gated CloseTab) by slot. Live in
+        // both transport states (leaving the Game tab must work while Playing) and suppressed during a
+        // shell drag (a drag releasing over a tab must not fire it).
+        ViewportTabs = new ViewportTabStripSystem(world, viewportManager, toolbarFont, _shellState,
+            switchToTab: (index, state) => Transport.SwitchToTab(index, state),
+            closeTab: (index, state) => Transport.CloseTab(index, state),
+            isInputSuppressed: () => _shellState.IsDragging);
         // The two editor panels (UX2-B) share ONE collapse/expand state component (ECS purity: the
         // state lives once, both panels read/write their own fields). On an editor-infra entity so it
         // is discoverable + survives a transport Restart.
@@ -330,9 +343,9 @@ public sealed class EditorOverlay
             // UX-C: the Scenes tab's list + the dirty-gated switch, both bound late (BindSceneCatalog).
             sceneCatalog: BuildCatalog,
             selectScene: SelectScene,
-            // UX2-F: in Game mode the dirty ● reflects the SNAPSHOT's captured dirty state, not the
-            // sandbox churn (the sandbox is discarded on exit, so its edits never count as unsaved work).
-            isDirty: () => Transport.ViewMode == EditorViewMode.Game
+            // PF-B: while the Game tab is active the dirty ● reflects the SNAPSHOT's captured dirty state,
+            // not the sandbox churn (the sandbox is discarded on leave, so its edits never count as unsaved).
+            isDirty: () => Transport.ActiveContextKind == ViewportContextKind.Game
                 ? Transport.SnapshotWasDirty
                 : History.IsDirty,
             role: EditorPanelRole.LeftTabs,
@@ -411,10 +424,10 @@ public sealed class EditorOverlay
         StatusBar = new EditorStatusBarSystem(
             world, viewportManager, toolbarFont, _modal,
             sceneId: () => _sceneId,
-            isDirty: () => Transport.ViewMode == EditorViewMode.Game
+            isDirty: () => Transport.ActiveContextKind == ViewportContextKind.Game
                 ? Transport.SnapshotWasDirty
                 : History.IsDirty,
-            viewMode: () => Transport.ViewMode);
+            activeKind: () => Transport.ActiveContextKind);
         // The viewport right-click (SelectionSystem, SelectTransform + a hit) opens the entity menu at
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
@@ -595,6 +608,12 @@ public sealed class EditorOverlay
     /// <see cref="ToolbarClicks"/>, whose per-button hover clock it reads), <c>RunNormally</c>.</summary>
     public ISystem<GameState> Tooltip { get; }
 
+    /// <summary>The viewport tab strip (PF-B): <c>[Scene] [▶ Game ×]</c> at the Scene header's start (the
+    /// retired Scene/Game mode toggle's replacement). Weave in the <c>editor.toolbar</c> group alongside
+    /// <see cref="ToolbarClicks"/> (order-independent — its tab bounds never overlap the transport row),
+    /// <c>RunNormally</c> (live in both transport states — leaving the Game tab must work while Playing).</summary>
+    public ISystem<GameState> ViewportTabs { get; }
+
     // The concrete panels: the headless panel:* ops drive their section/group/tree/inspector toggles
     // directly (like _editorCommands for the selection-edit ops).
     private readonly EditorPanelSystem _leftPanel;
@@ -734,7 +753,9 @@ public sealed class EditorOverlay
     /// </summary>
     public void SetSceneId(string? sceneId)
     {
-        if (!string.IsNullOrWhiteSpace(sceneId)) _sceneId = sceneId!;
+        if (string.IsNullOrWhiteSpace(sceneId)) return;
+        _sceneId = sceneId!;
+        Transport.SetSceneId(_sceneId); // keep the Scene tab's context id in step (PF-B)
     }
 
     /// <summary>
@@ -800,10 +821,10 @@ public sealed class EditorOverlay
     /// </summary>
     public void SelectScene(SceneCatalogEntry entry, GameState state)
     {
-        // UX2-F: a switch while in the Game-mode sandbox EXITS Game mode first (full snapshot restore),
-        // so the normal dirty gate below runs on the RESTORED real scene — not on sandbox churn. One
-        // gate flavor, no bypass (design §5 item 7).
-        if (Transport.ViewMode == EditorViewMode.Game) Transport.ExitToSceneMode(state);
+        // PF-B: a scene switch while the Game tab is active LEAVES the Game tab first (full snapshot
+        // restore), so the normal dirty gate below runs on the RESTORED real scene — not on sandbox churn.
+        // One gate flavor, no bypass.
+        if (Transport.ActiveContextKind == ViewportContextKind.Game) Transport.ExitToSceneMode(state);
 
         switch (SceneCatalog.DecideSwitch(entry, History.IsDirty))
         {
@@ -1137,7 +1158,7 @@ public sealed class EditorOverlay
     /// </summary>
     public void SaveBackupAs(string backupName, GameState state)
     {
-        switch (SaveBlock(state, _projectContext, Transport.ViewMode))
+        switch (SaveBlock(state, _projectContext, Transport.ActiveContextKind))
         {
             case SaveBlockReason.Playing:
                 Logger.Warning(
@@ -1239,7 +1260,7 @@ public sealed class EditorOverlay
                 // actionable cause and do NOT open (the toolbar already dims/deactivates the button for
                 // either cause; this closes the headless/dispatch path). The confirm re-checks
                 // (SaveCurrentScene) as defense-in-depth.
-                switch (SaveBlock(state, _projectContext, Transport.ViewMode))
+                switch (SaveBlock(state, _projectContext, Transport.ActiveContextKind))
                 {
                     case SaveBlockReason.Playing:
                         Logger.Warning(
@@ -1288,13 +1309,8 @@ public sealed class EditorOverlay
             // The Scene-header nav-corner button (UX2-E): snap the free VIEW onto the authored camera rig
             // (Camera := rig). An editing action — the toolbar dims/suppresses it while Playing.
             case EditorToolbarAction.CameraView: _cameraRig.SnapViewToRig(); break;
-            // The [Scene mode | Game mode] toggle (UX2-F / UX3-A). Dispatches in BOTH transport states.
-            // Scene: exit the sandbox to Scene mode (lands Paused). Game: enter the Game sandbox AND
-            // auto-play (UX3-A ask 2) — Transport.Play reuses the exact Play-in-Scene-mode composition
-            // (snapshot/capture in EnterGameMode BEFORE RunMode flips to Play — pre-mortem #7), so
-            // "switch to Game mode" both enters the sandbox and starts the game in one action.
-            case EditorToolbarAction.ModeScene: Transport.ExitToSceneMode(state); break;
-            case EditorToolbarAction.ModeGame: Transport.Play(state); break;
+            // (PF-B: the [Scene | Game] mode toggle retired — the viewport tab strip + the Play transport
+            // button drive Scene/Game now; see the viewport-tab ops mode:/tab: in DispatchNamedAction.)
         }
     }
 
@@ -1308,7 +1324,7 @@ public sealed class EditorOverlay
     /// </summary>
     private void SaveCurrentSceneTo(string target, GameState state)
     {
-        switch (SaveBlock(state, _projectContext, Transport.ViewMode))
+        switch (SaveBlock(state, _projectContext, Transport.ActiveContextKind))
         {
             case SaveBlockReason.Playing:
                 Logger.Warning(
@@ -1454,26 +1470,27 @@ public sealed class EditorOverlay
 
     /// <summary>
     /// The save guard's distinguishable reasons: Save dispatches only while the transport is Paused
-    /// (<see cref="RunMode.Edit"/>), in <see cref="EditorViewMode.Scene"/>, AND the project root is
-    /// resolved. Pure — named by the save-guard premise and its test. The causes are reported
+    /// (<see cref="RunMode.Edit"/>), on the <see cref="ViewportContextKind.Scene"/> tab, AND the project
+    /// root is resolved. Pure — named by the save-guard premise and its test. The causes are reported
     /// separately so the toolbar/log can tell the user WHY Save is off. Precedence:
     /// <see cref="SaveBlockReason.Playing"/> (checked first) → <see cref="SaveBlockReason.GameMode"/>
-    /// (UX2-F) → <see cref="SaveBlockReason.NoProjectRoot"/>. <paramref name="viewMode"/> defaults to
-    /// <see cref="EditorViewMode.Scene"/> so a Scene-mode call reads exactly as before UX2-F.
+    /// (the Game tab is active) → <see cref="SaveBlockReason.NoProjectRoot"/>. <paramref name="activeKind"/>
+    /// defaults to <see cref="ViewportContextKind.Scene"/> so a Scene-tab call reads exactly as a
+    /// Scene-mode call did before PF-B.
     /// </summary>
     public static SaveBlockReason SaveBlock(GameState state, EditorProjectContext? projectContext,
-        EditorViewMode viewMode = EditorViewMode.Scene)
+        ViewportContextKind activeKind = ViewportContextKind.Scene)
     {
         if (state.RunMode == RunMode.Play) return SaveBlockReason.Playing;
-        if (viewMode == EditorViewMode.Game) return SaveBlockReason.GameMode;
+        if (activeKind == ViewportContextKind.Game) return SaveBlockReason.GameMode;
         if (projectContext is not { Resolved: true }) return SaveBlockReason.NoProjectRoot;
         return SaveBlockReason.None;
     }
 
     /// <summary>Whether Save is blocked for any reason (see <see cref="SaveBlock"/>).</summary>
     public static bool IsSaveBlocked(GameState state, EditorProjectContext? projectContext,
-        EditorViewMode viewMode = EditorViewMode.Scene) =>
-        SaveBlock(state, projectContext, viewMode) != SaveBlockReason.None;
+        ViewportContextKind activeKind = ViewportContextKind.Scene) =>
+        SaveBlock(state, projectContext, activeKind) != SaveBlockReason.None;
 
     /// <summary>
     /// The scene id the editor holds: an explicit <paramref name="sceneId"/> wins; otherwise the
@@ -1541,6 +1558,7 @@ public sealed class EditorOverlay
         const string menuPrefix = "menu:";
         const string viewPrefix = "view:";
         const string modePrefix = "mode:";
+        const string tabPrefix = "tab:";
         const string modalPrefix = "modal:";
         const string inspectorPrefix = "inspector:";
         const string overlayPrefix = ViewportOverlayOps.OpPrefix;
@@ -1589,16 +1607,23 @@ public sealed class EditorOverlay
             return;
         }
 
+        if (name.StartsWith(tabPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // tab:scene | tab:game | tab:close <id> — the viewport tab strip's headless twin (PF-B). The
+            // dirty-close gate lives in Transport.CloseTab, identically to the tab's × click.
+            DispatchViewportTabOp(name.Substring(tabPrefix.Length), name, state);
+            return;
+        }
+
         if (name.StartsWith(modePrefix, StringComparison.OrdinalIgnoreCase))
         {
-            // mode:scene | mode:game — the [Scene | Game] view-mode toggle (UX2-F), the headless twin of
-            // the header segments. Routes through the SAME DispatchToolbarAction paths (Transport.Exit /
-            // Enter), each a no-op when already in that mode.
+            // mode:scene | mode:game — the retired [Scene | Game] mode toggle's ops, kept as tab aliases
+            // (the headless suite keeps passing). They forward to the SAME tab ops: mode:scene =
+            // tab:scene (leave the Game tab → Scene), mode:game = tab:game (spawn the Game tab + play).
             var verb = name.Substring(modePrefix.Length).Trim();
-            if (string.Equals(verb, "scene", StringComparison.OrdinalIgnoreCase))
-                DispatchToolbarAction(EditorToolbarAction.ModeScene, state);
-            else if (string.Equals(verb, "game", StringComparison.OrdinalIgnoreCase))
-                DispatchToolbarAction(EditorToolbarAction.ModeGame, state);
+            if (string.Equals(verb, "scene", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(verb, "game", StringComparison.OrdinalIgnoreCase))
+                DispatchViewportTabOp(verb, name, state);
             else
                 Logger.Warning($"[level-editor] Editor-op '{name}': expected mode:scene or mode:game.");
             return;
@@ -1880,6 +1905,35 @@ public sealed class EditorOverlay
             default:
                 Logger.Warning(
                     $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity|overlays|add>.");
+                break;
+        }
+    }
+
+    /// <summary>The <c>tab:*</c> / <c>mode:*</c> viewport-tab ops (PF-B): <c>tab:game</c> (= <c>mode:game</c>)
+    /// spawns + activates the Game tab and auto-plays (<see cref="EditorTransport.Play"/> — the SAME
+    /// composition the Play button uses); <c>tab:scene</c> (= <c>mode:scene</c>) leaves the Game tab back
+    /// to the Scene tab (<see cref="EditorTransport.ExitToSceneMode"/>); <c>tab:close &lt;id&gt;</c> closes
+    /// the named tab through the dirty-close gate (<see cref="EditorTransport.CloseTab"/> — the × click's
+    /// headless twin). All route through the transport, so RunMode + the stack stay one owner.</summary>
+    private void DispatchViewportTabOp(string rest, string name, GameState state)
+    {
+        rest = rest.Trim();
+        var space = rest.IndexOf(' ');
+        var verb = (space < 0 ? rest : rest.Substring(0, space)).Trim();
+        var arg = space < 0 ? string.Empty : rest.Substring(space + 1).Trim();
+        switch (verb.ToLowerInvariant())
+        {
+            case "scene": Transport.ExitToSceneMode(state); break;
+            case "game": Transport.Play(state); break;
+            case "close":
+                var index = Transport.ContextStack.IndexOfId(arg);
+                if (index >= 0) Transport.CloseTab(index, state);
+                else Logger.Warning($"[level-editor] Editor-op '{name}': no viewport tab '{arg}' to close.");
+                break;
+            default:
+                Logger.Warning(
+                    $"[level-editor] Editor-op '{name}': expected tab:scene | tab:game | tab:close <id> " +
+                    "(or the mode:scene / mode:game aliases).");
                 break;
         }
     }

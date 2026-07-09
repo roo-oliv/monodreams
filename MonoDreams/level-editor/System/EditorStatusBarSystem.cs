@@ -44,7 +44,7 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
     private readonly ModalTransformSystem _modal;
     private readonly Func<string> _sceneId;
     private readonly Func<bool> _isDirty;
-    private readonly Func<EditorViewMode> _viewMode;
+    private readonly Func<ViewportContextKind> _activeKind;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _entitySet;
 
@@ -57,8 +57,9 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
     /// <see cref="ModalTransformSystem.Readout"/> drive the left readout.</param>
     /// <param name="sceneId">The current scene id (right side).</param>
     /// <param name="isDirty">Whether there are unsaved edits (the dirty dot) — the SAME source the Scenes
-    /// panel reads (the Game-mode snapshot dirty state while sandboxed, else the history).</param>
-    /// <param name="viewMode">The current Scene/Game view mode (right side).</param>
+    /// panel reads (the Game-tab snapshot dirty state while it is active, else the history).</param>
+    /// <param name="activeKind">The active viewport tab's kind (PF-B) — the right side shows the tab id,
+    /// plus Playing/Paused on the Game tab.</param>
     public EditorStatusBarSystem(
         World world,
         ViewportManager viewportManager,
@@ -66,7 +67,7 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
         ModalTransformSystem modal,
         Func<string> sceneId,
         Func<bool> isDirty,
-        Func<EditorViewMode> viewMode)
+        Func<ViewportContextKind> activeKind)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
@@ -74,7 +75,7 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
         _sceneId = sceneId ?? throw new ArgumentNullException(nameof(sceneId));
         _isDirty = isDirty ?? throw new ArgumentNullException(nameof(isDirty));
-        _viewMode = viewMode ?? throw new ArgumentNullException(nameof(viewMode));
+        _activeKind = activeKind ?? throw new ArgumentNullException(nameof(activeKind));
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         // "Entity count" = the editable, non-infra spatial entities (what the Entities tree pools).
         _entitySet = world.GetEntities().With<TransformComponent>().Without<EditorInfrastructureComponent>().AsSet();
@@ -97,8 +98,9 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
             : StatusBarModel.LeftStatus(SelectedName(), CountEntities());
         PlaceLabel(_leftLabel, new Vector2(bar.X + pad, y), leftText, EditorTheme.Text1, scale);
 
-        // ── Right: the scene id + mode, right-aligned; the dirty dot sits just left of it.
-        var rightText = StatusBarModel.Right(_sceneId(), _viewMode());
+        // ── Right: the active tab id (+ Playing/Paused on the Game tab), right-aligned; the dirty dot
+        // sits just left of it.
+        var rightText = StatusBarModel.Right(_sceneId(), _activeKind(), state.RunMode);
         var rightWidth = MeasureLabel(rightText) * scale;
         var rightX = bar.Right - pad - rightWidth;
         PlaceLabel(_rightLabel, new Vector2(rightX, y), rightText, EditorTheme.Text1, scale);

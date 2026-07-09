@@ -13,11 +13,12 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.Composition;
 
 /// <summary>
-/// The editor's <b>transport</b>: the one owner of <see cref="GameState.RunMode"/> — and, since
-/// UX2-F, of the <see cref="ViewMode"/> (<see cref="EditorViewMode.Scene"/> /
-/// <see cref="EditorViewMode.Game"/>) — under the editor run configuration. ONE owner for both.
-/// With the editor composed, the shell and chrome are ALWAYS visible — no key
-/// toggles the editor away — and the designer drives the game like a media player:
+/// The editor's <b>transport</b>: the one owner of <see cref="GameState.RunMode"/> under the editor run
+/// configuration, and the DRIVER of the <see cref="ViewportContextStack"/> (PF-B — the ONE
+/// context-switching mechanism; the transport keeps ONE owner of the live RunMode and drives the stack
+/// for the tab lifecycle, rather than holding a parallel Game-mode snapshot path). With the editor
+/// composed, the shell and chrome are ALWAYS visible — no key toggles the editor away — and the designer
+/// drives the game like a media player:
 ///
 /// <list type="bullet">
 ///   <item><b>Paused</b> = <see cref="RunMode.Edit"/> — the game logic is Freeze-gated (holds
@@ -26,14 +27,24 @@ namespace MonoDreams.LevelEditor.Composition;
 ///   the shell stays composed (transport + systems panel remain interactive), and the editing
 ///   tools are inert: a click in the viewport belongs to the game while playing.</item>
 ///   <item><b>Restart</b> — return the world to the state of the ORIGINAL load: clear the undo
-///   history (its entries reference entities about to die), remove the world-level level
-///   components (<see cref="CurrentLevelComponent"/> / <see cref="CurrentBackgroundColorComponent"/> —
+///   history (its entries reference entities about to die), <see cref="ViewportContextStack.ResetToScene"/>
+///   (drop any Game tab, land on the Scene tab, forget the in-memory snapshot), remove the world-level
+///   level components (<see cref="CurrentLevelComponent"/> / <see cref="CurrentBackgroundColorComponent"/> —
 ///   the LDtk parsers subscribe to the component <i>added</i> event, so a re-publish over a
 ///   still-set component would never re-parse), dispose every scene entity, re-run the screen's
-///   recorded <see cref="Reload"/>, and land <b>Paused</b> (also when restarted mid-Play — the
-///   predictable state to hand back to the designer). <b>Unsaved live edits are DISCARDED</b> —
-///   the standard play-mode trade-off; Save first if you want to keep them.</item>
+///   recorded <see cref="Reload"/>, and land <b>Paused</b> (also when restarted mid-Play). <b>Unsaved live
+///   edits are DISCARDED</b> — the standard play-mode trade-off; Save first if you want to keep them.</item>
 /// </list>
+///
+/// <para><b>The Scene / Game tabs (PF-B).</b> The Scene/Game mode toggle is retired; the viewport is a
+/// tab strip driven by the <see cref="ContextStack"/>. <b>Play from the Scene tab spawns (or resumes) the
+/// Game tab</b>: <see cref="Play"/> in the Scene context calls <see cref="EnterGameMode"/> — which
+/// snapshots the Scene context BEFORE the RunMode flip (pre-mortem #7), adopts the game-camera view, and
+/// pushes a discard Game tab keeping the live world as the sandbox — then flips RunMode to Play.
+/// <b>Leaving the Game tab</b> (<see cref="ExitToSceneMode"/> / its <c>×</c> / a scene switch) discards the
+/// sandbox and restores the Scene context (the Game tab disappears — it never persists in the background),
+/// landing Paused. <see cref="ActiveContextKind"/> (the active tab's kind) supersedes the retired
+/// <c>ViewMode</c> as the ONE mode signal.</para>
 ///
 /// <para><b>The restart boundary.</b> The engine has no entity↔level association, so the boundary
 /// is exclusion by editor markers: an entity survives the sweep when it carries
@@ -44,13 +55,8 @@ namespace MonoDreams.LevelEditor.Composition;
 /// (screen infrastructure a system created at construction and caches by reference, e.g. the
 /// dialogue UI root) — keeps propagate DOWN the <see cref="ChildOfComponent"/> chain, so naming a
 /// root keeps its sub-graph. Everything else is scene content and is disposed; the
-/// <see cref="Reload"/> re-creates it from the original load request.</para>
-///
-/// <para><b>The screen records what it loaded.</b> <see cref="Reload"/> is the screen-registered
-/// "re-publish my original load request" callback (e.g.
-/// <c>() =&gt; world.Publish(new LoadLevelRequest(levelId))</c>, or re-running the menu's UI
-/// builder). Without it a Restart is a loud no-op — tearing the world down with no way to rebuild
-/// it would strand the designer on a blank screen.</para>
+/// <see cref="Reload"/> re-creates it from the original load request. The SAME sweep
+/// (<see cref="DisposeSceneEntities"/>) is what the <see cref="ContextStack"/> runs on every tab switch.</para>
 ///
 /// <para>Not a per-frame system: transport actions are event-driven (a toolbar click, a headless
 /// <c>Play</c>/<c>Pause</c>/<c>Restart</c> op), so this is plain composition infrastructure like
@@ -63,11 +69,25 @@ public sealed class EditorTransport
 
     private readonly World _world;
     private readonly EditorHistory _history;
+    private readonly ViewportContextStack _stack;
 
-    public EditorTransport(World world, EditorHistory history)
+    /// <summary>Optional seam the transport routes a dirty prefab tab's <c>×</c> through (pre-mortem #9 —
+    /// the Save &amp; Close / Discard / Cancel confirm). Wired by the overlay in PF-D; NEVER invoked in
+    /// PF-B (no dirty closable non-discard context exists). Its argument is the tab index to close.</summary>
+    public Action<int, GameState>? ConfirmDirtyClose { get; set; }
+
+    public EditorTransport(World world, EditorHistory history,
+        EditorShellStateComponent? shellState = null, string? sceneId = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _history = history ?? throw new ArgumentNullException(nameof(history));
+        // The ONE context-switching mechanism (PF-B). The sweep it runs on every switch is THIS transport's
+        // survivor-sparing sweep, so tab switches and Restart share the exact same teardown boundary.
+        _stack = new ViewportContextStack(history, shellState ?? new EditorShellStateComponent(),
+            sceneId ?? EditorOverlay.DefaultSceneId)
+        {
+            SweepSceneEntities = DisposeSceneEntities,
+        };
     }
 
     /// <summary>The screen's "re-publish my original load request" callback — set it in the
@@ -80,59 +100,62 @@ public sealed class EditorTransport
     /// descendants too.</summary>
     public Func<Entity, bool>? KeepAlive { get; set; }
 
-    // ─── Scene / Game view mode (UX2-F) — the transport is the ONE owner of both RunMode and ViewMode ───
+    // ─── The viewport context stack (PF-B) — the transport drives it, the seams forward to it ───────
 
-    /// <summary>
-    /// The editor's view mode (UX2-F), owned here alongside <see cref="GameState.RunMode"/> — ONE
-    /// owner for both. <see cref="EditorViewMode.Scene"/> (default): the free editor view edits the
-    /// REAL scene. <see cref="EditorViewMode.Game"/>: a Unity-style sandbox — the viewport looks
-    /// through the game camera, edits are allowed while Paused "just to test", and are DISCARDED on
-    /// exit (restored from the in-memory snapshot). Save is blocked in Game mode.
-    /// </summary>
-    public EditorViewMode ViewMode { get; private set; } = EditorViewMode.Scene;
+    /// <summary>The viewport context stack this transport drives (the ONE tab-switching mechanism).
+    /// Exposed so the overlay can wire the tab-strip system + read the active context, and for tests.</summary>
+    public ViewportContextStack ContextStack => _stack;
 
-    /// <summary>The dirty state captured when Game mode was entered — what the Scenes-panel dirty
-    /// <c>●</c> reflects while in Game mode (the SNAPSHOT's dirtiness, not sandbox churn). Meaningful
-    /// only while <see cref="ViewMode"/> is <see cref="EditorViewMode.Game"/>.</summary>
-    public bool SnapshotWasDirty { get; private set; }
+    /// <summary>The active viewport tab's kind — the ONE mode signal (supersedes the retired
+    /// <c>ViewMode</c>). <see cref="ViewportContextKind.Scene"/> by default; <see cref="ViewportContextKind.Game"/>
+    /// while the Game sandbox tab is active.</summary>
+    public ViewportContextKind ActiveContextKind => _stack.ActiveKind;
 
-    /// <summary>Builds the in-memory Game-mode snapshot (<c>SceneWriter.BuildScene(world,
-    /// rig.AsCamera(), layers)</c> — a <see cref="SceneData"/>, no file I/O). Wired by the overlay
-    /// after construction (like <see cref="Reload"/>). Null disables Game mode.</summary>
-    public Func<SceneData>? CaptureSnapshot { get; set; }
+    /// <summary>The dirty state captured on the Scene context when the Game tab was spawned — what the
+    /// Scenes-panel dirty <c>●</c> / the status bar reflect while the Game tab is active (the SNAPSHOT's
+    /// dirtiness, not sandbox churn). Meaningful only while <see cref="ActiveContextKind"/> is
+    /// <see cref="ViewportContextKind.Game"/>.</summary>
+    public bool SnapshotWasDirty => _stack.SnapshotWasDirty;
 
-    /// <summary>Restores a snapshot THROUGH THE READER (the overlay publishes an in-memory
-    /// <c>LoadSceneRequest</c>) — so re-tag, texture rehydration, <c>DrawComponent</c> restore, and
-    /// camera-rig re-sync are all SHARED with the file load path (pre-mortem #2), never
-    /// re-implemented. Wired by the overlay.</summary>
-    public Action<SceneData>? RestoreSnapshot { get; set; }
+    /// <summary>Builds the in-memory scene snapshot (<c>SceneWriter.BuildScene(world, rig.AsCamera(),
+    /// layers)</c> — a <see cref="SceneData"/>, no file I/O). Forwards to the stack; null disables the
+    /// Game tab. Wired by the overlay after construction (like <see cref="Reload"/>).</summary>
+    public Func<SceneData>? CaptureSnapshot { get => _stack.CaptureSnapshot; set => _stack.CaptureSnapshot = value; }
 
-    /// <summary>Captures the free editor VIEW (the live <c>Camera</c> position/zoom/rotation) so exit
-    /// can restore exactly where the designer was looking. Wired by the overlay.</summary>
-    public Func<CameraViewSnapshot>? CaptureView { get; set; }
+    /// <summary>Restores a snapshot THROUGH THE READER (an in-memory <c>LoadSceneRequest</c>) — the
+    /// shared re-tag / rehydration / <c>DrawComponent</c> / rig-sync path (pre-mortem #2). Forwards to
+    /// the stack.</summary>
+    public Action<SceneData>? RestoreSnapshot { get => _stack.RestoreSnapshot; set => _stack.RestoreSnapshot = value; }
 
-    /// <summary>Restores a captured editor VIEW onto the live <c>Camera</c> — applied on exit AFTER
-    /// the reader's auto-frame, so the captured Scene view wins. Wired by the overlay.</summary>
-    public Action<CameraViewSnapshot>? RestoreView { get; set; }
+    /// <summary>Captures the free editor VIEW (the live <c>Camera</c>) so a switch can restore where the
+    /// designer was looking. Forwards to the stack.</summary>
+    public Func<CameraViewSnapshot>? CaptureView { get => _stack.CaptureView; set => _stack.CaptureView = value; }
+
+    /// <summary>Restores a captured VIEW onto the live <c>Camera</c> (applied AFTER the reader's
+    /// auto-frame, so the captured view wins — only when valid). Forwards to the stack.</summary>
+    public Action<CameraViewSnapshot>? RestoreView { get => _stack.RestoreView; set => _stack.RestoreView = value; }
 
     /// <summary>Snaps the free VIEW onto the camera rig (<c>Camera := rig state</c>) — the game-camera
-    /// view adopted on Game-mode entry. Wired by the overlay to <c>EditorCameraRig.SnapViewToRig</c>.</summary>
-    public Action? SnapViewToRig { get; set; }
+    /// view adopted on Game-tab entry. Forwards to the stack (the overlay wires
+    /// <c>EditorCameraRig.SnapViewToRig</c>).</summary>
+    public Action? SnapViewToRig { get => _stack.SnapViewToRig; set => _stack.SnapViewToRig = value; }
 
-    // Held while in Game mode; dropped on exit / Restart.
-    private SceneData? _snapshot;
-    private CameraViewSnapshot _snapshotView;
+    /// <summary>Updates the Scene context's id (the overlay's <c>SetSceneId</c> in <c>Load</c>), so the
+    /// status bar / tab id track the scene the screen loaded.</summary>
+    public void SetSceneId(string sceneId) => _stack.SceneContext.Id = sceneId ?? EditorOverlay.DefaultSceneId;
+
+    // ─── Transport (RunMode) ────────────────────────────────────────────────────────────────────────
 
     /// <summary>Resume the game (Playing = <see cref="RunMode.Play"/>). No-op when already playing.
-    /// <para><b>Auto-enter Game mode (UX2-F, pre-mortem #7).</b> Pressing Play while in
-    /// <see cref="EditorViewMode.Scene"/> first enters Game mode — and the snapshot is taken
-    /// <b>before</b> <see cref="GameState.RunMode"/> flips to Play, so no simulation frame can mutate
-    /// the scene before it is captured. Pressing Play while already in Game mode does NOT re-snapshot
-    /// (one snapshot per Game-mode session).</para></summary>
+    /// <para><b>Play from the Scene tab spawns the Game tab (PF-B, pre-mortem #7).</b> Pressing Play while
+    /// the Scene tab is active first <see cref="EnterGameMode"/> — spawning + activating the Game tab and
+    /// taking the snapshot <b>before</b> <see cref="GameState.RunMode"/> flips to Play, so no simulation
+    /// frame can mutate the scene before it is captured. Pressing Play while the Game tab is already active
+    /// just resumes (no re-snapshot — ONE snapshot per Game-tab session).</para></summary>
     public void Play(GameState state)
     {
         if (state.RunMode == RunMode.Play) return;
-        if (ViewMode == EditorViewMode.Scene) EnterGameMode(state); // snapshot BEFORE the RunMode flip
+        if (_stack.ActiveKind == ViewportContextKind.Scene) EnterGameMode(state); // spawn the Game tab BEFORE the flip
         state.RunMode = RunMode.Play;
         Logger.Info("[level-editor] Transport: Playing.");
     }
@@ -153,78 +176,98 @@ public sealed class EditorTransport
         else Play(state);
     }
 
-    // ─── Scene / Game view-mode transitions (UX2-F) ────────────────────────────────────────────────
+    // ─── Scene / Game tab transitions (PF-B — drive the stack) ──────────────────────────────────────
 
-    /// <summary>The <c>[Scene | Game]</c> toggle: enter Game mode from Scene, or exit to Scene from
-    /// Game (see <see cref="EnterGameMode"/> / <see cref="ExitToSceneMode"/>).</summary>
+    /// <summary>Toggles between the Scene tab and the Game tab: from Scene, <see cref="EnterGameMode"/>
+    /// (spawn + activate the Game tab); from Game, <see cref="ExitToSceneMode"/> (discard + restore Scene).</summary>
     public void ToggleViewMode(GameState state)
     {
-        if (ViewMode == EditorViewMode.Scene) EnterGameMode(state);
+        if (_stack.ActiveKind == ViewportContextKind.Scene) EnterGameMode(state);
         else ExitToSceneMode(state);
     }
 
     /// <summary>
-    /// Enters the Game-mode sandbox (UX2-F): <b>snapshots the scene FIRST</b> —
-    /// <see cref="CaptureSnapshot"/> (an in-memory <see cref="SceneData"/>, no file I/O) plus the
-    /// current history dirty state and the Scene-mode VIEW — <b>before</b> anything can flip
-    /// <see cref="GameState.RunMode"/> to Play (pre-mortem #7), then adopts the game-camera view
-    /// (<see cref="SnapViewToRig"/>). No-op when already in Game mode (one snapshot per session).
-    /// Does NOT itself change <see cref="GameState.RunMode"/> — the toggle enters while Paused; the
-    /// Play button flips RunMode after this returns.
+    /// Spawns + activates the Game-mode sandbox tab (the ex-Game-mode entry, PF-B): drives
+    /// <see cref="ViewportContextStack.EnterGame"/>, which snapshots the Scene context FIRST (the restore
+    /// point) — <b>before</b> anything can flip <see cref="GameState.RunMode"/> to Play (pre-mortem #7:
+    /// <see cref="Play"/> calls this before <c>state.RunMode = Play</c>) — then adopts the game-camera view.
+    /// No-op when the Game tab is already active (ONE snapshot per session). Does NOT itself change
+    /// <see cref="GameState.RunMode"/> — <see cref="Play"/> flips it after this returns.
     /// </summary>
     public void EnterGameMode(GameState state)
     {
-        if (ViewMode == EditorViewMode.Game) return;
-
-        _snapshot = CaptureSnapshot?.Invoke();      // held in memory — the restore point
-        SnapshotWasDirty = _history.IsDirty;         // the Scenes-panel ● reflects THIS while in Game
-        _snapshotView = CaptureView?.Invoke() ?? default;
-
-        ViewMode = EditorViewMode.Game;
-        SnapViewToRig?.Invoke();                     // Camera := rig state (the authored game-camera view)
-
-        Logger.Info("[level-editor] Transport: entered Game mode (sandbox) — scene snapshotted; " +
-                    "edits discard on exit, Save blocked.");
+        if (_stack.ActiveKind == ViewportContextKind.Game) return;
+        _stack.EnterGame();
+        Logger.Info("[level-editor] Transport: spawned the Game tab (sandbox) — scene snapshotted; " +
+                    "edits discard on leave, Save blocked.");
     }
 
     /// <summary>
-    /// Exits the Game-mode sandbox back to Scene mode (UX2-F): lands <b>Paused</b>
-    /// (<see cref="RunMode.Edit"/>), disposes the sandbox scene entities (REUSING the Restart sweep —
-    /// editor infrastructure / cursor / KeepAlive survive), restores the snapshot <b>through the
-    /// reader</b> (<see cref="RestoreSnapshot"/> — the shared restore path re-tags, rehydrates
-    /// textures, restores <c>DrawComponent</c>s, and re-syncs the camera rig), then clears the undo
-    /// history (undo after exit is a no-op — pre-mortem #3) and restores the captured dirty state and
-    /// Scene VIEW. Sandbox edits vanish: <b>Scene mode always shows exactly what Save would write.</b>
-    /// No-op when already in Scene mode.
+    /// Leaves the Game-mode sandbox tab back to the Scene tab (PF-B): lands <b>Paused</b>
+    /// (<see cref="RunMode.Edit"/>), then drives <see cref="ViewportContextStack.ExitToScene"/> — which
+    /// disposes the sandbox scene entities (the SAME survivor-sparing sweep Restart uses), restores the
+    /// Scene snapshot <b>through the reader</b> (shared re-tag / rehydration / <c>DrawComponent</c> /
+    /// rig-sync path), clears the undo history (undo after leave is a no-op — pre-mortem #3), restores the
+    /// captured dirty state + Scene VIEW (only when valid), and drops the Game tab from the strip (it
+    /// never persists in the background). Sandbox edits vanish: <b>Scene shows exactly what Save would
+    /// write.</b> No-op when already on the Scene tab.
     /// </summary>
     public void ExitToSceneMode(GameState state)
     {
-        if (ViewMode == EditorViewMode.Scene) return;
-
-        state.RunMode = RunMode.Edit;                // land Paused before restoring
-        DisposeSceneEntities();                      // the SAME sweep Restart uses (infra/cursor/keep survive)
-
-        if (_snapshot != null) RestoreSnapshot?.Invoke(_snapshot); // through the reader (shared path)
-
-        _history.Clear();                            // restored entities invalidate old commands (Restart rule)
-        if (SnapshotWasDirty) _history.MarkDirty();  // restore the captured dirty state
-
-        // Override the reader's auto-frame with the captured Scene view — but ONLY when the snapshot is
-        // valid (UX3-A pre-mortem #2). A zeroed/unwired capture (Zoom == 0) must NOT be applied: the
-        // Camera.Zoom setter would clamp the 0 to 0.1f, silently blanking the view. Invalid ⇒ keep the
-        // reader's post-restore auto-frame (which already lands on the content), never a degenerate view.
-        if (_snapshotView.IsValid) RestoreView?.Invoke(_snapshotView);
-
-        _snapshot = null;
-        ViewMode = EditorViewMode.Scene;
-
-        Logger.Info("[level-editor] Transport: exited Game mode — sandbox discarded, scene restored " +
+        if (_stack.ActiveKind == ViewportContextKind.Scene) return;
+        state.RunMode = RunMode.Edit;   // land Paused before restoring
+        _stack.ExitToScene();
+        Logger.Info("[level-editor] Transport: left the Game tab — sandbox discarded, scene restored " +
                     "from the snapshot. Paused.");
     }
 
     /// <summary>
+    /// Switches the active viewport tab to <paramref name="index"/> (a Scenes-panel-style tab click, PF-B).
+    /// Leaving the Game tab lands Paused and discards the sandbox (via the stack). Switching to a
+    /// persistent context lands Paused. For PF-B the only reachable switch is Game → Scene (there is no
+    /// background persistent tab to switch to yet). No-op on the active tab.
+    /// </summary>
+    public void SwitchToTab(int index, GameState state)
+    {
+        if (index == _stack.ActiveIndex) return;
+        state.RunMode = RunMode.Edit;   // any tab switch lands Paused
+        _stack.SwitchTo(index);
+        Logger.Info($"[level-editor] Transport: switched to tab #{index} ({_stack.ActiveKind}). Paused.");
+    }
+
+    /// <summary>
+    /// Closes the viewport tab at <paramref name="index"/> (its <c>×</c> / the <c>tab:close</c> op) through
+    /// the stack's dirty-close gate (pre-mortem #9): the Scene tab is refused (never silently discarded);
+    /// the Game tab discards immediately (its <c>×</c> is <see cref="ExitToSceneMode"/> — no dialog); a
+    /// dirty persistent closable tab (a future prefab tab) routes the <see cref="ConfirmDirtyClose"/>
+    /// confirm; a clean one closes and returns to the Scene tab.
+    /// </summary>
+    public void CloseTab(int index, GameState state)
+    {
+        switch (_stack.DecideClose(index))
+        {
+            case ViewportCloseDecision.Refused:
+                Logger.Warning($"[level-editor] Transport: tab #{index} cannot be closed " +
+                               "(the Scene tab is never closable, or the index is invalid).");
+                return;
+            case ViewportCloseDecision.DiscardImmediately: // the Game tab — discard the sandbox, no dialog
+                ExitToSceneMode(state);
+                return;
+            case ViewportCloseDecision.ConfirmDirty: // a dirty prefab tab (PF-D) — route the confirm flow
+                if (ConfirmDirtyClose != null) ConfirmDirtyClose(index, state);
+                else Logger.Warning($"[level-editor] Transport: tab #{index} is dirty but no confirm-close " +
+                                     "flow is wired (PF-D wires ConfirmDirtyClose).");
+                return;
+            case ViewportCloseDecision.CloseClean:
+                state.RunMode = RunMode.Edit;
+                _stack.CloseCleanContext(index);
+                return;
+        }
+    }
+
+    /// <summary>
     /// Return the world to the state of the original load (see the class doc for the exact
-    /// sequence and the survival boundary). Lands Paused. Unsaved edits are discarded.
+    /// sequence and the survival boundary). Lands Paused, on the Scene tab. Unsaved edits are discarded.
     /// </summary>
     public void Restart(GameState state)
     {
@@ -240,12 +283,10 @@ public sealed class EditorTransport
         state.RunMode = RunMode.Edit; // Paused first, so nothing simulates over the teardown
         _history.Clear();             // undo entries reference the entities about to die
 
-        // UX2-F: Restart also lands in Scene mode with the snapshot dropped. The snapshot IS an unsaved
-        // edit, and Restart's contract is "discards unsaved edits" — so no special case: the disk reload
-        // below is the source of truth, and the sandbox snapshot is simply forgotten.
-        _snapshot = null;
-        SnapshotWasDirty = false;
-        ViewMode = EditorViewMode.Scene;
+        // Drop any Game tab and forget the Scene context's in-memory snapshot: the snapshot IS an unsaved
+        // edit, and Restart's contract is "discards unsaved edits" — the disk reload below is the source
+        // of truth. Lands on the Scene tab.
+        _stack.ResetToScene();
 
         // The world-level level components must go BEFORE the re-publish: the LDtk parsers react
         // to CurrentLevelComponent ADDED (a Set over a present component fires Changed instead).
@@ -256,7 +297,7 @@ public sealed class EditorTransport
         Reload();
 
         Logger.Info("[level-editor] Transport: Restart — scene rebuilt from the original load " +
-                    "request; unsaved edits (incl. any Game-mode sandbox) discarded. Scene mode, Paused.");
+                    "request; unsaved edits (incl. any Game-tab sandbox) discarded. Scene tab, Paused.");
     }
 
     private void DisposeSceneEntities()
@@ -271,7 +312,7 @@ public sealed class EditorTransport
         }
     }
 
-    /// <summary>Whether <paramref name="entity"/> survives a restart sweep (see the class doc).</summary>
+    /// <summary>Whether <paramref name="entity"/> survives a restart / tab-switch sweep (see the class doc).</summary>
     public bool Survives(Entity entity) =>
         entity.Has<EditorInfrastructureComponent>()
         || entity.Has<CursorControllerComponent>()
@@ -297,27 +338,13 @@ public sealed class EditorTransport
     }
 }
 
-/// <summary>
-/// The editor's view mode (UX2-F), owned by <see cref="EditorTransport"/> alongside
-/// <see cref="RunMode"/>. <see cref="Scene"/> edits the real scene through the free editor view;
-/// <see cref="Game"/> is a Unity-style sandbox looking through the game camera whose edits are
-/// discarded on exit. Default <see cref="Scene"/>.
-/// </summary>
-public enum EditorViewMode
-{
-    /// <summary>Edit the real scene through the free editor view (default).</summary>
-    Scene,
-    /// <summary>Sandbox: look through the game camera; edits discard on exit; Save blocked.</summary>
-    Game,
-}
-
 /// <summary>A snapshot of the free editor VIEW (the live <c>Camera</c>) — position / zoom / rotation —
-/// captured on Game-mode entry and restored on exit so the designer returns to exactly where they were
-/// looking. Plain value data.
+/// captured when a viewport context is backgrounded and restored on return so the designer comes back to
+/// exactly where they were looking. Plain value data.
 ///
 /// <para><b>Validity (UX3-A pre-mortem #2).</b> <see cref="Zoom"/> is a positive scale, so
 /// <c>default(CameraViewSnapshot)</c> — the value an unwired <c>CaptureView</c> yields — has
-/// <see cref="Zoom"/> <c>== 0</c> and is <b>not</b> <see cref="IsValid"/>. Exit-restore must never apply
+/// <see cref="Zoom"/> <c>== 0</c> and is <b>not</b> <see cref="IsValid"/>. A restore must never apply
 /// an invalid snapshot: <c>Camera.Zoom</c> clamps a zero to <c>0.1f</c>, so a naive restore of a zeroed
 /// snapshot silently blanks the view (origin + a near-degenerate zoom). An invalid snapshot means "keep
 /// the current view".</para></summary>
@@ -328,7 +355,7 @@ public readonly struct CameraViewSnapshot(Vector2 position, float zoom, float ro
     public readonly float Rotation = rotation;
 
     /// <summary>Whether this snapshot carries a usable view (a positive zoom). <c>default</c> — an
-    /// unwired/zeroed <c>CaptureView</c> — is invalid, so exit-restore keeps the current view instead
+    /// unwired/zeroed <c>CaptureView</c> — is invalid, so a restore keeps the current view instead
     /// of blanking it (UX3-A pre-mortem #2).</summary>
     public bool IsValid => Zoom > 0f;
 }

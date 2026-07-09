@@ -104,6 +104,42 @@ public enum EditorPanelKind
 }
 
 /// <summary>
+/// The KIND of a viewport context / tab (PF-B). Each open tab is one context the
+/// <c>ViewportContextStack</c> switches between: <see cref="Scene"/> — the real scene being edited
+/// (always present, never closable); <see cref="Game"/> — the discard sandbox Play spawns (it never
+/// persists in the background — leaving it discards it); <see cref="Prefab"/> — a prefab assembled over
+/// an empty world (reserved for PF-D; nothing creates one this wave, but the enum value + the
+/// close/dirty plumbing exist so the strip is prefab-ready). This enum supersedes the retired
+/// <c>EditorViewMode</c> (Scene/Game) — the active-context kind is the ONE mode signal.
+/// </summary>
+public enum ViewportContextKind
+{
+    /// <summary>The real scene being edited — always the first tab, never closable.</summary>
+    Scene,
+
+    /// <summary>The Game-mode sandbox (spawned by Play; a discard context — leaving it restores the
+    /// Scene and drops the tab).</summary>
+    Game,
+
+    /// <summary>A prefab assembled over an empty world (PF-D; reserved — nothing creates one in PF-B).</summary>
+    Prefab,
+}
+
+/// <summary>
+/// A viewport tab's render descriptor (PF-B) — the pure-data projection of a <c>ViewportContext</c> the
+/// tab-strip renderer reads (it never reaches into the stack). The <c>ViewportContextStack</c> rewrites
+/// <see cref="EditorShellStateComponent.ViewportTabs"/> on every mutation, so the strip is
+/// <b>descriptor-driven</b>: PF-D appends prefab-tab descriptors without touching the strip renderer.
+/// Dirtiness is NOT baked here — it changes every frame and the renderer queries it live.
+/// </summary>
+/// <param name="Kind">The context kind (drives the ▶ play marker on <see cref="ViewportContextKind.Game"/>).</param>
+/// <param name="Id">The context id (scene / prefab id) — the <c>tab:close &lt;id&gt;</c> lookup key.</param>
+/// <param name="Label">The tab's display text ("Scene" / "Game" / a prefab name).</param>
+/// <param name="Closable">Whether the tab shows a <c>×</c> close affordance (Scene = false).</param>
+public readonly record struct ViewportTabDescriptor(
+    ViewportContextKind Kind, string Id, string Label, bool Closable);
+
+/// <summary>
 /// The editor shell's region-layout state — pure data on a single editor-owned entity, the ONE
 /// source of truth for the resizable region sizes, the active tab per region, and the current drag
 /// ownership (ECS purity: the <b>state</b> lives here, the <b>behaviour</b> in the shell / panel /
@@ -189,6 +225,21 @@ public sealed class EditorShellStateComponent
 
     /// <summary>The bottom shelf's active tab (default — and only — <see cref="EditorBottomTab.Assets"/>).</summary>
     public EditorBottomTab ActiveBottomTab = EditorBottomTab.Assets;
+
+    // ── The viewport tab strip (PF-B) ──────────────────────────────────────────────────────────────
+    /// <summary>The ordered viewport-tab descriptors — the tab strip's <b>render source</b> (the strip
+    /// renderer reads ONLY this, never the stack). The <c>ViewportContextStack</c> is the ONE writer:
+    /// it rewrites this on every context mutation (spawn / close / switch). Defaults to the single,
+    /// never-closable Scene tab (the boot state). A future prefab tab is one more descriptor here —
+    /// the renderer needs no change (data-driven).</summary>
+    public IReadOnlyList<ViewportTabDescriptor> ViewportTabs { get; set; } = new[]
+    {
+        new ViewportTabDescriptor(ViewportContextKind.Scene, "untitled", "Scene", Closable: false),
+    };
+
+    /// <summary>The active viewport tab's index into <see cref="ViewportTabs"/> (default 0 = the Scene
+    /// tab). Rewritten by the <c>ViewportContextStack</c> alongside <see cref="ViewportTabs"/>.</summary>
+    public int ActiveViewportTab { get; set; }
 
     // ── Drag ownership ───────────────────────────────────────────────────────────────────────────
     /// <summary>Which drag currently owns the pointer (see <see cref="ShellDragKind"/>).</summary>

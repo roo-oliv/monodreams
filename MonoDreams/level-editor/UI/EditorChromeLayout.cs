@@ -77,11 +77,22 @@ public static class EditorChromeLayout
     /// Scene panel header sets the transport cluster apart from the tool cluster with this wider gap.</summary>
     public const int ClusterGap = 18;
 
-    /// <summary>Width of ONE segment of the <c>[Scene mode | Game mode]</c> mode toggle (UX2-F / UX3-A),
-    /// logical points — the two segments are equal-width, sized to fit the explicit "Scene mode" /
-    /// "Game mode" labels (UX3-A ask 2) at the label scale with padding. "Scene mode" measures ≈80pt at
-    /// <c>LabelScale</c>; 92 leaves ≈11pt symmetric padding, matching the pre-UX3-A "Scene" fit.</summary>
-    public const int ModeSegmentWidth = 92;
+    /// <summary>The fixed reservation (logical points) the <b>viewport tab strip</b> (PF-B) takes at the
+    /// Scene header's START — the transport row begins after it (plus a <see cref="ClusterGap"/>), so the
+    /// transport never overlaps the tabs. Fixed (not per-tab-dynamic) for PF-B — it comfortably fits the
+    /// Scene + Game tabs; a future many-prefab-tab strip revisits this (dynamic width / scroll). Replaces
+    /// the retired mode-toggle reservation.</summary>
+    public const int ViewportTabStripWidth = 190;
+
+    /// <summary>Horizontal padding inside a viewport tab (logical points).</summary>
+    public const int ViewportTabPaddingX = 10;
+
+    /// <summary>The box (logical points, square) a viewport tab's ▶ play marker / <c>×</c> close glyph
+    /// occupies in the tab's left / right gutter.</summary>
+    public const int ViewportTabGlyph = 12;
+
+    /// <summary>The gap (logical points) between a viewport tab's glyph and its label.</summary>
+    public const int ViewportTabGlyphGap = 4;
 
     /// <summary>Horizontal label padding inside a button, logical points.</summary>
     public const int ButtonPaddingX = 10;
@@ -297,32 +308,64 @@ public static class EditorChromeLayout
             size, size);
     }
 
-    // ── The [Scene | Game] mode toggle (UX2-F): two adjacent segments at the header's START ──────────
+    // ── The viewport tab strip (PF-B): tabs at the header's START, transport offset after them ───────
 
-    /// <summary>
-    /// The two <c>[Scene | Game]</c> mode-toggle segment rectangles (UX2-F), laid out at the START of
-    /// the Scene panel header — before the transport cluster — as two <b>adjacent, equal-width</b>
-    /// segments (<see cref="ModeSegmentWidth"/> each, <see cref="ButtonHeight"/> tall, vertically
-    /// centered), starting past the left row margin. Index 0 = Scene, index 1 = Game. Right-anchored
-    /// nothing; the transport row starts after <see cref="ModeToggleReservedWidth"/>.
-    /// </summary>
-    public static Rectangle[] ModeToggleSegments(Rectangle sceneHeader, float scale = 1f)
+    /// <summary>The horizontal space (screen pixels) the viewport tab strip reserves at the Scene
+    /// header's start before the transport row begins: the fixed <see cref="ViewportTabStripWidth"/> plus
+    /// a <see cref="ClusterGap"/>. The chrome builder offsets the header button row by this so the
+    /// transport never overlaps the tabs. Replaces the retired mode-toggle reservation.</summary>
+    public static int ViewportTabsReservedWidth(float scale = 1f) =>
+        Px(ViewportTabStripWidth, scale) + Px(ClusterGap, scale);
+
+    /// <summary>A viewport tab's total width (screen pixels) for a <paramref name="labelWidthPx"/> already
+    /// measured in screen pixels: symmetric padding + the label + a glyph box for the ▶ play marker
+    /// (<paramref name="showPlayMarker"/>) and/or the <c>×</c> close (<paramref name="closable"/>).</summary>
+    public static int ViewportTabWidth(float labelWidthPx, bool showPlayMarker, bool closable, float scale = 1f)
     {
-        var w = Px(ModeSegmentWidth, scale);
+        var w = Px(ViewportTabPaddingX, scale) * 2 + (int)MathF.Ceiling(labelWidthPx);
+        if (showPlayMarker) w += Px(ViewportTabGlyph + ViewportTabGlyphGap, scale);
+        if (closable) w += Px(ViewportTabGlyph + ViewportTabGlyphGap, scale);
+        return w;
+    }
+
+    /// <summary>Lays the viewport tabs out left-to-right (adjacent, mirroring the panel tab bar) at the
+    /// START of the Scene panel header, <see cref="ButtonHeight"/> tall, vertically centered, from the
+    /// left row margin. Returns one rect per entry of <paramref name="tabWidths"/>, in order.</summary>
+    public static Rectangle[] ViewportTabRow(Rectangle sceneHeader, IReadOnlyList<int> tabWidths, float scale = 1f)
+    {
+        var rects = new Rectangle[tabWidths.Count];
         var h = Px(ButtonHeight, scale);
         var x = sceneHeader.X + Px(RowMarginX, scale);
         var y = sceneHeader.Y + (sceneHeader.Height - h) / 2;
-        return new[]
+        for (var i = 0; i < tabWidths.Count; i++)
         {
-            new Rectangle(x, y, w, h),
-            new Rectangle(x + w, y, w, h),
-        };
+            rects[i] = new Rectangle(x, y, tabWidths[i], h);
+            x += tabWidths[i];
+        }
+        return rects;
     }
 
-    /// <summary>The horizontal space (screen pixels) the mode toggle reserves at the header's start
-    /// before the transport row begins: the two segments plus a <see cref="ClusterGap"/> separating
-    /// them from the transport cluster. The chrome builder offsets the header button row by this so the
-    /// transport never overlaps the toggle.</summary>
-    public static int ModeToggleReservedWidth(float scale = 1f) =>
-        2 * Px(ModeSegmentWidth, scale) + Px(ClusterGap, scale);
+    /// <summary>The ▶ play-marker glyph box in a viewport tab's LEFT gutter (a square in the padding).</summary>
+    public static Rectangle ViewportTabPlayMarker(Rectangle tab, float scale = 1f)
+    {
+        var m = Px(ViewportTabGlyph, scale);
+        return new Rectangle(tab.X + Px(ViewportTabPaddingX, scale), tab.Y + (tab.Height - m) / 2, m, m);
+    }
+
+    /// <summary>The <c>×</c> close glyph / hit box in a viewport tab's RIGHT gutter (a square in the
+    /// padding). Also the click hit-zone the tab-strip system tests for a close.</summary>
+    public static Rectangle ViewportTabClose(Rectangle tab, float scale = 1f)
+    {
+        var m = Px(ViewportTabGlyph, scale);
+        return new Rectangle(tab.Right - Px(ViewportTabPaddingX, scale) - m, tab.Y + (tab.Height - m) / 2, m, m);
+    }
+
+    /// <summary>Where a viewport tab's LABEL starts (screen pixels) — past the left padding and the ▶
+    /// play-marker gutter when present.</summary>
+    public static int ViewportTabLabelX(Rectangle tab, bool showPlayMarker, float scale = 1f)
+    {
+        var x = tab.X + Px(ViewportTabPaddingX, scale);
+        if (showPlayMarker) x += Px(ViewportTabGlyph + ViewportTabGlyphGap, scale);
+        return x;
+    }
 }

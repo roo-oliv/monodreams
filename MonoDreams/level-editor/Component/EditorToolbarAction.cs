@@ -92,18 +92,6 @@ public enum EditorToolbarAction
     /// <c>view:camera</c>. The overlay maps it to <c>EditorCameraRig.SnapViewToRig</c>.</summary>
     CameraView,
 
-    /// <summary>The <b>Scene</b> segment of the Scene-panel header's <c>[Scene | Game]</c> mode toggle
-    /// (UX2-F §5): exit the Game-mode sandbox back to editing the real scene (no-op when already in
-    /// Scene mode). A mode-toggle action — dispatches in BOTH transport states. Headless alias:
-    /// <c>mode:scene</c>. The overlay maps it to <c>EditorTransport.ExitToSceneMode</c>.</summary>
-    ModeScene,
-
-    /// <summary>The <b>Game</b> segment of the <c>[Scene | Game]</c> mode toggle (UX2-F §5): enter the
-    /// Game-mode sandbox — snapshot the scene, look through the game camera (no-op when already in Game
-    /// mode). A mode-toggle action — dispatches in BOTH transport states. Headless alias:
-    /// <c>mode:game</c>. The overlay maps it to <c>EditorTransport.EnterGameMode</c>.</summary>
-    ModeGame,
-
     /// <summary>The Scene-panel header's <b>Overlays</b> dropdown button (UX3-D §3, the two-overlapping-
     /// circles icon): opens the viewport-overlays menu anchored below it (Grid toggle, Grid Spacing ▸
     /// presets, Outline Selected toggle, Camera toggle — Blender's per-viewport Overlays dropdown). An
@@ -119,12 +107,6 @@ public static class EditorToolbarActionExtensions
     /// BOTH modes, unlike the editing actions which are Paused (Edit) only.</summary>
     public static bool IsTransport(this EditorToolbarAction action) =>
         action is EditorToolbarAction.PlayPause or EditorToolbarAction.Restart;
-
-    /// <summary>Whether the action is a <c>[Scene | Game]</c> mode-toggle segment (UX2-F). Like the
-    /// transport it dispatches in BOTH transport states — exiting the sandbox must work while Playing —
-    /// and it renders tab-style (not as a button) so it is excluded from the icon/label button path.</summary>
-    public static bool IsModeToggle(this EditorToolbarAction action) =>
-        action is EditorToolbarAction.ModeScene or EditorToolbarAction.ModeGame;
 
     /// <summary>
     /// Whether this button reads as ACTIVE given the shared gizmo state (UX2-C icon tinting): the

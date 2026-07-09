@@ -69,7 +69,6 @@ public sealed class EditorChromeBuilder
     private Entity _cameraViewButton; // UX2-E: the right-corner "Camera view" nav button (icon)
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _headerButtonEntities = new();
-    private readonly List<Entity> _modeToggleEntities = new(); // UX2-F: [Scene, Game] header mode toggle
     private bool _built;
 
     /// <summary>The window size the chrome was last laid out for (0 until <see cref="Build"/>).</summary>
@@ -225,14 +224,10 @@ public sealed class EditorChromeBuilder
         _cameraViewButton = CreateButton(
             EditorToolbarAction.CameraView, labelEntity: null, iconEntity: CreateIconMesh(), tooltip: "Camera view");
 
-        // UX2-F: the [Scene | Game] mode toggle — two tab-style segments at the START of the Scene
-        // header, before the transport cluster. Ordinary ToolbarButtonComponents so the ONE
-        // ToolbarSystem hit-tests + dispatches them; ToolbarSystem renders them tab-style (active =
-        // Bg1 fill + Accent underline) rather than as buttons (see its RenderSegment).
-        // UX3-A (ask 2): explicit labels — "Scene mode" / "Game mode" — not the bare "Scene" / "Game"
-        // (the segment width is recomputed to fit them; see EditorChromeLayout.ModeSegmentWidth).
-        CreateModeSegment(EditorToolbarAction.ModeScene, "Scene mode");
-        CreateModeSegment(EditorToolbarAction.ModeGame, "Game mode");
+        // PF-B: the [Scene | Game] mode toggle is retired. The viewport TAB STRIP takes the header's
+        // START — its (dynamic) tab entities are owned + laid out each frame by the dedicated
+        // ViewportTabStripSystem, not the chrome builder; the chrome only reserves the header space they
+        // occupy (EditorChromeLayout.ViewportTabsReservedWidth) so the transport row begins after them.
 
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;
@@ -278,12 +273,12 @@ public sealed class EditorChromeBuilder
         // The bottom shelf's static "Assets" tab in its tab strip (below the splitter).
         LayoutBottomTab(bottomBar, scale);
 
-        // UX2-F: the [Scene | Game] mode toggle at the header START, then the transport row offset to
-        // begin AFTER it (so the transport never overlaps the toggle — one geometry source).
-        LayoutModeToggle(EditorChromeLayout.ModeToggleSegments(sceneHeader, scale), scale);
-        var headerAfterToggle = new Rectangle(
-            sceneHeader.X + EditorChromeLayout.ModeToggleReservedWidth(scale), sceneHeader.Y,
-            Math.Max(1, sceneHeader.Width - EditorChromeLayout.ModeToggleReservedWidth(scale)), sceneHeader.Height);
+        // PF-B: the viewport tab strip takes the header START; the transport row is offset to begin AFTER
+        // its fixed reservation (so the transport never overlaps the tabs — the tab entities themselves
+        // are the ViewportTabStripSystem's, laid out within this reserved zone).
+        var headerAfterTabs = new Rectangle(
+            sceneHeader.X + EditorChromeLayout.ViewportTabsReservedWidth(scale), sceneHeader.Y,
+            Math.Max(1, sceneHeader.Width - EditorChromeLayout.ViewportTabsReservedWidth(scale)), sceneHeader.Height);
 
         // The window top bar's editing buttons, then the Scene header's transport + tool clusters — both
         // through the same button-row layout (the header anchors inside the carved-out header rect, with
@@ -291,7 +286,7 @@ public sealed class EditorChromeBuilder
         LayoutButtonRow(_buttonEntities,
             EditorChromeLayout.ButtonRow(MeasureWidths(_buttons, scale), scale), scale);
         LayoutButtonRow(_headerButtonEntities,
-            EditorChromeLayout.ButtonRowIn(headerAfterToggle, MeasureWidths(_headerButtons, scale), scale,
+            EditorChromeLayout.ButtonRowIn(headerAfterTabs, MeasureWidths(_headerButtons, scale), scale,
                 HeaderSeparatorIndex()), scale);
         LayoutEntityMenuCaret(scale);
         LayoutCameraViewButton(sceneHeader, scale);
@@ -373,61 +368,6 @@ public sealed class EditorChromeBuilder
         PlaceEntity(_cameraViewButton, new Vector2(rect.X, rect.Y));
         _cameraViewButton.Get<ToolbarButtonComponent>().Bounds = rect;
         _cameraViewButton.Get<SimpleButtonComponent>().Size = new Vector2(rect.Width, rect.Height);
-    }
-
-    /// <summary>Positions the two <c>[Scene | Game]</c> mode-toggle segments (UX2-F): each segment's
-    /// fill bounds + its centered label. The active-fill / accent-underline / label colour is driven
-    /// per-frame by <c>ToolbarSystem.RenderSegment</c> (it depends on the runtime view mode + hover);
-    /// this only fixes geometry (like the tab bar's <c>PositionTabs</c> vs. the chrome layout).</summary>
-    private void LayoutModeToggle(Rectangle[] segments, float scale)
-    {
-        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
-        for (var i = 0; i < _modeToggleEntities.Count && i < segments.Length; i++)
-        {
-            var rect = segments[i];
-            var seg = _modeToggleEntities[i];
-            PlaceEntity(seg, new Vector2(rect.X, rect.Y));
-            seg.Get<ToolbarButtonComponent>().Bounds = rect;
-            ref var visual = ref seg.Get<SimpleButtonComponent>();
-            visual.Size = new Vector2(rect.Width, rect.Height);
-            if (visual.TextEntity is { IsAlive: true } label && label.Has<DynamicTextComponent>())
-            {
-                ref var text = ref label.Get<DynamicTextComponent>();
-                text.Scale = LabelScale * scale;
-                var labelWidthPx = _measureLabel(text.TextContent) * scale; // already LabelScale-scaled
-                PlaceEntity(label, new Vector2(
-                    rect.X + (rect.Width - labelWidthPx) / 2f, // centered in the segment
-                    rect.Y + (rect.Height - labelHeight) / 2f));
-            }
-        }
-    }
-
-    /// <summary>Creates one <c>[Scene | Game]</c> mode-toggle segment (UX2-F): a tab-style button
-    /// (SimpleButtonComponent fill with NO outline, a label, and a raw-mesh accent underline the
-    /// system fills while active). Adds it to <see cref="_modeToggleEntities"/> and carries a
-    /// <see cref="ToolbarButtonComponent"/> so the ONE <c>ToolbarSystem</c> hit-tests + dispatches it.</summary>
-    private void CreateModeSegment(EditorToolbarAction action, string label)
-    {
-        var segment = _world.CreateEntity();
-        segment.Set(new EditorInfrastructureComponent()); // survives a transport Restart
-        segment.Set(new TransformComponent(Vector2.Zero));
-        segment.Set(new SimpleButtonComponent
-        {
-            Size = Vector2.One,     // Relayout sets the real size
-            LineThickness = 0f,     // tab-style: no outline (the fill colour is driven per-frame)
-            Color = EditorTheme.Bg0,
-            FillColor = EditorTheme.Bg0,
-            TextEntity = CreateLabel(label),
-            Target = RenderTargetID.Editor,
-            LayerDepth = EditorTheme.Depths.Button,
-        });
-        segment.Set(new ToolbarButtonComponent
-        {
-            Action = action,
-            Bounds = Rectangle.Empty, // Relayout fills it
-            UnderlineEntity = CreateIconMesh(), // the raw-mesh accent underline bar (filled while active)
-        });
-        _modeToggleEntities.Add(segment);
     }
 
     private static void BakeMesh(Entity e, MeshData mesh)

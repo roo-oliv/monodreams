@@ -58,10 +58,10 @@ public class EditorStatusBarSystemTests
         var modal = new ModalTransformSystem(world, new GameCamera(800, 600), history, () => new());
         var dirty = new[] { false };
         var sys = new EditorStatusBarSystem(world, Vm(), font: null, modal,
-            sceneId: () => "island2", isDirty: () => dirty[0], viewMode: () => EditorViewMode.Scene);
+            sceneId: () => "island2", isDirty: () => dirty[0], activeKind: () => ViewportContextKind.Scene);
 
         sys.Update(Edit());
-        Assert.True(HasLabel(world, "island2  |  Scene mode"));
+        Assert.True(HasLabel(world, "island2")); // PF-B: the Scene tab shows just the id (no run-state word)
         Assert.False(HasDirtyDot(world)); // clean → no dot
 
         dirty[0] = true;
@@ -70,16 +70,17 @@ public class EditorStatusBarSystemTests
     }
 
     [Fact]
-    public void Right_ReflectsGameMode()
+    public void Right_ReflectsGameTab_ShowsRunState()
     {
         using var world = new World();
         var history = new EditorHistory(world);
         var modal = new ModalTransformSystem(world, new GameCamera(800, 600), history, () => new());
         var sys = new EditorStatusBarSystem(world, Vm(), font: null, modal,
-            sceneId: () => "island2", isDirty: () => false, viewMode: () => EditorViewMode.Game);
+            sceneId: () => "island2", isDirty: () => false, activeKind: () => ViewportContextKind.Game);
 
+        // PF-B: the Game tab shows the id + the transport state (Edit → Paused).
         sys.Update(Edit());
-        Assert.True(HasLabel(world, "island2  |  Game mode"));
+        Assert.True(HasLabel(world, "island2  |  Paused"));
     }
 
     [Fact]
@@ -97,7 +98,7 @@ public class EditorStatusBarSystemTests
 
         var modal = new ModalTransformSystem(world, new GameCamera(800, 600), history, () => new());
         var sys = new EditorStatusBarSystem(world, Vm(), font: null, modal,
-            sceneId: () => "island2", isDirty: () => false, viewMode: () => EditorViewMode.Scene);
+            sceneId: () => "island2", isDirty: () => false, activeKind: () => ViewportContextKind.Scene);
 
         // No modal → contextual: the selection name + the entity count (Tree is the one non-infra entity).
         sys.Update(Edit());
@@ -118,7 +119,7 @@ public class EditorStatusBarSystemTests
         var history = new EditorHistory(world);
         var modal = new ModalTransformSystem(world, new GameCamera(800, 600), history, () => new());
         var sys = new EditorStatusBarSystem(world, Vm(), font: null, modal,
-            sceneId: () => "s", isDirty: () => false, viewMode: () => EditorViewMode.Scene);
+            sceneId: () => "s", isDirty: () => false, activeKind: () => ViewportContextKind.Scene);
 
         sys.Update(Edit());
         Assert.True(HasLabel(world, "No selection"));

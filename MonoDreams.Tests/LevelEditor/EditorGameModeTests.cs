@@ -23,12 +23,14 @@ using GameCamera = MonoDreams.Component.Camera;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the UX2-F <b>Scene / Game mode sandbox</b> (design §5; level-editor premise "The Game-mode
-/// sandbox …"): entering Game mode snapshots the scene in memory, Play/Pause/edit freely, and exiting
-/// DISCARDS the sandbox by restoring the snapshot <b>through the reader</b> (the ONE restore path —
-/// pre-mortem #2). The transport owns both <see cref="RunMode"/> and <see cref="EditorViewMode"/>; the
-/// snapshot is taken BEFORE Play flips RunMode (pre-mortem #7); undo after exit is a no-op
-/// (pre-mortem #3); Save is blocked in Game mode; Restart lands Scene mode; a switch exits first.
+/// Protects the Game-mode sandbox SEMANTICS, now the Game tab consuming the <c>ViewportContextStack</c>
+/// (PF-B; level-editor premise "The viewport context stack …"): spawning the Game tab snapshots the scene
+/// in memory, Play/Pause/edit freely, and leaving it DISCARDS the sandbox by restoring the snapshot
+/// <b>through the reader</b> (the ONE restore path — pre-mortem #2). The transport owns <see cref="RunMode"/>
+/// and drives the stack (<see cref="ViewportContextKind"/> is the active-context kind); the snapshot is
+/// taken BEFORE Play flips RunMode (pre-mortem #7); undo after leaving is a no-op (pre-mortem #3); Save is
+/// blocked while the Game tab is active; Restart lands the Scene tab; a scene switch leaves the Game tab
+/// first.
 /// </summary>
 public class EditorGameModeTests
 {
@@ -140,7 +142,7 @@ public class EditorGameModeTests
         s.Camera.Position = new Vector2(5, 5); // the Scene-mode VIEW to return to
 
         s.Transport.EnterGameMode(Paused());
-        Assert.Equal(EditorViewMode.Game, s.Transport.ViewMode);
+        Assert.Equal(ViewportContextKind.Game, s.Transport.ActiveContextKind);
 
         // Poke the entity in the sandbox (a direct mutation stands in for a gizmo drag).
         s.TaggedRoot().Get<TransformComponent>().Position = new Vector2(99, 99);
@@ -148,7 +150,7 @@ public class EditorGameModeTests
         s.Transport.ExitToSceneMode(Paused());
 
         // The sandbox edit vanished — the scene is back at its pre-entry position (a NEW entity, restored).
-        Assert.Equal(EditorViewMode.Scene, s.Transport.ViewMode);
+        Assert.Equal(ViewportContextKind.Scene, s.Transport.ActiveContextKind);
         Assert.Equal(new Vector2(10, 20), s.TaggedRoot().Get<TransformComponent>().Position);
         // Undo after exit is a no-op (pre-mortem #3): the restored entities have no live commands.
         Assert.Equal(0, s.History.Count);
@@ -199,7 +201,7 @@ public class EditorGameModeTests
 
         Assert.Equal(RunMode.Edit, observedRunModeAtCapture); // snapshot taken BEFORE the flip
         Assert.Equal(RunMode.Play, state.RunMode);            // then Play
-        Assert.Equal(EditorViewMode.Game, s.Transport.ViewMode); // auto-entered Game
+        Assert.Equal(ViewportContextKind.Game, s.Transport.ActiveContextKind); // auto-entered Game
     }
 
     [Fact]
@@ -228,13 +230,13 @@ public class EditorGameModeTests
 
         // Paused + Game mode + resolved → blocked specifically as GameMode.
         Assert.Equal(SaveBlockReason.GameMode,
-            EditorOverlay.SaveBlock(Paused(), resolved, EditorViewMode.Game));
+            EditorOverlay.SaveBlock(Paused(), resolved, ViewportContextKind.Game));
         // Playing takes precedence over GameMode (the existing "Playing first" rule holds).
         Assert.Equal(SaveBlockReason.Playing,
-            EditorOverlay.SaveBlock(Playing(), resolved, EditorViewMode.Game));
+            EditorOverlay.SaveBlock(Playing(), resolved, ViewportContextKind.Game));
         // Back in Scene mode (after exit) Save works again.
         Assert.Equal(SaveBlockReason.None,
-            EditorOverlay.SaveBlock(Paused(), resolved, EditorViewMode.Scene));
+            EditorOverlay.SaveBlock(Paused(), resolved, ViewportContextKind.Scene));
         // The default view-mode overload is Scene — byte-identical to the pre-UX2-F callers.
         Assert.Equal(SaveBlockReason.None, EditorOverlay.SaveBlock(Paused(), resolved));
     }
@@ -246,7 +248,7 @@ public class EditorGameModeTests
         var save = MakeButton(world, EditorToolbarAction.Save, new Rectangle(0, 0, 60, 30));
         var cursor = MakeCursor(world);
         var resolved = ResolvedContext();
-        var viewMode = EditorViewMode.Game;
+        var viewMode = ViewportContextKind.Game;
 
         var dispatched = new List<EditorToolbarAction>();
         // The SAME dim predicate the overlay wires: Save is blocked (inert) in Game mode.
@@ -260,7 +262,7 @@ public class EditorGameModeTests
         Assert.Empty(dispatched); // Game mode → Save click suppressed
 
         // Exit to Scene mode → Save dispatches again.
-        viewMode = EditorViewMode.Scene;
+        viewMode = ViewportContextKind.Scene;
         Click(cursor, new Vector2(30, 15));
         toolbar.Update(Paused());
         Assert.Equal(new[] { EditorToolbarAction.Save }, dispatched);
@@ -287,7 +289,7 @@ public class EditorGameModeTests
         s.Transport.EnterGameMode(state); // (Playing is fine; the toggle can enter while paused, this asserts the reset)
         s.Transport.Restart(state);
 
-        Assert.Equal(EditorViewMode.Scene, s.Transport.ViewMode); // reset to Scene
+        Assert.Equal(ViewportContextKind.Scene, s.Transport.ActiveContextKind); // reset to Scene
         Assert.Equal(RunMode.Edit, state.RunMode);                // lands Paused
         Assert.Equal(1, loads);                                    // reloaded from the recorded load (disk)
         // The snapshot was dropped: entering Game again snapshots the reloaded world afresh.
@@ -347,122 +349,11 @@ public class EditorGameModeTests
         Assert.Equal(DrawElementType.Sprite, restored.Get<DrawComponent>().Type);
     }
 
-    // ─────────────── Toggle UI: segments render + hit-test (DPR-2), ops drive the same paths ─────────
-
-    [Fact]
-    public void ModeToggleSegments_AreInTheSceneHeader_HitTestAndDispatch_DprScaled()
-    {
-        foreach (var (w, h, scale) in new[] { (1600, 900, 1f), (3840, 2160, 2f) })
-        {
-            using var world = new World();
-            var chrome = new EditorChromeBuilder(world, label => label.Length * 8f);
-            chrome.Build(1600, 900);
-            if (scale != 1f) chrome.Relayout(w, h, scale);
-            var cursor = MakeCursor(world);
-
-            var sceneHeader = EditorChromeLayout.SceneHeader(w, h, scale);
-            var scene = SegmentBounds(world, EditorToolbarAction.ModeScene);
-            var game = SegmentBounds(world, EditorToolbarAction.ModeGame);
-            Assert.True(sceneHeader.Contains(scene), $"Scene segment {scene} escapes the header at DPR {scale}");
-            Assert.True(sceneHeader.Contains(game), $"Game segment {game} escapes the header at DPR {scale}");
-            // Equal-width segments, DPR-scaled and adjacent (Game sits immediately right of Scene).
-            Assert.Equal(EditorChromeLayout.Px(EditorChromeLayout.ModeSegmentWidth, scale), scene.Width);
-            Assert.Equal(scene.Width, game.Width);
-            Assert.Equal(scene.Right, game.Left);
-
-            // A click on the Game segment dispatches ModeGame; on Scene, ModeScene — the same action the
-            // mode:game / mode:scene ops route through (both live in both transport states).
-            var dispatched = new List<EditorToolbarAction>();
-            var view = EditorViewMode.Scene;
-            using var toolbar = new ToolbarSystem(world, (a, _) => dispatched.Add(a),
-                viewMode: () => view);
-            Click(cursor, new Vector2(game.Center.X, game.Center.Y));
-            toolbar.Update(Playing()); // live even while Playing (exit-the-sandbox affordance)
-            Assert.Equal(new[] { EditorToolbarAction.ModeGame }, dispatched);
-        }
-    }
-
-    [Fact]
-    public void ModeToggleSegment_RendersTabStyle_ActiveSegmentUnderlined()
-    {
-        using var world = new World();
-        var chrome = new EditorChromeBuilder(world, label => label.Length * 8f);
-        chrome.Build(1600, 900);
-        MakeCursor(world);
-
-        var view = EditorViewMode.Scene;
-        using var toolbar = new ToolbarSystem(world, (_, _) => { }, viewMode: () => view);
-        toolbar.Update(Paused());
-
-        // Scene mode: the Scene segment is active (Bg1 fill + non-empty accent underline); Game is not.
-        var scene = SegmentEntity(world, EditorToolbarAction.ModeScene);
-        var game = SegmentEntity(world, EditorToolbarAction.ModeGame);
-        Assert.Equal(EditorTheme.Bg1, scene.Get<SimpleButtonComponent>().FillColor);
-        Assert.NotEmpty(scene.Get<ToolbarButtonComponent>().UnderlineEntity!.Value.Get<DrawComponent>().Vertices);
-        Assert.Empty(game.Get<ToolbarButtonComponent>().UnderlineEntity!.Value.Get<DrawComponent>().Vertices);
-
-        // Switch the view mode to Game → the underline follows to the Game segment.
-        view = EditorViewMode.Game;
-        toolbar.Update(Paused());
-        Assert.Empty(scene.Get<ToolbarButtonComponent>().UnderlineEntity!.Value.Get<DrawComponent>().Vertices);
-        Assert.NotEmpty(game.Get<ToolbarButtonComponent>().UnderlineEntity!.Value.Get<DrawComponent>().Vertices);
-        Assert.Equal(EditorTheme.Bg1, game.Get<SimpleButtonComponent>().FillColor);
-    }
-
-    // ─────────────── UX3-A ask 2: explicit labels + auto-play on Game-mode entry ──────────────────────
-
-    [Fact]
-    public void ModeToggleSegments_ReadExplicitModeLabels()
-    {
-        using var world = new World();
-        var chrome = new EditorChromeBuilder(world, label => label.Length * 8f);
-        chrome.Build(1600, 900);
-
-        // UX3-A: the toggle segments read the explicit "Scene mode" / "Game mode" (not bare "Scene" /
-        // "Game"), and the segment width is recomputed to fit them within the Scene header.
-        Assert.Equal("Scene mode", SegmentLabel(world, EditorToolbarAction.ModeScene));
-        Assert.Equal("Game mode", SegmentLabel(world, EditorToolbarAction.ModeGame));
-
-        var sceneHeader = EditorChromeLayout.SceneHeader(1600, 900);
-        Assert.True(sceneHeader.Contains(SegmentBounds(world, EditorToolbarAction.ModeScene)));
-        Assert.True(sceneHeader.Contains(SegmentBounds(world, EditorToolbarAction.ModeGame)));
-    }
-
-    [Fact]
-    public void GameModeToggleClick_EntersGameAndAutoPlays_SnapshotBeforeTheFlip()
-    {
-        using var s = new Stack();
-        s.AddSpriteRoot(new Vector2(10, 20));
-
-        // The real Scene-header mode segments + the ONE ToolbarSystem, its dispatch wired to the shared
-        // transport EXACTLY as EditorOverlay.DispatchToolbarAction wires the [Scene mode | Game mode]
-        // toggle (UX3-A): ModeGame → Transport.Play (enter Game + auto-play), ModeScene → ExitToSceneMode.
-        var chrome = new EditorChromeBuilder(s.World, label => label.Length * 8f);
-        chrome.Build(1600, 900);
-        var cursor = MakeCursor(s.World);
-
-        var state = Paused(); // boot: Scene + Edit
-        var runModeAtCapture = RunMode.Play;
-        var baseCapture = s.Transport.CaptureSnapshot!;
-        s.Transport.CaptureSnapshot = () => { runModeAtCapture = state.RunMode; return baseCapture(); };
-
-        using var toolbar = new ToolbarSystem(s.World,
-            (a, st) =>
-            {
-                if (a == EditorToolbarAction.ModeGame) s.Transport.Play(st);
-                else if (a == EditorToolbarAction.ModeScene) s.Transport.ExitToSceneMode(st);
-            },
-            viewMode: () => s.Transport.ViewMode);
-
-        var game = SegmentBounds(s.World, EditorToolbarAction.ModeGame);
-        Click(cursor, new Vector2(game.Center.X, game.Center.Y));
-        toolbar.Update(state);
-
-        Assert.Equal(EditorViewMode.Game, s.Transport.ViewMode); // entered the sandbox
-        Assert.Equal(RunMode.Play, state.RunMode);               // AND auto-played (UX3-A ask 2)
-        Assert.Equal(RunMode.Edit, runModeAtCapture);            // snapshot taken BEFORE the flip (pre-mortem #7)
-        Assert.Equal(1, s.SnapshotCaptures);                     // exactly one snapshot for the session
-    }
+    // ─────────────── Auto-play on Game-tab entry (PF-B: the mode toggle is retired) ───────────────────
+    // The retired [Scene | Game] mode-toggle SEGMENT UI tests moved to ViewportTabStripTests (the strip
+    // that replaced the toggle). The auto-play + snapshot-before-flip SEMANTICS they also covered survive
+    // here (PlayInSceneMode_SnapshotsBeforeRunModeFlipsToPlay_AndAutoEntersGame) and in the tab-strip
+    // "Play spawns + activates the Game tab" test.
 
     [Fact]
     public void GameModeEntry_LandsPlaying_ExitLandsPaused()
@@ -474,11 +365,11 @@ public class EditorGameModeTests
         // Entering via Play (the composition the toggle reuses) lands Playing in Game mode; exit lands
         // Paused in Scene mode (unchanged) — the exit is still Edit.
         s.Transport.Play(state);
-        Assert.Equal(EditorViewMode.Game, s.Transport.ViewMode);
+        Assert.Equal(ViewportContextKind.Game, s.Transport.ActiveContextKind);
         Assert.Equal(RunMode.Play, state.RunMode);
 
         s.Transport.ExitToSceneMode(state);
-        Assert.Equal(EditorViewMode.Scene, s.Transport.ViewMode);
+        Assert.Equal(ViewportContextKind.Scene, s.Transport.ActiveContextKind);
         Assert.Equal(RunMode.Edit, state.RunMode);
     }
 
@@ -515,23 +406,6 @@ public class EditorGameModeTests
     }
 
     // ─────────────── helpers ───────────────
-
-    private static string SegmentLabel(World world, EditorToolbarAction action)
-    {
-        var label = SegmentEntity(world, action).Get<SimpleButtonComponent>().TextEntity!.Value;
-        return label.Get<DynamicTextComponent>().TextContent;
-    }
-
-    private static Entity SegmentEntity(World world, EditorToolbarAction action)
-    {
-        using var set = world.GetEntities().With<ToolbarButtonComponent>().AsSet();
-        foreach (var e in set.GetEntities())
-            if (e.Get<ToolbarButtonComponent>().Action == action) return e;
-        return default;
-    }
-
-    private static Rectangle SegmentBounds(World world, EditorToolbarAction action) =>
-        SegmentEntity(world, action).Get<ToolbarButtonComponent>().Bounds;
 
     private static Entity MakeButton(World world, EditorToolbarAction action, Rectangle bounds)
     {

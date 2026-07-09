@@ -65,8 +65,6 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     private readonly Action<EditorToolbarAction, GameState> _dispatch;
     private readonly Func<EditorToolbarAction, GameState, bool>? _isEditingActionBlocked;
     private readonly Func<bool>? _isInputSuppressed;
-    private readonly Func<EditorViewMode>? _viewMode;          // UX2-F: which mode-toggle segment is active
-    private readonly ViewportManager? _viewportManager;        // UX2-F: DPR for the segment underline bar
 
     private bool _cursorPresent;
     private Vector2 _cursorPoint;
@@ -82,26 +80,17 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     /// click is suppressed even while Paused. The overlay wires it to the save-guard's "no project
     /// root" cause so Save dims while the project is unresolved (the "Playing" cause is already
     /// covered by the transport rule). Null (the default) preserves the pre-PS2 behaviour.</param>
-    /// <param name="viewMode">Optional (UX2-F): the current editor view mode, so a <c>[Scene | Game]</c>
-    /// mode-toggle segment renders its active/inactive tab-style visual. Null (the default) treats every
-    /// segment as inactive — fine for unit tests that build bare buttons.</param>
-    /// <param name="viewportManager">Optional (UX2-F): supplies the device-pixel ratio for the segment's
-    /// accent underline bar thickness. Null (the default) → DPR 1.</param>
     /// <param name="isInputSuppressed">Optional global suppress: while it returns <c>true</c> the
     /// toolbar dispatches nothing (a shell splitter/scrollbar drag owns the pointer — a drag that
     /// happens to release over a toolbar button must not also fire it). Null (the default) never
     /// suppresses.</param>
     public ToolbarSystem(World world, Action<EditorToolbarAction, GameState> dispatch,
         Func<EditorToolbarAction, GameState, bool>? isEditingActionBlocked = null,
-        Func<EditorViewMode>? viewMode = null,
-        ViewportManager? viewportManager = null,
         Func<bool>? isInputSuppressed = null)
         : base(world.GetEntities().With<ToolbarButtonComponent>().With<TransformComponent>().AsSet())
     {
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
         _isEditingActionBlocked = isEditingActionBlocked;
-        _viewMode = viewMode;
-        _viewportManager = viewportManager;
         _isInputSuppressed = isInputSuppressed;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         // The shared gizmo state (tool / snap / mode) drives the ACTIVE-tool icon tint. There is exactly
@@ -146,10 +135,11 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
             SyncPlayPauseLabel(entity, state);
         }
 
-        // Transport + mode-toggle controls are live in both modes (a mode toggle must be able to exit the
-        // sandbox while Playing); editing buttons only while Paused (Edit) — and an editing button may be
-        // additionally gated (e.g. Save while the project is unresolved or in Game mode).
-        var active = (state.RunMode == RunMode.Edit || button.Action.IsTransport() || button.Action.IsModeToggle())
+        // Transport controls are live in both modes (they are how you leave either state); editing
+        // buttons only while Paused (Edit) — and an editing button may be additionally gated (e.g. Save
+        // while the project is unresolved or the Game tab is active). (The viewport tab strip — the
+        // ex-mode-toggle — is its own descriptor-driven system now, not a toolbar button.)
+        var active = (state.RunMode == RunMode.Edit || button.Action.IsTransport())
                      && !(_isEditingActionBlocked?.Invoke(button.Action, state) ?? false);
 
         // Two hover notions: `over` (drives the fill + dispatch, needs the button active) and the raw
@@ -165,79 +155,20 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
         button.HoverProgress = EditorTheme.AdvanceHover(button.HoverProgress, over, state.Time);
         button.HoverSeconds = overRaw && !_leftDown ? button.HoverSeconds + state.Time : 0f;
 
-        // A [Scene | Game] mode-toggle segment renders tab-style (active = Bg1 fill + Accent underline);
-        // every other button uses the standard button fill + optional icon glyph.
-        if (button.Action.IsModeToggle())
-        {
-            RenderSegment(entity, ref button);
-        }
-        else
-        {
-            if (entity.Has<SimpleButtonComponent>())
-            {
-                ref var visual = ref entity.Get<SimpleButtonComponent>();
-                visual.FillColor = EditorTheme.ControlFill(
-                    disabled: !active, selected: false, pressed: over && _leftDown, button.HoverProgress);
-                // A text button dims its label while inert (the Playing state reads at a glance); an icon
-                // button's glyph carries the state colour instead (baked below).
-                SetLabelColor(entity, active ? EditorTheme.Text0 : EditorTheme.TextDisabled);
-            }
-
-            BakeIcon(ref button, active, state);
-        }
-
-        if (over && _clicked && !(_isInputSuppressed?.Invoke() ?? false))
-            _dispatch(button.Action, state);
-    }
-
-    /// <summary>Renders a <c>[Scene | Game]</c> mode-toggle segment tab-style (UX2-F), mirroring the
-    /// left-strip tab visual: the <b>active</b> segment (its mode == the current view mode) gets a
-    /// <c>Bg1</c> fill + a 3pt <c>Accent</c> underline + a <c>Text0</c> label; an <b>inactive</b>
-    /// segment gets a <c>Bg0 → Bg2</c> hover-faded fill + an empty underline + a <c>Text1</c> label.
-    /// The active-segment resolution reads the injected <see cref="_viewMode"/> seam.</summary>
-    private void RenderSegment(in Entity entity, ref ToolbarButtonComponent button)
-    {
-        var viewMode = _viewMode?.Invoke() ?? EditorViewMode.Scene;
-        var selected =
-            (button.Action == EditorToolbarAction.ModeScene && viewMode == EditorViewMode.Scene) ||
-            (button.Action == EditorToolbarAction.ModeGame && viewMode == EditorViewMode.Game);
-
         if (entity.Has<SimpleButtonComponent>())
         {
             ref var visual = ref entity.Get<SimpleButtonComponent>();
-            // Active = Bg1 (merges into the header body); inactive = Bg0 hover-fading toward Bg2 — the
-            // same recipe the left-strip tabs use (never ControlFill, so it reads as a tab, not a button).
-            visual.FillColor = selected
-                ? EditorTheme.Bg1
-                : Color.Lerp(EditorTheme.Bg0, EditorTheme.Bg2, MathHelper.Clamp(button.HoverProgress, 0f, 1f));
+            visual.FillColor = EditorTheme.ControlFill(
+                disabled: !active, selected: false, pressed: over && _leftDown, button.HoverProgress);
+            // A text button dims its label while inert (the Playing state reads at a glance); an icon
+            // button's glyph carries the state colour instead (baked below).
+            SetLabelColor(entity, active ? EditorTheme.Text0 : EditorTheme.TextDisabled);
         }
 
-        // The accent underline bar (active only) — a raw mesh on the segment's UnderlineEntity.
-        if (button.UnderlineEntity is { IsAlive: true } underline && underline.Has<DrawComponent>())
-        {
-            ref var dc = ref underline.Get<DrawComponent>();
-            if (selected)
-            {
-                var scale = _viewportManager?.DevicePixelRatio ?? 1f;
-                var bar = EditorChromeLayout.TabUnderline(button.Bounds, scale);
-                var mesh = new FilledRectangleMeshGenerator(bar, EditorTheme.Accent).Generate();
-                dc.Type = DrawElementType.Mesh;
-                dc.Vertices = mesh.Vertices;
-                dc.Indices = mesh.Indices;
-                dc.PrimitiveType = mesh.PrimitiveType;
-                dc.WorldMatrix = Matrix.Identity;
-                dc.Target = RenderTargetID.Editor;
-                dc.LayerDepth = EditorTheme.Depths.TabUnderline;
-            }
-            else
-            {
-                // Park the bar (empty mesh — MasterRenderSystem skips it), like a hidden disclosure arrow.
-                dc.Vertices = Array.Empty<VertexPositionColor>();
-                dc.Indices = Array.Empty<int>();
-            }
-        }
+        BakeIcon(ref button, active, state);
 
-        SetLabelColor(entity, selected ? EditorTheme.Text0 : EditorTheme.Text1);
+        if (over && _clicked && !(_isInputSuppressed?.Invoke() ?? false))
+            _dispatch(button.Action, state);
     }
 
     /// <summary>Refills an icon button's screen-baked glyph mesh with the state-driven colour, sized to

@@ -1,6 +1,7 @@
-using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.UI;
+using MonoDreams.State;
 using Xunit;
 
 namespace MonoDreams.Tests.LevelEditor;
@@ -80,14 +81,16 @@ public class StatusBarModelTests
         Assert.Equal("Player  |  12 entities", StatusBarModel.LeftStatus("Player", 12));
     }
 
-    // ── Right: scene id + mode ───────────────────────────────────────────────────────────────────
+    // ── Right: active tab id + (Playing/Paused on the Game tab) — PF-B ────────────────────────────
 
     [Fact]
-    public void Right_ShowsSceneIdAndMode()
+    public void Right_ShowsActiveTabId_AndRunStateOnTheGameTab()
     {
-        Assert.Equal("island2  |  Scene mode", StatusBarModel.Right("island2", EditorViewMode.Scene));
-        Assert.Equal("island2  |  Game mode", StatusBarModel.Right("island2", EditorViewMode.Game));
-        Assert.Equal("Scene mode", StatusBarModel.ModeLabel(EditorViewMode.Scene));
-        Assert.Equal("Game mode", StatusBarModel.ModeLabel(EditorViewMode.Game));
+        // Scene tab: just the id (the tab strip already names the active context; run state is implicit).
+        Assert.Equal("island2", StatusBarModel.Right("island2", ViewportContextKind.Scene, RunMode.Edit));
+        Assert.Equal("island2", StatusBarModel.Right("island2", ViewportContextKind.Scene, RunMode.Play));
+        // Game tab: the id + the transport state (replacing the retired "Scene mode"/"Game mode" words).
+        Assert.Equal("island2  |  Playing", StatusBarModel.Right("island2", ViewportContextKind.Game, RunMode.Play));
+        Assert.Equal("island2  |  Paused", StatusBarModel.Right("island2", ViewportContextKind.Game, RunMode.Edit));
     }
 }
