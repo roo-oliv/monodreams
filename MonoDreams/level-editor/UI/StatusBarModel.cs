@@ -82,15 +82,18 @@ public static class StatusBarModel
         return $"{name}  |  {entityCount} {noun}";
     }
 
-    /// <summary>The right side (PF-B): the ACTIVE viewport tab's id, plus its transport state on the
-    /// <see cref="ViewportContextKind.Game"/> tab (<c>Playing</c> / <c>Paused</c>). The Scene tab (and a
-    /// future Prefab tab, which never plays) show the id alone — the tab strip already names the active
-    /// context, so the run state is only meaningful for the Game sandbox. The dirty dot (a Warning mesh)
-    /// is drawn separately by the system, gated on the injected dirty state.</summary>
+    /// <summary>The right side: the ACTIVE viewport tab's id. On the <see cref="ViewportContextKind.Game"/>
+    /// tab it appends the transport state (<c>Playing</c> / <c>Paused</c>); on a <see cref="ViewportContextKind.Prefab"/>
+    /// tab (PF-D) it reads <c>prefab: &lt;id&gt;</c> (a prefab never plays — no run state); the Scene tab
+    /// shows the id alone. The dirty dot (a Warning mesh) is drawn separately by the system after this text,
+    /// gated on the injected dirty state — so a prefab tab reads <c>prefab: &lt;id&gt; ●</c> when dirty.</summary>
     public static string Right(string tabId, ViewportContextKind activeKind, RunMode runMode) =>
-        activeKind == ViewportContextKind.Game
-            ? $"{tabId}  |  {(runMode == RunMode.Play ? "Playing" : "Paused")}"
-            : tabId;
+        activeKind switch
+        {
+            ViewportContextKind.Game => $"{tabId}  |  {(runMode == RunMode.Play ? "Playing" : "Paused")}",
+            ViewportContextKind.Prefab => $"prefab: {tabId}",
+            _ => tabId,
+        };
 
     private static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
 }

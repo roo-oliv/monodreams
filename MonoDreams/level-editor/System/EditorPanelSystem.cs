@@ -409,10 +409,23 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             list.Add(e);
         // Fold the camera rig back in (it is infra-tagged, so _sceneSet excluded it) — the ONE editor
         // infrastructure entity the tree shows, so the designer can select + inspect the authored camera.
-        foreach (var e in _cameraRigSet.GetEntities())
-            if (e.IsAlive && !list.Contains(e))
-                list.Add(e);
+        // SCENE-CONTEXT-ONLY (PF-D, pre-mortem #8): a prefab tab has no rig, so its "Camera" row must not
+        // appear there — skip the fold when the active viewport context is a prefab.
+        if (ActiveViewportKind() != ViewportContextKind.Prefab)
+            foreach (var e in _cameraRigSet.GetEntities())
+                if (e.IsAlive && !list.Contains(e))
+                    list.Add(e);
         return list;
+    }
+
+    /// <summary>The active viewport tab's kind (from the shell-state descriptors the context stack
+    /// writes), or <see cref="ViewportContextKind.Scene"/> when unset — used to gate the scene-only
+    /// camera-rig tree row off prefab contexts (PF-D).</summary>
+    private ViewportContextKind ActiveViewportKind()
+    {
+        var tabs = _shellState.ViewportTabs;
+        var i = _shellState.ActiveViewportTab;
+        return tabs != null && i >= 0 && i < tabs.Count ? tabs[i].Kind : ViewportContextKind.Scene;
     }
 
     private Entity FirstSelected()

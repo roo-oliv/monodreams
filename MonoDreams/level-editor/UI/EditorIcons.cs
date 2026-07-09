@@ -42,7 +42,7 @@ public static class EditorIcons
         Move, Rotate, Scale, Boundary, Snap,
         Play, Pause, Restart,
         Save, Undo, Redo, Refresh,
-        Camera, Overlays,
+        Camera, Overlays, Prefab,
     }
 
     /// <summary>The fraction of the smaller button dimension the glyph square occupies (centered) — the
@@ -130,6 +130,7 @@ public static class EditorIcons
             case EditorIcon.Redo: pen.Mirror = true; AngularArrow(pen); break;     // ↷ = the mirror
             case EditorIcon.Camera: Camera(pen); break;
             case EditorIcon.Overlays: Overlays(pen); break;
+            case EditorIcon.Prefab: Prefab(pen); break;
             default: throw new ArgumentOutOfRangeException(nameof(icon), icon, "Unknown editor icon.");
         }
         return pen.ToMesh();
@@ -172,6 +173,21 @@ public static class EditorIcons
         var pts = Polygon(0.5f, 0.52f, 0.36f, 5, -90f);
         for (var i = 0; i < pts.Length; i++)
             p.Line(pts[i].u, pts[i].v, pts[(i + 1) % pts.Length].u, pts[(i + 1) % pts.Length].v);
+    }
+
+    /// <summary>Prefab (PF-D): a package/box — a closed square outline with a lid band and a short centre
+    /// flap (the "class you instantiate from" glyph, Unity/Godot's box family). A minimal, unmistakable
+    /// box; all geometry inside the centred glyph square.</summary>
+    private static void Prefab(Pen p)
+    {
+        // The box outline (closed).
+        p.Line(0.22f, 0.26f, 0.78f, 0.26f); // top
+        p.Line(0.78f, 0.26f, 0.78f, 0.78f); // right
+        p.Line(0.78f, 0.78f, 0.22f, 0.78f); // bottom
+        p.Line(0.22f, 0.78f, 0.22f, 0.26f); // left
+        // The lid band + centre flap (the package hint).
+        p.Line(0.22f, 0.44f, 0.78f, 0.44f); // lid line
+        p.Line(0.50f, 0.26f, 0.50f, 0.44f); // centre flap
     }
 
     /// <summary>Snap-to-grid: a CLOSED square border with an inner 3×3 grid — two vertical + two
