@@ -326,6 +326,45 @@ pre-UX-C screen invisible to the panel.
 that survives the switch); level-editor — "Game screens declare their bound scene; the Scenes panel
 lists screens + scene files and switching IS selecting" (the consumer).
 
+## Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is injected, never `#if`'d
+
+`KeyChord` (a `Keys` trigger + a `KeyModifiers` set) is a pure, platform-blind value type; `KeyChordTracker`
+fires a chord on the **press edge** of its key — down this frame, up last frame — while **exactly** the
+required modifiers are held. "Exactly" is load-bearing: extra held *non-modifier* keys do NOT block a match,
+but extra held *modifiers* DO (`Ctrl+Shift+Z` must not also fire `Ctrl+Z`). Left/right variants of a modifier
+both count. The virtual `KeyModifiers.PlatformCommand` resolves to `Meta` (⌘) on macOS and `Ctrl` elsewhere
+**at match time** from an injected `commandIsMeta` flag — the chord layer never reads the OS (no `#if`, no
+`OperatingSystem` call inside `foundation`); the composing layer injects the flag. Keyboard state arrives
+through the same injectable `Func<KeyboardState>` seam the editor dialog uses (default
+`Keyboard.GetState`), and the pure static `KeyChordTracker.Matches` is testable with hand-built
+`KeyboardState`s. The layer is game-agnostic: any feature can bind combo inputs, not only the editor.
+
+**Replay caveat.** The input-replay channel (`InputReplayPlan` / `InputReplaySystem`) synthesizes
+`AInputState` *actions*, not raw keyboard chords, so chord-driven features are **not** exercised through
+replay — they are tested through their own op channels (the editor's `menu:*` / `view:frame` / toolbar ops)
+and, for the matching itself, through `KeyChordTracker.Matches` with hand-built states. A future replay-v2
+that records the raw keyboard is the named terrain that would make chords replayable.
+
+**Why:** the user's requirement that combo inputs be an ENGINE feature (any future game can use them), plus
+the macOS-vs-Windows/Linux accelerator split. Baking the OS choice into the struct (or a `#if`) would break
+the source's platform-neutrality (a head-level choice, never a module one — see "The platform … is selected
+by the head project"); resolving at match time from an injected flag keeps one table correct on both. The
+exact-modifier rule is what stops `Ctrl+Shift+Z` (Redo) from also firing `Ctrl+Z` (Undo).
+**Breaks:** a superset-tolerant match makes every modified chord also fire its unmodified prefix (Redo also
+undoes); a `#if MONODREAMS_WEB`/OS query inside the module re-bakes the platform into the source; reading the
+level (not the edge) fires every frame a chord is held; assuming replay drives chords leaves chord features
+untested (replay carries actions, not keys).
+**Tests:** `MonoDreams.Tests/Foundation/KeyChordTests.cs` (`ResolveModifiers_*` — the PlatformCommand
+injection; `Matches_FiresOnlyOnThePressEdge_NotWhileHeld`; `Matches_ExtraHeldModifier_Blocks_SoCtrlShiftZ_DoesNotFireCtrlZ`
++ `Matches_MissingRequiredModifier_Blocks_*` + `Matches_ExtraHeldNonModifierKey_DoesNotBlock` — the exact-modifier
+matrix; `Matches_LeftAndRightModifierVariants_BothCount`; `Matches_PlatformCommand_ResolvesToMeta_OnMac` +
+`_ResolvesToCtrl_Elsewhere` — pre-mortem #7 both resolutions; `Tracker_PrimesOnFirstUpdate_*` +
+`Tracker_FiresOnTheFrameTheChordIsPressed_*` — the seam + priming). The editor consumer + the replay caveat's
+op channels are protected by `MonoDreams.Tests/LevelEditor/EditorShortcutTests.cs`.
+**Depends on:** this file — "The platform (backend + OS services) is selected by the head project, never by
+engine source" (why the OS fact is injected); level-editor — "The editor's keyboard shortcuts are ONE chord
+table, gated by a single viewport context" (the first consumer).
+
 ## Open questions
 
 - **Entity disposed mid-frame:** convention not yet established —
