@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "407fec605bba",
+  "session_id": "99588020-158e-40d6-aa8e-de0c7ddae9dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-09T02:02:02.762939Z",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs",
+    "MonoDreams.Tests/LevelEditor/SceneLintTests.cs",
+    "docs/level-editor/editor-shell-ui-ux-2.md",
+    "docs/level-editor/editor-shell-ui-ux.md",
+    "docs/level-editor/island-authoring-plan.md",
+    "docs/level-editor/project-persistence-plan.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "8a22def3-f365-40b9-a6a1-17441883b3c4",
+  "checkpoint_transcript_start": 3857,
+  "transcript_lines_at_start": 3857,
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 391893,
+    "cache_read_tokens": 4037167,
+    "output_tokens": 17500,
+    "api_call_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-09T02:02:00.678474Z",
+    "agent_lines": 20,
+    "human_added": 814,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 834,
+    "agent_percentage": 2.3980815347721824
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-level-editor/99588020-158e-40d6-aa8e-de0c7ddae9dd.jsonl"
+}
