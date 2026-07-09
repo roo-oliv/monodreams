@@ -35,6 +35,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     private readonly BoundaryToolSystem? _boundary;
     private readonly TriggerOverlaySystem? _triggers;
     private readonly EditorCameraRig? _cameraRig;
+    private readonly EditorGrid? _grid;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -47,20 +48,25 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     /// <param name="cameraRig">Optional camera rig (UX2-E): its <see cref="EditorCameraRig.EmitGlyph"/>
     /// bakes the authored-camera frustum glyph (bounds + X) into this same pass when the view differs
     /// from the rig.</param>
+    /// <param name="grid">Optional world-space grid (UX3-D): its <see cref="EditorGrid.EmitGrid"/> bakes
+    /// the reference grid into this same pass, BENEATH the other overlays (lowest overlay depth).</param>
     public EditorOverlayPrepSystem(GizmoSystem gizmo, ProxySyncSystem proxySync,
         BoundaryToolSystem? boundary = null, TriggerOverlaySystem? triggers = null,
-        EditorCameraRig? cameraRig = null)
+        EditorCameraRig? cameraRig = null, EditorGrid? grid = null)
     {
         _gizmo = gizmo ?? throw new ArgumentNullException(nameof(gizmo));
         _proxySync = proxySync ?? throw new ArgumentNullException(nameof(proxySync));
         _boundary = boundary;
         _triggers = triggers;
         _cameraRig = cameraRig;
+        _grid = grid;
     }
 
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
+        // Grid first — the backdrop reference beneath the interactive overlays (depth-ordered anyway).
+        _grid?.EmitGrid(state);
         _gizmo.EmitOverlays(state);
         _proxySync.EmitOverlays(state);
         _boundary?.EmitOverlays(state);

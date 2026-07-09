@@ -161,6 +161,9 @@ public sealed class EditorChromeBuilder
         // UX2-D: the fixed "Entity" dropdown (a TEXT button + a small ▾ caret mesh) — the discoverable
         // twin of the viewport right-click, acting on the current selection.
         (EditorToolbarAction.EntityMenu, "Entity"),
+        // UX3-D: the "Overlays" dropdown (an ICON button — two overlapping circles; the label is its
+        // tooltip) — Blender's per-viewport Overlays menu, opened below the button.
+        (EditorToolbarAction.Overlays, "Overlays"),
     };
 
     /// <summary>Extra width (logical points) reserved past the <c>Entity</c> label for its ▾ caret.</summary>

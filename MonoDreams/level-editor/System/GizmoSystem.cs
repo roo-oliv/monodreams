@@ -132,6 +132,11 @@ public sealed class GizmoSystem : ISystem<GameState>
     private readonly Camera _camera;
     private readonly EditorHistory _history;
     private readonly ViewportManager? _viewportManager;
+    // UX3-D gates (default permissive → back-compat): whether the gizmo overlays show at all (false in
+    // the Game-mode sandbox — "the sandbox looks like the game") and whether the selection outline is
+    // included (false when the Overlays menu's "Outline Selected" is off; selection itself unaffected).
+    private readonly Func<bool>? _viewportOverlaysVisible;
+    private readonly Func<bool>? _selectionOutlineVisible;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _gizmoStateSet;
     private readonly EntitySet _cursorSet;
@@ -170,13 +175,22 @@ public sealed class GizmoSystem : ISystem<GameState>
     /// <param name="viewportManager">Supplies the aspect-fit destination the overlay visuals are
     /// projected into (see <see cref="OverlayProjection"/>). Null (world-free unit tests) degrades
     /// to the identity aspect-fit — screen == virtual.</param>
+    /// <param name="viewportOverlaysVisible">UX3-D: when it returns false the gizmo hides ALL its
+    /// overlays (handle + outline) — the Game-mode sandbox. Null (default) = always visible.</param>
+    /// <param name="selectionOutlineVisible">UX3-D: when it returns false the SELECTION OUTLINE is
+    /// suppressed (the handle still shows; selection itself is unaffected) — the Overlays menu's
+    /// "Outline Selected" toggle. Null (default) = outline always shown.</param>
     public GizmoSystem(World world, Camera camera, EditorHistory history,
-        ViewportManager? viewportManager = null)
+        ViewportManager? viewportManager = null,
+        Func<bool>? viewportOverlaysVisible = null,
+        Func<bool>? selectionOutlineVisible = null)
     {
         _world = world;
         _camera = camera;
         _history = history;
         _viewportManager = viewportManager;
+        _viewportOverlaysVisible = viewportOverlaysVisible;
+        _selectionOutlineVisible = selectionOutlineVisible;
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
@@ -259,10 +273,12 @@ public sealed class GizmoSystem : ISystem<GameState>
     public void EmitOverlays(GameState state)
     {
         if (!IsEnabled || state.RunMode != RunMode.Edit || !TryGetSelected(out var target)
-            || GetGizmoState().Mode != EditorToolMode.SelectTransform)
+            || GetGizmoState().Mode != EditorToolMode.SelectTransform
+            || !(_viewportOverlaysVisible?.Invoke() ?? true))
         {
             // Outside SelectTransform the gizmo is visibly deactivated (§S1) — no handles, no
-            // outline — even while something stays selected.
+            // outline — even while something stays selected. The Game-mode sandbox (UX3-D) hides them
+            // all too, via _viewportOverlaysVisible.
             HideOverlays();
             return;
         }
@@ -277,7 +293,12 @@ public sealed class GizmoSystem : ISystem<GameState>
         var projection = OverlayProjection.For(space, _camera, _viewportManager);
 
         EnsureOverlays();
-        SetMesh(_outline, OverlayMeshClip.ClipToRect(BuildOutline(target, pivot, projection), projection.Viewport));
+        // The selection outline is gated by "Outline Selected" (UX3-D); the handle is not (it is the
+        // tool affordance). An empty mesh parks the outline without tearing the overlay entities down.
+        var outlineMesh = (_selectionOutlineVisible?.Invoke() ?? true)
+            ? OverlayMeshClip.ClipToRect(BuildOutline(target, pivot, projection), projection.Viewport)
+            : new MeshData();
+        SetMesh(_outline, outlineMesh);
         // A box proxy's handle set = the centre move handle PLUS the eight resize squares; every
         // other target keeps the active tool's single handle.
         var handleMesh = TryGetBoxProxyWorldRect(target, out var boxMin, out var boxMax)

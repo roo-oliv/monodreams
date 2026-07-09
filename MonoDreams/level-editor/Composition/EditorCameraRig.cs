@@ -48,13 +48,18 @@ public sealed class EditorCameraRig
     private readonly World _world;
     private readonly Camera _camera; // the free editor VIEW (also the source of the immutable virtual size)
     private readonly ViewportManager? _viewportManager;
+    // UX3-D gate (default permissive → back-compat): when it returns false the glyph is hidden entirely
+    // ("Camera" overlay off, or the Game-mode sandbox) — the view/rig divergence rule applies only when on.
+    private readonly Func<bool>? _glyphVisible;
     private readonly Entity _rig;
 
-    public EditorCameraRig(World world, Camera camera, ViewportManager? viewportManager = null)
+    public EditorCameraRig(World world, Camera camera, ViewportManager? viewportManager = null,
+        Func<bool>? glyphVisible = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _viewportManager = viewportManager;
+        _glyphVisible = glyphVisible;
 
         // Materialize the rig, initialized to the current view (a sensible default before any scene
         // load re-syncs it from the file — "the authored camera starts where the view is").
@@ -146,10 +151,11 @@ public sealed class EditorCameraRig
         ref var draw = ref _rig.Get<DrawComponent>();
 
         if (state.RunMode != RunMode.Edit
+            || !(_glyphVisible?.Invoke() ?? true)
             || CameraRigGlyph.ViewMatchesRig(_camera.Position, _camera.Zoom, Position, Zoom))
         {
             // Park the glyph (empty mesh — MasterRenderSystem skips an invalid/empty mesh): outside Edit,
-            // or "you ARE the camera".
+            // hidden by the "Camera" overlay toggle / the Game-mode sandbox (UX3-D), or "you ARE the camera".
             draw.Vertices = Array.Empty<Microsoft.Xna.Framework.Graphics.VertexPositionColor>();
             draw.Indices = Array.Empty<int>();
             return;
