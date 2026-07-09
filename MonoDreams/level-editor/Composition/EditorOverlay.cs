@@ -1243,6 +1243,16 @@ public sealed class EditorOverlay
     public void PlacePrefabInstance(string prefabId, Vector2 worldPos)
     {
         if (string.IsNullOrEmpty(prefabId)) return;
+        // v1: placing a prefab instance INSIDE a prefab tab (nested-prefab authoring) is refused with a
+        // hint — the PF-C expansion recursion exists but is not surfaced (terrain). Assemble prefabs from
+        // scene selections instead.
+        if (Transport.ActiveContextKind == ViewportContextKind.Prefab)
+        {
+            Logger.Warning(
+                "[level-editor] Place prefab: nesting a prefab instance inside a prefab is not supported " +
+                "yet (nested prefabs are terrain). Place it in a scene instead.");
+            return;
+        }
         PrefabData? data;
         try { data = PrefabSource(prefabId); }
         catch (Exception ex) { Logger.Warning($"[level-editor] Place prefab '{prefabId}' failed: {ex.Message}"); return; }
