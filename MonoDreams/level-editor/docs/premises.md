@@ -269,7 +269,9 @@ contiguous and parent-before-child). A `ChildOf` descendant carries no id of its
 captured as a structural field (like `parent`), marked structurally-captured on the registry so it is
 never written into `components{}` nor trips the unregistered-component warning. STJ's default float
 format is culture-invariant and shortest-round-trippable (it normalizes `1.0`→`1`, which still
-round-trips and re-serializes identically, so the fixed point holds).
+round-trips and re-serializes identically, so the fixed point holds). The later **additive `prefab`
+field** on a `SceneEntityData` (PF-C — a linked prefab instance) is null/omitted for an ordinary
+entity, so every pre-prefab scene stays byte-identical; see "Prefabs are LINKED instances…".
 
 **Why:** meaningful `.mdscene` git diffs and tractable merges — the precondition for versioning
 levels — require deterministic bytes: STJ does not sort object keys by default (the live
@@ -3116,6 +3118,86 @@ the append on web (no source tree) or when the project is unresolved would write
 via `TitleContainer`" (the read side this feeds); this file — "The editor Save writes versioned
 `.mdscene` into the project source tree" (the same Save that appends the entry); foundation —
 `IPlatformServices` (`FileExists`/`ReadAllText`/`WriteAllText`).
+
+## Prefabs are LINKED instances: a compact `prefab` entry with diff-based whole-component overrides, expanded from one `.mdprefab` (PF-C)
+
+A `.mdprefab` is the `SceneData` schema reused verbatim (same `CanonicalJson`, same
+component-serializer registry, same stable ids) with the prefab rules enforced on WRITE
+(`PrefabWriter` + `PrefabData.FindSingleRootIndex`): **exactly ONE root** (every other entity must
+parent-chain to it — a multi-root world is refused loud), the **root Transform position normalized to
+origin** (children keep their LOCAL offsets — `TransformComponent.Position` is parent-relative, so
+normalization touches only the root), and **no `camera`** (a prefab is a class, not a scene —
+pre-mortem #8: the rig is scene-context-only). A scene places a prefab as a **LINKED instance**: an
+`entities[]` entry gains an **additive optional `prefab: "<id>"` field** and a `components{}` holding
+ONLY `core.Transform` (always instance-owned) plus **whole-component overrides**. Override detection is
+**diff-based, not bookkept** (pre-mortem #1): the writer serializes the instance root's live components
+and OMITS any whose canonical bytes EQUAL the prefab root's same-key bytes (inherited), KEEPS the
+byte-different (changed) and the prefab-absent (added) ones; `core.Transform` is always kept.
+Canonical determinism (the byte-stable serializer) is what makes byte-equality a reliable "inherited"
+test. The instance's children are **prefab-owned and NEVER serialized** — the membership closure adds
+the instance root but stops the descent at it (pre-mortem #3), so a scene file contains ZERO
+instance-child entries. `PrefabInstanceComponent { PrefabId }` is the runtime marker, **structurally
+captured** like `SceneEntityIdComponent` (written as the `prefab` field, never a `components{}` body,
+never tripping the unregistered-component warning, hidden by the editable Inspector).
+
+Expansion is **ONE implementation** (`PrefabExpander`), shared by the scene reader (each `prefab`
+entry, through a new optional `SceneSerializer.Deserialize` prefab-expander callback), the
+`PrefabFactory` (the `"prefab:<id>"` `EntitySpawnRequest` channel — a prefix-dispatched
+`IEntityFactory`), and live propagation: it reconstructs root + children through the normal
+deserialize path (texture rehydration + transient `DrawComponent` restore included, via the shared
+`SceneRehydration` — the reader's top-level loop never sees the prefab-owned children, so the expander
+finishes them), applies the instance's `components{}` OVER the root (whole-component replace via the
+registry), and stamps the marker; the reader's re-tag then stamps `SceneObjectComponent` + the scene
+id on the ROOT only (children are ordinary `ChildOf` descendants — the closure covers them, so they
+are never re-tagged and never mistaken for scene roots). It **fails loud** on a missing prefab (the
+unknown-component stance: the reader aborts the load; the factory warns-and-drops per its convention)
+and refuses **cycles** — an instance of X inside X, directly or transitively, is refused at save
+(`PrefabWriter`, via the referenced prefabs' `prefab` entries) and capped at load (an expansion stack
++ a `MaxDepth` backstop, pre-mortem #7). Because both writer and reader route through the same diff +
+the same expansion, `save → load → save` on a scene with instances is a **byte fixed point**. Prefabs
+bundle zero-touch by the same MGCB `/copy:` mechanism as levels, under `Content/Prefabs/<id>.mdprefab`
+(source-first in the editor via `PrefabFileSource`, shipped via `TitleContainer`). **v1 limitation:** a
+component the prefab HAS but that was REMOVED on an instance does not persist — re-expansion restores
+it (the tracked per-instance removal set is named terrain; v1 is whole-component overrides + additions).
+
+**Propagation.** Editing + re-saving a prefab refreshes every open instance
+(`PrefabPropagation.ReExpand`): each instance's current overrides are captured (diffed against the OLD
+prefab — the definition the open instances currently reflect), its prefab-owned subtree despawned, and
+it is rebuilt from the NEW prefab (resolved through the expander's source) with the overrides + scene
+id re-applied. Because a live rebuild disposes and recreates entities, if ANY instance was rebuilt the
+editor history is **cleared and the scene marked dirty** (the Restart rule — stale undo/redo commands
+would dangle, pre-mortem #2); with no open instance of that prefab the history is left completely
+untouched. Smarter command-merging is terrain.
+
+**Why:** prefabs are the "build NPCs / dialogue zones / the Player as classes" surface; LINKED
+instances (vs. baked copies) let a prefab edit propagate, and diff-based overrides mean no per-edit
+flag bookkeeping to desync. Reusing `SceneData` keeps ONE serializer / ONE canonical policy / ONE
+stable-id scheme; ONE expander keeps the reader, the code/factory path, and propagation from drifting.
+Fail-loud + cycle refusal mirror the unknown-component stance (a corrupt reference is a visible error,
+not a silent half-load or an infinite loop).
+**Breaks:** a multi-root or camera-bearing prefab corrupts placement/expansion; bookkept overrides
+desync from the live component; serializing instance children double-expands on load and bloats the
+diff; a second expansion implementation drifts from the reader; a non-diff (bytes-nondeterministic)
+override test turns inherited components into phantom overrides (churned diffs); an uncapped cycle
+hangs the load; propagation under a live history dangles undo commands onto disposed entities.
+**Tests:** `MonoDreams.Tests/LevelEditor/PrefabFormatTests.cs` (one-root validation + refusal, origin
+normalization with children keeping local offsets, camera omission, additivity of the `prefab` field,
+the `PrefabDiff` matrix, `CanonicalEquals`, membership exclusion, direct cycle refusal);
+`MonoDreams.Tests/LevelEditor/PrefabExpansionTests.cs` (reader expansion — root/children/overrides/
+marker/re-tag/rehydrate; the `save → load → save` byte fixed point; missing-prefab + no-expander
+fail-loud; self-referencing cycle capped at load; transitive cycle refused at save; the factory channel
++ `EntitySpawnSystem` prefix dispatch + unknown-id warn-and-drop; propagation override-preservation +
+the history-clear rule / untouched-when-none); `MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs`
+(the prefab `/copy:` bundling helpers).
+**Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories"
+(the deserialize/rehydrate/re-tag path expansion rides), "Scene serialization is canonical and
+byte-stable…" (the determinism the diff needs + the additive `prefab` field), "The component-serializer
+registry is opt-in per type…" (the structural-capture + fail-loud stance), "The editor Save writes
+versioned `.mdscene` into the project source tree" + "New levels bundle zero-touch…" (the Prefabs dir
+joins both), "The editor history tracks a dirty save-point signal" (the propagation Clear + dirty);
+level-loading — "`EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`" (the
+`prefab:` prefix channel), "Native `.mdscene` levels are bundled by an MGCB `/copy:` entry…" (the same
+mechanism prefabs join).
 
 ## See also
 

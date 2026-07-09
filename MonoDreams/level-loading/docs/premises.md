@@ -117,6 +117,12 @@ The `/copy:` entry is the one all-platform mechanism (a raw-copy `<None>`/`.targ
 the desktop output but not the web `wwwroot/Content/`), so there is exactly one bundling
 mechanism and no double-copy.
 
+**Prefabs join the same mechanism (PF-C).** Native `.mdprefab` files live at
+`Content/Prefabs/<id>.mdprefab` and bundle by the identical MGCB `/copy:` entry (appended
+zero-touch by the editor on first Save-Prefab — `MgcbLevelBundle.EnsurePrefabCopyEntry`),
+read the same way through `TitleContainer` (source-first in the editor via `PrefabFileSource`).
+The Prefabs dir is simply a second `/copy:`-bundled content subtree beside Levels.
+
 **Why:** `TitleContainer` over `/copy:`-bundled data is the one read path that works
 on DesktopGL, KNI/web, AND consoles (Switch/PS/Xbox sandbox arbitrary file IO). A
 scene is data (JSON parsed at load), so `/copy:` (raw) is correct — no MGCB processor
@@ -206,16 +212,33 @@ dispatches to an `IEntityFactory` registered for the request's string
 identifier. Game code registers factories at screen setup via
 `EntitySpawnSystem.RegisterEntityFactory(identifier, factory)`.
 
+There is also a **prefix channel** (`RegisterEntityFactoryPrefix(prefix,
+factory)`): one factory serves every identifier beginning with a prefix,
+so a family of dynamic ids routes to a single factory that parses the id
+off the identifier. Exact-match registrations win; among prefixes the
+LONGEST match wins (deterministic). The level-editor's `prefab:` channel
+uses this: `EntitySpawnRequest("prefab:<id>", pos)` routes to the one
+`PrefabFactory`, which spawns a full linked prefab instance through the
+shared `PrefabExpander` (see level-editor — "Prefabs are LINKED
+instances…"). An unknown prefab id warns-and-drops (this premise's
+loud-warning convention).
+
 **Why:** the indirection lets game code customize entity creation per
 identifier without modifying the parsers. The same parser can drive a
 "hit-test gameplay" build, a "render-only preview" build, and a
-"physics-only headless test" build by swapping the factory map.
+"physics-only headless test" build by swapping the factory map. The
+prefix channel extends that to a family of dynamic ids (every prefab)
+without a registration per id.
 **Breaks:** a parser that creates entities directly couples to a
 specific entity shape; a different game using the same parser must
 fork the parser or post-process the entities.
-**Tests:** none yet (the test suite exercises the spawn path
-indirectly via `BlenderLevelTests` and `InfiniteRunnerTests`).
-**Depends on:** —
+**Tests:** `MonoDreams.Tests/LevelEditor/PrefabExpansionTests.cs`
+(`EntitySpawnSystem_PrefixDispatch_RoutesPrefabRequestsToTheFactory`,
+`Factory_UnknownPrefabId_WarnsAndDrops_NoThrow`); the exact-match spawn
+path is still exercised indirectly via `BlenderLevelTests` and
+`InfiniteRunnerTests`.
+**Depends on:** level-editor — "Prefabs are LINKED instances…" (the
+`prefab:` prefix channel's factory + expander).
 
 ## Unregistered factory identifiers log a warning and silently drop the spawn
 
