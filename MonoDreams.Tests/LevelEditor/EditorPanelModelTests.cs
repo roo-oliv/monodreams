@@ -332,6 +332,115 @@ public class EditorPanelModelTests
         state.ExpandedInspectorComponents.Add("N.Foo");
         rows = EditorPanelModel.BuildInspector(state, comps, "Player");
         Assert.True(rows.Single(r => r.Kind == PanelRowKind.InspectorComponent).Expanded);
-        Assert.Contains(rows, r => r.Kind == PanelRowKind.InspectorMember && r.Label == "X: 1");
+        // PF-A: the member row splits into the name part (Label "X:") + the type-colored value.
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == "X" && r.MemberValue == "1");
     }
+
+    // ---- Inspector: the editable model (PF-A §3) --------------------------
+
+    private static ComponentInspector.ComponentInfo Comp(string name, string fullName, Type? type,
+        params ComponentInspector.Member[] members) => new()
+    {
+        TypeName = name,
+        FullTypeName = fullName,
+        Type = type,
+        Members = members,
+    };
+
+    private static List<PanelRow> Inspector(EditorPanelStateComponent state,
+        IReadOnlyList<ComponentInspector.ComponentInfo>? comps, string? title = "E", string? filter = null,
+        Func<ComponentInspector.ComponentInfo, InspectorDeleteAffordance>? del = null, bool addRow = false)
+        => EditorPanelModel.BuildInspector(state, comps, title, filter, del, addRow);
+
+    [Fact]
+    public void BuildInspector_ShowsFilterRow_AndOptionalAddRow()
+    {
+        var comps = new List<ComponentInspector.ComponentInfo> { Comp("Foo", "N.Foo", typeof(int)) };
+        var rows = Inspector(new EditorPanelStateComponent(), comps, filter: "hi", addRow: true);
+
+        var filterRow = rows.Single(r => r.Kind == PanelRowKind.InspectorFilter);
+        Assert.Equal("hi", filterRow.Label); // the filter row carries the current filter text
+        Assert.Equal(PanelRowKind.InspectorFilter, rows[0].Kind); // it leads the body
+        Assert.Contains(rows, r => r.Kind == PanelRowKind.InspectorAddComponent && r.Label == "+ Add component");
+
+        // No add row when not requested (a no-registry unit view).
+        var noAdd = Inspector(new EditorPanelStateComponent(), comps, addRow: false);
+        Assert.DoesNotContain(noAdd, r => r.Kind == PanelRowKind.InspectorAddComponent);
+    }
+
+    [Fact]
+    public void BuildInspector_Filter_NarrowsComponents_ByNameOrMember_CaseInsensitive()
+    {
+        var state = new EditorPanelStateComponent();
+        state.ExpandedInspectorComponents.Add("N.Transform");
+        state.ExpandedInspectorComponents.Add("N.RigidBody");
+        var comps = new List<ComponentInspector.ComponentInfo>
+        {
+            Comp("Transform", "N.Transform", typeof(int),
+                new ComponentInspector.Member("Position", "0, 0", typeof(Microsoft.Xna.Framework.Vector2), true, InspectorValueRole.Number)),
+            Comp("RigidBody", "N.RigidBody", typeof(int),
+                new ComponentInspector.Member("Mass", "1", typeof(float), true, InspectorValueRole.Number)),
+        };
+
+        // A component-NAME match (case-insensitive) keeps only that component.
+        var byName = Inspector(state, comps, filter: "rigid");
+        Assert.Contains(byName, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == "RigidBody");
+        Assert.DoesNotContain(byName, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == "Transform");
+
+        // A member-NAME match keeps the component even when its type name doesn't match.
+        var byMember = Inspector(state, comps, filter: "mass");
+        Assert.Contains(byMember, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == "RigidBody");
+        Assert.DoesNotContain(byMember, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == "Transform");
+
+        // A member-VALUE match keeps the component.
+        var byValue = Inspector(state, comps, filter: "0, 0");
+        Assert.Contains(byValue, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == "Transform");
+    }
+
+    [Fact]
+    public void BuildInspector_MemberRows_CarryTypeColorAndEditability()
+    {
+        var state = new EditorPanelStateComponent();
+        state.ExpandedInspectorComponents.Add("N.C");
+        var comps = new List<ComponentInspector.ComponentInfo>
+        {
+            Comp("C", "N.C", typeof(int),
+                new ComponentInspector.Member("N", "3", typeof(int), true, InspectorValueRole.Number),
+                new ComponentInspector.Member("Ro", "readonly", typeof(object), false, InspectorValueRole.Muted)),
+        };
+        var rows = Inspector(state, comps);
+
+        var editable = rows.Single(r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == "N");
+        Assert.True(editable.MemberEditable);
+        Assert.Equal(InspectorValueRole.Number, editable.ValueRole);
+
+        var ro = rows.Single(r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == "Ro");
+        Assert.False(ro.MemberEditable);
+        Assert.Equal(InspectorValueRole.Muted, ro.ValueRole);
+    }
+
+    [Fact]
+    public void BuildInspector_DeleteAffordance_IsPerComponent()
+    {
+        var comps = new List<ComponentInspector.ComponentInfo>
+        {
+            Comp("Transform", "N.Transform", typeof(int)),
+            Comp("SceneEntityId", "N.SceneEntityId", typeof(long)),
+            Comp("RigidBody", "N.RigidBody", typeof(short)),
+        };
+        InspectorDeleteAffordance Del(ComponentInspector.ComponentInfo c) => c.TypeName switch
+        {
+            "Transform" => InspectorDeleteAffordance.Guarded,
+            "SceneEntityId" => InspectorDeleteAffordance.None,
+            _ => InspectorDeleteAffordance.Deletable,
+        };
+        var rows = Inspector(new EditorPanelStateComponent(), comps, del: Del);
+
+        Assert.Equal(InspectorDeleteAffordance.Guarded, Row(rows, "Transform").DeleteAffordance);
+        Assert.Equal(InspectorDeleteAffordance.None, Row(rows, "SceneEntityId").DeleteAffordance);
+        Assert.Equal(InspectorDeleteAffordance.Deletable, Row(rows, "RigidBody").DeleteAffordance);
+    }
+
+    private static PanelRow Row(List<PanelRow> rows, string label) =>
+        rows.Single(r => r.Kind == PanelRowKind.InspectorComponent && r.Label == label);
 }

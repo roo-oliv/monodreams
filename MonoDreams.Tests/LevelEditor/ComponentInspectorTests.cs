@@ -83,6 +83,18 @@ public class ComponentInspectorTests
     }
 
     [Fact]
+    public void ReadMembers_CarriesMemberTypeAndEditability_ForTheEditableInspector()
+    {
+        var members = ComponentInspector.ReadMembers(typeof(MixedComponent), new MixedComponent { Count = 2 });
+        var count = members.First(m => m.Name == "Count");
+        Assert.Equal(typeof(int), count.MemberType);
+        Assert.True(count.Editable);                    // a writable int field is editable
+        var doubled = members.First(m => m.Name == "Doubled");
+        Assert.False(doubled.Editable);                 // a read-only computed property is not editable
+        Assert.Equal(typeof(int), doubled.MemberType);  // but its type/color are still known
+    }
+
+    [Fact]
     public void Inspect_ListsAttachedComponentTypeNames_Sorted()
     {
         using var world = new World();

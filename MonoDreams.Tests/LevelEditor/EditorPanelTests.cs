@@ -4,13 +4,17 @@ using System.Linq;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Component.Physics;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.UI;
+using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoDreams.System;
@@ -384,8 +388,13 @@ public class EditorPanelTests
         // row-count-independent overhead: the 3 tab widgets (each a fill mesh + label + underline
         // mesh) and the 2 scrollbar meshes (track + thumb). So the entity count is bounded by the
         // window + a constant, never by the row count.
-        const int meshesPerRow = 3;      // arrow + row-fill + accent-bar
-        const int tabCount = 3;          // Scene / Systems / Project
+        // PF-A added two pooled entities per slot: a second label (the member value / inline-edit text)
+        // and a delete-× mesh. The field-background box is a SimpleButtonComponent (counted in neither
+        // set). Created for both roles (parked on the left panel's rows), so the count stays a function of
+        // the visible window + a fixed overhead, never the row count.
+        const int labelsPerRow = 2;      // row label + value label
+        const int meshesPerRow = 4;      // arrow + row-fill + accent-bar + delete-glyph
+        const int tabCount = 3;          // Entities / Systems / Scenes
         const int tabLabels = tabCount;  // one label each
         const int tabMeshes = tabCount * 2; // fill + underline each
         const int scrollbarMeshes = 2;   // track + thumb
@@ -395,9 +404,9 @@ public class EditorPanelTests
         int meshEntities;
         using (var set = world.GetEntities().With<DrawComponent>().AsSet())
             meshEntities = set.GetEntities().Length;
-        Assert.Equal(visible + tabLabels, labelEntities);
+        Assert.Equal(visible * labelsPerRow + tabLabels, labelEntities);
         Assert.Equal(visible * meshesPerRow + tabMeshes + scrollbarMeshes, meshEntities);
-        Assert.True(labelEntities < panel.Rows.Count, "pooling should bound entities below the row count");
+        Assert.True(visible < panel.Rows.Count, "the window is smaller than the content → pooling is active");
     }
 
     // ---- Disclosure arrows are triangle MESHES, not ASCII glyphs -----------
@@ -656,11 +665,11 @@ public class EditorPanelTests
         // Members hidden until expanded.
         Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember);
 
-        // Expand EntityInfoComponent (item 4): its member values appear.
+        // Expand EntityInfoComponent (item 4): its member values appear (PF-A splits name/value).
         panel.ToggleInspectorComponentKey(nameof(EntityInfoComponent));
         panel.Update(Edit());
-        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember && r.Label == "Name: Hero");
-        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember && r.Label == "Type: Hero");
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == "Name" && r.MemberValue == "Hero");
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == "Type" && r.MemberValue == "Hero");
     }
 
     [Fact]
@@ -744,5 +753,251 @@ public class EditorPanelTests
         Assert.Equal(entity, panel.EntityAtPoint(new Point(line.Center.X, line.Center.Y)));
         // The right-press was consumed (so it does not also reach the palette's disarm downstream).
         Assert.False(cursor.Get<CursorInputComponent>().RightButtonPressed);
+    }
+
+    // ---- PF-A: the editable Inspector (value edits, add/remove, filter, keyboard ownership) ----------
+
+    private struct Widget { public bool On; public int Count; public WidgetMode Mode; }
+    private enum WidgetMode { A, B, C }
+
+    private static (EditorPanelSystem panel, EditorHistory history, ComponentSerializerRegistry registry)
+        EditableInspector(World world, ViewportManager vm, KeyboardState[] kb)
+    {
+        var history = new EditorHistory(world);
+        var registry = new ComponentSerializerRegistry();
+        registry.RegisterEngineComponents();
+        var panel = new EditorPanelSystem(world, vm, font: null, role: EditorPanelRole.RightInspector,
+            history: history, registry: registry, getKeyboardState: () => kb[0]);
+        return (panel, history, registry);
+    }
+
+    private static Rectangle RightLine(EditorPanelSystem panel, ViewportManager vm, int rowIndex)
+    {
+        var rect = EditorChromeLayout.RightPanel(vm.ScreenWidth, vm.ScreenHeight, vm.DevicePixelRatio,
+            panel.ShellState.RightWidthPt, panel.ShellState.BottomHeightPt);
+        var body = EditorChromeLayout.RegionBody(rect, vm.DevicePixelRatio);
+        return SystemsPanelLayout.LineRect(body, rowIndex - panel.ScrollOffset, vm.DevicePixelRatio);
+    }
+
+    private static void ClickRight(EditorPanelSystem panel, ViewportManager vm, Entity cursor, int rowIndex, Point? at = null)
+    {
+        var line = RightLine(panel, vm, rowIndex);
+        var p = at ?? new Point(line.Center.X, line.Center.Y);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(p.X, p.Y);
+        input.LeftButtonReleased = true;
+    }
+
+    private static Entity SelectedWidget(World world, Widget widget)
+    {
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(Vector2.Zero));
+        e.Set(widget);
+        e.Set(new SelectedComponent());
+        return e;
+    }
+
+    [Fact]
+    public void Inspector_ClickBoolMember_TogglesImmediately_Undoable_NoField()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        var hero = SelectedWidget(world, new Widget { On = false });
+        var (panel, history, _) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        panel.ToggleInspectorComponentKey(nameof(Widget));
+        panel.Update(Edit());
+
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == nameof(Widget.On));
+        Assert.True(idx >= 0);
+        ClickRight(panel, vm, cursor, idx);
+        panel.Update(Edit());
+
+        Assert.True(hero.Get<Widget>().On);   // a bool click toggles immediately
+        Assert.True(history.IsDirty);         // one undoable command
+        Assert.False(panel.IsEditingMember);  // no inline field opened
+        history.Undo();
+        Assert.False(hero.Get<Widget>().On);
+    }
+
+    [Fact]
+    public void Inspector_ClickEnumMember_CyclesToNext_Undoable()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        var hero = SelectedWidget(world, new Widget { Mode = WidgetMode.A });
+        var (panel, history, _) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        panel.ToggleInspectorComponentKey(nameof(Widget));
+        panel.Update(Edit());
+
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == nameof(Widget.Mode));
+        ClickRight(panel, vm, cursor, idx);
+        panel.Update(Edit());
+
+        Assert.Equal(WidgetMode.B, hero.Get<Widget>().Mode); // cycled to the next member
+        Assert.True(history.IsDirty);
+        Assert.False(panel.IsEditingMember);
+    }
+
+    [Fact]
+    public void Inspector_ClickIntMember_OpensField_EnterCommits_Dirty()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        var hero = SelectedWidget(world, new Widget { Count = 3 });
+        var (panel, history, _) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        panel.ToggleInspectorComponentKey(nameof(Widget));
+        panel.Update(Edit());
+
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == nameof(Widget.Count));
+        ClickRight(panel, vm, cursor, idx);
+        panel.Update(Edit());
+        Assert.True(panel.IsEditingMember);           // click a value → an inline field opens
+        Assert.False(history.IsDirty);                // nothing committed yet
+
+        cursor.Get<CursorInputComponent>().LeftButtonReleased = false; // clear the stale click edge
+        kb[0] = new KeyboardState(Keys.Enter);
+        panel.Update(Edit());
+        Assert.False(panel.IsEditingMember);           // Enter commits + closes
+        Assert.True(history.IsDirty);                  // one undoable command
+    }
+
+    [Fact]
+    public void Inspector_ClickValue_Escape_Cancels_NoCommand()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        SelectedWidget(world, new Widget { Count = 3 });
+        var (panel, history, _) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        panel.ToggleInspectorComponentKey(nameof(Widget));
+        panel.Update(Edit());
+
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorMember && r.MemberName == nameof(Widget.Count));
+        ClickRight(panel, vm, cursor, idx);
+        panel.Update(Edit());
+        Assert.True(panel.IsEditingMember);
+
+        cursor.Get<CursorInputComponent>().LeftButtonReleased = false;
+        kb[0] = new KeyboardState(Keys.Escape);
+        panel.Update(Edit());
+        Assert.False(panel.IsEditingMember);  // cancelled
+        Assert.False(history.IsDirty);        // no command pushed
+    }
+
+    [Fact]
+    public void Inspector_FilterField_FocusType_EscClearsAndUnfocuses()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        SelectedWidget(world, new Widget());
+        var (panel, _, _2) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+        var fidx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorFilter);
+        Assert.True(fidx >= 0);
+        ClickRight(panel, vm, cursor, fidx);
+        panel.Update(Edit());
+        Assert.True(panel.OwnsKeyboard); // the filter field owns the keyboard
+
+        cursor.Get<CursorInputComponent>().LeftButtonReleased = false;
+        kb[0] = new KeyboardState(Keys.A);
+        panel.Update(Edit());
+        Assert.Equal("a", panel.State.InspectorFilter);
+
+        kb[0] = new KeyboardState();          // release
+        panel.Update(Edit());
+        kb[0] = new KeyboardState(Keys.Escape);
+        panel.Update(Edit());
+        Assert.Equal(string.Empty, panel.State.InspectorFilter); // Esc clears
+        Assert.False(panel.OwnsKeyboard);                        // + unfocuses
+    }
+
+    [Fact]
+    public void Inspector_DeleteTransformRefused_DeleteRigidBodyRemoves_Undoable()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        var hero = world.CreateEntity();
+        hero.Set(new TransformComponent(Vector2.Zero));
+        hero.Set(new RigidBodyComponent());
+        hero.Set(new SelectedComponent());
+        var (panel, history, _) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        panel.Update(Edit());
+
+        // Transform's × is Guarded → clicking it refuses (Transform stays, no edit).
+        var tIdx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == nameof(TransformComponent));
+        Assert.Equal(InspectorDeleteAffordance.Guarded, panel.Rows[tIdx].DeleteAffordance);
+        var tDelete = SystemsPanelLayout.DeleteRect(RightLine(panel, vm, tIdx));
+        ClickRight(panel, vm, cursor, tIdx, new Point(tDelete.Center.X, tDelete.Center.Y));
+        panel.Update(Edit());
+        Assert.True(hero.Has<TransformComponent>());
+        Assert.False(history.IsDirty);
+
+        // RigidBody's × is Deletable → clicking it removes it (undoable).
+        var rIdx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorComponent && r.Label == nameof(RigidBodyComponent));
+        Assert.Equal(InspectorDeleteAffordance.Deletable, panel.Rows[rIdx].DeleteAffordance);
+        var rDelete = SystemsPanelLayout.DeleteRect(RightLine(panel, vm, rIdx));
+        ClickRight(panel, vm, cursor, rIdx, new Point(rDelete.Center.X, rDelete.Center.Y));
+        panel.Update(Edit());
+        Assert.False(hero.Has<RigidBodyComponent>());
+        Assert.True(history.IsDirty);
+        history.Undo();
+        Assert.True(hero.Has<RigidBodyComponent>());
+    }
+
+    [Fact]
+    public void Inspector_AddRowClick_RaisesRequest_AndCandidatesExcludePresentAndStructural()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var kb = new[] { new KeyboardState() };
+        var hero = world.CreateEntity();
+        hero.Set(new TransformComponent(Vector2.Zero));
+        hero.Set(new RigidBodyComponent());
+        hero.Set(new SelectedComponent());
+        var (panel, _, _2) = EditableInspector(world, vm, kb);
+        using var _1 = panel;
+
+        var raised = 0;
+        panel.AddComponentRequested = _ => raised++;
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.InspectorAddComponent);
+        Assert.True(idx >= 0);
+        ClickRight(panel, vm, cursor, idx);
+        panel.Update(Edit());
+        Assert.Equal(1, raised);
+
+        var types = panel.AddComponentCandidates().Select(c => c.Type).ToHashSet();
+        Assert.DoesNotContain(typeof(TransformComponent), types); // present
+        Assert.DoesNotContain(typeof(RigidBodyComponent), types); // present
+        Assert.Contains(typeof(VelocityComponent), types);        // registered, not present, addable
     }
 }

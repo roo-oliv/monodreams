@@ -615,6 +615,36 @@ public class EditorContextMenuTests
         finally { PlatformServices.Current = previous; }
     }
 
+    // ═══ PF-A: the filterable "+ Add component" popup ═══════════════════════════════════════════════
+
+    [Fact]
+    public void FilterablePopup_NarrowsItemsLive_CaseInsensitive_AndPicksByPath()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        string? dispatched = null;
+        using var menu = new EditorContextMenuSystem(world, Vm(), null, (p, _) => dispatched = p);
+
+        var items = new[]
+        {
+            new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Alpha", Path = "add-component:a" },
+            new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Beta", Path = "add-component:b" },
+            new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Alfredo", Path = "add-component:c" },
+        };
+        menu.OpenFiltered(items, new Point(50, 50));
+        Assert.True(menu.IsOpen);
+        Assert.Equal(3, menu.Items.Count);
+
+        menu.SetFilter("AL"); // narrows live (case-insensitive substring on the label)
+        Assert.Equal(2, menu.Items.Count); // Alpha + Alfredo
+        Assert.All(menu.Items, i => Assert.Contains("al", i.Label, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("AL", menu.FilterValue);
+
+        menu.Pick("add-component:a", Edit()); // a pick from the narrowed set dispatches + closes
+        Assert.Equal("add-component:a", dispatched);
+        Assert.False(menu.IsOpen);
+    }
+
     private sealed class InMemoryPlatformServices : IPlatformServices
     {
         public Dictionary<string, string> Files { get; } = new();
