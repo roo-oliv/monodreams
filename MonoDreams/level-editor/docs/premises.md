@@ -29,10 +29,13 @@
 > sandbox — snapshot on enter, reader-shared restore on exit, Save blocked in Game
 > mode, one-owner transport; and **UX3-D** the viewport Overlays menu — checkable
 > (Toggle) menu items, the session overlay settings, the one-value grid = snap step,
-> the bounded grid renderer, and the Game-mode overlay hide; and **UX3-E** the ONE editor
+> the bounded grid renderer, and the Game-mode overlay hide; **UX3-E** the ONE editor
 > keyboard-shortcut chord table — Undo/Redo/Delete/FrameScene/AddMenu over the foundation chord layer,
 > gated by a single viewport context, consolidating the editor keyboard bindings and removing the bare
-> `Z`/`Y` undo/redo). No premise here ships `Tests: none yet`.
+> `Z`/`Y` undo/redo; and **UX3-F** the Blender-style modal transforms — bare `G`/`S`/`R` enter a
+> coalesced-undo modal edit that owns the pointer + keyboard (axis locks, numeric entry, rig composition,
+> Escape priority), plus the window status bar (one thin strip in the ONE inset, a pure formatting model)).
+> No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -1777,7 +1780,11 @@ SAME instance the toolbar/menu use — Undo/Redo → the shared `EditorHistory`,
 raw chords (the foundation chord replay caveat), each binding's ACTION is exercised headlessly through an op:
 Undo/Redo via the toolbar `Undo`/`Redo` actions, Delete via `menu:pick delete`, FrameScene via the new
 `view:frame` op, AddMenu via the new `menu:open add` op; the chord→action MATCHING is unit-tested at the
-tracker/table level. The table is the single place a later wave adds the modal G/S/R transforms (UX3-F).
+tracker/table level. **UX3-F: the bare `G`/`S`/`R` modal transforms join the table** (Blender parity — bare
+letter keys ARE the tools) as `ModalGrab`/`ModalScale`/`ModalRotate`; the dispatch enters the shared
+`ModalTransformSystem`, and the gate gains a fourth term — `ModalActive` (`Modal.IsActive`) — so while a
+modal transform owns the keyboard NO shortcut fires (a re-pressed G/S/R cannot re-enter mid-session). See
+"The modal transform (G/S/R) owns the pointer + keyboard …" below.
 
 **Why:** design §4 — combo input is an ENGINE feature (foundation) and the editor's chords are one table so
 there is one place to read/extend them; the context gate stops panel typing or a dialog from triggering tools
@@ -1791,9 +1798,11 @@ chord act on the frame a modal opened; a bare-`Z` undo re-introduces the non-Ble
 tool letters; a second history/command/menu instance means the shortcut's undo can't reverse the gizmo's edits.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorShortcutTests.cs` (`Table_BindsEachChordToItsAction_WindowsResolution`,
 `Table_CmdShiftZ_ResolvesToRedo_NeverUndo_PreMortem3`, `Table_MacResolution_MetaFiresCommand_CtrlDoesNot`,
-`Table_BareZ_AndBareY_HaveNoBinding_TheRemovedUndoRedo`; `Context_AllowsEditing_OnlyOverViewport_NoModal_WhilePaused`;
+`Table_BareZ_AndBareY_HaveNoBinding_TheRemovedUndoRedo`, `Table_BindsBareGSR_ToTheModalTransforms_UX3F`;
+`Context_AllowsEditing_OnlyOverViewport_NoModal_WhilePaused` (incl. the `ModalActive` term);
 `System_Fires_OverViewport_Paused`, `System_DoesNotFire_OverAPanel`, `System_DoesNotFire_WhileDialogOrMenuOpen`,
-`System_DoesNotFire_WhilePlaying`, `System_BareZ_DoesNotUndo`; `Shortcut_CmdZ_DrivesTheSharedHistory_UndoActuallyUndoes`,
+`System_DoesNotFire_WhilePlaying`, `System_DoesNotFire_WhileAModalTransformOwnsInput`, `System_BareZ_DoesNotUndo`;
+`Shortcut_CmdZ_DrivesTheSharedHistory_UndoActuallyUndoes`,
 `Shortcut_Delete_DrivesTheSharedCommandSystem_RemovesTheSelection`, `Shortcut_ShiftA_OpensTheAddMenu_AtTheCursor`);
 the tracker matrix + PlatformCommand resolution are `MonoDreams.Tests/Foundation/KeyChordTests.cs`.
 **Depends on:** foundation — "Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is
@@ -1803,6 +1812,120 @@ menu Shift+A opens + the `editor.contextMenu` weave this follows), "The editor's
 "Editor camera navigation pans/zooms/frames the scene directly" (the `FrameScene` Home triggers),
 "Bounded undo with drag-coalescing" (the shared `EditorHistory` Undo/Redo drive), "Editor-overlay entities are
 standalone; delete snapshots the disposed sub-graph" (the `DeleteSelection` Delete drives).
+
+## The modal transform (G/S/R) owns the pointer + keyboard for one coalesced, undoable session
+
+Blender's `G`/`S`/`R` enter a **modal transform** over the current selection (`ModalTransformSystem`,
+entered from the `EditorShortcuts` table). While active the mouse drives the edit WITHOUT a button held —
+**grab** = the world delta from the entry cursor, **scale** = the distance-ratio factor to the pivot,
+**rotate** = the swept angle about the pivot — applied EVERY frame through the SAME
+`EditorHistory.BeginTransaction`-coalesced `TransformEditCommand` path a gizmo drag uses, so **one modal
+session = exactly one undo step** that a single undo fully reverts. `X`/`Y` toggle an axis lock (the same
+key clears it, the other replaces; grab zeroes the other component, scale edits one axis, rotate ignores
+axis keys). Digits / `-` / `.` / backspace build a numeric buffer that **OVERRIDES the mouse** — grab
+units along the constrained axis (**a typed grab REQUIRES an axis constraint**, SIMPLIFY v1; the readout
+prompts "press X or Y" otherwise), scale a factor (uniform, or per-axis when constrained), rotate degrees
+— and a typed value is **exact**: snap quantizes ONLY the mouse-driven result (typing IS the exact
+affordance, the readout literally says "type = exact"). **LMB or Enter commits** (`CommitTransaction`);
+**RMB or Escape cancels** (`CancelTransaction`, reverting the live edit). The pure geometry + axis /
+buffer / typed / snap rules live in the world-free `ModalTransform` (the `GizmoTransform`/`CameraNav`
+pattern), so they unit-test without a world, a cursor, or a GraphicsDevice.
+
+**The modal owns the pointer AND keyboard while active.** Every active frame it applies the live edit
+then **consumes the cursor's pointer edges** (the dialog/menu consume idiom), so selection, the gizmo,
+the palette, and camera-nav all stand down — in particular the confirm-LMB never re-picks or clears the
+selection, even when it lands over another entity (pre-mortem #4). It reads its keys through its own
+`Func<KeyboardState>` seam; the composing screen ORs `Modal.IsActive` into BOTH the host keyboard's
+`ShouldSuppressInput` and the `ViewportShortcutContext.ModalActive` shortcut gate, so no game key or
+editor chord fires mid-modal (a re-pressed G/S/R cannot re-enter) and **Escape cancels the modal, never
+the game (exit) nor a tool (disarm)** — the Escape priority. Mode-switch mid-modal (Blender's G→S) is
+deferred.
+
+**The camera rig composes (the UX2-G mapping).** `G` moves the rig via a `TransformEditCommand` on its
+own transform; `S` edits its authored `CameraRigComponent.Zoom` via `CameraZoomEditCommand` (a bigger
+frustum ⇒ a LOWER zoom: `newZoom = beforeZoom / factor`, clamped to the camera-nav range); `R` is
+**refused** for the rig with a status note (rig rotation editing is a future wave). `ModalTransformSystem`
+is woven `editor.modal` with the input-owner block, immediately AFTER `editor.shortcuts` (which enters it)
+and BEFORE the tools (`editor.gizmo`) + the draw pipeline's `editor.selection`, so its consume reaches
+them; `RunNormally`, self-guarded to `RunMode.Edit` (a modal cannot survive into Play). The
+`modal:grab|scale|rotate` / `modal:axis x|y` / `modal:digits <text>` / `modal:cursor <dx> <dy>` /
+`modal:confirm|cancel` ops drive the full flow headlessly (chords aren't in the replay channel).
+
+**Why:** the design §5 modal transforms — a keyboard-first alternative to the gizmo drag on the same
+coalesced-undo machinery. The pointer + keyboard ownership is the same modal-capture the dialog/menu use;
+without it a confirm-click also re-picks (pre-mortem #4) and a mid-modal keystroke leaks to the game or a
+tool (most dangerously Escape quitting the game). The rig mapping matches the gizmo's Scale→zoom (UX2-G),
+so a designer frames the shot with S the same way whether dragging or in a modal.
+**Breaks:** a modal that doesn't consume the pointer lets its confirm-click re-pick / clear the selection
+(pre-mortem #4); no `ShouldSuppressInput`/`ModalActive` OR lets Escape quit the game or a re-pressed G
+re-enter mid-session; pushing outside a transaction (or committing on cancel) makes a session many undo
+steps or an un-revertable edit; snapping a typed value defeats the exact affordance; editing
+`Transform.Scale` on the rig (instead of its `Zoom`) mis-authors the camera; allowing Rotate on the rig
+edits a field UX2-G left for later.
+**Tests:** `MonoDreams.Tests/LevelEditor/ModalTransformTests.cs` (the pure math: grab/scale/rotate live
+results, axis constraints, the typed override incl. the grab-requires-axis rule, snap on the mouse-driven
+result vs exact typed, buffer + axis editing) and
+`MonoDreams.Tests/LevelEditor/ModalTransformSystemTests.cs`
+(`Enter_WithSelection_Activates_WithoutSelection_NoOps`, `Enter_InPlay_IsRefused`,
+`Grab_MouseMotion_EditsLive_LmbCommitsOneUndoStep`, `Grab_Rmb_CancelsAndRestoresTheStart`,
+`Escape_CancelsTheModal`, `AxisLock_ConstrainsTheGrab`, `TypedValue_AppliesExactly_AlongTheLockedAxis`,
+`OpCursor_DrivesTheLiveEdit_Headlessly`, `ConfirmClickOverAnotherEntity_DoesNotRepick_NorClear`
+(pre-mortem #4, with the real `SelectionSystem`), `Rig_Grab_MovesTheRigTransform_OneUndoStep`,
+`Rig_Scale_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores`, `Rig_Rotate_IsRefused`); the shortcut
+entry + the `ModalActive` gate are `MonoDreams.Tests/LevelEditor/EditorShortcutTests.cs`
+(`Table_BindsBareGSR_ToTheModalTransforms_UX3F`, `System_DoesNotFire_WhileAModalTransformOwnsInput`).
+**Depends on:** this file — "The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit,
+honoring Origin" (the `GizmoTransform` helpers + the one-drag-one-undo pattern this reuses), "Bounded undo
+with drag-coalescing" (the `BeginTransaction`/`CommitTransaction`/`CancelTransaction` machinery), "Selection
+picks MAX final `LayerDepth` …" (the click-ownership the consume protects — pre-mortem #4), "Viewport
+presses belong to exactly one tool family" (`EditorToolMode` — the modal is a keyboard-entered peer of the
+tools), "The editor's keyboard shortcuts are ONE chord table …" (the table + gate that enter it), "The
+editor splits the free VIEW from the authored camera rig …" (the rig's `Zoom` + `CameraZoomEditCommand`
+the Scale path drives), "The editor's Save dialog is a modal three-action chooser …" (the cursor-consume
+recipe); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput` (the keyboard-half seam).
+
+## The window status bar is one thin strip in the ONE inset, formatted by a pure model
+
+The editor's **status bar** (UX3-F, "like Blender and IntelliJ") is a thin (`EditorChromeLayout.StatusBarHeight`
+= 22pt) strip flush with the window bottom, BELOW the assets shelf. It joins the **ONE viewport inset**:
+`EditorChromeLayout.ViewportInset`'s bottom margin is the assets shelf PLUS the status bar, and the left /
+right strips + the shelf all stop above it — there is never a second bottom rect source (pre-mortem #6), so
+compositing, mouse mapping, and `OutsideViewport` stay in lockstep at every DPR. `EditorChromeBuilder`
+paints the `Bg0` band + a top `Border` rule (so the panels-cover-the-margins test sees it), and
+`EditorStatusBarSystem` places the dynamic content each frame on the native `Editor` target (no
+`VisibleComponent` — the chrome rule; live in BOTH transport states). **LEFT:** while a modal transform is
+active, its live readout (`StatusBarModel.LeftModal` — mode word + ΔX/ΔY / factor / degrees + axis tag +
+the typed buffer + the confirm/cancel hint), else the contextual status (`LeftStatus` — the selected
+entity's name or "No selection", and the non-infra entity count). **RIGHT:** `StatusBarModel.Right` — the
+scene id + view mode ("Scene mode" / "Game mode"), with a `Warning` dirty dot drawn as a MESH (gated on the
+SAME dirty source the Scenes panel reads — the Game-mode snapshot dirty while sandboxed, else the history).
+The strings are all pure `StatusBarModel`, unit-testable with no world/font, and **ASCII only** — the chrome
+bitmap font (PPMondwest, max glyph U+25CC) has no `Δ`/`×`/`°`/`·`/`●`/`…`, so the readout uses `dX`/`dY`,
+`x` for the factor, `deg`, `|` separators, and the dirty dot is a mesh, never a glyph.
+
+**Why:** the design §5 ask; the ONE-inset rule is the same single-source-of-truth the viewport-inset premise
+protects (a second bottom rect desyncs every world pick by the strip height). A pure model keeps the content
+testable and the rendering a thin placement pass. ASCII-only avoids rendering missing-glyph boxes for the
+Greek/symbol characters the design sketch used.
+**Breaks:** a second bottom rect source (not the ONE inset) desyncs mouse mapping by 22pt (pre-mortem #6); a
+`Δ`/`●`/`·` in a rendered string draws a blank box (the font lacks them); a dirty dot keyed to the history
+while sandboxed would flicker on Game-mode churn (it must read the snapshot dirty state); a `VisibleComponent`
+on the labels/dot pulls them into `MeshPrepSystem`, double-offsetting the absolute-pixel content.
+**Tests:** `MonoDreams.Tests/LevelEditor/StatusBarModelTests.cs` (the pure formatting — the modal readout for
+grab/scale/rotate incl. axis + buffer + the press-X-or-Y prompt + the rig "Zoom" word, the contextual status
+with count pluralization, the right scene+mode) and `MonoDreams.Tests/LevelEditor/EditorStatusBarSystemTests.cs`
+(right scene+mode, the dirty dot mesh present only when dirty, Game mode, the left flip from status to the
+modal readout, "No selection"). The strip joining the ONE inset (the panels-cover-the-margins + DPR-2 doubling
++ the `StatusBar` rect) is `MonoDreams.Tests/LevelEditor/EditorShellTests.cs`
+(`ChromeLayout_PanelsCoverExactlyTheInsetMargins`, `ChromeLayout_AtDpr2_DoublesEveryPointMetric`,
+`ChromeBuilder_PanelsAreOpaqueAndCoverTheMargins`) + `MonoDreams.Tests/LevelEditor/EditorShellStateTests.cs`
+(`ViewportInset_UsesTheRuntimeRegionSizes`, `LeftRightAndBottom_UseTheRuntimeSizes`).
+**Depends on:** this file — "The editor shell insets the game viewport and renders its chrome at native
+resolution" (the ONE inset + the Editor target + the chrome rules this strip joins), "The editor shell's
+region sizes, tabs, and drag ownership live in one shell-state component" (the inset derivation), "The modal
+transform (G/S/R) owns the pointer + keyboard …" (the readout source), "Every level-editor color and depth is
+an `EditorTheme` role" (the `Bg0` band / `Border` rule / `Warning` dot / `Text1` labels); rendering — the mesh
+`DrawComponent` draw path (the dirty dot mesh).
 
 ## Viewport overlays are session settings; the grid IS the snap grid, bounded, and hidden in Game mode
 

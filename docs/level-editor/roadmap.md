@@ -492,6 +492,43 @@ authoritative design is [`editor-shell-ui-ux-2.md`](editor-shell-ui-ux-2.md); th
 on the window top bar this phase; their natural home is a future **Inspector "add component" surface** (UX2-D §4
 noted it, deliberately deferred — relocating them needs the Inspector to grow an authoring affordance).
 
+## UX3 phase (UX3-A–UX3-F) — game-mode integrity, overlays, shortcuts, modal transforms
+
+A third UX pass (the five asks of 2026-07-09) hardening the Scene/Game split and adding the Blender-style
+keyboard layer the editor had deferred. Like the earlier UX phases it runs orthogonally to Waves A–F. The
+authoritative design is [`editor-shell-ui-ux-3.md`](editor-shell-ui-ux-3.md); the invariants live in
+[`MonoDreams/level-editor/docs/premises.md`](../../MonoDreams/level-editor/docs/premises.md). (There is no
+UX3-B — the numbering follows the design doc's ask-driven waves.)
+
+- **UX3-A — Game-mode integrity + explicit modes.** Repro-first fix for the blank-Game-mode bug: a
+  `camera: null` scene syncs the rig to the **post-load framed view** (not the pre-load origin), so entering
+  Game mode lands on content; the exit-restore never applies a zeroed view snapshot (`CameraViewSnapshot.IsValid`).
+  The header segments read **"Scene mode" / "Game mode"** and toggling INTO Game mode **auto-plays**.
+- **UX3-C — icon polish.** Prominent filled arrowheads (≥22% of the box) on move/rotate/scale/undo/redo/
+  restart/refresh; Snap becomes a closed square + inner 3×3 grid; Camera becomes a video-camera; Save becomes a
+  beveled-top-right floppy — each a pure-geometry `EditorIcons` refinement with a geometry test.
+- **UX3-D — viewport Overlays menu + grid.** `EditorContextMenuModel` gains checkable (`Toggle`) items; a
+  Scene-header **Overlays** dropdown drives a session `ViewportOverlaySettingsComponent` (grid off / outline on /
+  camera on); the world grid renders at the SHARED snap step (`GridSpacing == GizmoStateComponent.GridStep`),
+  bounded (degrades to major-only when zoomed out), hidden in Game mode. Ops `overlay:grid|outline|camera on|off`,
+  `overlay:spacing <n>`.
+- **UX3-E — combo input (an engine feature) + the ONE shortcut table.** `foundation`'s `KeyChord`/`KeyChordTracker`
+  (exact-modifier press-edge matching + the virtual `PlatformCommand` ⌘/Ctrl resolution) back the editor's ONE
+  `EditorShortcuts` chord table read by `EditorShortcutSystem`, gated by the single `ViewportShortcutContext`:
+  `Cmd/Ctrl+Z` Undo, `Cmd/Ctrl+Shift+Z` Redo, `Shift+A` Add menu, `Delete`, `Home` frame — the scattered
+  per-action predicates consolidated, the bare `Z`/`Y` undo/redo removed (bare keys are tools).
+- **UX3-F — modal transforms + the window status bar** (this wave; depends on UX3-E). Bare `G`/`S`/`R` enter a
+  Blender-style modal transform over the selection (`ModalTransformSystem` + the pure `Transform/ModalTransform`):
+  the mouse edits live through the SAME coalescing history as a gizmo drag (one session = one undo step), with
+  X/Y axis locks + numeric entry (typed OVERRIDES the mouse, exact; a typed grab requires an axis) + snap on the
+  mouse-driven result. The modal owns the pointer (consumes the cursor edges — the confirm-click never re-picks,
+  pre-mortem #4) and the keyboard (`Modal.IsActive` ORs into `ShouldSuppressInput` + the shortcut gate; Escape
+  cancels the modal, not the game/tool). The rig composes: G moves it, S → zoom (`CameraZoomEditCommand`), R
+  refused. Ops `modal:grab|scale|rotate|axis x|y|digits <text>|cursor <dx> <dy>|confirm|cancel`. The **window
+  status bar** (`EditorStatusBarSystem` + the pure `UI/StatusBarModel`) is one thin strip in the ONE viewport
+  inset (below the assets shelf): the live modal readout / contextual status on the left, the scene id + mode +
+  a Warning dirty dot on the right (ASCII-only; the dirty dot is a mesh).
+
 ## Cross-wave invariants (the things that must keep holding)
 
 - **C1/C2 never break.** No wave introduces a parallel renderer or a second scene model.
