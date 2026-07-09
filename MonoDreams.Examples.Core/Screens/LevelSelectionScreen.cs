@@ -362,7 +362,7 @@ public class LevelSelectionScreen : IGameScreen
             // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands
             // down while a Save/Load dialog owns the keys; the mouse half is the dialog consuming the
             // cursor edges.
-            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive;
+            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive || _editor.InspectorOwnsKeyboard;
             p.Add("editor.keys", editorKeys, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);

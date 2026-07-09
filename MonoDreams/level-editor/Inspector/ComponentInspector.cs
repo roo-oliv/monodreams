@@ -26,21 +26,41 @@ public static class ComponentInspector
     /// <summary>Long member values are truncated to keep a panel row readable.</summary>
     public const int MaxValueLength = 80;
 
-    /// <summary>One reflected member: its name and its current value formatted for display.</summary>
+    /// <summary>One reflected member: its name, its current value formatted for display, and — for the
+    /// editable Inspector (PF-A) — the member's declared CLR <see cref="MemberType"/>, whether it is
+    /// <see cref="Editable"/> (a writable member of a supported kind), and its DevTools syntax-color
+    /// <see cref="Role"/>. The 2-arg ctor (name + value) is the read-only/hand-built form (type null,
+    /// not editable, muted).</summary>
     public readonly struct Member
     {
         public readonly string Name;
         public readonly string Value;
-        public Member(string name, string value) { Name = name; Value = value; }
+        public readonly Type? MemberType;
+        public readonly bool Editable;
+        public readonly InspectorValueRole Role;
+
+        public Member(string name, string value)
+            : this(name, value, null, editable: false, InspectorValueRole.Muted) { }
+
+        public Member(string name, string value, Type? memberType, bool editable, InspectorValueRole role)
+        {
+            Name = name;
+            Value = value;
+            MemberType = memberType;
+            Editable = editable;
+            Role = role;
+        }
     }
 
-    /// <summary>One component attached to an entity: its short + full type name and its member rows
+    /// <summary>One component attached to an entity: its short + full type name, the CLR
+    /// <see cref="Type"/> (set by the reflective reader; null on a hand-built info), and its member rows
     /// (empty for a tag component with no public data).</summary>
     public sealed class ComponentInfo
     {
         public required string TypeName;
         public required string FullTypeName;
         public required IReadOnlyList<Member> Members;
+        public Type? Type;
         public bool HasMembers => Members.Count > 0;
     }
 
@@ -78,24 +98,33 @@ public static class ComponentInspector
         if (value == null) return members;
 
         foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
-            members.Add(new Member(field.Name, SafeFormat(() => field.GetValue(value))));
+            members.Add(BuildMember(field.Name, field.FieldType, () => field.GetValue(value),
+                writable: !field.IsInitOnly && !field.IsLiteral));
 
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
-            members.Add(new Member(prop.Name, SafeFormat(() => prop.GetValue(value))));
+            members.Add(BuildMember(prop.Name, prop.PropertyType, () => prop.GetValue(value),
+                writable: prop.CanWrite));
         }
 
         members.Sort(static (a, b) => string.CompareOrdinal(a.Name, b.Name));
         return members;
     }
 
-    private static string SafeFormat(Func<object?> getter)
+    /// <summary>Reads one member's live value (guarded), then derives its display string, editability
+    /// (writable AND a supported kind), and DevTools color role. A getter that throws yields
+    /// <c>&lt;error&gt;</c>, read-only + muted.</summary>
+    private static Member BuildMember(string name, Type memberType, Func<object?> getter, bool writable)
     {
         object? raw;
         try { raw = getter(); }
-        catch (Exception ex) { return $"<error: {ex.GetType().Name}>"; }
-        return FormatValue(raw);
+        catch (Exception ex) { return new Member(name, $"<error: {ex.GetType().Name}>", memberType, false, InspectorValueRole.Muted); }
+
+        var text = FormatValue(raw);
+        var editable = writable && InspectorValue.IsEditable(memberType);
+        var role = InspectorValue.Role(memberType, raw); // type color for read-only AND editable rows
+        return new Member(name, text, memberType, editable, role);
     }
 
     /// <summary>Formats a member value for display: culture-invariant for the numeric primitives
@@ -135,6 +164,7 @@ public static class ComponentInspector
             {
                 TypeName = type.Name,
                 FullTypeName = type.FullName ?? type.Name,
+                Type = type,
                 Members = ReadMembers(type, boxed),
             });
         }

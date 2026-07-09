@@ -46,11 +46,20 @@ public enum PanelRowKind
     /// subtree.</summary>
     SceneEntity,
 
-    /// <summary>An Inspector component-type row — clicking expands/collapses its member values.</summary>
+    /// <summary>The Inspector's filter field row (PF-A §3, the DevTools search) — clicking focuses it;
+    /// typing narrows the component + member rows.</summary>
+    InspectorFilter,
+
+    /// <summary>An Inspector component-type row — clicking expands/collapses its member values; its
+    /// right-gutter <c>×</c> deletes the component (guarded).</summary>
     InspectorComponent,
 
-    /// <summary>An Inspector member <c>name: value</c> row (read-only).</summary>
+    /// <summary>An Inspector member <c>name: value</c> row — clicking an editable value opens an inline
+    /// field / toggles a bool / cycles an enum (PF-A §3).</summary>
     InspectorMember,
+
+    /// <summary>The trailing "+ Add component" row (PF-A §3) — clicking opens the filterable add popup.</summary>
+    InspectorAddComponent,
 
     /// <summary>A Scenes-panel entry (Scenes tab) — clicking it switches to that scene/screen
     /// through the dirty-gated select flow.</summary>
@@ -119,6 +128,48 @@ public sealed class PanelRow
     /// <summary>Whether this row carries the unsaved-changes marker (the current scene while dirty) —
     /// the label is prefixed with a <c>●</c> and rendered <see cref="EditorTheme"/>'s Warning color.</summary>
     public bool DirtyMarker;
+
+    // ---- Inspector member payloads (PF-A §3) ----
+
+    /// <summary>The member name (<see cref="PanelRowKind.InspectorMember"/>) — the "Name:" part rendered
+    /// muted; the key a <c>MemberEditCommand</c> targets alongside <see cref="ComponentKey"/>.</summary>
+    public string? MemberName;
+
+    /// <summary>The member's formatted value string (<see cref="PanelRowKind.InspectorMember"/>) — the
+    /// type-colored part, or the seed of the inline edit field.</summary>
+    public string? MemberValue;
+
+    /// <summary>Whether the member value can be edited inline / toggled / cycled (a writable member of a
+    /// supported kind). A read-only member renders muted and ignores clicks.</summary>
+    public bool MemberEditable;
+
+    /// <summary>The member's declared CLR type (<see cref="PanelRowKind.InspectorMember"/>) — the panel
+    /// reads it to pick the edit interaction (field / bool toggle / enum cycle) and re-read the color.</summary>
+    public Type? MemberType;
+
+    /// <summary>The DevTools syntax-color role for the member value (numbers/strings/bools/enums/muted),
+    /// rendered for read-only AND editable member rows.</summary>
+    public MonoDreams.LevelEditor.Inspector.InspectorValueRole ValueRole;
+
+    /// <summary>The delete affordance for a component row (<see cref="PanelRowKind.InspectorComponent"/>):
+    /// whether it shows a <c>×</c>, and whether the <c>×</c> deletes or refuses (Transform is guarded).</summary>
+    public InspectorDeleteAffordance DeleteAffordance;
+}
+
+/// <summary>The per-component delete affordance in the Inspector (PF-A §3): structural components show
+/// no <c>×</c>; <c>TransformComponent</c> shows one but refuses (status hint); everything else deletes.</summary>
+public enum InspectorDeleteAffordance
+{
+    /// <summary>No <c>×</c> — a structural component (<c>SceneEntityId</c> / <c>ChildOf</c> / prefab
+    /// markers) is never designer-deletable.</summary>
+    None,
+
+    /// <summary>A <c>×</c> is shown but clicking it refuses with a status hint —
+    /// <c>TransformComponent</c> (an entity must keep its single spatial component).</summary>
+    Guarded,
+
+    /// <summary>A <c>×</c> that deletes the component through an undoable <c>RemoveComponentCommand</c>.</summary>
+    Deletable,
 }
 
 /// <summary>
@@ -192,20 +243,31 @@ public static class EditorPanelModel
     }
 
     /// <summary>
-    /// Builds the flat row list for the dedicated <b>Inspector panel</b> (the right region — UX2-B):
-    /// the selected entity's attached component rows, each expandable (on demand) to its member
-    /// values, exactly the content the old Inspector section carried — but standalone (the region's
-    /// slim header is its title, so there is no in-body section header). Null
-    /// <paramref name="inspectorComponents"/> → "(no selection)". Pure; unit-testable with hand-fed
-    /// inputs, no world.
+    /// Builds the flat row list for the dedicated <b>editable Inspector panel</b> (the right region —
+    /// UX2-B, upgraded by PF-A to Chrome DevTools' element/styles model): a <b>filter field</b> row at
+    /// the top (the DevTools search), the selection's title, its attached component rows (each with a
+    /// delete <c>×</c> affordance + expandable to type-colored member values), and a trailing
+    /// <b>+ Add component</b> row. Null <paramref name="inspectorComponents"/> → "(no selection)".
+    ///
+    /// <para><paramref name="filter"/> (the <see cref="EditorPanelStateComponent.InspectorFilter"/>
+    /// text) narrows the rows case-insensitively: a component row survives when its type name OR any of
+    /// its members (name or value) matches; a name-matched component shows all its members, else only
+    /// its matching members. <paramref name="deleteAffordance"/> classifies each component's <c>×</c>
+    /// (structural = none, Transform = guarded, else deletable) — supplied by the panel, which has the
+    /// registry. <paramref name="showAddRow"/> appends the "+ Add component" row (off in a no-registry
+    /// unit test). Pure; unit-testable with hand-fed inputs, no world.</para>
     /// </summary>
     public static List<PanelRow> BuildInspector(
         EditorPanelStateComponent state,
         IReadOnlyList<ComponentInspector.ComponentInfo>? inspectorComponents,
-        string? inspectorTitle)
+        string? inspectorTitle,
+        string? filter = null,
+        Func<ComponentInspector.ComponentInfo, InspectorDeleteAffordance>? deleteAffordance = null,
+        bool showAddRow = false)
     {
         var rows = new List<PanelRow>();
-        AppendInspector(rows, state, inspectorComponents, inspectorTitle);
+        AppendInspector(rows, state, inspectorComponents, inspectorTitle, filter ?? string.Empty,
+            deleteAffordance, showAddRow);
         return rows;
     }
 
@@ -353,7 +415,8 @@ public static class EditorPanelModel
     }
 
     private static void AppendInspector(List<PanelRow> rows, EditorPanelStateComponent state,
-        IReadOnlyList<ComponentInspector.ComponentInfo>? components, string? title)
+        IReadOnlyList<ComponentInspector.ComponentInfo>? components, string? title, string filter,
+        Func<ComponentInspector.ComponentInfo, InspectorDeleteAffordance>? deleteAffordance, bool showAddRow)
     {
         if (components == null)
         {
@@ -361,17 +424,27 @@ public static class EditorPanelModel
             return;
         }
 
+        // The DevTools search field — always the first body row when there is a selection.
+        rows.Add(new PanelRow
+        {
+            Kind = PanelRowKind.InspectorFilter,
+            Label = filter,
+            Depth = 1,
+        });
+
         if (!string.IsNullOrEmpty(title))
             rows.Add(Info(title!, depth: 1));
 
         if (components.Count == 0)
-        {
             rows.Add(Info("(no components)", depth: 1));
-            return;
-        }
 
         foreach (var comp in components)
         {
+            var componentMatches = filter.Length == 0 ||
+                comp.TypeName.Contains(filter, StringComparison.OrdinalIgnoreCase);
+            var anyMemberMatches = filter.Length == 0 || AnyMemberMatches(comp, filter);
+            if (!componentMatches && !anyMemberMatches) continue; // filtered out entirely
+
             var expanded = state.ExpandedInspectorComponents.Contains(comp.FullTypeName);
             rows.Add(new PanelRow
             {
@@ -381,18 +454,48 @@ public static class EditorPanelModel
                 Collapsible = comp.HasMembers,
                 Expanded = expanded,
                 ComponentKey = comp.FullTypeName,
+                DeleteAffordance = deleteAffordance?.Invoke(comp) ?? InspectorDeleteAffordance.None,
             });
             if (!expanded) continue;
+
             foreach (var m in comp.Members)
+            {
+                // When the component NAME matched, show every member; otherwise only matching members.
+                if (filter.Length != 0 && !componentMatches && !MemberMatches(m, filter)) continue;
                 rows.Add(new PanelRow
                 {
                     Kind = PanelRowKind.InspectorMember,
-                    Label = $"{m.Name}: {m.Value}",
+                    Label = m.Name + ":",
                     Depth = 2,
-                    Interactive = false,
+                    ComponentKey = comp.FullTypeName,
+                    MemberName = m.Name,
+                    MemberValue = m.Value,
+                    MemberEditable = m.Editable,
+                    MemberType = m.MemberType,
+                    ValueRole = m.Role,
                 });
+            }
         }
+
+        if (showAddRow)
+            rows.Add(new PanelRow
+            {
+                Kind = PanelRowKind.InspectorAddComponent,
+                Label = "+ Add component",
+                Depth = 1,
+            });
     }
+
+    private static bool AnyMemberMatches(ComponentInspector.ComponentInfo comp, string filter)
+    {
+        foreach (var m in comp.Members)
+            if (MemberMatches(m, filter)) return true;
+        return false;
+    }
+
+    private static bool MemberMatches(ComponentInspector.Member m, string filter) =>
+        m.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+        m.Value.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
     private static PanelRow Info(string text, int depth) => new()
     {

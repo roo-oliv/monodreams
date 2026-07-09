@@ -146,7 +146,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (debugInspector != null)
         {
             _inputMappingSystem.ShouldSuppressInput = () =>
-                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive));
+                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive || _editor.InspectorOwnsKeyboard));
         }
 #endif
 
@@ -208,7 +208,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // below when the editor is composed). The mouse half is the dialog consuming the cursor edges.
         // A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
         inputMappingSystem.ShouldSuppressInput = () =>
-            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive);
+            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive || _editor.InspectorOwnsKeyboard);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif

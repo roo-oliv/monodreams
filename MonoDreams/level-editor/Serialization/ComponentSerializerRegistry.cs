@@ -81,8 +81,36 @@ public sealed class ComponentSerializerRegistry
     /// <summary>True if a serializer is registered for <paramref name="componentType"/>.</summary>
     public bool IsRegistered(Type componentType) => _byType.ContainsKey(componentType);
 
+    /// <summary>
+    /// Whether <paramref name="componentType"/> is captured as a dedicated STRUCTURAL field on the entity
+    /// entry (the parent link / the stable id / prefab markers) rather than a component body — the set
+    /// marked via <see cref="RegisterStructuralParentLink{T}"/> / <see cref="MarkStructurallyCaptured{T}"/>.
+    /// The editable Inspector uses this to exclude structural types from the "+ Add component" candidates
+    /// (they are never designer-editable data).
+    /// </summary>
+    public bool IsStructural(Type componentType) => _structurallyCapturedTypes.Contains(componentType);
+
+    /// <summary>
+    /// Every registered component as a <c>(stable key, CLR type)</c> pair (engine + game) — the honest
+    /// "what can this scene persist" set the editable Inspector's "+ Add component" candidate list is
+    /// derived from (registered MINUS present-on-entity MINUS structural/never-addable; see
+    /// <c>InspectorAddCandidates</c>). A read snapshot; the registry stays the sole owner.
+    /// </summary>
+    public IReadOnlyList<(string Key, Type Type)> RegisteredComponents()
+    {
+        var list = new List<(string, Type)>(_byKey.Count);
+        foreach (var (key, serializer) in _byKey)
+            list.Add((key, serializer.ComponentType));
+        return list;
+    }
+
     /// <summary>Looks up a serializer by its stable key, or <c>null</c> if none.</summary>
     public ComponentSerializer? GetByKey(string key) => _byKey.GetValueOrDefault(key);
+
+    /// <summary>The CLR component type registered under <paramref name="key"/>, or <c>null</c> if none
+    /// (the editable Inspector resolves an <c>inspector:add &lt;key&gt;</c> op / a candidate menu path
+    /// back to its type).</summary>
+    public Type? TypeForKey(string key) => _byKey.GetValueOrDefault(key)?.ComponentType;
 
     /// <summary>
     /// Serializes every registered component on <paramref name="entity"/> into a

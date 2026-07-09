@@ -32,7 +32,13 @@ public readonly struct ViewportShortcutContext
     /// fires, so the modal cannot re-trigger G/S/R mid-session (mode-switch mid-modal is deferred).</summary>
     public bool ModalActive { get; init; }
 
+    /// <summary>The editable Inspector owns the keyboard — its filter field is focused or a member is
+    /// being inline-edited (PF-A §3). No shortcut fires, so typing (e.g. <c>g</c>, <c>s</c>, <c>r</c>, a
+    /// name) in an Inspector field never triggers G/S/R / Delete.</summary>
+    public bool InspectorEditing { get; init; }
+
     /// <summary>Whether an EDITING shortcut may fire: over the viewport, no modal (dialog / context menu /
-    /// transform) owning input, Paused.</summary>
-    public bool AllowsEditing => CursorOverViewport && !DialogOpen && !MenuOpen && !ModalActive && Editing;
+    /// transform) owning input, the Inspector not owning the keyboard, Paused.</summary>
+    public bool AllowsEditing =>
+        CursorOverViewport && !DialogOpen && !MenuOpen && !ModalActive && !InspectorEditing && Editing;
 }

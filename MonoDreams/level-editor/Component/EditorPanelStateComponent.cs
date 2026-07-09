@@ -46,4 +46,11 @@ public sealed class EditorPanelStateComponent
     /// — when the selection changes, the system clears the expand set and updates this. Default =
     /// dead entity.</summary>
     public Entity InspectorEntity;
+
+    /// <summary>The DevTools-grade Inspector's filter text (PF-A §3): a case-insensitive substring the
+    /// panel matches against component type names AND member names/values to narrow the visible rows.
+    /// Empty = show everything. Set by the filter field (or the <c>inspector:filter</c> op), kept across
+    /// selection changes (the search persists, like DevTools). Focus of the field is transient panel
+    /// state, not here.</summary>
+    public string InspectorFilter = string.Empty;
 }

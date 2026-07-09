@@ -166,6 +166,71 @@ public static class SystemsPanelLayout
             : new[] { new Vector2(l, t), new Vector2(l, b), new Vector2(r, cy) };
     }
 
+    // ── Editable Inspector (PF-A) metrics ──────────────────────────────────────────────────────────
+
+    /// <summary>The Inspector member row's name column width (logical points): the "Name:" part fills
+    /// this, the type-colored value / inline edit field fills the rest of the row. A fixed column keeps
+    /// the layout pure (no font measurement) — DevTools' resizable split is deferred.</summary>
+    public const int MemberNameColumn = 96;
+
+    /// <summary>Right inset (logical points) before the row's right edge — reserves the delete-<c>×</c>
+    /// gutter on a component row and keeps the value/field clear of the edge.</summary>
+    public const int RightGutter = 10;
+
+    /// <summary>The type-colored value (or inline edit field) rectangle of a member row: right of the
+    /// name column, to the row's right edge less <see cref="RightGutter"/>.</summary>
+    public static Rectangle MemberValueRect(Rectangle line, int depth = 2, float scale = 1f)
+    {
+        var x = line.X + depth * Px(IndentPerDepth, scale) + Px(ArrowGutter, scale) + Px(MemberNameColumn, scale);
+        var right = line.Right - Px(RightGutter, scale);
+        return new Rectangle(x, line.Y, Math.Max(1, right - x), line.Height);
+    }
+
+    /// <summary>The Inspector filter field / edit-field background rectangle spanning the row's content
+    /// (right of the indent+arrow gutter, to the right edge less <see cref="RightGutter"/>), inset a
+    /// couple points vertically so it reads as a field within the row.</summary>
+    public static Rectangle InspectorFieldRect(Rectangle line, int depth = 1, float scale = 1f)
+    {
+        var x = line.X + depth * Px(IndentPerDepth, scale) + Px(ArrowGutter, scale);
+        var right = line.Right - Px(RightGutter, scale);
+        var inset = Px(2, scale);
+        return new Rectangle(x, line.Y + inset, Math.Max(1, right - x), Math.Max(1, line.Height - inset * 2));
+    }
+
+    /// <summary>The delete-<c>×</c> square at a component row's right gutter, vertically centered.</summary>
+    public static Rectangle DeleteRect(Rectangle line, float scale = 1f)
+    {
+        var size = Px(CheckboxSize, scale);
+        return new Rectangle(
+            line.Right - Px(RightGutter, scale) - size,
+            line.Y + (Px(RowHeight, scale) - size) / 2,
+            size, size);
+    }
+
+    /// <summary>The four filled triangles (two diagonal strokes) of a <c>×</c> glyph inside
+    /// <paramref name="box"/> at <paramref name="thickness"/> px — the delete affordance mesh, drawn
+    /// font-independently like the disclosure arrows. Pure geometry.</summary>
+    public static Vector2[][] CrossTriangles(Rectangle box, float thickness)
+    {
+        var inset = box.Width * 0.22f;
+        float l = box.Left + inset, r = box.Right - inset, t = box.Top + inset, b = box.Bottom - inset;
+        var (a0, a1) = StrokeQuad(new Vector2(l, t), new Vector2(r, b), thickness); // ╲
+        var (b0, b1) = StrokeQuad(new Vector2(r, t), new Vector2(l, b), thickness); // ╱
+        return new[] { a0, a1, b0, b1 };
+    }
+
+    /// <summary>The two triangles of a thick line segment from <paramref name="p0"/> to
+    /// <paramref name="p1"/> (a quad expanded by <paramref name="thickness"/> along the perpendicular).</summary>
+    private static (Vector2[] triA, Vector2[] triB) StrokeQuad(Vector2 p0, Vector2 p1, float thickness)
+    {
+        var dir = p1 - p0;
+        if (dir.LengthSquared() < 1e-6f) dir = new Vector2(1f, 0f);
+        dir.Normalize();
+        var n = new Vector2(-dir.Y, dir.X) * (thickness * 0.5f);
+        Vector2 c0 = p0 - n, c1 = p0 + n, c2 = p1 + n, c3 = p1 - n;
+        return (new[] { c0, c1, c2 }, new[] { c0, c2, c3 });
+    }
+
     /// <summary>Where hidden (scrolled-out) lines are parked: far off-screen, so their meshes and
     /// text are GPU-clipped without any per-entity blanking (the mesh prep keeps rebuilding them
     /// at the parked position, which never intersects the window).</summary>

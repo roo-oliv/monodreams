@@ -340,9 +340,12 @@ public sealed class EditorOverlay
         SystemsPanel = _leftPanel;
 
         // The RIGHT-strip dedicated Inspector panel (selection-bound components + members) — the same
-        // parameterized panel system, RightInspector role, sharing the one panel state.
+        // parameterized panel system, RightInspector role, sharing the one panel state. PF-A: it drives
+        // the SHARED History + serializer Registry for the editable Inspector (value edits / add / remove
+        // through undoable commands), and reads the keyboard for its filter + inline edit fields.
         _inspectorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
-            shellState: _shellState, role: EditorPanelRole.RightInspector, panelState: panelState);
+            shellState: _shellState, role: EditorPanelRole.RightInspector, panelState: panelState,
+            history: History, registry: Registry);
         Inspector = _inspectorPanel;
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible, _shellState);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
@@ -396,7 +399,10 @@ public sealed class EditorOverlay
             dialogOpen: () => Dialog.IsOpen,
             menuOpen: () => Menu.IsOpen,
             commandIsMeta: OperatingSystem.IsMacOS(),
-            modalActive: () => _modal.IsActive);
+            modalActive: () => _modal.IsActive,
+            // PF-A: while the Inspector filter is focused or a member is being inline-edited, no editor
+            // chord fires (typing g/s/r/Delete/a name in a field must not fire a shortcut).
+            inspectorEditing: () => _inspectorPanel.OwnsKeyboard);
 
         // The window status bar (UX3-F): the live modal readout / contextual status on the left, the
         // scene id + view mode + dirty dot on the right. Reads the SAME dirty source the Scenes panel
@@ -415,6 +421,10 @@ public sealed class EditorOverlay
         _selection.ViewportContextMenuRequested = _ =>
             _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), CursorScreenPoint());
         _leftPanel.ContextMenuRequested = OpenLeftPanelContextMenu;
+        // PF-A: the Inspector's "+ Add component" row opens the filterable command-palette popup with the
+        // selection's candidate components (registered minus present minus structural). A pick dispatches
+        // "add-component:<key>" back through DispatchMenuAction → the shared inspector panel.
+        _inspectorPanel.AddComponentRequested = OpenAddComponentPopup;
 
         // The asset palette + placement (island-authoring Slice 1): only when the screen supplies
         // both the catalog (the drop-folder scan) and its layer-band map — the module never
@@ -605,6 +615,12 @@ public sealed class EditorOverlay
     /// <c>editor.inspector</c> entry, <c>RunNormally</c>. A tree click in the left panel sets
     /// <c>SelectedComponent</c>, which this panel reads — two-way selection across the two panels.</summary>
     public ISystem<GameState> Inspector { get; }
+
+    /// <summary>Whether the editable Inspector currently owns the keyboard (its filter field is focused or
+    /// a member is being inline-edited — PF-A §3). The composing screen ORs this into the host keyboard
+    /// system's <c>ShouldSuppressInput</c> (alongside <c>Dialog.IsOpen</c> / <c>Menu.IsOpen</c> /
+    /// <c>Modal.IsActive</c>) so typing in an Inspector field never leaks to editor/game keys.</summary>
+    public bool InspectorOwnsKeyboard => _inspectorPanel.OwnsKeyboard;
 
     /// <summary>The modal Save dialog + the confirm-on-switch modal (native-resolution chrome). Weave
     /// EARLY in the update pipeline — after the cursor input read, before the editing tools + toolbar
@@ -901,8 +917,41 @@ public sealed class EditorOverlay
     /// editor instances (no second history / command system): Order → the within-band nudges, Delete →
     /// the snapshotting delete, Add Empty Entity → the undoable create, Create Empty Scene → the dialog.
     /// The menu supplies the frame's <see cref="GameState"/>; each command guards itself (Edit-only).</summary>
+    /// <summary>The context-menu action-id prefix for an Inspector "+ Add component" candidate — the rest
+    /// is the serializer-registry key (PF-A §3). Kept off the enum so the game stays out of it.</summary>
+    private const string AddComponentPath = "add-component:";
+
+    /// <summary>Opens the filterable "+ Add component" popup (PF-A §3): the selection's candidate
+    /// components (registered − present − structural/never-addable) as command-palette items; a pick
+    /// dispatches <c>add-component:&lt;key&gt;</c> back through <see cref="DispatchMenuAction"/>.</summary>
+    private void OpenAddComponentPopup(GameState state)
+    {
+        var candidates = _inspectorPanel.AddComponentCandidates();
+        if (candidates.Count == 0)
+        {
+            Logger.Info("[level-editor] Add component: the selection has no addable components.");
+            return;
+        }
+        var items = new List<EditorMenuItem>(candidates.Count);
+        foreach (var c in candidates)
+            items.Add(new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action,
+                Label = c.DisplayName,
+                Path = AddComponentPath + c.Key,
+            });
+        _menu.OpenFiltered(items, CursorScreenPoint());
+    }
+
     private void DispatchMenuAction(string path, GameState state)
     {
+        // PF-A: an "add-component:<key>" pick from the filterable popup → the shared inspector panel.
+        if (path.StartsWith(AddComponentPath, StringComparison.Ordinal))
+        {
+            _inspectorPanel.AddComponent(path.Substring(AddComponentPath.Length), state);
+            return;
+        }
+
         switch (path)
         {
             case EditorContextMenuModel.OrderForwardPath: _editorCommands.BringForward(state); break;
@@ -1493,11 +1542,18 @@ public sealed class EditorOverlay
         const string viewPrefix = "view:";
         const string modePrefix = "mode:";
         const string modalPrefix = "modal:";
+        const string inspectorPrefix = "inspector:";
         const string overlayPrefix = ViewportOverlayOps.OpPrefix;
 
         if (name.StartsWith(modalPrefix, StringComparison.OrdinalIgnoreCase))
         {
             DispatchModalOp(name.Substring(modalPrefix.Length), name, state);
+            return;
+        }
+
+        if (name.StartsWith(inspectorPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            DispatchInspectorOp(name.Substring(inspectorPrefix.Length), name, state);
             return;
         }
 
@@ -1862,6 +1918,56 @@ public sealed class EditorOverlay
                 Logger.Warning(
                     $"[level-editor] Editor-op '{name}': expected " +
                     "modal:grab|scale|rotate|axis x|y|digits <text>|cursor <dx> <dy>|confirm|cancel.");
+                break;
+        }
+    }
+
+    /// <summary>The <c>inspector:*</c> ops (PF-A §3): the headless twin of the DevTools Inspector —
+    /// <c>filter &lt;text&gt;</c> narrows the rows, <c>edit &lt;Component.Member&gt; &lt;value&gt;</c>
+    /// value-edits a member (the component is a registry key OR a type name; the member is the LAST
+    /// dotted segment, so <c>core.Transform.Position</c> works), <c>add &lt;ComponentKey&gt;</c> /
+    /// <c>remove &lt;ComponentKey&gt;</c> add/remove a component — all routed to the SAME shared inspector
+    /// panel the mouse/keyboard drive, so the whole surface is headless-testable through one grammar.</summary>
+    private void DispatchInspectorOp(string rest, string name, GameState state)
+    {
+        var space = rest.IndexOf(' ');
+        var verb = (space < 0 ? rest : rest.Substring(0, space)).Trim().ToLowerInvariant();
+        var arg = space < 0 ? string.Empty : rest.Substring(space + 1);
+        switch (verb)
+        {
+            case "filter":
+                _inspectorPanel.SetInspectorFilter(arg);
+                break;
+            case "add":
+                _inspectorPanel.AddComponent(arg.Trim(), state);
+                break;
+            case "remove":
+                _inspectorPanel.RemoveComponent(arg.Trim(), state);
+                break;
+            case "edit":
+                // arg = "<Component.Member> <value>" — split target from value on the FIRST space (the
+                // value may itself contain a space, e.g. a Vector2 "x, y").
+                var sp = arg.IndexOf(' ');
+                if (sp < 0)
+                {
+                    Logger.Warning($"[level-editor] Editor-op '{name}': expected inspector:edit <Component.Member> <value>.");
+                    break;
+                }
+                var target = arg.Substring(0, sp);
+                var value = arg.Substring(sp + 1);
+                // The member is the LAST dotted segment (a registry key like "core.Transform" has a dot).
+                var dot = target.LastIndexOf('.');
+                if (dot <= 0 || dot >= target.Length - 1)
+                {
+                    Logger.Warning($"[level-editor] Editor-op '{name}': expected inspector:edit <Component.Member> <value>.");
+                    break;
+                }
+                _inspectorPanel.EditMember(target.Substring(0, dot), target.Substring(dot + 1), value, state);
+                break;
+            default:
+                Logger.Warning(
+                    $"[level-editor] Editor-op '{name}': expected " +
+                    "inspector:filter <text>|edit <Component.Member> <value>|add <key>|remove <key>.");
                 break;
         }
     }

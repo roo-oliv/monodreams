@@ -76,8 +76,16 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     private bool _leftDown;
     private KeyboardState _prevKeys;
 
+    // PF-A: filterable "command palette" mode (the "+ Add component" popup) — a filter field row at the
+    // top narrows the items live as you type. Off for every existing menu (OpenAt / OpenBelow).
+    private bool _filterable;
+    private readonly EditorTextField _filter = new();
+    private IReadOnlyList<EditorMenuItem> _allItems = Array.Empty<EditorMenuItem>();
+    private bool _caretVisible;
+
     private bool _built;
     private Entity _menuBox, _subBox;
+    private Entity _filterBox, _filterText;
     private readonly List<MenuRowVisual> _mainPool = new();
     private readonly List<MenuRowVisual> _subPool = new();
 
@@ -144,6 +152,40 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
         Func<IReadOnlyList<EditorMenuItem>>? rebuild = null) =>
         OpenAt(items, new Point(buttonBounds.Left, buttonBounds.Bottom), rebuild);
 
+    /// <summary>Opens a FILTERABLE popup (PF-A §3, the "+ Add component" command palette): a filter field
+    /// row sits at the top of the menu box and narrows <paramref name="items"/> live as the user types
+    /// (case-insensitive substring on the label); Enter picks the first match; Escape clears the filter,
+    /// then (empty) closes. The menu owns the keyboard while open (the screen already ORs
+    /// <see cref="IsOpen"/> into the host keyboard's suppression), so typing never fires a game/editor
+    /// key. Anchored like <see cref="OpenAt"/> (clamped to the window).</summary>
+    public void OpenFiltered(IReadOnlyList<EditorMenuItem> items, Point anchorScreen)
+    {
+        if (items == null || items.Count == 0) return;
+        if (_isBlocked?.Invoke() == true) return; // dialog open / drag owns the pointer → never open
+        EnsureBuilt();
+        _allItems = items;
+        _items = items;
+        _rebuild = null;
+        _filter.Clear();
+        _filterable = true;
+        _anchor = anchorScreen;
+        _openSubmenuIndex = -1;
+        _hoverMain = _hoverSub = -1;
+        _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
+        _open = true;
+    }
+
+    /// <summary>Sets the filter text and re-narrows the visible items — the headless twin of typing in
+    /// the palette (and a test seam). No-op when the open menu is not filterable.</summary>
+    public void SetFilter(string? text)
+    {
+        _filter.Set(text);
+        Narrow();
+    }
+
+    /// <summary>The current filter text of an open filterable popup (empty otherwise). Exposed for tests.</summary>
+    public string FilterValue => _filterable ? _filter.Value : string.Empty;
+
     /// <summary>Picks the leaf item with action-id <paramref name="path"/> from the OPEN menu (searching
     /// submenus) and dispatches it — the headless <c>menu:pick &lt;path&gt;</c> op. A disabled or missing
     /// item logs and leaves the menu open.</summary>
@@ -169,6 +211,35 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
         _open = false;
         _openSubmenuIndex = -1;
         _rebuild = null;
+        _filterable = false;
+    }
+
+    /// <summary>Narrows <see cref="_items"/> to those whose label contains the filter text (case-
+    /// insensitive) — the live command-palette narrowing. A no-op when not filterable.</summary>
+    private void Narrow()
+    {
+        if (!_filterable) return;
+        var f = _filter.Value;
+        if (string.IsNullOrEmpty(f)) { _items = _allItems; return; }
+        var list = new List<EditorMenuItem>();
+        foreach (var item in _allItems)
+            if (item.Label.Contains(f, StringComparison.OrdinalIgnoreCase))
+                list.Add(item);
+        _items = list;
+    }
+
+    /// <summary>The item-box anchor: the raw anchor, shifted down by the filter row when filterable (so
+    /// the filter field sits at the raw anchor and the items below it). Both <c>Layout</c> and the mouse
+    /// hit-test read this, so they always agree.</summary>
+    private Point ItemAnchor(float scale) => _filterable
+        ? new Point(_anchor.X, _anchor.Y + EditorContextMenuLayout.Px(EditorContextMenuLayout.ItemHeight, scale))
+        : _anchor;
+
+    /// <summary>The filter field row rectangle just ABOVE the (clamped) item box.</summary>
+    private static Rectangle FilterRect(Rectangle itemMenu, float scale)
+    {
+        var h = EditorContextMenuLayout.Px(EditorContextMenuLayout.ItemHeight, scale);
+        return new Rectangle(itemMenu.X, itemMenu.Y - h, itemMenu.Width, h);
     }
 
     // ─── per-frame ────────────────────────────────────────────────────────────────────────────────
@@ -192,14 +263,64 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     }
 
     /// <summary>Escape closes the menu (the keyboard half — the screen suppresses editor/game keys while
-    /// the menu owns input).</summary>
+    /// the menu owns input). In FILTERABLE mode the keyboard drives the filter field: typed chars narrow
+    /// the list live, Backspace deletes, Enter picks the first match, and Escape clears the filter first
+    /// (then, when empty, closes).</summary>
     private void ReadKeyboard(GameState state)
     {
         var keys = _getKeyboardState();
+        if (_filterable)
+        {
+            _caretVisible = (state.TotalTime % 1.0) < 0.5;
+            foreach (var key in keys.GetPressedKeys())
+            {
+                if (_prevKeys.IsKeyDown(key)) continue; // only newly-pressed this frame
+                switch (key)
+                {
+                    case Keys.Enter: _prevKeys = keys; PickFirst(state); return;
+                    case Keys.Escape:
+                        _prevKeys = keys;
+                        if (_filter.Value.Length > 0) { _filter.Clear(); Narrow(); }
+                        else Close();
+                        return;
+                    case Keys.Back: _filter.Backspace(); Narrow(); continue;
+                }
+                var c = MenuKeyToChar(key);
+                if (c != '\0') { _filter.Append(c); Narrow(); }
+            }
+            _prevKeys = keys;
+            return;
+        }
+
         var escape = keys.IsKeyDown(Keys.Escape) && !_prevKeys.IsKeyDown(Keys.Escape);
         _prevKeys = keys;
         if (escape) Close();
     }
+
+    /// <summary>Dispatches the first enabled leaf of the (narrowed) item list — Enter in the palette.</summary>
+    private void PickFirst(GameState state)
+    {
+        foreach (var item in _items)
+            if (item.Kind is EditorMenuItemKind.Action or EditorMenuItemKind.Toggle && item.Enabled)
+            {
+                DispatchItem(item, state);
+                return;
+            }
+    }
+
+    /// <summary>The constrained lowercase char set for the palette filter (letters/digits/<c>.</c>/<c>-</c>/
+    /// <c>,</c>/space) — enough to type a component name; mirrors the dialog/inspector fields.</summary>
+    private static char MenuKeyToChar(Keys key) => key switch
+    {
+        >= Keys.D0 and <= Keys.D9 => (char)('0' + (key - Keys.D0)),
+        >= Keys.NumPad0 and <= Keys.NumPad9 => (char)('0' + (key - Keys.NumPad0)),
+        >= Keys.A and <= Keys.Z => (char)('a' + (key - Keys.A)),
+        Keys.OemPeriod or Keys.Decimal => '.',
+        Keys.OemMinus or Keys.Subtract => '-',
+        Keys.OemComma => ',',
+        Keys.Space => ' ',
+        _ => '\0',
+    };
 
     private void HandleMouseAndConsume(GameState state, float scale)
     {
@@ -214,7 +335,7 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
             _leftDown = input.LeftButton;
 
-            var menu = EditorContextMenuLayout.MenuRect(_anchor, _items, w, h, scale);
+            var menu = EditorContextMenuLayout.MenuRect(ItemAnchor(scale), _items, w, h, scale);
             var overMain = HitItem(menu, _items, point, scale);
 
             // A submenu opens on hover of its parent; it stays open while the cursor is over it or its
@@ -245,6 +366,10 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
                     if (item.Kind is EditorMenuItemKind.Action or EditorMenuItemKind.Toggle)
                         DispatchItem(item, state);
                     // submenu parent / separator click: no dispatch (submenu stays open on its parent)
+                }
+                else if (_filterable && FilterRect(menu, scale).Contains(point))
+                {
+                    // A click in the filter field keeps the palette open (it is not click-away).
                 }
                 else
                 {
@@ -311,11 +436,33 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     {
         var w = _viewportManager.ScreenWidth;
         var h = _viewportManager.ScreenHeight;
-        var menu = EditorContextMenuLayout.MenuRect(_anchor, _items, w, h, scale);
+        var menu = EditorContextMenuLayout.MenuRect(ItemAnchor(scale), _items, w, h, scale);
 
         PlaceBox(_menuBox, menu);
         EnsurePool(_mainPool, _items.Count);
         LayoutItems(_mainPool, _menuBox, menu, _items, _hoverMain, scale);
+
+        // PF-A: the filter field row above the item box (palette mode) — a Bg2 field + the filter text
+        // (or a placeholder) + a blinking caret.
+        if (_filterable)
+        {
+            var filter = FilterRect(menu, scale);
+            PlaceBox(_filterBox, filter);
+            SetBoxFill(_filterBox, EditorTheme.Bg2);
+            var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
+            var hasText = _filter.Value.Length > 0;
+            var shown = hasText ? _filter.Value : "Filter…";
+            if (_caretVisible) shown = (hasText ? _filter.Value : string.Empty) + "|";
+            PlaceLabel(_filterText,
+                new Vector2(filter.X + EditorContextMenuLayout.Px(EditorContextMenuLayout.TextInsetX, scale),
+                    filter.Y + (filter.Height - labelHeight) / 2f),
+                shown, hasText ? EditorTheme.Text0 : EditorTheme.TextMuted, scale);
+        }
+        else
+        {
+            ParkBox(_filterBox);
+            Park(_filterText);
+        }
 
         // The open submenu (or park the sub chrome).
         if (_openSubmenuIndex >= 0 && _items[_openSubmenuIndex].Submenu is { } subItems)
@@ -419,6 +566,9 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
         if (_built) return;
         _menuBox = CreateBox(EditorTheme.Bg1, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.MenuPanel);
         _subBox = CreateBox(EditorTheme.Bg1, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.MenuPanel);
+        // PF-A: the palette filter field (a Bg2 box + a label), on the menu band.
+        _filterBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.MenuPanel);
+        _filterText = CreateLabel(EditorTheme.Depths.MenuLabel);
         _built = true;
         ParkAll();
     }
@@ -543,6 +693,8 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     {
         ParkBox(_menuBox);
         ParkBox(_subBox);
+        ParkBox(_filterBox);
+        Park(_filterText);
         foreach (var v in _mainPool) ParkRow(v);
         foreach (var v in _subPool) ParkRow(v);
     }

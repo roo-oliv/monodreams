@@ -38,6 +38,7 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
     private readonly Func<bool> _dialogOpen;
     private readonly Func<bool> _menuOpen;
     private readonly Func<bool>? _modalActive;
+    private readonly Func<bool>? _inspectorEditing;
     private readonly EntitySet _cursorSet;
 
     public bool IsEnabled { get; set; } = true;
@@ -61,13 +62,15 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
         Func<bool> menuOpen,
         bool commandIsMeta,
         Func<KeyboardState>? getKeyboardState = null,
-        Func<bool>? modalActive = null)
+        Func<bool>? modalActive = null,
+        Func<bool>? inspectorEditing = null)
     {
         _shortcuts = shortcuts ?? throw new ArgumentNullException(nameof(shortcuts));
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
         _dialogOpen = dialogOpen ?? throw new ArgumentNullException(nameof(dialogOpen));
         _menuOpen = menuOpen ?? throw new ArgumentNullException(nameof(menuOpen));
         _modalActive = modalActive;
+        _inspectorEditing = inspectorEditing;
         _tracker = new KeyChordTracker(commandIsMeta, getKeyboardState);
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
@@ -86,6 +89,7 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
             DialogOpen = _dialogOpen(),
             MenuOpen = _menuOpen(),
             ModalActive = _modalActive?.Invoke() ?? false,
+            InspectorEditing = _inspectorEditing?.Invoke() ?? false,
             Editing = state.RunMode == RunMode.Edit,
         };
         if (!context.AllowsEditing) return;

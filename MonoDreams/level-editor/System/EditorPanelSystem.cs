@@ -1,10 +1,12 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
@@ -12,7 +14,9 @@ using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.LevelEditor.Inspector;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.UI;
+using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoDreams.System;
@@ -87,6 +91,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private readonly Action<SceneCatalogEntry, GameState>? _selectScene;
     private readonly Func<bool> _isDirty;
 
+    // PF-A: the editable Inspector's shared history + serializer registry (RightInspector role). Null on
+    // the left panel and in pure model tests → the Inspector is view-only there (no edits/add/remove).
+    private readonly EditorHistory? _history;
+    private readonly ComponentSerializerRegistry? _registry;
+    private readonly Func<KeyboardState> _getKeyboardState;
+
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _sceneSet;
     private readonly EntitySet _cameraRigSet; // the UX2-E rig: infra-tagged, but an explicit tree include
@@ -107,12 +117,33 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private Entity _scrollThumb;
     private int _scroll;
 
+    // PF-A editable-Inspector transient state (RightInspector role): which member (if any) is being
+    // inline-edited, whether the filter field owns the keyboard, and the caret blink phase.
+    private InlineEdit? _editing;
+    private bool _filterFocused;
+    private KeyboardState _prevKeys;
+    private bool _caretVisible;
+
     public bool IsEnabled { get; set; } = true;
 
     /// <summary>Raised on a RIGHT-button press inside this panel (UX2-D §4) — the overlay wires it (for
     /// the LEFT strip only) to open the Entities/Scenes context menu at the cursor. Null (the Inspector
     /// panel, or a composition with no context menus) makes right-clicks a no-op.</summary>
     public Action<GameState>? ContextMenuRequested { get; set; }
+
+    /// <summary>Raised when the "+ Add component" row is clicked (PF-A §3) — the overlay wires it (for
+    /// the Inspector) to open the filterable add-component popup at the cursor. Null → the row is inert.</summary>
+    public Action<GameState>? AddComponentRequested { get; set; }
+
+    /// <summary>Whether the editable Inspector currently OWNS the keyboard — the filter field is focused
+    /// OR an inline member edit is open (PF-A §3). The overlay ORs this into the host keyboard's
+    /// <c>ShouldSuppressInput</c> and the shortcut gate, exactly like the dialog/menu, so typing in the
+    /// Inspector never fires an editor chord (G/S/R, Delete) or a game key.</summary>
+    public bool OwnsKeyboard => _role == EditorPanelRole.RightInspector && (_filterFocused || _editing != null);
+
+    /// <summary>Whether an inline member edit field is currently open (PF-A §3). Exposed for tests +
+    /// tooling (the filter-focused case is the remaining half of <see cref="OwnsKeyboard"/>).</summary>
+    public bool IsEditingMember => _editing != null;
 
     /// <summary>The current line-scroll offset (whole lines). Exposed for tests/tooling.</summary>
     public int ScrollOffset => _scroll;
@@ -155,6 +186,24 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         public Entity Arrow;
         public Entity BgFill;     // full-row background fill (hover Bg3 / selected AccentSoft)
         public Entity AccentBar;  // the selected scene row's 3pt Accent left-edge bar
+        // PF-A editable Inspector: the member VALUE label (type-colored) / inline edit text (ValueLabel),
+        // the filter + inline-edit field background (FieldBox, a SimpleButtonComponent), and the
+        // component-row delete × glyph (DeleteGlyph, a screen-baked mesh). Parked when not applicable.
+        public Entity ValueLabel;
+        public Entity FieldBox;
+        public Entity DeleteGlyph;
+    }
+
+    /// <summary>An open inline member edit (PF-A §3): the target component + member (by type + name) and
+    /// the live edit field, plus whether the current text fails to parse (rendered <c>Danger</c>).</summary>
+    private sealed class InlineEdit
+    {
+        public required string ComponentKey;   // the component's full type name (the row key)
+        public required Type ComponentType;
+        public required string Member;
+        public required Type MemberType;
+        public readonly EditorTextField Field = new();
+        public bool Invalid;
     }
 
     public EditorPanelSystem(
@@ -168,7 +217,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         Action<SceneCatalogEntry, GameState>? selectScene = null,
         Func<bool>? isDirty = null,
         EditorPanelRole role = EditorPanelRole.LeftTabs,
-        EditorPanelStateComponent? panelState = null)
+        EditorPanelStateComponent? panelState = null,
+        EditorHistory? history = null,
+        ComponentSerializerRegistry? registry = null,
+        Func<KeyboardState>? getKeyboardState = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
@@ -180,6 +232,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         _sceneCatalog = sceneCatalog ?? (() => Array.Empty<SceneCatalogEntry>());
         _selectScene = selectScene;
         _isDirty = isDirty ?? (() => false);
+        _history = history;
+        _registry = registry;
+        _getKeyboardState = getKeyboardState ?? Keyboard.GetState;
         _shellState = shellState ?? new EditorShellStateComponent();
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
@@ -249,8 +304,15 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         var body = EditorChromeLayout.RegionBody(panel, scale); // rows live below the header
 
         // The Inspector panel tracks selection changes (clearing stale expand state); the left tabbed
-        // panel does not own the Inspector's expand set.
-        if (_role == EditorPanelRole.RightInspector) SyncInspectorSelection();
+        // panel does not own the Inspector's expand set. It also owns the keyboard while the filter is
+        // focused or a member is being inline-edited (PF-A §3) — read BEFORE building rows so this
+        // frame's typed text shows immediately.
+        if (_role == EditorPanelRole.RightInspector)
+        {
+            SyncInspectorSelection();
+            _caretVisible = (state.TotalTime % 1.0) < 0.5;
+            ReadInspectorKeyboard(state);
+        }
 
         // Build the flat rows for hit-testing, handle clicks/scroll (which may mutate collapse state,
         // the selection, the active tab or the scroll), then rebuild so the visuals reflect the
@@ -283,6 +345,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         {
             _state.ExpandedInspectorComponents.Clear();
             _state.InspectorEntity = selected;
+            _editing = null; // a stale inline edit belongs to the previous selection
+            // the filter (DevTools search) persists across selections, so it is deliberately NOT cleared
         }
     }
 
@@ -301,7 +365,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 inspector = ComponentInspector.Inspect(sel);
                 inspectorTitle = SceneLabel(sel);
             }
-            _rows.AddRange(EditorPanelModel.BuildInspector(_state, inspector, inspectorTitle));
+            _rows.AddRange(EditorPanelModel.BuildInspector(
+                _state, inspector, inspectorTitle,
+                filter: _state.InspectorFilter,
+                deleteAffordance: DeleteAffordanceFor,
+                showAddRow: sel.IsAlive && _registry != null));
             return;
         }
 
@@ -443,6 +511,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 HandleClick(_rows[i], line, point, scale, state);
                 return;
             }
+            // A left-release inside the Inspector body but on no row cancels an inline edit / drops
+            // filter focus (PF-A: "clicking elsewhere cancels").
+            if (_role == EditorPanelRole.RightInspector) { _editing = null; _filterFocused = false; }
             return;
         }
     }
@@ -499,6 +570,17 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     private void HandleClick(PanelRow row, Rectangle line, Point point, float scale, GameState state)
     {
+        // PF-A: any Inspector click drops filter focus unless it hit the filter row, and cancels an open
+        // inline edit unless it hit the row being edited ("clicking elsewhere cancels").
+        if (_role == EditorPanelRole.RightInspector)
+        {
+            if (row.Kind != PanelRowKind.InspectorFilter) _filterFocused = false;
+            var onEditingMember = _editing != null && row.Kind == PanelRowKind.InspectorMember
+                && row.ComponentKey == _editing.ComponentKey && row.MemberName == _editing.Member;
+            if (_editing != null && !onEditingMember) _editing = null;
+            if (onEditingMember) return; // a click on the field being edited keeps it open
+        }
+
         if (!row.Interactive) return;
         var onArrow = row.Collapsible && SystemsPanelLayout.ArrowRect(line, row.Depth, scale).Contains(point);
 
@@ -515,8 +597,21 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 if (onArrow) ToggleTreeEntity(row.Entity);
                 else SelectEntity(row.Entity);
                 break;
+            case PanelRowKind.InspectorFilter:
+                _filterFocused = true;
+                break;
             case PanelRowKind.InspectorComponent:
-                if (row.Collapsible) ToggleInspectorComponentKey(row.ComponentKey!);
+                if (row.DeleteAffordance != InspectorDeleteAffordance.None
+                    && SystemsPanelLayout.DeleteRect(line, scale).Contains(point))
+                    DeleteComponentRow(row, state);
+                else if (row.Collapsible)
+                    ToggleInspectorComponentKey(row.ComponentKey!);
+                break;
+            case PanelRowKind.InspectorMember:
+                BeginOrToggleEdit(row, state);
+                break;
+            case PanelRowKind.InspectorAddComponent:
+                AddComponentRequested?.Invoke(state);
                 break;
             case PanelRowKind.SceneCatalogEntry:
                 // The dirty gate + confirm-on-switch lives in the ONE handler the overlay supplies
@@ -662,6 +757,298 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         }
         return false;
     }
+
+    // ---- Editable Inspector (PF-A §3): keyboard, edits, add/remove, headless ops ----
+
+    /// <summary>Reads the keyboard while the Inspector OWNS it (the filter is focused OR a member is being
+    /// edited): typed chars edit the focused field, Backspace deletes, Enter commits an edit / unfocuses
+    /// the filter, Escape cancels an edit / clears+unfocuses the filter. Advances the edge tracker every
+    /// frame (even when not owning) so a key held across a focus change never fires as a stale press. The
+    /// typed character set is the constrained lowercase set (letters/digits/<c>.</c>/<c>-</c>/<c>,</c>/
+    /// space) shared with the dialog; arbitrary values arrive through the <c>inspector:edit</c> op.</summary>
+    private void ReadInspectorKeyboard(GameState state)
+    {
+        var keys = _getKeyboardState();
+        if (!OwnsKeyboard) { _prevKeys = keys; return; }
+
+        foreach (var key in keys.GetPressedKeys())
+        {
+            if (_prevKeys.IsKeyDown(key)) continue; // only newly-pressed this frame
+            switch (key)
+            {
+                case Keys.Enter: _prevKeys = keys; CommitEdit(state); return;
+                case Keys.Escape: _prevKeys = keys; CancelKeyboard(); return;
+                case Keys.Back: Backspace(); continue;
+            }
+            var c = InspectorKeyToChar(key);
+            if (c != '\0') AppendChar(c);
+        }
+        _prevKeys = keys;
+
+        // Live parse-validity feedback: the field shows Danger until valid or cancelled.
+        if (_editing != null)
+            _editing.Invalid = !InspectorValue.TryParse(_editing.MemberType, _editing.Field.Value, out _);
+    }
+
+    private void AppendChar(char c)
+    {
+        if (_editing != null) _editing.Field.Append(c);
+        else if (_filterFocused) _state.InspectorFilter += c;
+    }
+
+    private void Backspace()
+    {
+        if (_editing != null) _editing.Field.Backspace();
+        else if (_filterFocused && _state.InspectorFilter.Length > 0)
+            _state.InspectorFilter = _state.InspectorFilter[..^1];
+    }
+
+    private void CancelKeyboard()
+    {
+        if (_editing != null) { _editing = null; return; }          // cancel the edit (no commit)
+        if (_filterFocused) { _state.InspectorFilter = string.Empty; _filterFocused = false; } // Esc clears + unfocuses
+    }
+
+    /// <summary>Commits the open inline edit through an undoable <see cref="MemberEditCommand"/> when the
+    /// text parses (else keeps the field open, marked invalid → Danger); with only the filter focused,
+    /// Enter just unfocuses (keeping the search). Edit-guarded.</summary>
+    private void CommitEdit(GameState state)
+    {
+        if (_editing == null) { _filterFocused = false; return; }
+        if (!GuardEditMode(state)) { _editing = null; return; }
+        if (InspectorValue.TryParse(_editing.MemberType, _editing.Field.Value, out var value))
+        {
+            Push(MemberEditCommand.FromCurrent(FirstSelected(), _editing.ComponentType, _editing.Member, value));
+            _editing = null;
+        }
+        else
+        {
+            _editing.Invalid = true; // parse failure — stay open, shown in Danger
+        }
+    }
+
+    /// <summary>Begins editing a member: a <b>bool</b> click toggles immediately (one undoable command),
+    /// an <b>enum</b> click cycles to the next member, and a float/int/string/Vector2 opens an inline
+    /// field seeded with the current value. Edit-guarded.</summary>
+    private void BeginOrToggleEdit(PanelRow row, GameState state)
+    {
+        if (!row.MemberEditable || row.MemberType == null || row.MemberName == null || row.ComponentKey == null) return;
+        if (!GuardEditMode(state)) return;
+        var selected = FirstSelected();
+        var type = ComponentTypeByFullName(selected, row.ComponentKey);
+        if (type == null) return;
+
+        switch (InspectorValue.Kind(row.MemberType))
+        {
+            case InspectorValueKind.Bool:
+                if (MemberEditCommand.TryReadMember(selected, type, row.MemberName, out var b))
+                    Push(MemberEditCommand.FromCurrent(selected, type, row.MemberName, !(b is true)));
+                break;
+            case InspectorValueKind.Enum:
+                if (MemberEditCommand.TryReadMember(selected, type, row.MemberName, out var e))
+                    Push(MemberEditCommand.FromCurrent(selected, type, row.MemberName,
+                        InspectorValue.NextEnumValue(row.MemberType, e)));
+                break;
+            default: // Float / Int / String / Vector2 → an inline field
+                _filterFocused = false;
+                _editing = new InlineEdit
+                {
+                    ComponentKey = row.ComponentKey,
+                    ComponentType = type,
+                    Member = row.MemberName,
+                    MemberType = row.MemberType,
+                };
+                _editing.Field.Set(row.MemberValue ?? string.Empty);
+                break;
+        }
+    }
+
+    private void DeleteComponentRow(PanelRow row, GameState state)
+    {
+        if (row.ComponentKey == null) return;
+        var selected = FirstSelected();
+        var type = ComponentTypeByFullName(selected, row.ComponentKey);
+        if (type != null) RemoveComponentType(selected, type, state);
+    }
+
+    /// <summary>Sets the Inspector filter text (headless <c>inspector:filter &lt;text&gt;</c>).</summary>
+    public void SetInspectorFilter(string? text) => _state.InspectorFilter = text ?? string.Empty;
+
+    /// <summary>Edits a member value through an undoable command (headless
+    /// <c>inspector:edit &lt;Component.Member&gt; &lt;value&gt;</c>): resolves the component by registry
+    /// key or type name on the current selection, parses the value for the member's type, and pushes a
+    /// <see cref="MemberEditCommand"/>. Edit-guarded; loud on a miss / a bad parse.</summary>
+    public void EditMember(string componentKey, string memberName, string rawValue, GameState state)
+    {
+        if (!GuardEditMode(state)) return;
+        var selected = FirstSelected();
+        var type = ResolveComponentKey(selected, componentKey);
+        if (type == null)
+        {
+            Logger.Warning($"[level-editor] inspector:edit: the selection has no component '{componentKey}'.");
+            return;
+        }
+        var member = MemberEditCommand.ResolveMember(type, memberName);
+        if (member == null || !MemberEditCommand.IsWritable(member))
+        {
+            Logger.Warning($"[level-editor] inspector:edit: '{componentKey}.{memberName}' is not a writable member.");
+            return;
+        }
+        var memberType = member is FieldInfo f
+            ? f.FieldType
+            : ((PropertyInfo)member).PropertyType;
+        if (!InspectorValue.TryParse(memberType, rawValue, out var value))
+        {
+            Logger.Warning($"[level-editor] inspector:edit: '{rawValue}' is not a valid {memberType.Name}.");
+            return;
+        }
+        Push(MemberEditCommand.FromCurrent(selected, type, memberName, value));
+    }
+
+    /// <summary>Adds a default component to the selection through an undoable
+    /// <see cref="AddComponentCommand"/> (headless <c>inspector:add &lt;ComponentKey&gt;</c> + the popup
+    /// pick). Refuses (loud) a present / structural type. Edit-guarded.</summary>
+    public void AddComponent(string componentKey, GameState state)
+    {
+        if (!GuardEditMode(state)) return;
+        var type = _registry?.TypeForKey(componentKey);
+        if (type == null)
+        {
+            Logger.Warning($"[level-editor] inspector:add: no registered component '{componentKey}'.");
+            return;
+        }
+        var selected = FirstSelected();
+        if (!selected.IsAlive)
+        {
+            Logger.Warning("[level-editor] inspector:add: nothing is selected.");
+            return;
+        }
+        if (EntityComponentReflection.Has(selected, type))
+        {
+            Logger.Warning($"[level-editor] inspector:add: the selection already has '{type.Name}'.");
+            return;
+        }
+        if (IsStructuralType(type))
+        {
+            Logger.Warning($"[level-editor] inspector:add: '{type.Name}' is a structural component and cannot be added.");
+            return;
+        }
+        Push(new AddComponentCommand(selected, type, InspectorComponentDefaults.Build(type, selected)));
+    }
+
+    /// <summary>Removes a component from the selection through an undoable
+    /// <see cref="RemoveComponentCommand"/> (headless <c>inspector:remove &lt;ComponentKey&gt;</c>).
+    /// Refuses <c>TransformComponent</c> + structural components (loud). Edit-guarded.</summary>
+    public void RemoveComponent(string componentKey, GameState state)
+    {
+        var selected = FirstSelected();
+        var type = _registry?.TypeForKey(componentKey) ?? ResolveComponentKey(selected, componentKey);
+        if (type == null)
+        {
+            Logger.Warning($"[level-editor] inspector:remove: no component '{componentKey}'.");
+            return;
+        }
+        RemoveComponentType(selected, type, state);
+    }
+
+    private void RemoveComponentType(Entity selected, Type type, GameState state)
+    {
+        if (!GuardEditMode(state)) return;
+        if (type == typeof(TransformComponent))
+        {
+            Logger.Warning("[level-editor] Remove refused: TransformComponent is the entity's single spatial component and cannot be removed.");
+            return;
+        }
+        if (IsStructuralType(type))
+        {
+            Logger.Warning($"[level-editor] Remove refused: '{type.Name}' is a structural component and cannot be removed.");
+            return;
+        }
+        var cmd = RemoveComponentCommand.Create(selected, type);
+        if (cmd != null) Push(cmd);
+    }
+
+    /// <summary>The "+ Add component" candidate list for the current selection (registered MINUS present
+    /// MINUS structural/never-addable) — the overlay turns these into the filterable popup's items.</summary>
+    public IReadOnlyList<InspectorAddCandidates.Candidate> AddComponentCandidates()
+    {
+        var selected = FirstSelected();
+        if (_registry == null || !selected.IsAlive) return Array.Empty<InspectorAddCandidates.Candidate>();
+        var present = new HashSet<Type>();
+        foreach (var comp in ComponentInspector.Inspect(selected))
+            if (comp.Type != null) present.Add(comp.Type);
+        return InspectorAddCandidates.Derive(_registry.RegisteredComponents(), present, _registry.IsStructural);
+    }
+
+    /// <summary>The per-component delete affordance for the Inspector (PF-A §3): structural → none,
+    /// Transform → guarded (refuses), else deletable.</summary>
+    private InspectorDeleteAffordance DeleteAffordanceFor(ComponentInspector.ComponentInfo comp)
+    {
+        var type = comp.Type;
+        if (type == null) return InspectorDeleteAffordance.None;
+        if (type == typeof(TransformComponent)) return InspectorDeleteAffordance.Guarded;
+        if (IsStructuralType(type)) return InspectorDeleteAffordance.None;
+        return InspectorDeleteAffordance.Deletable;
+    }
+
+    /// <summary>Whether a type is structural (never designer add/deletable): the registry-marked set
+    /// (ChildOf / SceneEntityId / future prefab markers), with the two known types hardcoded so the rule
+    /// holds even in a no-registry unit test.</summary>
+    private bool IsStructuralType(Type type) =>
+        type == typeof(SceneEntityIdComponent) || type == typeof(ChildOfComponent)
+        || (_registry != null && _registry.IsStructural(type));
+
+    private Type? ComponentTypeByFullName(Entity selected, string fullTypeName)
+    {
+        if (!selected.IsAlive) return null;
+        foreach (var comp in ComponentInspector.Inspect(selected))
+            if (comp.Type != null && string.Equals(comp.FullTypeName, fullTypeName, StringComparison.Ordinal))
+                return comp.Type;
+        return null;
+    }
+
+    /// <summary>Resolves a component key/name on the selection to its CLR type: a registry key first,
+    /// else a full or short type name matched against the selection's attached components.</summary>
+    private Type? ResolveComponentKey(Entity selected, string key)
+    {
+        var byKey = _registry?.TypeForKey(key);
+        if (byKey != null) return byKey;
+        if (!selected.IsAlive) return null;
+        foreach (var comp in ComponentInspector.Inspect(selected))
+            if (comp.Type != null &&
+                (string.Equals(comp.FullTypeName, key, StringComparison.Ordinal) ||
+                 string.Equals(comp.TypeName, key, StringComparison.Ordinal)))
+                return comp.Type;
+        return null;
+    }
+
+    private void Push(IEditorCommand? command)
+    {
+        if (command != null) _history?.Push(command);
+    }
+
+    private static bool GuardEditMode(GameState state)
+    {
+        if (state.RunMode == RunMode.Edit) return true;
+        Logger.Warning("[level-editor] Inspector editing is an editing action — pause the transport first.");
+        return false;
+    }
+
+    /// <summary>Poll-based key → char for the filter + inline edit fields — the constrained lowercase set
+    /// (letters, digits, <c>.</c>, <c>-</c>, <c>,</c>, space) that covers numbers, Vector2 <c>"x, y"</c>,
+    /// and simple identifiers. Arbitrary values (mixed case, other punctuation) go through the
+    /// <c>inspector:edit</c> op.</summary>
+    private static char InspectorKeyToChar(Keys key) => key switch
+    {
+        >= Keys.D0 and <= Keys.D9 => (char)('0' + (key - Keys.D0)),
+        >= Keys.NumPad0 and <= Keys.NumPad9 => (char)('0' + (key - Keys.NumPad0)),
+        >= Keys.A and <= Keys.Z => (char)('a' + (key - Keys.A)),
+        Keys.OemPeriod or Keys.Decimal => '.',
+        Keys.OemMinus or Keys.Subtract => '-',
+        Keys.OemComma => ',',
+        Keys.Space => ' ',
+        _ => '\0',
+    };
 
     // ---- Rendering (pooled visuals) ----------------------------------------
 
@@ -853,11 +1240,93 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             Park(visual.MinusBar);
         }
 
-        // Label.
-        var labelPos = row.HasCheckbox
-            ? SystemsPanelLayout.LabelPosition(line, labelHeight, row.Depth, scale)
-            : SystemsPanelLayout.LabelPositionNoCheckbox(line, labelHeight, row.Depth, scale);
-        SetText(visual.Label, row.Label, labelPos, scale, RowColor(row));
+        // PF-A editable-Inspector extras: the delete × (component rows), the type-colored value / inline
+        // edit field (member rows), and the filter field background. Parks them for every other row.
+        ConfigureInspectorExtras(visual, row, line, scale, labelHeight, hovered);
+
+        // Label. The filter row draws its text (or placeholder) INSIDE the field; every other row draws
+        // its label at the normal position in its kind color.
+        if (row.Kind == PanelRowKind.InspectorFilter)
+        {
+            var field = SystemsPanelLayout.InspectorFieldRect(line, row.Depth, scale);
+            var hasText = !string.IsNullOrEmpty(_state.InspectorFilter);
+            var shown = hasText ? _state.InspectorFilter : "Filter";
+            if (_filterFocused && _caretVisible) shown = (hasText ? _state.InspectorFilter : string.Empty) + "|";
+            var pos = new Vector2(field.X + EditorChromeLayout.Px(6, scale), field.Y + (field.Height - labelHeight) / 2f);
+            SetText(visual.Label, shown, pos, scale, hasText ? EditorTheme.Text0 : EditorTheme.TextMuted);
+        }
+        else
+        {
+            var labelPos = row.HasCheckbox
+                ? SystemsPanelLayout.LabelPosition(line, labelHeight, row.Depth, scale)
+                : SystemsPanelLayout.LabelPositionNoCheckbox(line, labelHeight, row.Depth, scale);
+            SetText(visual.Label, row.Label, labelPos, scale, RowColor(row));
+        }
+    }
+
+    /// <summary>Configures the editable-Inspector's per-row extras (PF-A §3): the filter field background,
+    /// the component delete × mesh, and the member value / inline edit field. Parks all three for every
+    /// non-applicable row (and every left-panel row).</summary>
+    private void ConfigureInspectorExtras(RowVisual visual, PanelRow row, Rectangle line, float scale,
+        float labelHeight, bool hovered)
+    {
+        Park(visual.FieldBox);
+        Park(visual.ValueLabel);
+        ClearMesh(visual.DeleteGlyph);
+
+        switch (row.Kind)
+        {
+            case PanelRowKind.InspectorFilter:
+            {
+                var field = SystemsPanelLayout.InspectorFieldRect(line, row.Depth, scale);
+                PlaceField(visual.FieldBox, field, _filterFocused ? EditorTheme.Bg3 : EditorTheme.Bg2);
+                break; // the text itself is drawn by the caller's filter-label branch
+            }
+            case PanelRowKind.InspectorComponent when row.DeleteAffordance != InspectorDeleteAffordance.None:
+            {
+                var box = SystemsPanelLayout.DeleteRect(line, scale);
+                // Deletable: Border at rest → Danger on row hover. Guarded (Transform): a static muted ×
+                // (it refuses on click with a status hint).
+                var color = row.DeleteAffordance == InspectorDeleteAffordance.Guarded
+                    ? EditorTheme.TextMuted
+                    : hovered ? EditorTheme.Danger : EditorTheme.Border;
+                var mesh = new CompositeMeshGenerator();
+                foreach (var tri in SystemsPanelLayout.CrossTriangles(box, MathF.Max(1.5f, 1.5f * scale)))
+                    mesh.Add(new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], color));
+                SetMeshAt(visual.DeleteGlyph, mesh.Generate(), EditorTheme.Depths.Label);
+                break;
+            }
+            case PanelRowKind.InspectorMember:
+            {
+                var valueRect = SystemsPanelLayout.MemberValueRect(line, row.Depth, scale);
+                var pos = new Vector2(valueRect.X + EditorChromeLayout.Px(6, scale),
+                    valueRect.Y + (valueRect.Height - labelHeight) / 2f);
+                var editing = _editing != null
+                    && _editing.ComponentKey == row.ComponentKey && _editing.Member == row.MemberName;
+                if (editing)
+                {
+                    PlaceField(visual.FieldBox, valueRect, EditorTheme.Bg3);
+                    var text = _editing!.Field.Value + (_caretVisible ? "|" : string.Empty);
+                    SetText(visual.ValueLabel, text, pos, scale,
+                        _editing.Invalid ? EditorTheme.Danger : EditorTheme.Text0);
+                }
+                else
+                {
+                    SetText(visual.ValueLabel, row.MemberValue ?? string.Empty, pos, scale,
+                        InspectorValue.ForRole(row.ValueRole));
+                }
+                break;
+            }
+        }
+    }
+
+    /// <summary>Positions + sizes a field-background box (a <see cref="SimpleButtonComponent"/>) and sets
+    /// its fill — the filter field and the inline edit field.</summary>
+    private static void PlaceField(Entity box, Rectangle rect, Color fill)
+    {
+        Place(box, new Vector2(rect.X, rect.Y));
+        Resize(box, rect);
+        SetFill(box, fill);
     }
 
     /// <summary>The label/arrow text color for a row, by kind (hover + selection are conveyed by the
@@ -872,7 +1341,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             : EditorTheme.TextDisabled,
         PanelRowKind.SceneEntity => EditorTheme.Text0,
         PanelRowKind.InspectorComponent => EditorTheme.Text0,
-        PanelRowKind.InspectorMember => EditorTheme.TextMuted,
+        // The member NAME part reads secondary (Text1); its VALUE is drawn separately, type-colored.
+        PanelRowKind.InspectorMember => EditorTheme.Text1,
+        // The "+ Add component" affordance is the primary action (Accent), like a primary dialog action.
+        PanelRowKind.InspectorAddComponent => EditorTheme.Accent,
+        // The filter row's label is set explicitly (text vs placeholder) — this fallback is unused.
+        PanelRowKind.InspectorFilter => EditorTheme.Text0,
         // The current scene's dirty marker (● prefix) is drawn in Warning; a clean catalog row is Text0.
         PanelRowKind.SceneCatalogEntry => row.DirtyMarker ? EditorTheme.Warning : EditorTheme.Text0,
         _ => EditorTheme.TextMuted,
@@ -891,6 +1365,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 Arrow = CreateMesh(EditorTheme.Depths.Label),
                 BgFill = CreateMesh(EditorTheme.Depths.RowFill),
                 AccentBar = CreateMesh(EditorTheme.Depths.RowAccentBar),
+                // PF-A editable Inspector: the value/edit text, the filter/edit field background, and the
+                // component-row delete × mesh. Created for both roles (parked on non-Inspector rows).
+                ValueLabel = CreateText(),
+                FieldBox = CreateBox(SystemsPanelLayout.CheckboxSize, SystemsPanelLayout.CheckboxSize,
+                    lineThickness: 1f, outline: EditorTheme.Border, depth: EditorTheme.Depths.Button),
+                DeleteGlyph = CreateMesh(EditorTheme.Depths.Label),
             });
     }
 
@@ -980,11 +1460,14 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         Park(visual.Label);
         Park(visual.Checkbox);
         Park(visual.MinusBar);
+        Park(visual.ValueLabel);
+        Park(visual.FieldBox);
         // Screen-baked meshes carry their position in their vertices (identity matrix), so parking
         // the transform does nothing — empty the mesh to hide it.
         ClearMesh(visual.Arrow);
         ClearMesh(visual.BgFill);
         ClearMesh(visual.AccentBar);
+        ClearMesh(visual.DeleteGlyph);
     }
 
     private static void Park(Entity entity) => Place(entity, SystemsPanelLayout.ParkedPosition);
@@ -1027,6 +1510,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (visual.Arrow.IsAlive) visual.Arrow.Dispose();
             if (visual.BgFill.IsAlive) visual.BgFill.Dispose();
             if (visual.AccentBar.IsAlive) visual.AccentBar.Dispose();
+            if (visual.ValueLabel.IsAlive) visual.ValueLabel.Dispose();
+            if (visual.FieldBox.IsAlive) visual.FieldBox.Dispose();
+            if (visual.DeleteGlyph.IsAlive) visual.DeleteGlyph.Dispose();
         }
         _pool.Clear();
         foreach (var tab in _tabs)
