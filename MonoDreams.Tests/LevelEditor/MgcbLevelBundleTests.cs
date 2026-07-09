@@ -73,6 +73,47 @@ public class MgcbLevelBundleTests
         Assert.Equal("#begin ./Levels/island.mdscene", MgcbLevelBundle.BeginLine("island"));
     }
 
+    // ---- Prefab bundling: the Prefabs dir joins the same zero-touch /copy: mechanism (PF-C) ----
+
+    [Fact]
+    public void PrefabCopyLine_MatchesTheContentRelativeFormat()
+    {
+        Assert.Equal("./Prefabs/npc-boldo.mdprefab", MgcbLevelBundle.PrefabContentRelativePath("npc-boldo"));
+        Assert.Equal("/copy:./Prefabs/npc-boldo.mdprefab", MgcbLevelBundle.PrefabCopyLine("npc-boldo"));
+        Assert.Equal("#begin ./Prefabs/npc-boldo.mdprefab", MgcbLevelBundle.PrefabBeginLine("npc-boldo"));
+    }
+
+    [Fact]
+    public void EnsurePrefabCopyEntry_AppendsBlock_WhenAbsent()
+    {
+        var updated = MgcbLevelBundle.EnsurePrefabCopyEntry(ExistingMgcb, "npc-boldo", out var changed);
+
+        Assert.True(changed);
+        Assert.Contains("#begin ./Prefabs/npc-boldo.mdprefab\n/copy:./Prefabs/npc-boldo.mdprefab\n", updated);
+        Assert.StartsWith(ExistingMgcb, updated);
+    }
+
+    [Fact]
+    public void EnsurePrefabCopyEntry_Idempotent_WhenAlreadyPresent()
+    {
+        var withPrefab = MgcbLevelBundle.EnsurePrefabCopyEntry(ExistingMgcb, "door", out _);
+
+        var again = MgcbLevelBundle.EnsurePrefabCopyEntry(withPrefab, "door", out var changed);
+
+        Assert.False(changed);
+        Assert.Equal(withPrefab, again);
+    }
+
+    [Fact]
+    public void EnsurePrefabCopyEntry_DoesNotCollideWithASameNamedLevel()
+    {
+        // A level "shared" is bundled; a PREFAB "shared" is a different content path, so it must still append.
+        var updated = MgcbLevelBundle.EnsurePrefabCopyEntry(ExistingMgcb, "sample", out var changed);
+
+        Assert.True(changed); // "sample" level exists, but "./Prefabs/sample.mdprefab" does not
+        Assert.Contains("/copy:./Prefabs/sample.mdprefab", updated);
+    }
+
     // ---- The committed Content.mgcb bundles every committed level (config correctness) ----
 
     [Fact]
