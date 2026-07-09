@@ -81,20 +81,60 @@ public static class EditorContextMenuModel
     public const string AddEmptyPath = "add-empty";
     public const string CreateScenePath = "create-scene";
 
+    // Prefab paths (PF-D). The card paths carry the prefab id as a suffix (the card knows which prefab).
+    public const string CreatePrefabFromSelectionPath = "prefab/from-selection";
+    public const string UnpackPrefabPath = "prefab/unpack";
+    public const string CreateEmptyPrefabPath = "prefab/create-empty";
+    public const string PrefabEditPathPrefix = "prefab-edit:";
+    public const string PrefabDeletePathPrefix = "prefab-delete:";
+
     /// <summary>The entity context menu (the viewport right-click AND the header <c>Entity ▾</c>
     /// dropdown — one model, two anchors): <b>Order ▸</b> (Bring Forward / Send Backward), a separator,
-    /// then <b>Delete</b> (<see cref="EditorMenuItem.Danger"/>). Every item is disabled when nothing is
-    /// selected (<paramref name="hasSelection"/> false), so the header dropdown reads inert with no
-    /// selection.</summary>
-    public static IReadOnlyList<EditorMenuItem> EntityMenu(bool hasSelection) => new[]
+    /// the prefab actions — <b>Create Prefab from Selection…</b> (PF-D, enabled with a selection) and
+    /// <b>Unpack Prefab</b> (<see cref="EditorMenuItem.Danger"/>, enabled only when the selection is a
+    /// prefab instance root, <paramref name="isPrefabInstance"/>) — a separator, then <b>Delete</b>
+    /// (<see cref="EditorMenuItem.Danger"/>). Every selection-gated item is disabled when nothing is
+    /// selected, so the header dropdown reads inert with no selection.</summary>
+    public static IReadOnlyList<EditorMenuItem> EntityMenu(bool hasSelection, bool isPrefabInstance = false) => new[]
     {
         OrderSubmenu(hasSelection),
+        Separator(),
+        new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Action, Label = "Create Prefab from Selection…",
+            Path = CreatePrefabFromSelectionPath, Enabled = hasSelection,
+        },
+        new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Action, Label = "Unpack Prefab", Path = UnpackPrefabPath,
+            Enabled = isPrefabInstance, Danger = true,
+        },
         Separator(),
         new EditorMenuItem
         {
             Kind = EditorMenuItemKind.Action, Label = "Delete", Path = DeletePath,
             Enabled = hasSelection, Danger = true,
         },
+    };
+
+    /// <summary>The per-card prefab menu on the Prefabs shelf (PF-D): <b>Edit Prefab</b> (opens its tab)
+    /// and <b>Delete</b> (<see cref="EditorMenuItem.Danger"/>, file delete with a confirm). Both paths
+    /// carry the <paramref name="prefabId"/> suffix so the dispatch knows which prefab the card is.</summary>
+    public static IReadOnlyList<EditorMenuItem> PrefabCardMenu(string prefabId) => new[]
+    {
+        new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Edit Prefab", Path = PrefabEditPathPrefix + prefabId },
+        Separator(),
+        new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Action, Label = "Delete", Path = PrefabDeletePathPrefix + prefabId, Danger = true,
+        },
+    };
+
+    /// <summary>The Prefabs-shelf background menu (PF-D): <b>Create Empty Prefab…</b> (name modal → a
+    /// minimal one-root <c>.mdprefab</c> → opens its tab).</summary>
+    public static IReadOnlyList<EditorMenuItem> PrefabShelfMenu() => new[]
+    {
+        new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Create Empty Prefab…", Path = CreateEmptyPrefabPath },
     };
 
     /// <summary>The Entities-panel context menu (UX2-D §4): <b>Add Empty Entity</b>, and — when a tree

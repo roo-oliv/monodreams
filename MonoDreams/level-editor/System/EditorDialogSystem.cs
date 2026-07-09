@@ -34,6 +34,17 @@ public enum EditorDialogMode
     /// refuses an existing name (loud, stays open) then writes a minimal canonical scene + switches to
     /// it. Same modal machinery (parked chrome, cursor consume, same weave).</summary>
     CreateScene,
+
+    /// <summary>The Create-Prefab name modal (PF-D): a name field + [Create] [Cancel], opened by
+    /// <b>Create Prefab from Selection…</b> and <b>Create Empty Prefab…</b> (the confirm callback differs
+    /// per flow, set on open). Reuses the Create-scene name-modal machinery; refuses an existing prefab
+    /// id (loud, stays open).</summary>
+    CreatePrefab,
+
+    /// <summary>The Save-Prefab modal (PF-D): a single primary [Save Prefab] + [Cancel] (no field, no
+    /// Save Project / Backup) — the prefab-context flavour of the Save dialog. Confirm writes the
+    /// <c>.mdprefab</c> through the overlay's validated writer + propagation.</summary>
+    SavePrefab,
 }
 
 /// <summary>
@@ -94,10 +105,22 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     private int _hoverControl = -1;
     private bool _leftDown;
 
-    // Confirm-on-switch state (UX-C): the callbacks for the current confirm, set by OpenConfirmSwitch.
-    private Action<GameState>? _onSwitchConfirmed; // Save & Switch (the primary/Enter action)
-    private Action<GameState>? _onSwitchDiscarded; // Discard & Switch
+    // Confirm-on-switch/close state (UX-C / PF-D): the callbacks for the current confirm, set by
+    // OpenConfirmSwitch / OpenConfirmClose. The verb ("Switch" / "Close") labels the two action buttons.
+    private Action<GameState>? _onSwitchConfirmed; // Save & <verb> (the primary/Enter action)
+    private Action<GameState>? _onSwitchDiscarded; // Discard & <verb>
     private string _confirmMessage = string.Empty;
+    private string _confirmVerb = "Switch";
+
+    // Create-Prefab state (PF-D): the name-modal callbacks, set per-open (from-selection vs empty differ
+    // only in the create callback). The title shown by the shared name-modal layout.
+    private Func<string, bool>? _onPrefabNameExists;
+    private Action<string, GameState>? _onCreatePrefab;
+    private string _createTitle = "New Scene";
+
+    // Save-Prefab state (PF-D): the write callback + the prefab id, set per-open (the active context's id).
+    private Action<GameState>? _onSavePrefab;
+    private string _savePrefabId = string.Empty;
 
     private static readonly Vector2 ParkPosition = new(-100000f, -100000f);
 
@@ -190,8 +213,53 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _onSwitchConfirmed = onSaveAndSwitch ?? throw new ArgumentNullException(nameof(onSaveAndSwitch));
         _onSwitchDiscarded = onDiscardAndSwitch ?? throw new ArgumentNullException(nameof(onDiscardAndSwitch));
         _confirmMessage = $"Unsaved changes in {sceneId}.";
+        _confirmVerb = "Switch";
         _prevKeys = _getKeyboardState();
         _mode = EditorDialogMode.ConfirmSwitch;
+    }
+
+    /// <summary>Opens the confirm-on-CLOSE modal for a dirty prefab tab (PF-D, pre-mortem #9): the
+    /// message names <paramref name="prefabId"/>, and the three actions route to
+    /// <paramref name="onSaveAndClose"/> (Save &amp; Close / Enter), <paramref name="onDiscardAndClose"/>
+    /// (Discard &amp; Close), and Cancel (Escape). Reuses the <see cref="EditorDialogMode.ConfirmSwitch"/>
+    /// machinery (parked chrome, cursor consume, same weave) with the button verb set to "Close".</summary>
+    public void OpenConfirmClose(string prefabId, Action<GameState> onSaveAndClose, Action<GameState> onDiscardAndClose)
+    {
+        EnsureBuilt();
+        _onSwitchConfirmed = onSaveAndClose ?? throw new ArgumentNullException(nameof(onSaveAndClose));
+        _onSwitchDiscarded = onDiscardAndClose ?? throw new ArgumentNullException(nameof(onDiscardAndClose));
+        _confirmMessage = $"Unsaved changes in prefab {prefabId}.";
+        _confirmVerb = "Close";
+        _prevKeys = _getKeyboardState();
+        _mode = EditorDialogMode.ConfirmSwitch;
+    }
+
+    /// <summary>Opens the Create-Prefab name modal (PF-D): a name field prefilled with
+    /// <paramref name="prefill"/> (<c>Sanitize</c>d) + [Create] [Cancel], under <paramref name="title"/>.
+    /// Confirm goes through <see cref="ConfirmCreatePrefab"/>, refusing an existing prefab id via
+    /// <paramref name="nameExists"/> (loud, stays open) then running <paramref name="onCreate"/>. Both
+    /// Create-Prefab flows (from-selection, from-empty) open this with their own create callback.</summary>
+    public void OpenCreatePrefab(string title, string prefill, Func<string, bool> nameExists, Action<string, GameState> onCreate)
+    {
+        EnsureBuilt();
+        _createTitle = title ?? "New Prefab";
+        _onPrefabNameExists = nameExists;
+        _onCreatePrefab = onCreate ?? throw new ArgumentNullException(nameof(onCreate));
+        _field.Set(EditorTextField.Sanitize(prefill ?? string.Empty));
+        _prevKeys = _getKeyboardState();
+        _mode = EditorDialogMode.CreatePrefab;
+    }
+
+    /// <summary>Opens the Save-Prefab modal (PF-D): a single primary [Save Prefab] + [Cancel] naming
+    /// <paramref name="prefabId"/>; confirm runs <paramref name="onSavePrefab"/> (the overlay's validated
+    /// <c>.mdprefab</c> write + propagation). No field, no Save Project / Backup — a prefab is one file.</summary>
+    public void OpenSavePrefab(string prefabId, Action<GameState> onSavePrefab)
+    {
+        EnsureBuilt();
+        _savePrefabId = prefabId ?? string.Empty;
+        _onSavePrefab = onSavePrefab ?? throw new ArgumentNullException(nameof(onSavePrefab));
+        _prevKeys = _getKeyboardState();
+        _mode = EditorDialogMode.SavePrefab;
     }
 
     /// <summary>Opens the Create-Empty-Scene modal (UX2-D §4): a name field prefilled <c>untitled</c>
@@ -200,6 +268,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     public void OpenCreateScene()
     {
         EnsureBuilt();
+        _createTitle = "New Scene";
         _field.Set(EditorTextField.Sanitize("untitled"));
         _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
         _mode = EditorDialogMode.CreateScene;
@@ -230,6 +299,44 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         var action = _onCreateScene;
         Close();
         action?.Invoke(id, state);
+    }
+
+    /// <summary>Confirms Create Prefab (PF-D, <c>dialog:confirm</c> / Enter / the Create button): sanitizes
+    /// the field, <b>refuses loudly and stays open</b> on an empty result OR an existing prefab id (via the
+    /// injected collision predicate), else closes and runs the create callback (from-selection or from-empty).
+    /// No-op outside <see cref="EditorDialogMode.CreatePrefab"/>.</summary>
+    public void ConfirmCreatePrefab(GameState state)
+    {
+        if (_mode != EditorDialogMode.CreatePrefab) return;
+        var id = EditorTextField.Sanitize(_field.Value);
+        if (string.IsNullOrEmpty(id))
+        {
+            Logger.Warning(
+                "[level-editor] Create Prefab: the name is empty after reducing it to a safe file id " +
+                "(letters, digits, '-' and '_'). Type a valid name.");
+            return; // keep the dialog open
+        }
+        if (_onPrefabNameExists?.Invoke(id) == true)
+        {
+            Logger.Warning(
+                $"[level-editor] Create Prefab refused: a prefab named '{id}' already exists. " +
+                "Choose a different name.");
+            return; // keep the dialog open (loud refusal)
+        }
+        var action = _onCreatePrefab;
+        Close();
+        action?.Invoke(id, state);
+    }
+
+    /// <summary>The <b>Save Prefab</b> action (PF-D, headless <c>dialog:prefab</c> / <c>dialog:confirm</c> /
+    /// Enter / the primary button): closes, then runs the guarded prefab-write callback. No-op outside
+    /// <see cref="EditorDialogMode.SavePrefab"/>.</summary>
+    public void SavePrefab(GameState state)
+    {
+        if (_mode != EditorDialogMode.SavePrefab) return;
+        var action = _onSavePrefab;
+        Close();
+        action?.Invoke(state);
     }
 
     /// <summary>The <b>Save Scene</b> action (headless <c>dialog:scene</c>): closes, then runs the
@@ -324,6 +431,12 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             case EditorDialogMode.CreateScene:
                 ConfirmCreateScene(state);
                 return;
+            case EditorDialogMode.CreatePrefab:
+                ConfirmCreatePrefab(state);
+                return;
+            case EditorDialogMode.SavePrefab:
+                SavePrefab(state);
+                return;
         }
     }
 
@@ -355,12 +468,17 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             return;
         }
 
-        if (_mode == EditorDialogMode.CreateScene)
+        if (_mode is EditorDialogMode.CreateScene or EditorDialogMode.CreatePrefab or EditorDialogMode.SavePrefab)
         {
+            // The three name-ish modals share the keyboard (Enter/Esc + field typing) and the two-button
+            // (primary + Cancel) mouse hit-test; they differ only in the layout (title / field / labels)
+            // and the confirm routing (Confirm() dispatches by mode). SavePrefab's field typing is inert
+            // (its field is parked), so reusing the keyboard is harmless.
             ReadCreateSceneKeyboard(state);
             HandleCreateSceneMouseAndConsume(state, scale);
             if (_mode == EditorDialogMode.None) { ParkAll(); return; }
-            LayoutCreateScene(state, scale);
+            if (_mode == EditorDialogMode.SavePrefab) LayoutSavePrefab(state, scale);
+            else LayoutCreateScene(state, scale);
             return;
         }
 
@@ -578,11 +696,11 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         PlaceBox(_confirmBox, buttons[0]);
         SetBoxOutline(_confirmBox, EditorTheme.BorderStrong);
         SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 3, disabled: false, state.Time));
-        PlaceLabel(_confirmLabel, LabelInset(buttons[0], scale), "Save & Switch", EditorTheme.Text0, scale);
+        PlaceLabel(_confirmLabel, LabelInset(buttons[0], scale), $"Save & {_confirmVerb}", EditorTheme.Text0, scale);
 
         PlaceBox(_discardBox, buttons[1]);
         SetBoxFill(_discardBox, DialogButtonFill(ref _discardHover, 5, disabled: false, state.Time));
-        PlaceLabel(_discardLabel, LabelInset(buttons[1], scale), "Discard & Switch", EditorTheme.Danger, scale);
+        PlaceLabel(_discardLabel, LabelInset(buttons[1], scale), $"Discard & {_confirmVerb}", EditorTheme.Danger, scale);
 
         PlaceBox(_cancelBox, buttons[2]);
         SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 4, disabled: false, state.Time));
@@ -639,7 +757,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
             if (input.LeftButtonReleased)
             {
-                if (EditorDialogLayout.BackupConfirmButton(panel, scale).Contains(point)) ConfirmCreateScene(state);
+                // The primary button routes through Confirm() so it dispatches by mode (CreateScene →
+                // ConfirmCreateScene, CreatePrefab → ConfirmCreatePrefab, SavePrefab → SavePrefab).
+                if (EditorDialogLayout.BackupConfirmButton(panel, scale).Contains(point)) Confirm(state);
                 else if (EditorDialogLayout.SaveCancelButton(panel, scale).Contains(point)) Cancel();
             }
 
@@ -659,7 +779,7 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
         PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
         PlaceBox(_panel, panel);
-        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), "New Scene", EditorTheme.Text0, scale);
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), _createTitle, EditorTheme.Text0, scale);
 
         var field = EditorDialogLayout.CreateSceneField(panel, scale);
         PlaceBox(_fieldBox, field);
@@ -679,6 +799,46 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
 
         // Park the Save- + confirm-switch-only chrome (action rows, message, discard).
+        Park(_message);
+        ParkBox(_discardBox); Park(_discardLabel);
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
+        {
+            ParkBox(_actionBox[i]); Park(_actionTitle[i]); Park(_actionSub[i]);
+        }
+    }
+
+    /// <summary>Lays out the Save-Prefab modal (PF-D): backdrop + panel + title + a read-only line naming
+    /// the <c>.mdprefab</c> being written (where the name field would sit) + [Save Prefab] (Accent) [Cancel];
+    /// parks the field box and every Save-/confirm-only control. Reuses the Create-scene panel geometry.</summary>
+    private void LayoutSavePrefab(GameState state, float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var panel = EditorDialogLayout.CreateScenePanel(w, h, scale);
+
+        PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
+        PlaceBox(_panel, panel);
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), "Save Prefab", EditorTheme.Text0, scale);
+
+        // The prefab file the confirm writes, shown read-only where the name field would be (no editing —
+        // the prefab id is the active context's, not a new name).
+        var field = EditorDialogLayout.CreateSceneField(panel, scale);
+        ParkBox(_fieldBox);
+        PlaceLabel(_fieldText, EditorDialogLayout.FieldText(field, scale),
+            $"{_savePrefabId}{PrefabWriter.PrefabFileExtension}", EditorTheme.Text1, scale);
+
+        var save = EditorDialogLayout.BackupConfirmButton(panel, scale);
+        PlaceBox(_confirmBox, save);
+        SetBoxOutline(_confirmBox, EditorTheme.Accent);
+        SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 3, disabled: false, state.Time));
+        PlaceLabel(_confirmLabel, LabelInset(save, scale), "Save Prefab", EditorTheme.Accent, scale);
+
+        var cancel = EditorDialogLayout.SaveCancelButton(panel, scale);
+        PlaceBox(_cancelBox, cancel);
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 4, disabled: false, state.Time));
+        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
+
+        // Park the other modes' chrome.
         Park(_message);
         ParkBox(_discardBox); Park(_discardLabel);
         for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
