@@ -128,7 +128,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         if (message.Scene is { } inMemory)
         {
             Logger.Info("[level-editor] Restoring scene from an in-memory snapshot (no file read).");
-            Load(inMemory, "<in-memory>");
+            Load(inMemory, "<in-memory>", message.SuppressCameraRig);
             return;
         }
 
@@ -153,7 +153,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             return;
         }
 
-        Load(scene, path);
+        Load(scene, path, message.SuppressCameraRig);
     }
 
     /// <summary>
@@ -165,7 +165,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// view. Throws loud on an unregistered component key. <paramref name="pathForLogging"/> only names
     /// the source in the log line.
     /// </summary>
-    private void Load(SceneData scene, string pathForLogging)
+    private void Load(SceneData scene, string pathForLogging, bool suppressCameraRig = false)
     {
         try
         {
@@ -185,7 +185,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
             RestoreDrawComponents(created);
 
-            ApplyCamera(scene, created);
+            ApplyCamera(scene, created, suppressCameraRig);
 
             SceneWasLoaded = true; // a real load happened → the empty-save guard now permits an empty save
 
@@ -301,8 +301,18 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// "disappears"; and because the Game-mode snapshot re-persists that origin rig, returning to Scene
     /// mode never cures it. A scene that HAS a camera still round-trips to the rig verbatim (exact).</para>
     /// </summary>
-    private void ApplyCamera(SceneData scene, List<Entity> created)
+    private void ApplyCamera(SceneData scene, List<Entity> created, bool suppressCameraRig = false)
     {
+        // Prefab context (PF-D, pre-mortem #8): a prefab has NO camera rig. Auto-frame the free VIEW on
+        // the prefab's content so the designer sees it (a prefab tab is Edit-only + Play-disabled, so no
+        // follow target drives the camera and framing is always safe), and NEVER sync the rig — a rig
+        // sync would corrupt the SCENE's authored camera, and the prefab writer emits no camera anyway.
+        if (suppressCameraRig)
+        {
+            if (_camera != null) FrameViewOnContent(created);
+            return;
+        }
+
         var editorPath = _applyCameraToRig != null;
 
         // Position the VIEW first, THEN sync the rig — so a null-camera scene's rig can adopt the

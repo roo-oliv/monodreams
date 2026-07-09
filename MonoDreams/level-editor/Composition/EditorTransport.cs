@@ -222,6 +222,20 @@ public sealed class EditorTransport
     }
 
     /// <summary>
+    /// Opens (or re-activates) a prefab-context tab (PF-D): lands Paused (a prefab tab never plays — Play
+    /// is disabled in a prefab context, v1) and drives <see cref="ViewportContextStack.OpenPrefab"/>, which
+    /// snapshots the current context, sweeps, pushes a closable <see cref="ViewportContextKind.Prefab"/>
+    /// tab, and reader-restores the prefab's content from <paramref name="prefabScene"/> with the camera
+    /// rig suppressed (pre-mortem #8). The tab's label is the prefab id.
+    /// </summary>
+    public void OpenPrefab(string prefabId, SceneData prefabScene, GameState state)
+    {
+        state.RunMode = RunMode.Edit; // a prefab tab is always edited Paused (Play is disabled there)
+        _stack.OpenPrefab(prefabId, prefabId, prefabScene);
+        Logger.Info($"[level-editor] Transport: opened prefab tab '{prefabId}'. Paused.");
+    }
+
+    /// <summary>
     /// Switches the active viewport tab to <paramref name="index"/> (a Scenes-panel-style tab click, PF-B).
     /// Leaving the Game tab lands Paused and discards the sandbox (via the stack). Switching to a
     /// persistent context lands Paused. For PF-B the only reachable switch is Game → Scene (there is no
@@ -254,7 +268,10 @@ public sealed class EditorTransport
                 ExitToSceneMode(state);
                 return;
             case ViewportCloseDecision.ConfirmDirty: // a dirty prefab tab (PF-D) — route the confirm flow
-                if (ConfirmDirtyClose != null) ConfirmDirtyClose(index, state);
+                // Make the tab active FIRST (if it isn't) so the confirm's Save/Discard operate on ITS
+                // world, then route the Save & Close / Discard / Cancel confirm on the now-active index.
+                if (index != _stack.ActiveIndex) SwitchToTab(index, state);
+                if (ConfirmDirtyClose != null) ConfirmDirtyClose(_stack.ActiveIndex, state);
                 else Logger.Warning($"[level-editor] Transport: tab #{index} is dirty but no confirm-close " +
                                      "flow is wired (PF-D wires ConfirmDirtyClose).");
                 return;

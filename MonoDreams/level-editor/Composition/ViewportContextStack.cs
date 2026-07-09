@@ -94,6 +94,18 @@ public sealed class ViewportContextStack
     /// infrastructure / cursor / <c>KeepAlive</c> survive). Injected by the transport.</summary>
     public Action? SweepSceneEntities { get; set; }
 
+    /// <summary>
+    /// True for the exact duration of a <b>prefab-context</b> reader restore (PF-D, pre-mortem #8): the
+    /// overlay's <see cref="RestoreSnapshot"/> reads it to publish the in-memory
+    /// <c>LoadSceneRequest</c> with <c>SuppressCameraRig</c> set, so a prefab tab's content-load never
+    /// syncs the camera rig (a prefab has none — a rig sync would corrupt the scene's authored camera).
+    /// Set immediately before, and cleared immediately after, each synchronous restore of a
+    /// <see cref="ViewportContextKind.Prefab"/> context (open + tab-switch); false for a Scene / Game
+    /// restore. Because the restore publish is synchronous (the reader runs inline), the flag is valid
+    /// exactly while the reader reads it.
+    /// </summary>
+    public bool RestoringPrefabContext { get; private set; }
+
     // ─── State ──────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>The ordered contexts (tabs). The Scene context is always index 0.</summary>
@@ -154,7 +166,10 @@ public sealed class ViewportContextStack
         if (!leaving.IsDiscard) SnapshotActive();       // a persistent context is preserved (never discarded)
         SweepSceneEntities?.Invoke();                   // the transport's survivor-sparing sweep
 
+        // A prefab target restores WITHOUT the camera rig (PF-D, pre-mortem #8 — it has none).
+        RestoringPrefabContext = target.Kind == ViewportContextKind.Prefab;
         if (target.Snapshot != null) RestoreSnapshot?.Invoke(target.Snapshot); // through the reader (shared path)
+        RestoringPrefabContext = false;
         _history.Clear();                               // restored entities invalidate old commands (pre-mortem #3)
         if (target.WasDirty) _history.MarkDirty();      // reproduce the target's captured dirtiness
         // Restore the captured VIEW over the reader's auto-frame — but only when valid (UX3-A pre-mortem
@@ -168,6 +183,47 @@ public sealed class ViewportContextStack
 
     /// <summary>Switches back to the Scene context (index 0) — the ex-<c>ExitToSceneMode</c> restore.</summary>
     public void ExitToScene() => SwitchTo(0);
+
+    /// <summary>
+    /// Opens (or re-activates) a <b>prefab context</b> tab (PF-D): an empty world loaded with the prefab's
+    /// entities from <paramref name="prefabScene"/> (the <c>.mdprefab</c>, source-first), auto-framed, its
+    /// own scene-id (= <paramref name="prefabId"/>) and its own dirty/save-point. If a prefab tab for that
+    /// id is already open, this just <see cref="SwitchTo"/>s it (one tab per prefab). Otherwise: snapshot
+    /// the current context (a persistent one is preserved; a discard Game tab is dropped), sweep, push a
+    /// closable non-discard <see cref="ViewportContextKind.Prefab"/> context, restore its content through
+    /// the reader with the camera rig SUPPRESSED (pre-mortem #8 — a prefab has no rig), and clear the
+    /// history so the fresh prefab context starts clean. Does NOT itself set <see cref="RunMode"/> — the
+    /// transport lands it Paused (a prefab tab never plays).
+    /// </summary>
+    public void OpenPrefab(string prefabId, string label, SceneData prefabScene)
+    {
+        // Already open → activate it (one tab per prefab).
+        var existing = IndexOfId(prefabId);
+        if (existing >= 0 && _contexts[existing].Kind == ViewportContextKind.Prefab)
+        {
+            SwitchTo(existing);
+            return;
+        }
+
+        var leaving = Active;
+        if (!leaving.IsDiscard) SnapshotActive();       // preserve the current (Scene/prefab) context
+        SweepSceneEntities?.Invoke();
+
+        var ctx = new ViewportContext(ViewportContextKind.Prefab, prefabId ?? "prefab", label ?? prefabId ?? "prefab",
+            closable: true, isDiscard: false);
+        _contexts.Add(ctx);
+
+        // Load the prefab's entities through the reader with the rig suppressed + view auto-framed.
+        RestoringPrefabContext = true;
+        RestoreSnapshot?.Invoke(prefabScene);
+        RestoringPrefabContext = false;
+
+        _history.Clear();                               // a fresh prefab context is clean (its own save-point)
+
+        if (leaving.IsDiscard) _contexts.Remove(leaving); // a Game sandbox never persists in the background
+        _activeIndex = _contexts.IndexOf(ctx);
+        SyncDescriptors();
+    }
 
     /// <summary>
     /// Resets to a single, freshly-loaded Scene context — the transport's Restart hook. Drops every
@@ -234,25 +290,40 @@ public sealed class ViewportContextStack
     }
 
     /// <summary>
-    /// Closes a CLEAN persistent closable context (the future prefab path — <see cref="DecideClose"/> →
-    /// <see cref="ViewportCloseDecision.CloseClean"/>): sweeps, drops it WITHOUT snapshotting it (a close
-    /// discards the tab), and restores the Scene context. Discard contexts (the Game tab) close via
-    /// <see cref="ExitToScene"/> instead. Never touches the Scene context.
+    /// Closes a closable non-discard context (a prefab tab — PF-D): drops it WITHOUT snapshotting it (a
+    /// close discards the tab, whether it was clean or the caller already saved/discarded it via the
+    /// dirty-close confirm). Closing the ACTIVE tab sweeps and restores the Scene context (returns to the
+    /// Scene tab); closing a BACKGROUND tab just removes it (its held snapshot is discarded). Discard
+    /// contexts (the Game tab) close via <see cref="ExitToScene"/> instead; the Scene context is never
+    /// closable. This is the mechanism the clean-close path AND both dirty-close-confirm branches
+    /// (Save &amp; Close / Discard &amp; Close) call.
     /// </summary>
     public void CloseCleanContext(int index)
     {
         if (index < 0 || index >= _contexts.Count) return;
         var ctx = _contexts[index];
-        if (!ctx.Closable || ctx.IsDiscard) return;
+        if (!ctx.Closable || ctx.IsDiscard) return; // Scene (never closable) / Game (discard via ExitToScene)
 
-        SweepSceneEntities?.Invoke();
+        var closingActive = index == _activeIndex;
         _contexts.RemoveAt(index);
-        var scene = SceneContext;
-        _history.Clear();
-        if (scene.Snapshot != null) RestoreSnapshot?.Invoke(scene.Snapshot);
-        if (scene.WasDirty) _history.MarkDirty();
-        if (scene.View.IsValid) RestoreView?.Invoke(scene.View);
-        _activeIndex = 0;
+
+        if (closingActive)
+        {
+            // Return to the Scene tab: sweep the closed context's world and reader-restore the Scene.
+            SweepSceneEntities?.Invoke();
+            var scene = SceneContext;
+            _history.Clear();
+            RestoringPrefabContext = false; // the Scene context always carries its rig
+            if (scene.Snapshot != null) RestoreSnapshot?.Invoke(scene.Snapshot);
+            if (scene.WasDirty) _history.MarkDirty();
+            if (scene.View.IsValid) RestoreView?.Invoke(scene.View);
+            _activeIndex = 0;
+        }
+        else if (index < _activeIndex)
+        {
+            _activeIndex--; // a lower-indexed background tab closed → keep the active pointer aimed
+        }
+
         SyncDescriptors();
     }
 

@@ -818,7 +818,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         if (!GuardEditMode(state)) { _editing = null; return; }
         if (InspectorValue.TryParse(_editing.MemberType, _editing.Field.Value, out var value))
         {
-            Push(MemberEditCommand.FromCurrent(FirstSelected(), _editing.ComponentType, _editing.Member, value));
+            var selected = FirstSelected();
+            // Instance-children guardrail (PF-D): commit is refused on a prefab-owned child.
+            if (PrefabGuards.IsPrefabOwned(selected)) { Logger.Warning(PrefabGuards.Refusal("Inspector edit")); _editing = null; return; }
+            Push(MemberEditCommand.FromCurrent(selected, _editing.ComponentType, _editing.Member, value));
             _editing = null;
         }
         else
@@ -835,6 +838,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         if (!row.MemberEditable || row.MemberType == null || row.MemberName == null || row.ComponentKey == null) return;
         if (!GuardEditMode(state)) return;
         var selected = FirstSelected();
+        // Instance-children guardrail (PF-D): no inline toggle/edit on a prefab-owned child.
+        if (PrefabGuards.IsPrefabOwned(selected))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Inspector edit"));
+            return;
+        }
         var type = ComponentTypeByFullName(selected, row.ComponentKey);
         if (type == null) return;
 
@@ -882,6 +891,13 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     {
         if (!GuardEditMode(state)) return;
         var selected = FirstSelected();
+        // Instance-children guardrail (PF-D): a prefab-owned child's members are not editable (open the
+        // prefab or Unpack); the instance ROOT is editable (its edits become overrides via the diff).
+        if (PrefabGuards.IsPrefabOwned(selected))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Inspector edit"));
+            return;
+        }
         var type = ResolveComponentKey(selected, componentKey);
         if (type == null)
         {
@@ -923,6 +939,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             Logger.Warning("[level-editor] inspector:add: nothing is selected.");
             return;
         }
+        // Instance-children guardrail (PF-D): cannot add components to a prefab-owned child.
+        if (PrefabGuards.IsPrefabOwned(selected))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Add component"));
+            return;
+        }
         if (EntityComponentReflection.Has(selected, type))
         {
             Logger.Warning($"[level-editor] inspector:add: the selection already has '{type.Name}'.");
@@ -954,6 +976,13 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private void RemoveComponentType(Entity selected, Type type, GameState state)
     {
         if (!GuardEditMode(state)) return;
+        // Instance-children guardrail (PF-D): covers both the headless remove and the inline × click on a
+        // prefab-owned child. The instance ROOT stays editable (removal on it is a v1 no-op on reload).
+        if (PrefabGuards.IsPrefabOwned(selected))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Remove component"));
+            return;
+        }
         if (type == typeof(TransformComponent))
         {
             Logger.Warning("[level-editor] Remove refused: TransformComponent is the entity's single spatial component and cannot be removed.");

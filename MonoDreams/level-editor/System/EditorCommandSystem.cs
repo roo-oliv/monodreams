@@ -149,6 +149,16 @@ public sealed class EditorCommandSystem : ISystem<GameState>
             return;
         }
 
+        // Instance-children guardrail (PF-D): a prefab-owned CHILD (or a proxy bound to one) is not
+        // deletable in a scene. The instance ROOT stays deletable (it carries the marker, so it is NOT
+        // "owned" — deleting it removes the whole instance, snapshot-undoable as any delete).
+        var deleteTarget = selected.Has<GizmoProxyComponent>() ? selected.Get<GizmoProxyComponent>().Target : selected;
+        if (PrefabGuards.IsPrefabOwned(deleteTarget))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Delete"));
+            return;
+        }
+
         if (selected.Has<GizmoProxyComponent>())
         {
             var binding = selected.Get<GizmoProxyComponent>();
@@ -333,6 +343,15 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         if (!TryGetSelected(out var selected))
         {
             Logger.Warning($"[level-editor] {action}: nothing is selected.");
+            return;
+        }
+
+        // Instance-children guardrail (PF-D): refuse a collider edit on a prefab-owned child (the ROOT
+        // stays editable — component edits on it become overrides via the diff).
+        var colliderTarget = selected.Has<GizmoProxyComponent>() ? selected.Get<GizmoProxyComponent>().Target : selected;
+        if (PrefabGuards.IsPrefabOwned(colliderTarget))
+        {
+            Logger.Warning(PrefabGuards.Refusal(action));
             return;
         }
 
@@ -538,9 +557,19 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         owner = selected.Has<GizmoProxyComponent>()
             ? selected.Get<GizmoProxyComponent>().Target
             : selected;
-        if (owner.IsAlive) return true;
-        Logger.Warning($"[level-editor] {action}: the selected proxy's owner is gone.");
-        return false;
+        if (!owner.IsAlive)
+        {
+            Logger.Warning($"[level-editor] {action}: the selected proxy's owner is gone.");
+            return false;
+        }
+        // Instance-children guardrail (PF-D): order-nudge / collider-add on a prefab-owned child is
+        // refused (the shared resolver for those ops); the instance ROOT stays editable.
+        if (PrefabGuards.IsPrefabOwned(owner))
+        {
+            Logger.Warning(PrefabGuards.Refusal(action));
+            return false;
+        }
+        return true;
     }
 
     private Entity FindProxy(Entity owner, ProxyBindingKind kind)

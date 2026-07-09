@@ -38,6 +38,16 @@ public readonly struct LoadSceneRequest
     /// reader uses it directly and performs NO file read; null = read from <see cref="Path"/>.</summary>
     public readonly SceneData? Scene;
 
+    /// <summary>
+    /// Suppresses the editor camera rig on this load (PF-D, pre-mortem #8): a <b>prefab context</b> has
+    /// no camera rig, so its content-load must NOT sync <c>scene.camera</c> to the rig (a rig sync here
+    /// would corrupt the SCENE's authored camera, and a prefab save must emit no camera). When set, the
+    /// reader still auto-frames the free VIEW on the loaded content (Edit-only, Play-disabled), but never
+    /// touches the rig. Only ever true on the in-memory prefab-context path (open / tab-switch restore);
+    /// a scene / Game-tab load leaves it false so the rig re-syncs exactly as before.
+    /// </summary>
+    public readonly bool SuppressCameraRig;
+
     /// <param name="path">Path to the scene JSON (see <see cref="Path"/>).</param>
     /// <param name="fromContent"><c>true</c> to resolve as a content asset (works on web via
     /// <c>TitleContainer</c>); <c>false</c> for a host-filesystem read. Defaults to <c>true</c> so a
@@ -47,14 +57,18 @@ public readonly struct LoadSceneRequest
         Path = path;
         FromContent = fromContent;
         Scene = null;
+        SuppressCameraRig = false;
     }
 
     /// <summary>The in-memory restore overload (UX2-F): reconstruct from an already-built
-    /// <paramref name="scene"/> through the same reader pipeline, no file I/O.</summary>
-    public LoadSceneRequest(SceneData scene)
+    /// <paramref name="scene"/> through the same reader pipeline, no file I/O.
+    /// <paramref name="suppressCameraRig"/> (PF-D) is set for a prefab-context load so the reader never
+    /// syncs the camera rig (a prefab has none — pre-mortem #8).</summary>
+    public LoadSceneRequest(SceneData scene, bool suppressCameraRig = false)
     {
         Path = "<in-memory>";
         FromContent = false;
         Scene = scene;
+        SuppressCameraRig = suppressCameraRig;
     }
 }

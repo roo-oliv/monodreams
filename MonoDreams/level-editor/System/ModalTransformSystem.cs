@@ -163,6 +163,14 @@ public sealed class ModalTransformSystem : ISystem<GameState>
             return false;
         }
 
+        // Instance-children guardrail (PF-D): a prefab-owned child is not editable in a scene — refuse
+        // entry entirely (so no per-frame edit runs). The instance ROOT is fully editable (not "owned").
+        if (PrefabGuards.IsPrefabOwned(target))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Modal transform"));
+            return false;
+        }
+
         _targetIsRig = target.Has<CameraRigComponent>();
         if (mode == EditorModalMode.Rotate && _targetIsRig)
         {

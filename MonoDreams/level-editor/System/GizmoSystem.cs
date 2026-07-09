@@ -350,6 +350,17 @@ public sealed class GizmoSystem : ISystem<GameState>
         if (resizeHandle == BoxResizeHandle.None && !HandleHit(tool, pivot, cursorPoint, invZoom))
             return false;
 
+        // Instance-children guardrail (PF-D): a prefab-owned child — or a proxy bound to one — is not
+        // editable in a scene. The press landed on a handle, so CLAIM it (return true, no click-through
+        // to selection/place) but start NO drag; refuse loudly with the shared hint. The instance ROOT is
+        // fully editable (it is not "owned"), so its handle drags fall through to BeginDrag normally.
+        var editedByDrag = target.Has<GizmoProxyComponent>() ? target.Get<GizmoProxyComponent>().Target : target;
+        if (PrefabGuards.IsPrefabOwned(editedByDrag))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Transform"));
+            return true;
+        }
+
         BeginDrag(target, tool, cursorPoint, pivot, resizeHandle);
         // Claim even when BeginDrag refused (an unsnapshottable proxy binding): the press landed
         // on a handle, so it must not fall through to selection as a click-empty / re-pick.
