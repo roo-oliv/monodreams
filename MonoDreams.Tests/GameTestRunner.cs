@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using MonoDreams.Input;
 using MonoDreams.LevelEditor.Channel;
+using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.State;
 
 namespace MonoDreams.Tests;
@@ -14,6 +16,11 @@ public class GameTestResult
 
     /// The temp debug directory the run wrote its log + screenshots into.
     public string DebugDir { get; init; } = "";
+
+    /// The isolated temp project root the run was pinned to via <c>MONODREAMS_PROJECT_ROOT</c> (see
+    /// <see cref="GameTestRunner"/>). A resolved editor process writes only under here, never the real
+    /// repo content tree — assert against it to prove isolation held.
+    public string ProjectRoot { get; init; } = "";
 
     public void AssertLogContains(string substring)
     {
@@ -186,10 +193,38 @@ public static class GameTestRunner
         return debugDir;
     }
 
+    /// <summary>
+    /// Creates a throwaway, per-run editor <b>project root</b> and pins the spawned process to it via
+    /// <c>MONODREAMS_PROJECT_ROOT</c> (see <see cref="RunProcessAsync"/>). This is the safe-by-construction
+    /// isolation guarantee: a spawned editor process (or a process the developer's ambient
+    /// <c>MONODREAMS_EDITOR=1</c> turned into one) resolves THIS temp tree — never the real repo
+    /// <c>MonoDreams.Examples.Core/Content</c> — so no test can ever write the user's real
+    /// <c>Content.mgcb</c> / <c>Levels</c> / <c>Prefabs</c>.
+    ///
+    /// <para><b>The manifest is mandatory.</b> <see cref="EditorProjectContext"/>'s env-var branch, when it
+    /// finds no <c>game.mdproj</c> at the named root, <b>falls through</b> to the walk-up + repo-root search
+    /// and re-discovers the REAL source manifest. So this writes a minimal
+    /// <c>&lt;root&gt;/Content/game.mdproj</c> (resolving <c>ProjectRoot</c> to <c>&lt;root&gt;/Content</c>,
+    /// mirroring the real layout) plus the <c>Levels</c>/<c>Prefabs</c> dirs and an empty
+    /// <c>Content.mgcb</c> so any Save / zero-touch bundle lands in the isolated tree.</para>
+    /// </summary>
+    private static string CreateIsolatedProjectRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "monodreams_proj_" + Guid.NewGuid().ToString("N")[..8]);
+        var content = Path.Combine(root, "Content");
+        Directory.CreateDirectory(Path.Combine(content, MgcbLevelBundle.LevelsDirectoryName));
+        Directory.CreateDirectory(Path.Combine(content, MgcbLevelBundle.PrefabsDirectoryName));
+        File.WriteAllText(Path.Combine(content, GameProject.FileName),
+            "{\n  \"formatVersion\": 1,\n  \"startScene\": \"\",\n  \"levelsDir\": \"Levels\"\n}\n");
+        File.WriteAllText(Path.Combine(content, MgcbLevelBundle.McgbFileName), "");
+        return root;
+    }
+
     private static async Task<GameTestResult> RunProcessAsync(string arguments, string debugDir, int timeoutSeconds,
         IReadOnlyDictionary<string, string>? environment = null)
     {
         var repoRoot = FindRepoRoot();
+        var projectRoot = CreateIsolatedProjectRoot();
 
         var psi = new ProcessStartInfo
         {
@@ -202,6 +237,9 @@ public static class GameTestRunner
             CreateNoWindow = true,
         };
         psi.Environment["MONODREAMS_DEBUG_DIR"] = debugDir;
+        // Pin the editor project root to the isolated temp tree BEFORE the caller's env, so it applies to
+        // every spawned head (editor-on or ambiently editor-on) yet an explicit caller override still wins.
+        psi.Environment[EditorProjectContext.ProjectRootVariable] = projectRoot;
         if (environment != null)
             foreach (var (key, value) in environment)
                 psi.Environment[key] = value;
@@ -231,6 +269,7 @@ public static class GameTestRunner
             ExitCode = process.ExitCode,
             LogLines = logLines,
             DebugDir = debugDir,
+            ProjectRoot = projectRoot,
         };
     }
 }

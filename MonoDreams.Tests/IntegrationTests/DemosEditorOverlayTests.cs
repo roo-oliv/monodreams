@@ -12,7 +12,12 @@ namespace MonoDreams.Tests.IntegrationTests;
 /// editor-related is constructed, the pipelines are behaviourally identical) plus the explicit
 /// absence assertion below; <c>GameTestRunner.RunDemosAsync</c> pins <c>MONODREAMS_EDITOR=0</c>
 /// unless a test opts in, so a developer's exported flag can never perturb those runs.</para>
+///
+/// <para>In the <see cref="ContentTreeGuardCollection"/>: an editor-enabled spawned suite, bracketed by
+/// the real-content-tree tripwire (PF-E hardening). Its Demos head passes a null project context, so it
+/// cannot write the source tree anyway — the guard is defence-in-depth.</para>
 /// </summary>
+[Collection(ContentTreeGuardCollection.Name)]
 public class DemosEditorOverlayTests
 {
     private static readonly Dictionary<string, string> EditorEnv = new() { ["MONODREAMS_EDITOR"] = "1" };

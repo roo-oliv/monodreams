@@ -14,7 +14,11 @@ namespace MonoDreams.Tests.IntegrationTests;
 /// <para>The menu run exits through the headless editor-op channel (the menu runs no
 /// <c>InputReplaySystem</c>, so the op driver owns the session end); the runner run exits through
 /// the ordinary replay auto-exit-on-drain.</para>
+///
+/// <para>In the <see cref="ContentTreeGuardCollection"/>: these editor-enabled spawned runs are the most
+/// write-prone integration suite, so the real-content-tree tripwire brackets them (PF-E hardening).</para>
 /// </summary>
+[Collection(ContentTreeGuardCollection.Name)]
 public class UniversalOverlayTests
 {
     private static readonly Dictionary<string, string> EditorEnv = new() { ["MONODREAMS_EDITOR"] = "1" };
