@@ -199,11 +199,13 @@ payloads are not serializable today, so a sprite is the only serialized renderab
 
 Additionally the reader **positions the camera on load** — a view/camera split (UX2-E). What consumes
 `scene.camera` depends on whether the editor is composed (the reader's optional `applyCameraToRig` seam):
-- **Editor present** (the overlay wires the seam to `EditorCameraRig.SyncFromScene`): `scene.camera` goes
-  to the **rig** (the authored game-camera state lives there), and the free **VIEW** (the live `Camera`)
-  **auto-frames on content** — centre + zoom-fit of the loaded content's world-space AABB via the pure
-  `CameraNav` frame-scene math — so an off-origin scene (e.g. `Blender_Level` at ~(1275,−530)) is visible
-  regardless of where the authored camera sits.
+- **Editor present** (the overlay wires the seam to `EditorCameraRig.SyncFromScene`): the free **VIEW** (the
+  live `Camera`) **auto-frames on content** — centre + zoom-fit of the loaded content's world-space AABB via
+  the pure `CameraNav` frame-scene math — so an off-origin scene (e.g. `Blender_Level` at ~(1275,−530)) is
+  visible regardless of where the authored camera sits, and THEN (sequenced after the framing) `scene.camera`
+  goes to the **rig** (the authored game-camera state lives there). A **null** `scene.camera` (every pre-UX2-E
+  scene) makes the rig adopt the just-framed VIEW instead of the pre-load origin — the UX3-A default, "the
+  authored camera starts on the content" (see "The editor splits the free VIEW from the authored camera rig").
 - **Shipped** (no seam): the live camera IS the authored camera, so `scene.camera` is applied to it
   directly when present (respecting the authored view); a legacy camera-less scene auto-frames on content
   (byte-identical to pre-UX2-E — every prior scene saved `camera: null`).
@@ -808,6 +810,16 @@ holds it. Invariants:
   `EditorCameraRig.SyncFromScene`); Restart/reload/switch rebuild its STATE, not its IDENTITY — the rig entity
   carries `EditorInfrastructureComponent`, so it survives the transport's teardown sweep and the reload re-syncs
   it (like every other scene rebuild — unsaved rig moves are discarded).
+- **Null-camera default = the post-load view (UX3-A).** A scene that persists a camera syncs it to the rig
+  verbatim (exact). A scene that persists `camera: null` — **every pre-UX2-E scene** (the UX2-E audit) — makes
+  the rig adopt the **post-load VIEW**: the reader sequences the rig sync **after** it auto-frames the free view
+  on content (`SceneReaderSystem.ApplyCamera` passes the rig `scene.camera ?? <the just-framed view>`), so **"the
+  authored camera starts on the content"**, never the rig's pre-load origin ctor default. This is the UX3-A
+  blank-Game-mode fix: without it, entering Game mode (which snaps the view onto the rig — `Camera := rig`) lands
+  on empty world and the scene "disappears"; and because the Game-mode snapshot re-persists the origin rig,
+  returning to Scene mode restores the Scene view + entities but never cures the origin rig — so **every**
+  Game-mode entry is blank ("returning doesn't help"). The first Save then writes the on-content `scene.camera`,
+  so the null-camera class evaporates as scenes are saved.
 - **It is selectable — via the Entities tree row AND a viewport border-pick — and gizmo-editable** through the
   ORDINARY editor path. **Tree row (UX2-G):** the Entities tree folds the rig in as a **"Camera" row** even though
   it carries `EditorInfrastructureComponent` (which the tree normally hides) — it is the ONE explicit infra
@@ -843,9 +855,9 @@ holds it. Invariants:
   to the live camera directly when present (respecting the authored view), else auto-frames — the reader's
   camera split (see the reader premise). The reference shipped screen passes the reader no camera, so
   `CameraFollowSystem` still owns it, byte-identical to before.
-- **Play / the future Game mode** are NOT wired this wave: entering Play, `CameraFollowSystem` (unfrozen) drives
-  the shared `Camera` exactly as today. UX2-F will set `Camera := rig` on Game-mode entry, reading the rig state
-  this premise makes available.
+- **Play / Game mode** (UX2-F, wired): entering Play, `CameraFollowSystem` (unfrozen) drives the shared `Camera`
+  as today; entering Game mode sets `Camera := rig` (`SnapViewToRig`), reading the rig state this premise makes
+  available — and under UX3-A the `[Scene mode | Game mode]` toggle ALSO auto-plays. See "The Game-mode sandbox …".
 
 **Why:** the user's ask — "the camera visible when you're not in camera view", Blender's bounds + X glyph, a
 back-to-camera-view button — requires separating the free editor view from the authored game camera; today
@@ -860,7 +872,9 @@ the frustum; a `VisibleComponent` on the glyph pulls it into `MeshPrepSystem`, w
 `WorldMatrix` its screen-baked vertices require; a deletable rig strands the authored camera.
 **Tests:** `MonoDreams.Tests/LevelEditor/CameraRigTests.cs` (`FrustumWorldCorners_*` + `ViewMatchesRig_*` — the
 pure glyph math + epsilon; `RigMaterializesFromLoad_*` — file camera → rig state, view frames content;
-`SaveReadsRig_NotView` + `MovingTheView_DoesNotChangeWhatSaveWrites_NorDirtyTheHistory`;
+`NullCameraLoad_RigAdoptsPostLoadView_NotThePreLoadOrigin` — UX3-A: a `camera: null` scene's rig adopts the
+post-load framed view, not the pre-load origin; `SaveReadsRig_NotView` +
+`MovingTheView_DoesNotChangeWhatSaveWrites_NorDirtyTheHistory`;
 `CameraRig_IsNeverSceneMembership`; `Glyph_HiddenWhenViewMatchesRig_*` + `Glyph_DprAndInsetProjection_ClipsToTheGameViewport`;
 `SnapViewToRig_*`; `RigBorderPick_SelectsTheRig_*` + `RigMoveDrag_IsOneUndoStep_UndoRestores`;
 `RigScaleDrag_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores_Dirties` +
@@ -1486,14 +1500,18 @@ through the free editor view; **Game mode** is a Unity-style sandbox: the viewpo
 game camera, you may poke entities while Paused "just to test", and all sandbox edits are DISCARDED on
 exit. The mechanism:
 
-- **Enter Game** (the `[Scene | Game]` toggle while Paused, or AUTOMATICALLY when Play is pressed in
-  Scene mode): the transport takes an **in-memory snapshot FIRST** — `SceneWriter.BuildScene(world,
-  rig.AsCamera(), layers)` → a held `SceneData` (no file I/O) — plus the `EditorHistory` dirty state
-  and the Scene-mode VIEW (the live `Camera`), **before** anything flips `RunMode` to Play
-  (pre-mortem #7: `EditorTransport.Play` calls `EnterGameMode` *before* `state.RunMode = Play`, so no
-  simulation frame can mutate the scene before it is captured). Then the view adopts the game camera
-  (`EditorCameraRig.SnapViewToRig`). Pressing Play while already in Game mode does NOT re-snapshot —
-  **one snapshot per Game-mode session**.
+- **Enter Game** (the `[Scene mode | Game mode]` toggle, or Play in Scene mode): the transport takes an
+  **in-memory snapshot FIRST** — `SceneWriter.BuildScene(world, rig.AsCamera(), layers)` → a held
+  `SceneData` (no file I/O) — plus the `EditorHistory` dirty state and the Scene-mode VIEW (the live
+  `Camera`), **before** anything flips `RunMode` to Play (pre-mortem #7: `EditorTransport.Play` calls
+  `EnterGameMode` *before* `state.RunMode = Play`, so no simulation frame can mutate the scene before it
+  is captured). Then the view adopts the game camera (`EditorCameraRig.SnapViewToRig`). Pressing Play
+  while already in Game mode does NOT re-snapshot — **one snapshot per Game-mode session**.
+- **Toggling into Game mode AUTO-PLAYS (UX3-A ask 2).** The `ModeGame` toggle segment / `mode:game` op
+  dispatch `EditorTransport.Play` (not a bare `EnterGameMode`), so "switch to Game mode" both enters the
+  sandbox and starts the game in ONE action — reusing the **exact** Play-in-Scene-mode composition, so the
+  snapshot-before-flip guarantee holds on this path too. Play/Pause inside Game mode is unchanged; exiting
+  to Scene mode still lands Paused; Restart semantics are unchanged.
 - **In Game mode**: Play/Pause/Restart and the editing tools work exactly as in Scene mode (no new
   gating). **Save is blocked** — a third `SaveBlockReason.GameMode` (checked after `Playing`, before
   `NoProjectRoot`) that the toolbar Save button dims on and that the dialog actions, the `dialog:*`
@@ -1508,17 +1526,24 @@ exit. The mechanism:
   #2: the reader is the ONLY restore implementation; a forked restore reintroduces the blank-screen /
   empty-save class of bug) — then `EditorHistory.Clear()` (undo after exit is a no-op — pre-mortem #3)
   + `MarkDirty()` restoring the captured dirty state, then restore the captured Scene VIEW (overriding
-  the reader's auto-frame). Sandbox edits vanish: **Scene mode always shows exactly what Save would
-  write.**
+  the reader's auto-frame) — **but only if that captured view is VALID** (`CameraViewSnapshot.IsValid`,
+  i.e. a positive zoom; UX3-A pre-mortem #2). A zeroed/unwired `CaptureView` yields
+  `default(CameraViewSnapshot)` (Zoom `== 0`); applying it would let `Camera.Zoom` clamp the 0 to `0.1f`
+  and silently blank the view at the origin, so an invalid snapshot is NOT applied — the reader's
+  post-restore auto-frame (already on the content) is kept instead. Sandbox edits vanish: **Scene mode
+  always shows exactly what Save would write.** (The overlay wires `CaptureView`/`RestoreView`
+  unconditionally in its ctor, so the wiring is centralized and no screen can miss it; the validity guard
+  is defense-in-depth against a zeroed capture regardless.)
 - **Restart in Game mode**: unchanged core semantics (disk reload, lands Paused) and additionally
   lands **Scene mode** with the snapshot dropped (see "The transport's Restart …"). The mode also
   resets to Scene on scene switch (a Scenes-panel switch while in Game mode `ExitToSceneMode` FIRST,
   then runs the normal dirty gate on the RESTORED state — one gate flavor, no bypass) and on screen
   switch / fresh overlay (a new overlay constructs in Scene mode).
-- **The `[Scene | Game]` toggle** is two tab-style segments at the START of the Scene panel header
-  (ops `mode:scene` / `mode:game`, actions `EditorToolbarAction.ModeScene`/`ModeGame`), dispatched by
-  the ONE `ToolbarSystem` and live in BOTH transport states (exiting the sandbox must work while
-  Playing) — see the toolbar premise.
+- **The `[Scene mode | Game mode]` toggle** is two tab-style segments at the START of the Scene panel
+  header, reading the explicit labels **"Scene mode"** / **"Game mode"** (UX3-A ask 2 — the segment
+  width `EditorChromeLayout.ModeSegmentWidth` is recomputed to fit them; ops `mode:scene` / `mode:game`,
+  actions `EditorToolbarAction.ModeScene`/`ModeGame`), dispatched by the ONE `ToolbarSystem` and live in
+  BOTH transport states (exiting the sandbox must work while Playing) — see the toolbar premise.
 
 **Why:** user-confirmed Unity model — a designer wants to poke the running scene "just to test"
 without those pokes ever leaking into the saved level. Reusing the reader for the restore keeps
@@ -1526,10 +1551,11 @@ without those pokes ever leaking into the saved level. Reusing the reader for th
 keeps the restore point uncorrupted.
 **Breaks:** a snapshot taken after `RunMode = Play` bakes a simulated frame into the restore point
 (pre-mortem #7); a forked restore path forgets re-tag / rehydration / `DrawComponent` and reloads
-blank or saves empty (pre-mortem #2); not clearing history dangles undo against restored entities
-(pre-mortem #3); a saveable sandbox writes throwaway pokes into the versioned level; a switch that
-gates on sandbox churn (not the restored state) mis-prompts; reflecting sandbox dirtiness on the
-Scenes panel lies about unsaved work.
+blank or saves empty (pre-mortem #2); applying a zeroed/`default` view snapshot on exit clamps
+`Camera.Zoom` to `0.1f` and silently blanks the view at the origin (pre-mortem #2 — the validity guard);
+not clearing history dangles undo against restored entities (pre-mortem #3); a saveable sandbox writes
+throwaway pokes into the versioned level; a switch that gates on sandbox churn (not the restored state)
+mis-prompts; reflecting sandbox dirtiness on the Scenes panel lies about unsaved work.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs`
 (`EnterGameMove_Exit_RestoresPositionExactly_UndoNoOp_DirtyAndViewRestored`;
 `Exit_RestoresTheCapturedDirtyState_NotSandboxChurn`;
@@ -1541,8 +1567,18 @@ Scenes panel lies about unsaved work.
 `Camera_Enter_AdoptsRig_Exit_RestoresSceneView_RigUntouched`;
 `GameModeRoundTrip_SharesTheReader_FileKeySpriteKeepsTextureRehydrationAndDrawComponent`;
 `ModeToggleSegments_AreInTheSceneHeader_HitTestAndDispatch_DprScaled` +
-`ModeToggleSegment_RendersTabStyle_ActiveSegmentUnderlined`);
-`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs::Transport_OwnsViewMode_DefaultScene_ToggleEntersAndExits_ExitLandsPaused`.
+`ModeToggleSegment_RendersTabStyle_ActiveSegmentUnderlined`;
+UX3-A: `ModeToggleSegments_ReadExplicitModeLabels` (the "Scene mode"/"Game mode" labels + fit);
+`GameModeToggleClick_EntersGameAndAutoPlays_SnapshotBeforeTheFlip` (the toggle auto-plays, snapshot before
+the flip) + `GameModeEntry_LandsPlaying_ExitLandsPaused`;
+`Exit_WithZeroedOrUnwiredCaptureView_KeepsTheAutoFramedView_NeverBlanks` +
+`CameraViewSnapshot_Default_IsInvalid_RealCapture_IsValid` (the view-snapshot validity guard));
+`MonoDreams.Tests/LevelEditor/EditorTransportTests.cs::Transport_OwnsViewMode_DefaultScene_ToggleEntersAndExits_ExitLandsPaused`;
+`MonoDreams.Tests/LevelEditor/GameModeBlankSceneReproTests.cs`
+(`FreshBoot_NullCamera_EnterGameMode_ContentStaysVisible` +
+`FreshBoot_NullCamera_EnterExitReEnter_WorldIntact_AndGameModeStaysVisible` — the UX3-A integration repro:
+a fresh boot of a `camera: null` off-origin scene stays visible entering Game mode AND across a round-trip,
+proven through the REAL `CullingSystem`).
 **Depends on:** this file — "The transport's Restart rebuilds the scene …" (the sweep reused + the
 Scene-mode reset), "Scene round-trip reconstructs from registered components …" (the reader restore
 the in-memory overload shares), "A loaded sprite entity carries a `DrawComponent` …" (the
