@@ -494,7 +494,7 @@ while Playing, transport always live; `EntityMenu` is an editing action). How th
 procedural icon meshes + the hover tooltip — is its own premise ("Toolbar icon buttons are procedural
 meshes tinted by state; a pooled tooltip names them on hover").
 **UX2-E: the Scene header gained a right-corner "Camera view" nav button** (`EditorToolbarAction.CameraView`,
-the Camera frustum icon) — right-anchored via `EditorChromeLayout.SceneHeaderNavButton` (opposite the
+the video-camera icon) — right-anchored via `EditorChromeLayout.SceneHeaderNavButton` (opposite the
 left-anchored transport/tool row, the Blender nav-corner affordance), a fixed header affordance separate
 from `HeaderButtons`. It is an ordinary `ToolbarButtonComponent`, so the ONE `ToolbarSystem` hit-tests +
 dispatches it and bakes its glyph; an editing action (Paused-only), it snaps the editor VIEW onto the
@@ -549,13 +549,14 @@ round-trip reconstructs from registered components, not factories".
 ## Toolbar icon buttons are procedural meshes tinted by state; a pooled tooltip names them on hover
 
 The editor toolbar's transport (Play/Pause, Restart), transform tools (Move/Rotate/Scale/Boundary/Snap),
-window-bar Save/Undo/Redo/Refresh and the UX2-E Scene-header **Camera view** (a frustum trapezoid glyph)
+window-bar Save/Undo/Redo/Refresh and the UX2-E Scene-header **Camera view** (a video-camera glyph)
 buttons render a procedural ICON mesh instead of a text label (UX2-C).
 `EditorIcons` is a **pure geometry library**: each glyph is a line/triangle primitive list
 authored in a unit box and instantiated into a pixel rect — the `SystemsPanelLayout.ArrowTriangle`
 disclosure-caret pattern generalized to a whole set. **Lucide is the visual REFERENCE only; nothing is
 imported** (no content-pipeline step — the source-distributed module ships no binary atlas, and
-`Content.mgcb` is a guarded file), and every shape stays ≤3 visual strokes so it reads at ~16pt logical.
+`Content.mgcb` is a guarded file), and every shape stays to a few visual strokes — a recognisable outline
+plus its interior marks — so it reads at ~16pt logical.
 `ToolbarSystem` bakes each icon button's glyph EVERY frame into a screen-baked `DrawComponent` (identity
 `WorldMatrix`, native `Editor` target, `EditorInfrastructureComponent`, **no `VisibleComponent`, no
 `SimpleButtonComponent`**) — the same mesh-chrome rules the disclosure arrows and gizmo overlays obey —
@@ -568,6 +569,17 @@ selection-context actions this wave) stays a TEXT button with its label rendered
 is content** (tabs, rows, menus, dialog actions). DPR scaling is **pure rect scaling** (every vertex is
 `rect.TopLeft + unit·rect.Size`, thickness/arrowheads are rect fractions), and Undo/Redo + Restart/Refresh
 are exact horizontal **mirrors** (the same shape drawn with `u → 1-u`).
+
+**UX3-C shape refinements (hands-on legibility feedback).** Load-bearing glyph shapes, each protected by a
+pure geometry test: every filled **arrowhead** (move — all 4 heads / rotate / scale — both heads / undo /
+redo / restart / refresh) is sized from the shared `ArrowSize` so its extent is **≥22% of the icon box**
+(the old ~0.13 heads were "hard to even see"); **Snap** is a **closed square border + an inner 3×3 grid**
+(2 vertical + 2 horizontal division lines at the thirds — not the open `#` hash it read as); **Camera** is
+the classic **video-camera** (a body rectangle in the left ~56% + a small top tab + a filled triangle whose
+apex touches the body's right edge, base on the far right — not the old frustum trapezoid); **Save** is the
+classic **floppy** (outer outline with a **beveled top-right corner**, the shutter plate displaced slightly
+**left** of centre, the label plate **centred**). Scale is now a double-headed diagonal arrow, so "both
+heads" is literal.
 
 Hovering any icon button ~0.45s (`EditorTooltip.HoverDelaySeconds`) shows **ONE pooled tooltip** — a
 `Bg2` box + `Border` outline mesh + a `Text0` label on the `Editor` target — near the cursor, offset a
@@ -592,7 +604,10 @@ press leaves a stale tooltip over a drag; a tooltip below the dialog band is occ
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorIconsTests.cs` (every glyph's geometry stays inside its
 rect + bakes the given colour; Undo/Redo + Restart/Refresh are exact horizontal mirrors; DPR scaling is
 pure rect scaling; `CenteredIconRect` centers + doubles; `ForAction`/`HasIcon`/`Resolve` mapping;
-`IsActiveIn` radio + snap); `MonoDreams.Tests/LevelEditor/EditorTooltipTests.cs` (the delay gate, the
+`IsActiveIn` radio + snap; plus the UX3-C shapes — `Arrowheads_AreProminent_AtLeast22PercentOfTheBox`,
+`Snap_IsAClosedSquareBorder_WithAnInner3x3Grid`, `Camera_IsAVideoCamera_BodyRectPlusTopTabPlusTriangleApexOnTheBodyEdge`,
+`Save_IsAFloppy_BeveledTopRight_ShutterLeftOfCentre_LabelCentred`);
+`MonoDreams.Tests/LevelEditor/EditorTooltipTests.cs` (the delay gate, the
 offset + window clamp incl. box-wider-than-window, symmetric padding, DPR-2 doubling);
 `MonoDreams.Tests/LevelEditor/ToolbarTests.cs` (`IconButtons_BakeGlyphMeshes_TintedByState` — icon
 buttons bake a glyph mesh + carry no label and tint Accent/Success/TextDisabled by state, text buttons

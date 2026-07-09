@@ -16,8 +16,9 @@ namespace MonoDreams.LevelEditor.UI;
 /// The shapes reference Lucide for their VISUAL language (move = cross-arrows, rotate = circular
 /// arrow, save = floppy, …) but import nothing — they are procedural meshes so the editor stays
 /// font-independent, DPR-crisp and theme-colored (the same font-free draw path the gizmo overlays and
-/// disclosure arrows already use; pre-mortem #8 keeps every shape to ≤3 visual strokes so it reads at
-/// ~16pt logical). Colours are NEVER named here (the palette lint): the caller passes an
+/// disclosure arrows already use; pre-mortem #8 keeps every shape to a few visual strokes — a
+/// recognisable outline plus its interior marks — so it reads at ~16pt logical). Colours are NEVER named
+/// here (the palette lint): the caller passes an
 /// <c>EditorTheme</c> role and the geometry bakes it into every vertex.
 ///
 /// <para><b>Purity + DPR.</b> <see cref="Build"/> is a pure function of (icon, rect, color): every
@@ -29,7 +30,7 @@ namespace MonoDreams.LevelEditor.UI;
 ///
 /// <para><b>Adding an icon</b> is one <see cref="EditorIcon"/> value + one <c>case</c> in
 /// <see cref="Build"/> (+ its pure test) — deliberately cheap so UX2-D/E/F (context-menu dots, the
-/// camera frustum, the Scene|Game glyphs) drop in without touching this file's structure.</para>
+/// video-camera, the Scene|Game glyphs) drop in without touching this file's structure.</para>
 /// </summary>
 public static class EditorIcons
 {
@@ -51,6 +52,13 @@ public static class EditorIcons
     /// <summary>Stroke thickness as a fraction of the glyph square's side (so it scales with the rect —
     /// pure DPR scaling). Tuned to read as a firm line at ~16pt without clogging the shape.</summary>
     private const float StrokeFraction = 0.085f;
+
+    /// <summary>Filled-arrowhead size (the head's shaft length) as a fraction of the glyph square's side;
+    /// its base — the widest span, and the head's <i>extent</i> — is <c>1.2×</c> this. Tuned (UX3-C) so
+    /// the base is comfortably ≥22% of the box: the old ~0.13 heads were "hard to even see", so every
+    /// filled arrowhead (move / rotate / scale / undo / redo / restart / refresh) now reads as a
+    /// prominent triangle at ~16pt logical.</summary>
+    private const float ArrowSize = 0.24f;
 
     /// <summary>
     /// The static icon for a toolbar action, or <c>null</c> when the action has <b>no icon this wave</b>
@@ -127,7 +135,8 @@ public static class EditorIcons
 
     // ── The glyphs (unit-box authored; Pen maps to pixels + applies the mirror + bakes the color) ─────
 
-    /// <summary>Four-way move arrows: a plus with an arrowhead on each arm (Lucide "move").</summary>
+    /// <summary>Four-way move arrows: a plus with a prominent arrowhead on each of the four arms
+    /// (Lucide "move"). All four heads use the shared <see cref="ArrowSize"/> so they read at ~16pt.</summary>
     private static void Move(Pen p)
     {
         p.Line(0.5f, 0.18f, 0.5f, 0.82f);   // vertical arm
@@ -143,20 +152,16 @@ public static class EditorIcons
     {
         p.Arc(0.5f, 0.5f, 0.30f, 120f, 120f + 290f, 16);
         // Tangent at the end (increasing angle sweeps clockwise in v-down space): point the head along it.
-        p.ArrowAtAngle(0.5f, 0.5f, 0.30f, 120f + 290f, forward: true, 0.13f);
+        p.ArrowAtAngle(0.5f, 0.5f, 0.30f, 120f + 290f, forward: true, ArrowSize);
     }
 
-    /// <summary>Scale: a small square with a diagonal resize arrow pushing out of its far corner.</summary>
+    /// <summary>Scale: a double-headed diagonal resize arrow (↙↗) — the universal "resize" glyph, with a
+    /// prominent filled arrowhead at BOTH ends of one diagonal shaft (UX3-C: two heads, each ≥22%).</summary>
     private static void Scale(Pen p)
     {
-        // Square outline, lower-left.
-        p.Line(0.16f, 0.5f, 0.5f, 0.5f);
-        p.Line(0.5f, 0.5f, 0.5f, 0.84f);
-        p.Line(0.5f, 0.84f, 0.16f, 0.84f);
-        p.Line(0.16f, 0.84f, 0.16f, 0.5f);
-        // Diagonal arrow toward the top-right corner.
-        p.Line(0.5f, 0.5f, 0.82f, 0.18f);
-        p.Arrow(0.88f, 0.12f, 0.7071f, -0.7071f);
+        p.Line(0.26f, 0.74f, 0.74f, 0.26f);          // diagonal shaft, bottom-left → top-right
+        p.Arrow(0.76f, 0.24f, 0.7071f, -0.7071f);    // top-right head (points ↗)
+        p.Arrow(0.24f, 0.76f, -0.7071f, 0.7071f);    // bottom-left head (points ↙)
     }
 
     /// <summary>Boundary: a closed pentagon outline (the freeform region tool).</summary>
@@ -167,40 +172,62 @@ public static class EditorIcons
             p.Line(pts[i].u, pts[i].v, pts[(i + 1) % pts.Length].u, pts[(i + 1) % pts.Length].v);
     }
 
-    /// <summary>Snap-to-grid: a 2×2 grid (a tic-tac-toe hash), the "grid" affordance.</summary>
+    /// <summary>Snap-to-grid: a CLOSED square border with an inner 3×3 grid — two vertical + two
+    /// horizontal division lines at the thirds. UX3-C: the old open lines read as a "#" hashtag; the
+    /// closed border makes it unambiguously a grid.</summary>
     private static void Snap(Pen p)
     {
-        p.Line(0.38f, 0.16f, 0.38f, 0.84f); // verticals
-        p.Line(0.62f, 0.16f, 0.62f, 0.84f);
-        p.Line(0.16f, 0.38f, 0.84f, 0.38f); // horizontals
-        p.Line(0.16f, 0.62f, 0.84f, 0.62f);
+        const float lo = 0.16f, hi = 0.84f;
+        const float t1 = lo + (hi - lo) / 3f;         // ≈0.387 — first third
+        const float t2 = lo + 2f * (hi - lo) / 3f;    // ≈0.613 — second third
+        // Closed square border (TL→TR→BR→BL).
+        p.Line(lo, lo, hi, lo);   // top
+        p.Line(hi, lo, hi, hi);   // right
+        p.Line(hi, hi, lo, hi);   // bottom
+        p.Line(lo, hi, lo, lo);   // left
+        // Inner 3×3 division lines, spanning border-to-border at the thirds.
+        p.Line(t1, lo, t1, hi);   // inner vertical 1
+        p.Line(t2, lo, t2, hi);   // inner vertical 2
+        p.Line(lo, t1, hi, t1);   // inner horizontal 1
+        p.Line(lo, t2, hi, t2);   // inner horizontal 2
     }
 
-    /// <summary>Save — a floppy disk: a body outline, the top shutter, and the label plate (Lucide
-    /// "save"). Recognisably "save" without importing the asset.</summary>
+    /// <summary>Save — a floppy disk (Lucide "save"): the outer square outline with a BEVELED top-right
+    /// corner (the diagonal cut of a real diskette), the metal shutter rectangle displaced slightly LEFT
+    /// of centre so it clears the bevel, and the label plate centred below (UX3-C).</summary>
     private static void Save(Pen p)
     {
-        // Body outline (square).
-        p.Line(0.18f, 0.18f, 0.82f, 0.18f);
-        p.Line(0.82f, 0.18f, 0.82f, 0.82f);
-        p.Line(0.82f, 0.82f, 0.18f, 0.82f);
-        p.Line(0.18f, 0.82f, 0.18f, 0.18f);
-        // The metal shutter (top).
-        p.FillQuad(0.36f, 0.18f, 0.64f, 0.38f);
-        // The label plate (bottom).
+        // Outer outline, walking the perimeter with the top-right corner cut diagonally.
+        p.Line(0.18f, 0.18f, 0.62f, 0.18f);   // top (stops short of the right)
+        p.Line(0.62f, 0.18f, 0.82f, 0.38f);   // bevel — the diagonal corner cut
+        p.Line(0.82f, 0.38f, 0.82f, 0.82f);   // right
+        p.Line(0.82f, 0.82f, 0.18f, 0.82f);   // bottom
+        p.Line(0.18f, 0.82f, 0.18f, 0.18f);   // left
+        // The metal shutter (top), displaced slightly LEFT of centre.
+        p.FillQuad(0.28f, 0.18f, 0.54f, 0.40f);
+        // The label plate (bottom), centred.
         p.FillQuad(0.34f, 0.54f, 0.66f, 0.78f);
     }
 
-    /// <summary>Camera view — a view FRUSTUM: a closed trapezoid narrow at the left (the camera eye)
-    /// widening to the right (the far plane), the "back to camera view" nav-corner glyph (UX2-E). One
-    /// closed shape (like <see cref="Boundary"/>'s pentagon) — reads as a frustum at ~16pt.</summary>
+    /// <summary>Camera view — a classic VIDEO-CAMERA (UX3-C, replacing the old frustum trapezoid the user
+    /// found unreadable, à la Lucide "video"): a body rectangle occupying the left ~56% of the box with a
+    /// small tab/handle on top, and a filled triangle (the lens/tape cone) on the right whose apex touches
+    /// the body's right edge, base on the far right.</summary>
     private static void Camera(Pen p)
     {
-        // Narrow left edge (eye), wide right edge (far plane), two slanted sides — TL→TR→BR→BL closed.
-        p.Line(0.20f, 0.40f, 0.85f, 0.18f); // top side
-        p.Line(0.85f, 0.18f, 0.85f, 0.82f); // far plane (right)
-        p.Line(0.85f, 0.82f, 0.20f, 0.60f); // bottom side
-        p.Line(0.20f, 0.60f, 0.20f, 0.40f); // eye edge (left)
+        const float bl = 0.10f, br = 0.66f, bt = 0.36f, bb = 0.72f; // body rect (left ~56% of the box)
+        const float bodyMidV = (bt + bb) / 2f;                      // 0.54 — the body's vertical centre
+        // Body rectangle (outline), TL→TR→BR→BL.
+        p.Line(bl, bt, br, bt);   // top
+        p.Line(br, bt, br, bb);   // right (the edge the lens apex touches)
+        p.Line(br, bb, bl, bb);   // bottom
+        p.Line(bl, bb, bl, bt);   // left
+        // Small tab/handle on top of the body (open at the body's top edge).
+        p.Line(0.24f, bt, 0.24f, 0.26f);
+        p.Line(0.24f, 0.26f, 0.42f, 0.26f);
+        p.Line(0.42f, 0.26f, 0.42f, bt);
+        // Lens / tape cone: apex on the body's right edge (vertical centre), base on the far right.
+        p.Tri(br, bodyMidV, 0.88f, 0.42f, 0.88f, 0.66f);
     }
 
     /// <summary>Play ▶ — a filled right-pointing triangle.</summary>
@@ -219,7 +246,7 @@ public static class EditorIcons
     private static void CircularArrow(Pen p)
     {
         p.Arc(0.5f, 0.5f, 0.29f, -55f, -55f + 260f, 15);
-        p.ArrowAtAngle(0.5f, 0.5f, 0.29f, -55f, forward: false, 0.13f);
+        p.ArrowAtAngle(0.5f, 0.5f, 0.29f, -55f, forward: false, ArrowSize);
     }
 
     /// <summary>Undo ↶ / Redo ↷ (the mirror): an angular arrow — a short shaft that hooks down-left with
@@ -229,7 +256,7 @@ public static class EditorIcons
         // A shallow ~150° arc curving from the right down to the left, arrowhead on the LEFT (mirrored
         // for Redo → arrowhead on the right).
         p.Arc(0.5f, 0.42f, 0.30f, 20f, 20f + 150f, 12);
-        p.ArrowAtAngle(0.5f, 0.42f, 0.30f, 20f + 150f, forward: true, 0.13f);
+        p.ArrowAtAngle(0.5f, 0.42f, 0.30f, 20f + 150f, forward: true, ArrowSize);
     }
 
     // ── Unit-box helpers ──────────────────────────────────────────────────────────────────────────
@@ -309,7 +336,7 @@ public static class EditorIcons
 
         /// <summary>An arrowhead (filled triangle) whose tip is at the unit point, pointing along the
         /// unit direction (<paramref name="dx"/>,<paramref name="dy"/>).</summary>
-        public void Arrow(float tipU, float tipV, float dx, float dy, float size = 0.14f)
+        public void Arrow(float tipU, float tipV, float dx, float dy, float size = ArrowSize)
         {
             var len = MathF.Sqrt(dx * dx + dy * dy);
             if (len < 1e-4f) return;
