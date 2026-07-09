@@ -316,6 +316,90 @@ public class EditorContextMenuTests
         Assert.False(menu.IsOpen);
     }
 
+    // ═══ UX3-D: Overlays dropdown — checkable Toggle items ═══════════════════════════════════════════
+
+    [Fact]
+    public void OverlaysMenu_HasGridToggle_SpacingSubmenu_OutlineToggle_CameraToggle()
+    {
+        var items = EditorContextMenuModel.OverlaysMenu(
+            showGrid: true, gridSpacing: 16f, outlineSelected: false, showCameraGlyph: true);
+
+        Assert.Equal(4, items.Count);
+        Assert.Equal(EditorMenuItemKind.Toggle, items[0].Kind);
+        Assert.Equal(ViewportOverlayOps.GridTogglePath, items[0].Path);
+        Assert.True(items[0].Checked); // grid on → checked
+
+        Assert.Equal(EditorMenuItemKind.Submenu, items[1].Kind);
+        Assert.Equal(4, items[1].Submenu!.Count); // 8 / 16 / 32 / 64
+        Assert.False(items[1].Submenu![0].Checked); // 8
+        Assert.True(items[1].Submenu![1].Checked);  // 16 = the current spacing
+        Assert.False(items[1].Submenu![2].Checked); // 32
+        Assert.Equal(EditorMenuItemKind.Action, items[1].Submenu![1].Kind); // presets are Actions (close on click)
+
+        Assert.Equal(EditorMenuItemKind.Toggle, items[2].Kind);
+        Assert.False(items[2].Checked); // outline off
+        Assert.Equal(EditorMenuItemKind.Toggle, items[3].Kind);
+        Assert.True(items[3].Checked);  // camera on
+    }
+
+    [Fact]
+    public void ToggleItem_Click_DispatchesWithoutClosing_AndRefreshesTheCheckInPlace()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var settings = ViewportOverlaySettingsComponent.Default; // grid off
+        var gizmo = GizmoStateComponent.Default;
+        IReadOnlyList<EditorMenuItem> Build() => EditorContextMenuModel.OverlaysMenu(
+            settings.ShowGrid, gizmo.GridStep, settings.OutlineSelected, settings.ShowCameraGlyph);
+
+        using var menu = new EditorContextMenuSystem(world, Vm(), null,
+            (path, _) => ViewportOverlayOps.TryApplyMenuPath(path, ref settings, ref gizmo),
+            getKeyboardState: () => new KeyboardState());
+
+        var items0 = Build();
+        menu.OpenAt(items0, new Point(100, 100), rebuild: Build);
+        var menuRect = EditorContextMenuLayout.MenuRect(new Point(100, 100), items0, 800, 600, 1f);
+        var gridRow = EditorContextMenuLayout.ItemRect(menuRect, items0, 0, 1f); // the Grid toggle
+        SetCursorScreen(cursor, Center(gridRow), leftReleased: true);
+
+        menu.Update(Edit());
+
+        Assert.True(settings.ShowGrid);      // the click dispatched (flipped the setting)
+        Assert.True(menu.IsOpen);            // a Toggle does NOT close the menu (Blender behavior)
+        Assert.True(menu.Items[0].Checked);  // the check refreshed in place
+    }
+
+    [Fact]
+    public void Pick_SpacingPresetAction_SetsTheSharedStep_AndCloses()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var settings = ViewportOverlaySettingsComponent.Default;
+        var gizmo = GizmoStateComponent.Default; // GridStep 16
+        IReadOnlyList<EditorMenuItem> Build() => EditorContextMenuModel.OverlaysMenu(
+            settings.ShowGrid, gizmo.GridStep, settings.OutlineSelected, settings.ShowCameraGlyph);
+
+        using var menu = new EditorContextMenuSystem(world, Vm(), null,
+            (path, _) => ViewportOverlayOps.TryApplyMenuPath(path, ref settings, ref gizmo));
+
+        menu.OpenAt(Build(), new Point(100, 100), rebuild: Build);
+        menu.Pick(ViewportOverlayOps.SpacingPath(32f), Edit());
+
+        Assert.Equal(32f, gizmo.GridStep); // wrote the ONE shared grid step
+        Assert.False(menu.IsOpen);         // an Action item closes the menu
+    }
+
+    [Fact]
+    public void CheckRect_SitsInTheLeftGutter_BeforeTheLabel()
+    {
+        var row = new Rectangle(10, 20, EditorContextMenuLayout.MenuWidth, EditorContextMenuLayout.ItemHeight);
+        var check = EditorContextMenuLayout.CheckRect(row, 1f);
+        Assert.True(check.Left >= row.Left);
+        // The check stays inside the label's left inset, so labels align across checkable + plain rows.
+        Assert.True(check.Right <= row.Left + EditorContextMenuLayout.TextInsetX);
+        Assert.True(check.Height <= row.Height);
+    }
+
     // ═══ Menu → editor-command wiring (order fires; delete snapshots + undo) ═════════════════════════
 
     private static (EditorCommandSystem commands, EditorHistory history, SceneSerializer serializer) NewCommands(

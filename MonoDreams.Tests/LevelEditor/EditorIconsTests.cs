@@ -133,6 +133,8 @@ public class EditorIconsTests
         Assert.Equal(EditorIcon.Undo, ForAction(EditorToolbarAction.Undo));
         Assert.Equal(EditorIcon.Redo, ForAction(EditorToolbarAction.Redo));
         Assert.Equal(EditorIcon.Refresh, ForAction(EditorToolbarAction.RefreshCatalog));
+        Assert.Equal(EditorIcon.Overlays, ForAction(EditorToolbarAction.Overlays)); // UX3-D
+        Assert.True(HasIcon(EditorToolbarAction.Overlays));
 
         // …the selection-context actions stay text (no icon this wave).
         Assert.Null(ForAction(EditorToolbarAction.OrderForward));
@@ -357,5 +359,25 @@ public class EditorIconsTests
         var verts = prims.SelectMany(p => p.V).ToList();
         Assert.True(verts.Where(v => v.Y < 0.24f).Max(v => v.X) < 0.75f, "top edge reaches the right — not beveled");
         Assert.True(verts.Where(v => v.X > 0.75f).Min(v => v.Y) > 0.24f, "right edge starts at the top — not beveled");
+    }
+
+    // UX3-D: the Overlays glyph is two overlapping circle OUTLINES (a Venn pair), so its geometry spans
+    // both halves of the box horizontally and covers the vertical centre band.
+    [Fact]
+    public void Overlays_IsTwoOverlappingCircles_SpanningTheBox()
+    {
+        const int side = 100;
+        var mesh = Build(EditorIcon.Overlays, new Rectangle(0, 0, side, side), Ink);
+        Assert.True(mesh.Vertices.Length > 0);
+
+        float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+        foreach (var v in mesh.Vertices)
+        {
+            minX = MathF.Min(minX, v.Position.X); maxX = MathF.Max(maxX, v.Position.X);
+            minY = MathF.Min(minY, v.Position.Y); maxY = MathF.Max(maxY, v.Position.Y);
+        }
+        Assert.True(minX < side * 0.25f, "does not reach into the left half");
+        Assert.True(maxX > side * 0.75f, "does not reach into the right half");
+        Assert.True(minY < side * 0.35f && maxY > side * 0.65f, "does not cover the vertical centre band");
     }
 }
