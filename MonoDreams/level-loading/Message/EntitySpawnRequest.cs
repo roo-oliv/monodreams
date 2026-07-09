@@ -62,4 +62,22 @@ public readonly struct EntitySpawnRequest
         Layer = layer;
         CustomFields = customFields ?? new Dictionary<string, object>();
     }
+
+    /// <summary>
+    /// A lightweight spawn request — just an <paramref name="identifier"/> and a world
+    /// <paramref name="position"/> — for code-driven spawns that carry no LDtk layer/tileset context
+    /// (e.g. the <c>"prefab:&lt;id&gt;"</c> channel: <c>new EntitySpawnRequest("prefab:npc-boldo", pos)</c>).
+    /// Size / pivot / tileset default to zero, the LDtk layer is null, and custom fields are empty.
+    /// </summary>
+    public EntitySpawnRequest(string identifier, Vector2 position)
+    {
+        Identifier = identifier;
+        InstanceIid = string.Empty;
+        Position = position;
+        Size = Vector2.Zero;
+        Pivot = Vector2.Zero;
+        TilesetPosition = Vector2.Zero;
+        Layer = null;
+        CustomFields = new Dictionary<string, object>();
+    }
 }
