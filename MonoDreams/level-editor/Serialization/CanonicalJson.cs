@@ -71,6 +71,20 @@ public static class CanonicalJson
     /// <summary>Deserializes canonical JSON. Reads through the same options (tolerating the trailing
     /// newline and the sorted-map converter's read path).</summary>
     public static T? Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, Options);
+
+    /// <summary>Re-serializes a <see cref="JsonElement"/> through the canonical policy to a normalized
+    /// string. Two <see cref="JsonElement"/>s produced by the canonical writer (each a component body
+    /// from <see cref="SerializeToElement{T}"/> or parsed from a canonical file) canonicalize to the
+    /// same string iff they carry the same logical value — the reliable equality the diff-based prefab
+    /// override detection needs (pre-mortem #1: nondeterministic bytes would turn an inherited component
+    /// into a phantom override).</summary>
+    public static string Canonicalize(JsonElement element) => JsonSerializer.Serialize(element, Options);
+
+    /// <summary>Whether two component bodies are byte-equal under the canonical policy (see
+    /// <see cref="Canonicalize"/>) — the prefab override test: an instance component whose canonical
+    /// bytes EQUAL the prefab root's same-key bytes is <b>inherited</b> (omitted), byte-different is an
+    /// <b>override</b> (kept).</summary>
+    public static bool CanonicalEquals(JsonElement a, JsonElement b) => Canonicalize(a) == Canonicalize(b);
 }
 
 /// <summary>

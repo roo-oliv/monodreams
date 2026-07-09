@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using DefaultEcs;
 using MonoDreams.Component;
 using MonoDreams.Draw;
@@ -37,11 +38,26 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// <para>It is infrastructure, not a component (ECS purity): it holds the write behaviour and runs
 /// at save time only — never per frame.</para>
 /// </summary>
-public sealed class SceneWriter(SceneSerializer serializer)
+public sealed class SceneWriter
 {
     /// <summary>The native scene file extension. A scene id <c>"island"</c> writes to
     /// <c>&lt;LevelsPath&gt;/island.mdscene</c>.</summary>
     public const string SceneFileExtension = ".mdscene";
+
+    private readonly SceneSerializer serializer;
+    private readonly Func<string, PrefabData?>? _prefabSource;
+
+    /// <param name="serializer">The in-memory component round-trip seam.</param>
+    /// <param name="prefabSource">Optional prefab resolver (<c>id → <see cref="PrefabData"/></c>), needed
+    /// only to <b>compact linked prefab instances</b>: the writer diffs an instance root's live components
+    /// against the prefab root's bytes to emit the compact <c>prefab</c> + Transform + overrides entry. A
+    /// scene with NO prefab instances never touches it, so a null source keeps the existing byte-stable
+    /// behaviour verbatim; a scene WITH an instance but no source fails loud (it cannot compact correctly).</param>
+    public SceneWriter(SceneSerializer serializer, Func<string, PrefabData?>? prefabSource = null)
+    {
+        this.serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        _prefabSource = prefabSource;
+    }
 
     /// <summary>
     /// Builds the <see cref="SceneData"/> for the current contents of <paramref name="world"/>:
@@ -65,6 +81,10 @@ public sealed class SceneWriter(SceneSerializer serializer)
         for (var i = 0; i < members.Count && i < scene.Entities.Count; i++)
             if (scene.Entities[i].Parent == null && members[i].Has<SceneEntityIdComponent>())
                 scene.Entities[i].Id = members[i].Get<SceneEntityIdComponent>().Id;
+
+        // Compact each linked prefab-instance root into its {prefab + core.Transform + overrides} entry.
+        // (Its prefab-owned children were already excluded from the membership closure below.)
+        CompactPrefabInstances(scene, members);
 
         if (camera != null)
             scene.Camera = new SceneCameraData
@@ -251,8 +271,52 @@ public sealed class SceneWriter(SceneSerializer serializer)
         if (!seen.Add(entity)) return; // already included (e.g. a child that is also tagged)
         result.Add(entity);
 
+        // A linked prefab instance's children are PREFAB-OWNED — they come from the .mdprefab on every
+        // expansion, never from the scene (pre-mortem #3: serializing them = silent bloat + double
+        // expansion on load). Add the instance ROOT (it IS a scene member) but STOP the descent here, so
+        // no instance-child ever enters the membership closure. (The root itself is compacted to
+        // {prefab + Transform + overrides} in BuildScene; a designer-added child to an instance is v1
+        // terrain — Unpack first.)
+        if (entity.Has<PrefabInstanceComponent>()) return;
+
         if (!childrenByParent.TryGetValue(entity, out var children)) return;
         foreach (var child in children)
             AddWithDescendants(child, childrenByParent, result, seen);
+    }
+
+    /// <summary>
+    /// Rewrites every linked prefab-instance root's entry (a member carrying
+    /// <see cref="PrefabInstanceComponent"/>) into the <b>compact</b> form: its <see cref="SceneEntityData.Prefab"/>
+    /// id, plus a <c>components{}</c> holding ONLY <c>core.Transform</c> (always instance-owned) and the
+    /// <b>overrides</b> — components whose canonical bytes differ from, or that are absent in, the prefab
+    /// root's (diff-based, via <see cref="PrefabDiff.ComputeOverrides"/>; the full component set the
+    /// serializer already produced is the input). The prefab root's bytes come from the injected prefab
+    /// source, cached per build. A scene with instances but no source, or a referenced prefab that cannot
+    /// be resolved, <b>fails loud</b> — compacting against a phantom prefab would corrupt the diff.
+    /// </summary>
+    private void CompactPrefabInstances(SceneData scene, List<Entity> members)
+    {
+        PrefabCache? cache = null;
+        for (var i = 0; i < members.Count && i < scene.Entities.Count; i++)
+        {
+            if (!members[i].Has<PrefabInstanceComponent>()) continue;
+            var prefabId = members[i].Get<PrefabInstanceComponent>().PrefabId;
+
+            if (_prefabSource == null)
+                throw new InvalidOperationException(
+                    $"[level-editor] Cannot serialize the prefab instance of '{prefabId}': the scene writer has " +
+                    "no prefab source to diff overrides against. Construct SceneWriter with a prefab source.");
+
+            cache ??= new PrefabCache(_prefabSource);
+            var prefab = cache.Resolve(prefabId)
+                ?? throw new InvalidOperationException(
+                    $"[level-editor] Cannot serialize the prefab instance of '{prefabId}': no .mdprefab resolved " +
+                    "for that id (the prefab was deleted or moved). Aborting the save rather than writing a corrupt " +
+                    "instance entry.");
+
+            var entry = scene.Entities[i];
+            entry.Prefab = prefabId;
+            entry.Components = PrefabDiff.ComputeOverrides(entry.Components, prefab.Root.Components);
+        }
     }
 }

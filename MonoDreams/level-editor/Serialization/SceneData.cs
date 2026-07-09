@@ -96,6 +96,20 @@ public class SceneEntityData
     public int? Id { get; set; }
 
     /// <summary>
+    /// The <b>prefab id</b> of a <b>linked prefab instance</b> (see <c>PrefabInstanceComponent</c>): the
+    /// entry is an instance of <c>Content/Prefabs/&lt;prefab&gt;.mdprefab</c>. <b>Additive + optional</b>:
+    /// <c>null</c> (omitted from the file by <see cref="Serialization.CanonicalJson"/>'s null-omission) =
+    /// an ORDINARY entity — every pre-prefab scene is byte-identical. When set, this entry is COMPACT:
+    /// <see cref="Components"/> holds ONLY <c>core.Transform</c> (always instance-owned) plus the
+    /// <b>overridden</b> components (whole-component replacements whose canonical bytes differ from the
+    /// prefab root's), and the instance's children are NOT serialized (they come from the prefab — the
+    /// writer excludes them from the membership closure). Like <see cref="Id"/>, this is structural
+    /// metadata, not a component body.
+    /// </summary>
+    [JsonPropertyName("prefab")]
+    public string? Prefab { get; set; }
+
+    /// <summary>
     /// componentTypeKey → serialized fields (a JSON object per component). The key is the stable
     /// string the registry assigns a component <c>Type</c>; the value is whatever
     /// that type's writer produced. Only registered components appear here — unregistered

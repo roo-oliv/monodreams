@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using MonoDreams.Component;
@@ -56,14 +57,38 @@ public sealed class SceneSerializer(ComponentSerializerRegistry registry)
     /// and returns them in the same order/index as <see cref="SceneData.Entities"/>. Two passes:
     /// create + deserialize each entity's components, then wire the parent graph from the recorded
     /// indices (so <c>SetParent</c> can sync <c>TransformComponent.Parent</c> with both transforms present).
+    ///
+    /// <para><b>Prefab-instance entries (<see cref="SceneEntityData.Prefab"/> set).</b> A compact instance
+    /// entry is NOT created as a plain entity — it is expanded into a full linked-instance subtree by
+    /// <paramref name="expandPrefab"/> (the ONE expansion implementation, injected by the reader / factory /
+    /// propagation), whose returned ROOT stands in for the entry at its index (so the index-based parent
+    /// wiring and re-tag still hold; the subtree's prefab-owned children are extra and not indexed). When
+    /// an entry carries a <c>prefab</c> id but NO expander is composed, the load <b>fails loud</b> — a
+    /// prefab instance the runtime cannot expand is the missing-entity class of bug (the unknown-component
+    /// stance's sibling), never a silently half-created entity.</para>
     /// </summary>
-    public List<Entity> Deserialize(World world, SceneData scene)
+    /// <param name="expandPrefab">Optional prefab expander: <c>(world, instanceEntry) → instance root</c>.
+    /// Invoked for each entry whose <see cref="SceneEntityData.Prefab"/> is set. Null on the pure
+    /// round-trip path (no prefab entries) and on a legacy reader with no prefab support.</param>
+    public List<Entity> Deserialize(World world, SceneData scene, Func<World, SceneEntityData, Entity>? expandPrefab = null)
     {
         var created = new List<Entity>(scene.Entities.Count);
 
-        // First pass: create every entity and set its components.
+        // First pass: create every entity and set its components (a prefab-instance entry is expanded
+        // into a full subtree instead, its root standing in at this index).
         foreach (var entityData in scene.Entities)
         {
+            if (entityData.Prefab is { } prefabId)
+            {
+                if (expandPrefab == null)
+                    throw new InvalidOperationException(
+                        $"Scene entry references prefab '{prefabId}' but no prefab expander is composed. " +
+                        "Compose a PrefabExpander (a prefab source + registry) before loading a scene with " +
+                        "prefab instances (the missing-prefab fail-loud stance).");
+                created.Add(expandPrefab(world, entityData));
+                continue;
+            }
+
             var entity = world.CreateEntity();
             registry.DeserializeEntity(entity, entityData);
             created.Add(entity);
@@ -79,4 +104,9 @@ public sealed class SceneSerializer(ComponentSerializerRegistry registry)
 
         return created;
     }
+
+    /// <summary>The component-serializer registry this serializer reads/writes through — exposed so the
+    /// prefab expander can apply whole-component overrides (<c>registry.GetByKey(key).Read</c>) onto an
+    /// instance root and so callers share the ONE registry instance.</summary>
+    public ComponentSerializerRegistry Registry => registry;
 }

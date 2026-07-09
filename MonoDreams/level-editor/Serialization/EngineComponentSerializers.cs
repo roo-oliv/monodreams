@@ -84,6 +84,12 @@ public static class EngineComponentSerializers
         // structural field, like the parent link), never a component body — mark it so a stamped root
         // is silently skipped by the component discoverer rather than tripping the warning.
         registry.MarkStructurallyCaptured<LevelEditor.Component.SceneEntityIdComponent>();
+
+        // The linked-instance marker is captured as SceneEntityData.Prefab (the compact entry's `prefab`
+        // field), never a component body — mark it structurally-captured so a stamped instance root is
+        // silently skipped by the component discoverer (no unregistered warning) and hidden by the
+        // editable Inspector (never an addable/removable row).
+        registry.MarkStructurallyCaptured<LevelEditor.Component.PrefabInstanceComponent>();
     }
 
     // ---- TransformComponent (source spatial state; world matrix is derived) ----

@@ -68,6 +68,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     private readonly Func<string, Texture2D?>? _fileTextureLoader;
     private readonly Camera? _camera;
     private readonly Action<SceneCameraData?>? _applyCameraToRig;
+    private readonly PrefabExpander? _prefabExpander;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -102,7 +103,8 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         Func<string, Texture2D>? loadTexture = null,
         Func<string, Texture2D?>? fileTextureLoader = null,
         Camera? camera = null,
-        Action<SceneCameraData?>? applyCameraToRig = null)
+        Action<SceneCameraData?>? applyCameraToRig = null,
+        PrefabExpander? prefabExpander = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -111,6 +113,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         _fileTextureLoader = fileTextureLoader;
         _camera = camera;
         _applyCameraToRig = applyCameraToRig;
+        _prefabExpander = prefabExpander;
         _world.Subscribe<LoadSceneRequest>(On);
     }
 
@@ -167,8 +170,14 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         try
         {
             // Two-pass create + deserialize + wire-parents (reconstructs from components, not factories).
-            // Throws loud on an unregistered component key — do not swallow that here; let it surface.
-            var created = _serializer.Deserialize(_world, scene);
+            // When a prefab expander is composed, each compact `prefab` entry is expanded into a full
+            // linked-instance subtree (the ONE expansion implementation, shared with the factory +
+            // propagation); its prefab-owned children are finished inside the expander (rehydrate +
+            // DrawComponent), since the top-level loop here never sees them. Throws loud on an unregistered
+            // component key OR a prefab entry with no expander — do not swallow that here; let it surface.
+            var created = _prefabExpander != null
+                ? _prefabExpander.ExpandScene(_world, scene)
+                : _serializer.Deserialize(_world, scene);
 
             RetagSceneRoots(scene, created);
 
@@ -249,67 +258,22 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
     /// <summary>
     /// Rehydrates the live <c>Texture2D</c> for every loaded entity whose <c>SpriteInfo.AssetKey</c>
-    /// is set: <c>file:</c> keys go through the file-asset loader (which shows a magenta
-    /// placeholder for a missing file — fail loud, never invisible), everything else through the
-    /// content loader. A sprite with a null asset key keeps a null <c>SpriteSheet</c> (it had no
-    /// re-loadable texture).
+    /// is set — delegated to <see cref="SceneRehydration.RehydrateTextures"/>, the ONE implementation
+    /// shared with the prefab expander (so a reloaded scene and an expanded prefab instance rehydrate
+    /// identically): <c>file:</c> keys through the file-asset loader (magenta placeholder for a missing
+    /// file — fail loud, never invisible), everything else through the content loader.
     /// </summary>
-    private void RehydrateTextures(List<Entity> entities)
-    {
-        foreach (var entity in entities)
-        {
-            if (!entity.Has<SpriteInfoComponent>()) continue;
-            ref var sprite = ref entity.Get<SpriteInfoComponent>();
-            if (string.IsNullOrEmpty(sprite.AssetKey)) continue;
-
-            if (Assets.FileAssetKey.IsFileKey(sprite.AssetKey))
-            {
-                if (_fileTextureLoader != null)
-                    sprite.SpriteSheet = _fileTextureLoader(sprite.AssetKey);
-                else
-                    Logger.Warning($"[level-editor] Asset key '{sprite.AssetKey}' is a file: key but " +
-                                   "no file-asset loader is composed — the sprite stays invisible. " +
-                                   "Compose the overlay's FileAssetTextureLoader (or graduate the " +
-                                   "asset to an MGCB content key).");
-                continue;
-            }
-
-            try
-            {
-                sprite.SpriteSheet = _loadTexture(sprite.AssetKey);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[level-editor] Failed to rehydrate texture for asset key '{sprite.AssetKey}': {ex.Message}");
-            }
-        }
-    }
+    private void RehydrateTextures(List<Entity> entities) =>
+        SceneRehydration.RehydrateTextures(entities, _loadTexture, _fileTextureLoader);
 
     /// <summary>
-    /// Restores the transient <see cref="DrawComponent"/> on every reconstructed sprite that lacks
-    /// one — the <c>SpriteInfoComponent ⇒ DrawComponent</c> pairing every renderable sprite needs.
-    /// <see cref="DrawComponent"/> is deliberately NOT serialized (its sprite fields are re-prepped
-    /// each frame from <see cref="SpriteInfoComponent"/> and its <c>LayerDepth</c> is per-frame-derived),
-    /// so the reader reconstructs it here rather than from the file, mirroring
-    /// <see cref="Assets.SpritePropFactory"/> (sprite type, target taken from the sprite's own
-    /// <see cref="SpriteInfoComponent.Target"/>). Without it a reloaded sprite has no
-    /// <see cref="DrawComponent"/>, so <c>SpritePrepSystem</c>'s <c>[With(DrawComponent, …)]</c> query
-    /// skips it and it never draws (the "reloaded scene renders blank" bug). Mesh/text draw data is not
-    /// serializable today, so this handles sprites — the only serialized renderable.
+    /// Restores the transient <see cref="DrawComponent"/> on every reconstructed sprite that lacks one —
+    /// the <c>SpriteInfoComponent ⇒ DrawComponent</c> pairing every renderable sprite needs (the
+    /// "reloaded scene renders blank" bug otherwise). Delegated to
+    /// <see cref="SceneRehydration.RestoreDrawComponents"/>, shared with the prefab expander.
     /// </summary>
-    private static void RestoreDrawComponents(List<Entity> entities)
-    {
-        foreach (var entity in entities)
-        {
-            if (!entity.Has<SpriteInfoComponent>() || entity.Has<DrawComponent>()) continue;
-            var target = entity.Get<SpriteInfoComponent>().Target;
-            entity.Set(new DrawComponent
-            {
-                Type = DrawElementType.Sprite,
-                Target = target,
-            });
-        }
-    }
+    private static void RestoreDrawComponents(List<Entity> entities) =>
+        SceneRehydration.RestoreDrawComponents(entities);
 
     /// <summary>
     /// Routes the loaded <c>scene.camera</c> and positions the camera on load — the view/camera split
