@@ -66,14 +66,20 @@ public class EditorShellTests
         var sceneHeader = EditorChromeLayout.SceneHeader(w, h);
 
         // UX2-B: left activates + the game-viewport top inset is the top bar PLUS the Scene header.
+        // UX3-F: the bottom inset is the assets shelf PLUS the status bar strip.
         Assert.Equal(EditorChromeLayout.LeftPanelWidth, left);
         Assert.Equal(topBarH + EditorChromeLayout.SceneHeaderHeight, top);
+        Assert.Equal(EditorChromeLayout.BottomBarHeight + EditorChromeLayout.StatusBarHeight, bottom);
 
         // Top bar: full width, the (thin, global) bar height.
         Assert.Equal(new Rectangle(0, 0, w, topBarH), topBar);
-        // Bottom strip: full width, exactly the bottom margin tall, flush with the window bottom.
-        Assert.Equal(new Rectangle(0, h - bottom, w, bottom), bottomBar);
-        // Left + right panels: exactly their margins wide, spanning top bar → bottom shelf.
+        // Bottom shelf: full width, BottomBarHeight tall, sitting just above the status bar strip.
+        Assert.Equal(new Rectangle(0, h - bottom, w, EditorChromeLayout.BottomBarHeight), bottomBar);
+        // The status bar: full width, StatusBarHeight tall, flush with the window bottom (UX3-F).
+        Assert.Equal(new Rectangle(0, h - EditorChromeLayout.StatusBarHeight, w, EditorChromeLayout.StatusBarHeight),
+            EditorChromeLayout.StatusBar(w, h));
+        // Left + right panels: exactly their margins wide, spanning top bar → the bottom inset (shelf +
+        // status bar), so `h - topBarH - bottom` still names the strips' bottom edge.
         Assert.Equal(new Rectangle(0, topBarH, left, h - topBarH - bottom), leftPanel);
         Assert.Equal(new Rectangle(w - right, topBarH, right, h - topBarH - bottom), rightPanel);
         // The Scene panel header: the extra top inset, between the strips, below the top bar.
@@ -149,11 +155,14 @@ public class EditorShellTests
             Assert.Equal(byte.MaxValue, visual.FillColor.A); // opaque — readable over any level
             sizes.Add(visual.Size);
         }
-        var innerH = 900 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight;
+        // UX3-F: the strips stop above the shelf AND the status bar strip.
+        var innerH = 900 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight
+                     - EditorChromeLayout.StatusBarHeight;
         Assert.Contains(new Vector2(1600, EditorChromeLayout.TopBarHeight), sizes);                 // top bar
         Assert.Contains(new Vector2(EditorChromeLayout.LeftPanelWidth, innerH), sizes);             // left panel
         Assert.Contains(new Vector2(EditorChromeLayout.RightPanelWidth, innerH), sizes);            // right panel
         Assert.Contains(new Vector2(1600, EditorChromeLayout.BottomBarHeight), sizes);              // bottom shelf
+        Assert.Contains(new Vector2(1600, EditorChromeLayout.StatusBarHeight), sizes);              // status bar band (UX3-F)
         Assert.Contains(new Vector2(1600 - EditorChromeLayout.LeftPanelWidth - EditorChromeLayout.RightPanelWidth,
             EditorChromeLayout.SceneHeaderHeight), sizes);                                          // Scene header
     }
@@ -179,7 +188,8 @@ public class EditorShellTests
             found = true;
             Assert.Equal(1920 - EditorChromeLayout.RightPanelWidth,
                 (int)panel.Get<TransformComponent>().Position.X);
-            Assert.Equal(1080 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight,
+            Assert.Equal(1080 - EditorChromeLayout.TopBarHeight - EditorChromeLayout.BottomBarHeight
+                         - EditorChromeLayout.StatusBarHeight, // UX3-F: the strip stops above the status bar too
                 (int)visual.Size.Y);
         }
         Assert.True(found, "right panel not found after relayout");
@@ -433,15 +443,17 @@ public class EditorShellTests
     {
         const int w = 3840, h = 2160; // a 1920×1080-point window on a 2× (Retina) backbuffer
         const int topBar2 = 44 * 2, header2 = 40 * 2, left2 = 240 * 2, right2 = 280 * 2, bottom2 = 168 * 2;
+        const int statusBar2 = 22 * 2, insetBottom2 = bottom2 + statusBar2; // UX3-F: shelf + status strip
 
         var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(2f);
-        // left = LeftPanelWidth × 2; top = (TopBar 44 + SceneHeader 40) × 2; bottom = BottomBarHeight × 2.
-        Assert.Equal((left2, topBar2 + header2, right2, bottom2), (left, top, right, bottom));
+        // left = LeftPanelWidth × 2; top = (TopBar 44 + SceneHeader 40) × 2; bottom = (shelf + status) × 2.
+        Assert.Equal((left2, topBar2 + header2, right2, insetBottom2), (left, top, right, bottom));
 
         Assert.Equal(new Rectangle(0, 0, w, topBar2), EditorChromeLayout.TopBar(w, 2f));
-        Assert.Equal(new Rectangle(0, topBar2, left2, h - topBar2 - bottom2), EditorChromeLayout.LeftPanel(w, h, 2f));
-        Assert.Equal(new Rectangle(w - right2, topBar2, right2, h - topBar2 - bottom2), EditorChromeLayout.RightPanel(w, h, 2f));
-        Assert.Equal(new Rectangle(0, h - bottom2, w, bottom2), EditorChromeLayout.BottomBar(w, h, 2f));
+        Assert.Equal(new Rectangle(0, topBar2, left2, h - topBar2 - insetBottom2), EditorChromeLayout.LeftPanel(w, h, 2f));
+        Assert.Equal(new Rectangle(w - right2, topBar2, right2, h - topBar2 - insetBottom2), EditorChromeLayout.RightPanel(w, h, 2f));
+        Assert.Equal(new Rectangle(0, h - insetBottom2, w, bottom2), EditorChromeLayout.BottomBar(w, h, 2f));
+        Assert.Equal(new Rectangle(0, h - statusBar2, w, statusBar2), EditorChromeLayout.StatusBar(w, h, 2f));
         Assert.Equal(new Rectangle(left2, topBar2, w - left2 - right2, header2), EditorChromeLayout.SceneHeader(w, h, 2f));
 
         // Button row: margins/gaps/heights double; widths are caller-scaled.
@@ -454,8 +466,9 @@ public class EditorShellTests
     public void ChromeLayout_DefaultScale_IsThePreDprLayout()
     {
         // scale 1 reproduces the point constants unscaled. UX2-B: left activates (240) and the top
-        // inset is the top bar (44) PLUS the Scene panel header (40) = 84; bottom tracks BottomBarHeight.
-        Assert.Equal((240, 44 + 40, 280, 168), EditorChromeLayout.ViewportInset());
+        // inset is the top bar (44) PLUS the Scene panel header (40) = 84; UX3-F: the bottom inset is the
+        // shelf (168) PLUS the status bar (22) = 190.
+        Assert.Equal((240, 44 + 40, 280, 168 + 22), EditorChromeLayout.ViewportInset());
         Assert.Equal(EditorChromeLayout.TopBar(1600), EditorChromeLayout.TopBar(1600, 1f));
     }
 

@@ -438,6 +438,7 @@ public class InfiniteRunnerScreen : IGameScreen
             // frame is what the cursor's world position derives from (no one-frame lag).
             p.Add("editor.cursorPosition", _editor.CursorPosition, EditTimeBehavior.RunNormally);
             p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
+            p.Add("editor.statusBar", _editor.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
             if (_editor.EditorOpDriver != null)
                 p.Add("editor.opDriver", _editor.EditorOpDriver, EditTimeBehavior.RunNormally);
         }

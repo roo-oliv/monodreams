@@ -62,6 +62,7 @@ public sealed class EditorChromeBuilder
     private (EditorToolbarAction action, string label)[] _headerButtons =
         Array.Empty<(EditorToolbarAction, string)>();
     private Entity _topBar, _leftPanel, _rightPanel, _bottomBar, _sceneHeader;
+    private Entity _statusBar, _statusBarBorder; // UX3-F: the window-bottom status strip + its top rule
     private Entity _leftSplitter, _rightSplitter, _bottomSplitter;
     private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
     private Entity _entityMenuCaret; // UX2-D: the ▾ caret mesh beside the header "Entity" text button
@@ -190,6 +191,11 @@ public sealed class EditorChromeBuilder
         // The center region's Scene panel header band (UX2-B) — carved out of the game viewport, hosts
         // the transport now and later the tool cluster / menus / mode toggle / camera button.
         _sceneHeader = CreatePanel(EditorTheme.Bg1);
+        // UX3-F: the window status bar strip (Bg0 band + a top Border rule) flush with the window
+        // bottom, below the assets shelf. Part of the ONE viewport inset; its dynamic labels + dirty dot
+        // are placed by EditorStatusBarSystem.
+        _statusBar = CreatePanel(EditorTheme.Bg0);
+        _statusBarBorder = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
 
         // Region splitters (the shell recolours them per hover/drag) and the bottom shelf's single
         // static "Assets" tab (marks the terrain: the same tab strip as the left strip, one tab).
@@ -254,6 +260,12 @@ public sealed class EditorChromeBuilder
         PlacePanel(_rightPanel, rightPanel);
         PlacePanel(_bottomBar, bottomBar);
         PlacePanel(_sceneHeader, sceneHeader);
+
+        // UX3-F: the status bar band + a 1px (DPR-scaled) top rule along its top edge.
+        var statusBar = EditorChromeLayout.StatusBar(screenWidth, screenHeight, scale);
+        PlacePanel(_statusBar, statusBar);
+        var ruleThickness = Math.Max(1, EditorChromeLayout.Px(1, scale));
+        PlacePanel(_statusBarBorder, new Rectangle(statusBar.X, statusBar.Y, statusBar.Width, ruleThickness));
 
         // Splitters on the viewport-facing edges (recoloured by the shell each frame).
         PlacePanel(_leftSplitter,

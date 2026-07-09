@@ -397,6 +397,18 @@ public sealed class EditorOverlay
             menuOpen: () => Menu.IsOpen,
             commandIsMeta: OperatingSystem.IsMacOS(),
             modalActive: () => _modal.IsActive);
+
+        // The window status bar (UX3-F): the live modal readout / contextual status on the left, the
+        // scene id + view mode + dirty dot on the right. Reads the SAME dirty source the Scenes panel
+        // uses (the Game-mode snapshot dirty while sandboxed, else the history), so the ● never reflects
+        // sandbox churn. RunNormally — live in both transport states.
+        StatusBar = new EditorStatusBarSystem(
+            world, viewportManager, toolbarFont, _modal,
+            sceneId: () => _sceneId,
+            isDirty: () => Transport.ViewMode == EditorViewMode.Game
+                ? Transport.SnapshotWasDirty
+                : History.IsDirty,
+            viewMode: () => Transport.ViewMode);
         // The viewport right-click (SelectionSystem, SelectTransform + a hit) opens the entity menu at
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
@@ -647,6 +659,12 @@ public sealed class EditorOverlay
     /// states). Weave after <c>CursorDrawPrepSystem</c> (it hides the game cursor sprite the same
     /// frame).</summary>
     public ISystem<GameState> Shell { get; }
+
+    /// <summary>The window status bar (UX3-F): the live modal readout / contextual status (left) + the
+    /// scene id, view mode, and dirty dot (right), as pooled labels on the native Editor target. Weave as
+    /// <c>editor.statusBar</c> after <see cref="Shell"/> (it lays out this frame's content for the chrome
+    /// render pass), <c>RunNormally</c> — live in both transport states.</summary>
+    public ISystem<GameState> StatusBar { get; }
 
     /// <summary>The native-resolution chrome render pass (screen-space, always on while the
     /// editor is composed; owns the resize-tracked Editor target). Weave into the DRAW pipeline

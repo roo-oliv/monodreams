@@ -621,6 +621,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // track the run mode. AFTER CursorDrawPrepSystem so hiding the game cursor sprite in
             // Edit takes effect the same frame (the prep would otherwise re-stamp its texture).
             p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
+            p.Add("editor.statusBar", _editor.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
         if (_editor?.EditorOpDriver != null)
             // The headless editor-op driver — LAST, after the cursor late update, so its injected
             // cursor is the final word the gizmo/toolbar read. Plan-gated: only present when an

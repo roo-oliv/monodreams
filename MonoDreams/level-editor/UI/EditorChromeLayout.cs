@@ -61,6 +61,12 @@ public static class EditorChromeLayout
     /// cluster / Entity menu / mode toggle / camera button (the panel-header framework slots).</summary>
     public const int SceneHeaderHeight = 40;
 
+    /// <summary>The window <b>status bar</b> height (UX3-F), logical points — a thin strip flush with
+    /// the window bottom, BELOW the assets shelf, so <see cref="ViewportInset"/>'s bottom margin is the
+    /// bottom shelf PLUS this. Blender/IntelliJ-style: the modal readout / contextual status on the left,
+    /// the scene id + mode on the right (see <c>EditorStatusBarSystem</c>). Not resizable.</summary>
+    public const int StatusBarHeight = 22;
+
     /// <summary>Toolbar button height, logical points (fits the top bar with breathing room).</summary>
     public const int ButtonHeight = 30;
 
@@ -102,15 +108,16 @@ public static class EditorChromeLayout
     /// <summary>The viewport-inset margins the shell reserves, in screen pixels at
     /// <paramref name="scale"/> — pass to <c>ViewportManager.SetViewportInset(left, top, right,
     /// bottom)</c>. The <b>left</b> margin is the (now active) left strip; the <b>top</b> margin is
-    /// the global top bar PLUS the Scene panel header carved out of the game viewport (UX2-B — one
-    /// inset source, so compositing + mouse mapping + <c>OutsideViewport</c> all follow the header for
-    /// free). <paramref name="leftWidthPt"/>/<paramref name="rightWidthPt"/>/<paramref name="bottomHeightPt"/>
+    /// the global top bar PLUS the Scene panel header carved out of the game viewport (UX2-B); the
+    /// <b>bottom</b> margin is the assets shelf PLUS the <see cref="StatusBarHeight"/> status bar
+    /// (UX3-F) — one inset source, so compositing + mouse mapping + <c>OutsideViewport</c> all follow
+    /// the header + status bar for free (pre-mortem #6). <paramref name="leftWidthPt"/>/<paramref name="rightWidthPt"/>/<paramref name="bottomHeightPt"/>
     /// default to the shell constants.</summary>
     public static (int Left, int Top, int Right, int Bottom) ViewportInset(
         float scale = 1f, int leftWidthPt = LeftPanelWidth, int rightWidthPt = RightPanelWidth,
         int bottomHeightPt = BottomBarHeight) =>
         (Px(leftWidthPt, scale), Px(TopBarHeight, scale) + Px(SceneHeaderHeight, scale),
-            Px(rightWidthPt, scale), Px(bottomHeightPt, scale));
+            Px(rightWidthPt, scale), Px(bottomHeightPt, scale) + Px(StatusBarHeight, scale));
 
     /// <summary>The top bar rectangle: full window width, docked at the top (the thin global bar).</summary>
     public static Rectangle TopBar(int screenWidth, float scale = 1f) =>
@@ -124,7 +131,7 @@ public static class EditorChromeLayout
         0,
         Px(TopBarHeight, scale),
         Px(leftWidthPt, scale),
-        Math.Max(1, screenHeight - Px(TopBarHeight, scale) - Px(bottomHeightPt, scale)));
+        Math.Max(1, screenHeight - Px(TopBarHeight, scale) - Px(bottomHeightPt, scale) - Px(StatusBarHeight, scale)));
 
     /// <summary>The center region's <b>Scene panel header</b> band: docked below the top bar, between
     /// the left and right strips, <see cref="SceneHeaderHeight"/> tall — the extra top inset the
@@ -144,13 +151,22 @@ public static class EditorChromeLayout
         Math.Max(0, screenWidth - Px(rightWidthPt, scale)),
         Px(TopBarHeight, scale),
         Px(rightWidthPt, scale),
-        Math.Max(1, screenHeight - Px(TopBarHeight, scale) - Px(bottomHeightPt, scale)));
+        Math.Max(1, screenHeight - Px(TopBarHeight, scale) - Px(bottomHeightPt, scale) - Px(StatusBarHeight, scale)));
 
-    /// <summary>The bottom shelf: full window width, docked at the bottom.
-    /// <paramref name="bottomHeightPt"/> defaults to the fixed constant.</summary>
+    /// <summary>The bottom shelf: full window width, docked ABOVE the status bar (UX3-F — the shelf sits
+    /// just above the <see cref="StatusBarHeight"/> strip). <paramref name="bottomHeightPt"/> defaults to
+    /// the fixed constant.</summary>
     public static Rectangle BottomBar(int screenWidth, int screenHeight, float scale = 1f,
         int bottomHeightPt = BottomBarHeight) =>
-        new(0, Math.Max(0, screenHeight - Px(bottomHeightPt, scale)), Math.Max(1, screenWidth), Px(bottomHeightPt, scale));
+        new(0, Math.Max(0, screenHeight - Px(bottomHeightPt, scale) - Px(StatusBarHeight, scale)),
+            Math.Max(1, screenWidth), Px(bottomHeightPt, scale));
+
+    /// <summary>The window <b>status bar</b> strip (UX3-F): full width, <see cref="StatusBarHeight"/>
+    /// tall, flush with the window bottom — below the assets shelf. Its band + labels render on the
+    /// Editor target; it is part of the ONE viewport inset (the shelf sits above it).</summary>
+    public static Rectangle StatusBar(int screenWidth, int screenHeight, float scale = 1f) =>
+        new(0, Math.Max(0, screenHeight - Px(StatusBarHeight, scale)),
+            Math.Max(1, screenWidth), Px(StatusBarHeight, scale));
 
     // ── Tab strips (right strip + bottom shelf) ──────────────────────────────────────────────────
 

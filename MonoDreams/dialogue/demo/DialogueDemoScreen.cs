@@ -647,6 +647,7 @@ public class DialogueDemoScreen : IGameScreen
         if (_editor != null)
         {
             p.Add("editor.shell", _editor.Overlay.Shell, EditTimeBehavior.RunNormally);
+            p.Add("editor.statusBar", _editor.Overlay.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
             if (_editor.Overlay.EditorOpDriver != null)
                 p.Add("editor.opDriver", _editor.Overlay.EditorOpDriver, EditTimeBehavior.RunNormally);
         }

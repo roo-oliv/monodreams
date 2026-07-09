@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using MonoDreams.LevelEditor.UI;
 
 namespace MonoDreams.LevelEditor.Component;
 
@@ -75,6 +76,10 @@ public enum EditorRegion
 
     /// <summary>The bottom shelf (Assets tab).</summary>
     Bottom,
+
+    /// <summary>The window status bar strip (UX3-F) — chrome flush with the window bottom, below the
+    /// bottom shelf; part of the ONE viewport inset (see <c>EditorChromeLayout.StatusBar</c>).</summary>
+    StatusBar,
 }
 
 /// <summary>A logical panel a region can host — the marked-terrain data model. A future
@@ -174,6 +179,10 @@ public sealed class EditorShellStateComponent
     /// <summary>The menu-bar strip height — reserved at 0 (marked terrain).</summary>
     public int MenuBarHeightPt => 0;
 
+    /// <summary>The window status bar height (UX3-F) — a fixed thin strip (not resizable), mirroring
+    /// <c>EditorChromeLayout.StatusBarHeight</c>. Part of the ONE viewport-inset bottom margin.</summary>
+    public int StatusBarHeightPt => EditorChromeLayout.StatusBarHeight;
+
     // ── Active tabs (one per region) ─────────────────────────────────────────────────────────────
     /// <summary>The left strip's active tab (default <see cref="EditorPanelTab.Entities"/>).</summary>
     public EditorPanelTab ActiveLeftTab = EditorPanelTab.Entities;
@@ -209,5 +218,6 @@ public sealed class EditorShellStateComponent
             [EditorRegion.Left] = new[] { EditorPanelKind.Entities, EditorPanelKind.Systems, EditorPanelKind.Scenes },
             [EditorRegion.Right] = new[] { EditorPanelKind.Inspector },
             [EditorRegion.Bottom] = new[] { EditorPanelKind.Assets },
+            [EditorRegion.StatusBar] = Array.Empty<EditorPanelKind>(), // UX3-F: chrome-only strip (no panel)
         };
 }

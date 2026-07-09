@@ -94,22 +94,26 @@ public class EditorShellStateTests
     [Fact]
     public void ViewportInset_UsesTheRuntimeRegionSizes()
     {
-        // UX2-B: left activates + the top margin is the top bar PLUS the Scene panel header.
+        // UX2-B: left activates + the top margin is the top bar PLUS the Scene panel header. UX3-F: the
+        // bottom margin is the shelf PLUS the status bar strip (one inset source).
         var top = EditorChromeLayout.TopBarHeight + EditorChromeLayout.SceneHeaderHeight;
-        Assert.Equal((240, top, 400, 200), EditorChromeLayout.ViewportInset(1f, 240, 400, 200));
-        // DPR-2 doubles every margin (incl. the header carved out of the viewport).
-        Assert.Equal((480, top * 2, 800, 400), EditorChromeLayout.ViewportInset(2f, 240, 400, 200));
+        var sb = EditorChromeLayout.StatusBarHeight;
+        Assert.Equal((240, top, 400, 200 + sb), EditorChromeLayout.ViewportInset(1f, 240, 400, 200));
+        // DPR-2 doubles every margin (incl. the header carved out of the viewport + the status bar).
+        Assert.Equal((480, top * 2, 800, (200 + sb) * 2), EditorChromeLayout.ViewportInset(2f, 240, 400, 200));
     }
 
     [Fact]
     public void LeftRightAndBottom_UseTheRuntimeSizes()
     {
+        // UX3-F: the strips stop above the shelf AND the status bar; the shelf sits above the status bar.
+        var sb = EditorChromeLayout.StatusBarHeight;
         var left = EditorChromeLayout.LeftPanel(1600, 900, 1f, 260, 200);
-        Assert.Equal(new Rectangle(0, 44, 260, 900 - 44 - 200), left);
+        Assert.Equal(new Rectangle(0, 44, 260, 900 - 44 - 200 - sb), left);
         var right = EditorChromeLayout.RightPanel(1600, 900, 1f, 400, 200);
-        Assert.Equal(new Rectangle(1200, 44, 400, 900 - 44 - 200), right);
+        Assert.Equal(new Rectangle(1200, 44, 400, 900 - 44 - 200 - sb), right);
         var bottom = EditorChromeLayout.BottomBar(1600, 900, 1f, 200);
-        Assert.Equal(new Rectangle(0, 700, 1600, 200), bottom);
+        Assert.Equal(new Rectangle(0, 900 - 200 - sb, 1600, 200), bottom);
     }
 
     [Fact]
