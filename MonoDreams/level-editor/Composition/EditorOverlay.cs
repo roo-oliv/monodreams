@@ -84,6 +84,7 @@ public sealed class EditorOverlay
     private string _sceneId;
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
+    private readonly Entity _overlaySettings; // UX3-D: ShowGrid / OutlineSelected / ShowCameraGlyph
     private readonly EditorCameraRig _cameraRig;
     private readonly EditorShellStateComponent _shellState = new();
     // The concrete reader (SceneReader is the ISystem view of it) — read SceneWasLoaded for the
@@ -169,6 +170,13 @@ public sealed class EditorOverlay
         _gizmoState.Set(new EditorInfrastructureComponent()); // survives a transport Restart
         _gizmoState.Set(GizmoStateComponent.Default);
 
+        // The viewport-overlay settings (UX3-D): grid off / outline on / camera glyph on, session-scoped.
+        // A standalone editor-state entity (survives a transport Restart, discoverable). Spacing is NOT
+        // here — it IS GizmoStateComponent.GridStep above (the one grid quantum the overlay menu edits).
+        _overlaySettings = world.CreateEntity();
+        _overlaySettings.Set(new EditorInfrastructureComponent());
+        _overlaySettings.Set(ViewportOverlaySettingsComponent.Default);
+
         // The single shell-state entity (UX-B): the ONE source of the resizable region sizes, the
         // active tab per region, and the drag ownership shared by the shell / panel / palette. On an
         // editor-infra entity so it is discoverable + survives a transport Restart.
@@ -183,7 +191,10 @@ public sealed class EditorOverlay
         // every load (the reader's rig seam below), Save reads scene.camera FROM it (not the view), and
         // it emits its frustum glyph in the overlay-prep pass. Constructed before the reader so the seam
         // is ready for the first load.
-        _cameraRig = new EditorCameraRig(world, camera, viewportManager);
+        // UX3-D: the "Camera" overlay toggle + the Game-mode sandbox gate the frustum glyph. Transport
+        // is already constructed above; the lambda reads both at emit time.
+        _cameraRig = new EditorCameraRig(world, camera, viewportManager,
+            glyphVisible: () => Settings.ShowCameraGlyph && Transport.ViewMode != EditorViewMode.Game);
 
         // The file-asset texture loader is always composed (a loaded scene can carry file: keys
         // whether or not this screen shows a palette); textures load lazily, and a missing file
@@ -217,7 +228,11 @@ public sealed class EditorOverlay
             world, History, Serializer,
             input.DeleteRequested, input.UndoRequested, input.RedoRequested,
             layers, input.OrderForwardRequested, input.OrderBackRequested, camera);
-        var gizmo = new GizmoSystem(world, camera, History, viewportManager);
+        // UX3-D gates: the Game-mode sandbox hides ALL gizmo overlays; "Outline Selected" (off) hides
+        // only the selection outline (selection unaffected).
+        var gizmo = new GizmoSystem(world, camera, History, viewportManager,
+            viewportOverlaysVisible: () => Transport.ViewMode != EditorViewMode.Game,
+            selectionOutlineVisible: () => Settings.OutlineSelected);
         var proxySync = new ProxySyncSystem(world, camera, viewportManager);
         Gizmo = gizmo;
         ProxySync = proxySync;
@@ -237,7 +252,12 @@ public sealed class EditorOverlay
             () => Palette?.ArmedTrigger);
         TriggerOverlay = triggerOverlay;
 
-        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraRig);
+        // UX3-D: the world-space reference grid — beneath the other overlays, at the shared grid quantum
+        // (GizmoStateComponent.GridStep), hidden outside Edit / when off / in the Game-mode sandbox.
+        var grid = new EditorGrid(world, camera, viewportManager,
+            spacing: () => GridSpacing,
+            visible: () => Settings.ShowGrid && Transport.ViewMode != EditorViewMode.Game);
+        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraRig, grid);
         CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
         _selection = new SelectionSystem(world, camera);
         Selection = _selection;
@@ -399,6 +419,17 @@ public sealed class EditorOverlay
 
     /// <summary>The shared gizmo-state entity (tool / snap config).</summary>
     public Entity GizmoState => _gizmoState;
+
+    /// <summary>The viewport-overlay settings entity (UX3-D: ShowGrid / OutlineSelected /
+    /// ShowCameraGlyph). Grid spacing is NOT here — it is <see cref="GizmoStateComponent.GridStep"/> on
+    /// <see cref="GizmoState"/> (the one grid quantum).</summary>
+    public Entity OverlaySettings => _overlaySettings;
+
+    /// <summary>A read snapshot of the current viewport-overlay settings (UX3-D).</summary>
+    private ViewportOverlaySettingsComponent Settings => _overlaySettings.Get<ViewportOverlaySettingsComponent>();
+
+    /// <summary>The shared grid quantum (= the gizmo snap step) the grid draws at and the presets edit.</summary>
+    private float GridSpacing => _gizmoState.IsAlive ? _gizmoState.Get<GizmoStateComponent>().GridStep : 0f;
 
     /// <summary>The resolved project context (desktop-only, host-supplied), or null when none was
     /// supplied. Gates Save (the "no project root" cause) and, when resolved, its
@@ -760,7 +791,20 @@ public sealed class EditorOverlay
             case EditorMenuContext.EntityHeader:
                 _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection()), EntityButtonBounds());
                 break;
+            case EditorMenuContext.OverlaysHeader:
+                // The Overlays dropdown (UX3-D): built from the live settings + shared grid step, and
+                // rebuilt after each toggle so its check flips in place without closing the menu.
+                _menu.OpenBelow(BuildOverlaysMenu(), OverlaysButtonBounds(), rebuild: BuildOverlaysMenu);
+                break;
         }
+    }
+
+    /// <summary>Builds the Overlays dropdown model from the live settings + the shared grid quantum
+    /// (UX3-D) — the rebuild hook the menu re-invokes after each toggle.</summary>
+    private IReadOnlyList<EditorMenuItem> BuildOverlaysMenu()
+    {
+        var s = Settings;
+        return EditorContextMenuModel.OverlaysMenu(s.ShowGrid, GridSpacing, s.OutlineSelected, s.ShowCameraGlyph);
     }
 
     /// <summary>The left panel's right-click handler (wired to <c>EditorPanelSystem.ContextMenuRequested</c>
@@ -788,8 +832,24 @@ public sealed class EditorOverlay
             case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
             case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
             case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;
-            default: Logger.Warning($"[level-editor] Unknown context-menu action '{path}'."); break;
+            default:
+                // The Overlays dropdown paths (UX3-D): a toggle flips its setting, a spacing preset sets
+                // the SHARED grid step (GizmoStateComponent.GridStep — the one grid quantum, so the grid
+                // and the gizmo snap stay identical). The menu system rebuilds the model after a toggle.
+                if (!ApplyOverlayMenuPath(path))
+                    Logger.Warning($"[level-editor] Unknown context-menu action '{path}'.");
+                break;
         }
+    }
+
+    /// <summary>Routes an <c>overlay/*</c> menu path through the shared <see cref="ViewportOverlayOps"/>
+    /// (the same field a spacing op writes). Returns false when the path is not an overlay path.</summary>
+    private bool ApplyOverlayMenuPath(string path)
+    {
+        if (!_overlaySettings.IsAlive || !_gizmoState.IsAlive) return false;
+        ref var settings = ref _overlaySettings.Get<ViewportOverlaySettingsComponent>();
+        ref var gizmo = ref _gizmoState.Get<GizmoStateComponent>();
+        return ViewportOverlayOps.TryApplyMenuPath(path, ref settings, ref gizmo);
     }
 
     /// <summary>The Create-Empty-Scene name-collision predicate the dialog uses to refuse an existing
@@ -875,13 +935,18 @@ public sealed class EditorOverlay
         return false;
     }
 
-    private Rectangle EntityButtonBounds()
+    private Rectangle EntityButtonBounds() => ButtonBounds(EditorToolbarAction.EntityMenu);
+
+    /// <summary>The Scene-header Overlays button bounds (UX3-D) — the dropdown anchors below it.</summary>
+    private Rectangle OverlaysButtonBounds() => ButtonBounds(EditorToolbarAction.Overlays);
+
+    private Rectangle ButtonBounds(EditorToolbarAction action)
     {
         using var set = _world.GetEntities().With<ToolbarButtonComponent>().AsSet();
         foreach (var e in set.GetEntities())
-            if (e.Get<ToolbarButtonComponent>().Action == EditorToolbarAction.EntityMenu)
+            if (e.Get<ToolbarButtonComponent>().Action == action)
                 return e.Get<ToolbarButtonComponent>().Bounds;
-        return Rectangle.Empty; // no Entity button on this screen → open at the origin (clamped)
+        return Rectangle.Empty; // no such button on this screen → open at the origin (clamped)
     }
 
     /// <summary>The guarded Save the toolbar/dialog/switch all share: resolves the source path from the
@@ -1067,6 +1132,8 @@ public sealed class EditorOverlay
             // The Scene-header "Entity ▾" dropdown (UX2-D): open the entity menu below the button,
             // acting on the current selection (the discoverable twin of the viewport right-click).
             case EditorToolbarAction.EntityMenu: OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
+            // The Scene-header "Overlays" dropdown (UX3-D): open the viewport-overlays menu below it.
+            case EditorToolbarAction.Overlays: OpenContextMenu(EditorMenuContext.OverlaysHeader, state); break;
             // The Scene-header nav-corner button (UX2-E): snap the free VIEW onto the authored camera rig
             // (Camera := rig). An editing action — the toolbar dims/suppresses it while Playing.
             case EditorToolbarAction.CameraView: _cameraRig.SnapViewToRig(); break;
@@ -1323,6 +1390,24 @@ public sealed class EditorOverlay
         const string menuPrefix = "menu:";
         const string viewPrefix = "view:";
         const string modePrefix = "mode:";
+        const string overlayPrefix = ViewportOverlayOps.OpPrefix;
+
+        if (name.StartsWith(overlayPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // overlay:grid on|off / overlay:outline on|off / overlay:camera on|off / overlay:spacing <n>
+            // — the headless twin of the Overlays dropdown. Spacing writes the SHARED grid step, so the
+            // displayed grid stays the grid things snap to.
+            if (_overlaySettings.IsAlive && _gizmoState.IsAlive)
+            {
+                ref var settings = ref _overlaySettings.Get<ViewportOverlaySettingsComponent>();
+                ref var gizmo = ref _gizmoState.Get<GizmoStateComponent>();
+                if (!ViewportOverlayOps.TryApplyOp(name, ref settings, ref gizmo))
+                    Logger.Warning(
+                        $"[level-editor] Editor-op '{name}': expected overlay:grid on|off / " +
+                        "overlay:outline on|off / overlay:camera on|off / overlay:spacing <n>.");
+            }
+            return;
+        }
 
         if (name.StartsWith(viewPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -1622,9 +1707,10 @@ public sealed class EditorOverlay
             case "entities": OpenContextMenu(EditorMenuContext.EntitiesPanel, state); break;
             case "scenes": OpenContextMenu(EditorMenuContext.ScenesPanel, state); break;
             case "entity": OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
+            case "overlays": OpenContextMenu(EditorMenuContext.OverlaysHeader, state); break;
             default:
                 Logger.Warning(
-                    $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity>.");
+                    $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity|overlays>.");
                 break;
         }
     }
@@ -1663,6 +1749,9 @@ public enum EditorMenuContext
     ScenesPanel,
     /// <summary>The Scene-header <c>Entity ▾</c> dropdown: the entity menu below the button.</summary>
     EntityHeader,
+    /// <summary>The Scene-header <c>Overlays</c> dropdown (UX3-D): the viewport-overlays menu below the
+    /// button (Grid / Grid Spacing ▸ / Outline Selected / Camera).</summary>
+    OverlaysHeader,
 }
 
 /// <summary>Why the editor's Save is disabled — reported by <see cref="EditorOverlay.SaveBlock"/> so
