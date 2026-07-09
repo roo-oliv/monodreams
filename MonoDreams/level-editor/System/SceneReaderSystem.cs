@@ -328,33 +328,57 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// test, or the reference shipped reader that relies on <c>CameraFollowSystem</c>) or an <b>active</b>
     /// <see cref="CameraFollowTargetComponent"/> is present (<c>CameraFollowSystem</c> owns the camera in
     /// Play — the reader must not fight it).
+    ///
+    /// <para><b>Null-camera rig default (UX3-A).</b> The rig sync is deliberately sequenced <b>after</b>
+    /// the view is framed on content, so a scene that persists <c>camera: null</c> (every pre-UX2-E
+    /// scene — the UX2-E audit) makes the rig adopt the just-framed <b>post-load view</b> ("the authored
+    /// camera starts on the content") instead of the rig's pre-load ctor default at the origin. Without
+    /// this, entering Game mode (which snaps the view onto the rig) lands on empty world and the scene
+    /// "disappears"; and because the Game-mode snapshot re-persists that origin rig, returning to Scene
+    /// mode never cures it. A scene that HAS a camera still round-trips to the rig verbatim (exact).</para>
     /// </summary>
     private void ApplyCamera(SceneData scene, List<Entity> created)
     {
-        // The rig (editor only) always receives the authored camera — even when the VIEW is left alone
-        // (a follow target present, or a null view camera): the rig owns the authored state, the view is
-        // just what the viewport looks through.
-        _applyCameraToRig?.Invoke(scene.Camera);
+        var editorPath = _applyCameraToRig != null;
 
-        if (_camera == null) return;         // no live VIEW supplied → nothing to position
-        if (HasActiveFollowTarget()) return; // CameraFollowSystem owns it (Play) — don't fight it
+        // Position the VIEW first, THEN sync the rig — so a null-camera scene's rig can adopt the
+        // just-framed view (UX3-A) rather than the pre-load origin. The editor's free view always
+        // auto-frames on content; the shipped path applies the authored camera (or auto-frames a
+        // camera-less scene). Skipped when there is no live view, or an active follow target owns it.
+        var viewFramedOnContent = false;
+        if (_camera != null && !HasActiveFollowTarget())
+        {
+            if (editorPath || scene.Camera == null)
+            {
+                FrameViewOnContent(created);
+                viewFramedOnContent = true;
+            }
+            else
+            {
+                // Shipped: no rig — the live camera IS the authored camera, so respect the persisted view.
+                ApplySceneCameraToView(scene.Camera);
+            }
+        }
 
-        if (_applyCameraToRig != null)
-        {
-            // Editor: the authored state is on the rig; the free view frames the content.
-            FrameViewOnContent(created);
-        }
-        else if (scene.Camera != null)
-        {
-            // Shipped: no rig — the live camera IS the authored camera, so respect the persisted view.
-            ApplySceneCameraToView(scene.Camera);
-        }
-        else
-        {
-            // Shipped, legacy/camera-less scene: auto-frame on content (byte-identical to pre-UX2-E).
-            FrameViewOnContent(created);
-        }
+        // The rig (editor only) always receives the AUTHORED game-camera state — even when the VIEW is
+        // left alone (a follow target present, or a null view camera): the rig owns the authored state,
+        // the view is just what the viewport looks through. A persisted camera syncs verbatim; a
+        // null-camera scene whose view we just framed adopts that framed view (the UX3-A default);
+        // otherwise the authored (possibly null) camera passes through (SyncFromScene leaves a null as-is).
+        if (editorPath)
+            _applyCameraToRig!.Invoke(scene.Camera ?? (viewFramedOnContent ? CameraDataFromView() : null));
     }
+
+    /// <summary>A <see cref="SceneCameraData"/> built from the current live VIEW (position / zoom /
+    /// rotation) — the authored state the editor rig adopts for a <c>camera: null</c> scene, so the rig
+    /// starts on the just-framed content (UX3-A) rather than the pre-load origin. Mirrors
+    /// <see cref="SceneWriter"/>'s camera serialization so a subsequent Save round-trips it byte-identically.</summary>
+    private SceneCameraData CameraDataFromView() => new()
+    {
+        Position = new[] { _camera!.Position.X, _camera.Position.Y },
+        Zoom = _camera.Zoom,
+        Rotation = _camera.Rotation,
+    };
 
     /// <summary>Applies a persisted <see cref="SceneCameraData"/> to the live VIEW — the shipped path's
     /// "the authored camera is the game camera" (the rig only exists under the editor).</summary>

@@ -83,8 +83,9 @@ public class CameraRigTests
     private static Texture2D StubTexture(string _) => null;
 
     /// <summary>Writes a scene (one tagged sprite root at <paramref name="content"/> so the reader has
-    /// content to frame) carrying the given camera, into the in-memory store.</summary>
-    private static void WriteScene(InMemoryPlatformServices fake, Vector2 content, GameCamera camera)
+    /// content to frame) carrying the given camera (null persists <c>camera: null</c> — the UX2-E
+    /// audit), into the in-memory store.</summary>
+    private static void WriteScene(InMemoryPlatformServices fake, Vector2 content, GameCamera? camera)
     {
         using var world = new World();
         var root = world.CreateEntity();
@@ -164,6 +165,36 @@ public class CameraRigTests
             // The VIEW auto-framed the off-origin content (it is NOT the authored camera — split proven).
             Assert.True(view.Position.X > 1000f, $"view X {view.Position.X} should sit on the ~1275 content");
             Assert.NotEqual(rig.Position, view.Position);
+        });
+    }
+
+    // ── UX3-A: a null-camera scene's rig adopts the POST-LOAD view, not the pre-load origin ──────────
+
+    [Fact]
+    public void NullCameraLoad_RigAdoptsPostLoadView_NotThePreLoadOrigin()
+    {
+        var fake = new InMemoryPlatformServices();
+        WithPlatform(fake, () =>
+        {
+            // Every pre-UX2-E scene persists camera: null (the UX2-E audit). Off-origin content.
+            WriteScene(fake, content: new Vector2(1275, -530), camera: null);
+
+            using var world = new World();
+            var view = new GameCamera(800, 600);        // the free VIEW starts at (0,0)
+            var rig = new EditorCameraRig(world, view); // ctor default = the pre-load view (origin, zoom 1)
+            using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
+                content: null, loadTexture: StubTexture, camera: view, applyCameraToRig: rig.SyncFromScene);
+
+            world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
+
+            // The VIEW auto-framed the off-origin content...
+            Assert.True(view.Position.X > 1000f, $"view X {view.Position.X} should sit on the ~1275 content");
+            // ...and the RIG adopted that post-load view (UX3-A) instead of keeping its pre-load origin
+            // ctor default — so entering Game mode (which snaps the view onto the rig) stays on content,
+            // and the Game-mode snapshot re-persists the on-content rig (the "returning doesn't help" cure).
+            Assert.NotEqual(Vector2.Zero, rig.Position);
+            Assert.Equal(view.Position, rig.Position);
+            Assert.Equal(view.Zoom, rig.Zoom);
         });
     }
 
