@@ -409,7 +409,118 @@ public class EditorGameModeTests
         Assert.Equal(EditorTheme.Bg1, game.Get<SimpleButtonComponent>().FillColor);
     }
 
+    // ─────────────── UX3-A ask 2: explicit labels + auto-play on Game-mode entry ──────────────────────
+
+    [Fact]
+    public void ModeToggleSegments_ReadExplicitModeLabels()
+    {
+        using var world = new World();
+        var chrome = new EditorChromeBuilder(world, label => label.Length * 8f);
+        chrome.Build(1600, 900);
+
+        // UX3-A: the toggle segments read the explicit "Scene mode" / "Game mode" (not bare "Scene" /
+        // "Game"), and the segment width is recomputed to fit them within the Scene header.
+        Assert.Equal("Scene mode", SegmentLabel(world, EditorToolbarAction.ModeScene));
+        Assert.Equal("Game mode", SegmentLabel(world, EditorToolbarAction.ModeGame));
+
+        var sceneHeader = EditorChromeLayout.SceneHeader(1600, 900);
+        Assert.True(sceneHeader.Contains(SegmentBounds(world, EditorToolbarAction.ModeScene)));
+        Assert.True(sceneHeader.Contains(SegmentBounds(world, EditorToolbarAction.ModeGame)));
+    }
+
+    [Fact]
+    public void GameModeToggleClick_EntersGameAndAutoPlays_SnapshotBeforeTheFlip()
+    {
+        using var s = new Stack();
+        s.AddSpriteRoot(new Vector2(10, 20));
+
+        // The real Scene-header mode segments + the ONE ToolbarSystem, its dispatch wired to the shared
+        // transport EXACTLY as EditorOverlay.DispatchToolbarAction wires the [Scene mode | Game mode]
+        // toggle (UX3-A): ModeGame → Transport.Play (enter Game + auto-play), ModeScene → ExitToSceneMode.
+        var chrome = new EditorChromeBuilder(s.World, label => label.Length * 8f);
+        chrome.Build(1600, 900);
+        var cursor = MakeCursor(s.World);
+
+        var state = Paused(); // boot: Scene + Edit
+        var runModeAtCapture = RunMode.Play;
+        var baseCapture = s.Transport.CaptureSnapshot!;
+        s.Transport.CaptureSnapshot = () => { runModeAtCapture = state.RunMode; return baseCapture(); };
+
+        using var toolbar = new ToolbarSystem(s.World,
+            (a, st) =>
+            {
+                if (a == EditorToolbarAction.ModeGame) s.Transport.Play(st);
+                else if (a == EditorToolbarAction.ModeScene) s.Transport.ExitToSceneMode(st);
+            },
+            viewMode: () => s.Transport.ViewMode);
+
+        var game = SegmentBounds(s.World, EditorToolbarAction.ModeGame);
+        Click(cursor, new Vector2(game.Center.X, game.Center.Y));
+        toolbar.Update(state);
+
+        Assert.Equal(EditorViewMode.Game, s.Transport.ViewMode); // entered the sandbox
+        Assert.Equal(RunMode.Play, state.RunMode);               // AND auto-played (UX3-A ask 2)
+        Assert.Equal(RunMode.Edit, runModeAtCapture);            // snapshot taken BEFORE the flip (pre-mortem #7)
+        Assert.Equal(1, s.SnapshotCaptures);                     // exactly one snapshot for the session
+    }
+
+    [Fact]
+    public void GameModeEntry_LandsPlaying_ExitLandsPaused()
+    {
+        using var s = new Stack();
+        s.AddSpriteRoot(new Vector2(10, 20));
+        var state = Paused();
+
+        // Entering via Play (the composition the toggle reuses) lands Playing in Game mode; exit lands
+        // Paused in Scene mode (unchanged) — the exit is still Edit.
+        s.Transport.Play(state);
+        Assert.Equal(EditorViewMode.Game, s.Transport.ViewMode);
+        Assert.Equal(RunMode.Play, state.RunMode);
+
+        s.Transport.ExitToSceneMode(state);
+        Assert.Equal(EditorViewMode.Scene, s.Transport.ViewMode);
+        Assert.Equal(RunMode.Edit, state.RunMode);
+    }
+
+    // ─────────────── UX3-A pre-mortem #2: a zeroed/unwired CaptureView must never blank the view ──────
+
+    [Fact]
+    public void Exit_WithZeroedOrUnwiredCaptureView_KeepsTheAutoFramedView_NeverBlanks()
+    {
+        using var s = new Stack();
+        s.AddSpriteRoot(new Vector2(200, 100)); // off-origin content
+
+        // Simulate an unwired/zeroed CaptureView: the snapshot view is default(CameraViewSnapshot),
+        // whose Zoom == 0 (not IsValid). Without the guard, exit-restore applies it and Camera.Zoom
+        // clamps the 0 → 0.1f, silently blanking the view at the origin.
+        s.Transport.CaptureView = () => default;
+
+        s.Transport.EnterGameMode(Paused());
+        s.Transport.ExitToSceneMode(Paused());
+
+        // The zeroed snapshot was NOT applied: exit kept the reader's post-restore auto-frame, which sits
+        // on the restored off-origin content — a usable, positive-zoom view, not origin/0.1.
+        Assert.True(s.Camera.Zoom >= 0.1f);
+        Assert.True(s.Camera.Position.X > 100f,
+            $"view X {s.Camera.Position.X} should sit on the ~200 content, not the zeroed-snapshot origin");
+        Assert.True(s.TaggedRoot().IsAlive); // and the world is intact
+    }
+
+    [Fact]
+    public void CameraViewSnapshot_Default_IsInvalid_RealCapture_IsValid()
+    {
+        Assert.False(default(CameraViewSnapshot).IsValid);                          // Zoom == 0 → invalid
+        Assert.True(new CameraViewSnapshot(new Vector2(3, 4), 1f, 0f).IsValid);     // a real capture is valid
+        Assert.False(new CameraViewSnapshot(new Vector2(3, 4), 0f, 0f).IsValid);    // zero zoom → invalid
+    }
+
     // ─────────────── helpers ───────────────
+
+    private static string SegmentLabel(World world, EditorToolbarAction action)
+    {
+        var label = SegmentEntity(world, action).Get<SimpleButtonComponent>().TextEntity!.Value;
+        return label.Get<DynamicTextComponent>().TextContent;
+    }
 
     private static Entity SegmentEntity(World world, EditorToolbarAction action)
     {

@@ -1070,10 +1070,13 @@ public sealed class EditorOverlay
             // The Scene-header nav-corner button (UX2-E): snap the free VIEW onto the authored camera rig
             // (Camera := rig). An editing action — the toolbar dims/suppresses it while Playing.
             case EditorToolbarAction.CameraView: _cameraRig.SnapViewToRig(); break;
-            // The [Scene | Game] mode toggle (UX2-F): exit the sandbox to Scene, or enter the Game
-            // sandbox. Each is a no-op when already in that mode. Dispatches in BOTH transport states.
+            // The [Scene mode | Game mode] toggle (UX2-F / UX3-A). Dispatches in BOTH transport states.
+            // Scene: exit the sandbox to Scene mode (lands Paused). Game: enter the Game sandbox AND
+            // auto-play (UX3-A ask 2) — Transport.Play reuses the exact Play-in-Scene-mode composition
+            // (snapshot/capture in EnterGameMode BEFORE RunMode flips to Play — pre-mortem #7), so
+            // "switch to Game mode" both enters the sandbox and starts the game in one action.
             case EditorToolbarAction.ModeScene: Transport.ExitToSceneMode(state); break;
-            case EditorToolbarAction.ModeGame: Transport.EnterGameMode(state); break;
+            case EditorToolbarAction.ModeGame: Transport.Play(state); break;
         }
     }
 

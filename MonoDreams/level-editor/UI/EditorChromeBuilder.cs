@@ -220,8 +220,10 @@ public sealed class EditorChromeBuilder
         // header, before the transport cluster. Ordinary ToolbarButtonComponents so the ONE
         // ToolbarSystem hit-tests + dispatches them; ToolbarSystem renders them tab-style (active =
         // Bg1 fill + Accent underline) rather than as buttons (see its RenderSegment).
-        CreateModeSegment(EditorToolbarAction.ModeScene, "Scene");
-        CreateModeSegment(EditorToolbarAction.ModeGame, "Game");
+        // UX3-A (ask 2): explicit labels — "Scene mode" / "Game mode" — not the bare "Scene" / "Game"
+        // (the segment width is recomputed to fit them; see EditorChromeLayout.ModeSegmentWidth).
+        CreateModeSegment(EditorToolbarAction.ModeScene, "Scene mode");
+        CreateModeSegment(EditorToolbarAction.ModeGame, "Game mode");
 
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;

@@ -208,7 +208,12 @@ public sealed class EditorTransport
 
         _history.Clear();                            // restored entities invalidate old commands (Restart rule)
         if (SnapshotWasDirty) _history.MarkDirty();  // restore the captured dirty state
-        RestoreView?.Invoke(_snapshotView);          // override the reader's auto-frame with the Scene view
+
+        // Override the reader's auto-frame with the captured Scene view — but ONLY when the snapshot is
+        // valid (UX3-A pre-mortem #2). A zeroed/unwired capture (Zoom == 0) must NOT be applied: the
+        // Camera.Zoom setter would clamp the 0 to 0.1f, silently blanking the view. Invalid ⇒ keep the
+        // reader's post-restore auto-frame (which already lands on the content), never a degenerate view.
+        if (_snapshotView.IsValid) RestoreView?.Invoke(_snapshotView);
 
         _snapshot = null;
         ViewMode = EditorViewMode.Scene;
@@ -308,10 +313,22 @@ public enum EditorViewMode
 
 /// <summary>A snapshot of the free editor VIEW (the live <c>Camera</c>) — position / zoom / rotation —
 /// captured on Game-mode entry and restored on exit so the designer returns to exactly where they were
-/// looking. Plain value data.</summary>
+/// looking. Plain value data.
+///
+/// <para><b>Validity (UX3-A pre-mortem #2).</b> <see cref="Zoom"/> is a positive scale, so
+/// <c>default(CameraViewSnapshot)</c> — the value an unwired <c>CaptureView</c> yields — has
+/// <see cref="Zoom"/> <c>== 0</c> and is <b>not</b> <see cref="IsValid"/>. Exit-restore must never apply
+/// an invalid snapshot: <c>Camera.Zoom</c> clamps a zero to <c>0.1f</c>, so a naive restore of a zeroed
+/// snapshot silently blanks the view (origin + a near-degenerate zoom). An invalid snapshot means "keep
+/// the current view".</para></summary>
 public readonly struct CameraViewSnapshot(Vector2 position, float zoom, float rotation)
 {
     public readonly Vector2 Position = position;
     public readonly float Zoom = zoom;
     public readonly float Rotation = rotation;
+
+    /// <summary>Whether this snapshot carries a usable view (a positive zoom). <c>default</c> — an
+    /// unwired/zeroed <c>CaptureView</c> — is invalid, so exit-restore keeps the current view instead
+    /// of blanking it (UX3-A pre-mortem #2).</summary>
+    public bool IsValid => Zoom > 0f;
 }

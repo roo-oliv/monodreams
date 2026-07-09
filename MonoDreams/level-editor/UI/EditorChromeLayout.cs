@@ -71,9 +71,11 @@ public static class EditorChromeLayout
     /// Scene panel header sets the transport cluster apart from the tool cluster with this wider gap.</summary>
     public const int ClusterGap = 18;
 
-    /// <summary>Width of ONE segment of the <c>[Scene | Game]</c> mode toggle (UX2-F), logical points —
-    /// the two segments are equal-width, sized to fit "Scene"/"Game" at the label scale with padding.</summary>
-    public const int ModeSegmentWidth = 52;
+    /// <summary>Width of ONE segment of the <c>[Scene mode | Game mode]</c> mode toggle (UX2-F / UX3-A),
+    /// logical points — the two segments are equal-width, sized to fit the explicit "Scene mode" /
+    /// "Game mode" labels (UX3-A ask 2) at the label scale with padding. "Scene mode" measures ≈80pt at
+    /// <c>LabelScale</c>; 92 leaves ≈11pt symmetric padding, matching the pre-UX3-A "Scene" fit.</summary>
+    public const int ModeSegmentWidth = 92;
 
     /// <summary>Horizontal label padding inside a button, logical points.</summary>
     public const int ButtonPaddingX = 10;
