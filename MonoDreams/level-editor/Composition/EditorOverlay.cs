@@ -237,8 +237,15 @@ public sealed class EditorOverlay
         // the SAME reader pipeline as a file load (re-tag / rehydrate / DrawComponent / rig re-sync —
         // pre-mortem #2, the reader is the ONE restore path); the view capture/restore is the live VIEW
         // (Camera) state; and Game-mode entry adopts the game-camera view (the rig).
-        Transport.CaptureSnapshot = () => new SceneWriter(Serializer, PrefabSource).BuildScene(world, _cameraRig.AsCamera(), layers);
-        Transport.RestoreSnapshot = snapshot => world.Publish(new LoadSceneRequest(snapshot));
+        // PF-D (pre-mortem #8): a PREFAB context snapshots a CAMERA-LESS scene (no rig, no layers — a
+        // prefab is a class, not a scene) and restores with the camera rig SUPPRESSED (the stack sets
+        // RestoringPrefabContext for the duration of a prefab-context restore). A Scene/Game context is
+        // unchanged (rig camera + layers, rig re-synced).
+        Transport.CaptureSnapshot = () => Transport.ActiveContextKind == ViewportContextKind.Prefab
+            ? new SceneWriter(Serializer, PrefabSource).BuildScene(world)
+            : new SceneWriter(Serializer, PrefabSource).BuildScene(world, _cameraRig.AsCamera(), layers);
+        Transport.RestoreSnapshot = snapshot => world.Publish(
+            new LoadSceneRequest(snapshot, suppressCameraRig: Transport.ContextStack.RestoringPrefabContext));
         Transport.CaptureView = () => new CameraViewSnapshot(camera.Position, camera.Zoom, camera.Rotation);
         Transport.RestoreView = view =>
         {
@@ -446,8 +453,20 @@ public sealed class EditorOverlay
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
         _selection.ViewportContextMenuRequested = _ =>
-            _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), CursorScreenPoint());
+            _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance()), CursorScreenPoint());
         _leftPanel.ContextMenuRequested = OpenLeftPanelContextMenu;
+
+        // PF-D (pre-mortem #9): a dirty prefab tab's × routes the Save & Close / Discard / Cancel confirm.
+        // The transport activates the tab first (so Save/Discard act on ITS world), then invokes this with
+        // the now-active index. Save & Close writes the prefab then closes; Discard closes discarding edits.
+        Transport.ConfirmDirtyClose = (index, s) =>
+        {
+            var ctxs = Transport.ContextStack.Contexts;
+            var id = index >= 0 && index < ctxs.Count ? ctxs[index].Id : "prefab";
+            Dialog.OpenConfirmClose(id,
+                onSaveAndClose: st => { SavePrefabCurrent(st); Transport.ContextStack.CloseCleanContext(index); },
+                onDiscardAndClose: st => Transport.ContextStack.CloseCleanContext(index));
+        };
         // PF-A: the Inspector's "+ Add component" row opens the filterable command-palette popup with the
         // selection's candidate components (registered minus present minus structural). A pick dispatches
         // "add-component:<key>" back through DispatchMenuAction → the shared inspector panel.
@@ -916,7 +935,7 @@ public sealed class EditorOverlay
                 if (!InSelectTransform()) return; // armed → right-click disarms (palette/boundary), no menu
                 if (!TryPickAtCursor(out var hit)) return; // empty viewport → no menu, no selection change
                 _selection.SelectExclusive(hit);
-                _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), CursorScreenPoint());
+                _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance()), CursorScreenPoint());
                 break;
             case EditorMenuContext.EntitiesPanel:
                 var row = _leftPanel.EntityAtPoint(CursorScreenPoint());
@@ -927,7 +946,7 @@ public sealed class EditorOverlay
                 _menu.OpenAt(EditorContextMenuModel.ScenesPanelMenu(), CursorScreenPoint());
                 break;
             case EditorMenuContext.EntityHeader:
-                _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection()), EntityButtonBounds());
+                _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection(), SelectionIsPrefabInstance()), EntityButtonBounds());
                 break;
             case EditorMenuContext.AddAtCursor:
                 // The Shift+A shortcut (UX3-E) + the menu:open add op: the Entities-panel ADD section
@@ -1001,6 +1020,18 @@ public sealed class EditorOverlay
             return;
         }
 
+        // PF-D: the per-card prefab actions carry the prefab id as a suffix.
+        if (path.StartsWith(EditorContextMenuModel.PrefabEditPathPrefix, StringComparison.Ordinal))
+        {
+            OpenPrefabTab(path.Substring(EditorContextMenuModel.PrefabEditPathPrefix.Length), state);
+            return;
+        }
+        if (path.StartsWith(EditorContextMenuModel.PrefabDeletePathPrefix, StringComparison.Ordinal))
+        {
+            RequestDeletePrefab(path.Substring(EditorContextMenuModel.PrefabDeletePathPrefix.Length), state);
+            return;
+        }
+
         switch (path)
         {
             case EditorContextMenuModel.OrderForwardPath: _editorCommands.BringForward(state); break;
@@ -1008,6 +1039,10 @@ public sealed class EditorOverlay
             case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
             case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
             case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;
+            // PF-D prefab actions (entity menu + prefab shelf menu).
+            case EditorContextMenuModel.CreatePrefabFromSelectionPath: OpenCreatePrefabFromSelectionDialog(state); break;
+            case EditorContextMenuModel.UnpackPrefabPath: UnpackSelection(state); break;
+            case EditorContextMenuModel.CreateEmptyPrefabPath: OpenCreateEmptyPrefabDialog(); break;
             default:
                 // The Overlays dropdown paths (UX3-D): a toggle flips its setting, a spacing preset sets
                 // the SHARED grid step (GizmoStateComponent.GridStep — the one grid quantum, so the grid
@@ -1099,6 +1134,398 @@ public sealed class EditorOverlay
         else Logger.Warning(
             $"[level-editor] Created '{id}' but it did not surface in the scene catalog to switch to " +
             "(no scene-file host screen, or the catalog is not bound).");
+    }
+
+    // ─── Prefabs (PF-D) ──────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The <c>.mdprefab</c> ids under the project's <c>Prefabs</c> source dir (source-first, via
+    /// desktop directory IO — the Prefabs shelf lister + the collision check). Empty when the project is
+    /// unresolved (an unresolved context ⇒ an empty shelf + a message) or on any IO error.</summary>
+    public IReadOnlyList<string> ListPrefabIds()
+    {
+        if (_projectContext is not { Resolved: true, ProjectRoot: { } root }) return Array.Empty<string>();
+        var dir = Path.Combine(root, MgcbLevelBundle.PrefabsDirectoryName);
+        if (!Directory.Exists(dir)) return Array.Empty<string>();
+        try
+        {
+            var ids = new List<string>();
+            foreach (var file in Directory.EnumerateFiles(dir))
+                if (file.EndsWith(PrefabWriter.PrefabFileExtension, StringComparison.OrdinalIgnoreCase))
+                    ids.Add(Path.GetFileNameWithoutExtension(file));
+            ids.Sort(StringComparer.OrdinalIgnoreCase);
+            return ids;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"[level-editor] Could not list prefabs under '{dir}': {ex.Message}");
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>The absolute source-tree path a prefab writes to: <c>&lt;ProjectRoot&gt;/Prefabs/&lt;id&gt;.mdprefab</c>,
+    /// or null when the project is unresolved (matches <c>PrefabFileSource</c>'s source-first path).</summary>
+    private string? PrefabFilePath(string prefabId) =>
+        _projectContext is { Resolved: true, ProjectRoot: { } root }
+            ? Path.Combine(root, MgcbLevelBundle.PrefabsDirectoryName, prefabId + PrefabWriter.PrefabFileExtension)
+            : null;
+
+    /// <summary>Whether a prefab id already has a source <c>.mdprefab</c> — the Create-Prefab collision
+    /// predicate the name modal refuses on (loud, stays open).</summary>
+    private bool PrefabNameExists(string prefabId)
+    {
+        var path = PrefabFilePath(prefabId);
+        return !string.IsNullOrEmpty(path) && PlatformServices.Current.FileExists(path!);
+    }
+
+    /// <summary>The selected entity (the first <see cref="SelectedComponent"/>), or false when none.</summary>
+    private bool TryGetSelectedRoot(out Entity root)
+    {
+        using var set = _world.GetEntities().With<SelectedComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.IsAlive) { root = e; return true; }
+        root = default;
+        return false;
+    }
+
+    /// <summary>Whether the current selection is a prefab instance ROOT (drives the entity menu's Unpack
+    /// enabled state).</summary>
+    private bool SelectionIsPrefabInstance() =>
+        TryGetSelectedRoot(out var root) && root.Has<PrefabInstanceComponent>();
+
+    private void ClearWorldSelection()
+    {
+        var toClear = new List<Entity>();
+        using (var set = _world.GetEntities().With<SelectedComponent>().AsSet())
+            foreach (var e in set.GetEntities()) toClear.Add(e);
+        foreach (var e in toClear)
+            if (e.IsAlive && e.Has<SelectedComponent>()) e.Remove<SelectedComponent>();
+    }
+
+    /// <summary>Whether the OPEN scene has any instance of <paramref name="prefabId"/> — the live world's
+    /// <see cref="PrefabInstanceComponent"/> roots AND the backgrounded Scene context snapshot's compact
+    /// <c>prefab</c> entries. The prefab-delete refusal reads it (loud) so a prefab in use is never deleted
+    /// out from under its instances.</summary>
+    private bool OpenSceneHasInstancesOf(string prefabId)
+    {
+        using (var set = _world.GetEntities().With<PrefabInstanceComponent>().AsSet())
+            foreach (var e in set.GetEntities())
+                if (e.Get<PrefabInstanceComponent>().PrefabId == prefabId) return true;
+
+        var snapshot = Transport.ContextStack.SceneContext.Snapshot;
+        if (snapshot != null)
+            foreach (var entry in snapshot.Entities)
+                if (string.Equals(entry.Prefab, prefabId, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    /// <summary>The current cursor's world position (for the <c>prefab:place</c> one-shot op).</summary>
+    private Vector2 CursorWorldPoint()
+    {
+        using var set = _world.GetEntities().With<CursorInputComponent>().AsSet();
+        foreach (var cursor in set.GetEntities())
+            return cursor.Get<CursorInputComponent>().WorldPosition;
+        return Vector2.Zero;
+    }
+
+    /// <summary>
+    /// Places a <b>linked prefab instance</b> at <paramref name="worldPos"/> as one undoable
+    /// <see cref="CreateInstanceCommand"/> (the ONE expansion path), then auto-selects the instance root.
+    /// Used by the Prefabs shelf's click-place AND the <c>prefab:place</c> op. Loud no-op on an unknown /
+    /// unresolved prefab.
+    /// </summary>
+    public void PlacePrefabInstance(string prefabId, Vector2 worldPos)
+    {
+        if (string.IsNullOrEmpty(prefabId)) return;
+        PrefabData? data;
+        try { data = PrefabSource(prefabId); }
+        catch (Exception ex) { Logger.Warning($"[level-editor] Place prefab '{prefabId}' failed: {ex.Message}"); return; }
+        if (data == null) { Logger.Warning($"[level-editor] Place prefab: no prefab '{prefabId}' resolved."); return; }
+
+        var cmd = new CreateInstanceCommand(PrefabExpander, prefabId, worldPos);
+        History.Push(cmd);
+        ClearWorldSelection();
+        if (cmd.Root.IsAlive) cmd.Root.Set(new SelectedComponent());
+        Logger.Info($"[level-editor] Placed prefab instance '{prefabId}' at ({worldPos.X:0.##}, {worldPos.Y:0.##}).");
+    }
+
+    /// <summary>Opens (or activates) a prefab tab (PF-D — the card's Edit / double-click / <c>prefab:edit</c>):
+    /// resolves the prefab source-first and drives <see cref="EditorTransport.OpenPrefab"/>. Loud no-op on a
+    /// missing / malformed prefab.</summary>
+    public void OpenPrefabTab(string prefabId, GameState state)
+    {
+        PrefabData? data;
+        try { data = PrefabSource(prefabId); }
+        catch (Exception ex) { Logger.Warning($"[level-editor] Edit Prefab '{prefabId}' failed: {ex.Message}"); return; }
+        if (data == null) { Logger.Warning($"[level-editor] Edit Prefab: no prefab '{prefabId}' resolved."); return; }
+        Transport.OpenPrefab(prefabId, data.Scene, state);
+    }
+
+    /// <summary>
+    /// Writes the active prefab context's world to its <c>.mdprefab</c> (PF-D — the Save-Prefab dialog's
+    /// confirm and the <c>dialog:prefab</c> op): the PF-C validated writer (one-root + origin-normalize +
+    /// no camera + cycle-refuse — a multi-root world / cycle is refused loud, keeping the dialog's intent),
+    /// then bundle (zero-touch MGCB <c>/copy:</c>), mark the save point, and propagate. <b>No empty-save
+    /// guard</b> — an empty prefab (its one root, nothing else) is LEGAL while assembling; the one-root
+    /// validation is the only gate. <b>Propagation:</b> the LIVE world (the prefab world) never self-instances
+    /// so <see cref="PrefabPropagation.ReExpand"/> rebuilds 0 and leaves the history clean; a backgrounded
+    /// SCENE context re-expands on its next restore (its snapshot holds compact <c>prefab</c> entries, so the
+    /// reader reads the just-saved prefab source-first) — no eager action needed.
+    /// </summary>
+    public void SavePrefabCurrent(GameState state)
+    {
+        if (Transport.ActiveContextKind != ViewportContextKind.Prefab)
+        {
+            Logger.Warning("[level-editor] Save Prefab: not in a prefab context.");
+            return;
+        }
+        switch (SaveBlock(state, _projectContext, Transport.ActiveContextKind))
+        {
+            case SaveBlockReason.Playing:
+                Logger.Warning("[level-editor] Save Prefab is blocked while Playing — pause first.");
+                return;
+            case SaveBlockReason.NoProjectRoot:
+                Logger.Warning(
+                    "[level-editor] Save Prefab is blocked: no project root resolved (no " +
+                    $"{GameProject.FileName} found).");
+                return;
+        }
+
+        var prefabId = Transport.ContextStack.Active.Id;
+        var target = PrefabFilePath(prefabId);
+        if (string.IsNullOrEmpty(target)) return;
+
+        // Capture the OLD prefab (for the propagation override-diff) BEFORE the write overwrites the file.
+        PrefabData? oldPrefab = null;
+        try { oldPrefab = PrefabSource(prefabId); } catch { /* a malformed old file: skip the diff */ }
+
+        SceneData prefabScene;
+        try
+        {
+            prefabScene = new PrefabWriter(new SceneWriter(Serializer, PrefabSource))
+                .BuildPrefab(_world, prefabId, PrefabSource);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning(
+                $"[level-editor] Save Prefab '{prefabId}' refused: {ex.Message} " +
+                "(a prefab needs exactly one root and no cycle).");
+            return;
+        }
+
+        var savedPath = new SceneWriter(Serializer, PrefabSource).Save(prefabScene, target!);
+        if (savedPath == null) return;
+
+        History.MarkSavePoint();      // the prefab context is now clean
+        EnsurePrefabBundled(prefabId);
+
+        // Live-world propagation (history-clear rule only when instances were rebuilt — the prefab world
+        // has none, so this is a no-op here). Backgrounded scenes re-expand on restore (the chosen mechanism).
+        if (oldPrefab != null)
+            PrefabPropagation.ReExpand(_world, prefabId, oldPrefab, PrefabExpander, Registry, History);
+
+        Logger.Info($"[level-editor] Saved prefab '{prefabId}' to '{savedPath}'.");
+    }
+
+    /// <summary>Opens the Create-Prefab-from-Selection name modal (PF-D): refuses with no selection, else
+    /// opens the dialog whose confirm runs <see cref="CreatePrefabFromSelection"/> (collision-refused).</summary>
+    private void OpenCreatePrefabFromSelectionDialog(GameState state)
+    {
+        if (!HasSelection())
+        {
+            Logger.Warning("[level-editor] Create Prefab from Selection: nothing is selected.");
+            return;
+        }
+        Dialog.OpenCreatePrefab("Create Prefab from Selection", "prefab", PrefabNameExists,
+            (id, s) => CreatePrefabFromSelection(id, s));
+    }
+
+    /// <summary>
+    /// Captures the current single-root selection into <c>Content/Prefabs/&lt;id&gt;.mdprefab</c>
+    /// (origin-normalized) and <b>replaces the selection with a linked instance</b> preserving its world
+    /// position — ONE undoable composite (Delete originals + CreateInstance). Undo restores the original
+    /// entities and removes the instance; the FILE stays (a written prefab is durable). Multi-root / a
+    /// prefab-owned child / an already-an-instance selection is refused loud (single-root only, v1). The
+    /// file write + bundle happen once, before the composite.
+    /// </summary>
+    public void CreatePrefabFromSelection(string id, GameState state)
+    {
+        if (string.IsNullOrEmpty(id)) return;
+        var target = PrefabFilePath(id);
+        if (string.IsNullOrEmpty(target))
+        {
+            Logger.Warning($"[level-editor] Create Prefab '{id}' is blocked: no project root resolved.");
+            return;
+        }
+        if (!TryGetSelectedRoot(out var root))
+        {
+            Logger.Warning("[level-editor] Create Prefab from Selection: nothing is selected.");
+            return;
+        }
+        if (PrefabGuards.IsPrefabOwned(root))
+        {
+            Logger.Warning(PrefabGuards.Refusal("Create prefab"));
+            return;
+        }
+        if (root.Has<PrefabInstanceComponent>())
+        {
+            Logger.Warning(
+                "[level-editor] Create Prefab from Selection refused: the selection is already a prefab " +
+                "instance — Unpack it first, or edit the prefab directly.");
+            return;
+        }
+
+        // Capture the selection's subtree into a throwaway world, then build + validate the prefab.
+        var subgraph = EntitySubgraph.Collect(_world, root);
+        var captured = Serializer.Serialize(subgraph);
+        SceneData prefabScene;
+        using (var tmp = new World())
+        {
+            var created = Serializer.Deserialize(tmp, captured);
+            if (created.Count == 0) { Logger.Warning("[level-editor] Create Prefab: the selection is empty."); return; }
+            created[0].Set(new SceneObjectComponent());
+            try
+            {
+                prefabScene = new PrefabWriter(new SceneWriter(Serializer, PrefabSource))
+                    .BuildPrefab(tmp, id, PrefabSource);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning(
+                    $"[level-editor] Create Prefab '{id}' refused: {ex.Message} (single-root selections only).");
+                return;
+            }
+        }
+
+        var savedPath = new SceneWriter(Serializer, PrefabSource).Save(prefabScene, target!);
+        if (savedPath == null) return;
+        EnsurePrefabBundled(id);
+
+        // Replace the selection with a linked instance at its world position — ONE undoable composite.
+        var worldPos = root.Has<TransformComponent>() ? root.Get<TransformComponent>().Position : Vector2.Zero;
+        var delete = new DeleteEntityCommand(_world, root, Serializer);
+        var create = new CreateInstanceCommand(PrefabExpander, id, worldPos);
+        History.Push(new CompositeCommand(new List<IEditorCommand> { delete, create }));
+
+        ClearWorldSelection();
+        if (create.Root.IsAlive) create.Root.Set(new SelectedComponent());
+        Logger.Info($"[level-editor] Created prefab '{id}' from selection; replaced it with a linked instance.");
+    }
+
+    /// <summary>Opens the Create-Empty-Prefab name modal (PF-D — the Prefabs shelf menu): confirm runs
+    /// <see cref="CreateEmptyPrefab"/> (collision-refused).</summary>
+    private void OpenCreateEmptyPrefabDialog() =>
+        Dialog.OpenCreatePrefab("New Prefab", "prefab", PrefabNameExists, (id, s) => CreateEmptyPrefab(id, s));
+
+    /// <summary>Writes a minimal valid <c>.mdprefab</c> — <b>one empty root entity at origin</b> (satisfies
+    /// the one-root validation) — bundles it, then opens its tab to assemble from scratch (PF-D). Blocked
+    /// when the project is unresolved.</summary>
+    public void CreateEmptyPrefab(string id, GameState state)
+    {
+        if (string.IsNullOrEmpty(id)) return;
+        var target = PrefabFilePath(id);
+        if (string.IsNullOrEmpty(target))
+        {
+            Logger.Warning($"[level-editor] Create Empty Prefab '{id}' is blocked: no project root resolved.");
+            return;
+        }
+
+        SceneData prefabScene;
+        using (var tmp = new World())
+        {
+            var root = tmp.CreateEntity();
+            root.Set(new SceneObjectComponent());
+            root.Set(new TransformComponent(Vector2.Zero));
+            prefabScene = new PrefabWriter(new SceneWriter(Serializer, PrefabSource)).BuildPrefab(tmp, id, PrefabSource);
+        }
+
+        var savedPath = new SceneWriter(Serializer, PrefabSource).Save(prefabScene, target!);
+        if (savedPath == null) return;
+        EnsurePrefabBundled(id);
+        Logger.Info($"[level-editor] Created empty prefab '{id}' at '{savedPath}'.");
+
+        OpenPrefabTab(id, state); // resolves the just-written prefab source-first + opens its tab
+    }
+
+    /// <summary>Unpacks the selected prefab instance (PF-D — the entity menu's Unpack): pushes an undoable
+    /// <see cref="UnpackPrefabCommand"/> (drop the marker; undo re-links). Loud no-op when the selection is
+    /// not an instance root, or while Playing.</summary>
+    public void UnpackSelection(GameState state)
+    {
+        if (state.RunMode != RunMode.Edit)
+        {
+            Logger.Warning("[level-editor] Unpack Prefab: pause first (editing is inert while Playing).");
+            return;
+        }
+        if (!TryGetSelectedRoot(out var root) || !root.Has<PrefabInstanceComponent>())
+        {
+            Logger.Warning("[level-editor] Unpack Prefab: the selection is not a prefab instance.");
+            return;
+        }
+        var prefabId = root.Get<PrefabInstanceComponent>().PrefabId;
+        History.Push(new UnpackPrefabCommand(root));
+        Logger.Info($"[level-editor] Unpacked prefab instance '{prefabId}' — its subtree is now ordinary scene entities.");
+    }
+
+    /// <summary>Requests deleting a prefab file (PF-D — the card's Delete): <b>refuses loud</b> if the open
+    /// scene has instances of it (never delete a prefab in use), else opens the destructive confirm whose
+    /// Delete runs <see cref="DeletePrefabFile"/>.</summary>
+    public void RequestDeletePrefab(string prefabId, GameState state)
+    {
+        if (string.IsNullOrEmpty(prefabId)) return;
+        if (OpenSceneHasInstancesOf(prefabId))
+        {
+            Logger.Warning(
+                $"[level-editor] Delete Prefab '{prefabId}' refused: the open scene has instance(s) of it. " +
+                "Unpack or remove them first.");
+            return;
+        }
+        Dialog.OpenConfirmDelete(
+            $"Delete prefab {prefabId}? This removes the {prefabId}{PrefabWriter.PrefabFileExtension} file.",
+            _ => DeletePrefabFile(prefabId));
+    }
+
+    /// <summary>Deletes the prefab's source <c>.mdprefab</c> (desktop-editor-only file IO, like the scene
+    /// listing). Not undoable (a file delete — the design's stance). The confirm + the instances-exist
+    /// refusal gate it upstream.</summary>
+    private void DeletePrefabFile(string prefabId)
+    {
+        var target = PrefabFilePath(prefabId);
+        if (string.IsNullOrEmpty(target) || !PlatformServices.Current.FileExists(target!))
+        {
+            Logger.Warning($"[level-editor] Delete Prefab '{prefabId}': no source file to delete.");
+            return;
+        }
+        try
+        {
+            File.Delete(target!);
+            Logger.Info($"[level-editor] Deleted prefab '{prefabId}' ('{target}'). Its MGCB /copy: entry (if any) is now dangling.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"[level-editor] Delete Prefab '{prefabId}' failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Zero-touch prefab bundling (PF-D): appends the MGCB <c>/copy:./Prefabs/&lt;id&gt;.mdprefab</c>
+    /// entry on the first Save of a new prefab id (idempotent), exactly like a new level bundles. Desktop-
+    /// editor-only, gated on a resolved project root.</summary>
+    private void EnsurePrefabBundled(string prefabId)
+    {
+        if (_projectContext is not { Resolved: true, ProjectRoot: { } root }) return;
+        var mgcbPath = Path.Combine(root, MgcbLevelBundle.McgbFileName);
+        if (!PlatformServices.Current.FileExists(mgcbPath))
+        {
+            Logger.Warning(
+                $"[level-editor] Zero-touch prefab bundling skipped: no {MgcbLevelBundle.McgbFileName} at " +
+                $"'{mgcbPath}'. Add '{MgcbLevelBundle.PrefabCopyLine(prefabId)}' by hand.");
+            return;
+        }
+        var updated = MgcbLevelBundle.EnsurePrefabCopyEntry(
+            PlatformServices.Current.ReadAllText(mgcbPath), prefabId, out var changed);
+        if (!changed) return;
+        PlatformServices.Current.WriteAllText(mgcbPath, updated);
+        Logger.Info(
+            $"[level-editor] Bundled new prefab '{prefabId}': appended '{MgcbLevelBundle.PrefabCopyLine(prefabId)}'.");
     }
 
     private bool InSelectTransform() =>
@@ -1283,6 +1710,27 @@ public sealed class EditorOverlay
             case EditorToolbarAction.ToolScale: SetGizmoTool(GizmoTool.Scale); break;
             case EditorToolbarAction.ToggleSnap: ToggleGizmoSnap(); break;
             case EditorToolbarAction.Save:
+                // PF-D: in a PREFAB context, Save opens the Save-Prefab dialog (writes the .mdprefab). The
+                // GameMode block cause can't apply here (a prefab tab is not the Game tab); Playing can't
+                // either (Play is disabled in a prefab tab), but guard both defensively + NoProjectRoot.
+                if (Transport.ActiveContextKind == ViewportContextKind.Prefab)
+                {
+                    var prefabBlock = SaveBlock(state, _projectContext, Transport.ActiveContextKind);
+                    if (prefabBlock == SaveBlockReason.NoProjectRoot)
+                    {
+                        Logger.Warning(
+                            "[level-editor] Save Prefab is blocked: no project root resolved (no " +
+                            $"{GameProject.FileName} found). Set {EditorProjectContext.ProjectRootVariable}.");
+                        return;
+                    }
+                    if (prefabBlock == SaveBlockReason.Playing)
+                    {
+                        Logger.Warning("[level-editor] Save Prefab is blocked while Playing — pause first.");
+                        return;
+                    }
+                    Dialog.OpenSavePrefab(Transport.ContextStack.Active.Id, SavePrefabCurrent);
+                    break;
+                }
                 // Open the Save dialog (name the scene, then confirm) rather than writing immediately.
                 // Preserve the loud gate: when Save is blocked there is nothing to name, so log the
                 // actionable cause and do NOT open (the toolbar already dims/deactivates the button for
@@ -1589,6 +2037,8 @@ public sealed class EditorOverlay
         const string tabPrefix = "tab:";
         const string modalPrefix = "modal:";
         const string inspectorPrefix = "inspector:";
+        const string prefabsPrefix = "prefabs:"; // must be tested BEFORE prefabPrefix
+        const string prefabPrefix = "prefab:";
         const string overlayPrefix = ViewportOverlayOps.OpPrefix;
 
         if (name.StartsWith(modalPrefix, StringComparison.OrdinalIgnoreCase))
@@ -1600,6 +2050,23 @@ public sealed class EditorOverlay
         if (name.StartsWith(inspectorPrefix, StringComparison.OrdinalIgnoreCase))
         {
             DispatchInspectorOp(name.Substring(inspectorPrefix.Length), name, state);
+            return;
+        }
+
+        if (name.StartsWith(prefabsPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // prefabs:list — log the prefab shelf's ids (headless twin of the Prefabs tab listing).
+            var verb = name.Substring(prefabsPrefix.Length).Trim();
+            if (string.Equals(verb, "list", StringComparison.OrdinalIgnoreCase))
+                Logger.Info($"[level-editor] Prefabs: [{string.Join(", ", ListPrefabIds())}]");
+            else
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected prefabs:list.");
+            return;
+        }
+
+        if (name.StartsWith(prefabPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            DispatchPrefabOp(name.Substring(prefabPrefix.Length), name, state);
             return;
         }
 
@@ -1962,6 +2429,34 @@ public sealed class EditorOverlay
                 Logger.Warning(
                     $"[level-editor] Editor-op '{name}': expected tab:scene | tab:game | tab:close <id> " +
                     "(or the mode:scene / mode:game aliases).");
+                break;
+        }
+    }
+
+    /// <summary>The <c>prefab:*</c> ops (PF-D — the headless twin of the prefab UX): <c>prefab:edit &lt;id&gt;</c>
+    /// opens its tab; <c>prefab:place &lt;id&gt;</c> stamps a linked instance at the cursor (one undoable
+    /// command); <c>prefab:unpack</c> unpacks the selected instance; <c>prefab:delete &lt;id&gt;</c> routes
+    /// the delete (instances-exist refusal + confirm); <c>prefab:create-from-selection &lt;name&gt;</c> and
+    /// <c>prefab:create-empty &lt;name&gt;</c> run those flows directly with the given (sanitized) name,
+    /// bypassing the name modal. All drive the SAME shared instances the menus/dialogs do.</summary>
+    private void DispatchPrefabOp(string rest, string name, GameState state)
+    {
+        rest = rest.Trim();
+        var space = rest.IndexOf(' ');
+        var verb = (space < 0 ? rest : rest.Substring(0, space)).Trim().ToLowerInvariant();
+        var arg = space < 0 ? string.Empty : rest.Substring(space + 1).Trim();
+        switch (verb)
+        {
+            case "edit": OpenPrefabTab(arg, state); break;
+            case "place": PlacePrefabInstance(arg, CursorWorldPoint()); break;
+            case "unpack": UnpackSelection(state); break;
+            case "delete": RequestDeletePrefab(arg, state); break;
+            case "create-from-selection": CreatePrefabFromSelection(EditorTextField.Sanitize(arg), state); break;
+            case "create-empty": CreateEmptyPrefab(EditorTextField.Sanitize(arg), state); break;
+            default:
+                Logger.Warning(
+                    $"[level-editor] Editor-op '{name}': expected prefab:edit <id> | place <id> | unpack | " +
+                    "delete <id> | create-from-selection <name> | create-empty <name>.");
                 break;
         }
     }

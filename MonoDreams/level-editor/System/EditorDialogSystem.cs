@@ -45,6 +45,11 @@ public enum EditorDialogMode
     /// Save Project / Backup) — the prefab-context flavour of the Save dialog. Confirm writes the
     /// <c>.mdprefab</c> through the overlay's validated writer + propagation.</summary>
     SavePrefab,
+
+    /// <summary>A destructive confirm (PF-D — the prefab-card Delete): a message + a primary [Delete]
+    /// (<c>Danger</c>) + [Cancel]. Confirm runs the delete callback (a prefab file delete). Reuses the
+    /// two-button name-modal machinery (no field).</summary>
+    ConfirmDelete,
 }
 
 /// <summary>
@@ -121,6 +126,10 @@ public sealed class EditorDialogSystem : ISystem<GameState>
     // Save-Prefab state (PF-D): the write callback + the prefab id, set per-open (the active context's id).
     private Action<GameState>? _onSavePrefab;
     private string _savePrefabId = string.Empty;
+
+    // Confirm-delete state (PF-D): the delete callback + the message, set per-open.
+    private Action<GameState>? _onConfirmDelete;
+    private string _confirmDeleteMessage = string.Empty;
 
     private static readonly Vector2 ParkPosition = new(-100000f, -100000f);
 
@@ -260,6 +269,28 @@ public sealed class EditorDialogSystem : ISystem<GameState>
         _onSavePrefab = onSavePrefab ?? throw new ArgumentNullException(nameof(onSavePrefab));
         _prevKeys = _getKeyboardState();
         _mode = EditorDialogMode.SavePrefab;
+    }
+
+    /// <summary>Opens a destructive confirm (PF-D — the prefab-card Delete): shows <paramref name="message"/>
+    /// with a primary [Delete] (<c>Danger</c>) + [Cancel]; confirming runs <paramref name="onDelete"/> (a
+    /// file delete). Reuses the two-button name-modal machinery; Escape/Cancel aborts.</summary>
+    public void OpenConfirmDelete(string message, Action<GameState> onDelete)
+    {
+        EnsureBuilt();
+        _confirmDeleteMessage = message ?? string.Empty;
+        _onConfirmDelete = onDelete ?? throw new ArgumentNullException(nameof(onDelete));
+        _prevKeys = _getKeyboardState();
+        _mode = EditorDialogMode.ConfirmDelete;
+    }
+
+    /// <summary>Confirms the destructive delete (PF-D, <c>dialog:confirm</c> / Enter / the Delete button):
+    /// closes, then runs the delete callback. No-op outside <see cref="EditorDialogMode.ConfirmDelete"/>.</summary>
+    public void ConfirmDelete(GameState state)
+    {
+        if (_mode != EditorDialogMode.ConfirmDelete) return;
+        var action = _onConfirmDelete;
+        Close();
+        action?.Invoke(state);
     }
 
     /// <summary>Opens the Create-Empty-Scene modal (UX2-D §4): a name field prefilled <c>untitled</c>
@@ -437,6 +468,9 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             case EditorDialogMode.SavePrefab:
                 SavePrefab(state);
                 return;
+            case EditorDialogMode.ConfirmDelete:
+                ConfirmDelete(state);
+                return;
         }
     }
 
@@ -468,16 +502,18 @@ public sealed class EditorDialogSystem : ISystem<GameState>
             return;
         }
 
-        if (_mode is EditorDialogMode.CreateScene or EditorDialogMode.CreatePrefab or EditorDialogMode.SavePrefab)
+        if (_mode is EditorDialogMode.CreateScene or EditorDialogMode.CreatePrefab
+            or EditorDialogMode.SavePrefab or EditorDialogMode.ConfirmDelete)
         {
-            // The three name-ish modals share the keyboard (Enter/Esc + field typing) and the two-button
-            // (primary + Cancel) mouse hit-test; they differ only in the layout (title / field / labels)
-            // and the confirm routing (Confirm() dispatches by mode). SavePrefab's field typing is inert
-            // (its field is parked), so reusing the keyboard is harmless.
+            // These modals share the keyboard (Enter/Esc + field typing) and the two-button (primary +
+            // Cancel) mouse hit-test; they differ only in the layout (title / field / labels) and the
+            // confirm routing (Confirm() dispatches by mode). The field-less modes park the field, so
+            // reusing the field-typing keyboard is harmless.
             ReadCreateSceneKeyboard(state);
             HandleCreateSceneMouseAndConsume(state, scale);
             if (_mode == EditorDialogMode.None) { ParkAll(); return; }
             if (_mode == EditorDialogMode.SavePrefab) LayoutSavePrefab(state, scale);
+            else if (_mode == EditorDialogMode.ConfirmDelete) LayoutConfirmDelete(state, scale);
             else LayoutCreateScene(state, scale);
             return;
         }
@@ -840,6 +876,42 @@ public sealed class EditorDialogSystem : ISystem<GameState>
 
         // Park the other modes' chrome.
         Park(_message);
+        ParkBox(_discardBox); Park(_discardLabel);
+        for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
+        {
+            ParkBox(_actionBox[i]); Park(_actionTitle[i]); Park(_actionSub[i]);
+        }
+    }
+
+    /// <summary>Lays out the destructive confirm (PF-D — the prefab-card Delete): backdrop + panel + title
+    /// + a message line + [Delete] (Danger) [Cancel]; parks the field + every Save-only control. Reuses the
+    /// Create-scene panel geometry.</summary>
+    private void LayoutConfirmDelete(GameState state, float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var panel = EditorDialogLayout.CreateScenePanel(w, h, scale);
+
+        PlaceBox(_backdrop, EditorDialogLayout.Backdrop(w, h));
+        PlaceBox(_panel, panel);
+        PlaceLabel(_title, EditorDialogLayout.Title(panel, scale), "Delete Prefab", EditorTheme.Text0, scale);
+
+        var field = EditorDialogLayout.CreateSceneField(panel, scale);
+        ParkBox(_fieldBox); Park(_fieldText);
+        PlaceLabel(_message, EditorDialogLayout.FieldText(field, scale), _confirmDeleteMessage, EditorTheme.Warning, scale);
+
+        var del = EditorDialogLayout.BackupConfirmButton(panel, scale);
+        PlaceBox(_confirmBox, del);
+        SetBoxOutline(_confirmBox, EditorTheme.Danger);
+        SetBoxFill(_confirmBox, DialogButtonFill(ref _confirmHover, 3, disabled: false, state.Time));
+        PlaceLabel(_confirmLabel, LabelInset(del, scale), "Delete", EditorTheme.Danger, scale);
+
+        var cancel = EditorDialogLayout.SaveCancelButton(panel, scale);
+        PlaceBox(_cancelBox, cancel);
+        SetBoxFill(_cancelBox, DialogButtonFill(ref _cancelHover, 4, disabled: false, state.Time));
+        PlaceLabel(_cancelLabel, LabelInset(cancel, scale), "Cancel", EditorTheme.Text0, scale);
+
+        // Park the other modes' chrome.
         ParkBox(_discardBox); Park(_discardLabel);
         for (var i = 0; i < EditorDialogLayout.SaveActionCount; i++)
         {
