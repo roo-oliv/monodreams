@@ -25,9 +25,12 @@
 > (canonical, byte-stable scene serialization + a persisted stable scene-local id
 > ordering `entities[]`), and the **UX2 phase** invariants (UX2-B left tabs + right
 > Inspector + region headers; UX2-C procedural icon buttons + tooltips; UX2-D context
-> menus; UX2-E the camera-rig view/authored split; and **UX2-F** the Scene/Game-mode
+> menus; UX2-E the camera-rig view/authored split; **UX2-F** the Scene/Game-mode
 > sandbox — snapshot on enter, reader-shared restore on exit, Save blocked in Game
-> mode, one-owner transport). No premise here ships `Tests: none yet`.
+> mode, one-owner transport; and **UX3-D** the viewport Overlays menu — checkable
+> (Toggle) menu items, the session overlay settings, the one-value grid = snap step,
+> the bounded grid renderer, and the Game-mode overlay hide). No premise here ships
+> `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -1689,11 +1692,25 @@ acting on the current selection (its items disabled when nothing is selected). O
 headless-testable; the Create-Empty-Scene modal is driven by the existing `dialog:name|confirm|cancel`
 grammar (its confirm routes to `ConfirmCreateScene`).
 
+**Checkable items — the Overlays dropdown (UX3-D).** The model gains a `Kind = Toggle` item with a
+`Checked` state, rendered with a small check box in the row's left gutter (theme roles: `Text1` outline,
+`Success` fill when on) BEFORE the label, so labels stay aligned across checkable and plain rows. A
+Toggle click dispatches its `Path` but does **not** close the menu — Blender's flip-several-overlays-in
+-one-open — then the system re-derives the model through an optional `rebuild` hook passed to
+`OpenAt`/`OpenBelow`, so the check flips in place; an `Action` item still closes on click. This is the
+SAME one-model/two-anchors/modality primitive, now with toggles, and it hosts the fifth surface: the
+Scene-header **Overlays** dropdown (`EditorToolbarAction.Overlays`, the two-overlapping-circles icon),
+whose model is `EditorContextMenuModel.OverlaysMenu` (a Grid toggle, a Grid Spacing ▸ submenu of preset
+Action items whose current value is `Checked`, an Outline Selected toggle, a Camera toggle). Its item
+paths route through `ViewportOverlayOps` (see the viewport-overlays premise). `FindByPath` matches Toggle
+leaves too, so `menu:pick overlay/grid` toggles headlessly.
+
 **Why:** the design's §4 — a single data-driven popup that serves the viewport right-click, both panel
-right-clicks, and the discoverable header dropdown, without four bespoke widgets (the no-duplicate-ways
-tenet); modal capture is required or a stray viewport click/keystroke leaks to the tools behind it (most
-dangerously Escape quitting the game). One model + two anchors keeps the context menu and the header
-dropdown provably identical.
+right-clicks, and the discoverable header dropdowns (Entity + Overlays), without bespoke widgets (the
+no-duplicate-ways tenet); modal capture is required or a stray viewport click/keystroke leaks to the
+tools behind it (most dangerously Escape quitting the game). One model + anchors keeps the context menu
+and the header dropdowns provably identical. Toggle-without-close matches Blender (a designer flips grid
++ outline + camera in one open); the rebuild hook keeps the rendered check honest.
 **Breaks:** a menu that does not consume the pointer lets its item-click also select/place behind it; a
 menu that opens while the dialog is open (or during a splitter drag) fights it for the pointer; not
 ORing `Menu.IsOpen` into `ShouldSuppressInput` makes Escape quit the game instead of closing the menu;
@@ -1705,7 +1722,11 @@ open/close, `Pick` dispatches a submenu leaf + closes, disabled-pick no-op, `isB
 item-click dispatches + consumes the cursor, click-away closes, Escape closes, hover opens a submenu then
 item-click dispatches; the menu→command wiring — Order nudges the selected sprite, Delete is the
 snapshotting command + undo restores; `AddEmptyEntity`; the Create-Empty-Scene dialog collision refusal +
-accept + empty-name + the canonical empty-world write); `MonoDreams.Tests/LevelEditor/SelectionTests.cs`
+accept + empty-name + the canonical empty-world write; the UX3-D toggle menu —
+`OverlaysMenu_HasGridToggle_SpacingSubmenu_OutlineToggle_CameraToggle`,
+`ToggleItem_Click_DispatchesWithoutClosing_AndRefreshesTheCheckInPlace`,
+`Pick_SpacingPresetAction_SetsTheSharedStep_AndCloses`, `CheckRect_SitsInTheLeftGutter_BeforeTheLabel`);
+`MonoDreams.Tests/LevelEditor/SelectionTests.cs`
 (the viewport right-click); `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs`
 (`RightClickInThePanel_RaisesTheContextMenuRequest_AndMapsTheRowEntity`).
 **Depends on:** this file — "Viewport presses belong to exactly one tool family" (the right-click
@@ -1716,6 +1737,66 @@ recipe), "Game screens declare their bound scene … switching IS selecting" (th
 Empty Scene reuses), "Scene serialization is canonical and byte-stable …" (the empty scene's bytes); cursor
 — "Button press/release edges derive from CursorInputSystem's own previous-state" (why an item's release-edge
 action survives the menu's own consume).
+
+## Viewport overlays are session settings; the grid IS the snap grid, bounded, and hidden in Game mode
+
+The editor's viewport overlays — the world reference grid, the selection outline, and the camera-rig
+frustum glyph — are toggled by a per-session `ViewportOverlaySettingsComponent` on a standalone
+editor-state entity (`EditorInfrastructureComponent`-tagged, so it survives a transport Restart):
+`ShowGrid` (default **off** — preserves the current look), `OutlineSelected` (default **on**),
+`ShowCameraGlyph` (default **on**). It is deliberately **not** registered on the component-serializer
+registry — **session-scoped v1**; per-project persistence (writing these into the project manifest) is
+named terrain. The Scene-header **Overlays** dropdown (`EditorToolbarAction.Overlays`) and the ops
+`overlay:grid|outline|camera on|off` + `overlay:spacing <n>` drive the SAME settings through the pure
+`ViewportOverlayOps` (op channel + menu-path channel, one application each).
+
+**One grid quantum — spacing IS the snap step.** There is **no separate grid-spacing field**: the grid
+spacing is `GizmoStateComponent.GridStep` (the gizmo snap step). `EditorGrid` reads it, and BOTH the
+`overlay:spacing` op AND the menu's 8/16/32/64 presets WRITE it — so the displayed grid is always the
+grid things snap to, in both directions (change spacing via the menu → the gizmo snaps at the new step;
+change the snap step elsewhere → the grid follows). A second copy would let the overlay lie about where
+things snap.
+
+**The grid is bounded and gated.** `EditorGrid` bakes world-space lines at `GridStep` across the visible
+world AABB through the SAME overlay path as the gizmo/glyph (screen-baked on the native `Editor` target,
+viewport-clipped by `OverlayMeshClip`, identity `WorldMatrix`, **no** `VisibleComponent`), at the LOWEST
+overlay depth (`EditorTheme.Depths.Grid` = 0.01, beneath `ProxyOverlay`), every 5th line the stronger
+`GridMajor` role (else `GridMinor` — subtle warm darks, `Bg2..Border` on the ramp). The line count is
+**bounded** by the pure `GridGeometry` (pre-mortem #5): above ~200 minor lines/axis it degrades to
+major-only, above ~200 major lines/axis it draws nothing — a zoomed-out view over a small spacing can
+never allocate an unbounded mesh. The grid, the selection outline (`OutlineSelected` off → the outline
+emit is suppressed; the selection itself is unaffected), and the camera glyph (`ShowCameraGlyph` off →
+hidden; the view/rig divergence rule then applies only while on) are all **Edit-only**, and **all three
+are hidden while `ViewMode == Game`** — the sandbox looks like the game (Blender hides overlays in camera
+view). The gizmo/glyph gates are injected `Func<bool>` seams from the overlay (the systems stay
+game-agnostic); the grid emits from the draw-phase `EditorOverlayPrepSystem`, beneath the others.
+
+**Why:** the design §3 — Blender's per-viewport Overlays, adapted. The one-quantum rule is the load-bearing
+invariant: an overlay that draws a grid at a spacing DIFFERENT from the snap step misleads the designer
+about where a snapped drag lands. The bound keeps a pathological zoom from freezing the editor. The
+Game-mode hide keeps the sandbox faithful to the shipped view.
+**Breaks:** a second spacing value drifts from the snap step (the grid lies); an unbounded grid mesh at a
+zoomed-out view freezes/OOMs the editor; a `VisibleComponent` on the grid mesh pulls it into
+`MeshPrepSystem`, which overwrites the identity `WorldMatrix` its screen-baked vertices require; a grid
+(or outline, or glyph) left visible in Game mode breaks "the sandbox looks like the game"; a raw
+`Color`/XNA token in `EditorGrid` trips the palette lint (it takes the `GridMinor`/`GridMajor` roles).
+**Tests:** `MonoDreams.Tests/LevelEditor/GridGeometryTests.cs` (`Plan_EmitsLinesAtSpacing_OverTheVisibleRange`,
+`Plan_MajorLines_AreEveryFifth_AnchoredToTheOrigin`, `Plan_DegradesToMajorOnly_ThenToNothing_AsTheRangeGrows`,
+`Plan_LineCount_IsAlwaysBounded_RegardlessOfZoom`); `MonoDreams.Tests/LevelEditor/ViewportOverlayTests.cs`
+(`Settings_Defaults_GridOff_OutlineOn_CameraOn`; the `overlay:*` + menu-path ops; `Op_Spacing_WritesTheSharedGridStep_NoSecondCopy`
++ `Spacing_IsTheSnapStep_OneValue_BothDirections`; `Grid_BakesAnEditorTargetMesh_NoVisibleComponent_WhenOnAndInEdit`,
+`Grid_FollowsTheSharedGridStep_ChangingItViaTheOpReSpacesTheGrid`, `Grid_ClipsToTheGameViewport_UnderAnInset_DevicePixelDestination`,
+`Grid_HiddenInPlay_AndWhenTheGateIsFalse`, `Grid_PathologicalZoomOut_DegradesToNothing_NoUnboundedMesh`,
+`Grid_ModerateZoomOut_StaysBounded_MajorOnly`; `OutlineSelectedOff_SuppressesOnlyTheOutline_HandleStays_SelectionUnaffected`,
+`GameMode_HidesAllGizmoOverlays_TheSandboxLooksLikeTheGame`, `CameraGlyphGate_Off_HidesTheFrustum_EvenWhenTheViewDiffersFromTheRig`).
+**Depends on:** this file — "Editor context menus are a data-driven popup …" (the Toggle menu that drives
+these settings), "The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit" (the
+`GridStep` this shares as the ONE grid quantum), "The editor splits the free VIEW from the authored camera
+rig" (the glyph this gates), "Selection picks MAX final `LayerDepth` …" (the gizmo whose outline this
+gates), "The editor shell insets the game viewport …" (the `OverlayProjection` + `OverlayMeshClip` +
+`Editor` target + the depth stack), "Every level-editor color and depth is an `EditorTheme` role" (the
+`GridMinor`/`GridMajor` roles + `Depths.Grid` + the lint), "The Game-mode sandbox snapshots the scene …"
+(the `ViewMode == Game` hide); rendering — `LineMeshGenerator` + the mesh `DrawComponent` draw path.
 
 ## The palette hold-drag multi-stamps at arc-length spacing, coalesced into one undo step
 
