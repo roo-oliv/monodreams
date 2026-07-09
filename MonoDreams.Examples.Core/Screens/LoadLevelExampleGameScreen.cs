@@ -441,6 +441,30 @@ public class LoadLevelExampleGameScreen : IGameScreen
         entitySpawnSystem.RegisterEntityFactory("Wall", new WallEntityFactory(_content, _layers));
         entitySpawnSystem.RegisterEntityFactory("Player", new PlayerEntityFactory(_content, _layers));
         entitySpawnSystem.RegisterEntityFactory("Enemy", new NPCEntityFactory(_content, _layers));
+
+        // Prefab spawn channel (PF-C): "prefab:<id>" spawns a full linked instance through the ONE
+        // PrefabExpander. With the editor composed, reuse its expander (source-first resolution + the
+        // shared registry that already has the game serializers — see _editor.Registry.RegisterGameComponents
+        // above). Shipped (no editor): build a bundled-only (TitleContainer) expander over engine + game
+        // serializers so a shipped game can spawn prefabs via EntitySpawnRequest("prefab:<id>", pos) too.
+        if (_editor != null)
+        {
+            entitySpawnSystem.RegisterEntityFactoryPrefix(
+                MonoDreams.LevelEditor.EntityFactory.PrefabFactory.IdentifierPrefix, _editor.PrefabFactory);
+        }
+        else
+        {
+            var prefabRegistry = new ComponentSerializerRegistry();
+            prefabRegistry.RegisterEngineComponents();
+            prefabRegistry.RegisterGameComponents();
+            var prefabExpander = new PrefabExpander(
+                new SceneSerializer(prefabRegistry),
+                new PrefabFileSource(_content.RootDirectory, _projectContext).Resolve,
+                loadTexture: key => _content.Load<Texture2D>(key));
+            entitySpawnSystem.RegisterEntityFactoryPrefix(
+                MonoDreams.LevelEditor.EntityFactory.PrefabFactory.IdentifierPrefix,
+                new MonoDreams.LevelEditor.EntityFactory.PrefabFactory(prefabExpander));
+        }
         } // end if (_importMode)
 
         // Hierarchy system must run AFTER logic systems modify transforms

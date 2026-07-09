@@ -16,6 +16,7 @@ using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.EntityFactory;
 using MonoDreams.LevelEditor.Input;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
@@ -209,12 +210,25 @@ public sealed class EditorOverlay
         // whether or not this screen shows a palette); textures load lazily, and a missing file
         // shows the magenta placeholder instead of an invisible sprite.
         AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
+
+        // Prefab resolution (PF-C): source-first via the project context in-editor, else bundled via
+        // TitleContainer. The ONE PrefabExpander is shared by the scene reader (below — so a scene with
+        // linked instances expands on load), the PrefabFactory (exposed for the screen's spawn
+        // registration + the "prefab:<id>" channel), and live propagation on prefab-save (PF-D). The
+        // prefab source also feeds the SceneWriters below so an instance root compacts to
+        // { prefab + Transform + overrides } on Save.
+        PrefabSource = new PrefabFileSource(content?.RootDirectory ?? "Content", projectContext).Resolve;
+        PrefabExpander = new PrefabExpander(Serializer, PrefabSource,
+            loadTexture: content != null ? key => content.Load<Texture2D>(key) : null,
+            fileTextureLoader: AssetTextures.Load);
+        PrefabFactory = new PrefabFactory(PrefabExpander);
+
         // The rig seam (applyCameraToRig) makes THIS reader the editor path: scene.camera → the rig, and
         // the live VIEW auto-frames the content. (A shipped reader with no seam applies scene.camera to
-        // the live camera directly — see SceneReaderSystem.)
+        // the live camera directly — see SceneReaderSystem.) The prefab expander expands linked instances.
         _sceneReaderSystem = new SceneReaderSystem(world, Serializer, content,
             fileTextureLoader: AssetTextures.Load, camera: camera,
-            applyCameraToRig: _cameraRig.SyncFromScene);
+            applyCameraToRig: _cameraRig.SyncFromScene, prefabExpander: PrefabExpander);
         SceneReader = _sceneReaderSystem;
 
         // UX2-F: wire the transport's Game-mode sandbox seams to the SHARED instances (Transport was
@@ -223,7 +237,7 @@ public sealed class EditorOverlay
         // the SAME reader pipeline as a file load (re-tag / rehydrate / DrawComponent / rig re-sync —
         // pre-mortem #2, the reader is the ONE restore path); the view capture/restore is the live VIEW
         // (Camera) state; and Game-mode entry adopts the game-camera view (the rig).
-        Transport.CaptureSnapshot = () => new SceneWriter(Serializer).BuildScene(world, _cameraRig.AsCamera(), layers);
+        Transport.CaptureSnapshot = () => new SceneWriter(Serializer, PrefabSource).BuildScene(world, _cameraRig.AsCamera(), layers);
         Transport.RestoreSnapshot = snapshot => world.Publish(new LoadSceneRequest(snapshot));
         Transport.CaptureView = () => new CameraViewSnapshot(camera.Position, camera.Zoom, camera.Rotation);
         Transport.RestoreView = view =>
@@ -473,6 +487,20 @@ public sealed class EditorOverlay
 
     /// <summary>The scene serializer every save/load/undo-snapshot path shares.</summary>
     public SceneSerializer Serializer { get; }
+
+    /// <summary>The prefab resolver (<c>id → <see cref="PrefabData"/></c>): source-first in-editor, else
+    /// bundled via <c>TitleContainer</c>. Shared by the reader, the writer (instance compaction), the
+    /// <see cref="PrefabExpander"/>, and the <see cref="PrefabFactory"/>.</summary>
+    public Func<string, PrefabData?> PrefabSource { get; }
+
+    /// <summary>The ONE prefab-expansion implementation — the reader expands linked instances through it,
+    /// and the <see cref="PrefabFactory"/> + live propagation reuse it.</summary>
+    public PrefabExpander PrefabExpander { get; }
+
+    /// <summary>The prefab spawn factory for the <c>"prefab:&lt;id&gt;"</c> channel — the screen registers
+    /// it on its <c>EntitySpawnSystem</c> (<c>RegisterEntityFactoryPrefix(PrefabFactory.IdentifierPrefix, …)</c>)
+    /// so game code spawns any prefab via <c>EntitySpawnRequest("prefab:&lt;id&gt;", pos)</c>.</summary>
+    public PrefabFactory PrefabFactory { get; }
 
     /// <summary>The single bounded undo/redo history (never construct a second one).</summary>
     public EditorHistory History { get; }
@@ -1058,7 +1086,7 @@ public sealed class EditorOverlay
         // entities[]) with the current camera + the screen's layers — the canonical bytes for an empty
         // world — and write them through the shared serializer/writer.
         using var emptyWorld = new World();
-        var writer = new SceneWriter(Serializer);
+        var writer = new SceneWriter(Serializer, PrefabSource);
         var scene = writer.BuildScene(emptyWorld, _cameraRig.AsCamera(), _layers);
         var savedPath = writer.Save(scene, target);
         if (savedPath == null) return;
@@ -1197,7 +1225,7 @@ public sealed class EditorOverlay
             return;
         }
 
-        var writer = new SceneWriter(Serializer);
+        var writer = new SceneWriter(Serializer, PrefabSource);
         var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
         WarnIfNotShipReady(scene);
         var savedPath = writer.Save(scene, target);
@@ -1362,7 +1390,7 @@ public sealed class EditorOverlay
             Logger.Info($"[level-editor] Overwriting existing scene '{_sceneId}' at '{target}'.");
 
         // Build once so the ship-readiness lint (PS6) can inspect the exact scene being written.
-        var writer = new SceneWriter(Serializer);
+        var writer = new SceneWriter(Serializer, PrefabSource);
         var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
         WarnIfNotShipReady(scene);
         var savedPath = writer.Save(scene, target);
