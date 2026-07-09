@@ -42,7 +42,7 @@ public static class EditorIcons
         Move, Rotate, Scale, Boundary, Snap,
         Play, Pause, Restart,
         Save, Undo, Redo, Refresh,
-        Camera,
+        Camera, Overlays,
     }
 
     /// <summary>The fraction of the smaller button dimension the glyph square occupies (centered) — the
@@ -81,6 +81,7 @@ public static class EditorIcons
         EditorToolbarAction.Redo => EditorIcon.Redo,
         EditorToolbarAction.RefreshCatalog => EditorIcon.Refresh,
         EditorToolbarAction.CameraView => EditorIcon.Camera,
+        EditorToolbarAction.Overlays => EditorIcon.Overlays,
         _ => null,
     };
 
@@ -128,6 +129,7 @@ public static class EditorIcons
             case EditorIcon.Undo: AngularArrow(pen); break;        // ↶
             case EditorIcon.Redo: pen.Mirror = true; AngularArrow(pen); break;     // ↷ = the mirror
             case EditorIcon.Camera: Camera(pen); break;
+            case EditorIcon.Overlays: Overlays(pen); break;
             default: throw new ArgumentOutOfRangeException(nameof(icon), icon, "Unknown editor icon.");
         }
         return pen.ToMesh();
@@ -228,6 +230,16 @@ public static class EditorIcons
         p.Line(0.42f, 0.26f, 0.42f, bt);
         // Lens / tape cone: apex on the body's right edge (vertical centre), base on the far right.
         p.Tri(br, bodyMidV, 0.88f, 0.42f, 0.88f, 0.66f);
+    }
+
+    /// <summary>Overlays — two overlapping circle outlines (Blender's per-viewport "Overlays" glyph, a
+    /// Venn pair): a left circle and a right circle of equal radius whose discs overlap in the middle.
+    /// Two outline strokes, no fill, so it reads as "layers of overlay" at ~16pt.</summary>
+    private static void Overlays(Pen p)
+    {
+        const float r = 0.22f, cy = 0.5f;
+        p.Arc(0.40f, cy, r, 0f, 360f, 20); // left circle
+        p.Arc(0.60f, cy, r, 0f, 360f, 20); // right circle
     }
 
     /// <summary>Play ▶ — a filled right-pointing triangle.</summary>

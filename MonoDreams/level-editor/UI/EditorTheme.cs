@@ -108,6 +108,15 @@ public static class EditorTheme
     /// yellow selection / aqua boundary), so "the camera is over there" reads at a glance. A NEW role
     /// (no pre-theme value to preserve), authored here like every other overlay color.</summary>
     public static readonly Color CameraGlyph = new(158, 190, 228);
+    /// <summary>The world-space reference grid's MINOR lines (UX3-D §3) — a subtle warm dark that
+    /// reads under content (drawn beneath everything at <see cref="Depths.Grid"/>). Between
+    /// <see cref="Bg2"/> and <see cref="Bg3"/> on the warm-dark ramp: visible over a light level, quiet
+    /// over a dark one — the deliberate "subtle" tradeoff (documented, no pre-theme value to preserve).</summary>
+    public static readonly Color GridMinor = new(52, 50, 46);
+    /// <summary>The world-space reference grid's MAJOR (every-5th) lines (UX3-D §3) — the stronger
+    /// cadence line, near <see cref="Border"/> so it reads a step above <see cref="GridMinor"/> without
+    /// competing with content.</summary>
+    public static readonly Color GridMajor = new(84, 79, 72);
     /// <summary>A trigger zone's Edit-only outline (amber).</summary>
     public static readonly Color OverlayTrigger = new(255, 196, 64);
     /// <summary>The armed-trigger placement ghost (the trigger tint, dimmed). A sprite/overlay tint
@@ -150,6 +159,10 @@ public static class EditorTheme
     /// </summary>
     public static class Depths
     {
+        /// <summary>The world-space reference grid (UX3-D §3) — the LOWEST overlay band, beneath the
+        /// proxy/gizmo/glyph overlays and the opaque panels, so content and every other overlay draw
+        /// over it (it is the backdrop reference, not a foreground mark).</summary>
+        public const float Grid = 0.01f;
         /// <summary>Collider-proxy outlines — beneath the gizmo and the opaque panels.</summary>
         public const float ProxyOverlay = 0.02f;
         /// <summary>The camera-rig frustum glyph (UX2-E) — above the proxy outlines, below the gizmo

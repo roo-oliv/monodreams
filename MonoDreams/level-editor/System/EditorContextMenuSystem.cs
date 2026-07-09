@@ -66,6 +66,9 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
 
     private bool _open;
     private IReadOnlyList<EditorMenuItem> _items = Array.Empty<EditorMenuItem>();
+    // Optional re-derivation of the model (UX3-D): a Toggle click flips a setting then refreshes the
+    // items in place (so its check flips) WITHOUT closing. Null for menus with no toggles.
+    private Func<IReadOnlyList<EditorMenuItem>>? _rebuild;
     private Point _anchor;
     private int _openSubmenuIndex = -1; // the expanded submenu-parent item index, or -1
     private int _hoverMain = -1;
@@ -114,13 +117,18 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     // ─── public API (openers, headless ops, tests) ───────────────────────────────────────────────
 
     /// <summary>Opens the menu <paramref name="items"/> at <paramref name="anchorScreen"/> (device
-    /// pixels — a cursor position); the layout clamps it to the window.</summary>
-    public void OpenAt(IReadOnlyList<EditorMenuItem> items, Point anchorScreen)
+    /// pixels — a cursor position); the layout clamps it to the window. <paramref name="rebuild"/>
+    /// (UX3-D) re-derives the model after a <see cref="EditorMenuItemKind.Toggle"/> click so its check
+    /// flips in place while the menu stays open — pass it for a menu with toggles (the Overlays
+    /// dropdown), omit it for the action-only menus.</summary>
+    public void OpenAt(IReadOnlyList<EditorMenuItem> items, Point anchorScreen,
+        Func<IReadOnlyList<EditorMenuItem>>? rebuild = null)
     {
         if (items == null || items.Count == 0) return;
         if (_isBlocked?.Invoke() == true) return; // dialog open / drag owns the pointer → menus never open
         EnsureBuilt();
         _items = items;
+        _rebuild = rebuild;
         _anchor = anchorScreen;
         _openSubmenuIndex = -1;
         _hoverMain = _hoverSub = -1;
@@ -129,9 +137,12 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     }
 
     /// <summary>Opens the menu <paramref name="items"/> anchored just BELOW a header button
-    /// <paramref name="buttonBounds"/> (its bottom-left) — the <c>Entity ▾</c> dropdown.</summary>
-    public void OpenBelow(IReadOnlyList<EditorMenuItem> items, Rectangle buttonBounds) =>
-        OpenAt(items, new Point(buttonBounds.Left, buttonBounds.Bottom));
+    /// <paramref name="buttonBounds"/> (its bottom-left) — the <c>Entity ▾</c> / <c>Overlays</c>
+    /// dropdown. <paramref name="rebuild"/> is the toggle-refresh hook (see
+    /// <see cref="OpenAt(IReadOnlyList{EditorMenuItem}, Point, Func{IReadOnlyList{EditorMenuItem}})"/>).</summary>
+    public void OpenBelow(IReadOnlyList<EditorMenuItem> items, Rectangle buttonBounds,
+        Func<IReadOnlyList<EditorMenuItem>>? rebuild = null) =>
+        OpenAt(items, new Point(buttonBounds.Left, buttonBounds.Bottom), rebuild);
 
     /// <summary>Picks the leaf item with action-id <paramref name="path"/> from the OPEN menu (searching
     /// submenus) and dispatches it — the headless <c>menu:pick &lt;path&gt;</c> op. A disabled or missing
@@ -157,6 +168,7 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     {
         _open = false;
         _openSubmenuIndex = -1;
+        _rebuild = null;
     }
 
     // ─── per-frame ────────────────────────────────────────────────────────────────────────────────
@@ -230,7 +242,8 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
                 else if (overMain >= 0)
                 {
                     var item = _items[overMain];
-                    if (item.Kind == EditorMenuItemKind.Action) DispatchItem(item, state);
+                    if (item.Kind is EditorMenuItemKind.Action or EditorMenuItemKind.Toggle)
+                        DispatchItem(item, state);
                     // submenu parent / separator click: no dispatch (submenu stays open on its parent)
                 }
                 else
@@ -258,15 +271,26 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
         return -1;
     }
 
-    /// <summary>Dispatches a leaf action item (enabled) and closes; a disabled item or a non-action is a
-    /// no-op that keeps the menu open. Closes BEFORE dispatching so an action that opens another modal
-    /// (Create Empty Scene → the dialog) lands cleanly.</summary>
+    /// <summary>Dispatches a leaf item (enabled). An <see cref="EditorMenuItemKind.Action"/> closes the
+    /// menu BEFORE dispatching so an action that opens another modal (Create Empty Scene → the dialog)
+    /// lands cleanly. A <see cref="EditorMenuItemKind.Toggle"/> (UX3-D) dispatches WITHOUT closing, then
+    /// re-derives the model (<see cref="_rebuild"/>) so its check flips in place — Blender's flip-several
+    /// -overlays-in-one-open. A disabled item or a non-leaf is a no-op that keeps the menu open.</summary>
     private void DispatchItem(EditorMenuItem item, GameState state)
     {
-        if (item.Kind != EditorMenuItemKind.Action || !item.Enabled) return;
-        var path = item.Path;
-        Close();
-        _dispatch(path, state);
+        if (!item.Enabled) return;
+        switch (item.Kind)
+        {
+            case EditorMenuItemKind.Action:
+                var path = item.Path;
+                Close();
+                _dispatch(path, state);
+                break;
+            case EditorMenuItemKind.Toggle:
+                _dispatch(item.Path, state);            // flip the setting…
+                if (_rebuild != null) _items = _rebuild(); // …then refresh the check in place (stay open)
+                break;
+        }
     }
 
     /// <summary>Clears the cursor's pointer edges + button level fields for this frame (the modal
@@ -323,7 +347,7 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
 
             if (item.Kind == EditorMenuItemKind.Separator)
             {
-                ParkBox(v.Fill); Park(v.Label); ClearMesh(v.Caret);
+                ParkBox(v.Fill); Park(v.Label); ClearMesh(v.Caret); ClearMesh(v.Check);
                 var line = EditorContextMenuLayout.SeparatorLine(rect, scale);
                 PlaceBox(v.Sep, line);
                 SetBoxFill(v.Sep, EditorTheme.Border);
@@ -359,7 +383,33 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
             {
                 ClearMesh(v.Caret);
             }
+
+            LayoutCheck(v.Check, item, rect, scale);
         }
+    }
+
+    /// <summary>Bakes the check-box mesh for a checkable row (UX3-D): a Toggle always shows a box (its
+    /// outline), filled when on; a radio-style checked Action shows a filled box (the current spacing
+    /// preset); every other row clears it. The box sits in the left gutter before the label.</summary>
+    private static void LayoutCheck(Entity check, EditorMenuItem item, Rectangle row, float scale)
+    {
+        var showBox = item.Kind == EditorMenuItemKind.Toggle || item.Checked;
+        if (!showBox) { ClearMesh(check); return; }
+
+        var box = EditorContextMenuLayout.CheckRect(row, scale);
+        var outline = item.Enabled ? EditorTheme.Text1 : EditorTheme.TextDisabled;
+        var thickness = MathF.Max(1f, scale);
+        var mesh = new CompositeMeshGenerator()
+            .Add(new RectangleOutlineMeshGenerator(box, thickness, outline));
+        if (item.Checked)
+        {
+            var inset = Math.Max(1, EditorContextMenuLayout.Px(2, scale));
+            var inner = new Rectangle(box.X + inset, box.Y + inset,
+                Math.Max(1, box.Width - inset * 2), Math.Max(1, box.Height - inset * 2));
+            var fill = item.Enabled ? EditorTheme.Success : EditorTheme.TextDisabled;
+            mesh.Add(new FilledRectangleMeshGenerator(inner, fill));
+        }
+        SetMesh(check, mesh.Generate());
     }
 
     // ─── entity construction (chrome: Editor target, no VisibleComponent) ────────────────────────────
@@ -382,6 +432,7 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
                 Sep = CreateBox(EditorTheme.Border, Color.Transparent, 0f, EditorTheme.Depths.MenuControl),
                 Label = CreateLabel(EditorTheme.Depths.MenuLabel),
                 Caret = CreateMesh(EditorTheme.Depths.MenuLabel),
+                Check = CreateMesh(EditorTheme.Depths.MenuLabel),
             });
     }
 
@@ -502,6 +553,7 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
         ParkBox(v.Sep);
         Park(v.Label);
         ClearMesh(v.Caret);
+        ClearMesh(v.Check);
     }
 
     private static void ParkBox(Entity e)
@@ -523,12 +575,14 @@ public sealed class EditorContextMenuSystem : ISystem<GameState>
     }
 
     /// <summary>One pooled item row's visuals (repurposed per open): a hover-fill box, a separator line
-    /// box, a label, and a submenu ▸ caret mesh. Parked (off-screen / emptied) when unused.</summary>
+    /// box, a label, a submenu ▸ caret mesh, and a check-box mesh (UX3-D — Toggle/radio rows). Parked
+    /// (off-screen / emptied) when unused.</summary>
     private sealed class MenuRowVisual
     {
         public Entity Fill;
         public Entity Sep;
         public Entity Label;
         public Entity Caret;
+        public Entity Check;
     }
 }

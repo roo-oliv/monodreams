@@ -115,6 +115,16 @@ public static class EditorContextMenuLayout
         return new Rectangle(right, item.Y + (item.Height - size) / 2, size, size);
     }
 
+    /// <summary>The small check-box square for a checkable row (UX3-D), in the left gutter BEFORE the
+    /// label (inside the <see cref="TextInsetX"/> inset, so labels stay aligned across checkable and
+    /// plain rows). A <see cref="EditorMenuItemKind.Toggle"/> draws its outline always (filled when on);
+    /// a checked radio Action fills it — see <c>EditorContextMenuSystem</c>.</summary>
+    public static Rectangle CheckRect(Rectangle item, float scale)
+    {
+        var size = Px(9, scale);
+        return new Rectangle(item.X + Px(2, scale), item.Y + (item.Height - size) / 2, size, size);
+    }
+
     /// <summary>The centred thin divider line rectangle inside a separator row.</summary>
     public static Rectangle SeparatorLine(Rectangle item, float scale)
     {

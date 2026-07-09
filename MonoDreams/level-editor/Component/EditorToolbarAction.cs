@@ -103,6 +103,13 @@ public enum EditorToolbarAction
     /// mode). A mode-toggle action — dispatches in BOTH transport states. Headless alias:
     /// <c>mode:game</c>. The overlay maps it to <c>EditorTransport.EnterGameMode</c>.</summary>
     ModeGame,
+
+    /// <summary>The Scene-panel header's <b>Overlays</b> dropdown button (UX3-D §3, the two-overlapping-
+    /// circles icon): opens the viewport-overlays menu anchored below it (Grid toggle, Grid Spacing ▸
+    /// presets, Outline Selected toggle, Camera toggle — Blender's per-viewport Overlays dropdown). An
+    /// editing action (Paused/Edit only). The overlay maps it to
+    /// <c>OpenContextMenu(OverlaysHeader)</c>.</summary>
+    Overlays,
 }
 
 /// <summary>Classification helpers over <see cref="EditorToolbarAction"/>.</summary>

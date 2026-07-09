@@ -1,5 +1,7 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace MonoDreams.LevelEditor.UI;
 
@@ -9,6 +11,12 @@ public enum EditorMenuItemKind
     /// <summary>A leaf action row: clicking it dispatches <see cref="EditorMenuItem.Path"/> and closes
     /// the menu.</summary>
     Action,
+
+    /// <summary>A checkable leaf row (UX3-D): clicking it dispatches <see cref="EditorMenuItem.Path"/>
+    /// but does NOT close the menu (Blender behavior — flip several overlays in one open); its
+    /// <see cref="EditorMenuItem.Checked"/> state renders a check box before the label and refreshes in
+    /// place after each toggle. Distinct from <see cref="Action"/> only in the no-close + the check.</summary>
+    Toggle,
 
     /// <summary>A thin horizontal divider (non-interactive).</summary>
     Separator,
@@ -45,6 +53,11 @@ public sealed class EditorMenuItem
 
     /// <summary>Whether the item is destructive (renders in the <c>Danger</c> role).</summary>
     public bool Danger { get; init; }
+
+    /// <summary>The checked state (UX3-D): for a <see cref="EditorMenuItemKind.Toggle"/> it is the on/off
+    /// of the setting (a filled vs empty check box); for a radio-style <see cref="EditorMenuItemKind.Action"/>
+    /// (e.g. the current grid-spacing preset) it marks the selected value. Ignored for other kinds.</summary>
+    public bool Checked { get; init; }
 
     /// <summary>The child items of a <see cref="EditorMenuItemKind.Submenu"/> parent (one level only);
     /// null otherwise.</summary>
@@ -117,6 +130,62 @@ public static class EditorContextMenuModel
         },
     };
 
+    /// <summary>
+    /// The viewport <b>Overlays</b> dropdown (UX3-D §3, opened below the header Overlays button) —
+    /// Blender's per-viewport Overlays menu, adapted: a <b>Grid</b> toggle, a <b>Grid Spacing ▸</b>
+    /// submenu of preset Action items (the current value <see cref="EditorMenuItem.Checked"/>), an
+    /// <b>Outline Selected</b> toggle, and a <b>Camera</b> toggle. The toggles carry the current settings
+    /// so the check boxes render on; rebuilt after each toggle so the check flips in place. The spacing
+    /// presets edit the SHARED grid quantum (<see cref="GizmoStateComponent.GridStep"/>), so the
+    /// displayed grid is the grid things snap to.
+    /// </summary>
+    public static IReadOnlyList<EditorMenuItem> OverlaysMenu(
+        bool showGrid, float gridSpacing, bool outlineSelected, bool showCameraGlyph) => new[]
+    {
+        new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Toggle, Label = "Grid",
+            Path = ViewportOverlayOps.GridTogglePath, Checked = showGrid,
+        },
+        GridSpacingSubmenu(gridSpacing),
+        new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Toggle, Label = "Outline Selected",
+            Path = ViewportOverlayOps.OutlineTogglePath, Checked = outlineSelected,
+        },
+        new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Toggle, Label = "Camera",
+            Path = ViewportOverlayOps.CameraTogglePath, Checked = showCameraGlyph,
+        },
+    };
+
+    /// <summary>The "Grid Spacing ▸" submenu (UX3-D): one Action item per preset in
+    /// <see cref="ViewportOverlayOps.SpacingPresets"/>; the item whose value matches the current shared
+    /// grid step is <see cref="EditorMenuItem.Checked"/>. Clicking one closes the menu (Action) and
+    /// writes the shared step.</summary>
+    private static EditorMenuItem GridSpacingSubmenu(float current)
+    {
+        var presets = ViewportOverlayOps.SpacingPresets;
+        var items = new EditorMenuItem[presets.Length];
+        for (var i = 0; i < presets.Length; i++)
+        {
+            var preset = presets[i];
+            items[i] = new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action,
+                Label = ((int)preset).ToString(CultureInfo.InvariantCulture),
+                Path = ViewportOverlayOps.SpacingPath(preset),
+                Checked = Math.Abs(current - preset) < 1e-3f,
+            };
+        }
+        return new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Submenu, Label = "Grid Spacing",
+            Path = ViewportOverlayOps.SpacingSubmenuPath, Submenu = items,
+        };
+    }
+
     /// <summary>Finds the leaf item with the given action-id <see cref="EditorMenuItem.Path"/> anywhere
     /// in the model (top level OR inside a submenu) — the <c>menu:pick &lt;path&gt;</c> lookup. Returns
     /// null when no such leaf exists.</summary>
@@ -124,7 +193,8 @@ public static class EditorContextMenuModel
     {
         foreach (var item in items)
         {
-            if (item.Kind == EditorMenuItemKind.Action && item.Path == path) return item;
+            if (item.Kind is EditorMenuItemKind.Action or EditorMenuItemKind.Toggle && item.Path == path)
+                return item;
             if (item.Submenu != null)
             {
                 var inner = FindByPath(item.Submenu, path);
