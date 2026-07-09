@@ -34,7 +34,10 @@
 > gated by a single viewport context, consolidating the editor keyboard bindings and removing the bare
 > `Z`/`Y` undo/redo; and **UX3-F** the Blender-style modal transforms — bare `G`/`S`/`R` enter a
 > coalesced-undo modal edit that owns the pointer + keyboard (axis locks, numeric entry, rig composition,
-> Escape priority), plus the window status bar (one thin strip in the ONE inset, a pure formatting model)).
+> Escape priority), plus the window status bar (one thin strip in the ONE inset, a pure formatting model)),
+> and the **PF-A** phase (the DevTools-grade editable Inspector — a filter field, type-colored member
+> values, inline value editing, and add/remove components through undoable commands, with the
+> keyboard-ownership + registry-driven-candidate + component-pairing guardrails).
 > No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
@@ -1220,7 +1223,11 @@ The **dedicated Inspector panel** (right) lists the selection's **attached compo
 its **member values** (guarded per-member so an arbitrary component never throws); no selection →
 "(no selection)". It has no in-body section header (the region's slim header IS the title). Because
 both panels read the world's single `SelectedComponent`, **selection is two-way ACROSS the panels**:
-a tree click in the LEFT panel updates the RIGHT Inspector the next frame.
+a tree click in the LEFT panel updates the RIGHT Inspector the next frame. **PF-A upgrades this
+Inspector into an editable Chrome-DevTools element/styles pane** — a filter field, type-colored member
+values, inline value editing, and add/remove components through undoable commands — see "The Inspector is
+editable, DevTools-style: filtered rows, type-colored values, and value/add/remove edits through undoable
+commands".
 
 **Ops grammar delta (UX2-B).** `panel:tab <entities|systems|scenes>` switches the left tab (the
 bottom shelf's `assets` tab op is unchanged); a **section op activates the tab that hosts its section
@@ -1231,7 +1238,9 @@ shown). **`panel:inspector` is REMOVED** — the Inspector dissolved into the st
 so there is no section to toggle. When rows overflow the body the panel draws a **slim scrollbar**
 (a `Border` track + a `BorderStrong` proportional thumb, draggable — see the shell-state premise;
 the left panel's own token is `LeftScrollbar`, the Inspector's is `RightScrollbar`), hidden when
-they fit.
+they fit. **PF-A adds the editable-Inspector ops** `inspector:filter <text>` / `inspector:edit
+<Component.Member> <value>` / `inspector:add <key>` / `inspector:remove <key>` (the editable-Inspector
+premise).
 
 **Why:** the UX2-B design (editor-shell-ui-ux §1–§2, the confirmed Unity-style arrangement): a
 left tab group + a dedicated right Inspector, each region owning its header, is the modularity that
@@ -1266,6 +1275,74 @@ panel renders the registrar tree …" (the Systems tab), "The editor shell inset
 (the strips + the Scene-header inset + chrome rules), "Selection picks MAX final `LayerDepth` …"
 (`SelectedComponent`); foundation — `ChildOfComponent` (the tree edges), `EntityInfoComponent` (row
 labels).
+
+## The Inspector is editable, DevTools-style: filtered rows, type-colored values, and value/add/remove edits through undoable commands (PF-A)
+
+The dedicated right-strip Inspector (`EditorPanelRole.RightInspector`) is an **editable** element/styles
+pane over ECS, modeled on Chrome DevTools. Its body leads with a **filter field**
+(`EditorPanelStateComponent.InspectorFilter`) that narrows component AND member rows by a
+case-insensitive substring on names+values (a component survives on a type-name match — showing all its
+members — or on any member match — showing the matching members); `Esc` clears + unfocuses. Each member
+value renders **type-colored** via `InspectorValue.Role`/`ForRole` — the documented mapping: numbers
+`Info`, strings `Warning`, `true` `Success` / `false` `Danger`, enums `Accent`, null/empty/unsupported
+`TextMuted` — for read-only AND editable rows. Clicking an **editable** member (a writable field/property
+of type `float`/`int`/`string`/`Vector2`/`bool`/enum) edits it: a `bool` toggles immediately, an enum
+cycles to the next member, and the rest open an inline field seeded with the current value; `Enter`
+commits, `Escape`/click-elsewhere cancels, and a parse failure keeps the field open shown in `Danger`.
+Every edit — value, add, remove — is exactly one undoable command on the SHARED `EditorHistory`
+(dirty-tracked): `MemberEditCommand` (reflection get → mutate → `Set` write-back, so a STRUCT component's
+edit sticks — pre-mortem #5), `AddComponentCommand`, and `RemoveComponentCommand` (snapshotting the
+removed value field-for-field). The trailing **+ Add component** row opens a **filterable command-palette
+popup** (`EditorContextMenuSystem.OpenFiltered`) whose candidates are the serializer registry's registered
+types (`ComponentSerializerRegistry.RegisteredComponents`) MINUS the types already on the entity MINUS
+structural (`ChildOfComponent`/`SceneEntityIdComponent`, `registry.IsStructural`) MINUS never-addable
+(`SpriteInfoComponent`/`BoundaryComponent` — authored by the palette / boundary tool). Guardrails:
+`TransformComponent` is not removable (its `×` refuses with a status hint); structural components render
+no `×`; adding/removing `SpriteInfoComponent` also adds/removes the paired transient `DrawComponent`, and
+undo restores BOTH (pre-mortem #6). **Keyboard ownership:** while the filter is focused or a member is
+being inline-edited, `EditorPanelSystem.OwnsKeyboard` is true — the composing screen ORs it into the host
+keyboard's `ShouldSuppressInput` and the shortcut gate ORs it into `ViewportShortcutContext` (a new
+`InspectorEditing` term) — so typing (`g`/`s`/`r`/Delete/a name) in a field never fires an editor chord or
+a game key. The whole surface is headless-drivable through `inspector:filter|edit|add|remove` ops
+(`edit <Component.Member> <value>`, the member being the LAST dotted segment so a `core.Transform.Position`
+key parses).
+
+**Decisions (documented):** `SpriteInfoComponent` is EXCLUDED from the Add candidate list — a sprite needs
+an asset, so it is placed via the palette (the `AddComponentCommand` still honors the pairing if a headless
+op force-adds it); the delete affordance is an inline `×` in the component row's right gutter (`Danger` on
+hover when deletable, `TextMuted` + refusing for `TransformComponent`); the inline field + the filter
+accept the constrained lowercase char set (letters/digits/`.`/`-`/`,`/space) shared with the dialog —
+arbitrary values arrive via the ops.
+
+**Why:** the design's Chrome-DevTools north star + the framework-not-library tenet — reflection over
+`ReadAllComponents` plus the serializer registry makes every serializable component inspectable/addable with
+no per-type UI code; routing every edit through the ONE history keeps undo/dirty coherent; the
+registry-driven candidate set is the honest "what can this scene persist".
+**Breaks:** a struct edit without the get-modify-`Set` write-back silently vanishes (pre-mortem #5);
+adding/removing `SpriteInfoComponent` without its paired `DrawComponent` returns the blank-sprite class of
+bug (pre-mortem #6); removing `TransformComponent` leaves an entity with no spatial component; a second
+history / edit path splits undo; typing in a field that leaked to the shortcut layer fires G/S/R/Delete
+mid-edit; offering a structural component in Add corrupts the entity's scene identity.
+**Tests:** `MonoDreams.Tests/LevelEditor/InspectorEditingTests.cs` (`MemberEditCommand` struct write-back +
+undo/redo + the class-component Vector2 property + the read-only refusal; the parse matrix incl. invariant
+culture + `Vector2` "x, y" + enum-by-name + the enum cycle; the type-color `Role`/`ForRole` mapping;
+`AddComponentCommand`/`RemoveComponentCommand` + the SpriteInfo⇔DrawComponent pairing BOTH ways incl. undo;
+the registry `RegisteredComponents`/`IsStructural`/`TypeForKey` accessor + `InspectorAddCandidates.Derive`;
+the default-initializer table; the `ViewportShortcutContext.InspectorEditing` gate);
+`EditorPanelModelTests.cs` (the filter row + optional add row; filter narrowing by component name / member
+name / member value, case-insensitive; member type-color + editability; the per-component delete
+affordance); `EditorPanelTests.cs` (click a bool → toggles, an enum → cycles, a value → an inline field +
+`Enter` commits + dirty + `Escape` cancels; the filter field focus + type + `Esc` clears + unfocuses;
+Transform-`×` refused while RigidBody-`×` removes + undo restores; the Add row raises the request +
+candidates exclude present/structural); `EditorContextMenuTests.cs` (the filterable popup narrows live +
+picks by path); `ComponentInspectorTests.cs` (the member type/editability/role enrichment).
+**Depends on:** this file — "The editor's panels: a LEFT tabbed panel …, a dedicated RIGHT Inspector …"
+(the panel this upgrades), "Bounded undo with drag-coalescing" (the history every edit pushes to), "The
+editor history tracks a dirty save-point signal" (the dirty bit each commit moves), "A loaded sprite entity
+carries a `DrawComponent` …" (the pairing rule the add/remove enforce), "The component-serializer registry
+is opt-in per type …" (the candidate source), "Editor context menus are a data-driven popup …" (the popup
+this makes filterable), "The editor's keyboard shortcuts are ONE chord table …" (the gate the field
+extends); foundation — the `ShouldSuppressInput` host-keyboard seam.
 
 ## The editor shell's region sizes, tabs, and drag ownership live in one shell-state component; splitters resize it and the inset derives from it
 
