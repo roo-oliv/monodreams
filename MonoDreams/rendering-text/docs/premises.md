@@ -25,26 +25,40 @@ and measure paths.
 **Tests:** none yet.
 **Depends on:** —
 
-## Static labels need `IsRevealed = true` and `VisibleCharacterCount` saturated
+## The reveal gate is scoped to revealing text
 
-For non-typewriter (static) labels, set `DynamicTextComponent.IsRevealed
-= true` and `VisibleCharacterCount = int.MaxValue` (or the text length).
-`TextUpdateSystem` early-exits when `IsRevealed` is true, but
-`TextPrepSystem` slices the text by `VisibleCharacterCount`; a
-default-constructed `DynamicTextComponent` has `VisibleCharacterCount =
-0`, so the label renders empty even though `Font` and `TextContent`
-are set.
+`TextPrepSystem` slices `TextContent` by `VisibleCharacterCount` **only when a reveal is
+configured** (`DynamicTextComponent.RevealingSpeed > 0` — the typewriter animation
+`TextUpdateSystem` advances). **Static (non-revealing, `RevealingSpeed ≤ 0`) text renders its
+FULL `TextContent` regardless of the count**; only genuinely empty/null content renders nothing.
+A revealing text whose reveal has not started (count ≤ 0) still renders nothing. The decision is
+the pure, font-free `TextPrepSystem.TryGetVisibleText(revealingSpeed, visibleCharacterCount,
+textContent, out visibleText)`. A static label therefore no longer needs `IsRevealed = true` or a
+saturated `VisibleCharacterCount` to be visible — a bare
+`new DynamicTextComponent { Font = …, TextContent = "Hello" }` renders in full (setting
+`IsRevealed = true` merely short-circuits `TextUpdateSystem`'s per-frame work).
 
-**Why:** the same component models both static labels and animated
-reveal text. The convention "static = already revealed, saturated
-counter" lets one component handle both modes without a discriminator
-field. `LevelSelectionScreen.cs` is the canonical pattern.
-**Breaks:** the missed-`VisibleCharacterCount` bug — dev creates
-`new DynamicTextComponent { Font = ..., TextContent = "Hello" }` and
-stares at an invisible label. Symmetric with the missing-`Visible`
-bug in `rendering`.
-**Tests:** none yet.
-**Depends on:** —
+**Why:** the healer `TextUpdateSystem` (which saturates the count to the full length for
+non-revealing text) is woven in the game-logic group, which is **`Freeze`-gated in `Edit`** — so
+in the level editor a pooled/reassigned chrome label (panel rows, inspector rows, tooltips) kept a
+STALE `VisibleCharacterCount` and rendered truncated ("Dialogu", "Enti") or, when created empty,
+blank; entering Play un-froze the healer and healed the counts, so the bug was intermittent.
+Scoping the gate to revealing text makes a static label independent of the count, so it renders
+correctly whether or not the healer ran — the fix is at the framework level, not per-label. The
+same component still models both static labels and animated reveal text without a discriminator
+field; `RevealingSpeed` IS the discriminator.
+**Breaks:** re-applying the count gate to non-revealing text reintroduces the blank/truncated
+editor-chrome bug (UX2-G). Conversely, dropping the count gate for revealing text
+(`RevealingSpeed > 0`) makes a dialogue line appear all-at-once instead of typing in. A site that
+hid a NON-revealing label by setting `VisibleCharacterCount = 0` while keeping `TextContent` no
+longer hides it — hide such a label by clearing `TextContent` or parking it off-screen instead
+(`PalettePlacementSystem` parks off-screen; the old count-0 hides were removed with this fix).
+**Tests:** `MonoDreams.Tests/Rendering/TextPrepSystemTests.cs` (static stale-low-count renders full;
+static count-0 non-empty renders full — the blank-tooltip case; revealing mid-reveal respects the
+count; revealing not-started renders nothing; count-beyond-length clamps; empty/null renders
+nothing).
+**Depends on:** foundation — the run-state model (`TextUpdateSystem` is `Freeze`-gated in `Edit`);
+this file — "Text pipeline order: `TextUpdateSystem` → `TextPrepSystem` → `MasterRenderSystem`".
 
 ## Text pipeline order: `TextUpdateSystem` → `TextPrepSystem` → `MasterRenderSystem`
 
@@ -65,6 +79,11 @@ transforms are final.
 last frame's `VisibleCharacterCount` — the reveal animation lags by
 one frame. Skipping `TextUpdateSystem` entirely means the count
 never advances and animated reveal text stays at zero characters.
+Note that this pipeline dependency is now scoped to **revealing** text:
+non-revealing (static) text does not depend on `TextUpdateSystem` at
+all — `TextPrepSystem` renders its full content regardless of the count
+(see "The reveal gate is scoped to revealing text"), so freezing the
+healer in the editor affects only animated reveal text.
 **Tests:** none yet.
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
@@ -168,7 +187,6 @@ of the text.
 The following premises currently have **Tests: none yet**:
 
 - Text uses `BitmapFont`, not `SpriteFont`
-- Static labels need `IsRevealed = true` and `VisibleCharacterCount` saturated
 - Text pipeline order: `TextUpdateSystem` → `TextPrepSystem` → `MasterRenderSystem`
 - `TextPrepSystem` writes the world-transformed position
 - Multi-line text is laid out by the engine, not the font backend; `LineSpacing` sets leading

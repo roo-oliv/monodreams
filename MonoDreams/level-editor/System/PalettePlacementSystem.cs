@@ -999,7 +999,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             Color = EditorTheme.Text0,
             Scale = EditorChromeBuilder.LabelScale,
             IsRevealed = true,
-            VisibleCharacterCount = 0, // blanked while parked; the layout pass reveals it
+            // Static chrome label: full content renders regardless of the count (rendering-text — "The
+            // reveal gate is scoped to revealing text"); it is HIDDEN by being parked off-screen, not by
+            // the count. Created at ParkedPosition; PlaceLabel moves it on-screen, ParkButton parks it.
+            VisibleCharacterCount = int.MaxValue,
         });
         // NOTE: no VisibleComponent — chrome rule (see EditorChromeBuilder).
         return text;
@@ -1162,9 +1165,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private void ParkButton(Entity button, Entity label)
     {
         Park(button);
-        Park(label);
-        ref var text = ref label.Get<DynamicTextComponent>();
-        text.VisibleCharacterCount = 0; // parked labels render nothing (cheaper than re-prepping)
+        Park(label); // off-screen park hides the label — a static label renders full content regardless
+                     // of its count now (rendering-text — "The reveal gate is scoped to revealing text").
     }
 
     /// <summary>Places an asset card: the card body button, the icon thumbnail (top), the label
