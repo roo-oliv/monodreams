@@ -891,7 +891,10 @@ holds it. Invariants:
 - **Play / the Game tab** (PF-B, wired): entering Play, `CameraFollowSystem` (unfrozen) drives the shared `Camera`
   as today; spawning the Game tab sets `Camera := rig` (`SnapViewToRig`), reading the rig state this premise makes
   available — and Play from the Scene tab spawns the Game tab AND auto-plays. The rig glyph is scene-context-only
-  (`ActiveContextKind == Scene`) — the obvious PF-D seam (a prefab context has no rig). See "The viewport context stack …".
+  (`ActiveContextKind == Scene`). **PF-D (wired):** a prefab context has NO rig — the gate is four-fold: the glyph
+  (this rule), the "Camera" tree row (`EditorPanelSystem.MaterializeScene` skips the rig fold in a prefab context),
+  the reader's rig sync (`LoadSceneRequest.SuppressCameraRig` skips `ApplyCamera`'s rig seam), and the writer (a
+  prefab-context snapshot is camera-less + `PrefabWriter` nulls the camera). See "The prefab UX … (PF-D)".
 
 **Why:** the user's ask — "the camera visible when you're not in camera view", Blender's bounds + X glyph, a
 back-to-camera-view button — requires separating the free editor view from the authored game camera; today
@@ -1669,9 +1672,14 @@ Scene/Prefab tabs are edited Paused). The mechanism:
   `Transport.ConfirmDirtyClose`, wired in PF-D — never reached in PF-B); a **clean** one is **`CloseClean`**
   (close + return to the Scene tab). Restart is the ONLY path that discards the Scene, and it is the
   explicit "discard unsaved edits, reload from disk" contract, not a silent tab operation.
-- **Prefab-ready, none created.** The `Prefab` kind + the close/dirty plumbing exist so PF-D appends a
-  prefab tab by adding a `ViewportTabDescriptor` — the stack, the transport, and the strip need no change.
-  Nothing creates a `Prefab` context in PF-B.
+- **Prefab contexts (PF-D, wired).** `ViewportContextStack.OpenPrefab` pushes a closable, non-discard
+  `Prefab` context: it snapshots the active context, sweeps, and reader-restores the prefab's content with
+  the camera rig **suppressed** (the transient `RestoringPrefabContext` flag drives
+  `LoadSceneRequest.SuppressCameraRig` — a prefab has no rig, pre-mortem #8), clearing the history so the
+  fresh context is clean. One tab per prefab; `CaptureSnapshot` builds a **camera-less** scene for a
+  prefab context. `DecideClose` returns `ConfirmDirty` for a dirty prefab tab (the `Transport.CloseTab`
+  activates it first, then routes `ConfirmDirtyClose`); `CloseCleanContext` closes it (returning to the
+  Scene when it was active). Play is disabled in a prefab tab. See "The prefab UX … (PF-D)".
 
 **Why:** the user's ask — the Scene/Game toggle becomes tabs (Play spawns a Game tab), a real workflow
 toward prefab tabs — with the Unity sandbox model preserved (poke the running scene "just to test",
@@ -2268,7 +2276,12 @@ runtime `EditorShellStateComponent.BottomHeightPt` (the bottom splitter resizes 
 renders in the shelf **body below its "Assets" tab strip** (`EditorChromeLayout.RegionBody`); when
 the cards overflow, the palette draws the same slim `Border`/`BorderStrong` scrollbar as the right
 strip (draggable, sharing the shell drag token — the shell-state premise), and it stands down while
-any foreign splitter/scrollbar drag owns the pointer.
+any foreign splitter/scrollbar drag owns the pointer. **PF-D:** the shelf's tab strip is now
+interactive (`Assets | Prefabs`, OWNED by this system — the retired static tab left
+`EditorChromeBuilder`); the **Prefabs** tab lists `.mdprefab` cards (a prefab glyph + id) and reuses the
+SAME `Place`-mode arm/ghost/click machinery (mutually exclusive with an armed asset/trigger; the prefab
+ghost v1 is none — click-on-viewport). Each tab's chrome parks when the other is active. See "The prefab
+UX … (PF-D)".
 
 **Why:** the user's report that the palette assets "should be bigger, take a little more height … and
 be actual cards with the icon/preview on top and text on the bottom" — flat text rows are hard to
@@ -2333,6 +2346,14 @@ one-way session flag (set true on the first successful `LoadSceneRequest`): a de
 but on success it deliberately does **not** `MarkSavePoint` (the working scene is still dirty vs disk)
 and does not append the MGCB copy line (a backup is dangling); it then reloads the bound scene via
 Restart.
+
+**Prefab reconciliation (PF-D).** The empty-save guard is a SCENE guard — it does **not** apply to a
+Save Prefab. An empty prefab (its one root, nothing else — e.g. a just-created Create-Empty-Prefab being
+assembled) is **legal**: `EditorOverlay.SavePrefabCurrent` skips `EmptySaveRefused` entirely, and the
+only gate is `PrefabWriter.BuildPrefab`'s **one-root validation** (a zero-root world has no root to
+normalize and is refused; a multi-root world is refused loud). So "nothing to save" is a scene concept
+(a mis-bound screen blanking a level); a prefab always has its root, and assembling from an empty root is
+the intended flow. See "The prefab UX … (PF-D)".
 
 **Why:** the authoring-vs-runtime trap (island-authoring plan §9, pulled into Slice 1 because it
 is nearly free) AND the project-persistence trap (project-persistence plan §4): a mid-Play save
@@ -2529,7 +2550,13 @@ machinery** (opened by `OpenConfirmSwitch`; `dialog:confirm` = Save &amp; Switch
 Discard &amp; Switch, `dialog:cancel`; Enter = Confirm, Escape = Cancel): a plain "Unsaved changes in
 &lt;scene&gt;" confirm with no field, reusing the parked chrome + cursor consume + `editor.dialog` weave,
 so the switch-confirm modality can never leak a click to the tools behind it (pre-mortem #3). After the
-navigator's removal the system has exactly two live modes: `Save` and `ConfirmSwitch`.
+navigator's removal the system has these live modes: `Save`, `ConfirmSwitch`, `CreateScene`, and the
+**PF-D** additions — `SavePrefab` (a single primary [Save Prefab] + Cancel — the prefab-context Save,
+`dialog:prefab`, routing to `EditorOverlay.SavePrefabCurrent`), `CreatePrefab` (the name modal shared by
+Create-Prefab-from-Selection + Create-Empty-Prefab, collision-refused), and `ConfirmDelete` (the
+destructive prefab-card Delete confirm). `ConfirmSwitch` gained a **verb** so `OpenConfirmClose` renders
+"Save & Close / Discard & Close" for a dirty prefab tab's × (pre-mortem #9); the three name-ish modals
+share the keyboard + two-button mouse, differing only in layout + the mode-routed `Confirm`.
 
 **Why:** the project model re-founding (UX-C/UX-D) makes a file picker redundant — screens declare their
 scene, the Scenes panel lists them, and selecting one loads it — so Save need only *write*, and a
@@ -3198,6 +3225,133 @@ joins both), "The editor history tracks a dirty save-point signal" (the propagat
 level-loading — "`EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`" (the
 `prefab:` prefix channel), "Native `.mdscene` levels are bundled by an MGCB `/copy:` entry…" (the same
 mechanism prefabs join).
+
+## The prefab UX: a Prefabs shelf, prefab-context tabs, Save Prefab + propagation, and instance-children guardrails (PF-D)
+
+PF-D surfaces the PF-C prefab core (above) as the designer workflow, over the PF-A Inspector and PF-B
+viewport-context stack. Six moving parts, one mechanism each:
+
+- **The Prefabs shelf tab.** The bottom shelf's tab strip is now interactive (`Assets | Prefabs`,
+  OWNED by `PalettePlacementSystem` — the retired static tab left `EditorChromeBuilder`). The Prefabs
+  tab lists `Content/Prefabs/*.mdprefab` (source-first via the overlay's injected `ListPrefabIds`; an
+  unresolved project ⇒ an empty shelf + a message) as cards — an `EditorIcons.Prefab` glyph (a
+  box/package) + the id label; rendered thumbnails are terrain. A card click **arms placement** through
+  the SAME Place-mode machinery assets use (so there is ONE `Place`-mode owner, ONE ghost, ONE
+  placement click); asset/trigger/prefab arming is mutually exclusive. **The prefab ghost v1 is NONE**
+  (placement is click-on-viewport, the trigger precedent — the placed instance auto-selects, showing
+  where it landed; a live root-sprite ghost is terrain). A viewport click stamps a **linked instance**
+  at the snapped cursor through the overlay's undoable `PlacePrefabInstance` → a `CreateInstanceCommand`
+  (delete-undo disposes the whole instance subtree, nothing dangles; redo re-instantiates through the
+  ONE `PrefabExpander`). Card right-click → `PrefabCardMenu` (**Edit Prefab** / **Delete**,
+  id-suffixed paths); double-click → Edit; empty-shelf right-click → `PrefabShelfMenu`
+  (**Create Empty Prefab…**). **Delete** refuses loud when the open scene (the live world's
+  `PrefabInstanceComponent` roots OR the backgrounded Scene snapshot's compact `prefab` entries) holds
+  an instance of it, else a destructive confirm → a source-file delete (not undoable — a file delete).
+
+- **Prefab-context tabs.** Opening a prefab pushes a `ViewportContextKind.Prefab` context onto the
+  stack (`EditorTransport.OpenPrefab` → `ViewportContextStack.OpenPrefab`): an empty world loaded with
+  the prefab's entities via the reader (source-first), auto-framed, its own scene-id (= the prefab id)
+  and its own dirty/save-point (the history is cleared on open). One tab per prefab (a second open just
+  activates it); multiple prefab tabs may coexist; switching between any tabs is the ONE stack
+  mechanism, and per-context dirty is isolated (each context's `WasDirty` is captured on leave and
+  reproduced on return). **Play is disabled in a prefab tab** (a prefab never plays, v1 — the transport
+  lands it Paused). **The × is dirty-gated** (pre-mortem #9): `DecideClose` returns `ConfirmDirty` for a
+  dirty prefab tab, and `Transport.CloseTab` activates the tab first, then routes
+  `ConfirmDirtyClose` → the dialog's **Save & Close / Discard / Cancel** confirm (Save & Close writes the
+  prefab then `CloseCleanContext`; Discard closes discarding edits; Cancel keeps it).
+
+- **No camera rig in a prefab context (pre-mortem #8).** A prefab is a class, not a scene — it has no
+  camera rig. The gate is FOUR-fold: (1) the rig **glyph** is `ActiveContextKind == Scene`-only (the
+  camera-rig premise); (2) the **"Camera" tree row** is folded in by `EditorPanelSystem.MaterializeScene`
+  only when the active context is not `Prefab`; (3) the reader's **rig sync is suppressed** — a
+  prefab-context load/restore carries `LoadSceneRequest.SuppressCameraRig` (set by the stack's transient
+  `RestoringPrefabContext` flag during the synchronous restore), so `SceneReaderSystem.ApplyCamera`
+  frames the free VIEW on the prefab content but NEVER calls the rig seam (a rig sync would corrupt the
+  SCENE's authored camera); (4) the prefab-context **snapshot captures a camera-less scene**
+  (`SceneWriter.BuildScene(world)` with no camera/layers) and `PrefabWriter.BuildPrefab` nulls any
+  camera — so **a prefab save emits no camera**.
+
+- **Save Prefab.** In a prefab context the Save button/`dialog:prefab` opens the **Save-Prefab** dialog
+  (a single primary [Save Prefab] + Cancel — a prefab is one file, no Save Project / Backup); the `Game`
+  block cause cannot apply (a prefab tab is not the Game tab), and it is gated only by Playing (can't
+  happen — Play is disabled) + `NoProjectRoot`. Confirm runs `EditorOverlay.SavePrefabCurrent`: the PF-C
+  validated `PrefabWriter.BuildPrefab` (one-root + origin-normalize + no camera + cycle-refuse — a
+  multi-root world / cycle is **refused loud**, keeping the dialog's intent), then bundle (zero-touch
+  MGCB `/copy:./Prefabs/<id>.mdprefab`), `MarkSavePoint`, and propagate. **The empty-save guard does NOT
+  apply to a prefab save** — an empty prefab (its one root, nothing else) is LEGAL while assembling; the
+  one-root validation is the only gate (see the empty-save premise's prefab reconciliation).
+
+- **Propagation on save (the chosen mechanism).** `SavePrefabCurrent` re-expands live-world instances
+  via `PrefabPropagation.ReExpand` (the history-clear rule applies to the LIVE world only — but the live
+  world in a prefab tab is the PREFAB world, which never self-instances, so 0 are rebuilt and the history
+  stays clean). A **backgrounded SCENE context needs NO eager action**: its snapshot is COMPACT (holds
+  `prefab` entries, not expanded children — the writer stopped the closure at each instance root), so the
+  scene's **next restore re-expands through the reader reading the just-saved prefab source-first** — the
+  overrides (diffed against the old prefab at snapshot time) apply over the NEW root. This is why "the
+  scene picks up the new prefab on return" for free; a stale-marking mechanism would be redundant.
+
+- **Creation flows.** **Create Prefab from Selection…** (entity menu + Entity header, scene context):
+  a name modal (sanitized, collision-refused) → capture the single-root selection's subtree into a
+  temp world → `PrefabWriter.BuildPrefab` (origin-normalized; a prefab-owned child or an
+  already-an-instance selection is refused loud) → write + bundle → **replace the selection with a
+  linked instance preserving world position** as ONE undoable composite (`DeleteEntityCommand` +
+  `CreateInstanceCommand`); undo restores the original entities and removes the instance, and **the FILE
+  stays** (written before the composite, never touched by undo). **Create Empty Prefab…** (Prefabs shelf
+  menu): a name modal → a minimal one-root `.mdprefab` (one empty root at origin — satisfies one-root
+  validation) → bundle → open its tab.
+
+- **Unpack** (entity menu on an instance root, `Danger`): `UnpackPrefabCommand` drops the
+  `PrefabInstanceComponent` marker, keeping every live entity as an ordinary scene entity (its children
+  become closure-serialized again); undo re-links (restores the compact serialization). No dispose — the
+  root handle is stable across the toggle.
+
+- **Instance-children guardrails.** Children of an instance are selectable but **not editable** in a
+  scene: every mutation path — gizmo drag, modal G/S/R, delete, collider add/remove, order nudge, and
+  Inspector edit/add/remove — consults the ONE shared predicate `PrefabGuards.IsPrefabOwned` (a strict
+  `ChildOf` descendant of a `PrefabInstanceComponent` root) and refuses with the shared loud hint
+  (`PrefabGuards.Refusal` — a `Logger.Warning` IS the status hint; there is no toast channel). The
+  instance **ROOT stays fully editable** (it carries the marker, so it is NOT "owned" — its Transform is
+  always instance-owned, other component edits become overrides via the diff), and deleting the ROOT is
+  legal (the whole instance goes, snapshot-undoable). Placing a prefab instance INSIDE a prefab tab is
+  v1-refused with a hint (nested-prefab authoring is terrain — the core recursion exists but is not
+  surfaced).
+
+**Ops.** `prefabs:list`; `prefab:edit <id>` (open the tab), `prefab:place <id>` (one-shot place at the
+cursor), `prefab:unpack`, `prefab:delete <id>`, `prefab:create-from-selection <name>`,
+`prefab:create-empty <name>`; `dialog:prefab` (the Save-Prefab confirm rides the dialog grammar);
+`panel:tab prefabs` switches the shelf. The status bar's right side reads `prefab: <id>` (+ the system's
+dirty `●`) in a prefab context.
+
+**Why:** PF-D is the user's actual goal — build NPCs / dialogue zones / the Player as prefabs, place
+them, edit them, and see edits propagate. Reusing ONE Place-mode owner / ONE expander / ONE stack / ONE
+dialog machinery / ONE guard predicate keeps the surface from forking (the no-duplicate-ways tenet). The
+no-rig gate keeps a prefab a class (no camera). The compact-snapshot propagation mechanism is correct
+for free — the reader IS propagation.
+**Breaks:** a rig materializing in a prefab tab serializes a camera into the `.mdprefab` (format
+violation) or corrupts the scene's authored camera; an empty-save guard on a prefab blocks assembling a
+new one; an editable instance child desyncs from the prefab silently (Godot's editable-children trap);
+a create-from-selection that did not preserve the file on undo loses the extraction; a second Place-mode
+owner fights the palette; deleting a prefab with live instances strands them.
+**Tests:** `MonoDreams.Tests/LevelEditor/PrefabUxTests.cs` (the `IsPrefabOwned` matrix + a system-level
+Modal refusal; `CreateInstanceCommand` place/undo/redo; `UnpackPrefabCommand`; the create-from-selection
+composite + file-stays; one-root empty-legal + multi-root-refused; the background-scene re-expansion
+mechanism; the reader `SuppressCameraRig` gate; the status-bar text);
+`MonoDreams.Tests/LevelEditor/ViewportContextStackTests.cs` (`OpenPrefab*`, rig-suppressed restore, one
+tab per prefab, per-context dirty isolation, `DecideClose`→`ConfirmDirty`, `CloseCleanContext`);
+`MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs` (`PrefabShelf_ArmPrefab_ThenViewportClick…`);
+`MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (the extended entity menu + `PrefabCardMenu` /
+`PrefabShelfMenu`).
+**Depends on:** this file — "Prefabs are LINKED instances … (PF-C)" (the core this exposes: the
+expander, the diff-based compaction, `PrefabPropagation`, the bundling), "The viewport context stack is
+the ONE tab-switching mechanism … (PF-B)" (prefab contexts are its new consumer), "The editor splits the
+free VIEW from the authored camera rig" (the four-fold no-rig gate), "The editor's Save dialog is a modal
+three-action chooser …" (the Save-Prefab + confirm modes on the same machinery), "The palette lists
+assets as cards …" (the Prefabs tab mirrors it), "Save is blocked while Playing, while the Game tab is
+active, or when no project root is resolved" (Save Prefab reuses the guard, minus the Game cause), "The
+Inspector is editable, DevTools-style … (PF-A)" (works as-is in a prefab context, guardrail-gated on
+children), "Editor-overlay entities are standalone; delete snapshots the disposed sub-graph" (the
+instance-subtree dispose on unstamp/undo), "The editor history tracks a dirty save-point signal"
+(per-context dirty + the save point).
 
 ## See also
 
