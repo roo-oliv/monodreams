@@ -46,8 +46,7 @@ public class ColliderActionTests
         registry.RegisterEngineComponents();
         var history = new EditorHistory(world);
         var commands = new EditorCommandSystem(
-            world, history, new SceneSerializer(registry),
-            deleteRequested: _ => false, undoRequested: _ => false, redoRequested: _ => false);
+            world, history, new SceneSerializer(registry));
         return (commands, history);
     }
 

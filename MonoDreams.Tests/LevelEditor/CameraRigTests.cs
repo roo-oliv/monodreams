@@ -515,8 +515,7 @@ public class CameraRigTests
         rig.Entity.Set(new SelectedComponent());
 
         using var commands = new EditorCommandSystem(
-            world, history, new SceneSerializer(NewEngineRegistry()),
-            deleteRequested: _ => false, undoRequested: _ => false, redoRequested: _ => false, layers: null);
+            world, history, new SceneSerializer(NewEngineRegistry()), layers: null);
 
         commands.DeleteSelection(Edit());
 

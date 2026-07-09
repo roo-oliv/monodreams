@@ -14,10 +14,13 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
-/// Edit-time camera navigation: <b>pan</b> (middle-mouse drag), <b>zoom</b> (scroll wheel), and
-/// <b>frame-scene</b> (a key edge centres + fits the camera on all renderable content). This is the
-/// system that makes off-origin levels reachable — without it the editor camera is pinned and a level
-/// whose content sits at, say, ~(1275,-530) is simply off-screen.
+/// Edit-time camera navigation: <b>pan</b> (middle-mouse drag) and <b>zoom</b> (scroll wheel). The
+/// <b>frame-scene</b> action — centre + zoom-fit on all renderable content — is the public
+/// <see cref="FrameScene"/> method, TRIGGERED by the editor-shortcut table (Home) or the
+/// <c>view:frame</c> op, not a keyboard predicate on this system (UX3-E consolidated the editor
+/// keyboard bindings into <c>EditorShortcuts</c>). This is the system that makes off-origin levels
+/// reachable — without it the editor camera is pinned and a level whose content sits at, say,
+/// ~(1275,-530) is simply off-screen.
 ///
 /// <para><b>Edit-guarded, registered RunNormally.</b> Like the other editor systems it is pre-registered
 /// in both modes but no-ops in <see cref="RunMode.Play"/> (in Play the camera follows the player via
@@ -45,7 +48,6 @@ public sealed class CameraNavSystem : ISystem<GameState>
 
     private readonly World _world;
     private readonly MonoDreams.Component.Camera _camera;
-    private readonly Func<GameState, bool> _frameRequested;
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _contentSet;
     private readonly float _zoomStep;
@@ -59,12 +61,10 @@ public sealed class CameraNavSystem : ISystem<GameState>
     public bool IsEnabled { get; set; } = true;
 
     public CameraNavSystem(World world, MonoDreams.Component.Camera camera,
-        Func<GameState, bool> frameRequested,
         float zoomStep = DefaultZoomStep, float minZoom = DefaultMinZoom, float maxZoom = DefaultMaxZoom)
     {
         _world = world;
         _camera = camera;
-        _frameRequested = frameRequested ?? throw new ArgumentNullException(nameof(frameRequested));
         _zoomStep = zoomStep;
         _minZoom = minZoom;
         _maxZoom = maxZoom;
@@ -84,9 +84,6 @@ public sealed class CameraNavSystem : ISystem<GameState>
             _panning = false;
             return;
         }
-
-        // Frame-scene is independent of the cursor (a key edge), so handle it even if there's no cursor.
-        if (_frameRequested(state)) FrameScene();
 
         if (!TryGetCursor(out var cursor)) { _panning = false; return; }
 
@@ -141,9 +138,11 @@ public sealed class CameraNavSystem : ISystem<GameState>
     /// <summary>
     /// Centres (and zoom-fits) the camera on the AABB of all renderable content. No content → no-op
     /// (the camera is left exactly where it was). This is the "jump to the level" affordance for
-    /// off-origin levels.
+    /// off-origin levels. Public because the trigger lives in the editor-shortcut table (Home) and the
+    /// <c>view:frame</c> op, both of which gate on Edit before calling it (this method does not
+    /// re-check the run mode — call it only in Edit).
     /// </summary>
-    private void FrameScene()
+    public void FrameScene()
     {
         var bounds = ComputeContentBounds();
         if (bounds is not { } aabb) return; // no content: do nothing (leave the camera untouched)

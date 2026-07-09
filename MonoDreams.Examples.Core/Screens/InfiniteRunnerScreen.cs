@@ -325,15 +325,10 @@ public class InfiniteRunnerScreen : IGameScreen
             ["Orb"] = InputState.Orb, ["Exit"] = InputState.Exit,
             ["Interact"] = InputState.Interact,
         };
-        if (_editorEnabled)
-        {
-            // Editor replay-action names, mapped only when the overlay is composed so a plain
-            // Play screen's replay surface is unchanged.
-            actionMap["Delete"] = InputState.Delete;
-            actionMap["Undo"] = InputState.Undo;
-            actionMap["Redo"] = InputState.Redo;
-            actionMap["Frame"] = InputState.Frame;
-        }
+        // Delete / Undo / Redo / Frame are chord shortcuts (EditorShortcuts, UX3-E), not replay actions:
+        // input replay synthesizes AInputState actions, not raw chords, so chord-driven editing is
+        // exercised through the editor op channel, never replay (the chord replay caveat). This screen
+        // has no editor tool keys of its own, so the action map gains nothing under the flag.
 
         // The editor overlay (Wave 8a), built over THIS screen's world/camera/layers. The runner
         // has no cursor pipeline (keyboard-only game), so the overlay provides its own
@@ -345,11 +340,9 @@ public class InfiniteRunnerScreen : IGameScreen
             _editor = new EditorOverlay(
                 _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
-                new EditorInputBindings(
-                    deleteRequested: _ => InputState.Delete.JustPressed(),
-                    undoRequested: _ => InputState.Undo.JustPressed(),
-                    redoRequested: _ => InputState.Redo.JustPressed(),
-                    frameRequested: _ => InputState.Frame.JustPressed()),
+                // Delete / frame / undo / redo are the EditorShortcuts chord table (UX3-E), read off the
+                // raw keyboard — no game-supplied bindings needed here (this screen has no tool keys).
+                new EditorInputBindings(),
                 debugDir,
                 requestExit: _game.Exit,
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
@@ -396,6 +389,8 @@ public class InfiniteRunnerScreen : IGameScreen
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
             // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
             p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
         }
         // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
         // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every

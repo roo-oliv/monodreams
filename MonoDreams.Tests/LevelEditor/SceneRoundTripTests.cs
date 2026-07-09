@@ -483,7 +483,6 @@ public class SceneRoundTripTests
             var history = new MonoDreams.LevelEditor.Undo.EditorHistory(world);
             using var commands = new MonoDreams.LevelEditor.System.EditorCommandSystem(
                 world, history, serializer,
-                deleteRequested: _ => false, undoRequested: _ => false, redoRequested: _ => false,
                 layers: layers);
             var edit = new GameState(new GameTime()) { RunMode = RunMode.Edit };
 

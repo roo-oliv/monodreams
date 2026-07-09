@@ -19,12 +19,19 @@ namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
 /// The applying system for the editor command/undo machinery: in <see cref="RunMode.Edit"/> it
-/// translates the designer's intent — delete the selection / undo / redo (predicates the editor
-/// screen wires to input edges) and, since island-authoring Slice 2, the toolbar's
-/// <b>selection-edit actions</b> (bring forward / send back, add/remove collider, add vertex) —
+/// translates the designer's intent — the within-band ordering nudges (bring forward / send back,
+/// optionally on PageUp/PageDown), plus the toolbar/menu <b>selection-edit actions</b> (add/remove
+/// collider, add vertex) and the public <see cref="DeleteSelection"/> / <see cref="AddEmptyEntity"/> —
 /// into operations on the <see cref="EditorHistory"/>. ECS purity: the commands are data +
 /// apply/revert (see <see cref="IEditorCommand"/>); this system only sequences them — it holds no
 /// mutation logic of its own.
+///
+/// <para><b>Delete / undo / redo are keyboard-driven by <c>EditorShortcutSystem</c> (UX3-E), not here.</b>
+/// The editor keyboard bindings were consolidated into the ONE <c>EditorShortcuts</c> table, which calls
+/// <see cref="DeleteSelection"/> and the shared <c>EditorHistory.Undo/Redo</c> directly — so this system
+/// no longer reads delete/undo/redo input edges. Its <see cref="Update"/> handles only the optional
+/// order-nudge predicates; every other action is a public method the shortcut table / toolbar / context
+/// menu / headless ops call.</para>
 ///
 /// <para><b>Within-band ordering (plan §4.2).</b> <see cref="BringForward"/>/<see cref="SendBack"/>
 /// nudge the selection's SOURCE sort fields by <see cref="OrderStep"/>, clamped inside the band
@@ -73,9 +80,6 @@ public sealed class EditorCommandSystem : ISystem<GameState>
     private readonly Camera? _camera;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _proxySet;
-    private readonly Func<GameState, bool> _deleteRequested;
-    private readonly Func<GameState, bool> _undoRequested;
-    private readonly Func<GameState, bool> _redoRequested;
     private readonly Func<GameState, bool>? _orderForwardRequested;
     private readonly Func<GameState, bool>? _orderBackRequested;
 
@@ -85,7 +89,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
     /// actions clamp inside. Null (a composition without layers) makes the ordering actions loud
     /// no-ops.</param>
     /// <param name="orderForwardRequested">Optional keyboard nudge (e.g. PageUp) for
-    /// <see cref="BringForward"/>.</param>
+    /// <see cref="BringForward"/>. Delete/undo/redo are NOT here — they are keyboard-driven by
+    /// <c>EditorShortcutSystem</c> (UX3-E), which calls <see cref="DeleteSelection"/> and the shared
+    /// history directly.</param>
     /// <param name="orderBackRequested">Optional keyboard nudge (e.g. PageDown) for
     /// <see cref="SendBack"/>.</param>
     /// <param name="camera">The editor view camera — <see cref="AddEmptyEntity"/> positions a new empty
@@ -95,9 +101,6 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         World world,
         EditorHistory history,
         SceneSerializer serializer,
-        Func<GameState, bool> deleteRequested,
-        Func<GameState, bool> undoRequested,
-        Func<GameState, bool> redoRequested,
         DrawLayerMap? layers = null,
         Func<GameState, bool>? orderForwardRequested = null,
         Func<GameState, bool>? orderBackRequested = null,
@@ -110,9 +113,6 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         _camera = camera;
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _proxySet = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-        _deleteRequested = deleteRequested;
-        _undoRequested = undoRequested;
-        _redoRequested = redoRequested;
         _orderForwardRequested = orderForwardRequested;
         _orderBackRequested = orderBackRequested;
     }
@@ -122,12 +122,10 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         if (!IsEnabled) return;
         if (state.RunMode != RunMode.Edit) return; // Edit-guarded: inert in Play
 
-        if (_undoRequested(state)) _history.Undo();
-        if (_redoRequested(state)) _history.Redo();
+        // Delete / undo / redo are driven by EditorShortcutSystem (the consolidated shortcut table).
+        // This system's per-frame input surface is only the optional order-nudge predicates.
         if (_orderForwardRequested?.Invoke(state) == true) BringForward(state);
         if (_orderBackRequested?.Invoke(state) == true) SendBack(state);
-
-        if (_deleteRequested(state)) DeleteSelection(state);
     }
 
     // ---- Delete (proxy-aware) ----

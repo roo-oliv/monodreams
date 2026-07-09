@@ -330,11 +330,9 @@ public class LevelSelectionScreen : IGameScreen
             _editor = new EditorOverlay(
                 _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
-                new EditorInputBindings(
-                    deleteRequested: _ => InputState.Delete.JustPressed(),
-                    undoRequested: _ => InputState.Undo.JustPressed(),
-                    redoRequested: _ => InputState.Redo.JustPressed(),
-                    frameRequested: _ => InputState.Frame.JustPressed()),
+                // Delete / frame / undo / redo are the EditorShortcuts chord table (UX3-E), read off the
+                // raw keyboard — no game-supplied bindings needed here (this screen has no tool keys).
+                new EditorInputBindings(),
                 debugDir,
                 requestExit: _game.Exit,
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
@@ -357,8 +355,9 @@ public class LevelSelectionScreen : IGameScreen
         p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
-            // The menu runs no keyboard mapping of its own; the editor needs its key surface
-            // (Delete, Z/Y, Home) — composed only under the flag.
+            // The menu runs no game keyboard mapping of its own; the editor needs a key surface for
+            // its modal-suppression wiring (the editor global shortcuts are the raw-keyboard chord
+            // table now — UX3-E — not this mapping) — composed only under the flag.
             var editorKeys = new InputMappingSystem(_world);
             // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands
             // down while a Save/Load dialog owns the keys; the mouse half is the dialog consuming the
@@ -370,6 +369,8 @@ public class LevelSelectionScreen : IGameScreen
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
             // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
             p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
         }
         // The auto-layout solver is the menu's content placement (the level-parser analogue):
         // RunNormally, or booting straight into Edit would show an unlaid-out menu. Trade-off:

@@ -22,11 +22,8 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
         (InputState.Orb, Keys.RightShift),
         (InputState.Exit, Keys.Escape),
         (InputState.Interact, Keys.E),
-        // Editor controls (read by the editor overlay under the run flag; harmless in plain Play).
-        (InputState.Delete, Keys.Delete),
-        (InputState.Undo, Keys.Z),
-        (InputState.Redo, Keys.Y),
-        (InputState.Frame, Keys.Home),    // frame the editor camera on all content
+        // Editor global shortcuts (Delete / Home-frame / Z-undo / Y-redo) moved to the EditorShortcuts
+        // chord table (UX3-E) — read off the raw keyboard by EditorShortcutSystem, not mapped here.
         // Palette ghost-rotate (Edit-only). Q is free; E doubles as Interact — safe by mode (in
         // Edit the game's Interact is frozen; in Play the palette is inert), the Unity/Godot
         // rotate-before-place gesture.

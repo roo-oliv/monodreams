@@ -5,11 +5,20 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.Composition;
 
 /// <summary>
-/// The game-specific input surface the <see cref="EditorOverlay"/> needs: four just-pressed
-/// predicates over <see cref="GameState"/> (plus an optional tool-cancel — the palette's Escape). The overlay (and every editor system behind it) stays
-/// game-agnostic — it never references a game's input enum; the game's screen wires its own
-/// actions here (e.g. <c>_ =&gt; InputState.Delete.JustPressed()</c>). Pure data holder, per the
-/// same pattern as <c>EditorCommandSystem</c> taking predicates.
+/// The game-specific input surface the <see cref="EditorOverlay"/> needs for its <b>tool-contextual</b>
+/// keys — the ones whose context is a tool being armed/laying, not the global editor shortcut gate: the
+/// palette/boundary Escape (<see cref="CancelRequested"/>), the boundary commit
+/// (<see cref="CommitRequested"/>), the palette ghost-rotate (<see cref="RotateCwRequested"/> /
+/// <see cref="RotateCcwRequested"/>), and the optional within-band order nudges
+/// (<see cref="OrderForwardRequested"/> / <see cref="OrderBackRequested"/>). All optional — a screen
+/// wires only the tool keys it wants; the overlay stays game-agnostic (it never references a game's
+/// input enum; the game's screen wires <c>_ =&gt; InputState.X.JustPressed()</c>).
+///
+/// <para><b>The GLOBAL editor shortcuts are NOT here (UX3-E).</b> Delete, frame-scene, undo, and redo —
+/// plus <c>Shift+A</c> (Add menu) — were consolidated into the ONE <c>EditorShortcuts</c> chord table,
+/// read by <c>EditorShortcutSystem</c> through the raw keyboard. Those are editor-standard (Blender
+/// parity), not a game's remappable keys, so they no longer flow through this game-supplied surface. The
+/// pre-existing bare <c>Z</c>/<c>Y</c> undo/redo were removed (bare keys are reserved for tools).</para>
 ///
 /// <para>There is deliberately NO edit-mode toggle key here: under the transport model the editor
 /// is always visible when composed, and the run state is driven by the toolbar's Play/Pause /
@@ -17,10 +26,6 @@ namespace MonoDreams.LevelEditor.Composition;
 /// <see cref="EditorTransport"/>.</para>
 /// </summary>
 public sealed class EditorInputBindings(
-    Func<GameState, bool> deleteRequested,
-    Func<GameState, bool> undoRequested,
-    Func<GameState, bool> redoRequested,
-    Func<GameState, bool> frameRequested,
     Func<GameState, bool>? cancelRequested = null,
     Func<GameState, bool>? orderForwardRequested = null,
     Func<GameState, bool>? orderBackRequested = null,
@@ -28,22 +33,6 @@ public sealed class EditorInputBindings(
     Func<GameState, bool>? rotateCwRequested = null,
     Func<GameState, bool>? rotateCcwRequested = null)
 {
-    /// <summary>Deletes the selected entity (reversible, via the shared history).</summary>
-    public Func<GameState, bool> DeleteRequested { get; } =
-        deleteRequested ?? throw new ArgumentNullException(nameof(deleteRequested));
-
-    /// <summary>Undo (the shared bounded history).</summary>
-    public Func<GameState, bool> UndoRequested { get; } =
-        undoRequested ?? throw new ArgumentNullException(nameof(undoRequested));
-
-    /// <summary>Redo (the shared bounded history).</summary>
-    public Func<GameState, bool> RedoRequested { get; } =
-        redoRequested ?? throw new ArgumentNullException(nameof(redoRequested));
-
-    /// <summary>Frames the editor camera on all renderable content (centre + zoom-fit).</summary>
-    public Func<GameState, bool> FrameRequested { get; } =
-        frameRequested ?? throw new ArgumentNullException(nameof(frameRequested));
-
     /// <summary>Cancels the current tool arm — the palette's Escape (right-click always disarms
     /// too). Optional (default null = no keyboard cancel); additive, so pre-palette call sites
     /// compile unchanged.</summary>

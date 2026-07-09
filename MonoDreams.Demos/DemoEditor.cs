@@ -26,8 +26,10 @@ public enum DemoDrawLayer
 /// MonoDreams/level-editor/docs/overview.md "Adding the editor to a screen/host").
 ///
 /// The Demos host has no keyboard-action mapping layer of its own, so the helper pairs the
-/// overlay with the engine's <see cref="DefaultEditorKeys"/> (Delete / Z / Y / Home) — weave it
-/// as the `editor.keys` registrar entry before the editor systems that read it. The chrome uses
+/// overlay with the engine's <see cref="DefaultEditorKeys"/> (the tool-contextual keys: PageUp/PageDown
+/// order, Enter commit, Q/E ghost-rotate — the global Delete/Home/undo/redo are the EditorShortcuts
+/// chord table now, UX3-E) — weave it as the `editor.keys` registrar entry before the editor systems
+/// that read it. The chrome uses
 /// the same PPMondwest font as the Examples shells, so the editor reads identically across hosts.
 public sealed class DemoEditor
 {

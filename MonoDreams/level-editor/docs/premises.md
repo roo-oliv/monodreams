@@ -29,8 +29,10 @@
 > sandbox — snapshot on enter, reader-shared restore on exit, Save blocked in Game
 > mode, one-owner transport; and **UX3-D** the viewport Overlays menu — checkable
 > (Toggle) menu items, the session overlay settings, the one-value grid = snap step,
-> the bounded grid renderer, and the Game-mode overlay hide). No premise here ships
-> `Tests: none yet`.
+> the bounded grid renderer, and the Game-mode overlay hide; and **UX3-E** the ONE editor
+> keyboard-shortcut chord table — Undo/Redo/Delete/FrameScene/AddMenu over the foundation chord layer,
+> gated by a single viewport context, consolidating the editor keyboard bindings and removing the bare
+> `Z`/`Y` undo/redo). No premise here ships `Tests: none yet`.
 
 ## The editor reuses the game's real pipeline via run-state gating, not a forked renderer
 
@@ -774,12 +776,16 @@ touching the rig, and **Save serializes the rig, never the view**, so panning/zo
 longer moves the game camera. `CameraFollowTargetComponent` semantics are untouched: in Play the
 follow system drives the same shared `Camera` as before. `CameraNavSystem` provides the view drive:
 **pan** (middle-mouse drag → the camera moves the opposite way to the cursor's virtual-pixel delta so
-the grabbed world point stays under the cursor — `Position -= virtualDelta / Zoom`), **zoom** (scroll
-wheel → a geometric step on `Camera.Zoom`, clamped to a sane range, default 0.25–4.0), and
-**frame-scene** (a key edge centres the camera on the AABB of all renderable content — every
-`SpriteInfoComponent` + `TransformComponent` entity, via the pure `GizmoTransform.SpriteWorldQuad`
-corners — and zoom-fits it with a margin; **no content is a no-op**). The system is **Edit-guarded**
-(inert in Play — it must not fight `CameraFollowSystem`) and is registered **before
+the grabbed world point stays under the cursor — `Position -= virtualDelta / Zoom`) and **zoom** (scroll
+wheel → a geometric step on `Camera.Zoom`, clamped to a sane range, default 0.25–4.0). **Frame-scene** —
+centre + zoom-fit on the AABB of all renderable content (every `SpriteInfoComponent` +
+`TransformComponent` entity, via the pure `GizmoTransform.SpriteWorldQuad` corners, with a margin; **no
+content is a no-op**) — is the **public `CameraNavSystem.FrameScene()` method** (UX3-E), TRIGGERED by the
+editor-shortcut table (Home) or the headless `view:frame` op, not a keyboard predicate on this system
+(the editor keyboard bindings were consolidated into `EditorShortcuts` — see "The editor's keyboard
+shortcuts are ONE chord table …"). Pan/zoom are **Edit-guarded** in `Update` (inert in Play — they must
+not fight `CameraFollowSystem`); `FrameScene()` itself is unguarded and relies on its callers gating on
+Edit (the shortcut context gate; the op is Edit-driven). The system is registered **before
 `CursorPositionSystem`** so the camera mutation it makes this frame is the camera state
 `CursorPositionSystem` reads when deriving the cursor's world position — no one-frame lag between a
 pan/zoom and the cursor's world coordinate. Pan reads the cursor's **virtual** (pre-camera) position,
@@ -805,7 +811,8 @@ framing on empty content would jump/zoom to a degenerate AABB instead of no-op'i
 (which derives the cursor's world position from the camera — hence the ordering); foundation — the
 run-state model (`GameState.RunMode` + the `Freeze`-gated `CameraFollowSystem` the editor replaces in Edit);
 this file — "The editor splits the free VIEW from the authored camera rig" (the rig this view drive is now
-distinct from).
+distinct from), "The editor's keyboard shortcuts are ONE chord table, gated by a single viewport context"
+(the Home shortcut + the `view:frame` op that trigger `FrameScene`).
 
 ## The editor splits the free VIEW from the authored camera rig; Save serializes the rig, not the view
 
@@ -1737,6 +1744,65 @@ recipe), "Game screens declare their bound scene … switching IS selecting" (th
 Empty Scene reuses), "Scene serialization is canonical and byte-stable …" (the empty scene's bytes); cursor
 — "Button press/release edges derive from CursorInputSystem's own previous-state" (why an item's release-edge
 action survives the menu's own consume).
+
+## The editor's keyboard shortcuts are ONE chord table, gated by a single viewport context
+
+The editor's GLOBAL keyboard shortcuts live in ONE data table — `EditorShortcuts` (chord →
+`EditorShortcutAction`) — read by `EditorShortcutSystem` through the foundation chord layer
+(`KeyChordTracker` over the injectable `Func<KeyboardState>` seam), NOT as scattered per-action keyboard
+predicates. Bindings this wave (Blender parity — bare letter keys are reserved for tools): `PlatformCommand+Z`
+→ Undo, `PlatformCommand+Shift+Z` → Redo, `Shift+A` → open the **Add** menu at the cursor (the Entities-panel
+add section), `Delete` → delete the selection, `Home` → frame the scene. The pre-existing **bare `Z`/`Y`
+undo/redo were removed** (bare keys are tools), and the delete/frame keyboard predicates that used to live on
+`EditorInputBindings` / `EditorCommandSystem` / `CameraNavSystem` were consolidated here — there is now ONE
+place to read the editor bindings. `EditorInputBindings` keeps only the **tool-contextual** keys (Escape
+cancel, boundary commit, palette ghost-rotate Q/E, the optional order nudges), whose context is a tool being
+armed/laying, not the shortcut gate.
+
+**One context gate.** Every binding checks the SAME `ViewportShortcutContext` predicate: cursor over the game
+viewport (`!CursorInputComponent.OutsideViewport`), no dialog open, no context menu open, Paused
+(`RunMode.Edit`). This mirrors the modal suppression game keys already get (the screen ORs `Dialog.IsOpen ||
+Menu.IsOpen` into the host keyboard's `ShouldSuppressInput`), so a chord never fires while the designer types
+in a dialog field, hovers a panel, or is Playing. `EditorShortcutSystem` is woven with the input-owner block,
+immediately AFTER `editor.dialog` + `editor.contextMenu` (registrar entry `editor.shortcuts`, `RunNormally`)
+so modality wins; the gate's `Editing` flag makes it inert while Playing, so it needs no extra Edit wrapper.
+Its `KeyChordTracker` advances every frame (edges never leak across a context change), but dispatch happens
+only when the gate allows. `commandIsMeta` (⌘ vs Ctrl) is injected by the overlay (`OperatingSystem.IsMacOS()`,
+a runtime query in the Composition layer, mirroring `EditorHiDpi` — the foundation chord layer stays blind).
+
+**Same shared instances, and ops are the headless channel.** The overlay's dispatch maps each action to the
+SAME instance the toolbar/menu use — Undo/Redo → the shared `EditorHistory`, Delete → the snapshotting
+`EditorCommandSystem.DeleteSelection`, FrameScene → the shared `CameraNavSystem.FrameScene`, AddMenu → the ONE
+`OpenContextMenu` coordinator — never a second path. Because input replay carries `AInputState` actions, not
+raw chords (the foundation chord replay caveat), each binding's ACTION is exercised headlessly through an op:
+Undo/Redo via the toolbar `Undo`/`Redo` actions, Delete via `menu:pick delete`, FrameScene via the new
+`view:frame` op, AddMenu via the new `menu:open add` op; the chord→action MATCHING is unit-tested at the
+tracker/table level. The table is the single place a later wave adds the modal G/S/R transforms (UX3-F).
+
+**Why:** design §4 — combo input is an ENGINE feature (foundation) and the editor's chords are one table so
+there is one place to read/extend them; the context gate stops panel typing or a dialog from triggering tools
+(pre-mortem: a stray keystroke leaking to the tools behind a modal); consolidating the old predicates removes
+the "second path" a per-action wiring would leave. Bare `Z`/`Y` had to go for Blender parity (bare keys arm
+tools). Ops are the headless channel because replay does not carry chords.
+**Breaks:** two keyboard-reading paths for undo (the shortcut AND a leftover predicate) double-fire or drift;
+a shortcut that skips the context gate fires while a dialog field has focus (typing "a" arms Add) or while
+Playing (a viewport keystroke belongs to the game); weaving `editor.shortcuts` before the dialog/menu lets a
+chord act on the frame a modal opened; a bare-`Z` undo re-introduces the non-Blender binding and collides with
+tool letters; a second history/command/menu instance means the shortcut's undo can't reverse the gizmo's edits.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorShortcutTests.cs` (`Table_BindsEachChordToItsAction_WindowsResolution`,
+`Table_CmdShiftZ_ResolvesToRedo_NeverUndo_PreMortem3`, `Table_MacResolution_MetaFiresCommand_CtrlDoesNot`,
+`Table_BareZ_AndBareY_HaveNoBinding_TheRemovedUndoRedo`; `Context_AllowsEditing_OnlyOverViewport_NoModal_WhilePaused`;
+`System_Fires_OverViewport_Paused`, `System_DoesNotFire_OverAPanel`, `System_DoesNotFire_WhileDialogOrMenuOpen`,
+`System_DoesNotFire_WhilePlaying`, `System_BareZ_DoesNotUndo`; `Shortcut_CmdZ_DrivesTheSharedHistory_UndoActuallyUndoes`,
+`Shortcut_Delete_DrivesTheSharedCommandSystem_RemovesTheSelection`, `Shortcut_ShiftA_OpensTheAddMenu_AtTheCursor`);
+the tracker matrix + PlatformCommand resolution are `MonoDreams.Tests/Foundation/KeyChordTests.cs`.
+**Depends on:** foundation — "Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is
+injected" (the chord layer this reads); this file — "Editor context menus are a data-driven popup …" (the Add
+menu Shift+A opens + the `editor.contextMenu` weave this follows), "The editor's Save dialog is a modal …" +
+"Editor context menus … modal like the dialog" (the `Dialog.IsOpen`/`Menu.IsOpen` suppression the gate mirrors),
+"Editor camera navigation pans/zooms/frames the scene directly" (the `FrameScene` Home triggers),
+"Bounded undo with drag-coalescing" (the shared `EditorHistory` Undo/Redo drive), "Editor-overlay entities are
+standalone; delete snapshots the disposed sub-graph" (the `DeleteSelection` Delete drives).
 
 ## Viewport overlays are session settings; the grid IS the snap grid, bounded, and hidden in Game mode
 

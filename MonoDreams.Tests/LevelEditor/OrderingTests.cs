@@ -45,7 +45,6 @@ public class OrderingTests
         var history = new EditorHistory(world);
         var commands = new EditorCommandSystem(
             world, history, new SceneSerializer(registry),
-            deleteRequested: _ => false, undoRequested: _ => false, redoRequested: _ => false,
             layers: layers);
         return (commands, history);
     }
@@ -194,7 +193,6 @@ public class OrderingTests
         var fireForward = false;
         using var commands = new EditorCommandSystem(
             world, history, new SceneSerializer(registry),
-            deleteRequested: _ => false, undoRequested: _ => false, redoRequested: _ => false,
             layers: layers,
             orderForwardRequested: _ => fireForward,
             orderBackRequested: _ => false);

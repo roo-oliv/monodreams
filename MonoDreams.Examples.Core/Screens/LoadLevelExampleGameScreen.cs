@@ -223,11 +223,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (_editorEnabled)
         {
             // Editor replay-action names, mapped only when the overlay is composed so a plain
-            // Play screen's replay surface is unchanged.
-            actionMap["Delete"] = InputState.Delete;
-            actionMap["Undo"] = InputState.Undo;
-            actionMap["Redo"] = InputState.Redo;
-            actionMap["Frame"] = InputState.Frame;
+            // Play screen's replay surface is unchanged. Delete/Undo/Redo/Frame are NOT here: they
+            // are chord shortcuts (EditorShortcuts, UX3-E), and input replay synthesizes AInputState
+            // actions — not raw chords — so chord-driven editing is exercised through the editor op
+            // channel (menu:*/view:frame/toolbar Undo/Redo), never replay (the chord replay caveat).
+            // The tool-contextual ghost-rotate keys stay replayable.
             actionMap["RotateCw"] = InputState.RotateCw;
             actionMap["RotateCcw"] = InputState.RotateCcw;
         }
@@ -272,10 +272,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 _world, _camera, _layers, _content, promptFont, _graphicsDevice, _spriteBatch,
                 _viewportManager,
                 new EditorInputBindings(
-                    deleteRequested: _ => InputState.Delete.JustPressed(),
-                    undoRequested: _ => InputState.Undo.JustPressed(),
-                    redoRequested: _ => InputState.Redo.JustPressed(),
-                    frameRequested: _ => InputState.Frame.JustPressed(),
+                    // Delete / frame / undo / redo are the consolidated EditorShortcuts chord table
+                    // (UX3-E), read off the raw keyboard — not wired here anymore. Only the
+                    // tool-contextual keys remain game-supplied:
                     // Escape (already mapped to InputState.Exit; nothing else consumes it on this
                     // screen) disarms the palette's Place mode AND cancels a boundary lay.
                     cancelRequested: _ => InputState.Exit.JustPressed(),
@@ -529,6 +528,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
             // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
             p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — right after the modal input-owners so dialog/menu
+            // suppression wins; the context gate makes it inert while Playing.
+            p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
             // Boundary bake — reacts to a BoundaryComponent being added/changed (the tool's commit,
             // a scene load, a vertex edit) and generates the segment colliders. RunNormally: a
             // shipped game loading a native scene with a boundary must bake it too (§S2).

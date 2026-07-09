@@ -167,7 +167,7 @@ public class BoundaryVertexProxyTests
         registry.RegisterEngineComponents();
         var serializer = new SceneSerializer(registry);
         using var commands = new EditorCommandSystem(
-            world, history, serializer, _ => false, _ => false, _ => false);
+            world, history, serializer);
 
         var boundary = MakeBoundary(world,
             new[] { new Vector2(0, 0), new Vector2(40, 0), new Vector2(40, 40) }, Vector2.Zero);
@@ -203,7 +203,7 @@ public class BoundaryVertexProxyTests
         registry.RegisterEngineComponents();
         var serializer = new SceneSerializer(registry);
         using var commands = new EditorCommandSystem(
-            world, history, serializer, _ => false, _ => false, _ => false);
+            world, history, serializer);
 
         var boundary = MakeBoundary(world,
             new[] { new Vector2(0, 0), new Vector2(40, 0) }, Vector2.Zero);

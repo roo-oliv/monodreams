@@ -1344,6 +1344,8 @@ public class UiDemoScreen : IGameScreen
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
             p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
         }
         p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
         {

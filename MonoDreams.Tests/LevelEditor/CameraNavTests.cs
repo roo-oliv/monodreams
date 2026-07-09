@@ -75,7 +75,7 @@ public class CameraNavTests
         var camera = new MonoDreams.Component.Camera(800, 600);
         camera.Position = new Vector2(100, 100);
         var cursor = MakeCursor(world);
-        using var nav = new CameraNavSystem(world, camera, frameRequested: _ => false);
+        using var nav = new CameraNavSystem(world, camera);
 
         // Frame 1: press middle, anchor (no movement on the first frame of the drag).
         ref var input = ref cursor.Get<CursorInputComponent>();
@@ -116,7 +116,7 @@ public class CameraNavTests
         using var world = new World();
         var camera = new MonoDreams.Component.Camera(800, 600); // zoom 1
         var cursor = MakeCursor(world);
-        using var nav = new CameraNavSystem(world, camera, frameRequested: _ => false,
+        using var nav = new CameraNavSystem(world, camera,
             zoomStep: 2f, minZoom: 0.25f, maxZoom: 4f);
 
         ref var input = ref cursor.Get<CursorInputComponent>();
@@ -144,11 +144,10 @@ public class CameraNavTests
         MakeSprite(world, new Vector2(1100, -500));
         MakeCursor(world);
 
-        var frame = false;
-        using var nav = new CameraNavSystem(world, camera, frameRequested: _ => frame);
+        // Frame-scene is now the public FrameScene() the shortcut table (Home) + the view:frame op call.
+        using var nav = new CameraNavSystem(world, camera);
 
-        frame = true;
-        nav.Update(Edit());
+        nav.FrameScene();
 
         Assert.Equal(1055f, camera.Position.X, 0);
         Assert.Equal(-545f, camera.Position.Y, 0);
@@ -165,8 +164,8 @@ public class CameraNavTests
         var startZoom = camera.Zoom;
         MakeCursor(world);
 
-        using var nav = new CameraNavSystem(world, camera, frameRequested: _ => true);
-        nav.Update(Edit()); // no sprites → camera untouched
+        using var nav = new CameraNavSystem(world, camera);
+        nav.FrameScene(); // no sprites → camera untouched
 
         Assert.Equal(new Vector2(42, 7), camera.Position);
         Assert.Equal(startZoom, camera.Zoom);
@@ -190,9 +189,11 @@ public class CameraNavTests
         MakeSprite(world, new Vector2(1000, 1000)); // content exists
         var cursor = MakeCursor(world);
 
-        using var nav = new CameraNavSystem(world, camera, frameRequested: _ => true); // frame always requested
+        using var nav = new CameraNavSystem(world, camera);
 
-        // Drive a middle-drag + scroll + frame request, all in Play.
+        // Drive a middle-drag + scroll, all in Play — pan/zoom are Update-driven and Edit-guarded.
+        // (Frame-scene is the public FrameScene() now; its Play-inertness is the shortcut context
+        // gate, tested in EditorShortcutTests.)
         ref var input = ref cursor.Get<CursorInputComponent>();
         input.MiddleButton = true;
         input.VirtualPosition = new Vector2(400, 300);

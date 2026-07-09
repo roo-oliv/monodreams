@@ -204,12 +204,15 @@ public class DemoLauncherScreen : IGameScreen
         if (_editor != null)
         {
             // The Demos host runs no keyboard-action mapping of its own; the editor brings its
-            // default key surface (Delete, Z/Y, Home) — composed only under the flag.
+            // default key surface (the tool keys: PageUp/PageDown, Enter, Q/E — the global
+            // Delete/Home/undo/redo are the EditorShortcuts chord table, UX3-E) — under the flag only.
             p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
             p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
         }
         // The auto-layout solver is the menu's content placement: RunNormally, or booting
         // straight into Edit would show an unlaid-out menu.

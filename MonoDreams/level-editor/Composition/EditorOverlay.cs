@@ -15,6 +15,7 @@ using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.Input;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
@@ -226,7 +227,6 @@ public sealed class EditorOverlay
         Transport.SnapViewToRig = _cameraRig.SnapViewToRig;
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
-            input.DeleteRequested, input.UndoRequested, input.RedoRequested,
             layers, input.OrderForwardRequested, input.OrderBackRequested, camera);
         // UX3-D gates: the Game-mode sandbox hides ALL gizmo overlays; "Outline Selected" (off) hides
         // only the selection outline (selection unaffected).
@@ -258,7 +258,8 @@ public sealed class EditorOverlay
             spacing: () => GridSpacing,
             visible: () => Settings.ShowGrid && Transport.ViewMode != EditorViewMode.Game);
         OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraRig, grid);
-        CameraNav = new CameraNavSystem(world, camera, input.FrameRequested);
+        _cameraNav = new CameraNavSystem(world, camera);
+        CameraNav = _cameraNav;
         _selection = new SelectionSystem(world, camera);
         Selection = _selection;
 
@@ -372,6 +373,19 @@ public sealed class EditorOverlay
             world, viewportManager, toolbarFont, DispatchMenuAction,
             isBlocked: () => Dialog.IsOpen || _shellState.IsDragging);
         Menu = _menu;
+
+        // The editor shortcut owner (UX3-E): reads the ONE EditorShortcuts chord table off the raw
+        // keyboard, gated by ViewportShortcutContext (over the viewport, no dialog/menu open, Paused),
+        // and dispatches to the SAME shared instances via DispatchShortcut. commandIsMeta resolves
+        // PlatformCommand → ⌘ on macOS / Ctrl elsewhere; OperatingSystem.IsMacOS() is a runtime query
+        // (not a #if), mirroring EditorHiDpi in this same Composition layer — the foundation chord layer
+        // stays platform-blind (the bool is injected). The Dialog/Menu open predicates give the shortcut
+        // path the SAME modal suppression the host keyboard gets via ShouldSuppressInput.
+        _shortcutSystem = new EditorShortcutSystem(
+            world, _shortcuts, DispatchShortcut,
+            dialogOpen: () => Dialog.IsOpen,
+            menuOpen: () => Menu.IsOpen,
+            commandIsMeta: OperatingSystem.IsMacOS());
         // The viewport right-click (SelectionSystem, SelectTransform + a hit) opens the entity menu at
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
@@ -459,12 +473,29 @@ public sealed class EditorOverlay
     public ISystem<GameState> SceneReader { get; }
 
     // The concrete command system: the toolbar dispatch calls its selection-edit actions
-    // (ordering / collider add-remove / add vertex) directly.
+    // (ordering / collider add-remove / add vertex) directly, and the shortcut dispatch calls
+    // DeleteSelection.
     private readonly EditorCommandSystem _editorCommands;
 
-    /// <summary>Delete / undo / redo keys plus the toolbar's selection-edit actions
-    /// (Edit-guarded). Weave after logic, before <see cref="Gizmo"/>.</summary>
+    // The concrete camera-nav system: the shortcut dispatch + the view:frame op call FrameScene().
+    private readonly CameraNavSystem _cameraNav;
+
+    // The ONE editor shortcut table (UX3-E) + the system that reads it. The dispatch drives the SAME
+    // shared instances (History / _editorCommands / _cameraNav / _menu) — never a second path.
+    private readonly EditorShortcuts _shortcuts = new();
+    private readonly EditorShortcutSystem _shortcutSystem;
+
+    /// <summary>The toolbar's + context menu's selection-edit actions plus the optional order-nudge
+    /// keys (Edit-guarded). Delete/undo/redo are driven by <see cref="Shortcuts"/> now. Weave after
+    /// logic, before <see cref="Gizmo"/>.</summary>
     public ISystem<GameState> EditorCommands => _editorCommands;
+
+    /// <summary>The editor keyboard-shortcut owner (UX3-E): the ONE <c>EditorShortcuts</c> chord table
+    /// (Undo/Redo/Delete/FrameScene/AddMenu) read through the raw keyboard, gated by the shared
+    /// <c>ViewportShortcutContext</c>. Weave with the input-owner block, immediately AFTER
+    /// <see cref="Menu"/> (registrar entry <c>editor.shortcuts</c>, <c>RunNormally</c>) so modality
+    /// wins.</summary>
+    public ISystem<GameState> Shortcuts => _shortcutSystem;
 
     /// <summary>The transform gizmo (Edit-guarded). Weave before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> Gizmo { get; }
@@ -791,6 +822,11 @@ public sealed class EditorOverlay
             case EditorMenuContext.EntityHeader:
                 _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection()), EntityButtonBounds());
                 break;
+            case EditorMenuContext.AddAtCursor:
+                // The Shift+A shortcut (UX3-E) + the menu:open add op: the Entities-panel ADD section
+                // (Add Empty Entity now, more later), anchored at the cursor — no panel row to pick.
+                _menu.OpenAt(EditorContextMenuModel.EntitiesPanelMenu(hasRowEntity: false), CursorScreenPoint());
+                break;
             case EditorMenuContext.OverlaysHeader:
                 // The Overlays dropdown (UX3-D): built from the live settings + shared grid step, and
                 // rebuilt after each toggle so its check flips in place without closing the menu.
@@ -839,6 +875,26 @@ public sealed class EditorOverlay
                 if (!ApplyOverlayMenuPath(path))
                     Logger.Warning($"[level-editor] Unknown context-menu action '{path}'.");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Maps a matched <see cref="EditorShortcutAction"/> (UX3-E) to the SAME shared editor instances the
+    /// toolbar/menu use — never a second history / command system / camera-nav / menu. Undo/Redo drive
+    /// the shared <see cref="History"/>; Delete the snapshotting <see cref="EditorCommandSystem.DeleteSelection"/>;
+    /// FrameScene the shared camera-nav <see cref="CameraNavSystem.FrameScene"/>; AddMenu the ONE
+    /// <see cref="OpenContextMenu"/> coordinator (the Add section at the cursor). The shortcut system only
+    /// calls this while its context gate allows (Edit, over the viewport, no dialog/menu).
+    /// </summary>
+    private void DispatchShortcut(EditorShortcutAction action, GameState state)
+    {
+        switch (action)
+        {
+            case EditorShortcutAction.Undo: History.Undo(); break;
+            case EditorShortcutAction.Redo: History.Redo(); break;
+            case EditorShortcutAction.Delete: _editorCommands.DeleteSelection(state); break;
+            case EditorShortcutAction.FrameScene: _cameraNav.FrameScene(); break;
+            case EditorShortcutAction.AddMenu: OpenContextMenu(EditorMenuContext.AddAtCursor, state); break;
         }
     }
 
@@ -1412,12 +1468,15 @@ public sealed class EditorOverlay
         if (name.StartsWith(viewPrefix, StringComparison.OrdinalIgnoreCase))
         {
             // view:camera — snap the free editor VIEW onto the authored camera rig (UX2-E), the headless
-            // twin of the Scene-header nav-corner button. Routes through the same DispatchToolbarAction.
+            // twin of the Scene-header nav-corner button. view:frame — centre + zoom-fit the VIEW on all
+            // content (UX3-E), the headless twin of the Home shortcut (both call the shared CameraNav).
             var verb = name.Substring(viewPrefix.Length).Trim();
             if (string.Equals(verb, "camera", StringComparison.OrdinalIgnoreCase))
                 DispatchToolbarAction(EditorToolbarAction.CameraView, state);
+            else if (string.Equals(verb, "frame", StringComparison.OrdinalIgnoreCase))
+                _cameraNav.FrameScene();
             else
-                Logger.Warning($"[level-editor] Editor-op '{name}': expected view:camera.");
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected view:camera or view:frame.");
             return;
         }
 
@@ -1708,9 +1767,10 @@ public sealed class EditorOverlay
             case "scenes": OpenContextMenu(EditorMenuContext.ScenesPanel, state); break;
             case "entity": OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
             case "overlays": OpenContextMenu(EditorMenuContext.OverlaysHeader, state); break;
+            case "add": OpenContextMenu(EditorMenuContext.AddAtCursor, state); break; // UX3-E: the Shift+A twin
             default:
                 Logger.Warning(
-                    $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity|overlays>.");
+                    $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity|overlays|add>.");
                 break;
         }
     }
@@ -1752,6 +1812,9 @@ public enum EditorMenuContext
     /// <summary>The Scene-header <c>Overlays</c> dropdown (UX3-D): the viewport-overlays menu below the
     /// button (Grid / Grid Spacing ▸ / Outline Selected / Camera).</summary>
     OverlaysHeader,
+    /// <summary>The <c>Shift+A</c> Add shortcut (UX3-E) + the <c>menu:open add</c> op: the Entities-panel
+    /// ADD section, anchored at the cursor.</summary>
+    AddAtCursor,
 }
 
 /// <summary>Why the editor's Save is disabled — reported by <see cref="EditorOverlay.SaveBlock"/> so

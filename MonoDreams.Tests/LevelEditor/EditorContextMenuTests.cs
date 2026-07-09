@@ -409,8 +409,7 @@ public class EditorContextMenuTests
         registry.RegisterEngineComponents();
         var serializer = new SceneSerializer(registry);
         var history = new EditorHistory(world);
-        var commands = new EditorCommandSystem(world, history, serializer,
-            _ => false, _ => false, _ => false, layers);
+        var commands = new EditorCommandSystem(world, history, serializer, layers);
         return (commands, history, serializer);
     }
 
@@ -484,7 +483,7 @@ public class EditorContextMenuTests
         registry.RegisterEngineComponents();
         var history = new EditorHistory(world);
         var commands = new EditorCommandSystem(world, history, new SceneSerializer(registry),
-            _ => false, _ => false, _ => false, camera: camera);
+            camera: camera);
 
         commands.AddEmptyEntity(Edit());
 
