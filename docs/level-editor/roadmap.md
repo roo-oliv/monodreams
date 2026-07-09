@@ -529,6 +529,65 @@ UX3-B — the numbering follows the design doc's ask-driven waves.)
   inset (below the assets shelf): the live modal readout / contextual status on the left, the scene id + mode +
   a Warning dirty dot on the right (ASCII-only; the dirty dot is a mesh).
 
+## Prefab phase (PF-A–PF-E) — complete
+
+The user's "build NPCs / dialogue zones / the Player as prefabs" ask (2026-07-09): prefabs are classes
+instantiated as **LINKED instances with whole-component overrides**, creatable via code AND config, designed
+in dedicated viewport tabs, with a **Chrome-DevTools-grade editable Inspector**. Like the UX phases it ran
+orthogonally to Waves A–F. The authoritative design is
+[`prefab-workflow.md`](prefab-workflow.md); the invariants live in
+[`MonoDreams/level-editor/docs/premises.md`](../../MonoDreams/level-editor/docs/premises.md).
+
+- **PF-A — DevTools Inspector.** The right-strip Inspector became editable: a filter field, type-colored
+  values, and value / add / remove edits through undoable commands (`MemberEditCommand` — struct write-back
+  via get-modify-`Set`; `AddComponentCommand` / `RemoveComponentCommand` — the `SpriteInfo⇔DrawComponent`
+  pairing + Transform-not-removable + structural exclusions). Add candidates are the serializer registry's
+  types minus present/structural (the honest "what this scene can persist"). Ops `inspector:filter|edit|add|remove`.
+- **PF-B — viewport tabs + `ViewportContextStack`.** The Scene/Game mode toggle retired for a tab strip; ONE
+  snapshot / sweep / reader-restore mechanism (pre-mortem #4). The Game tab is its first (discard) consumer —
+  the UX2-F sandbox generalized, never a parallel path; leaving it discards + restores the Scene. The Scene
+  tab is always index 0, never closable; a dirty Scene is never silently discarded.
+- **PF-C — the `.mdprefab` core (test-first, no UI).** The `SceneData` schema reused verbatim with prefab
+  rules (`PrefabWriter`: exactly one root, root position origin-normalized, no camera, cycle-refuse). A scene
+  places a **compact `prefab` entry** — Transform + diff-based whole-component overrides (byte-equal ⇒
+  inherited, byte-different ⇒ override; instance children NEVER serialized). ONE `PrefabExpander` shared by the
+  reader, the `PrefabFactory` (`EntitySpawnRequest("prefab:<id>")`), and `PrefabPropagation`; fail-loud on a
+  missing prefab, cycle-capped at load; `save → load → save` is a byte fixed point. Bundled zero-touch under
+  `Content/Prefabs/`, resolved source-first via `PrefabFileSource`.
+- **PF-D — the prefab UX.** A Prefabs shelf tab; prefab-context tabs (no camera rig — the four-fold gate,
+  pre-mortem #8); **Create Prefab from Selection** (capture → replace with a linked instance, one composite)
+  and **Create Empty Prefab**; **Save Prefab** + live propagation (the Restart rule clears history when
+  instances rebuild); **Unpack** (dissolve the link, undoable); instance-children guardrails (the ONE
+  `PrefabGuards.IsPrefabOwned` predicate — the root stays editable, children are refused). Ops `prefabs:list`,
+  `prefab:edit|place|unpack|delete|create-from-selection|create-empty`, `dialog:prefab`, `panel:tab prefabs`.
+- **PF-E — the acceptance walkthrough + hardening + this sweep.** An end-to-end, in-process story
+  (`PrefabMilestoneTests`) building the NPC / dialogue-zone / Player prefabs, placing four linked instances,
+  overriding one NPC's dialogue node, saving the scene (compact entries + zero serialized children),
+  re-editing the NPC prefab and verifying propagation on the scene's restore (the override survives), the
+  byte-stable round-trip with instances, then boot + play (the player's physics live, the zone's trigger
+  collider fires) + a Restart-equivalent reload. The walkthrough surfaced **no** in-wave defects — the PF-A..D
+  core held end-to-end. It also hardened **test isolation** (safe-by-construction: `GameTestRunner` pins every
+  spawned process to an isolated `MONODREAMS_PROJECT_ROOT` temp tree so no editor run can ever write the real
+  `Content.mgcb` / `Levels` / `Prefabs`; a collection-fixture + resolved-root tripwire, `ContentTreeIsolationTests`,
+  fails if that regresses).
+
+**Ledger (bisect archaeology).** PF-C's premises/tests reference `PrefabFormatTests` / `PrefabExpansionTests`
+etc.; those helpers were not present on a clean PF-C checkout — they landed together with PF-D's `d270cb3`, so
+`git bisect` across the PF-C..PF-D boundary should expect the prefab test surface to appear at PF-D.
+
+**Deferred (named terrain, with triggers):**
+- **Nested-prefab authoring.** The `PrefabExpander` recursion + cycle rules exist, but placing a prefab
+  instance INSIDE a prefab tab is v1-refused with a hint. *Trigger:* a designer needs composite prefabs
+  (a house prefab containing door/window prefabs).
+- **Per-field overrides.** v1 is whole-component replacement (an edited component's whole body is the
+  override). *Trigger:* two instances need to diverge on one field of a large component without forking the rest.
+- **Tracked component removal.** A component the prefab HAS but that was REMOVED on an instance does not
+  persist — re-expansion restores it. *Trigger:* an instance must legitimately drop an inherited component.
+- **Prefab thumbnails.** The Prefabs shelf uses a generic package glyph; rendered per-prefab thumbnails are
+  terrain. *Trigger:* the shelf grows past a handful of prefabs and the glyph stops disambiguating.
+- **Prefab playgrounds.** Play is disabled in a prefab tab (a prefab never plays, v1). *Trigger:* authors want
+  to test a prefab's behaviour in isolation without placing it in a scene.
+
 ## Cross-wave invariants (the things that must keep holding)
 
 - **C1/C2 never break.** No wave introduces a parallel renderer or a second scene model.

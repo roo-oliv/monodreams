@@ -3215,7 +3215,12 @@ marker/re-tag/rehydrate; the `save → load → save` byte fixed point; missing-
 fail-loud; self-referencing cycle capped at load; transitive cycle refused at save; the factory channel
 + `EntitySpawnSystem` prefix dispatch + unknown-id warn-and-drop; propagation override-preservation +
 the history-clear rule / untouched-when-none); `MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs`
-(the prefab `/copy:` bundling helpers).
+(the prefab `/copy:` bundling helpers); the end-to-end acceptance walkthrough
+`MonoDreams.Tests/LevelEditor/PrefabMilestoneTests.cs`
+(`PrefabWalkthrough_NpcDialogueZonePlayer_BuildPlaceOverridePropagateBootPlay` — the compact instance
+entries + zero serialized children + the diff-based override + the `save → load → save` byte fixed point +
+boot-and-play, all with the game components; `UnpackedNpcInstance_SerializesExpanded…` and
+`PrefabFactory_SpawnsInstanceAtRuntime…` — the unpack + `EntitySpawnRequest("prefab:<id>")` channel).
 **Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories"
 (the deserialize/rehydrate/re-tag path expansion rides), "Scene serialization is canonical and
 byte-stable…" (the determinism the diff needs + the additive `prefab` field), "The component-serializer
@@ -3340,7 +3345,10 @@ mechanism; the reader `SuppressCameraRig` gate; the status-bar text);
 tab per prefab, per-context dirty isolation, `DecideClose`→`ConfirmDirty`, `CloseCleanContext`);
 `MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs` (`PrefabShelf_ArmPrefab_ThenViewportClick…`);
 `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (the extended entity menu + `PrefabCardMenu` /
-`PrefabShelfMenu`).
+`PrefabShelfMenu`); the end-to-end acceptance walkthrough
+`MonoDreams.Tests/LevelEditor/PrefabMilestoneTests.cs` (Create-Prefab-from-Selection → place instances →
+per-instance override → Save-Prefab propagation on the scene's restore → Unpack, driven exactly as the
+overlay's prefab ops drive them).
 **Depends on:** this file — "Prefabs are LINKED instances … (PF-C)" (the core this exposes: the
 expander, the diff-based compaction, `PrefabPropagation`, the bundling), "The viewport context stack is
 the ONE tab-switching mechanism … (PF-B)" (prefab contexts are its new consumer), "The editor splits the
