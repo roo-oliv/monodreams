@@ -37,6 +37,7 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
     private readonly Action<EditorShortcutAction, GameState> _dispatch;
     private readonly Func<bool> _dialogOpen;
     private readonly Func<bool> _menuOpen;
+    private readonly Func<bool>? _modalActive;
     private readonly EntitySet _cursorSet;
 
     public bool IsEnabled { get; set; } = true;
@@ -50,6 +51,8 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
     /// <param name="commandIsMeta">Resolve <c>PlatformCommand</c> to ⌘/Meta (macOS) — injected, so the
     /// module reads no OS state.</param>
     /// <param name="getKeyboardState">The keyboard seam (default <see cref="Keyboard.GetState"/>).</param>
+    /// <param name="modalActive">Whether a modal transform (UX3-F) owns the keyboard — no shortcut fires
+    /// while true, so G/S/R cannot re-trigger mid-modal. Null (the default) = never modal.</param>
     public EditorShortcutSystem(
         World world,
         EditorShortcuts shortcuts,
@@ -57,12 +60,14 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
         Func<bool> dialogOpen,
         Func<bool> menuOpen,
         bool commandIsMeta,
-        Func<KeyboardState>? getKeyboardState = null)
+        Func<KeyboardState>? getKeyboardState = null,
+        Func<bool>? modalActive = null)
     {
         _shortcuts = shortcuts ?? throw new ArgumentNullException(nameof(shortcuts));
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
         _dialogOpen = dialogOpen ?? throw new ArgumentNullException(nameof(dialogOpen));
         _menuOpen = menuOpen ?? throw new ArgumentNullException(nameof(menuOpen));
+        _modalActive = modalActive;
         _tracker = new KeyChordTracker(commandIsMeta, getKeyboardState);
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
     }
@@ -80,6 +85,7 @@ public sealed class EditorShortcutSystem : ISystem<GameState>
             CursorOverViewport = CursorOverViewport(),
             DialogOpen = _dialogOpen(),
             MenuOpen = _menuOpen(),
+            ModalActive = _modalActive?.Invoke() ?? false,
             Editing = state.RunMode == RunMode.Edit,
         };
         if (!context.AllowsEditing) return;

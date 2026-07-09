@@ -362,7 +362,7 @@ public class LevelSelectionScreen : IGameScreen
             // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands
             // down while a Save/Load dialog owns the keys; the mouse half is the dialog consuming the
             // cursor edges.
-            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen;
+            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive;
             p.Add("editor.keys", editorKeys, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
@@ -371,6 +371,7 @@ public class LevelSelectionScreen : IGameScreen
             p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
             // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
             p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
         }
         // The auto-layout solver is the menu's content placement (the level-parser analogue):
         // RunNormally, or booting straight into Edit would show an unlaid-out menu. Trade-off:

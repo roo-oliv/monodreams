@@ -97,6 +97,15 @@ public class EditorShortcutTests
         Assert.Null(s.Match(None(), Keys_(Keys.Y), false)); // bare y no longer redoes
     }
 
+    [Fact]
+    public void Table_BindsBareGSR_ToTheModalTransforms_UX3F()
+    {
+        var s = new EditorShortcuts();
+        Assert.Equal(EditorShortcutAction.ModalGrab, s.Match(None(), Keys_(Keys.G), false));
+        Assert.Equal(EditorShortcutAction.ModalScale, s.Match(None(), Keys_(Keys.S), false));
+        Assert.Equal(EditorShortcutAction.ModalRotate, s.Match(None(), Keys_(Keys.R), false));
+    }
+
     // ═══ The context gate (pure) ════════════════════════════════════════════════════════════════════
 
     [Fact]
@@ -113,6 +122,8 @@ public class EditorShortcutTests
             { CursorOverViewport = true, Editing = true, MenuOpen = true }.AllowsEditing);
         Assert.False(new ViewportShortcutContext
             { CursorOverViewport = true, Editing = false }.AllowsEditing); // Playing
+        Assert.False(new ViewportShortcutContext
+            { CursorOverViewport = true, Editing = true, ModalActive = true }.AllowsEditing); // UX3-F: a modal owns input
     }
 
     // ═══ The system: the gate composed with real cursor/dialog/menu/run-mode ════════════════════════
@@ -175,6 +186,23 @@ public class EditorShortcutTests
         var (system, kb, fired) = SpySystem(world);
 
         Press(system, kb, Play(), Keys_(Keys.LeftControl, Keys.Z));
+
+        Assert.Empty(fired);
+    }
+
+    [Fact]
+    public void System_DoesNotFire_WhileAModalTransformOwnsInput()
+    {
+        using var world = new World();
+        MakeCursor(world, outsideViewport: false);
+        var kb = new[] { None() };
+        var fired = new List<EditorShortcutAction>();
+        var system = new EditorShortcutSystem(
+            world, new EditorShortcuts(), (a, _) => fired.Add(a),
+            dialogOpen: () => false, menuOpen: () => false,
+            commandIsMeta: false, getKeyboardState: () => kb[0], modalActive: () => true);
+
+        Press(system, kb, Edit(), Keys_(Keys.G)); // G would re-enter grab — but a modal already owns input
 
         Assert.Empty(fired);
     }

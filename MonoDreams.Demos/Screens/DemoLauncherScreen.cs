@@ -213,6 +213,7 @@ public class DemoLauncherScreen : IGameScreen
             p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
             // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
             p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Overlay.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
         }
         // The auto-layout solver is the menu's content placement: RunNormally, or booting
         // straight into Edit would show an unlaid-out menu.

@@ -129,7 +129,7 @@ public class InfiniteRunnerScreen : IGameScreen
         if (debugInspector != null)
         {
             _inputMappingSystem.ShouldSuppressInput = () =>
-                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen));
+                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive));
         }
 #endif
 
@@ -313,7 +313,7 @@ public class InfiniteRunnerScreen : IGameScreen
         // just below when the editor is composed). The mouse half is the dialog consuming the cursor
         // edges. A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
         inputMappingSystem.ShouldSuppressInput = () =>
-            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen);
+            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -391,6 +391,7 @@ public class InfiniteRunnerScreen : IGameScreen
             p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
             // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
             p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
         }
         // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
         // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every

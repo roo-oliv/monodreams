@@ -28,6 +28,11 @@ public readonly struct ViewportShortcutContext
     /// Playing; a viewport click/keystroke belongs to the game then).</summary>
     public bool Editing { get; init; }
 
-    /// <summary>Whether an EDITING shortcut may fire: over the viewport, no modal open, Paused.</summary>
-    public bool AllowsEditing => CursorOverViewport && !DialogOpen && !MenuOpen && Editing;
+    /// <summary>A modal transform (UX3-F <c>G</c>/<c>S</c>/<c>R</c>) owns the keyboard — no shortcut
+    /// fires, so the modal cannot re-trigger G/S/R mid-session (mode-switch mid-modal is deferred).</summary>
+    public bool ModalActive { get; init; }
+
+    /// <summary>Whether an EDITING shortcut may fire: over the viewport, no modal (dialog / context menu /
+    /// transform) owning input, Paused.</summary>
+    public bool AllowsEditing => CursorOverViewport && !DialogOpen && !MenuOpen && !ModalActive && Editing;
 }

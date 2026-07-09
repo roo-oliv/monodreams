@@ -599,6 +599,7 @@ public class DialogueDemoScreen : IGameScreen
             p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
             // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
             p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Overlay.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
         }
         p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
         {

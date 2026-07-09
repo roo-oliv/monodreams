@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using DefaultEcs;
@@ -19,6 +20,7 @@ using MonoDreams.LevelEditor.Input;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Platform;
@@ -374,18 +376,27 @@ public sealed class EditorOverlay
             isBlocked: () => Dialog.IsOpen || _shellState.IsDragging);
         Menu = _menu;
 
+        // The modal transform owner (UX3-F): G/S/R enter a Blender-style modal transform over the
+        // selection, driven live by the mouse without a button held and committed/cancelled through the
+        // same coalescing history. It owns the pointer + keyboard while active (its own keyboard seam +
+        // the consume + the ShouldSuppressInput/shortcut-gate ORs). Constructed before the shortcut
+        // system so the gate can read Modal.IsActive.
+        _modal = new ModalTransformSystem(world, camera, History);
+
         // The editor shortcut owner (UX3-E): reads the ONE EditorShortcuts chord table off the raw
-        // keyboard, gated by ViewportShortcutContext (over the viewport, no dialog/menu open, Paused),
-        // and dispatches to the SAME shared instances via DispatchShortcut. commandIsMeta resolves
-        // PlatformCommand → ⌘ on macOS / Ctrl elsewhere; OperatingSystem.IsMacOS() is a runtime query
-        // (not a #if), mirroring EditorHiDpi in this same Composition layer — the foundation chord layer
-        // stays platform-blind (the bool is injected). The Dialog/Menu open predicates give the shortcut
-        // path the SAME modal suppression the host keyboard gets via ShouldSuppressInput.
+        // keyboard, gated by ViewportShortcutContext (over the viewport, no dialog/menu/modal open,
+        // Paused), and dispatches to the SAME shared instances via DispatchShortcut. commandIsMeta
+        // resolves PlatformCommand → ⌘ on macOS / Ctrl elsewhere; OperatingSystem.IsMacOS() is a runtime
+        // query (not a #if), mirroring EditorHiDpi in this same Composition layer — the foundation chord
+        // layer stays platform-blind (the bool is injected). The Dialog/Menu/Modal predicates give the
+        // shortcut path the SAME modal suppression the host keyboard gets via ShouldSuppressInput — and
+        // stop a mid-modal G/S/R re-trigger.
         _shortcutSystem = new EditorShortcutSystem(
             world, _shortcuts, DispatchShortcut,
             dialogOpen: () => Dialog.IsOpen,
             menuOpen: () => Menu.IsOpen,
-            commandIsMeta: OperatingSystem.IsMacOS());
+            commandIsMeta: OperatingSystem.IsMacOS(),
+            modalActive: () => _modal.IsActive);
         // The viewport right-click (SelectionSystem, SelectTransform + a hit) opens the entity menu at
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
@@ -481,9 +492,13 @@ public sealed class EditorOverlay
     private readonly CameraNavSystem _cameraNav;
 
     // The ONE editor shortcut table (UX3-E) + the system that reads it. The dispatch drives the SAME
-    // shared instances (History / _editorCommands / _cameraNav / _menu) — never a second path.
+    // shared instances (History / _editorCommands / _cameraNav / _menu / _modal) — never a second path.
     private readonly EditorShortcuts _shortcuts = new();
     private readonly EditorShortcutSystem _shortcutSystem;
+
+    // The modal transform system (UX3-F): G/S/R modal transforms + the status bar's live readout. The
+    // shortcut dispatch enters it, the modal:* ops drive it, and the status bar reads its readout.
+    private readonly ModalTransformSystem _modal;
 
     /// <summary>The toolbar's + context menu's selection-edit actions plus the optional order-nudge
     /// keys (Edit-guarded). Delete/undo/redo are driven by <see cref="Shortcuts"/> now. Weave after
@@ -496,6 +511,15 @@ public sealed class EditorOverlay
     /// <see cref="Menu"/> (registrar entry <c>editor.shortcuts</c>, <c>RunNormally</c>) so modality
     /// wins.</summary>
     public ISystem<GameState> Shortcuts => _shortcutSystem;
+
+    /// <summary>The modal transform system (UX3-F): the Blender-style <c>G</c>/<c>S</c>/<c>R</c> modal
+    /// transforms, entered by the shortcut table and driven by the <c>modal:*</c> ops. Weave the returned
+    /// system as <c>editor.modal</c> with the input-owner block, immediately AFTER <see cref="Shortcuts"/>
+    /// (which enters it) and BEFORE <see cref="Gizmo"/> + the draw pipeline's <see cref="Selection"/> —
+    /// so its pointer-consume reaches them. <c>RunNormally</c> (it self-guards to Edit). Exposed concrete
+    /// so the screen ORs <see cref="ModalTransformSystem.IsActive"/> into the host keyboard's
+    /// <c>ShouldSuppressInput</c> and the status bar reads its <c>Readout</c>.</summary>
+    public ModalTransformSystem Modal => _modal;
 
     /// <summary>The transform gizmo (Edit-guarded). Weave before <c>HierarchySystem</c>.</summary>
     public ISystem<GameState> Gizmo { get; }
@@ -895,6 +919,10 @@ public sealed class EditorOverlay
             case EditorShortcutAction.Delete: _editorCommands.DeleteSelection(state); break;
             case EditorShortcutAction.FrameScene: _cameraNav.FrameScene(); break;
             case EditorShortcutAction.AddMenu: OpenContextMenu(EditorMenuContext.AddAtCursor, state); break;
+            // UX3-F: G/S/R enter the modal transform over the selection (the modal then owns input).
+            case EditorShortcutAction.ModalGrab: _modal.Enter(EditorModalMode.Grab, state); break;
+            case EditorShortcutAction.ModalScale: _modal.Enter(EditorModalMode.Scale, state); break;
+            case EditorShortcutAction.ModalRotate: _modal.Enter(EditorModalMode.Rotate, state); break;
         }
     }
 
@@ -1446,7 +1474,14 @@ public sealed class EditorOverlay
         const string menuPrefix = "menu:";
         const string viewPrefix = "view:";
         const string modePrefix = "mode:";
+        const string modalPrefix = "modal:";
         const string overlayPrefix = ViewportOverlayOps.OpPrefix;
+
+        if (name.StartsWith(modalPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            DispatchModalOp(name.Substring(modalPrefix.Length), name, state);
+            return;
+        }
 
         if (name.StartsWith(overlayPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -1771,6 +1806,44 @@ public sealed class EditorOverlay
             default:
                 Logger.Warning(
                     $"[level-editor] Editor-op '{name}': expected menu:open <viewport|entities|scenes|entity|overlays|add>.");
+                break;
+        }
+    }
+
+    /// <summary>The <c>modal:*</c> ops (UX3-F): the headless twin of the G/S/R modal flow — enter
+    /// (<c>grab</c>/<c>scale</c>/<c>rotate</c>), <c>axis x|y</c>, <c>digits &lt;text&gt;</c>,
+    /// <c>cursor &lt;dx&gt; &lt;dy&gt;</c> (motion from the entry cursor), and <c>confirm</c>/<c>cancel</c>
+    /// — all routed to the SAME shared <see cref="Modal"/> instance the keyboard/mouse path drives.</summary>
+    private void DispatchModalOp(string rest, string name, GameState state)
+    {
+        var space = rest.IndexOf(' ');
+        var verb = (space < 0 ? rest : rest.Substring(0, space)).Trim().ToLowerInvariant();
+        var arg = space < 0 ? string.Empty : rest.Substring(space + 1).Trim();
+        switch (verb)
+        {
+            case "grab": _modal.Enter(EditorModalMode.Grab, state); break;
+            case "scale": _modal.Enter(EditorModalMode.Scale, state); break;
+            case "rotate": _modal.Enter(EditorModalMode.Rotate, state); break;
+            case "axis":
+                if (string.Equals(arg, "x", StringComparison.OrdinalIgnoreCase)) _modal.SetAxis(ModalAxis.X);
+                else if (string.Equals(arg, "y", StringComparison.OrdinalIgnoreCase)) _modal.SetAxis(ModalAxis.Y);
+                else Logger.Warning($"[level-editor] Editor-op '{name}': expected modal:axis x|y.");
+                break;
+            case "digits": _modal.TypeDigits(arg); break;
+            case "cursor":
+                var parts = arg.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2
+                    && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var dx)
+                    && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var dy))
+                    _modal.OpCursor(dx, dy);
+                else Logger.Warning($"[level-editor] Editor-op '{name}': expected modal:cursor <dx> <dy>.");
+                break;
+            case "confirm": _modal.Confirm(state); break;
+            case "cancel": _modal.Cancel(state); break;
+            default:
+                Logger.Warning(
+                    $"[level-editor] Editor-op '{name}': expected " +
+                    "modal:grab|scale|rotate|axis x|y|digits <text>|cursor <dx> <dy>|confirm|cancel.");
                 break;
         }
     }

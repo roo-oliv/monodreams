@@ -24,6 +24,15 @@ public enum EditorShortcutAction
     /// <summary>Open the <b>Add</b> menu at the cursor (the Entities-panel add section, via the shared
     /// context-menu coordinator).</summary>
     AddMenu,
+
+    /// <summary>Enter the Blender-style <b>grab</b> modal transform over the selection (UX3-F).</summary>
+    ModalGrab,
+
+    /// <summary>Enter the <b>scale</b> modal transform (UX3-F; rig ⇒ zoom).</summary>
+    ModalScale,
+
+    /// <summary>Enter the <b>rotate</b> modal transform (UX3-F; refused for the rig).</summary>
+    ModalRotate,
 }
 
 /// <summary>
@@ -52,6 +61,12 @@ public sealed class EditorShortcuts
         (new KeyChord(Keys.A, KeyModifiers.Shift), EditorShortcutAction.AddMenu),
         (new KeyChord(Keys.Delete), EditorShortcutAction.Delete),
         (new KeyChord(Keys.Home), EditorShortcutAction.FrameScene),
+        // UX3-F: the bare G/S/R modal transforms — Blender parity (bare letter keys ARE the tools).
+        // They enter modal mode via the shortcut dispatch; the modal then owns the keyboard, and the
+        // shortcut gate's ModalActive flag stops them re-triggering mid-modal.
+        (new KeyChord(Keys.G), EditorShortcutAction.ModalGrab),
+        (new KeyChord(Keys.S), EditorShortcutAction.ModalScale),
+        (new KeyChord(Keys.R), EditorShortcutAction.ModalRotate),
     };
 
     /// <summary>The bound chords + their actions (read-only). Exposed for tests and inspection.</summary>

@@ -146,7 +146,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         if (debugInspector != null)
         {
             _inputMappingSystem.ShouldSuppressInput = () =>
-                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen));
+                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive));
         }
 #endif
 
@@ -208,7 +208,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // below when the editor is composed). The mouse half is the dialog consuming the cursor edges.
         // A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
         inputMappingSystem.ShouldSuppressInput = () =>
-            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen);
+            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -531,6 +531,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // The editor shortcut owner (UX3-E) — right after the modal input-owners so dialog/menu
             // suppression wins; the context gate makes it inert while Playing.
             p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
+            // UX3-F: the modal transform owner — enters via editor.shortcuts (G/S/R), owns the pointer +
+            // keyboard while active. Right after the shortcuts, before the tools + the draw selection, so
+            // its pointer-consume reaches them.
+            p.Add("editor.modal", _editor.Modal, EditTimeBehavior.RunNormally);
             // Boundary bake — reacts to a BoundaryComponent being added/changed (the tool's commit,
             // a scene load, a vertex edit) and generates the segment colliders. RunNormally: a
             // shipped game loading a native scene with a boundary must bake it too (§S2).
