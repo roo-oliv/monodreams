@@ -715,4 +715,39 @@ public class PalettePlacementTests
         Assert.Equal("file:Island/props/sheet.png#trunk", placed.Get<SpriteInfoComponent>().AssetKey);
         Assert.Equal(new Rectangle(0, 0, 32, 48), placed.Get<SpriteInfoComponent>().Source);
     }
+
+    // ---- Prefabs shelf (PF-D) ----
+
+    [Fact]
+    public void PrefabShelf_ArmPrefab_ThenViewportClick_PlacesTheArmedPrefab_AtCursor()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+
+        string? placedId = null;
+        var placedAt = new Vector2(-1, -1);
+        var palette = new PalettePlacementSystem(world, MakeCatalog(), Bands, MakeLoader(), serializer, history,
+            viewportManager: null, font: null,
+            prefabLister: () => new[] { "npc" },
+            placePrefab: (id, pos) => { placedId = id; placedAt = pos; });
+
+        // Arm a prefab (mutually exclusive with an asset/trigger) — Place mode, no sprite ghost (v1).
+        palette.ArmPrefab("npc");
+        Assert.Equal("npc", palette.ArmedPrefab);
+        Assert.False(palette.HasGhost);
+
+        // A viewport left-click stamps the armed prefab at the cursor (through the injected placePrefab).
+        SetCursor(cursor, new Vector2(37, 42), leftPressed: true);
+        palette.Update(Edit());
+
+        Assert.Equal("npc", placedId);
+        Assert.Equal(new Vector2(37, 42), placedAt); // snap off by default → the raw cursor world position
+
+        // Escape / disarm clears the armed prefab.
+        palette.Disarm();
+        Assert.Null(palette.ArmedPrefab);
+        palette.Dispose();
+    }
 }

@@ -60,27 +60,59 @@ public class EditorContextMenuTests
     // ═══ Pure menu model ═══════════════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void EntityMenu_HasOrderSubmenu_Separator_AndDangerDelete()
+    public void EntityMenu_HasOrderSubmenu_PrefabActions_AndDangerDelete()
     {
+        // PF-D: Order ▸ | --- | Create Prefab from Selection… | Unpack Prefab (Danger) | --- | Delete (Danger).
         var items = EditorContextMenuModel.EntityMenu(hasSelection: true);
-        Assert.Equal(3, items.Count);
+        Assert.Equal(6, items.Count);
         Assert.Equal(EditorMenuItemKind.Submenu, items[0].Kind);
         Assert.NotNull(items[0].Submenu);
         Assert.Equal(2, items[0].Submenu!.Count);
         Assert.Equal(EditorContextMenuModel.OrderForwardPath, items[0].Submenu![0].Path);
         Assert.Equal(EditorContextMenuModel.OrderBackPath, items[0].Submenu![1].Path);
         Assert.Equal(EditorMenuItemKind.Separator, items[1].Kind);
-        Assert.Equal(EditorContextMenuModel.DeletePath, items[2].Path);
+        Assert.Equal(EditorContextMenuModel.CreatePrefabFromSelectionPath, items[2].Path);
+        Assert.True(items[2].Enabled); // enabled with a selection
+        Assert.Equal(EditorContextMenuModel.UnpackPrefabPath, items[3].Path);
+        Assert.True(items[3].Danger);
+        Assert.Equal(EditorMenuItemKind.Separator, items[4].Kind);
+        Assert.Equal(EditorContextMenuModel.DeletePath, items[5].Path);
+        Assert.True(items[5].Danger);
+    }
+
+    [Fact]
+    public void EntityMenu_UnpackEnabledOnlyForAPrefabInstance()
+    {
+        Assert.False(EditorContextMenuModel.EntityMenu(hasSelection: true, isPrefabInstance: false)[3].Enabled);
+        Assert.True(EditorContextMenuModel.EntityMenu(hasSelection: true, isPrefabInstance: true)[3].Enabled);
+    }
+
+    [Fact]
+    public void PrefabCardMenu_HasEditAndDangerDelete_WithIdSuffixedPaths()
+    {
+        var items = EditorContextMenuModel.PrefabCardMenu("npc-boldo");
+        Assert.Equal(EditorContextMenuModel.PrefabEditPathPrefix + "npc-boldo", items[0].Path);
+        Assert.Equal(EditorContextMenuModel.PrefabDeletePathPrefix + "npc-boldo", items[2].Path);
         Assert.True(items[2].Danger);
     }
 
     [Fact]
-    public void EntityMenu_AllItemsDisabled_WhenNoSelection()
+    public void PrefabShelfMenu_IsCreateEmptyPrefab()
+    {
+        var items = EditorContextMenuModel.PrefabShelfMenu();
+        Assert.Single(items);
+        Assert.Equal(EditorContextMenuModel.CreateEmptyPrefabPath, items[0].Path);
+    }
+
+    [Fact]
+    public void EntityMenu_SelectionGatedItemsDisabled_WhenNoSelection()
     {
         var items = EditorContextMenuModel.EntityMenu(hasSelection: false);
         Assert.False(items[0].Enabled);            // Order submenu
         Assert.False(items[0].Submenu![0].Enabled); // Bring Forward
-        Assert.False(items[2].Enabled);            // Delete
+        Assert.False(items[2].Enabled);            // Create Prefab from Selection
+        Assert.False(items[3].Enabled);            // Unpack (also needs an instance)
+        Assert.False(items[5].Enabled);            // Delete
     }
 
     [Fact]
@@ -123,11 +155,11 @@ public class EditorContextMenuTests
     [Fact]
     public void MenuHeight_CountsRowsAndShorterSeparators()
     {
-        var items = EditorContextMenuModel.EntityMenu(hasSelection: true); // 2 items + 1 separator
+        var items = EditorContextMenuModel.EntityMenu(hasSelection: true); // 4 item rows + 2 separators (PF-D)
         var h = EditorContextMenuLayout.MenuHeight(items, 1f);
         var expected = EditorContextMenuLayout.VerticalPadding * 2
-                       + 2 * EditorContextMenuLayout.ItemHeight
-                       + EditorContextMenuLayout.SeparatorHeight;
+                       + 4 * EditorContextMenuLayout.ItemHeight
+                       + 2 * EditorContextMenuLayout.SeparatorHeight;
         Assert.Equal(expected, h);
     }
 
@@ -173,7 +205,7 @@ public class EditorContextMenuTests
         Assert.False(menu.IsOpen);
         menu.OpenAt(EditorContextMenuModel.EntityMenu(true), new Point(100, 100));
         Assert.True(menu.IsOpen);
-        Assert.Equal(3, menu.Items.Count);
+        Assert.Equal(6, menu.Items.Count); // PF-D: Order / --- / Create Prefab / Unpack / --- / Delete
 
         menu.Close();
         Assert.False(menu.IsOpen);
@@ -239,7 +271,7 @@ public class EditorContextMenuTests
         var items = EditorContextMenuModel.EntityMenu(true);
         menu.OpenAt(items, new Point(100, 100));
         var menuRect = EditorContextMenuLayout.MenuRect(new Point(100, 100), items, 800, 600, 1f);
-        var deleteRect = EditorContextMenuLayout.ItemRect(menuRect, items, 2, 1f); // Delete
+        var deleteRect = EditorContextMenuLayout.ItemRect(menuRect, items, 5, 1f); // Delete (PF-D: index 5)
         SetCursorScreen(cursor, Center(deleteRect), leftReleased: true);
 
         menu.Update(Edit());

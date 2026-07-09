@@ -34,6 +34,7 @@ public class ViewportContextStackTests
         public int Captures;
         public int Sweeps;
         public int ViewSnaps;
+        public bool LastRestoreSuppressedRig; // PF-D: RestoringPrefabContext observed during the last restore
 
         public Harness()
         {
@@ -41,7 +42,7 @@ public class ViewportContextStackTests
             Stack = new ViewportContextStack(History, Shell, "island")
             {
                 CaptureSnapshot = () => { Captures++; Log.Add("snapshot"); return new SceneData { Version = WorldState }; },
-                RestoreSnapshot = data => { Log.Add("restore"); WorldState = data.Version; },
+                RestoreSnapshot = data => { LastRestoreSuppressedRig = Stack.RestoringPrefabContext; Log.Add("restore"); WorldState = data.Version; },
                 CaptureView = () => new CameraViewSnapshot(new Microsoft.Xna.Framework.Vector2(5, 5), 1f, 0f),
                 RestoreView = _ => { },
                 SnapViewToRig = () => ViewSnaps++,
@@ -186,6 +187,93 @@ public class ViewportContextStackTests
 
         Assert.Equal(3, h.WorldState);      // the dirty Scene's content is back
         Assert.True(h.History.IsDirty);     // and it still reads dirty (nothing silently discarded)
+    }
+
+    // ─── PF-D: prefab-context tabs ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void OpenPrefab_SnapshotsActive_PushesPrefabTab_RestoresRigSuppressed()
+    {
+        var h = new Harness();
+        h.WorldState = 3;
+
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 77 });
+
+        Assert.Equal(1, h.Captures);              // the Scene context was snapshotted (preserved, not discarded)
+        Assert.Equal(1, h.Sweeps);
+        Assert.True(h.LastRestoreSuppressedRig);  // pre-mortem #8: the prefab restore suppressed the camera rig
+        Assert.Equal(77, h.WorldState);           // the prefab's content was loaded
+        Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
+        Assert.Equal(2, h.Stack.Contexts.Count);
+        Assert.Equal("npc", h.Stack.Active.Id);
+        Assert.True(h.Stack.Contexts[1].Closable);
+        Assert.False(h.Stack.RestoringPrefabContext); // cleared after the synchronous restore
+        Assert.False(h.History.IsDirty);          // a fresh prefab context is clean
+    }
+
+    [Fact]
+    public void OpenPrefab_SameId_Twice_JustActivates_OneTab()
+    {
+        var h = new Harness();
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 10 });
+        h.Stack.SwitchTo(0); // back to the Scene tab (the prefab tab persists in the background)
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 10 });
+
+        Assert.Equal(2, h.Stack.Contexts.Count);  // still ONE prefab tab, re-activated
+        Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
+    }
+
+    [Fact]
+    public void SwitchToBackgroundedPrefab_RestoresRigSuppressed()
+    {
+        var h = new Harness();
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 77 });
+        h.Stack.SwitchTo(0);                      // to the Scene (a Scene restore → rig NOT suppressed)
+        Assert.False(h.LastRestoreSuppressedRig);
+        h.Stack.SwitchTo(1);                      // back to the prefab (rig suppressed again)
+        Assert.True(h.LastRestoreSuppressedRig);
+        Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
+    }
+
+    [Fact]
+    public void PrefabTab_DecideClose_DirtyConfirms_CleanCloses_SceneRefused()
+    {
+        var h = new Harness();
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 10 });
+
+        Assert.Equal(ViewportCloseDecision.CloseClean, h.Stack.DecideClose(1)); // clean prefab tab
+        Assert.Equal(ViewportCloseDecision.Refused, h.Stack.DecideClose(0));    // the Scene tab, never closable
+
+        h.History.Push(new NoopCommand());        // dirty the active prefab tab
+        Assert.Equal(ViewportCloseDecision.ConfirmDirty, h.Stack.DecideClose(1));
+    }
+
+    [Fact]
+    public void CloseCleanContext_ActivePrefab_ReturnsToScene()
+    {
+        var h = new Harness();
+        h.WorldState = 3;
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 77 });
+
+        h.Stack.CloseCleanContext(1);
+
+        Assert.Single(h.Stack.Contexts);          // the prefab tab is gone
+        Assert.Equal(ViewportContextKind.Scene, h.Stack.ActiveKind);
+        Assert.Equal(3, h.WorldState);            // the Scene content is restored
+    }
+
+    [Fact]
+    public void PrefabTab_PerContextDirty_IsolatedFromTheScene()
+    {
+        var h = new Harness();
+        h.History.Push(new NoopCommand());        // the Scene is dirty
+        Assert.True(h.History.IsDirty);
+
+        h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 77 });
+        Assert.False(h.History.IsDirty);          // the prefab context is its own clean save-point
+
+        h.Stack.SwitchTo(0);                      // back to the Scene
+        Assert.True(h.History.IsDirty);           // the Scene's dirtiness is restored (per-context isolation)
     }
 
     private sealed class NoopCommand : IEditorCommand
