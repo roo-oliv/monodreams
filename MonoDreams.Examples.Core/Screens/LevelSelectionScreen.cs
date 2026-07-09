@@ -415,8 +415,10 @@ public class LevelSelectionScreen : IGameScreen
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
+        {
             p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
             p.Add("editor.statusBar", _editor.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
+        }
         if (_editor?.EditorOpDriver != null)
             p.Add("editor.opDriver", _editor.EditorOpDriver, EditTimeBehavior.RunNormally);
 

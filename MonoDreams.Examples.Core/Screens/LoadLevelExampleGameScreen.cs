@@ -617,11 +617,13 @@ public class LoadLevelExampleGameScreen : IGameScreen
             p.Add("editor.boundary", _editor.BoundaryTool, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
+        {
             // The Blender-style shell sync: viewport inset + native chrome layout + cursor swap
             // track the run mode. AFTER CursorDrawPrepSystem so hiding the game cursor sprite in
             // Edit takes effect the same frame (the prep would otherwise re-stamp its texture).
             p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
             p.Add("editor.statusBar", _editor.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
+        }
         if (_editor?.EditorOpDriver != null)
             // The headless editor-op driver — LAST, after the cursor late update, so its injected
             // cursor is the final word the gizmo/toolbar read. Plan-gated: only present when an
