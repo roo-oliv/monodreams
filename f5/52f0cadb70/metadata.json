@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f552f0cadb70",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs",
+    "MonoDreams.Tests/LevelEditor/SceneLintTests.cs",
+    "docs/level-editor/editor-shell-ui-ux-2.md",
+    "docs/level-editor/editor-shell-ui-ux-3.md",
+    "docs/level-editor/editor-shell-ui-ux.md",
+    "docs/level-editor/island-authoring-plan.md",
+    "docs/level-editor/prefab-workflow.md",
+    "docs/level-editor/project-persistence-plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f5/52f0cadb70/0/metadata.json",
+      "transcript": "/f5/52f0cadb70/0/full.jsonl",
+      "context": "/f5/52f0cadb70/0/context.md",
+      "content_hash": "/f5/52f0cadb70/0/content_hash.txt",
+      "prompt": "/f5/52f0cadb70/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 6379,
+    "cache_read_tokens": 1428244,
+    "output_tokens": 3982,
+    "api_call_count": 3
+  }
+}
