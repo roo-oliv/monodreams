@@ -596,6 +596,41 @@ public class EditorPanelTests
         Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "ChromeThing");
     }
 
+    [Fact]
+    public void SceneTree_IncludesTheCameraRig_LabeledCamera_AndSelectsIt()
+    {
+        // UX2-G Part 2: the camera rig is infra-tagged (so the hide-infra filter would drop it) but is
+        // an EXPLICIT include — folded in as a "Camera" row so the designer can select + inspect the
+        // authored camera. All OTHER infra stays hidden (SceneTree_HidesEditorInfrastructureEntities).
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        MakeSceneEntity(world, "Hero");
+        // The rig entity carries EditorInfrastructureComponent + TransformComponent + CameraRigComponent
+        // (as EditorCameraRig materializes it); no EntityInfoComponent, so the tree labeler names it.
+        var rig = world.CreateEntity();
+        rig.Set(new EditorInfrastructureComponent());
+        rig.Set(new TransformComponent(Vector2.Zero));
+        rig.Set(new CameraRigComponent(1f));
+        // A second, ordinary infra entity that must STAY hidden (proves only the rig is folded in).
+        var otherInfra = MakeSceneEntity(world, "ChromeThing");
+        otherInfra.Set(new EditorInfrastructureComponent());
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        panel.Update(Edit());
+
+        var idx = RowIndex(panel, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Camera");
+        Assert.True(idx >= 0, "the camera rig should appear as a 'Camera' row in the Entities tree");
+        Assert.Equal(rig, panel.Rows[idx].Entity);
+        Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "ChromeThing");
+
+        // Clicking the row selects the rig exactly like any entity (two-way selection).
+        ClickBody(panel, vm, cursor, idx);
+        panel.Update(Edit());
+        Assert.True(rig.Has<SelectedComponent>());
+    }
+
     // ---- Inspector panel (RightInspector role): component list + members ---
 
     /// <summary>A dedicated Inspector-role panel (the right strip). Its body is the selection's

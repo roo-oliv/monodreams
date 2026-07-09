@@ -808,12 +808,26 @@ holds it. Invariants:
   `EditorCameraRig.SyncFromScene`); Restart/reload/switch rebuild its STATE, not its IDENTITY — the rig entity
   carries `EditorInfrastructureComponent`, so it survives the transport's teardown sweep and the reload re-syncs
   it (like every other scene rebuild — unsaved rig moves are discarded).
-- **It is selectable and gizmo-movable** through the ORDINARY editor path: `SelectionSystem` folds it into the
-  SAME pick as the collider proxies — a **border-pick on its frustum world-rect** at
-  `ProxyBorderPickDepth` (the frustum's fill never shadows a sprite under it) — and the gizmo moves it with a
-  `TransformEditCommand` (forced to the Move tool this wave, like a proxy). It is a **first-class entity**, not a
-  collider proxy, so it uses NO `ProxyBindingKind` (the proxy seam is for component-local spatial data that is
-  NOT its own entity; the rig IS an entity). It is **not deletable** — `EditorCommandSystem.DeleteSelection`
+- **It is selectable — via the Entities tree row AND a viewport border-pick — and gizmo-editable** through the
+  ORDINARY editor path. **Tree row (UX2-G):** the Entities tree folds the rig in as a **"Camera" row** even though
+  it carries `EditorInfrastructureComponent` (which the tree normally hides) — it is the ONE explicit infra
+  include; every OTHER infra entity stays hidden. It has no `EntityInfoComponent`, so the tree/Inspector labeler
+  special-cases it to "Camera"; clicking the row selects it exactly like any entity (two-way with the viewport
+  selection AND the Inspector, which reflects its `TransformComponent` + `CameraRigComponent`). This tree row is
+  the **guaranteed** selection path. **Viewport border-pick:** `SelectionSystem` folds it into the SAME pick as
+  the collider proxies — a **border-pick on its frustum world-rect** at `ProxyBorderPickDepth`, at the SAME
+  `ProxyBorderPickTolerancePixels` (÷ zoom) tolerance the proxies/boundaries use (the frustum's fill never shadows
+  a sprite under it). **Gizmo (UX2-G — no longer Move-only):** BOTH Move and Scale are legal (see the gizmo's
+  `ResolveTool`). **Move** drives the rig's own transform via a `TransformEditCommand`; **Scale** edits its
+  authored `CameraRigComponent.Zoom` via `CameraZoomEditCommand` — a bigger frustum ⇒ a LOWER zoom
+  (`newZoom = beforeZoom / dragFactor`, the SAME `GizmoTransform.ScaleFactor` drag mapping a sprite scale uses),
+  clamped to the camera-nav range `CameraNavSystem.DefaultMinZoom`..`DefaultMaxZoom` (0.25..4.0), drag-coalesced
+  into one undo step and dirtying the scene like any edit; the frustum glyph + the border-pick both re-read the
+  live rig zoom, so they track the drag frame-by-frame. **Rotate stays disabled** for the rig (forced to Move,
+  as UX2-E left it — rig rotation editing is a future wave). It is a **first-class entity**, not a collider proxy,
+  so it uses NO `ProxyBindingKind` (the proxy seam is for component-local spatial data that is NOT its own entity;
+  the rig IS an entity — its `TransformComponent` and `CameraRigComponent.Zoom` ARE the edited data — so Scale
+  writes back to the rig's own component, never a proxy). It is **not deletable** — `EditorCommandSystem.DeleteSelection`
   refuses it with a loud warning.
 - **The glyph** draws the rig's frustum world-rect (virtual resolution ÷ rig zoom, centred on the rig) as bounds
   + the X of corner diagonals, through the existing overlay-projection path (`EditorOverlayPrepSystem` →
@@ -849,7 +863,14 @@ pure glyph math + epsilon; `RigMaterializesFromLoad_*` — file camera → rig s
 `SaveReadsRig_NotView` + `MovingTheView_DoesNotChangeWhatSaveWrites_NorDirtyTheHistory`;
 `CameraRig_IsNeverSceneMembership`; `Glyph_HiddenWhenViewMatchesRig_*` + `Glyph_DprAndInsetProjection_ClipsToTheGameViewport`;
 `SnapViewToRig_*`; `RigBorderPick_SelectsTheRig_*` + `RigMoveDrag_IsOneUndoStep_UndoRestores`;
+`RigScaleDrag_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores_Dirties` +
+`RigScaleDrag_ClampsZoomToTheCameraNavRange` (UX2-G — Scale → zoom, one undo step, dirties, clamped);
 `RigDelete_IsRefused_*`; `RigSurvivesRestart_AndReSyncsFromTheFile`; `ShippedReader_NoRigSeam_AppliesSceneCameraToTheLiveCamera`);
+`MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (`SceneTree_IncludesTheCameraRig_LabeledCamera_AndSelectsIt` —
+the rig appears as a "Camera" tree row, other infra hidden, clicking it selects it) +
+`MonoDreams.Tests/LevelEditor/EntitySceneTreeTests.cs` (`Build_IncludesTheCameraRig_EvenThoughItIsInfrastructure`) +
+`MonoDreams.Tests/LevelEditor/GizmoTests.cs` (`ScaleFactor_MapsDragXToAUniformFactor_FlooredAboveZero` — the
+shared drag→factor mapping the rig zoom divides by);
 `MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` (`MembershipFilterTest` — the rig excluded);
 `MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (the header carries the extra Camera-view nav button).
 **Depends on:** this file — "Editor camera navigation pans/zooms/frames the scene directly" (the view drive the
@@ -1136,10 +1157,15 @@ right. The three left tabs:
   **editor-infrastructure entities hidden** (the `EntitySet` is `With<TransformComponent>
   Without<EditorInfrastructureComponent>`, so chrome / gizmo overlays / proxies / the cursor / the
   state entities never appear); a child of a hidden entity re-parents to its nearest included
-  ancestor. Each row is labelled by its `EntityInfoComponent` name (else type, else a stable
-  panel-local id) and is **selectable**: clicking a row sets `SelectedComponent` (the same tag
-  `SelectionSystem` sets from a viewport click — and the panel's chrome click is `OutsideViewport`,
-  so `SelectionSystem` never clobbers it), highlighted in the tree.
+  ancestor. **The ONE infra exception (UX2-G): the camera rig** — although it carries
+  `EditorInfrastructureComponent`, `MaterializeScene` unions in a second `With<CameraRigComponent>`
+  set so the rig IS folded back into the pool (every OTHER infra entity stays hidden), giving the
+  designer a way to select + inspect the authored camera from the tree (see "The editor splits the
+  free VIEW from the authored camera rig"). Each row is labelled by its `EntityInfoComponent` name
+  (else type, else a stable panel-local id — and the camera rig, which has no `EntityInfoComponent`,
+  is special-cased to **"Camera"**) and is **selectable**: clicking a row sets `SelectedComponent`
+  (the same tag `SelectionSystem` sets from a viewport click — and the panel's chrome click is
+  `OutsideViewport`, so `SelectionSystem` never clobbers it), highlighted in the tree.
 - **Systems** — the pipeline listing (the systems-panel premise above), with per-group collapse.
 - **Scenes** — project info rows (the project root path, **middle-truncated** to the strip width, and
   the levels dir) plus the **Scenes list**: one selectable row per `SceneCatalog` entry, the current
@@ -1184,6 +1210,8 @@ list; `HostTab` maps a section to its tab; `MiddleEllipsis` keeps head+tail; sec
 rows indent + highlight + subtree collapse; `BuildInspector` lists + expands with NO section header);
 `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (the Systems tab mirrors both pipelines with policy
 tags; an Entities row click sets `SelectedComponent`; `panel:select` headless; editor-infra hidden;
+the camera rig folded in as a selectable "Camera" row while other infra stays hidden —
+`SceneTree_IncludesTheCameraRig_LabeledCamera_AndSelectsIt` (UX2-G);
 section-header + group-arrow collapse; pooled visuals bounded by the window + the fixed tab/scrollbar
 overhead; the RightInspector-role panel lists + expands; **`LeftTreeClick_UpdatesTheRightInspectorPanel`**
 — a tree click in the left panel binds the right Inspector, two-way across panels);
