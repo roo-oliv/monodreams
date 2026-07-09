@@ -380,6 +380,98 @@ public class CameraRigTests
         Assert.Equal(new Vector2(60, 40), rig.Position);
     }
 
+    // ─────────────────────────── Scale-drag edits ZOOM (UX2-G): one undo step, dirties ──────────────
+
+    [Fact]
+    public void RigScaleDrag_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores_Dirties()
+    {
+        using var world = new World();
+        var view = new GameCamera(800, 600); // rig at (0,0)
+        view.Zoom = 1f;                       // invZoom 1 → the scale handle sits at pivot + (48,-48)
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, view, history);
+        Assert.False(history.IsDirty);        // fresh history
+
+        var rig = new EditorCameraRig(world, view);
+        rig.Entity.Get<TransformComponent>().Position = Vector2.Zero;
+        rig.Entity.Get<CameraRigComponent>() = new CameraRigComponent(2f); // authored zoom 2×
+        rig.Entity.Set(new SelectedComponent()); // border-pick / tree-row already selected it
+
+        // The Scale tool is active (UX2-G: Move AND Scale are legal for the rig; Scale routes to zoom).
+        var gizmoState = world.CreateEntity();
+        gizmoState.Set(new EditorInfrastructureComponent());
+        gizmoState.Set(GizmoStateComponent.Default with { Tool = GizmoTool.Scale });
+
+        // Press on the scale handle (pivot + (48,-48) at invZoom 1).
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent
+        {
+            WorldPosition = new Vector2(48, -48), VirtualPosition = new Vector2(48, -48),
+            LeftButton = true, LeftButtonPressed = true,
+        });
+        gizmo.Update(Edit());
+
+        // Drag right by one ScaleDragUnit → factor 2 → a BIGGER frustum → LOWER zoom = 2 / 2 = 1.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(48 + GizmoTransform.ScaleDragUnit, -48);
+        gizmo.Update(Edit());
+
+        Assert.Equal(1f, rig.Zoom, 3);                                          // zoom halved
+        Assert.Equal(Vector2.One, rig.Entity.Get<TransformComponent>().Scale);  // Transform.Scale untouched
+        Assert.Equal(0, history.Count);                                         // inside the coalescing txn
+
+        // Release → exactly ONE undo step; undo restores the authored zoom; the edit dirtied the scene.
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(Edit());
+        Assert.Equal(1, history.Count);
+        Assert.True(history.IsDirty); // a zoom edit dirties the scene like any edit
+
+        history.Undo();
+        Assert.Equal(2f, rig.Zoom, 3);
+        history.Redo();
+        Assert.Equal(1f, rig.Zoom, 3);
+    }
+
+    [Fact]
+    public void RigScaleDrag_ClampsZoomToTheCameraNavRange()
+    {
+        using var world = new World();
+        var view = new GameCamera(800, 600);
+        view.Zoom = 1f;
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, view, history);
+
+        var rig = new EditorCameraRig(world, view);
+        rig.Entity.Get<TransformComponent>().Position = Vector2.Zero;
+        rig.Entity.Get<CameraRigComponent>() = new CameraRigComponent(1f);
+        rig.Entity.Set(new SelectedComponent());
+
+        var gizmoState = world.CreateEntity();
+        gizmoState.Set(new EditorInfrastructureComponent());
+        gizmoState.Set(GizmoStateComponent.Default with { Tool = GizmoTool.Scale });
+
+        var cursor = world.CreateEntity();
+        cursor.Set(new CursorControllerComponent(CursorType.Default));
+        cursor.Set(new CursorInputComponent
+        {
+            WorldPosition = new Vector2(48, -48), VirtualPosition = new Vector2(48, -48),
+            LeftButton = true, LeftButtonPressed = true,
+        });
+        gizmo.Update(Edit());
+
+        // Drag hugely LEFT → a tiny factor → a very large 1/factor → zoom clamps at the nav MAX (4.0),
+        // never runs away past the sane editor range.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(48 - GizmoTransform.ScaleDragUnit * 100f, -48);
+        gizmo.Update(Edit());
+
+        Assert.Equal(4.0f, rig.Zoom, 3); // clamped to CameraNavSystem.DefaultMaxZoom
+    }
+
     // ─────────────────────────── The rig is NOT deletable (loud refusal) ───────────────────────────
 
     [Fact]

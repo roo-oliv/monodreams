@@ -149,6 +149,7 @@ public sealed class GizmoSystem : ISystem<GameState>
     private Vector2 _dragStartPivot; // the world pivot at drag-start; stable rotate/scale centre
     private Vector2 _beforePosition, _beforeScale, _beforeOrigin;
     private float _beforeRotation;
+    private float _beforeRigZoom; // the camera rig's authored zoom at drag-start (its Scale tool → zoom)
 
     // Proxy drag state (Wave 8b): the write-back target is the proxy's BOUND game entity and its
     // collider field, snapshotted immutably at drag-start (same recompute-from-start design).
@@ -218,11 +219,10 @@ public sealed class GizmoSystem : ISystem<GameState>
         ref readonly var transform = ref target.Get<TransformComponent>();
         var pivot = transform.WorldPosition;
 
-        // A collider proxy edits component-local spatial data: only Move applies this wave, so the
-        // active tool is forced to Move regardless of the toolbar selection (rotate/scale handles
-        // would imply an edit the write-back cannot express yet — documented follow-up).
-        var tool = target.Has<GizmoProxyComponent>() || target.Has<CameraRigComponent>()
-            ? GizmoTool.Move : gizmo.Tool;
+        // Tool resolution (see ResolveTool): a collider proxy is forced to Move (its write-back only
+        // expresses translation this wave); the camera rig accepts Move (its transform) AND Scale
+        // (→ its authored zoom) with Rotate disabled; an ordinary sprite uses the toolbar selection.
+        var tool = ResolveTool(target, gizmo.Tool);
 
         // Target-aware space: Main-target entities are world-space (cursor WorldPosition, handle
         // hit-tests sized by 1/Zoom); UI/HUD/Scroll-target entities are screen-space (their
@@ -268,8 +268,7 @@ public sealed class GizmoSystem : ISystem<GameState>
         }
 
         ref readonly var gizmo = ref GetGizmoState();
-        var tool = target.Has<GizmoProxyComponent>() || target.Has<CameraRigComponent>()
-            ? GizmoTool.Move : gizmo.Tool;
+        var tool = ResolveTool(target, gizmo.Tool);
         var pivot = target.Get<TransformComponent>().WorldPosition;
         var space = OverlaySpace(target);
         // The scale handle's SOURCE-space offset mirrors the hit-test's (world units ÷ zoom /
@@ -364,6 +363,24 @@ public sealed class GizmoSystem : ISystem<GameState>
         return space == RenderTargetID.Editor ? RenderTargetID.Main : space;
     }
 
+    /// <summary>
+    /// Resolves the effective gizmo tool for <paramref name="target"/> from the toolbar's
+    /// <paramref name="selected"/> tool. A collider <see cref="GizmoProxyComponent"/> proxy is forced to
+    /// <see cref="GizmoTool.Move"/> — its write-back only expresses translation this wave. The UX2-E
+    /// camera rig (<see cref="CameraRigComponent"/>) accepts BOTH <see cref="GizmoTool.Move"/> (its own
+    /// transform) and <see cref="GizmoTool.Scale"/> (routed to its authored <c>Zoom</c> — see
+    /// <see cref="ApplyDragEdit"/>); Rotate is disabled for the rig (falls back to Move), matching
+    /// UX2-E's move-only start (rig rotation editing is a future wave). Every other entity uses the
+    /// toolbar selection unchanged.
+    /// </summary>
+    private static GizmoTool ResolveTool(Entity target, GizmoTool selected)
+    {
+        if (target.Has<GizmoProxyComponent>()) return GizmoTool.Move;
+        if (target.Has<CameraRigComponent>())
+            return selected == GizmoTool.Scale ? GizmoTool.Scale : GizmoTool.Move;
+        return selected;
+    }
+
     private void BeginDrag(Entity target, GizmoTool tool, Vector2 cursorWorld, Vector2 pivot,
         BoxResizeHandle resizeHandle = BoxResizeHandle.None)
     {
@@ -398,6 +415,9 @@ public sealed class GizmoSystem : ISystem<GameState>
         _beforeRotation = t.Rotation;
         _beforeScale = t.Scale;
         _beforeOrigin = t.Origin;
+        // The camera rig's Scale tool edits its authored zoom (not Transform.Scale) — snapshot it so the
+        // per-frame edit recomputes from the immutable drag-start value (like the transform before-state).
+        _beforeRigZoom = target.Has<CameraRigComponent>() ? target.Get<CameraRigComponent>().Zoom : 0f;
         _history.BeginTransaction();
     }
 
@@ -481,6 +501,20 @@ public sealed class GizmoSystem : ISystem<GameState>
         }
 
         if (!target.IsAlive || !target.Has<TransformComponent>()) return;
+
+        // The camera rig's Scale tool edits its authored ZOOM, not Transform.Scale: a bigger frustum
+        // means a LOWER zoom, so newZoom = beforeZoom / dragFactor (the SAME drag→factor mapping a
+        // sprite scale-drag uses), clamped to the camera-nav zoom range. One CameraZoomEditCommand per
+        // frame, coalesced into one undo step on release; the frustum glyph + the selection border-pick
+        // both re-read the live rig zoom, so they track the drag frame-by-frame.
+        if (_dragTool == GizmoTool.Scale && target.Has<CameraRigComponent>())
+        {
+            var factor = GizmoTransform.ScaleFactor(currentCursorWorld - _dragStartCursorWorld);
+            var afterZoom = MathHelper.Clamp(
+                _beforeRigZoom / factor, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
+            _history.Push(CameraZoomEditCommand.FromCurrent(target, afterZoom));
+            return;
+        }
 
         // Use the drag-START pivot as the rotate/scale centre so it stays fixed through the drag
         // (the live WorldPosition would drift as the entity rotates/scales about a non-zero origin).

@@ -101,11 +101,22 @@ public static class GizmoTransform
     /// </summary>
     public static Vector2 ScaleResult(Vector2 beforeScale, Vector2 totalCursorDelta, float snapStep)
     {
-        var factor = 1f + totalCursorDelta.X / ScaleDragUnit;
-        if (factor < MinScaleFactor) factor = MinScaleFactor;
-        var target = beforeScale * factor;
+        var target = beforeScale * ScaleFactor(totalCursorDelta);
         if (snapStep > 0f) target = Snap(target, snapStep);
         return target;
+    }
+
+    /// <summary>
+    /// The uniform scale factor a scale drag of <paramref name="totalCursorDelta"/> produces:
+    /// <c>1 + dx / <see cref="ScaleDragUnit"/></c>, floored at <see cref="MinScaleFactor"/> (never zero
+    /// or negative). Exposed so the camera-rig's Scale-tool drag can map the SAME drag gesture to a zoom
+    /// edit (a bigger frustum ⇒ a LOWER zoom: <c>newZoom = beforeZoom / factor</c>) without duplicating
+    /// the drag→factor mapping.
+    /// </summary>
+    public static float ScaleFactor(Vector2 totalCursorDelta)
+    {
+        var factor = 1f + totalCursorDelta.X / ScaleDragUnit;
+        return factor < MinScaleFactor ? MinScaleFactor : factor;
     }
 
     /// <summary>Wraps an angle to (−π, π].</summary>

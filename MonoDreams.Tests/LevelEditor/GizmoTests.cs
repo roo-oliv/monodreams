@@ -124,6 +124,20 @@ public class GizmoTests
         }
     }
 
+    // ---- ScaleFactor: the pure drag→factor mapping shared by sprite scale AND rig zoom (UX2-G) ----
+    [Fact]
+    public void ScaleFactor_MapsDragXToAUniformFactor_FlooredAboveZero()
+    {
+        // 1 + dx/ScaleDragUnit, floored at MinScaleFactor so it never hits zero/negative — the camera
+        // rig's zoom-drag divides by this factor (a bigger frustum ⇒ a lower zoom), so a zero/negative
+        // factor would blow up or invert the zoom.
+        Assert.Equal(1f, GizmoTransform.ScaleFactor(Vector2.Zero), Tol);                                   // no drag
+        Assert.Equal(2f, GizmoTransform.ScaleFactor(new Vector2(GizmoTransform.ScaleDragUnit, 0f)), Tol);  // +1 unit → ×2
+        Assert.Equal(1.5f, GizmoTransform.ScaleFactor(new Vector2(GizmoTransform.ScaleDragUnit * 0.5f, 0f)), Tol);
+        Assert.Equal(GizmoTransform.MinScaleFactor,
+            GizmoTransform.ScaleFactor(new Vector2(-GizmoTransform.ScaleDragUnit * 100f, 0f)), Tol);
+    }
+
     // ---- DragCoalescingTest: one gizmo drag of N intermediate edits = ONE undo step ----
 
     [Fact]
