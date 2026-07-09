@@ -601,6 +601,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 g.Add("meshPrep", _editor.ToolbarMeshPrep);
                 g.Add("clicks", _editor.ToolbarClicks);
                 g.Add("tooltip", _editor.Tooltip);
+                g.Add("viewportTabs", _editor.ViewportTabs); // PF-B: the viewport tab strip
             });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Inspector, EditTimeBehavior.RunNormally);

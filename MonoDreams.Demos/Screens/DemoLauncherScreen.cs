@@ -243,6 +243,7 @@ public class DemoLauncherScreen : IGameScreen
                 g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
                 g.Add("clicks", _editor.Overlay.ToolbarClicks);
                 g.Add("tooltip", _editor.Overlay.Tooltip);
+                g.Add("viewportTabs", _editor.Overlay.ViewportTabs); // PF-B: the viewport tab strip
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Overlay.Inspector, EditTimeBehavior.RunNormally);

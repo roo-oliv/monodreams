@@ -933,6 +933,7 @@ public class CameraDemoScreen : IGameScreen
             {
                 g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
                 g.Add("clicks", _editor.Overlay.ToolbarClicks);
+                g.Add("viewportTabs", _editor.Overlay.ViewportTabs); // PF-B: the viewport tab strip
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
