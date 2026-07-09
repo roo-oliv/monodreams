@@ -64,7 +64,9 @@ public sealed class EditorChromeBuilder
     private Entity _topBar, _leftPanel, _rightPanel, _bottomBar, _sceneHeader;
     private Entity _statusBar, _statusBarBorder; // UX3-F: the window-bottom status strip + its top rule
     private Entity _leftSplitter, _rightSplitter, _bottomSplitter;
-    private Entity _bottomTabFill, _bottomTabLabel, _bottomTabUnderline;
+    // PF-D: the bottom shelf's tab strip (Assets | Prefabs) is now interactive and OWNED by
+    // PalettePlacementSystem (it renders + hit-tests the tabs in the shelf's tab-strip band); the old
+    // static single "Assets" tab was retired from the chrome builder.
     private Entity _entityMenuCaret; // UX2-D: the ▾ caret mesh beside the header "Entity" text button
     private Entity _cameraViewButton; // UX2-E: the right-corner "Camera view" nav button (icon)
     private readonly List<Entity> _buttonEntities = new();
@@ -196,14 +198,11 @@ public sealed class EditorChromeBuilder
         _statusBar = CreatePanel(EditorTheme.Bg0);
         _statusBarBorder = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
 
-        // Region splitters (the shell recolours them per hover/drag) and the bottom shelf's single
-        // static "Assets" tab (marks the terrain: the same tab strip as the left strip, one tab).
+        // Region splitters (the shell recolours them per hover/drag). The bottom shelf's tab strip
+        // (Assets | Prefabs) is rendered by PalettePlacementSystem now (PF-D), not here.
         _leftSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
         _rightSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
         _bottomSplitter = CreateFill(EditorTheme.Border, EditorTheme.Depths.Splitter);
-        _bottomTabFill = CreateFill(EditorTheme.Bg1, EditorTheme.Depths.Button); // active = merges into the shelf body
-        _bottomTabUnderline = CreateFill(EditorTheme.Accent, EditorTheme.Depths.TabUnderline);
-        _bottomTabLabel = CreateLabel("Assets");
 
         // The window top bar's buttons (icon where an icon exists, else a text label).
         CreateButtons(_buttons, _buttonEntities);
@@ -269,9 +268,6 @@ public sealed class EditorChromeBuilder
             EditorChromeLayout.RightSplitter(screenWidth, screenHeight, scale, rightWidthPt, bottomHeightPt));
         PlacePanel(_bottomSplitter,
             EditorChromeLayout.BottomSplitter(screenWidth, screenHeight, scale, bottomHeightPt));
-
-        // The bottom shelf's static "Assets" tab in its tab strip (below the splitter).
-        LayoutBottomTab(bottomBar, scale);
 
         // PF-B: the viewport tab strip takes the header START; the transport row is offset to begin AFTER
         // its fixed reservation (so the transport never overlaps the tabs — the tab entities themselves
@@ -409,27 +405,6 @@ public sealed class EditorChromeBuilder
                         bounds.Y + labelOffsetY));
             }
         }
-    }
-
-    /// <summary>Positions the bottom shelf's single static "Assets" tab (fill + label + active-accent
-    /// underline) in the shelf's tab strip, sized to its label — the same tab geometry the right
-    /// strip's tabs use, so the two strips read consistently.</summary>
-    private void LayoutBottomTab(Rectangle bottomBar, float scale)
-    {
-        var strip = EditorChromeLayout.TabStrip(bottomBar, scale);
-        var labelWidthPx = _measureLabel("Assets") * scale;
-        var tabWidth = EditorChromeLayout.TabWidth(labelWidthPx, scale);
-        var tab = EditorChromeLayout.TabRow(strip, new[] { tabWidth }, scale)[0];
-
-        PlacePanel(_bottomTabFill, tab);
-        PlacePanel(_bottomTabUnderline, EditorChromeLayout.TabUnderline(tab, scale));
-
-        var labelHeight = (_font?.LineHeight ?? 48f) * LabelScale * scale;
-        ref var text = ref _bottomTabLabel.Get<DynamicTextComponent>();
-        text.Scale = LabelScale * scale;
-        PlaceEntity(_bottomTabLabel, new Vector2(
-            tab.X + EditorChromeLayout.Px(EditorChromeLayout.TabPaddingX, scale),
-            tab.Y + (tab.Height - labelHeight) / 2f));
     }
 
     // NOTE: chrome entities deliberately carry NO VisibleComponent. It is only load-bearing on

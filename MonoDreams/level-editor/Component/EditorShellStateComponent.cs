@@ -21,12 +21,17 @@ public enum EditorPanelTab
     Scenes,
 }
 
-/// <summary>The bottom shelf's active tab. One tab today (Assets — the palette); more shelves are
-/// marked terrain.</summary>
+/// <summary>The bottom shelf's active tab: <see cref="Assets"/> (the drop-folder art palette) and
+/// <see cref="Prefabs"/> (the <c>.mdprefab</c> shelf — PF-D). Both are owned by
+/// <c>PalettePlacementSystem</c>, which renders the interactive tab strip and switches its body content.</summary>
 public enum EditorBottomTab
 {
-    /// <summary>The asset palette (the bottom shelf's only tab in UX-B).</summary>
+    /// <summary>The asset palette (drop-folder art cards + layer bands + triggers).</summary>
     Assets,
+
+    /// <summary>The prefab shelf (PF-D): <c>Content/Prefabs/*.mdprefab</c> as cards; click arms a linked
+    /// instance for placement.</summary>
+    Prefabs,
 }
 
 /// <summary>Which shell drag interaction currently owns the pointer — the SINGLE ownership token so a

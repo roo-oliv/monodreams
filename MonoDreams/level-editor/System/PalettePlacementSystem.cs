@@ -111,6 +111,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private readonly Func<GameState, bool>? _cancelRequested;
     private readonly Func<GameState, bool>? _rotateCwRequested;
     private readonly Func<GameState, bool>? _rotateCcwRequested;
+    // PF-D — the Prefabs shelf hooks (see the ctor).
+    private readonly Func<IReadOnlyList<string>>? _prefabLister;
+    private readonly Action<string, Vector2>? _placePrefab;
+    private readonly Action<string, Point>? _prefabCardMenu;
+    private readonly Action<Point>? _prefabShelfMenu;
+    private readonly Action<string, GameState>? _editPrefab;
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _gizmoStateSet;
@@ -149,12 +155,40 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         public float HoverProgress;
     }
 
+    // A prefab shelf card (PF-D): the card body + label + a prefab GLYPH mesh (EditorIcons.Prefab) in the
+    // icon box (rendered thumbnails are terrain). Click arms; right-click opens the card menu; double-click
+    // edits.
+    private sealed class PrefabCard
+    {
+        public required string Id;
+        public Entity Button;
+        public Entity Label;
+        public Entity Glyph; // the EditorIcons.Prefab mesh on the Editor target
+        public (int Row, int X) Flowed;
+        public float HoverProgress;
+    }
+
+    // A bottom-shelf tab (Assets | Prefabs — PF-D): the interactive tab strip in the shelf header band,
+    // mirroring the left strip's tab pattern.
+    private sealed class BottomTabButton
+    {
+        public required EditorBottomTab Tab;
+        public required string Label;
+        public Entity Fill;         // SimpleButtonComponent: fill Bg1 (active) / Bg2, Accent border when active
+        public Entity LabelEntity;
+        public float HoverProgress;
+        public Rectangle Bounds;
+    }
+
     private readonly List<ItemButton> _items = new();
     private readonly List<TriggerButton> _triggerItems = new();
     private readonly List<BandButton> _bandButtons = new();
+    private readonly List<PrefabCard> _prefabItems = new();
+    private readonly List<BottomTabButton> _bottomTabs = new();
     private readonly EditorShellStateComponent _shellState;
     private bool _leftDown; // cursor left-button held this frame (drives the "pressed" fill)
     private Entity _emptyHint;
+    private Entity _prefabEmptyHint; // PF-D: the Prefabs tab's "empty / unresolved" message
     private Entity _scrollTrack;
     private Entity _scrollThumb;
     private bool _built;
@@ -166,6 +200,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
     private int _armedIndex = -1;
     private int _armedTrigger = -1;
+    private string? _armedPrefab; // PF-D: the armed prefab id (mutually exclusive with _armedIndex/_armedTrigger)
+    private double _lastPrefabClickTime = double.NegativeInfinity; // double-click (= Edit) tracking
+    private int _lastPrefabClickIndex = -1;
+    private int _hoveredPrefab = -1; // ReflectState highlight for the Prefabs tab
+    private int _hoveredTab = -1;    // ReflectState highlight for the bottom tab strip
     private int _bandIndex;
     private float _armedRotation; // the ghost's orientation (radians), set by Q/E; reset on disarm
     private Entity _ghost;
@@ -200,7 +239,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Func<GameState, bool>? rotateCwRequested = null,
         Func<GameState, bool>? rotateCcwRequested = null,
         AssetBandConfig? bandConfig = null,
-        EditorShellStateComponent? shellState = null)
+        EditorShellStateComponent? shellState = null,
+        Func<IReadOnlyList<string>>? prefabLister = null,
+        Action<string, Vector2>? placePrefab = null,
+        Action<string, Point>? prefabCardMenu = null,
+        Action<Point>? prefabShelfMenu = null,
+        Action<string, GameState>? editPrefab = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -222,6 +266,14 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _cancelRequested = cancelRequested;
         _rotateCwRequested = rotateCwRequested;
         _rotateCcwRequested = rotateCcwRequested;
+        // PF-D — the Prefabs shelf tab hooks (all null on a screen without prefab support → the tab still
+        // renders but lists nothing). The lister supplies the ids, placePrefab stamps a linked instance,
+        // and the menu/edit callbacks route to the overlay's prefab flows.
+        _prefabLister = prefabLister;
+        _placePrefab = placePrefab;
+        _prefabCardMenu = prefabCardMenu;
+        _prefabShelfMenu = prefabShelfMenu;
+        _editPrefab = editPrefab;
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
@@ -394,9 +446,47 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         EndStroke(); // commit an in-flight multi-stamp stroke before standing down
         _armedIndex = -1;
         _armedTrigger = -1;
+        _armedPrefab = null;
         _armedRotation = 0f; // a fresh arm starts axis-aligned
         SetMode(EditorToolMode.SelectTransform);
         DespawnGhost();
+    }
+
+    /// <summary>The armed prefab id (PF-D), or null when no prefab is armed. Set by
+    /// <see cref="ArmPrefab"/> / the <c>prefab:place</c> path; mutually exclusive with an armed asset /
+    /// trigger.</summary>
+    public string? ArmedPrefab => _armedPrefab;
+
+    /// <summary>
+    /// Arms a prefab for placement (PF-D — a Prefabs-shelf card click): the shared mode flips to
+    /// <see cref="EditorToolMode.Place"/> and a viewport click stamps a linked instance at the snapped
+    /// cursor (through <c>placePrefab</c> → an undoable <c>CreateInstanceCommand</c>). <b>Prefab ghost v1
+    /// = none</b> (placement is click-on-viewport, the trigger precedent — the placed instance
+    /// auto-selects, showing where it landed; a live root-sprite ghost is terrain). Mutually exclusive
+    /// with an armed asset / trigger.
+    /// </summary>
+    public void ArmPrefab(string prefabId)
+    {
+        if (string.IsNullOrEmpty(prefabId)) return;
+        _armedPrefab = prefabId;
+        _armedIndex = -1;
+        _armedTrigger = -1;
+        DespawnGhost();
+        SetMode(EditorToolMode.Place);
+        Logger.Info($"[level-editor] Palette: armed prefab '{prefabId}' for placement.");
+    }
+
+    /// <summary>Re-scans the prefab shelf's list and rebuilds its cards (PF-D — called after a prefab is
+    /// created / deleted so the shelf reflects the source dir). Disarms any armed prefab (its card may be
+    /// gone). A no-op before the first Update (the initial build reads the lister).</summary>
+    public void RefreshPrefabs()
+    {
+        if (!_built) return;
+        if (_armedPrefab != null) Disarm();
+        foreach (var card in _prefabItems) DisposePrefabCard(card);
+        _prefabItems.Clear();
+        BuildPrefabCards();
+        _laidOutScroll = -1; // force PositionChrome next Update
     }
 
     /// <summary>The armed ghost's current orientation (radians) — what the next stamp bakes into the
@@ -475,10 +565,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             // Self-heal the shared mode: Place with nothing armed (e.g. a stale state after a
             // failed headless arm) falls back to SelectTransform so no tool family is muted.
-            if (GetMode() == EditorToolMode.Place && _armedIndex < 0 && _armedTrigger < 0)
+            if (GetMode() == EditorToolMode.Place && _armedIndex < 0 && _armedTrigger < 0 && _armedPrefab == null)
                 SetMode(EditorToolMode.SelectTransform);
 
-            if (_cancelRequested?.Invoke(state) == true && (_armedIndex >= 0 || _armedTrigger >= 0))
+            if (_cancelRequested?.Invoke(state) == true && (_armedIndex >= 0 || _armedTrigger >= 0 || _armedPrefab != null))
                 Disarm();
 
             // Ghost rotate (Slice 4): Q/E rotate the armed sprite ghost before stamping (triggers
@@ -523,6 +613,27 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         return EditorChromeLayout.RegionBody(shelf, scale);
     }
 
+    /// <summary>The bottom shelf's tab-strip band (above the body) — where the Assets | Prefabs tabs
+    /// render + hit-test (PF-D), mirroring the left strip's tab strip.</summary>
+    private Rectangle PaletteTabStrip(float scale)
+    {
+        var shelf = EditorChromeLayout.BottomBar(
+            _viewportManager!.ScreenWidth, _viewportManager.ScreenHeight, scale, _shellState.BottomHeightPt);
+        return EditorChromeLayout.TabStrip(shelf, scale);
+    }
+
+    /// <summary>The active bottom tab (Assets / Prefabs) — the shelf's body content switches on it.</summary>
+    private bool PrefabsTabActive => _shellState.ActiveBottomTab == EditorBottomTab.Prefabs;
+
+    /// <summary>The on-screen rects of the two bottom tabs (Assets | Prefabs), left-to-right in the strip.</summary>
+    private Rectangle[] BottomTabRects(Rectangle tabStrip, float scale)
+    {
+        var widths = new int[_bottomTabs.Count];
+        for (var i = 0; i < _bottomTabs.Count; i++)
+            widths[i] = EditorChromeLayout.TabWidth(_measureLabel(_bottomTabs[i].Label) * scale, scale);
+        return EditorChromeLayout.TabRow(tabStrip, widths, scale);
+    }
+
     // ---- Strip interaction (raw ScreenPosition, like the toolbar / systems panel) ----
 
     private (int Band, int Item) HandleInteraction(GameState state)
@@ -531,9 +642,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
             _leftDown = input.LeftButton; // drives the "pressed" fill in ReflectState
+            _hoveredTab = -1;
+            _hoveredPrefab = -1;
 
-            // Right-click disarms from anywhere (viewport or chrome) — the standard escape hatch.
-            if (input.RightButtonPressed && _armedIndex >= 0)
+            // Right-click disarms from anywhere (viewport or chrome) — the standard escape hatch (assets,
+            // triggers, and prefabs).
+            if (input.RightButtonPressed && (_armedIndex >= 0 || _armedPrefab != null))
                 Disarm();
 
             if (!_built) return (-1, -1);
@@ -550,6 +664,29 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (_shellState.ActiveDrag != ShellDragKind.None) return (-1, -1);
 
             var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+
+            // Bottom-shelf tab strip (Assets | Prefabs — PF-D): a click switches the active tab (standing
+            // the previous tool down + resetting scroll); hover highlights. Consumes the click.
+            var tabStrip = PaletteTabStrip(scale);
+            if (tabStrip.Contains(point))
+            {
+                var tabRects = BottomTabRects(tabStrip, scale);
+                for (var t = 0; t < _bottomTabs.Count && t < tabRects.Length; t++)
+                {
+                    if (!tabRects[t].Contains(point)) continue;
+                    _hoveredTab = t;
+                    if (input.LeftButtonReleased && _shellState.ActiveBottomTab != _bottomTabs[t].Tab)
+                    {
+                        Disarm();
+                        _shellState.ActiveBottomTab = _bottomTabs[t].Tab;
+                        _scroll = 0;
+                        _laidOutScroll = -1;
+                    }
+                    break;
+                }
+                return (-1, -1);
+            }
+
             if (!strip.Contains(point)) return (-1, -1);
 
             if (input.ScrollWheelDelta != 0)
@@ -560,6 +697,24 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (EditorScrollbar.NeedsScrollbar(TotalRows(), PaletteLayout.VisibleRowCount(strip, scale)) &&
                 EditorScrollbar.Track(strip, scale).Contains(point))
                 return (-1, -1);
+
+            // Prefabs tab (PF-D): hit-test the prefab cards — click arms / double-click edits / right-click
+            // opens the card menu; a right-click on the empty shelf opens the shelf (Create Empty Prefab…)
+            // menu. The asset bands + item/trigger cards are Assets-tab-only.
+            if (PrefabsTabActive)
+            {
+                for (var i = 0; i < _prefabItems.Count; i++)
+                {
+                    if (!PaletteLayout.TryCardRect(strip, _prefabItems[i].Flowed, _scroll, out var pr, scale)) continue;
+                    if (!pr.Contains(point)) continue;
+                    _hoveredPrefab = i;
+                    if (input.RightButtonPressed) _prefabCardMenu?.Invoke(_prefabItems[i].Id, point);
+                    else if (input.LeftButtonReleased) HandlePrefabCardClick(i, state);
+                    return (-1, -1);
+                }
+                if (input.RightButtonPressed) _prefabShelfMenu?.Invoke(point);
+                return (-1, -1);
+            }
 
             // Band selector row.
             for (var i = 0; i < _bandButtons.Count; i++)
@@ -703,6 +858,15 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
     private void UpdateGhostAndPlace(GameState state)
     {
+        // Prefab placement (PF-D): no sprite ghost (v1 — the trigger precedent); a viewport left-click
+        // stamps a linked instance at the snapped cursor through placePrefab (an undoable command).
+        if (_armedPrefab != null)
+        {
+            DespawnGhost();
+            PlacePrefabOnClick(state);
+            return;
+        }
+
         // Trigger placement (island-authoring §5.3): no sprite ghost — the trigger overlay draws
         // the box preview — so just place on a viewport click.
         if (_armedTrigger >= 0)
@@ -973,7 +1137,100 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _scrollTrack = CreateScrollMesh();
         _scrollThumb = CreateScrollMesh();
 
+        // PF-D: the interactive bottom tab strip (Assets | Prefabs) + the prefab shelf cards.
+        BuildBottomTabs();
+        BuildPrefabCards();
+
         _built = true;
+    }
+
+    /// <summary>The double-click window (seconds) for a prefab card = Edit.</summary>
+    private const double DoubleClickSeconds = 0.35;
+
+    private void BuildBottomTabs()
+    {
+        var assetsLabel = CreateLabel("Assets");
+        _bottomTabs.Add(new BottomTabButton
+        {
+            Tab = EditorBottomTab.Assets, Label = "Assets", Fill = CreateButton(assetsLabel), LabelEntity = assetsLabel,
+        });
+        var prefabsLabel = CreateLabel("Prefabs");
+        _bottomTabs.Add(new BottomTabButton
+        {
+            Tab = EditorBottomTab.Prefabs, Label = "Prefabs", Fill = CreateButton(prefabsLabel), LabelEntity = prefabsLabel,
+        });
+        _prefabEmptyHint = CreateLabel("No prefabs - Create Empty Prefab (right-click) or from a selection");
+    }
+
+    private void BuildPrefabCards()
+    {
+        if (_prefabLister == null) return;
+        foreach (var id in _prefabLister())
+            _prefabItems.Add(CreatePrefabCard(id));
+    }
+
+    /// <summary>One prefab shelf card: the card body button, its id label, and the prefab GLYPH mesh
+    /// (<see cref="EditorIcons.EditorIcon.Prefab"/>) in the icon box.</summary>
+    private PrefabCard CreatePrefabCard(string id)
+    {
+        var label = CreateLabel(id);
+        return new PrefabCard { Id = id, Button = CreateButton(label), Label = label, Glyph = CreatePrefabGlyphMesh() };
+    }
+
+    private Entity CreatePrefabGlyphMesh()
+    {
+        var mesh = _world.CreateEntity();
+        mesh.Set(new EditorInfrastructureComponent());
+        mesh.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+        mesh.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Editor,
+            LayerDepth = ThumbnailDepth,
+            WorldMatrix = Matrix.Identity,
+            Vertices = Array.Empty<VertexPositionColor>(),
+            Indices = Array.Empty<int>(),
+        });
+        return mesh;
+    }
+
+    private static void DisposePrefabCard(PrefabCard card)
+    {
+        if (card.Button.IsAlive) card.Button.Dispose();
+        if (card.Label.IsAlive) card.Label.Dispose();
+        if (card.Glyph.IsAlive) card.Glyph.Dispose();
+    }
+
+    /// <summary>A prefab card click: a double-click (same card, within <see cref="DoubleClickSeconds"/>)
+    /// opens its tab (Edit); a single click arms it for placement.</summary>
+    private void HandlePrefabCardClick(int index, GameState state)
+    {
+        var id = _prefabItems[index].Id;
+        var now = state.TotalTime;
+        if (index == _lastPrefabClickIndex && (now - _lastPrefabClickTime) <= DoubleClickSeconds)
+        {
+            _lastPrefabClickIndex = -1;
+            _lastPrefabClickTime = double.NegativeInfinity;
+            _editPrefab?.Invoke(id, state); // double-click = Edit (opens the prefab tab)
+            return;
+        }
+        _lastPrefabClickIndex = index;
+        _lastPrefabClickTime = now;
+        ArmPrefab(id);
+    }
+
+    /// <summary>Places the armed prefab on a viewport left-click at the snapped cursor (PF-D — no sprite
+    /// ghost, the trigger precedent), through the injected <c>placePrefab</c> (an undoable instance stamp).</summary>
+    private void PlacePrefabOnClick(GameState state)
+    {
+        if (_placePrefab == null || _armedPrefab == null) return;
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+            if (input.OutsideViewport || !input.LeftButtonPressed) return;
+            _placePrefab(_armedPrefab, SnapPosition(input.WorldPosition));
+            return; // single cursor; single stamp per press
+        }
     }
 
     /// <summary>A trigger button's strip label: a leading marker so the Triggers section reads at a
@@ -1096,6 +1353,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private int TotalRows()
     {
         var rows = 0;
+        if (PrefabsTabActive)
+        {
+            foreach (var card in _prefabItems) rows = Math.Max(rows, card.Flowed.Row + 1);
+            return rows;
+        }
         foreach (var item in _items) rows = Math.Max(rows, item.Flowed.Row + 1);
         foreach (var trigger in _triggerItems) rows = Math.Max(rows, trigger.Flowed.Row + 1);
         return rows;
@@ -1106,41 +1368,71 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
         var content = PaletteLayout.ContentArea(strip, scale);
 
-        // Band selector header row.
-        var bandWidths = new int[_bandButtons.Count];
-        for (var i = 0; i < _bandButtons.Count; i++)
-            bandWidths[i] = PaletteLayout.ButtonWidth(_measureLabel(_bands[i].Name) * scale, scale);
-        var bandRects = PaletteLayout.BandRow(strip, bandWidths, scale);
-        for (var i = 0; i < _bandButtons.Count; i++)
-            PlaceButton(_bandButtons[i].Button, _bandButtons[i].Label, bandRects[i], labelHeight, scale);
+        PositionBottomTabs(scale, labelHeight); // the Assets | Prefabs tab strip (always)
+        var hintY = content.Y + EditorChromeLayout.Px(PaletteLayout.HeaderHeight, scale)
+                    + (EditorChromeLayout.Px(PaletteLayout.CardLabelHeight, scale) - labelHeight) / 2f;
 
-        // Card grid, scrolled by whole rows. Sprite items and trigger cards flow TOGETHER in one
-        // fixed-width grid (triggers appended after the sprite items — the "Triggers section").
-        var total = _items.Count + _triggerItems.Count;
-        var flow = PaletteLayout.CardFlow(total, content.Width, scale);
-        for (var i = 0; i < _items.Count; i++)
+        if (PrefabsTabActive)
         {
-            _items[i].Flowed = flow[i];
-            if (PaletteLayout.TryCardRect(strip, flow[i], _scroll, out var rect, scale))
-                PlaceItemCard(_items[i], rect, labelHeight, scale);
-            else
-                ParkItem(_items[i]);
-        }
-        for (var j = 0; j < _triggerItems.Count; j++)
-        {
-            var idx = _items.Count + j;
-            _triggerItems[j].Flowed = flow[idx];
-            if (PaletteLayout.TryCardRect(strip, flow[idx], _scroll, out var rect, scale))
-                PlaceTriggerCard(_triggerItems[j], rect, labelHeight, scale);
-            else
-                ParkButton(_triggerItems[j].Button, _triggerItems[j].Label);
-        }
+            // Park every Assets-tab widget; lay out the prefab cards.
+            foreach (var b in _bandButtons) ParkButton(b.Button, b.Label);
+            foreach (var item in _items) ParkItem(item);
+            foreach (var trigger in _triggerItems) ParkButton(trigger.Button, trigger.Label);
+            if (_emptyHint.IsAlive) Park(_emptyHint);
 
-        if (_emptyHint.IsAlive)
+            var pflow = PaletteLayout.CardFlow(_prefabItems.Count, content.Width, scale);
+            for (var i = 0; i < _prefabItems.Count; i++)
+            {
+                _prefabItems[i].Flowed = pflow[i];
+                if (PaletteLayout.TryCardRect(strip, pflow[i], _scroll, out var rect, scale))
+                    PlacePrefabCard(_prefabItems[i], rect, labelHeight, scale);
+                else
+                    ParkPrefabCard(_prefabItems[i]);
+            }
+
+            if (_prefabEmptyHint.IsAlive)
+            {
+                if (_prefabItems.Count == 0) PlaceLabel(_prefabEmptyHint, new Vector2(content.X, hintY), scale);
+                else Park(_prefabEmptyHint);
+            }
+        }
+        else
         {
-            PlaceLabel(_emptyHint, new Vector2(content.X,
-                content.Y + EditorChromeLayout.Px(PaletteLayout.HeaderHeight, scale)
-                          + (EditorChromeLayout.Px(PaletteLayout.CardLabelHeight, scale) - labelHeight) / 2f), scale);
+            // Park the prefab cards + hint; lay out the Assets-tab chrome (bands + item/trigger cards).
+            foreach (var card in _prefabItems) ParkPrefabCard(card);
+            if (_prefabEmptyHint.IsAlive) Park(_prefabEmptyHint);
+
+            var bandWidths = new int[_bandButtons.Count];
+            for (var i = 0; i < _bandButtons.Count; i++)
+                bandWidths[i] = PaletteLayout.ButtonWidth(_measureLabel(_bands[i].Name) * scale, scale);
+            var bandRects = PaletteLayout.BandRow(strip, bandWidths, scale);
+            for (var i = 0; i < _bandButtons.Count; i++)
+                PlaceButton(_bandButtons[i].Button, _bandButtons[i].Label, bandRects[i], labelHeight, scale);
+
+            // Card grid, scrolled by whole rows. Sprite items and trigger cards flow TOGETHER in one
+            // fixed-width grid (triggers appended after the sprite items — the "Triggers section").
+            var total = _items.Count + _triggerItems.Count;
+            var flow = PaletteLayout.CardFlow(total, content.Width, scale);
+            for (var i = 0; i < _items.Count; i++)
+            {
+                _items[i].Flowed = flow[i];
+                if (PaletteLayout.TryCardRect(strip, flow[i], _scroll, out var rect, scale))
+                    PlaceItemCard(_items[i], rect, labelHeight, scale);
+                else
+                    ParkItem(_items[i]);
+            }
+            for (var j = 0; j < _triggerItems.Count; j++)
+            {
+                var idx = _items.Count + j;
+                _triggerItems[j].Flowed = flow[idx];
+                if (PaletteLayout.TryCardRect(strip, flow[idx], _scroll, out var rect, scale))
+                    PlaceTriggerCard(_triggerItems[j], rect, labelHeight, scale);
+                else
+                    ParkButton(_triggerItems[j].Button, _triggerItems[j].Label);
+            }
+
+            if (_emptyHint.IsAlive)
+                PlaceLabel(_emptyHint, new Vector2(content.X, hintY), scale);
         }
 
         PositionScrollbar(strip, scale);
@@ -1150,6 +1442,50 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _laidOutScroll = _scroll;
         _laidOutScale = scale;
         _laidOutBottomHeightPt = _shellState.BottomHeightPt;
+    }
+
+    /// <summary>Positions the Assets | Prefabs tab strip (PF-D) in the shelf's tab band; records each
+    /// tab's <see cref="BottomTabButton.Bounds"/> for the hit-test.</summary>
+    private void PositionBottomTabs(float scale, float labelHeight)
+    {
+        var tabStrip = PaletteTabStrip(scale);
+        var rects = BottomTabRects(tabStrip, scale);
+        for (var i = 0; i < _bottomTabs.Count && i < rects.Length; i++)
+        {
+            _bottomTabs[i].Bounds = rects[i];
+            PlaceButton(_bottomTabs[i].Fill, _bottomTabs[i].LabelEntity, rects[i], labelHeight, scale);
+        }
+    }
+
+    /// <summary>Positions one prefab card: the body button, its id label, and the prefab GLYPH mesh
+    /// (screen-baked, identity WorldMatrix — the toolbar-icon convention) in the icon box.</summary>
+    private void PlacePrefabCard(PrefabCard card, Rectangle rect, float labelHeight, float scale)
+    {
+        Place(card.Button, new Vector2(rect.X, rect.Y));
+        ref var visual = ref card.Button.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(rect.Width, rect.Height);
+        PlaceCardLabel(card.Label, card.Id, PaletteLayout.CardLabelRect(rect, scale), labelHeight, scale);
+
+        var glyphRect = EditorIcons.CenteredIconRect(PaletteLayout.CardIconRect(rect, scale));
+        SetGlyphMesh(card.Glyph, EditorIcons.Build(EditorIcons.EditorIcon.Prefab, glyphRect, EditorTheme.Text1));
+    }
+
+    private void ParkPrefabCard(PrefabCard card)
+    {
+        ParkButton(card.Button, card.Label);
+        ClearScrollMesh(card.Glyph); // blanks the glyph mesh (draws nothing while parked)
+    }
+
+    private static void SetGlyphMesh(Entity e, MeshData mesh)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Type = DrawElementType.Mesh;
+        dc.Vertices = mesh.Vertices;
+        dc.Indices = mesh.Indices;
+        dc.PrimitiveType = mesh.PrimitiveType;
+        dc.WorldMatrix = Matrix.Identity;
+        dc.Target = RenderTargetID.Editor;
+        dc.LayerDepth = ThumbnailDepth;
     }
 
     private void PlaceButton(Entity button, Entity label, Rectangle rect, float labelHeight, float scale)
@@ -1338,6 +1674,35 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 disabled: !editing, selected: armed, pressed: over && _leftDown, trigger.HoverProgress);
             visual.Color = armed ? EditorTheme.Accent : EditorTheme.BorderStrong;
         }
+
+        // Bottom tab strip (Assets | Prefabs — PF-D): the active tab reads Bg1 (merges into the body) +
+        // an Accent border; the inactive tab idles / hover-fades. Live in both transport states (a tab
+        // switch must work while Playing).
+        for (var t = 0; t < _bottomTabs.Count; t++)
+        {
+            var tab = _bottomTabs[t];
+            var active = _shellState.ActiveBottomTab == tab.Tab;
+            var over = _hoveredTab == t;
+            tab.HoverProgress = EditorTheme.AdvanceHover(tab.HoverProgress, over, dt);
+            ref var visual = ref tab.Fill.Get<SimpleButtonComponent>();
+            visual.FillColor = active
+                ? EditorTheme.Bg1
+                : EditorTheme.ControlFill(disabled: false, selected: false, pressed: over && _leftDown, tab.HoverProgress);
+            visual.Color = active ? EditorTheme.Accent : EditorTheme.BorderStrong;
+        }
+
+        // Prefab cards: ARMED reads as selection (Accent border); otherwise idle / hover-fade / pressed.
+        for (var i = 0; i < _prefabItems.Count; i++)
+        {
+            var card = _prefabItems[i];
+            var armed = card.Id == _armedPrefab;
+            var over = editing && _hoveredPrefab == i;
+            card.HoverProgress = EditorTheme.AdvanceHover(card.HoverProgress, over, dt);
+            ref var visual = ref card.Button.Get<SimpleButtonComponent>();
+            visual.FillColor = EditorTheme.ControlFill(
+                disabled: !editing, selected: armed, pressed: over && _leftDown, card.HoverProgress);
+            visual.Color = armed ? EditorTheme.Accent : EditorTheme.BorderStrong;
+        }
     }
 
     // ---- Shared gizmo-state access (mirrors GizmoSystem's fallback) ----
@@ -1375,12 +1740,21 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (trigger.Button.IsAlive) trigger.Button.Dispose();
             if (trigger.Label.IsAlive) trigger.Label.Dispose();
         }
+        foreach (var card in _prefabItems) DisposePrefabCard(card);
+        foreach (var tab in _bottomTabs)
+        {
+            if (tab.Fill.IsAlive) tab.Fill.Dispose();
+            if (tab.LabelEntity.IsAlive) tab.LabelEntity.Dispose();
+        }
         if (_emptyHint.IsAlive) _emptyHint.Dispose();
+        if (_prefabEmptyHint.IsAlive) _prefabEmptyHint.Dispose();
         if (_scrollTrack.IsAlive) _scrollTrack.Dispose();
         if (_scrollThumb.IsAlive) _scrollThumb.Dispose();
         _bandButtons.Clear();
         _items.Clear();
         _triggerItems.Clear();
+        _prefabItems.Clear();
+        _bottomTabs.Clear();
         _cursorSet.Dispose();
         _gizmoStateSet.Dispose();
         _selectedSet.Dispose();

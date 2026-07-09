@@ -484,7 +484,14 @@ public sealed class EditorOverlay
             Palette = new PalettePlacementSystem(
                 world, assetCatalog, paletteBands, AssetTextures, Serializer, History,
                 viewportManager, toolbarFont, input.CancelRequested, triggerTypes,
-                input.RotateCwRequested, input.RotateCcwRequested, bandConfig, _shellState);
+                input.RotateCwRequested, input.RotateCcwRequested, bandConfig, _shellState,
+                // PF-D — the Prefabs shelf tab: the lister feeds the cards, placePrefab stamps a linked
+                // instance (undoable), and the menu/edit hooks route to the overlay's prefab flows.
+                prefabLister: ListPrefabIds,
+                placePrefab: PlacePrefabInstance,
+                prefabCardMenu: (id, pt) => _menu.OpenAt(EditorContextMenuModel.PrefabCardMenu(id), pt),
+                prefabShelfMenu: pt => _menu.OpenAt(EditorContextMenuModel.PrefabShelfMenu(), pt),
+                editPrefab: (id, s) => OpenPrefabTab(id, s));
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -2377,9 +2384,10 @@ public sealed class EditorOverlay
             case "systems": _leftPanel.SetActiveTab(EditorPanelTab.Systems); break;
             case "scenes": _leftPanel.SetActiveTab(EditorPanelTab.Scenes); break;
             case "assets": _shellState.ActiveBottomTab = EditorBottomTab.Assets; break;
+            case "prefabs": _shellState.ActiveBottomTab = EditorBottomTab.Prefabs; break;
             default:
                 Logger.Warning(
-                    $"[level-editor] Editor-op '{name}': expected panel:tab <entities|systems|scenes|assets>.");
+                    $"[level-editor] Editor-op '{name}': expected panel:tab <entities|systems|scenes|assets|prefabs>.");
                 break;
         }
     }
