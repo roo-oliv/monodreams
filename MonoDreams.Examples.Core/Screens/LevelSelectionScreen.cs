@@ -412,6 +412,11 @@ public class LevelSelectionScreen : IGameScreen
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Inspector, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
+            // PF-F universal palette: weave the asset/prefab palette when the overlay composed one (it
+            // builds a default catalog + bands from the resolved project + this screen's layer map even
+            // though the menu supplies none) — so a menu gets the Assets + Prefabs tabs too.
+            if (_editor.Palette != null)
+                p.Add("editor.palette", _editor.Palette, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);

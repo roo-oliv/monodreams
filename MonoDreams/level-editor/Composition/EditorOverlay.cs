@@ -81,6 +81,11 @@ public sealed class EditorOverlay
     /// first Save writes (<c>untitled.mdscene</c>). See <see cref="ResolveSceneId"/>.</summary>
     public const string DefaultSceneId = "untitled";
 
+    /// <summary>The asset drop-folder name the universal palette scans (PF-F) when a screen supplies no
+    /// catalog of its own — the documented <c>Content/Island/</c> convention (see <c>AssetCatalog</c>),
+    /// mirroring how the reference game screen builds its catalog.</summary>
+    public const string DefaultAssetDropFolder = "Island";
+
     private readonly World _world;
     private readonly Camera _camera;
     private readonly DrawLayerMap _layers;
@@ -487,9 +492,26 @@ public sealed class EditorOverlay
         // "add-component:<key>" back through DispatchMenuAction → the shared inspector panel.
         _inspectorPanel.AddComponentRequested = OpenAddComponentPopup;
 
-        // The asset palette + placement (island-authoring Slice 1): only when the screen supplies
-        // both the catalog (the drop-folder scan) and its layer-band map — the module never
-        // guesses a game's layers. Lives in the shell's bottom strip.
+        // PF-F universal palette: when a screen supplies NO catalog/bands of its own but the project is
+        // resolved, the overlay BUILDS them itself — a default catalog scanned from the drop-folder
+        // convention + a band per layer of the SCREEN's own layer map — so EVERY screen (a menu, a demo)
+        // gets the Assets + Prefabs tabs, not just the game screen. An unresolved project (a shipped build,
+        // a host with no project) keeps the current no-palette behavior. The screen still weaves
+        // `overlay.Palette` into its pipeline; screens that supply their own catalog/bands override this.
+        if (assetCatalog == null && (paletteBands == null || paletteBands.Count == 0)
+            && projectContext is { Resolved: true } && content != null)
+        {
+            var dropRoot = PlatformServices.Current.CombinePath(
+                PlatformServices.Current.BaseDirectory, content.RootDirectory, DefaultAssetDropFolder);
+            assetCatalog = AssetCatalog.Scan(dropRoot, DefaultAssetDropFolder);
+            paletteBands = DefaultBandsFromLayers(layers);
+            Logger.Info(
+                $"[level-editor] Universal palette: built a default catalog ({assetCatalog.Entries.Count} " +
+                $"asset(s) from '{dropRoot}') + {paletteBands.Count} band(s) from the screen's layer map.");
+        }
+
+        // The asset palette + placement (island-authoring Slice 1): when a catalog + a layer-band map are
+        // present — supplied by the screen OR built above (PF-F). Lives in the shell's bottom strip.
         if (assetCatalog != null && paletteBands is { Count: > 0 })
         {
             // Per-asset band marks (FW3): loaded from asset-bands.json alongside the assets (the
@@ -2093,6 +2115,22 @@ public sealed class EditorOverlay
         if (!string.IsNullOrWhiteSpace(sceneId)) return sceneId!;
         var startScene = projectContext?.Manifest?.StartScene;
         return string.IsNullOrWhiteSpace(startScene) ? DefaultSceneId : startScene!;
+    }
+
+    /// <summary>
+    /// The default palette bands for the universal palette (PF-F): one <see cref="PaletteBand"/> per layer
+    /// of the SCREEN's <see cref="DrawLayerMap"/> (name + source depth + its Y-sort flag). This is the
+    /// generalization of a screen hand-listing its bands — the overlay builds it from the screen's own
+    /// layer map so a screen that supplies none still gets a usable band set. Pure — unit-testable without
+    /// the (GraphicsDevice-bound) overlay.
+    /// </summary>
+    public static IReadOnlyList<PaletteBand> DefaultBandsFromLayers(DrawLayerMap layers)
+    {
+        var bands = new List<PaletteBand>();
+        if (layers == null) return bands;
+        foreach (var (name, depth, ySorted) in layers.EnumerateLayers())
+            bands.Add(new PaletteBand(name, depth, ySorted));
+        return bands;
     }
 
     /// <summary>
