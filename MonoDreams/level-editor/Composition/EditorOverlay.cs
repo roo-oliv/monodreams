@@ -1268,11 +1268,14 @@ public sealed class EditorOverlay
         catch (Exception ex) { Logger.Warning($"[level-editor] Place prefab '{prefabId}' failed: {ex.Message}"); return; }
         if (data == null) { Logger.Warning($"[level-editor] Place prefab: no prefab '{prefabId}' resolved."); return; }
 
-        var cmd = new CreateInstanceCommand(PrefabExpander, prefabId, worldPos);
+        var cmd = new CreateInstanceCommand(PrefabExpander, prefabId, worldPos, autoName: true);
         History.Push(cmd);
         ClearWorldSelection();
         if (cmd.Root.IsAlive) cmd.Root.Set(new SelectedComponent());
+        var placedName = cmd.Root.IsAlive && cmd.Root.Has<EntityInfoComponent>()
+            ? cmd.Root.Get<EntityInfoComponent>().Name : prefabId;
         Logger.Info($"[level-editor] Placed prefab instance '{prefabId}' at ({worldPos.X:0.##}, {worldPos.Y:0.##}).");
+        Notifications.Notify($"Placed '{placedName}'", EditorNotifySeverity.Info);
     }
 
     /// <summary>Opens (or activates) a prefab tab (PF-D — the card's Edit / double-click / <c>prefab:edit</c>):
@@ -1344,6 +1347,7 @@ public sealed class EditorOverlay
 
         History.MarkSavePoint();      // the prefab context is now clean
         EnsurePrefabBundled(prefabId);
+        Palette?.RefreshPrefabs();    // keep the shelf in sync (a first save adds the card)
 
         // Live-world propagation (history-clear rule only when instances were rebuilt — the prefab world
         // has none, so this is a no-op here). Backgrounded scenes re-expand on restore (the chosen mechanism).
@@ -1351,6 +1355,7 @@ public sealed class EditorOverlay
             PrefabPropagation.ReExpand(_world, prefabId, oldPrefab, PrefabExpander, Registry, History);
 
         Logger.Info($"[level-editor] Saved prefab '{prefabId}' to '{savedPath}'.");
+        Notifications.Notify($"Saved prefab '{prefabId}'", EditorNotifySeverity.Success);
     }
 
     /// <summary>Opens the Create-Prefab-from-Selection name modal (PF-D): refuses with no selection, else
@@ -1386,11 +1391,14 @@ public sealed class EditorOverlay
         if (!TryGetSelectedRoot(out var root))
         {
             Logger.Warning("[level-editor] Create Prefab from Selection: nothing is selected.");
+            Notifications.Notify("Create prefab: nothing is selected.", EditorNotifySeverity.Warning);
             return;
         }
         if (PrefabGuards.IsPrefabOwned(root))
         {
             Logger.Warning(PrefabGuards.Refusal("Create prefab"));
+            Notifications.Notify("Create prefab: open the prefab or Unpack - can't capture a prefab child.",
+                EditorNotifySeverity.Warning);
             return;
         }
         if (root.Has<PrefabInstanceComponent>())
@@ -1398,44 +1406,39 @@ public sealed class EditorOverlay
             Logger.Warning(
                 "[level-editor] Create Prefab from Selection refused: the selection is already a prefab " +
                 "instance — Unpack it first, or edit the prefab directly.");
+            Notifications.Notify("Create prefab: the selection is already an instance - Unpack it first.",
+                EditorNotifySeverity.Warning);
             return;
         }
 
-        // Capture the selection's subtree into a throwaway world, then build + validate the prefab.
-        var subgraph = EntitySubgraph.Collect(_world, root);
-        var captured = Serializer.Serialize(subgraph);
-        SceneData prefabScene;
-        using (var tmp = new World())
+        // Build + validate the prefab through the ONE shared capture helper (robust root-finding +
+        // empty-capture refusal + naming). Refuse loud + status on an empty/invalid capture.
+        var capture = PrefabCapture.Build(_world, root, id, Serializer, PrefabSource);
+        if (!capture.Ok)
         {
-            var created = Serializer.Deserialize(tmp, captured);
-            if (created.Count == 0) { Logger.Warning("[level-editor] Create Prefab: the selection is empty."); return; }
-            created[0].Set(new SceneObjectComponent());
-            try
-            {
-                prefabScene = new PrefabWriter(new SceneWriter(Serializer, PrefabSource))
-                    .BuildPrefab(tmp, id, PrefabSource);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning(
-                    $"[level-editor] Create Prefab '{id}' refused: {ex.Message} (single-root selections only).");
-                return;
-            }
+            Logger.Warning($"[level-editor] Create Prefab '{id}' refused: {capture.Refusal}");
+            Notifications.Notify(capture.Refusal!, EditorNotifySeverity.Danger);
+            return;
         }
 
-        var savedPath = new SceneWriter(Serializer, PrefabSource).Save(prefabScene, target!);
+        var savedPath = new SceneWriter(Serializer, PrefabSource).Save(capture.Scene!, target!);
         if (savedPath == null) return;
         EnsurePrefabBundled(id);
+        Palette?.RefreshPrefabs(); // the new card appears immediately (no relaunch)
 
         // Replace the selection with a linked instance at its world position — ONE undoable composite.
         var worldPos = root.Has<TransformComponent>() ? root.Get<TransformComponent>().Position : Vector2.Zero;
         var delete = new DeleteEntityCommand(_world, root, Serializer);
-        var create = new CreateInstanceCommand(PrefabExpander, id, worldPos);
+        var create = new CreateInstanceCommand(PrefabExpander, id, worldPos, autoName: true);
         History.Push(new CompositeCommand(new List<IEditorCommand> { delete, create }));
 
         ClearWorldSelection();
         if (create.Root.IsAlive) create.Root.Set(new SelectedComponent());
-        Logger.Info($"[level-editor] Created prefab '{id}' from selection; replaced it with a linked instance.");
+        Logger.Info(
+            $"[level-editor] Created prefab '{id}' ({capture.EntityCount} entities) from selection; " +
+            "replaced it with a linked instance.");
+        Notifications.Notify($"Created prefab '{id}' ({capture.EntityCount} entities)",
+            EditorNotifySeverity.Success);
     }
 
     /// <summary>Opens the Create-Empty-Prefab name modal (PF-D — the Prefabs shelf menu): confirm runs
@@ -1462,13 +1465,17 @@ public sealed class EditorOverlay
             var root = tmp.CreateEntity();
             root.Set(new SceneObjectComponent());
             root.Set(new TransformComponent(Vector2.Zero));
+            // Name the empty root after the prefab (PF-F) so the tree reads the prefab id, not "Entity 1".
+            root.Set(new EntityInfoComponent(id));
             prefabScene = new PrefabWriter(new SceneWriter(Serializer, PrefabSource)).BuildPrefab(tmp, id, PrefabSource);
         }
 
         var savedPath = new SceneWriter(Serializer, PrefabSource).Save(prefabScene, target!);
         if (savedPath == null) return;
         EnsurePrefabBundled(id);
+        Palette?.RefreshPrefabs(); // the new card appears immediately (no relaunch)
         Logger.Info($"[level-editor] Created empty prefab '{id}' at '{savedPath}'.");
+        Notifications.Notify($"Created empty prefab '{id}'", EditorNotifySeverity.Success);
 
         OpenPrefabTab(id, state); // resolves the just-written prefab source-first + opens its tab
     }
@@ -1525,11 +1532,14 @@ public sealed class EditorOverlay
         try
         {
             File.Delete(target!);
+            Palette?.RefreshPrefabs(); // the card disappears immediately
             Logger.Info($"[level-editor] Deleted prefab '{prefabId}' ('{target}'). Its MGCB /copy: entry (if any) is now dangling.");
+            Notifications.Notify($"Deleted prefab '{prefabId}'", EditorNotifySeverity.Info);
         }
         catch (Exception ex)
         {
             Logger.Warning($"[level-editor] Delete Prefab '{prefabId}' failed: {ex.Message}");
+            Notifications.Notify($"Delete prefab '{prefabId}' failed.", EditorNotifySeverity.Danger);
         }
     }
 
@@ -1802,7 +1812,11 @@ public sealed class EditorOverlay
                 if (Palette == null)
                     Logger.Warning("[level-editor] RefreshCatalog: this screen composes no palette.");
                 else
-                    Palette.Refresh();
+                {
+                    Palette.Refresh();        // re-scan the asset drop folder
+                    Palette.RefreshPrefabs(); // AND the prefab shelf (PF-F — one refresh action does both)
+                    Notifications.Notify("Refreshed assets + prefabs", EditorNotifySeverity.Info);
+                }
                 break;
             // The Scene-header "Entity ▾" dropdown (UX2-D): open the entity menu below the button,
             // acting on the current selection (the discoverable twin of the viewport right-click).
