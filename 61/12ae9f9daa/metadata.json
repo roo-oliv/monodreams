@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "6112ae9f9daa",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs",
+    "MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs",
+    "MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs",
+    "MonoDreams.Tests/LevelEditor/SceneLintTests.cs",
+    "MonoDreams/level-blender/docs/premises.md",
+    "docs/level-editor/colliders-as-entities.md",
+    "docs/level-editor/editor-shell-ui-ux-2.md",
+    "docs/level-editor/editor-shell-ui-ux-3.md",
+    "docs/level-editor/editor-shell-ui-ux.md",
+    "docs/level-editor/island-authoring-plan.md",
+    "docs/level-editor/prefab-workflow.md",
+    "docs/level-editor/project-persistence-plan.md",
+    "docs/level-editor/viewport-tabs-2.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/61/12ae9f9daa/0/metadata.json",
+      "transcript": "/61/12ae9f9daa/0/full.jsonl",
+      "context": "/61/12ae9f9daa/0/context.md",
+      "content_hash": "/61/12ae9f9daa/0/content_hash.txt",
+      "prompt": "/61/12ae9f9daa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 763295,
+    "cache_read_tokens": 6011391,
+    "output_tokens": 13073,
+    "api_call_count": 9
+  }
+}
