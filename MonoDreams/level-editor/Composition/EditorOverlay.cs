@@ -957,6 +957,8 @@ public sealed class EditorOverlay
         stack.PrepareCrossScreenActivation(newIndex); // preserve the leaving context / drop a leaving Game tab
         if (_session != null) _session.PendingActivation = true;
         state.RunMode = RunMode.Edit; // a scene tab is edited Paused
+        Logger.Info($"[level-editor] TB-A: opening scene tab '{entry.SceneId}' on screen " +
+                    $"'{entry.ScreenName}' — the host session survives the screen switch.");
         _switchScene!(entry);
     }
 
@@ -987,6 +989,8 @@ public sealed class EditorOverlay
         stack.PrepareCrossScreenActivation(index); // drop a leaving Game tab / snapshot a leaving persistent
         if (_session != null) _session.PendingActivation = true;
         state.RunMode = RunMode.Edit;
+        Logger.Info($"[level-editor] TB-A: cross-screen activation of tab '{target.Id}' on screen " +
+                    $"'{target.ScreenName}' — the host session survives the screen switch.");
         SwitchToScreen(target);
     }
 
@@ -1074,8 +1078,15 @@ public sealed class EditorOverlay
         _session.PendingActivation = false;          // consume exactly once
         state.RunMode = RunMode.Edit;                // a cross-screen scene activation lands Paused
         SyncSceneIdFromActiveContext();
-        if (Transport.ContextStack.Active.Snapshot == null) return false; // a fresh tab: let the screen load from disk
+        if (Transport.ContextStack.Active.Snapshot == null)
+        {
+            Logger.Info($"[level-editor] TB-A: consumed pending activation — fresh-loading tab " +
+                        $"'{Transport.ContextStack.Active.Id}' from disk (no snapshot yet).");
+            return false; // a fresh tab: let the screen load from disk
+        }
         Transport.ContextStack.RestoreActiveSnapshot(); // reader-restore over the code-built UI (no sweep)
+        Logger.Info($"[level-editor] TB-A: consumed pending activation — restored tab " +
+                    $"'{Transport.ContextStack.Active.Id}' from its in-memory snapshot (no fresh load).");
         return true;
     }
 
