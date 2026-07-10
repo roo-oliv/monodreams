@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "116cf932c72c",
+  "session_id": "99588020-158e-40d6-aa8e-de0c7ddae9dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-10T14:24:49.955709Z",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs",
+    "MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs",
+    "MonoDreams.Tests/LevelEditor/SceneLintTests.cs",
+    "docs/level-editor/colliders-as-entities.md",
+    "docs/level-editor/editor-shell-ui-ux-2.md",
+    "docs/level-editor/editor-shell-ui-ux-3.md",
+    "docs/level-editor/editor-shell-ui-ux.md",
+    "docs/level-editor/island-authoring-plan.md",
+    "docs/level-editor/prefab-workflow.md",
+    "docs/level-editor/project-persistence-plan.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "f10a389b-36aa-4b17-b5be-7be2f489c5ab",
+  "checkpoint_transcript_start": 5017,
+  "transcript_lines_at_start": 5017,
+  "token_usage": {
+    "input_tokens": 3767,
+    "cache_creation_tokens": 640008,
+    "cache_read_tokens": 1268155,
+    "output_tokens": 4607,
+    "api_call_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-10T14:24:47.517366Z",
+    "agent_lines": 4,
+    "human_added": 1155,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1159,
+    "agent_percentage": 0.3451251078515962
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-level-editor/99588020-158e-40d6-aa8e-de0c7ddae9dd.jsonl"
+}
