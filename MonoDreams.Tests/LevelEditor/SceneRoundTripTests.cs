@@ -239,9 +239,9 @@ public class SceneRoundTripTests
         var gizmo = world.CreateEntity();
         gizmo.Set(new EntityInfoComponent("GizmoHandle"));
 
-        // Blender-style entity — untagged → excluded (GAP-B: Blender save deferred).
+        // An untagged content entity — untagged → excluded (only SceneObjectComponent-tagged roots write).
         var blender = world.CreateEntity();
-        blender.Set(new EntityInfoComponent("Mesh", "blender_floor"));
+        blender.Set(new EntityInfoComponent("Mesh", "untagged_floor"));
         blender.Set(new TransformComponent(Vector2.Zero));
 
         // The camera RIG (UX2-E, pre-mortem #4): a standalone editor-materialized entity carrying the

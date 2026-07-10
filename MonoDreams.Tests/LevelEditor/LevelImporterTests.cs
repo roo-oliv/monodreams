@@ -24,18 +24,18 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects PS5 <b>LDtk/Blender import-only + Examples migration</b>: a world shaped like the LDtk
-/// factories / Blender parser output (player + orb sub-graph + tiles + walls; NPCs + colliders +
-/// stop-motion) is tagged and serialized by <see cref="LevelImporter"/> and reloaded through the real
-/// native reader (<see cref="SceneReaderSystem"/>) into an <b>equivalent</b> world — same entity set,
+/// Protects PS5 <b>LDtk import-only + Examples migration</b>: a world shaped like the LDtk
+/// factories' output (player + orb sub-graph + tiles + walls) is tagged and serialized by
+/// <see cref="LevelImporter"/> and reloaded through the real native reader
+/// (<see cref="SceneReaderSystem"/>) into an <b>equivalent</b> world — same entity set,
 /// game components included, transforms + parent graph preserved. Reconstruction is by components, never
 /// by re-running the parser.
 ///
-/// Pure logic — hand-built entities mirroring the factory/parser output (the sanctioned testable core:
+/// Pure logic — hand-built entities mirroring the factory output (the sanctioned testable core:
 /// no <c>GraphicsDevice</c>, no real disk), an in-memory platform for the reader's file read, and a
 /// null texture stub (AssetKey is preserved; only the live <c>Texture2D</c> is skipped).
 ///
-/// Covers the level-editor premise "LDtk/Blender are import-only; the importer round-trips to native".
+/// Covers the level-editor premise "LDtk is import-only; the importer round-trips to native".
 /// </summary>
 [Collection("PlatformServices (non-parallel: mutates static state)")]
 public class LevelImporterTests
@@ -186,67 +186,6 @@ public class LevelImporterTests
             var wall = With<EntityInfoComponent>(dst).Single(e => e.Get<EntityInfoComponent>().Type == "Wall");
             Assert.Equal("Atlas/TX Tileset Wall", wall.Get<SpriteInfoComponent>().AssetKey);
             Assert.True(wall.Has<BoxColliderComponent>());
-        });
-    }
-
-    // ---- Blender-like world (BlenderLevelParserSystem + game NPC/Player handlers) ----
-
-    private static void BuildBlenderLikeWorld(World w)
-    {
-        var quad = new[] { new Vector2(-8, -18), new Vector2(8, -18), new Vector2(8, 18), new Vector2(-8, 18) };
-
-        // Pete (Player).
-        var pete = w.CreateEntity();
-        pete.Set(new EntityInfoComponent("Player", "Pete"));
-        pete.Set(new PlayerState());
-        pete.Set(new TransformComponent(new Vector2(48, 20)));
-        pete.Set(new SpriteInfoComponent { AssetKey = "GreasePencil/Pete", Source = new Rectangle(0, 0, 16, 36), Size = new Vector2(16, 36) });
-        pete.Set(new StopMotionEffect { OffsetRadians = 0.035f });
-        pete.Set(new ConvexColliderComponent(quad));
-        pete.Set(new RigidBodyComponent());
-        pete.Set(new VelocityComponent());
-        pete.Set(new CameraFollowTargetComponent { MaxDistanceX = 150f });
-
-        // Boldo (NPC).
-        var boldo = w.CreateEntity();
-        boldo.Set(new EntityInfoComponent("NPC", "Boldo"));
-        boldo.Set(new TransformComponent(new Vector2(80, -33)));
-        boldo.Set(new SpriteInfoComponent { AssetKey = "GreasePencil/Boldo", Source = new Rectangle(0, 0, 18, 35), Size = new Vector2(18, 35) });
-        boldo.Set(new StopMotionEffect { OffsetRadians = 0.035f });
-        boldo.Set(new ConvexColliderComponent(quad));
-
-        // store (Collision).
-        var store = w.CreateEntity();
-        store.Set(new EntityInfoComponent("Collision", "store"));
-        store.Set(new TransformComponent(new Vector2(120, -10)));
-        store.Set(new SpriteInfoComponent { AssetKey = "GreasePencil/store", Source = new Rectangle(0, 0, 64, 48), Size = new Vector2(64, 48) });
-        store.Set(new ConvexColliderComponent(quad));
-    }
-
-    [Fact]
-    public void BlenderLikeWorld_ImportReload_ReconstructsEquivalentWorld()
-    {
-        using var src = new World();
-        BuildBlenderLikeWorld(src);
-
-        ImportReload(src, dst =>
-        {
-            Assert.Equal(3, With<EntityInfoComponent>(dst).Count);
-
-            var pete = With<PlayerState>(dst).Single();
-            Assert.Equal("Pete", pete.Get<EntityInfoComponent>().Name);
-            Assert.Equal(new Vector2(48, 20), pete.Get<TransformComponent>().Position);
-            Assert.True(pete.Has<StopMotionEffect>());
-            Assert.True(pete.Has<CameraFollowTargetComponent>());
-            Assert.True(pete.Has<ConvexColliderComponent>());
-            Assert.Equal("GreasePencil/Pete", pete.Get<SpriteInfoComponent>().AssetKey);
-
-            var npcs = With<EntityInfoComponent>(dst).Where(e => e.Get<EntityInfoComponent>().Type == "NPC").ToList();
-            var boldo = Assert.Single(npcs);
-            Assert.Equal("Boldo", boldo.Get<EntityInfoComponent>().Name);
-            Assert.True(boldo.Has<StopMotionEffect>());
-            Assert.True(boldo.Has<ConvexColliderComponent>());
-            Assert.Equal(0.035f, boldo.Get<StopMotionEffect>().OffsetRadians);
         });
     }
 

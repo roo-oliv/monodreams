@@ -20,8 +20,9 @@ namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
 /// Protects the PS5 <b>migrated Examples level</b>: the committed
-/// <c>MonoDreams.Examples.Core/Content/Levels/Blender_Level.mdscene</c> (imported once from the Blender
-/// parser via the export op) is (a) <b>byte-locked</b> to the canonical serializer — a load→save is a
+/// <c>MonoDreams.Examples.Core/Content/Levels/Blender_Level.mdscene</c> (a native v2 scene originally
+/// imported from the legacy Blender export, now owned by the game) is (a) <b>byte-locked</b> to the
+/// canonical serializer — a load→save is a
 /// fixed point, so a non-canonical hand-edit is caught — and (b) <b>boots through the shipped
 /// (no-editor) native reader</b>, reconstructing the player + NPCs + colliders, which proves the
 /// game-component serializers (<c>PlayerState</c>, <c>StopMotionEffect</c>, …) are registered on the

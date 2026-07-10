@@ -154,7 +154,7 @@ public class NativeFirstLoadTests
                 exists: _ => false, fromContent: false); // no bundled scene for this id
 
             Assert.False(probe("Level_0"));       // → the caller runs the LDtk path unchanged
-            Assert.False(probe("Blender_Level")); // → the Blender parser handles it (orthogonal)
+            Assert.False(probe("Blender_Level")); // → no bundled scene in this synthetic root, so false
             Assert.Equal(0, loadRequests);        // nothing published, so nothing is loaded / clobbered
         });
     }

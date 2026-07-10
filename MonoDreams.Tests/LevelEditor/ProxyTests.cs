@@ -58,7 +58,7 @@ public class ProxyTests
         Assert.Equal(0f, model.X, tol);
         Assert.Equal(-5f, model.Y, tol);
 
-        // IgnoreTransformRotation (Blender-imported colliders): rotation is treated as 0.
+        // IgnoreTransformRotation (colliders with rotation baked into ModelVertices): rotation is treated as 0.
         var ignoring = ProxyGeometry.WorldDeltaToModelDelta(transform, ignoreRotation: true, new Vector2(10f, 0f));
         Assert.Equal(5f, ignoring.X, tol);
         Assert.Equal(0f, ignoring.Y, tol);

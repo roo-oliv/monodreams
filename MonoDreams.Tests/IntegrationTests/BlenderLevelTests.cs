@@ -3,12 +3,13 @@ using MonoDreams.Input;
 namespace MonoDreams.Tests.IntegrationTests;
 
 /// <summary>
-/// Post-PS5 the Blender level is <b>import-only</b>: the Blender parser is no longer wired to live game
-/// boot. The reference game now boots the <b>migrated native</b> <c>Content/Levels/Blender_Level.mdscene</c>
-/// through the native-first <c>LevelLoadRequestSystem</c> → <c>SceneReaderSystem</c> (the shipped reader),
-/// not the Blender parser. These formerly-"Blender boot" tests were converted to assert the native boot;
-/// the Blender parser survives as import machinery (exercised by the export op that generated the scene,
-/// and unit-tested by <c>LevelImporterTests</c> / <c>MigratedLevelTests</c>).
+/// The reference game's "Level 1" is the committed <b>native</b> scene
+/// <c>Content/Levels/Blender_Level.mdscene</c> — its origin was a Blender export, but it is now a native
+/// v2 scene the game owns. It boots through the native-first <c>LevelLoadRequestSystem</c> →
+/// <c>SceneReaderSystem</c> (the shipped reader). The Blender import module was <b>deleted in wave BR</b>,
+/// so there is no Blender parser at all; these tests gate that the committed scene boots natively (the
+/// migration round-trip is unit-tested by <c>LevelImporterTests</c> / <c>MigratedLevelTests</c>). The
+/// class keeps its name after the committed <c>Blender_Level</c> scene it exercises.
 /// </summary>
 public class BlenderLevelTests
 {
@@ -35,7 +36,8 @@ public class BlenderLevelTests
             "Loaded scene 'Levels/Blender_Level.mdscene'",
             "Replay complete. Exiting game."
         );
-        // The Blender parser is import-only now — its boot log must NOT appear.
+        // There is no Blender parser anymore (deleted in wave BR) — its old boot log must never appear;
+        // the native reader path is the only one that ran.
         Assert.DoesNotContain(result.LogLines, line => line.Contains("Loading Blender level"));
     }
 

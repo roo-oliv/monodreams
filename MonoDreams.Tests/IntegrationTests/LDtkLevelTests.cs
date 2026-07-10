@@ -29,7 +29,7 @@ public class LDtkLevelTests
 
         Assert.Equal(0, result.ExitCode);
         // The native-only dispatcher fails loud (no native scene) and does NOT attempt the LDtk path.
-        result.AssertLogContains("the legacy LDtk/Blender loaders are import-only");
+        result.AssertLogContains("the legacy LDtk loader is import-only");
         // The old LDtk-boot log line must NOT appear (the parser is not wired to boot).
         Assert.DoesNotContain(result.LogLines,
             line => line.Contains("Published") && line.Contains("tile spawn requests"));
