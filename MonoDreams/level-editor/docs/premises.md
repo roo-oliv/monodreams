@@ -303,6 +303,72 @@ conflates the render tiebreak with scene identity and loses the id on reload; a 
 **Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories"
 (the round-trip whose bytes this makes deterministic); foundation — the `IPlatformServices` write seam.
 
+## The scene format is version 2; a file read of a version-1 file with embedded colliders is refused loud
+
+`SceneData.Version` is `2` (`SceneData.CurrentVersion`) — the version everything the writer emits (scenes
+AND prefabs) carries. Version 2 is the colliders-as-entities shape: a `core.BoxCollider` body is
+`{ size }` (centered on the collider entity's own Transform), a `core.ConvexCollider` body is
+`{ modelVertices }` (collider-entity-local) — the former embedded box `bounds` offset is gone (see
+collision — "A collider IS an entity"). **On a FILE read** (`SceneReaderSystem`'s path branch, and the
+prefab file source), `SceneVersionGuard.CheckFileLoad` refuses **loud** a version-1 file that carries ANY
+collider component (`core.BoxCollider`/`core.ConvexCollider`) with the exact hint *"legacy embedded
+colliders — run `monodreams migrate-colliders <file|dir>`"*. A version-1 file **without** colliders loads
+fine and re-saves as version 2 (a one-time bump); a version-2 file loads regardless. The guard fires on
+ANY collider in a version-1 file (pre-mortem #2) because the reshaped deserializer reads only `size` — a
+legacy `bounds` maps to no field, so a v1 box would silently load as a zero-size (never-colliding) box.
+The version constant lives on the dependency-free `SceneData` type so both the engine guard and the
+source-linked CLI migrator reference one value.
+
+**Why:** no-backwards-compat by directive — reading a v1 collider with the v2 deserializer is silent
+corruption, so the boundary must fail loud with the migration path, not load a plausible-but-wrong shape.
+**Breaks:** guarding by "version < 2" alone (ignoring collider presence) would refuse harmless
+collider-free v1 files; guarding the in-memory snapshot path (a Game-mode restore) would break the
+sandbox — an in-memory `SceneData` was produced by the live v2 writer this session, never read off disk,
+so it is version-agnostic by design and NOT guarded. A lenient reader that tolerated a legacy `bounds`
+would reintroduce the zero-size-box corruption.
+**Tests:** `MonoDreams.Tests/LevelEditor/SceneVersionGuardTests.cs`
+(`Guard_V1WithBoxCollider_Refuses_WithMigratorHint`, `Guard_V1WithConvexCollider_Refuses`,
+`Guard_V1WithoutColliders_Passes`, `Guard_V2WithColliders_Passes`,
+`Reader_V1FileWithColliders_FailsLoud_WithMigratorHint`,
+`Reader_V1CleanFile_Loads_AndReSavesAsVersion2`, `Reader_InMemorySnapshot_IsVersionAgnostic_NotGuarded`).
+**Depends on:** collision — "A collider IS an entity (colliders-as-entities)"; this file — "The collider
+migrator (`monodreams migrate-colliders`) rewrites v1 embedded colliders to v2 collider entities".
+
+## The collider migrator (`monodreams migrate-colliders`) rewrites v1 embedded colliders to v2 collider entities
+
+`ColliderMigration` (`Serialization/ColliderMigration.cs`, the engine core behind the
+`monodreams migrate-colliders <file|dir>` CLI command) rewrites a legacy version-1 `.mdscene`/`.mdprefab`
+into version 2. It lives beside `CanonicalJson` and emits through it, so output is **byte-canonical** and
+`migrate → load → save` is a **byte fixed point** (pre-mortem #3). Per collider on an owner E: a **box**
+`{ bounds:[x,y,w,h] }` becomes a centered `{ size:[w,h] }`, with the collider entity's local position set
+to the box **centre** `(x+w/2, y+h/2)` (preserving the world rect); a **convex** body is unchanged (its
+`modelVertices` are already collider-entity-local) and moves verbatim (NO float re-basing → no drift). The
+collider entity is EITHER E reshaped in place — when E IS the collider/zone entity (its only
+non-structural component is the one collider: a bare footprint, a trigger zone `EntityInfo`+collider, or a
+dialogue zone `game.DialogueZone`+collider) — OR a NEW child collider entity inserted right after E, when E
+is a VISUAL or PHYSICS-BODY entity (sprite / `RigidBody` / `Velocity`) that the collider merely rides.
+`activeLayers`/`passive`/`enabled`/`ignoreTransformRotation` are always preserved. The migrator is
+idempotent (a version-2 input is a reported no-op), fails loud on unparseable JSON, recurses a directory,
+and supports `--dry-run`. The CLI command shares SOURCE with the engine (it cannot reference `MonoDreams.dll`
+— the `monodreams.dll` name clash), source-linking `SceneData`/`CanonicalJson`/`ColliderMigration`.
+
+**Why:** the zone identity MUST stay on the SAME entity as its collider — CE-A's `CollisionMessage` carries
+that entity as `ColliderA/B` and consumers (`ZoneDialogueTriggerSystem`) read the zone component off it
+(pre-mortem #4); moving a dialogue zone's box to a child would orphan the `DialogueZone` from the collider.
+Conversely a visual/body entity's collider becomes its own child so placement is by moving/parenting the
+collider ENTITY (the RFC authoring-model fix), mirroring `PlayerEntityFactory`.
+**Breaks:** re-basing a box or convex through non-canonical float text churns the file on the next save
+(byte fixed point lost); moving a zone's collider to a child breaks dialogue triggering; nesting a
+redundant child under an already-dedicated collider entity bloats the tree; a v2 input that is not a no-op
+would corrupt an already-migrated file.
+**Tests:** `MonoDreams.Tests/LevelEditor/ColliderMigrationTests.cs` (box-in-place-centre math, box→child,
+convex→child verbatim, dedicated-convex no-op, dialogue-zone-stays-in-place, idempotence, unparseable-throws,
+dir-recursion+dry-run, and the `migrate → load → save` byte fixed point over committed-like + realistic
+island-like fixtures); `MonoDreams.Cli.Tests/MigrateCollidersCommandTests.cs` (the command wiring, output,
+exit codes); `MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs` (the committed `Blender_Level.mdscene`,
+migrated in-repo, boots with its colliders as child entities).
+**Depends on:** this file — "The scene format is version 2 …"; collision — "A collider IS an entity".
+
 ## Editor-overlay entities are standalone; delete snapshots the disposed sub-graph
 
 Editor-overlay entities — the selection marker / gizmo handles / toolbar widgets the editor

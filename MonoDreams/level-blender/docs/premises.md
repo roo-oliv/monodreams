@@ -6,17 +6,28 @@
 > `Tools/blender_level_export.py` exporter plugin. Read this before
 > changing the parser, the JSON schema, or the exporter plugin.
 
-## The Blender parser is import-only (not wired to live game boot)
+## The Blender parser is import-only (not wired to live game boot) — and is being RETIRED
 
 Since PS5 `BlenderLevelParserSystem` is **import machinery**, not a live loader. The shipped game boots
 native `.mdscene` levels only; the Blender parser runs once, via the import op, to migrate a
 `blender_level.json` export into a native scene the game then owns. In the reference screen it is composed
 only in `importMode` (the export op), never at boot — so the `Blender_` prefix dual-subscribe (below) no
 longer runs on the live path. The Examples Blender level has been migrated to a committed
-`Content/Levels/Blender_Level.mdscene` (the menu's "Level 1" boots it native). The parser sets
-`SpriteInfoComponent.AssetKey` (from its derived content path) so the imported native scene re-loads the
-GreasePencil textures by key. Runtime-derived NPC affordances (the dialogue zone's live `Entity` icon
-reference + the icon's live font) are excluded from the migrated scene — a follow-up.
+`Content/Levels/Blender_Level.mdscene` (the menu's "Level 1" boots it native, at scene **version 2**
+after CE-B's `monodreams migrate-colliders`). The parser sets `SpriteInfoComponent.AssetKey` (from its
+derived content path) so the imported native scene re-loads the GreasePencil textures by key.
+Runtime-derived NPC affordances (the dialogue zone's live `Entity` icon reference + the icon's live font)
+are excluded from the migrated scene — a follow-up.
+
+> **RETIREMENT (user directive 2026-07-10).** Levels are authored in the MonoDreams level editor now, not
+> imported from Blender — the Blender importer is slated for removal. In CE-B this meant **no new code was
+> added to support it**: the collider-child production the other producers gained (LDtk factories, the
+> committed scene migrated by `monodreams migrate-colliders`) was deliberately NOT wired into this parser
+> (its box still embeds on the entity, correct only for a centered origin — see the `_ = boundsOffset` seam
+> in `ProcessCollections`). The parser remains import-only and off the live boot path, so this is safe. Full
+> deletion of the `level-blender` module (parser, the `Blender_` dispatch, the exporter plugin, Examples
+> import wiring, this module's premises + the `LevelImporterTests` Blender-shaped fixture) is a tracked
+> follow-up beyond CE-B's serialization scope.
 
 **Why:** native `.mdscene` is the game's real level format; keeping the parser as a one-way importer is
 what closes the parser-asymmetry (CORE_TENETS §6/§10) while preserving the Blender authoring path.

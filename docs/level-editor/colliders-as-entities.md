@@ -35,7 +35,7 @@
   The RFC's cache-hop concern applies at scales this game does not approach; a
   coarse non-gating smoke test documents the frame cost at ~500 colliders.
 
-## 2. Serialization + migration (NO backwards compatibility, by directive)
+## 2. Serialization + migration (NO backwards compatibility, by directive) — LANDED (CE-B)
 
 - The shape components keep their registry keys (`core.BoxCollider`,
   `core.ConvexCollider`) with the NEW shapes; **`SceneData.Version` bumps to 2**.
@@ -55,6 +55,21 @@
   products (still never serialized), and trigger placement all PRODUCE collider
   child entities. The Blender parser's flattening unbends — the exporter's
   collider-objects now map 1:1 to entities (the RFC's authoring-model motivation).
+
+> **Landed in CE-B (2026-07-10).** `SceneData.Version = 2` (default for scenes AND
+> prefabs); `SceneVersionGuard.CheckFileLoad` fail-loud refuses a v1 file with any
+> collider on a FILE read (in-memory snapshots are version-agnostic); the
+> `monodreams migrate-colliders` command + the `ColliderMigration` core (byte-canonical,
+> idempotent, `--dry-run`, dir recursion; box `bounds`→centered `size` on the collider
+> entity, convex verbatim to a child, dialogue/trigger ZONES reshape in place so the
+> zone identity stays on the collider — pre-mortem #4); committed `sample.mdscene` +
+> `Blender_Level.mdscene` migrated in-repo. **Deviation:** the **Blender importer is being
+> RETIRED** (user directive 2026-07-10 — levels are authored in the MonoDreams editor now,
+> not imported from Blender), so the Blender parser's box-offset seam was deliberately NOT
+> closed with new collider-child code; the parser stays import-only, off the live boot path,
+> and the committed `Blender_Level.mdscene` boots as a migrated NATIVE scene (not via the
+> parser). LDtk factory colliders were already child entities from CE-A. Full removal of the
+> `level-blender` module is a tracked follow-up.
 
 ## 3. The editor (proxies die for colliders)
 

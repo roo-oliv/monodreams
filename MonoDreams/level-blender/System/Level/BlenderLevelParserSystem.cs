@@ -501,11 +501,14 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
         var boundsOffset = new Point(intLeft, intTop);
         var boundsSize = new Point(intRight - intLeft, intBottom - intTop);
-        // TODO(CE-B): colliders are entities now — the box carries only Size (centered on the
-        // entity's transform). For a default (0.5,0.5) origin boundsOffset centers the box already
-        // (byte-identical); a non-centered origin needs the offset placed on a child collider
-        // entity's Transform, which the CE-B import refinement + `monodreams migrate-colliders`
-        // handle. This parser is IMPORT-ONLY (never live boot), so the seam is safe to leave marked.
+        // Colliders are entities now — the box carries only Size (centered on the entity's transform).
+        // For a default (0.5,0.5) origin boundsOffset centers the box already (byte-identical); a
+        // non-centered origin would need the offset placed on a child collider entity's Transform.
+        // This is DELIBERATELY not closed: the Blender importer is being RETIRED (user directive
+        // 2026-07-10 — levels are authored in the MonoDreams editor now, not imported from Blender), so
+        // no new collider-child code is added to support it. The parser stays import-only, off the live
+        // boot path; the committed Blender_Level.mdscene was migrated to v2 natively by
+        // `monodreams migrate-colliders` and boots through the native reader, not this parser.
         _ = boundsOffset;
 
         // Check for Collision collection
