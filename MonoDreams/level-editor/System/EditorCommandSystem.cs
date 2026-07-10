@@ -12,6 +12,7 @@ using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.State;
 
@@ -82,6 +83,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
     private readonly EntitySet _proxySet;
     private readonly Func<GameState, bool>? _orderForwardRequested;
     private readonly Func<GameState, bool>? _orderBackRequested;
+    private readonly Func<Entity, bool>? _isScreenInfrastructure;
+    private readonly Func<Entity>? _prefabContextRoot;
+    private readonly EditorNotifications? _notifications;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -97,6 +101,12 @@ public sealed class EditorCommandSystem : ISystem<GameState>
     /// <param name="camera">The editor view camera — <see cref="AddEmptyEntity"/> positions a new empty
     /// entity at the current view centre (<c>Camera.Position</c>). Null (a composition without a camera,
     /// or a unit test) falls back to the world origin.</param>
+    /// <param name="isScreenInfrastructure">PF-F: the predicate that flags screen-held KeepAlive
+    /// infrastructure (the dialogue-UI root a system references live). Delete REFUSES such an entity
+    /// everywhere (the crash fix — deleting it NREs the owning system); null (a test) disables the guard.</param>
+    /// <param name="prefabContextRoot">PF-F: resolves the prefab root to auto-parent a new
+    /// <see cref="AddEmptyEntity"/> under, when the active context is a prefab (else <c>default</c> — a
+    /// scene keeps the new entity a root). Null disables auto-parenting.</param>
     public EditorCommandSystem(
         World world,
         EditorHistory history,
@@ -104,7 +114,10 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         DrawLayerMap? layers = null,
         Func<GameState, bool>? orderForwardRequested = null,
         Func<GameState, bool>? orderBackRequested = null,
-        Camera? camera = null)
+        Camera? camera = null,
+        Func<Entity, bool>? isScreenInfrastructure = null,
+        Func<Entity>? prefabContextRoot = null,
+        EditorNotifications? notifications = null)
     {
         _world = world;
         _history = history;
@@ -115,6 +128,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         _proxySet = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         _orderForwardRequested = orderForwardRequested;
         _orderBackRequested = orderBackRequested;
+        _isScreenInfrastructure = isScreenInfrastructure;
+        _prefabContextRoot = prefabContextRoot;
+        _notifications = notifications;
     }
 
     public void Update(GameState state)
@@ -155,7 +171,20 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         var deleteTarget = selected.Has<GizmoProxyComponent>() ? selected.Get<GizmoProxyComponent>().Target : selected;
         if (PrefabGuards.IsPrefabOwned(deleteTarget))
         {
-            Logger.Warning(PrefabGuards.Refusal("Delete"));
+            RefusePrefabOwned("Delete");
+            return;
+        }
+
+        // Screen-infrastructure guard (PF-F, THE CRASH FIX): a KeepAlive entity the screen holds by
+        // reference (e.g. the dialogue-UI root a live system points at) is NOT deletable — disposing it
+        // strands that system on a dead handle (an NRE). Refuse loud + status everywhere delete routes
+        // (command / menu / Delete key). The camera rig (checked above) has its own tailored refusal.
+        if (_isScreenInfrastructure?.Invoke(deleteTarget) == true)
+        {
+            Logger.Warning(
+                "[level-editor] Delete refused: this entity is screen infrastructure (held live by a " +
+                "screen system) — it cannot be deleted.");
+            _notifications?.Notify("screen infrastructure - cannot be deleted", EditorNotifySeverity.Danger);
             return;
         }
 
@@ -351,7 +380,7 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         var colliderTarget = selected.Has<GizmoProxyComponent>() ? selected.Get<GizmoProxyComponent>().Target : selected;
         if (PrefabGuards.IsPrefabOwned(colliderTarget))
         {
-            Logger.Warning(PrefabGuards.Refusal(action));
+            RefusePrefabOwned(action);
             return;
         }
 
@@ -514,13 +543,16 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         const string action = "Add empty entity";
         if (!GuardEdit(state, action)) return;
         var position = _camera?.Position ?? Vector2.Zero;
+        // PF-F: in a prefab context, parent the new empty under the single prefab root (single-root
+        // assembly); default (a scene) keeps it a save-root.
+        var parentTo = _prefabContextRoot?.Invoke() ?? default;
         _history.Push(new CreateEntityCommand(_world, _serializer, world =>
         {
             var e = world.CreateEntity();
             e.Set(new TransformComponent(position));
             e.Set(new EntityInfoComponent("Empty"));
             return e;
-        }));
+        }, parentTo));
     }
 
     // ---- Shared plumbing ----
@@ -566,10 +598,18 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         // refused (the shared resolver for those ops); the instance ROOT stays editable.
         if (PrefabGuards.IsPrefabOwned(owner))
         {
-            Logger.Warning(PrefabGuards.Refusal(action));
+            RefusePrefabOwned(action);
             return false;
         }
         return true;
+    }
+
+    /// <summary>Refuses a mutation on a prefab-owned child — logs the shared hint AND raises a status
+    /// notification (PF-F: guardrail hints surface, not just log).</summary>
+    private void RefusePrefabOwned(string action)
+    {
+        Logger.Warning(PrefabGuards.Refusal(action));
+        _notifications?.Notify("prefab child - open the prefab or Unpack", EditorNotifySeverity.Warning);
     }
 
     private Entity FindProxy(Entity owner, ProxyBindingKind kind)

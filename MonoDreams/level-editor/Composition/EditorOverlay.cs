@@ -260,7 +260,12 @@ public sealed class EditorOverlay
         Transport.SnapViewToRig = _cameraRig.SnapViewToRig;
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
-            layers, input.OrderForwardRequested, input.OrderBackRequested, camera);
+            layers, input.OrderForwardRequested, input.OrderBackRequested, camera,
+            // PF-F: refuse deleting screen KeepAlive infrastructure (the crash fix), auto-parent an
+            // Add-Empty under the prefab root in a prefab context, and surface guardrail hints via status.
+            isScreenInfrastructure: Transport.IsScreenInfrastructure,
+            prefabContextRoot: PrefabRootForNewEntity,
+            notifications: Notifications);
         // UX3-D gates: the Game-mode sandbox hides ALL gizmo overlays; "Outline Selected" (off) hides
         // only the selection outline (selection unaffected).
         var gizmo = new GizmoSystem(world, camera, History, viewportManager,
@@ -276,7 +281,8 @@ public sealed class EditorOverlay
         // for placed trigger zones + the palette's placement ghost.
         var boundaryTool = new BoundaryToolSystem(
             world, camera, History, Serializer, viewportManager,
-            commitRequested: input.CommitRequested, cancelRequested: input.CancelRequested);
+            commitRequested: input.CommitRequested, cancelRequested: input.CancelRequested,
+            prefabContextRoot: PrefabRootForNewEntity); // PF-F: single-root assembly in a prefab tab
         _boundaryTool = boundaryTool;
         BoundaryTool = boundaryTool;
         BoundaryBake = new BoundaryBakeSystem(world);
@@ -374,7 +380,9 @@ public sealed class EditorOverlay
                 ? Transport.SnapshotWasDirty
                 : History.IsDirty,
             role: EditorPanelRole.LeftTabs,
-            panelState: panelState);
+            panelState: panelState,
+            // PF-F: hide screen KeepAlive infrastructure from the Entities tree in a prefab context.
+            isScreenInfrastructure: Transport.IsScreenInfrastructure);
         SystemsPanel = _leftPanel;
 
         // The RIGHT-strip dedicated Inspector panel (selection-bound components + members) — the same
@@ -1328,6 +1336,19 @@ public sealed class EditorOverlay
         PrefabData? oldPrefab = null;
         try { oldPrefab = PrefabSource(prefabId); } catch { /* a malformed old file: skip the diff */ }
 
+        // Multi-root refusal → ACTIONABLE (PF-F): a prefab needs exactly one root, but assembly could have
+        // left sibling roots. NAME them so the fix is obvious ("2 roots: 'A', 'B' - parent everything under
+        // one root"), on the status bar AND the log — instead of the writer's index-based exception text.
+        var roots = SceneRootNames();
+        if (roots.Count > 1)
+        {
+            var msg = $"{roots.Count} roots: {string.Join(", ", roots.Select(n => $"'{n}'"))} " +
+                      "- parent everything under one root";
+            Logger.Warning($"[level-editor] Save Prefab '{prefabId}' refused: {msg}.");
+            Notifications.Notify(msg, EditorNotifySeverity.Danger);
+            return;
+        }
+
         SceneData prefabScene;
         try
         {
@@ -1339,6 +1360,8 @@ public sealed class EditorOverlay
             Logger.Warning(
                 $"[level-editor] Save Prefab '{prefabId}' refused: {ex.Message} " +
                 "(a prefab needs exactly one root and no cycle).");
+            Notifications.Notify("Save Prefab refused - a prefab needs exactly one root and no cycle.",
+                EditorNotifySeverity.Danger);
             return;
         }
 
@@ -1564,6 +1587,13 @@ public sealed class EditorOverlay
         Logger.Info(
             $"[level-editor] Bundled new prefab '{prefabId}': appended '{MgcbLevelBundle.PrefabCopyLine(prefabId)}'.");
     }
+
+    /// <summary>The prefab root a NEW root-creating action (palette place, trigger, Add Empty, boundary)
+    /// should auto-parent under (PF-F) — the single prefab root when the active context is a prefab tab,
+    /// else <c>default</c> (a scene keeps the new entity a save-root). Shared by every root-creating seam
+    /// so assembly in a prefab tab can never leave a second root (a multi-root prefab is un-savable).</summary>
+    private Entity PrefabRootForNewEntity() =>
+        Transport.ActiveContextKind == ViewportContextKind.Prefab ? PrefabContextRoot.Resolve(_world) : default;
 
     private bool InSelectTransform() =>
         _gizmoState.IsAlive &&
@@ -1920,6 +1950,35 @@ public sealed class EditorOverlay
         var n = 0;
         foreach (var _ in set.GetEntities()) n++;
         return n;
+    }
+
+    /// <summary>The display names of the world's top-level (parentless) <see cref="SceneObjectComponent"/>
+    /// roots — the offending set the multi-root Save-Prefab refusal names (PF-F). A prefab-owned child does
+    /// not count (it has a parent).</summary>
+    private List<string> SceneRootNames()
+    {
+        var names = new List<string>();
+        using var set = _world.GetEntities().With<SceneObjectComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+        {
+            if (!e.IsAlive) continue;
+            if (e.Has<ChildOfComponent>() && e.Get<ChildOfComponent>().Parent.IsAlive) continue; // a child, not a root
+            names.Add(RootDisplayName(e));
+        }
+        return names;
+    }
+
+    /// <summary>An entity's tree display name: its <see cref="EntityInfoComponent"/> name (else type),
+    /// else a generic fallback — mirrors the Entities-tree label so the refusal names what the designer sees.</summary>
+    private static string RootDisplayName(Entity e)
+    {
+        if (e.Has<EntityInfoComponent>())
+        {
+            var info = e.Get<EntityInfoComponent>();
+            if (!string.IsNullOrEmpty(info.Name)) return info.Name;
+            if (!string.IsNullOrEmpty(info.Type)) return info.Type;
+        }
+        return "Entity";
     }
 
     /// <summary>Whether <paramref name="target"/> sits directly in the project's levels dir (the only

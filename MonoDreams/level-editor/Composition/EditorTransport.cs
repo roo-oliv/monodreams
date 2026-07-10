@@ -334,9 +334,14 @@ public sealed class EditorTransport
         entity.Has<EditorInfrastructureComponent>()
         || entity.Has<CursorControllerComponent>()
         || entity.Has<CursorInputComponent>()
-        || IsKeptByScreen(entity);
+        || IsScreenInfrastructure(entity);
 
-    private bool IsKeptByScreen(Entity entity)
+    /// <summary>Whether <paramref name="entity"/> is screen-held <b>KeepAlive infrastructure</b> — named
+    /// by the screen's <see cref="KeepAlive"/> predicate, or a <c>ChildOf</c> descendant of one (keeps
+    /// propagate down the chain). PF-F: the editor consults this to REFUSE deleting it (the crash fix — a
+    /// screen system holds it live) and to HIDE it from the Entities tree in a prefab context (it is not
+    /// prefab content). Distinct from <see cref="Survives"/>, which also spares editor chrome + the cursor.</summary>
+    public bool IsScreenInfrastructure(Entity entity)
     {
         if (KeepAlive == null) return false;
 

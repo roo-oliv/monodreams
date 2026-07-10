@@ -74,6 +74,7 @@ public sealed class BoundaryToolSystem : ISystem<GameState>
     private readonly Func<GameState, bool>? _commitRequested;
     private readonly Func<GameState, bool>? _cancelRequested;
     private readonly float _thickness;
+    private readonly Func<Entity>? _prefabContextRoot;
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _gizmoStateSet;
@@ -107,7 +108,8 @@ public sealed class BoundaryToolSystem : ISystem<GameState>
         ViewportManager? viewportManager = null,
         Func<GameState, bool>? commitRequested = null,
         Func<GameState, bool>? cancelRequested = null,
-        float thickness = BoundaryComponent.DefaultThickness)
+        float thickness = BoundaryComponent.DefaultThickness,
+        Func<Entity>? prefabContextRoot = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -117,6 +119,7 @@ public sealed class BoundaryToolSystem : ISystem<GameState>
         _commitRequested = commitRequested;
         _cancelRequested = cancelRequested;
         _thickness = thickness > 0f ? thickness : BoundaryComponent.DefaultThickness;
+        _prefabContextRoot = prefabContextRoot;
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
@@ -169,6 +172,9 @@ public sealed class BoundaryToolSystem : ISystem<GameState>
         for (var i = 0; i < worldPoints.Length; i++) localPoints[i] = worldPoints[i] - centroid;
         var thickness = _thickness;
 
+        // PF-F: in a prefab context, parent the boundary under the single prefab root (single-root
+        // assembly); no-op in a scene. Its bake children stay ChildOf the boundary (never serialized).
+        var parentTo = _prefabContextRoot?.Invoke() ?? default;
         var created = default(Entity);
         _history.Push(new CreateEntityCommand(_world, _serializer,
             w =>
@@ -180,7 +186,7 @@ public sealed class BoundaryToolSystem : ISystem<GameState>
                 // are created by BoundaryBakeSystem reacting to this added component.
                 created.Set(new BoundaryComponent(localPoints, thickness));
                 return created;
-            }));
+            }, parentTo));
 
         _pending.Clear();
         SetMode(EditorToolMode.SelectTransform);

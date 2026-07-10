@@ -1003,13 +1003,16 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Microsoft.Xna.Framework.Graphics.Texture2D? texture)
     {
         if (_lastPlacedSnapped.HasValue && _lastPlacedSnapped.Value == position) return;
+        // PF-F: in a prefab tab, auto-parent the placed prop under the single prefab root (so assembly
+        // never creates a second root — a multi-root prefab is un-savable). A no-op in a scene context.
+        var parentTo = PrefabContextRoot.ResolveIfPrefab(_world, _shellState);
         var created = default(Entity);
         _history.Push(new CreateEntityCommand(_world, _serializer,
             w =>
             {
                 created = SpritePropFactory.Create(w, entry, band, position, texture, _armedRotation);
                 return created;
-            }));
+            }, parentTo));
         _lastPlacedSnapped = position;
         if (created.IsAlive) _lastStampCreated = created;
 
@@ -1051,13 +1054,15 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private void PlaceTrigger(TriggerType type, Vector2 position)
     {
         var name = TriggerFactory.NextName(_world, type.Prefix);
+        // PF-F: auto-parent under the prefab root in a prefab context (single-root assembly); no-op in a scene.
+        var parentTo = PrefabContextRoot.ResolveIfPrefab(_world, _shellState);
         var created = default(Entity);
         _history.Push(new CreateEntityCommand(_world, _serializer,
             w =>
             {
                 created = TriggerFactory.Create(w, type, position, name);
                 return created;
-            }));
+            }, parentTo));
 
         ClearSelection();
         if (created.IsAlive) created.Set(new SelectedComponent());

@@ -89,6 +89,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private readonly Func<EditorProjectInfo> _projectInfo;
     private readonly Func<IReadOnlyList<SceneCatalogEntry>> _sceneCatalog;
     private readonly Action<SceneCatalogEntry, GameState>? _selectScene;
+    private readonly Func<Entity, bool>? _isScreenInfrastructure;
     private readonly Func<bool> _isDirty;
 
     // PF-A: the editable Inspector's shared history + serializer registry (RightInspector role). Null on
@@ -220,7 +221,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         EditorPanelStateComponent? panelState = null,
         EditorHistory? history = null,
         ComponentSerializerRegistry? registry = null,
-        Func<KeyboardState>? getKeyboardState = null)
+        Func<KeyboardState>? getKeyboardState = null,
+        Func<Entity, bool>? isScreenInfrastructure = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
@@ -235,6 +237,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         _history = history;
         _registry = registry;
         _getKeyboardState = getKeyboardState ?? Keyboard.GetState;
+        _isScreenInfrastructure = isScreenInfrastructure;
         _shellState = shellState ?? new EditorShellStateComponent();
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
@@ -404,9 +407,19 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     private List<Entity> MaterializeScene()
     {
+        // In a PREFAB context, hide screen-held KeepAlive infrastructure (PF-F): the dialogue-UI root (and
+        // its subtree) survives the context sweep BY DESIGN, but it is NOT prefab content — showing it as
+        // "Dialog" in a prefab tab's tree confuses the designer (and inviting a delete of it crashes). In a
+        // scene context it stays visible as before.
+        var hideScreenInfra = _isScreenInfrastructure != null
+                              && ActiveViewportKind() == ViewportContextKind.Prefab;
+
         var list = new List<Entity>();
         foreach (var e in _sceneSet.GetEntities())
+        {
+            if (hideScreenInfra && _isScreenInfrastructure!(e)) continue;
             list.Add(e);
+        }
         // Fold the camera rig back in (it is infra-tagged, so _sceneSet excluded it) — the ONE editor
         // infrastructure entity the tree shows, so the designer can select + inspect the authored camera.
         // SCENE-CONTEXT-ONLY (PF-D, pre-mortem #8): a prefab tab has no rig, so its "Camera" row must not
