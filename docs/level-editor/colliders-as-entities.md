@@ -126,6 +126,54 @@
 Gate per wave: `dotnet build MonoDreams/MonoDreams.csproj && dotnet test
 --configuration Release` (full solution).
 
+> **Landed in CE-D (2026-07-10).** The phase-closing sweep. **Consumer audit COMPLETE
+> (pre-mortem #4):** every shipping-code `CollisionMessage` consumer is proven to read the
+> correct side by `MonoDreams.Tests/Collision/CollisionConsumerAuditTests.cs` — `GameCollisionHelper`
+> (identity collider-first-then-body), `ZoneDialogueTriggerSystem` (`ColliderB`, + a negative that it
+> never falls back to `BodyB`), `RunnerCollisionHandlerSystem` (`BodyA` state / `BodyB` dispose),
+> `NPCInteractionSystem` (a proximity consumer resolving the collider off a CHILD entity); the two
+> resolution systems are cited to `ColliderEntityTests`, and the physics-demo `BallBounceSystem`
+> (collider==body) gains a live render-path smoke (`HeadlessDemoTests.HeadlessPhysicsDemo_…`, non-blank
+> + heap-flat over 600 frames of perpetual collision + grid rebuild). **Examples/Demos sweep:** no
+> pre-CE collider construction remained (`PlayerEntityFactory` = body + child collider; the physics
+> demo's walls = centered-`Size` box entities); `ColliderEditCommand.ForBox` and the whole-shape
+> proxies are gone, only `ForConvex` (vertex grips) survives. **Milestones** (`IslandMilestoneTests`,
+> `PrefabMilestoneTests`) already told the current authoring story end-to-end (palette → Add Collider ▸
+> → boundary → trigger → prefab → save v2 → boot → play). **WIP migration readiness (item 6):**
+> `PrefabColliderMigrationTests` proves `migrate-colliders` handles a `.mdprefab` with an embedded box
+> on the root + a convex on a child — each becomes a new collider CHILD (the box parents to the root),
+> the result satisfies one-root through `PrefabData.FromScene`, and expands + places world-correct.
+> Docs closed (this block, the roadmap CE section, `CORE_TENETS` §5, the `level-editor` overview).
+
+## What changed for game code (the CE model, for a gamedev's AI agents)
+
+If you write systems or factories that touch colliders, this is the whole contract:
+
+- **A collider is its own entity.** A shape component (`BoxColliderComponent` = a centered `Size`, no
+  offset; `ConvexColliderComponent` = entity-local `ModelVertices`) + its own `TransformComponent` +
+  an auto-applied `ColliderTagComponent`. Its world shape derives from the collider entity's own
+  `WorldMatrix` (via `SATCollision.BoxWorldRect` / `UpdateWorldVertices`) — never from an embedded
+  `Bounds` offset (that field is gone).
+- **Construction pattern.** A physics entity (player, mover) is the BODY (`RigidBody`/`Velocity`); its
+  collider is a `ChildOf` CHILD entity centered on it (see `PlayerEntityFactory`). Static geometry / a
+  trigger zone is a STANDALONE collider entity — a trigger is exactly `{ EntityInfoComponent (+ maybe a
+  game zone component), TransformComponent, a passive collider }`. A body may own N collider children;
+  two shape components on ONE entity is undefined — give each its own child.
+- **Body resolution.** `ColliderBody.Resolve(collider)` walks up `ChildOf` to the nearest `RigidBody`
+  (else `Velocity`) ancestor, else the collider itself. A standalone collider is its own body.
+- **The message names FOUR entities.** `CollisionMessage(ColliderA, ColliderB, BodyA, BodyB, …)`.
+  **Read the collider side for IDENTITY** (a zone's `EntityInfoComponent` / `DialogueZoneComponent`
+  lives on the collider entity) and **the body side for PHYSICS / gameplay state** (player state,
+  disposing the whole game object, resolution write-back). A is the initiator; B is the other side.
+- **Resolution writes to the BODY** (`BodyA`), reads shapes from the colliders, reads the swept delta
+  from the body's `TransformComponent.Delta` — never correct a collider child (it would drift inside
+  its parent). Custom collision messages implement `ICollisionMessage` and receive all four entities
+  via `CreateCollisionMessageDelegate`, so a game classifier keys on identity or physics without
+  re-walking the hierarchy.
+- **Serialization.** Native scenes/prefabs are `SceneData.Version = 2`. A legacy v1 file with an
+  embedded collider is refused loud on read — run `monodreams migrate-colliders <path|dir>` (handles
+  both `.mdscene` and `.mdprefab`).
+
 ## 5. Pre-mortem
 
 1. **Resolution write-back to the wrong entity** — contacts must correct the BODY,

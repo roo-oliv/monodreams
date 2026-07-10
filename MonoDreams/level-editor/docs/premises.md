@@ -366,7 +366,10 @@ convex→child verbatim, dedicated-convex no-op, dialogue-zone-stays-in-place, i
 dir-recursion+dry-run, and the `migrate → load → save` byte fixed point over committed-like + realistic
 island-like fixtures); `MonoDreams.Cli.Tests/MigrateCollidersCommandTests.cs` (the command wiring, output,
 exit codes); `MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs` (the committed `Blender_Level.mdscene`,
-migrated in-repo, boots with its colliders as child entities).
+migrated in-repo, boots with its colliders as child entities);
+`MonoDreams.Tests/LevelEditor/PrefabColliderMigrationTests.cs` (the **`.mdprefab` path** — a v1 prefab with
+an embedded box on the root + a convex on a child migrates to collider CHILD entities that still satisfy
+one-root through `PrefabData.FromScene`, is a byte fixed point, and expands + places world-correct).
 **Depends on:** this file — "The scene format is version 2 …"; collision — "A collider IS an entity".
 
 ## Editor-overlay entities are standalone; delete snapshots the disposed sub-graph

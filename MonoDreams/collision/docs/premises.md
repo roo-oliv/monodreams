@@ -312,9 +312,16 @@ single "the other entity" field could not serve both dialogue zones and physics.
 **Breaks:** a consumer reading the wrong side misses identity (a dialogue zone read via
 `BodyB` when the body is a physics parent) or disposes/queries a collider child instead of
 the game object; a custom message dropping a base field breaks resolution.
-**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs::CollisionMessage_CarriesColliderAndBody_ForBothSides`;
-the consumer sides are exercised by `IslandMilestoneTests`, `TriggerPlacementTests`,
-`PrefabMilestoneTests`, and `InfiniteRunnerTests`.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs::CollisionMessage_CarriesColliderAndBody_ForBothSides`
+(the message shape); `MonoDreams.Tests/Collision/CollisionConsumerAuditTests.cs` — the **completed
+consumer audit** (CE-D, pre-mortem #4): each shipping consumer is wired and asserted to read the correct
+side — `GameCollisionHelper` (identity collider-first-then-body), `ZoneDialogueTriggerSystem` (`ColliderB`,
++ a negative that it never falls back to `BodyB`), `RunnerCollisionHandlerSystem` (`BodyA` state / whole
+`BodyB` dispose), `NPCInteractionSystem` (the collider-CHILD proximity path); the resolution systems are
+covered by `ColliderEntityTests`, and the physics-demo `BallBounceSystem` (collider==body) by
+`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs::HeadlessPhysicsDemo_…`. The milestone suites
+(`IslandMilestoneTests`, `TriggerPlacementTests`, `PrefabMilestoneTests`) additionally exercise the
+identity end-to-end through the real pipeline.
 **Depends on:** this file — "A collider's body is resolved via `ColliderBody.Resolve`".
 
 ## Colliders-as-entities perf is parity-or-better (RFC criterion)

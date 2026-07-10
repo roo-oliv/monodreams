@@ -333,12 +333,16 @@ spline `sources[]` descriptor, rendered as a mesh `DrawComponent` through the ex
 
 ---
 
-## Engine RFC — colliders as child entities with their own Transform (deferred)
+## Engine RFC — colliders as child entities with their own Transform (RESOLVED — the CE phase)
 
-> Status: **deferred, not rejected.** Raised during Wave 8b (collider gizmo proxies). The
-> current shipped alternative is the proxy mechanism above; this RFC records the deeper
-> restructuring, its costs, and the criteria under which it should be (re)evaluated — so a
-> future session decides on evidence, not by re-deriving the debate.
+> Status: **RESOLVED (2026-07-10) — implemented as the colliders-as-entities phase (CE-A–CE-D) above.**
+> The user directed it built with no backwards compatibility; the decision-criteria measurement landed as
+> the collision premise's perf smoke (parity-or-better: the entity model reads an already-computed
+> `WorldMatrix` instead of per-frame offset math). The Wave-8b proxy alternative it describes is now
+> deleted (only convex vertex grips survive). The RFC text below is kept for history — the motivation and
+> costs it named are exactly what the CE phase delivered and paid.
+>
+> Raised during Wave 8b (collider gizmo proxies). The original text follows.
 
 **Proposal.** Model each collider as a **child entity** carrying its own `TransformComponent` +
 a shape component, `ChildOf`-parented to the game entity, instead of collider components with
@@ -587,6 +591,57 @@ etc.; those helpers were not present on a clean PF-C checkout — they landed to
   terrain. *Trigger:* the shelf grows past a handful of prefabs and the glyph stops disambiguating.
 - **Prefab playgrounds.** Play is disabled in a prefab tab (a prefab never plays, v1). *Trigger:* authors want
   to test a prefab's behaviour in isolation without placing it in a scene.
+
+## Colliders-as-entities phase (CE-A–CE-D) — complete
+
+The user's directive (2026-07-10): "turn colliders into proper entities and no longer proxies … update
+current examples and demos … no backwards compatibility." This **resolved the deferred engine RFC below**
+(colliders as child entities with their own Transform) and permanently fixed the PF-G bug class (a
+collider's world shape derived from a LOCAL offset — authored-in-prefab vs placed-in-scene divergence).
+The authoritative design is [`colliders-as-entities.md`](colliders-as-entities.md); the invariants live in
+the `collision` / `physics` / `level-editor` premises + `CORE_TENETS` §5.
+
+- **CE-A — collision + physics core.** A collider IS an entity (a shape + its own `TransformComponent` +
+  auto `ColliderTagComponent`); box = centered `Size` (no offset), convex = entity-local vertices; the
+  world shape derives from the collider entity's `WorldMatrix`. `ColliderBody.Resolve` (nearest
+  RigidBody/Velocity ancestor, else self) is the ONE body-resolution primitive; `CollisionMessage` carries
+  four entities (`ColliderA/B` + `BodyA/B`); resolution writes the correction to the BODY (pre-mortem #1).
+  Multi-collider bodies are legal (the one-per-entity premise retired).
+- **CE-B — serialization v2 + migrator.** `SceneData.Version = 2`; a v1 file with an embedded collider is
+  refused loud on a FILE read; the `monodreams migrate-colliders <path|dir>` CLI command (byte-canonical,
+  idempotent, `--dry-run`, dir recursion; handles `.mdscene` AND `.mdprefab`) rewrites each embedded
+  collider onto a collider CHILD entity (a zone reshapes in place so identity stays on the collider);
+  committed `sample`/`Blender_Level` migrated in-repo.
+- **CE-C — editor retarget (proxies die for whole shapes).** A collider is a first-class editor entity:
+  border-picked on its world shape, moved/scaled by the ordinary gizmo + modal G/S/R (a box refuses
+  Rotate — axis-aligned; a convex rotates), edited in the Inspector. **Add Collider ▸ Box / Polygon**
+  creates a footprint-shaped child collider entity; **−Col** deletes it. Only convex VERTEX grips survive
+  as proxies (`ColliderEditCommand.ForConvex`); the whole-shape `BoxColliderBounds`/`ConvexColliderShape`
+  proxies + box-resize + `ColliderComponentCommand` are deleted.
+- **CE-D — Examples/Demos sweep + milestones + docs close.** The consumer audit completed
+  (`CollisionConsumerAuditTests` — every `CollisionMessage` consumer proven to read the correct side,
+  pre-mortem #4); the physics/collision demo gained a headless render-path smoke; `IslandMilestoneTests`
+  / `PrefabMilestoneTests` confirmed the current authoring story end-to-end; `PrefabColliderMigrationTests`
+  proved the migrator handles a prefab with embedded colliders through `PrefabData.FromScene`; docs closed.
+
+**Wave 8b (collider gizmo proxies) is SUPERSEDED by this phase** — the proxy layer it shipped is exactly
+what the RFC below deleted. The Wave-8b section above is kept for history.
+
+**Queued next — wave BR: retire the Blender importer** (user directive 2026-07-10, "we are getting rid of
+it", no compatibility owed): delete the parser + data types, the `Blender_` dispatch, the `Tools/` exporter
+plugin, Examples import wiring, the CLI registry entry + module-count docs, and the Blender-shaped test
+fixtures. Left as retirement notes in the CE docs; not started.
+
+**Named terrain (CE follow-ups, with triggers):**
+- **Rotated axis-aligned hitboxes → use a polygon.** A `BoxColliderComponent` is intentionally
+  axis-aligned (rotation ignored; the editor refuses Rotate on a box). *Trigger:* a designer needs a
+  rotated rectangular hitbox — author it as a convex quad (which rotates) rather than adding OBB math to
+  the box path.
+- **Collider layers UI.** `ActiveLayers` is authored numerically today (no editor surface for the
+  layer-membership pair filter). *Trigger:* a game grows past a couple of collision layers and needs a
+  visual layer editor / matrix.
+- **Per-collider debug filtering.** `ColliderDebugSystem` draws all collider entities' outlines at once.
+  *Trigger:* dense scenes need to filter the debug overlay by layer / identity / selection.
 
 ## Cross-wave invariants (the things that must keep holding)
 
