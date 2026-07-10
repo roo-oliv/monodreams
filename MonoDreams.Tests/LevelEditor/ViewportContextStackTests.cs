@@ -33,6 +33,7 @@ public class ViewportContextStackTests
         public int WorldState = 1;   // the live "scene" the capture/restore round-trips
         public int Captures;
         public int Sweeps;
+        public int Rebuilds;         // TD: RebuildCodeContent invocations
         public int ViewSnaps;
         public bool LastRestoreSuppressedRig; // PF-D: RestoringPrefabContext observed during the last restore
 
@@ -49,6 +50,44 @@ public class ViewportContextStackTests
                 SweepSceneEntities = () => { Sweeps++; Log.Add("sweep"); },
             };
         }
+
+        /// <summary>TD: wire the code-content rebuild seam (a screen sets it in Load; a screen that never
+        /// builds code content leaves it null — the default here, so the pre-TD switch tests are unchanged).
+        /// Logs so the sweep → rebuild → restore order is observable.</summary>
+        public void WireRebuildCodeContent() =>
+            Stack.RebuildCodeContent = () => { Rebuilds++; Log.Add("rebuild"); };
+    }
+
+    // ─────────────── TD: RebuildCodeContent runs between the sweep and the reader restore ───────────────
+
+    [Fact]
+    public void ExitGameTab_InvokesRebuildCodeContent_BetweenSweepAndRestore()
+    {
+        var h = new Harness();
+        h.WireRebuildCodeContent();          // the screen registered its code-content builder in Load
+        h.Stack.EnterGame();                 // snapshot the scene; no sweep (live world IS the sandbox)
+        Assert.Equal(0, h.Rebuilds);         // entering never rebuilds
+
+        h.Stack.ExitToScene();               // Game → Scene: sweep → rebuild → restore
+
+        // The code content is rebuilt exactly once, and strictly BETWEEN the sweep and the reader restore
+        // (a code-built screen's UI comes back before the scene-owned entities are restored — the TD fix).
+        Assert.Equal(1, h.Rebuilds);
+        Assert.Equal(new[] { "snapshot", "sweep", "rebuild", "restore" }, h.Log);
+    }
+
+    [Fact]
+    public void SwitchToPrefabTab_DoesNotRebuildCodeContent_PrefabContextIsIsolated()
+    {
+        var h = new Harness();
+        h.WireRebuildCodeContent();
+        // Opening a prefab tab sweeps + restores the prefab, but must NOT rebuild the host screen's code
+        // content (a prefab context shows ONLY the prefab).
+        h.Stack.OpenPrefab("tree", "tree", new SceneData { Version = 7 });
+
+        Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
+        Assert.Equal(0, h.Rebuilds);
+        Assert.True(h.LastRestoreSuppressedRig); // the prefab restore ran with the rig suppressed
     }
 
     [Fact]

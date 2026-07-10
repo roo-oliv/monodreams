@@ -166,24 +166,34 @@ public static class GameTestRunner
     /// <c>MONODREAMS_EDITOR</c> is pinned off so a developer's exported flag can never
     /// perturb the flag-off headless contract these runs assert.
     /// </summary>
-    public static Task<GameTestResult> RunDemosAsync(
+    public static async Task<GameTestResult> RunDemosAsync(
         string screen,
         int frames,
         int captureEvery = 0,
         int sampleEvery = 30,
         int timeoutSeconds = 120,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null,
+        EditorOpPlan? editorOpPlan = null)
     {
         var debugDir = CreateDebugDir();
         var args = $"run --project MonoDreams.Demos -- --headless --screen {screen} --frames {frames} " +
                    $"--exit --capture-every {captureEvery} --sample-every {sampleEvery}";
+
+        // The headless editor-op channel (TD): the Demos launcher has no InputReplaySystem, so a scripted
+        // op (e.g. a cross-screen tab:open) is the way to drive it — the destination screen's op driver
+        // owns the exit, exactly as RunAsync does for the Examples menu.
+        if (editorOpPlan != null)
+        {
+            var opJson = JsonSerializer.Serialize(editorOpPlan, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
+        }
 
         var env = new Dictionary<string, string> { ["MONODREAMS_EDITOR"] = "0" };
         if (environment != null)
             foreach (var (key, value) in environment)
                 env[key] = value;
 
-        return RunProcessAsync(args, debugDir, timeoutSeconds, env);
+        return await RunProcessAsync(args, debugDir, timeoutSeconds, env);
     }
 
     private static string CreateDebugDir()

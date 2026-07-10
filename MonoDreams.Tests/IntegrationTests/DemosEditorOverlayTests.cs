@@ -45,6 +45,16 @@ public class DemosEditorOverlayTests
         result.AssertLogContains("editor.systemsPanel");
         result.AssertLogContains("editor.selection");
         result.AssertLogContains("editor.renderChrome");
+        // TD (report 1): the Demos host now RESOLVES a project context (the isolated temp root the runner
+        // pins), so the Scenes panel is no longer "Project: (unresolved) … (no scenes)".
+        result.AssertLogContains("Project resolved");
+        // TD (report 1): with a resolved project the universal palette composes on Demos (empty assetRoots
+        // is legal — no crash; exit 0 above also guards this).
+        result.AssertLogContains("editor.palette");
+        // TD (report 1): the session's boot tab is NAMED (the launcher's scene id), never the "untitled"
+        // fallback the null-context Demos host used to seed.
+        result.AssertLogContains("active tab 'launcher'");
+        Assert.DoesNotContain(result.LogLines, l => l.Contains("active tab 'untitled'"));
         // Booting in Edit + rendering the shell must not break headless self-termination.
         result.AssertLogContains("Headless run complete");
     }

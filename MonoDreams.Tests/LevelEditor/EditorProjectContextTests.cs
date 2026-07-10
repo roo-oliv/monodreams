@@ -177,14 +177,16 @@ public class EditorProjectContextTests
                 : Path.GetDirectoryName(m) == dir.TrimEnd(Path.DirectorySeparatorChar));
         }
 
-        public EditorProjectContext Resolve(string baseDirectory, string? envRoot = null) =>
+        public EditorProjectContext Resolve(string baseDirectory, string? envRoot = null,
+            string? preferProjectDirName = null) =>
             EditorProjectContext.Resolve(
                 baseDirectory,
                 n => n == EditorProjectContext.ProjectRootVariable ? envRoot : null,
                 FileExists,
                 _ => Manifest(),
                 DirectoryExists,
-                EnumerateFiles);
+                EnumerateFiles,
+                preferProjectDirName);
     }
 
     [Fact]
@@ -233,6 +235,59 @@ public class EditorProjectContextTests
         Assert.True(ctx.Resolved);
         Assert.Equal(envManifest, ctx.ManifestPath); // the explicit override wins over walk-up + repo search
         Assert.Equal(Path.Combine(envRoot, "Content"), ctx.ProjectRoot);
+    }
+
+    // ---- TD (multi-manifest disambiguation): two games in one repo, each host resolves ITS OWN manifest ----
+
+    /// <summary>The repo now holds BOTH Examples' and Demos' source manifests at the SAME depth
+    /// (<c>.Core/Content</c> and <c>Demos/Content</c>). The Examples HEAD runs from
+    /// <c>MonoDreams.Examples.Desktop/bin</c> (content is in a SIBLING <c>.Core</c>, so the walk-up finds
+    /// nothing and the repo-root source search runs): without the hint the search tie-breaks to Demos'
+    /// manifest on ordinal (D &lt; E) — the WRONG one — but the head's
+    /// <c>preferProjectDirName: "MonoDreams.Examples.Core"</c> hint keeps it on Examples' manifest.</summary>
+    [Fact]
+    public void MultiManifest_ExamplesHost_ResolvesExamplesManifest_ViaHint_NotDemos()
+    {
+        var repo = Path.Combine("/repo", "monodreams");
+        var examples = Path.Combine(repo, "MonoDreams.Examples.Core", "Content", GameProject.FileName);
+        var demos = Path.Combine(repo, "MonoDreams.Demos", "Content", GameProject.FileName);
+        var examplesBinBaseDir = Path.Combine(repo, "MonoDreams.Examples.Desktop", "bin", "Debug", "net8.0") + Path.DirectorySeparatorChar;
+
+        var fs = new FakeRepo(repo).WithManifest(examples).WithManifest(demos)
+            .WithGitFile(Path.Combine(repo, ".git"));
+
+        // WITHOUT the hint the same-depth tie resolves to Demos on ordinal (the regression the hint fixes).
+        var noHint = fs.Resolve(examplesBinBaseDir);
+        Assert.Equal(demos, noHint.ManifestPath);
+
+        // WITH the Examples head's hint it lands on Examples' manifest (unchanged from before Demos existed).
+        var ctx = fs.Resolve(examplesBinBaseDir, preferProjectDirName: "MonoDreams.Examples.Core");
+        Assert.True(ctx.Resolved);
+        Assert.Equal(examples, ctx.ManifestPath);
+        Assert.Equal(Path.Combine(repo, "MonoDreams.Examples.Core", "Content"), ctx.ProjectRoot);
+    }
+
+    /// <summary>The Demos HEAD runs from <c>MonoDreams.Demos/bin</c> and its content is CO-LOCATED under
+    /// <c>MonoDreams.Demos/Content</c>, so the walk-up resolves Demos' manifest directly — before the
+    /// repo-root source search is even reached — even though Examples' manifest also exists. Its
+    /// <c>preferProjectDirName: "MonoDreams.Demos"</c> hint is defence-in-depth (moot here).</summary>
+    [Fact]
+    public void MultiManifest_DemosHost_ResolvesDemosManifest_ViaWalkUp_NotExamples()
+    {
+        var repo = Path.Combine("/repo", "monodreams");
+        var examples = Path.Combine(repo, "MonoDreams.Examples.Core", "Content", GameProject.FileName);
+        var demos = Path.Combine(repo, "MonoDreams.Demos", "Content", GameProject.FileName);
+        var demosBinBaseDir = Path.Combine(repo, "MonoDreams.Demos", "bin", "Debug", "net8.0") + Path.DirectorySeparatorChar;
+
+        var fs = new FakeRepo(repo).WithManifest(examples).WithManifest(demos)
+            .WithGitFile(Path.Combine(repo, ".git"));
+
+        var ctx = fs.Resolve(demosBinBaseDir, preferProjectDirName: "MonoDreams.Demos");
+
+        Assert.True(ctx.Resolved);
+        Assert.Equal(demos, ctx.ManifestPath); // Demos', never Examples'
+        Assert.Equal(Path.Combine(repo, "MonoDreams.Demos", "Content"), ctx.ProjectRoot);
+        Assert.NotEqual(examples, ctx.ManifestPath);
     }
 
     [Fact]

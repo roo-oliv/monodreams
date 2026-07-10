@@ -184,6 +184,64 @@ public class EditorGameModeTests
         Assert.Equal(0, s.History.RedoCount);
     }
 
+    // ── TD: a code-built screen's Game-tab exit rebuilds the code UI (report-2 blank-screen fix) ──────
+
+    /// <summary>
+    /// The report-2 fix, engine-level and host-agnostic — it models the Examples menu / the Demos launcher /
+    /// the physics demo Play → close-Game-tab story identically (every editor screen wires the SAME split
+    /// seam). A code-built screen's UI is NOT <see cref="SceneObjectComponent"/>-tagged, so it is never
+    /// snapshot-captured. Before TD the Game-tab exit swept it and restored only the (empty) snapshot → a
+    /// blank screen. Now the stack runs the screen's <see cref="EditorTransport.RebuildCodeContent"/> BETWEEN
+    /// the sweep and the reader restore, so the code UI comes back and any scene-owned content restores on top.
+    /// </summary>
+    [Fact]
+    public void ExitGameTab_OnACodeBuiltScreen_RebuildsTheCodeUi_NotBlank_SceneRestoredOnTop()
+    {
+        using var s = new Stack();
+        s.AddSpriteRoot(new Vector2(10, 20)); // scene-owned (snapshot-captured + reader-restored)
+
+        // The screen's code-owned UI: untagged (never captured), swept on a tab switch. The screen's Load
+        // built it once and registered RebuildCodeContent to re-run its builder.
+        void BuildCodeUi() => s.World.CreateEntity().Set(new EntityInfoComponent("CodeButton"));
+        BuildCodeUi();
+        s.Transport.RebuildCodeContent = BuildCodeUi;
+        Assert.Equal(1, CountInfo(s.World, "CodeButton"));
+
+        s.Transport.EnterGameMode(Paused()); // keeps the live world — the code UI is still there
+        Assert.Equal(1, CountInfo(s.World, "CodeButton"));
+
+        s.Transport.ExitToSceneMode(Paused());
+
+        // NOT blank: exactly one code button rebuilt, and the scene root restored at its authored position.
+        Assert.Equal(1, CountInfo(s.World, "CodeButton"));
+        Assert.Equal(new Vector2(10, 20), s.TaggedRoot().Get<TransformComponent>().Position);
+    }
+
+    /// <summary>The contrast that pins the seam as the fix: with no <c>RebuildCodeContent</c> (the pre-TD
+    /// behaviour) a code-built screen's Game-tab exit sweeps the code UI and restores only the empty
+    /// snapshot — the blank screen report 2 described.</summary>
+    [Fact]
+    public void ExitGameTab_WithoutRebuildCodeContent_LeavesTheCodeUiSwept_TheReport2Blank()
+    {
+        using var s = new Stack();
+        s.World.CreateEntity().Set(new EntityInfoComponent("CodeButton"));
+        s.Transport.RebuildCodeContent = null; // pre-TD (clears the Stack's {Reload=()=>{}} default)
+
+        s.Transport.EnterGameMode(Paused());
+        s.Transport.ExitToSceneMode(Paused());
+
+        Assert.Equal(0, CountInfo(s.World, "CodeButton")); // swept, never rebuilt → blank
+    }
+
+    private static int CountInfo(World world, string type)
+    {
+        var n = 0;
+        using var set = world.GetEntities().With<EntityInfoComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.Get<EntityInfoComponent>().Type == type) n++;
+        return n;
+    }
+
     // ─────────────── Order: Play in Scene mode snapshots BEFORE RunMode flips (pre-mortem #7) ─────────
 
     [Fact]
