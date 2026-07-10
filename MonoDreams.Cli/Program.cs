@@ -18,6 +18,7 @@ internal static class Program
         root.AddCommand(InitCommand.Build(registryOption));
         root.AddCommand(AddCommand.Build(registryOption));
         root.AddCommand(ListCommand.Build(registryOption));
+        root.AddCommand(MigrateCollidersCommand.Build());
 
         return await root.InvokeAsync(args);
     }

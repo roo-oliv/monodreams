@@ -233,6 +233,69 @@ internal static class Runner
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// <c>monodreams migrate-colliders &lt;path&gt; [--dry-run]</c>: rewrites legacy version-1 native
+    /// scenes/prefabs (embedded colliders) into the version-2 colliders-as-entities shape via the shared
+    /// <see cref="MonoDreams.LevelEditor.Serialization.ColliderMigration"/> core (source-linked so the output
+    /// is byte-canonical). Prints a per-file summary; a missing path or unparseable file exits with code 2.
+    /// </summary>
+    public static void RunMigrateColliders(string path, bool dryRun)
+    {
+        IReadOnlyList<MonoDreams.LevelEditor.Serialization.ColliderMigration.FileReport> reports;
+        try
+        {
+            reports = MonoDreams.LevelEditor.Serialization.ColliderMigration.MigratePath(path, dryRun);
+        }
+        catch (FileNotFoundException ex)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            Environment.ExitCode = 2;
+            return;
+        }
+        catch (Exception ex)
+        {
+            // Unparseable input (or any migration failure): fail loud, write nothing, exit 2.
+            Console.Error.WriteLine($"error: {ex.Message}");
+            Environment.ExitCode = 2;
+            return;
+        }
+
+        Console.WriteLine($"migrate-colliders ({(dryRun ? "dry-run, no changes" : "applying")}): {path}");
+        Console.WriteLine();
+
+        var changed = 0;
+        var alreadyCurrent = 0;
+        var boxesInPlace = 0;
+        var childrenAdded = 0;
+        foreach (var report in reports)
+        {
+            var r = report.Result;
+            if (r.AlreadyCurrent)
+            {
+                alreadyCurrent++;
+                Console.WriteLine($"  {report.Path}: already version 2 (no change)");
+                continue;
+            }
+            if (!r.Changed)
+            {
+                Console.WriteLine($"  {report.Path}: no change");
+                continue;
+            }
+            changed++;
+            boxesInPlace += r.BoxesReshapedInPlace;
+            childrenAdded += r.ChildEntitiesAdded;
+            var verb = dryRun ? "would migrate" : "migrated";
+            Console.WriteLine(
+                $"  {report.Path}: {verb} → version 2 " +
+                $"({r.BoxesReshapedInPlace} box(es) reshaped in place, {r.ChildEntitiesAdded} collider child entity(ies) added)");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"{(dryRun ? "Would migrate" : "Migrated")} {changed} file(s), {alreadyCurrent} already current, " +
+            $"{reports.Count} scanned. {boxesInPlace} box(es) reshaped in place, {childrenAdded} collider child entity(ies) added.");
+    }
+
     public static void RunList(bool verbose, string? registryPath)
     {
         Registry registry;

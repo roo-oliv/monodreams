@@ -24,6 +24,20 @@
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
   </ItemGroup>
 
+  <!--
+    The `migrate-colliders` command shares SOURCE with the engine rather than referencing it: the engine
+    assembly is `MonoDreams.dll` and this tool's is `monodreams.dll`, which collide on a case-insensitive
+    filesystem (see MonoDreams.Cli.Tests for the same rationale). Source-linking the three DEPENDENCY-FREE
+    serialization files (System.Text.Json only — no MonoGame/DefaultEcs) lets the migrator produce
+    byte-canonical output through the SAME CanonicalJson policy the engine writes scenes with, guaranteeing
+    parity without the DLL clash. These files must stay free of engine (MonoGame/DefaultEcs) types.
+  -->
+  <ItemGroup>
+    <Compile Include="..\MonoDreams\level-editor\Serialization\SceneData.cs" Link="Shared\SceneData.cs" />
+    <Compile Include="..\MonoDreams\level-editor\Serialization\CanonicalJson.cs" Link="Shared\CanonicalJson.cs" />
+    <Compile Include="..\MonoDreams\level-editor\Serialization\ColliderMigration.cs" Link="Shared\ColliderMigration.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="MonoDreams.Cli.Tests" />
   </ItemGroup>
