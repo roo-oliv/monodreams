@@ -443,10 +443,10 @@ must still border-pick proxies and click-empty clear).
 
 **Click-ownership: the gizmo owns its presses.** `GizmoSystem` publishes a frame-scoped claim
 (`GizmoStateComponent.PressClaimed`) on **every** Edit frame it runs: true when the press edge
-landed on the active tool's handle (a proxy target forces the Move handle) or while a handle drag
+landed on the active tool's handle (a sub-element proxy forces the Move handle) or while a handle drag
 is in progress, false otherwise. Selection must skip a claimed press **entirely** — no re-pick, no
 click-empty clear — because the rotate ring and scale handle routinely lie OUTSIDE the selected
-sprite's bounds (and a collider proxy's centre move-handle often sits over empty space): processing
+sprite's bounds (and a spriteless collider ENTITY's move handle often sits over empty space): processing
 that press as a scene click clears the selection (or re-picks an overlapped sprite) in the very
 frame the gizmo began the drag, which cancels the drag and despawns the overlays/proxies one frame
 later. **Ordering dependency:** the claim is written by the gizmo in the UPDATE pipeline and read
@@ -489,8 +489,8 @@ selecting its own chrome; a non-deterministic / unstable pick on an exact-depth 
 rotated/scaled sprite mis-picked because the hit-test ignored its transform; without the claim —
 a rotate/scale-handle press outside the sprite clears the selection and kills the drag the same
 frame, a handle press overlapping another sprite re-selects it and retargets the drag mid-flight,
-and a proxy's centre-handle press deselects the proxy and despawns the family; without the
-prefab-instance redirect — a viewport click on a placed instance selects its prefab-owned child, whose
+and a spriteless collider ENTITY's move-handle press deselects it (its handle sits over empty space);
+without the prefab-instance redirect — a viewport click on a placed instance selects its prefab-owned child, whose
 edits the guardrail refuses, so the instance reads as unmovable (the user-reported PF-G bug).
 **Tests:** `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`ViewportPick_OnPrefabInstanceChild_RedirectsSelectionToInstanceRoot`
 + `ViewportRightClick_…` — a pick on an instance's child selects the editable root, not the owned child;
@@ -507,8 +507,9 @@ click-ownership: `GizmoTests.ClickOwnershipTest_*` (rotate/scale handle press ou
 bounds keeps the selection and the drag completes as one undo step; a handle press over another
 sprite does not re-pick; held-drag frames and a spurious mid-drag press never re-pick or clear;
 release never clears; genuine click-empty still clears; a press on another sprite away from every
-handle still re-selects) and `ProxyTests.ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags`
-(the proxy variant, in a sprite-less world — also protecting the plain-`ISystem` rule).
+handle still re-selects) and `ProxyTests.ColliderEntity_MoveHandlePress_KeepsSelection_AndDrags`
+(the spriteless collider-entity variant — its move handle sits over empty space — also protecting the
+plain-`ISystem` rule).
 **Depends on:** rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` →
 `MasterRenderSystem` derive + sort on final `DrawComponent.LayerDepth`) and the `FinalDrawSystem`
 layer order (Main, UI, HUD, then screen-space overlays); this file — "The gizmo applies a
@@ -960,8 +961,8 @@ holds it. Invariants:
   special-cases it to "Camera"; clicking the row selects it exactly like any entity (two-way with the viewport
   selection AND the Inspector, which reflects its `TransformComponent` + `CameraRigComponent`). This tree row is
   the **guaranteed** selection path. **Viewport border-pick:** `SelectionSystem` folds it into the SAME pick as
-  the collider proxies — a **border-pick on its frustum world-rect** at `ProxyBorderPickDepth`, at the SAME
-  `ProxyBorderPickTolerancePixels` (÷ zoom) tolerance the proxies/boundaries use (the frustum's fill never shadows
+  the collider ENTITIES + boundaries — a **border-pick on its frustum world-rect** at `ProxyBorderPickDepth`, at the SAME
+  `ProxyBorderPickTolerancePixels` (÷ zoom) tolerance the colliders/boundaries use (the frustum's fill never shadows
   a sprite under it). **Gizmo (UX2-G — no longer Move-only):** BOTH Move and Scale are legal (see the gizmo's
   `ResolveTool`). **Move** drives the rig's own transform via a `TransformEditCommand`; **Scale** edits its
   authored `CameraRigComponent.Zoom` via `CameraZoomEditCommand` — a bigger frustum ⇒ a LOWER zoom
@@ -1028,8 +1029,9 @@ shared drag→factor mapping the rig zoom divides by);
 rig is now distinct from), "A loaded sprite entity carries a `DrawComponent` … and the reader auto-frames the
 camera on content" (the reader's editor/shipped camera split), "Selection picks MAX final `LayerDepth` …" (the
 border-pick ordering the rig joins), "The gizmo applies a quantized … transform edit" (the move it is edited by),
-"Collider shapes are edited through standalone gizmo proxies" (the border-pick sibling — the rig is a first-class
-entity, not a `ProxyBindingKind`), "The transport's Restart rebuilds the scene …" (the sweep the rig survives),
+"A collider is a first-class editor entity: selected on its world shape…" (the border-pick sibling — a collider
+is now ALSO a first-class border-picked entity, joining the rig on the SAME ordering), "The transport's Restart
+rebuilds the scene …" (the sweep the rig survives),
 "Editor-overlay entities are standalone …" (the standalone + infra rules), "Every level-editor color and depth is
 an `EditorTheme` role" (the `CameraGlyph` role + depth), "Toolbar icon buttons are procedural meshes …" (the
 Camera icon + the nav button); rendering — the `Camera` class + `MasterRenderSystem`'s mesh Editor pass; camera —
@@ -1406,7 +1408,9 @@ removed value field-for-field). The trailing **+ Add component** row opens a **f
 popup** (`EditorContextMenuSystem.OpenFiltered`) whose candidates are the serializer registry's registered
 types (`ComponentSerializerRegistry.RegisteredComponents`) MINUS the types already on the entity MINUS
 structural (`ChildOfComponent`/`SceneEntityIdComponent`, `registry.IsStructural`) MINUS never-addable
-(`SpriteInfoComponent`/`BoundaryComponent` — authored by the palette / boundary tool). Guardrails:
+(`SpriteInfoComponent`/`BoundaryComponent` — authored by the palette / boundary tool — plus
+`BoxColliderComponent`/`ConvexColliderComponent`, which live on their own collider ENTITY and are authored via
+**Add Collider ▸ Box / Polygon**, not force-added to an arbitrary entity). Guardrails:
 `TransformComponent` is not removable (its `×` refuses with a status hint); structural components render
 no `×`; adding/removing `SpriteInfoComponent` also adds/removes the paired transient `DrawComponent`, and
 undo restores BOTH (pre-mortem #6). **Keyboard ownership:** while the filter is focused or a member is
@@ -1556,100 +1560,86 @@ state …" (the toolbar icon set this pattern seeded); rendering — the mesh
 `DrawComponent` draw path (`MasterRenderSystem` skips an invalid mesh) and `FilledTriangleMeshGenerator`;
 "The editor shell insets the game viewport …" (the Editor target + the no-`VisibleComponent` chrome rule).
 
-## Collider shapes are edited through standalone gizmo proxies; write-back targets the bound component, through the undo history
+## A collider is a first-class editor entity: selected on its world shape, moved/scaled by the ordinary gizmo
 
-> **CE-A UPDATE (partial; full rewrite is CE-C).** The engine now makes a collider its own
-> ENTITY (a shape + its own `TransformComponent`; see collision — "A collider IS an entity").
-> `BoxColliderComponent` lost `Bounds` and carries only a centered `Vector2 Size`. This premise's
-> proxy machinery is kept COMPILING against the new shape for CE-A but is the retiring path: the
-> box world pose routes through `SATCollision.BoxWorldRect` (so the box proxy sits at the box's
-> world centre = the collider entity's `WorldPosition`, no `Bounds.Center` offset), and the
-> box-resize/move proxy write-back + box-on-sprite border pick are marked `TODO(CE-C)` and their
-> tests skipped-with-reason — in CE-C a collider child is selected (border-pick on its world shape)
-> and moved/scaled by the ordinary gizmo, and only the convex vertex grips remain proxy-style.
-> The text below describes the pre-CE-C mechanism; convex/vertex proxies still hold as written.
+A collider is its own ENTITY (colliders-as-entities — see collision "A collider IS an entity"): a shape
+component (`BoxColliderComponent { Size }` / `ConvexColliderComponent { ModelVertices }`) + its own
+`TransformComponent`, so the editor edits it through the SAME selection + gizmo + Inspector path as any
+entity — no proxy. The whole-shape box/convex gizmo proxies (and with them the box-resize path,
+`ColliderEditCommand.ForBox`, `ColliderComponentCommand`, `Proxy/BoxResize`, and the
+`BoxColliderBounds`/`ConvexColliderShape` binding kinds) are RETIRED; only the sub-element vertex/thickness
+handles remain proxies (the next premise). The four edit affordances:
 
-Colliders are **not** entities — `BoxColliderComponent.Bounds` (an entity-relative rectangle) and
-`ConvexColliderComponent.ModelVertices` (local-space vertices; `WorldVertices` is derived) are
-component-local spatial data on the game entity, so neither the selection (which picks rendered
-sprites) nor the transform gizmo (which edits `TransformComponent`) can grab them directly. The
-Wave-8b mechanism (generalized in island Slice 2): when the selected entity carries collider
-components in Edit, `ProxySyncSystem` materializes **standalone proxy entities keyed
-`(kind, index)`** — one whole-shape proxy per collider (index 0) plus, while the convex family's
-own proxy is selected, one per-vertex proxy per `ModelVertices` entry (see the vertex-editing
-premise below) — `GizmoProxyComponent` is the pure-data
-binding descriptor `(target entity, ProxyBindingKind, index)`; the proxy carries a
-`TransformComponent` kept at the shape's **world** centre (the gizmo pivot / selection anchor)
-and a cyan outline VISUAL emitted separately by `ProxySyncSystem.EmitOverlays` (the
-`editor.overlayPrep` draw entry): screen-baked on the native-resolution Editor target at depth
-0.02, projected through `OverlayProjection`, fit-scaled (never zoom-scaled) stroke, clipped to
-the game viewport, **no** `VisibleComponent` (the chrome rule — `MeshPrepSystem` would overwrite
-the identity `WorldMatrix` the screen-baked vertices require); transform placement and visual
-both re-derive from the bound component **every frame** (cheap: selected entity only), so they
-cannot diverge, and the proxies despawn on deselect / mode exit / target death. Proxies join the
-**same** pick (`SelectionSystem` folds them in through the same rank+depth+id ordering, at the
-constant `ProxyBorderPickDepth` — decoupled from the visual's Editor-band depth — hit-testing
-only the shape's **border** within `8px/Zoom` so a sprite-covering collider never shadows its
-entity) and
-the **same** gizmo drag (move handle at the proxy pivot; the tool is forced to Move for proxies).
-A selected **box** proxy additionally exposes eight **resize handles** — the box's corners and
-edge midpoints (pure `BoxResize` math), hit-tested BEFORE the centre move handle — each moving
-exactly the grabbed edge(s) of `Bounds` with the opposite edge anchored and sides clamped at
-`BoxResize.MinSize`, through the same claim + coalescing-drag path.
-The write-back never touches the proxy's own transform: each drag frame pushes a
-`ColliderEditCommand` (before/after snapshot of `Bounds` or `ModelVertices`) against the **bound
-game entity**, inside the coalescing transaction — one drag = one undo step — and the convex
-write-back refreshes `WorldVertices` + `BroadPhaseAABB` in the same command (physics is frozen in
-Edit; nothing else would). `ProxySyncSystem` also refreshes the selected entity's convex
-`WorldVertices` per frame so the `ColliderDebugSystem` outline (which coexists as the global,
-selection-unaware diagnostic) tracks edits instead of drifting. The binding kind is the
-generalization seam, now proven three times (whole shapes, convex per-vertex handles, and — Slice 3
-— `ProxyBindingKind.BoundaryVertex` per `BoundaryComponent.Points` entry): a new editable spatial
-field is another `ProxyBindingKind` + a `ProxyGeometry` derivation case + a `GizmoSystem` write-back
-case (a future spline-control-point binding for the road tool, Waves D/F, is the same recipe) —
-never a second proxy mechanism. Boundary vertices differ only in that they materialise on PLAIN
-selection (a boundary IS its points — no shape proxy to click through) and carry no convexity
-constraint (an open polyline), writing back through `BoundaryEditCommand` (which re-fires the bake).
-**Not everything border-picked is a proxy.** The UX2-E camera rig reuses the SAME border-pick ordering
-(`SelectionSystem` folds its frustum rect in at `ProxyBorderPickDepth`, exactly like a collider/boundary
-border) but is a **first-class entity** — its `TransformComponent` IS the edited data, so the ordinary
-gizmo moves it via a `TransformEditCommand` and it needs NO `ProxyBindingKind`. The proxy seam exists
-precisely because colliders are NOT entities; the rig is, so it stays off the seam (see "The editor
-splits the free VIEW from the authored camera rig").
+- **Selection — border-pick on the world shape.** A collider entity carries no sprite, so `SelectionSystem`
+  folds it into the SAME pick as a second candidate source (the camera-rig precedent for a spriteless
+  first-class entity): its world shape (`ProxyGeometry.TryGetColliderWorldShape` — box corners via
+  `SATCollision.BoxWorldRect`, or the convex `WorldVertices`, both derived from the entity's own WORLD
+  transform so a child collider under a moved/scaled/rotated parent picks where it visibly sits) is
+  hit-tested on its BORDER within `ProxyBorderPickTolerancePixels ÷ zoom` — never its fill — at
+  `ProxyBorderPickDepth` (the on-top rank the old collider proxy had), with the shared `EditorIdComponent`
+  tiebreak. Border-only means a collider covering a sprite never shadows it: click the outline to grab the
+  collider, click inside to pick the sprite. A **bake product** (a boundary's baked segment) picks a hair
+  lower at `BakedProductPickDepth`, so its authoring source (the boundary polyline) wins where they overlap.
+  A viewport pick on a prefab-owned collider child redirects to the instance root (PF-G's
+  `ResolveViewportSelection`, unchanged).
 
-**Why:** the user clicked the red collider debug outlines and couldn't drag them (the outlines are
-unselectable per-frame visualization entities with no back-link); restructuring colliders as child
-entities was explicitly deferred to an engine RFC (`docs/level-editor/roadmap.md`) because
-collision is a per-frame hot path — proxies deliver the editing affordance without touching the
-collision data model. Commands must target the game entity because proxies are transient: an undo
-entry recorded against a despawned proxy would dangle.
-**Breaks:** a `TransformEditCommand` against the proxy makes undo a no-op after deselect (dangling
-entity) and never moves the collider; fill-based proxy hit-testing makes a collider-covered sprite
-unselectable while its proxy exists; skipping the `UpdateWorldVertices` refresh leaves a stale
-`BroadPhaseAABB` (contacts silently missed back in Play — the collision premise) and a debug
-outline frozen at the pre-edit shape; a `ChildOf`-parented proxy is cascade-disposed by the live
-`DisposeOrphans`.
-**Tests:** `MonoDreams.Tests/LevelEditor/ProxyTests.cs` (lifecycle: one proxy per collider on
-select, despawn on deselect / mode exit / target death, standalone + survives a HierarchySystem
-frame, selecting a proxy keeps the family; sync: owner transform move re-derives the proxy and
-refreshes convex world data; write-back: box drag shifts `Bounds` by the delta and convex drag
-translates all `ModelVertices` + refreshes `WorldVertices`/`BroadPhaseAABB`, owner transform
-untouched, one drag = one undo step, undo restores the exact prior shape, redo re-applies;
-selection: border click picks the proxy through the same pick path, inside click picks the owner,
-and `ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags` — pressing
-the selected proxy's centre move-handle is claimed by the gizmo, so the same frame's selection
-pass neither deselects the proxy nor despawns the family, and the drag completes;
-pure inverse-transform delta math); `MonoDreams.Tests/LevelEditor/ProxyVertexTests.cs` (the
-`(kind, index)` family lifecycle);
-`MonoDreams.Tests/LevelEditor/BoxResizeTests.cs` (pure edge math per handle + MinSize clamp;
-system-level: each handle adjusts exactly the expected `Bounds` edge(s) through one undo step,
-undo restores the exact rect, the centre press still moves the whole box, and a resize-handle
-press is claimed so the same-frame selection pass keeps the proxy).
-**Depends on:** collision — "`ConvexColliderComponent.BroadPhaseAABB` must be refreshed when
-vertices change"; this file — "Editor-overlay entities are standalone; delete snapshots the
-disposed sub-graph" (the standalone rule), "Bounded undo with drag-coalescing" (the transaction),
-"Selection picks MAX final `LayerDepth` with a selection-owned tiebreak" (the ordering proxies
-join).
+- **Transform — the ordinary gizmo + modal G/S/R.** Once selected, a collider moves/scales/rotates through a
+  `TransformEditCommand` on its OWN `TransformComponent` (the gizmo drag AND the modal G/S/R), one
+  drag/session = one undo step. A box's world rect and a convex's world vertices compose `Transform.Scale`,
+  so **Scale grows the shape with no special-case resize command**. A **box** collider REFUSES Rotate — it
+  is axis-aligned by the CE model (`SATCollision.BoxWorldRect` ignores rotation), so
+  `GizmoSystem.ResolveTool` / `ModalTransformSystem.Enter` fall back to Move (the camera-rig rotate-refusal
+  precedent) with a status hint ("use a polygon collider for a rotated hitbox"); a **convex** collider
+  rotates normally. A **bake product** refuses every move/scale/rotate AND Delete with a hint (it regenerates
+  from its source — edit the source). The selection OUTLINE traces the collider's world shape
+  (`GizmoSystem.BuildOutline`).
+
+- **Inspector + tree.** A collider entity appears in the Entities tree like any child, auto-named at creation
+  (`EntityInfoComponent("BoxCollider")` / `"PolyCollider"` — the tree/inspector labeler reads `Name ?? Type`).
+  Its `Size` / `ModelVertices` / `ActiveLayers` / `Passive` are editable through the ordinary member-edit path
+  where the type allows. The collider SHAPE components are DROPPED from the Inspector's Add candidates
+  (`InspectorAddCandidates.NeverAddable`) — a shape lives only on a collider entity, authored via Add Collider.
+
+- **Add / remove flows.** **Add Collider ▸ Box / Polygon** (the entity context menu + the Entity-header
+  dropdown + the toolbar `+Box`/`+Poly` + the `collider:addBox`/`addConvex` ops + the
+  `collider/add-box`/`collider/add-polygon` menu paths) creates a CHILD collider ENTITY of the selection
+  through the undoable `CreateEntityCommand` (auto-named, footprint-shaped via
+  `ColliderDefaults.BoxChild`/`HexagonChild` — the parent's sprite footprint, else a 32×32 box / small
+  hexagon — passive, selected after creation; the child parents under the selection, dropping the save-root
+  tag, so it serializes inside the parent's closure). A body may carry N colliders, so there is no
+  "already present" guard. **−Col** (`collider:remove`) DELETES the selected collider entity (the
+  snapshotting `DeleteEntityCommand`), a loud no-op when the selection is not a collider. `+Vtx` /
+  vertex-delete act on a selected convex collider entity (the next premise). The add actions gate on a
+  selection.
+
+**Why:** the RFC's resolution — a collider is a real entity, so the editor stops maintaining a parallel
+proxy world for it and reuses the ONE selection/gizmo/Inspector path; the class of bug PF-G patched (collider
+world shape derived from a local offset) cannot recur because the world shape derives from the collider
+entity's own WorldMatrix. Border-only picking keeps a collider from shadowing the sprite it decorates; the
+box-rotate refusal keeps the axis-aligned model honest; the bake-product refusal keeps derived geometry from
+being edited into a stale state.
+**Breaks:** a fill-based collider pick shadows every sprite under it; deriving the world shape from a local
+offset (not the WorldMatrix) reintroduces the PF-G divergence and makes a child collider unpickable under a
+moved parent (pre-mortem #5); allowing box rotation silently ignores it (a confusing AABB); a movable bake
+product drifts, then snaps back on the next bake; offering the shape components in the Inspector Add list
+lets a designer force a blank/free-floating collider onto an arbitrary entity.
+**Tests:** `MonoDreams.Tests/LevelEditor/ProxyTests.cs` (border-pick selects the collider / an inside click
+picks the sprite; border-pick under a moved+scaled parent at zoom — pre-mortem #5; move via the gizmo = one
+undo step; box Scale grows the world rect; box Rotate refused → Move; convex rotates; click-ownership at the
+shape centre; a bake product pickable but move-refused; the world-shape derivation on a child),
+`ColliderActionTests.cs` (Add Box/Polygon create a footprint child collider entity — auto-named, selected,
+undoable, N-per-body; the sprite-less 32² fallback; −Col deletes the selected collider entity; Delete on a
+collider entity deletes it whole; a baked-product Delete refused; the passive-static-blocker integration
+still blocks an active body without drifting), `PrefabMilestoneTests.PrefabTab_AddColliderChild_ViaCommand_SavesAndPlacesWorldCorrect`
+(author a collider child in a prefab tab via Add Collider → save → place → world-correct).
+**Depends on:** collision — "A collider IS an entity", "`ConvexColliderComponent.BroadPhaseAABB` must be
+refreshed when vertices change"; this file — "Selection picks MAX final `LayerDepth`…" (the border-pick
+ordering the collider joins — the camera-rig sibling), "The gizmo applies a quantized … transform edit" (the
+move/scale it uses), "Bounded undo with drag-coalescing", "The editor splits the free VIEW from the authored
+camera rig" (the spriteless border-pick precedent), "A convex collider entity's vertices are edited through
+(kind, index) grip proxies" (the surviving proxy), "A boundary bakes into one convex quad segment per
+polyline edge…" (the bake products it picks below), "The Inspector is editable, DevTools-style…" (the
+Add-candidate exclusion), "Editor context menus are a data-driven popup…" (the Add Collider surface).
 
 ## The transport's Restart rebuilds the scene from the original load request and discards unsaved edits
 
@@ -1930,8 +1920,9 @@ screen-baked ▸ triangle mesh, all on the `Editor` target, `EditorInfrastructur
 tooltip so a menu is never occluded.
 
 **Four surfaces, one primitive.** The viewport right-click opens the entity menu (Order ▸ Bring
-Forward / Send Backward, separator, Delete `Danger`) — see the tool-modality premise for the
-right-click composition; the Entities-panel right-click opens Add Empty Entity plus, when a tree row is
+Forward / Send Backward, **Add Collider ▸ Box / Polygon** — the colliders-as-entities add flow, creating a
+child collider entity of the selection; separator; the prefab actions; separator; Delete `Danger`) — see
+the tool-modality premise for the right-click composition; the Entities-panel right-click opens Add Empty Entity plus, when a tree row is
 under the cursor, that row's entity items above a separator (the panel raises `ContextMenuRequested` +
 exposes `EntityAtPoint`; the overlay selects the row entity and builds the menu); the Scenes-panel
 right-click opens Create Empty Scene…; the header `Entity ▾` button opens the entity menu below it,
@@ -2922,16 +2913,17 @@ fields, never the per-frame-derived `DrawComponent.LayerDepth`", "Bounded undo w
 The **Add box collider** action creates the top-down footprint default (plan §5.1), computed
 purely by `ColliderDefaults.FootprintBounds` from the sprite's RENDERED geometry: the local quad
 relative to `Position` spans `(-Origin·s) .. (-Origin·s + Size)` (`s = Size/Source`, the
-source→render scale; `Bounds` is Transform-relative and never transform-scaled), and the
+source→render scale; the footprint rectangle is parent-local), and the
 footprint keeps its full width and bottom 25% — under the feet-origin convention
 (`Origin = (srcW/2, srcH)`) exactly `(-w/2, -h/4) .. (w/2, 0)`: the box hangs off the feet point,
 which IS the entity's `Position`, so the character collides with the base of a tree/building and
 walks behind its canopy. **Add polygon collider** starts from a hexagon inscribed in that same
-footprint; **Remove collider** (and Delete on a whole-shape proxy) removes through
-`ColliderComponentCommand`, whose construction-time snapshot restores the removed component
-field-for-field on undo (`Bounds`/`ModelVertices`, `ActiveLayers`, `Passive`, `Enabled`,
-`IgnoreTransformRotation`, with derived world data refreshed against the live transform). A
-sprite-less entity gets `ColliderDefaults.FallbackFootprint`. An editor-added footprint is
+footprint. Under colliders-as-entities the Add actions build a CHILD collider ENTITY placed at the
+footprint's CENTRE (`ColliderDefaults.BoxChild` → the centered `Size`; `HexagonChild` → the
+origin-rebased model vertices) via `CreateEntityCommand`, and **Remove** (−Col) deletes the selected
+collider entity (the snapshotting `DeleteEntityCommand`) — see "A collider is a first-class editor
+entity…". A sprite-less entity gets the 32×32 box / small-hexagon fallback
+(`ColliderDefaults.FallbackBoxChild`/`FallbackHexagonChild`). An editor-added footprint is
 **`Passive = true`** (`ColliderDefaults.FootprintPassive`) — a static world blocker in the
 `WallEntityFactory` idiom: `Passive = true` means "does not initiate a collision", so the footprint
 is never moved by resolution and a static prop/building **blocks the player without drifting**. (A
@@ -2949,57 +2941,55 @@ undo silently turns a trigger zone into a wall; **a `Passive = false` footprint 
 slides away from the player instead of blocking**.
 **Tests:** `MonoDreams.Tests/LevelEditor/ColliderActionTests.cs`
 (`FootprintBounds_FeetOrigin_FullWidthBottomQuarter_FeetAnchored`,
-`FootprintHexagon_InscribedInTheFootprint_AndConvex`, `AddBoxCollider_AppliesFootprintDefault_Undoable`
-— asserts the footprint is `Passive`, `AddConvexCollider_AppliesFootprintHexagon_Undoable` — same,
+`BoxChild_CentersOnTheFootprint_AndFallbackIs32Square`, `HexagonChild_IsConvex_CentredOnTheFootprintCentre`,
+`AddBoxCollider_CreatesFootprintChildColliderEntity_Selected_Undoable` — asserts the child is `Passive`,
+`AddConvexCollider_CreatesFootprintHexagonChild_WorldDataDerived` — same,
+`AddBoxCollider_SpritelessParent_Uses32SquareFallback`,
 `AddBoxFootprint_IsPassiveStaticBlocker_BlocksActiveBodyWithoutDrifting` — the real collision +
-physics pipeline: an active body is blocked and the footprint owner does not move,
-`RemoveCollider_Both_OneUndoEntry_RestoresFieldForField`,
-`RemoveCollider_ViaProxy_RemovesOnlyThatKind_ReselectsOwner`).
+physics pipeline: an active body is blocked and neither the footprint child nor its parent moves,
+`RemoveCollider_DeletesTheSelectedColliderEntity_Undoable`).
 **Depends on:** this file — "Y-sorted props use the feet-origin convention, factory-applied" (the
-Origin the math inverts); collision — `BoxColliderComponent.Bounds` is Transform-relative.
+Origin the math inverts), "A collider is a first-class editor entity…" (the Add/Remove flows the
+footprint feeds); collision — "A collider IS an entity" (the box's centered `Size`).
 
-## Convex colliders are vertex-edited through (kind, index) proxies; invalid shapes are rejected loudly
+## A convex collider entity's vertices are edited through (kind, index) grip proxies; invalid shapes are rejected loudly
 
-Per-vertex editing rides the generalized proxy family: `ProxySyncSystem` keys its proxies
-`(ProxyBindingKind, index)` and materializes one `ConvexVertex` proxy per `ModelVertices` entry
-**while the convex family's own proxy (shape or vertex) is selected** — one click deeper than
-entity selection, so selecting a prop shows clean collider outlines and clicking the convex
-outline opens the vertex session (the Godot/Unity collision-shape convention; it also keeps the
-pre-Slice-2 "N proxies per selected entity" expectations intact). Dragging a vertex proxy writes
-back exactly ONE model vertex (inverse-transformed world delta) through `ColliderEditCommand` —
-one drag = one undo step, world data refreshed. **Convexity strategy: reject, loudly.** A drag
-frame whose result fails `ProxyGeometry.IsConvex` (all non-zero consecutive-edge cross products
-share a sign; collinear points allowed; zero-area loops rejected) is NOT applied — the vertex
-sticks at its last valid position and a warning logs once per drag. Auto-hulling was rejected
-because it can reorder or drop vertices mid-drag, invalidating the very `(kind, index)` binding
-being dragged and dangling the family. **Add vertex** inserts an edge midpoint (after the
-selected vertex proxy, else into the longest edge) — collinear by construction, hence always
-legal, and given shape by the next drag. **Delete on a vertex proxy deletes that vertex** —
-routed through `EditorCommandSystem`'s delete intent, never disposing the transient proxy entity
-— guarded so a convex collider keeps ≥ 3 vertices (a loud refusal at 3; removing a vertex from a
-convex polygon is itself always convex-safe), with the selection handed to the shape proxy so the
-session continues.
+A convex collider is its own ENTITY (previous premise), but a single VERTEX is too fine to be an entity, so
+per-vertex editing rides the ONE surviving proxy family: `ProxySyncSystem` materializes one
+`ProxyBindingKind.ConvexVertex` grip proxy per `ModelVertices` entry **while the convex collider ENTITY (or
+one of its own vertex grips) is selected** — the grips appear on selecting the collider directly (the
+collider IS the shape now; there is no whole-shape proxy to click through, one fewer click than the old
+model). Dragging a grip writes back exactly ONE model vertex (inverse-transformed world delta) through
+`ColliderEditCommand.ForConvex` against the collider entity — one drag = one undo step, `WorldVertices` +
+`BroadPhaseAABB` refreshed (physics is frozen in Edit, so the command does it). **Convexity strategy: reject,
+loudly.** A drag frame whose result fails `ProxyGeometry.IsConvex` (all non-zero consecutive-edge crosses
+share a sign; collinear allowed; degenerate rejected) is NOT applied — the vertex sticks at its last valid
+position and one warning logs per drag (auto-hulling was rejected: it can reorder/drop the very vertex being
+dragged). **Add vertex** inserts an edge midpoint (after the selected grip, else into the longest edge) —
+collinear by construction, always legal. **Delete** on a grip deletes that vertex (guarded ≥ 3), routed
+through `EditorCommandSystem.DeleteSelection` (never disposing the transient grip — that would be a
+non-undoable visual no-op), with the selection handed back to the collider ENTITY so its remaining grips
+stay up and the session continues. A grip picks at `ProxyVertexPickDepth` — a hair above the collider
+entity's own border-pick — so a click on a vertex grabs the vertex, a click elsewhere on the border grabs the
+collider. (A boundary's per-point handles + its thickness handle reuse the SAME `(kind, index)` machinery —
+see the boundary premise; the binding kind is the generalization seam a future spline control point reuses.)
 
-**Why:** irregular building bases (plan §5.1) need per-vertex footprints, the collision module's
-SAT is convex-only (an invalid shape silently mis-collides), and this is the exact machinery the
-Slice-3 boundary tool and the Wave-F spline control points reuse — the binding indices must stay
-stable under editing.
-**Breaks:** applying a non-convex drag frame hands SAT a shape it cannot resolve (silent tunnel /
-phantom contacts); auto-hull mid-drag despawns or retargets the dragged handle; a 2-vertex
-"polygon" after an unguarded delete throws in the collider's own constructor paths; disposing the
-proxy entity on Delete makes Delete a non-undoable visual no-op.
-**Tests:** `MonoDreams.Tests/LevelEditor/ProxyVertexTests.cs`
-(`VertexProxies_MaterializeWhenTheConvexFamilyProxyIsSelected`, `VertexCountChange_ResizesTheFamilyLive`,
-`VertexDrag_WritesTheRightModelVertex_OneUndoStep`, `VertexDrag_RejectsNonConvexResult_KeepsLastValidShape`,
-`IsConvex_AcceptsConvexAndCollinear_RejectsConcaveAndDegenerate`,
-`VertexHandle_WinsThePick_WhereItRidesTheShapeBorder`) and
-`MonoDreams.Tests/LevelEditor/ColliderActionTests.cs`
-(`Delete_OnVertexProxy_DeletesTheVertex_WithMinThreeGuard`,
-`Delete_OnShapeProxy_RemovesTheCollider_NotTheProxyEntity`,
-`AddVertex_InsertsMidpoint_AfterSelectedVertex_OrIntoLongestEdge`).
-**Depends on:** this file — "Collider shapes are edited through standalone gizmo proxies…" (the
-family + write-back rules this extends); collision — the convex-only SAT contract and
-"`BroadPhaseAABB` must be refreshed when vertices change".
+**Why:** irregular building bases need per-vertex footprints, the collision SAT is convex-only (an invalid
+shape silently mis-collides), and a vertex is not worth its own entity; keeping the `(kind, index)` grip is
+the ONE sub-element mechanism the boundary tool (and the Wave-F spline points) reuse.
+**Breaks:** applying a non-convex frame hands SAT a shape it cannot resolve (silent tunnel / phantom
+contacts); disposing the grip on Delete makes Delete a non-undoable visual no-op; a 2-vertex "polygon" after
+an unguarded delete throws in the collider's own constructor paths.
+**Tests:** `MonoDreams.Tests/LevelEditor/ProxyVertexTests.cs` (grips materialize on selecting the convex
+collider entity; a vertex-count change resizes the family live; a drag writes the right model vertex in one
+undo step; a non-convex frame is rejected, keeping the last valid shape; the `IsConvex` accept/reject matrix;
+a grip wins the pick where it rides the collider border) and
+`MonoDreams.Tests/LevelEditor/ColliderActionTests.cs` (Delete a vertex with the ≥3 guard; Add vertex after
+the selected vertex / into the longest edge).
+**Depends on:** this file — "A collider is a first-class editor entity…" (the entity the grips edit + the
+pick ordering they outrank + the reselect-to-the-collider on delete), "Bounded undo with drag-coalescing" (the
+one-drag-one-step transaction); collision — the convex-only SAT contract and "`ConvexColliderComponent.BroadPhaseAABB`
+must be refreshed when vertices change".
 
 ## A boundary bakes into one convex quad segment per polyline edge; bake products never serialize
 
@@ -3022,7 +3012,13 @@ copying the boundary's world position onto each segment child and keeping the qu
 frame. **Bake products NEVER scene-serialize**: `SceneWriter` excludes any `BakedProductComponent`
 entity from the membership closure **even inside the boundary root's `ChildOf` descendant set` — the
 polyline is the durable truth, the segments regenerate on load (bake-on-load runs in both run modes,
-`RunNormally`). Boundaries are edited via per-vertex proxies (`ProxyBindingKind.BoundaryVertex`, one
+`RunNormally`). **In the editor a baked segment is a convex collider ENTITY** (colliders-as-entities), so
+it border-picks like any collider — but a hair BELOW the boundary polyline
+(`SelectionSystem.BakedProductPickDepth` < `ProxyBorderPickDepth`), so the polyline wins where they overlap
+and the segment stays inspectable-but-secondary; every move / scale / rotate / Delete on a bake product is
+REFUSED with a status hint (the gizmo, the modal, and `DeleteSelection` all gate on `BakedProductComponent`)
+— it regenerates from the polyline, so editing it directly would just be overwritten on the next bake; edit
+the boundary instead. Boundaries themselves are edited via per-vertex proxies (`ProxyBindingKind.BoundaryVertex`, one
 per point) that materialise on PLAIN selection of the boundary — a boundary IS its points, so
 `SelectionSystem` also border-picks the boundary's open polyline to select it in the first place —
 plus a single **thickness handle** (`ProxyBindingKind.BoundaryThickness`, Slice 4) riding the band
@@ -3068,9 +3064,10 @@ spurious re-bake), and
 serializes, no convex child does, children regenerate on load, polyline round-trips).
 **Depends on:** collision — SAT is convex-only, and `Passive` = "does not initiate" static geometry
 (the `WallEntityFactory` idiom); foundation — `ChildOfComponent` + `HierarchySystem.DisposeOrphans`
-(the bake children's lifecycle); this file — "Collider shapes are edited through standalone gizmo
-proxies…" (the `(kind, index)` machinery the boundary vertices reuse), "Viewport presses belong to
-exactly one tool family" (the `Boundary` mode).
+(the bake children's lifecycle); this file — "A convex collider entity's vertices are edited through
+(kind, index) grip proxies…" (the `(kind, index)` machinery the boundary vertices reuse), "A collider is a
+first-class editor entity…" (a baked segment is a collider entity — pickable-but-move-refused), "Viewport
+presses belong to exactly one tool family" (the `Boundary` mode).
 
 ## Trigger zones are Passive colliders identified by an auto-numbered EntityInfo string
 
@@ -3085,7 +3082,10 @@ game reaction). It round-trips through the existing `EntityInfo` + `BoxCollider`
 unchanged (the `Passive` flag already serialises); rename is editing the saved JSON (banked decision
 3 — no free-text widget). Placement rides the palette's Place mode (a "Triggers section" of the
 strip); the placed zone is centred on the click, auto-selected, and one `CreateEntityCommand` undo
-step (auto-tagged `SceneObject`). A trigger is **Passive like all static geometry**, so the flag
+step (auto-tagged `SceneObject`). Under colliders-as-entities the trigger IS a standalone collider
+ENTITY, so once placed it is re-selected by the ordinary collider **border-pick on its world shape** and
+moved/scaled by the ordinary gizmo (a `TransformEditCommand` on its own transform — Scale grows the box) —
+no proxy; like any box collider it refuses Rotate. A trigger is **Passive like all static geometry**, so the flag
 alone cannot tell a blocker from a sensor — the game's collision classifier decides that by identity
 (a known trigger prefix → a non-Physics collision type the physical resolver ignores → fires without
 blocking; everything else → Physics → blocks). Because a passive collider has no sprite and would be

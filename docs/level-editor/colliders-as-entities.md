@@ -74,7 +74,28 @@
 > dispatch, the exporter plugin under `Tools/`, Examples import wiring, the CLI registry
 > entry + module-count docs, and the Blender-shaped test fixtures.
 
-## 3. The editor (proxies die for colliders)
+## 3. The editor (proxies die for colliders) — LANDED (CE-C)
+
+> **Landed in CE-C (2026-07-10).** `ProxySyncSystem`'s box/convex-shape bindings, `GizmoProxyComponent`'s
+> `BoxColliderBounds`/`ConvexColliderShape` kinds, `ColliderEditCommand.ForBox`, `ColliderComponentCommand`,
+> and `Proxy/BoxResize` are DELETED (no stubs). A collider is a first-class editor entity: **border-picked
+> on its world shape** (`SelectionSystem` folds collider entities in as a spriteless candidate source at
+> `ProxyBorderPickDepth`, the camera-rig precedent; `ProxyGeometry.TryGetColliderWorldShape` derives the
+> shape from the entity's own WorldMatrix), moved/scaled by the ordinary gizmo + modal G/S/R
+> (`TransformEditCommand`; Scale composes `Transform.Scale`, **no resize command**), and edited in the
+> Inspector. **Decisions:** a BOX collider **refuses Rotate** (axis-aligned — `ResolveTool`/`Enter` fall
+> back to Move with a status hint, the rig's precedent); a convex rotates. **Bake products** (boundary
+> segments) are **pickable but move/delete-refused** at a lower `BakedProductPickDepth` (they regenerate).
+> **Add Collider ▸ Box / Polygon** (entity menu + Entity header + toolbar `+Box`/`+Poly` + the
+> `collider:addBox`/`addConvex` + `collider/add-box`/`add-polygon` menu paths) creates a footprint-shaped
+> CHILD collider entity via `CreateEntityCommand` (auto-named, passive, selected; box = the parent sprite
+> footprint / a 32×32 fallback, polygon = a footprint hexagon / a small fallback); **−Col** deletes the
+> selected collider entity. Convex VERTEX grips survive as `ProxyBindingKind.ConvexVertex` proxies retargeted
+> at the collider entity's own `ModelVertices`. Premises: the two collider-proxy premises rewritten into "A
+> collider is a first-class editor entity…" + "A convex collider entity's vertices are edited through
+> (kind, index) grip proxies…"; selection / inspector / context-menu / boundary / trigger / camera-rig
+> premises updated. 7 skipped tests un-skipped + rewritten; `PrefabMilestoneTests` extended with the
+> author-collider-child-in-a-prefab-tab story.
 
 - `ProxySyncSystem`'s collider bindings, `GizmoProxyComponent`'s box/convex kinds,
   `ColliderEditCommand`, and the box-resize proxy path are RETIRED. A collider
