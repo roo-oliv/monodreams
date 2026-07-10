@@ -154,16 +154,15 @@ public class LevelSelectionScreen : IGameScreen
             // TB-A: this screen hosts the level_selection scene tab — name the active tab so the strip +
             // Save target track it (the session's boot tab, or the cross-screen target this activation lands).
             _editor.SetSceneId(BoundSceneId);
-            // The transport's Restart rebuilds the menu from scratch: the sweep disposed the UI
-            // entities (the cursor survives), so re-running the builder IS the original load. It must
-            // ALSO re-run the optional scene load (UX-D) — otherwise a Restart (e.g. after Save Backup As)
-            // rebuilds the code UI but drops the bound scene's placed content. Source-first via the shared
-            // helper, so a backup-reload restores the last SAVE, not the last build.
-            _editor.Transport.Reload = () =>
-            {
-                CreateLevelSelectionUI();
+            // TD split seam: the code-content rebuild is the menu's UI builder (the sweep disposed the UI
+            // entities; the cursor survives), and the scene-content reload is the optional bound-scene load.
+            // Restart runs BOTH (the UX-D full rebuild — source-first, so a backup-reload restores the last
+            // SAVE, not the last build); a Game-tab exit / scene switch runs ONLY RebuildCodeContent between
+            // the sweep and the snapshot restore, so closing the Game tab keeps the menu buttons alive
+            // instead of a blank screen (the report-2 fix) without double-loading the scene from disk.
+            _editor.Transport.RebuildCodeContent = CreateLevelSelectionUI;
+            _editor.Transport.ReloadSceneContent = () =>
                 NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
-            };
             // Optional scene load (UX-C): bring level_selection.mdscene up under the code-built menu
             // UI if it exists (source-first, then bundled; absent → silently skip). The code UI stays.
             // TB-A: SKIP it when a cross-screen tab activation restores this tab's in-memory snapshot

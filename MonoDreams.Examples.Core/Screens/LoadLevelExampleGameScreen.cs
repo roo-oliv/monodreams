@@ -182,12 +182,15 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 // The Game screen is the level-parameterized HOST: its scene id is the level it was
                 // asked to load (UX-C) — so Save targets <levelId>.mdscene, not the manifest default.
                 _editor.SetSceneId(levelId);
-                // The transport's Restart re-publishes a load for the ACTIVE scene tab (the transport
-                // clears CurrentLevelComponent + disposes the scene entities first, so the parsers re-parse
-                // from scratch; unsaved edits are discarded). TB-A: it reads `_editor.SceneId` (the active
-                // tab's id) rather than the load-time `levelId`, so with several Game-hosted scene tabs open
-                // a Restart reloads whichever one is active — never a stale captured level.
-                _editor.Transport.Reload = () => _world.Publish(new LoadLevelRequest(_editor.SceneId));
+                // TD split seam: the Game screen's content is entirely SCENE-owned (the level's entities,
+                // reconstructed by the reader), so it registers only ReloadSceneContent — RebuildCodeContent
+                // stays null (the cursor + the dialogue UI survive the sweep via cursor/KeepAlive). Restart
+                // re-publishes a load for the ACTIVE scene tab (the transport clears CurrentLevelComponent +
+                // disposes the scene entities first, so the parsers re-parse from scratch; unsaved edits are
+                // discarded). TB-A: it reads `_editor.SceneId` (the active tab's id), so with several
+                // Game-hosted scene tabs open a Restart reloads whichever one is active. A Game-tab exit does
+                // NOT re-run this (the in-memory snapshot restores the level entities through the reader).
+                _editor.Transport.ReloadSceneContent = () => _world.Publish(new LoadLevelRequest(_editor.SceneId));
             }
 
             // Remove the service so it doesn't interfere with future screen loads

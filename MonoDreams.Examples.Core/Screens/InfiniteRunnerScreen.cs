@@ -147,19 +147,21 @@ public class InfiniteRunnerScreen : IGameScreen
         {
             // TB-A: name the active tab so the strip + Save target track this screen's bound scene.
             _editor.SetSceneId(BoundSceneId);
-            // The transport's Restart re-runs exactly this load (the sweep disposed the runner
-            // entities — treadmill, player, spawn point, HUD, and everything the spawner added). It must
-            // ALSO re-run the optional scene load (UX-D) — otherwise a Restart (e.g. after Save Backup As)
-            // rebuilds the code entities but drops the bound scene's placed content. Source-first via the
-            // shared helper, so a backup-reload restores the last SAVE, not the last build.
-            _editor.Transport.Reload = () =>
+            // TD split seam: the code-content rebuild re-creates the runner entities (treadmill, player,
+            // spawn point, HUD, and everything the spawner added — all disposed by the sweep); the
+            // scene-content reload is the optional bound-scene load. Restart runs BOTH (the UX-D full
+            // rebuild — source-first, so a backup-reload restores the last SAVE); a Game-tab exit / scene
+            // switch runs ONLY the code rebuild between the sweep and the snapshot restore, so the runner
+            // resets to its authored initial state instead of a blank screen, no disk double-load.
+            _editor.Transport.RebuildCodeContent = () =>
             {
                 CreateTreadmill();
                 CreatePlayer();
                 CreateSpawnPoint();
                 CreateScoreHUD(content);
-                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
             };
+            _editor.Transport.ReloadSceneContent = () =>
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
             // Optional scene load (UX-C): bring infinite_runner.mdscene up under the code-built runner
             // if it exists (source-first, then bundled; absent → skip). The code entities stay.
             // TB-A: SKIP it when a cross-screen tab activation restores this tab's snapshot instead.
