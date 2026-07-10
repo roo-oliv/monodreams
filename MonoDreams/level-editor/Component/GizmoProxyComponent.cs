@@ -4,32 +4,26 @@ namespace MonoDreams.LevelEditor.Component;
 
 /// <summary>
 /// Which spatial field of the bound entity a gizmo proxy edits. This is the <b>generalization
-/// seam</b> for component-local spatial data: colliders are NOT entities — their shapes live as
-/// fields on the game entity's components (<c>BoxColliderComponent.Bounds</c>,
-/// <c>ConvexColliderComponent.ModelVertices</c>) — so the editor cannot grab them with the
-/// transform gizmo directly. A proxy binds a standalone handle entity to
-/// <c>(entity, component, field)</c> through this kind; adding a new editable spatial field
-/// (e.g. the road tool's spline control points, Waves D/F) is a new enum member + a derivation
-/// case in <c>Proxy/ProxyGeometry</c> + a write-back case in the gizmo's proxy drag — never a
-/// new proxy mechanism.
+/// seam</b> for <b>sub-element</b> spatial data that is NOT itself an entity — a polygon's
+/// individual vertices, a boundary polyline's points, a boundary's thickness. (A collider is now
+/// its OWN entity — a shape component + its <c>TransformComponent</c> — so the collider itself is
+/// selected + moved + scaled through the ordinary selection/gizmo path, needing no proxy; the CE
+/// wave retired the whole-shape <c>BoxColliderBounds</c>/<c>ConvexColliderShape</c> proxies. What
+/// remains a proxy is the point-level editing a vertex is too fine to be an entity for.) A proxy
+/// binds a standalone handle entity to <c>(entity, kind, index)</c>; adding a new editable
+/// sub-element field (e.g. the road tool's spline control points, Waves D/F) is a new enum member
+/// + a derivation case in <c>Proxy/ProxyGeometry</c> + a write-back case in the gizmo's proxy drag —
+/// never a new proxy mechanism.
 /// </summary>
 public enum ProxyBindingKind
 {
-    /// <summary>Edits <c>BoxColliderComponent.Bounds</c> (the entity-relative AABB): a drag
-    /// shifts the rectangle's X/Y by the world delta.</summary>
-    BoxColliderBounds,
-
-    /// <summary>Edits <c>ConvexColliderComponent.ModelVertices</c> as a whole shape: a drag
-    /// translates every local-space vertex by the (inverse-transformed) world delta.</summary>
-    ConvexColliderShape,
-
-    /// <summary>Edits ONE entry of <c>ConvexColliderComponent.ModelVertices</c> —
-    /// <see cref="GizmoProxyComponent.Index"/> carries the vertex ordinal. A drag moves that
-    /// vertex by the (inverse-transformed) world delta; a result that would make the polygon
-    /// non-convex is rejected (not applied) — the loud-reject convexity strategy (see the
-    /// vertex-editing premise). Vertex proxies materialize while the convex family's own proxy
-    /// (shape or vertex) is selected, so the handles appear one click deep instead of cluttering
-    /// every selection.</summary>
+    /// <summary>Edits ONE entry of the collider ENTITY's own
+    /// <c>ConvexColliderComponent.ModelVertices</c> — <see cref="GizmoProxyComponent.Index"/>
+    /// carries the vertex ordinal. A drag moves that vertex by the (inverse-transformed) world
+    /// delta; a result that would make the polygon non-convex is rejected (not applied) — the
+    /// loud-reject convexity strategy (see the vertex-editing premise). Vertex proxies materialize
+    /// while the convex collider ENTITY (or one of its own vertex proxies) is selected, so the
+    /// grips appear on selecting the collider and never clutter an unrelated selection.</summary>
     ConvexVertex,
 
     /// <summary>Edits ONE entry of <c>BoundaryComponent.Points</c> (island-authoring Slice 3 —
@@ -53,22 +47,23 @@ public enum ProxyBindingKind
 }
 
 /// <summary>
-/// The pure-data binding of an edit-time gizmo proxy (Wave 8b): a standalone handle entity the
-/// editor materializes over component-local spatial data of <see cref="Target"/>, so that data
+/// The pure-data binding of an edit-time gizmo proxy: a standalone handle entity the editor
+/// materializes over a <b>sub-element</b> of <see cref="Target"/> (a polygon vertex, a boundary
+/// point, a boundary's thickness) — data too fine to be its own entity — so that sub-element
 /// becomes selectable and draggable through the ordinary selection + gizmo path. The proxy entity
-/// carries this component plus <c>TransformComponent</c> (kept at the bound shape's world centre
-/// by <c>ProxySyncSystem</c>, so the gizmo's pivot/handles work unchanged), a mesh
-/// <c>DrawComponent</c> (the distinct outline visual, world-space on Main) and a self-set
-/// <c>VisibleComponent</c>.
+/// carries this component plus <c>TransformComponent</c> (kept at the bound point's world position
+/// by <c>ProxySyncSystem</c>, so the gizmo's pivot/handle works unchanged), a mesh
+/// <c>DrawComponent</c> (the distinct handle visual) and NO <c>VisibleComponent</c> (the chrome
+/// rule).
 ///
 /// <para><b>Standalone, transient, never written back into.</b> Like every editor overlay entity
 /// it is never <c>ChildOfComponent</c>-parented (<c>HierarchySystem.DisposeOrphans</c> is live in
 /// Edit) and is absent from the serializer registry (despawned on deselect / mode exit / target
 /// death). Crucially, dragging a proxy does <b>not</b> persist the proxy's own transform — the
-/// gizmo routes the drag into a <c>ColliderEditCommand</c> against <see cref="Target"/>'s bound
-/// component field, through the coalescing undo transaction. An undo command recorded against the
-/// transient proxy would dangle the moment the proxy despawns; the bound component on the game
-/// entity is the durable thing.</para>
+/// gizmo routes the drag into a <c>ColliderEditCommand</c> / <c>BoundaryEditCommand</c> against
+/// <see cref="Target"/>'s bound field, through the coalescing undo transaction. An undo command
+/// recorded against the transient proxy would dangle the moment the proxy despawns; the bound
+/// component on the durable <see cref="Target"/> entity is the thing edited.</para>
 /// </summary>
 public struct GizmoProxyComponent
 {
@@ -80,9 +75,10 @@ public struct GizmoProxyComponent
 
     /// <summary>
     /// Sub-element index for bindings that address one element of a collection — a
-    /// <see cref="ProxyBindingKind.ConvexVertex"/> handle (or a future spline control point,
-    /// Waves D/F) carries the element's ordinal here. Whole-shape bindings use 0; the proxy
-    /// family is keyed <c>(Kind, Index)</c> (see <c>ProxySyncSystem</c>).
+    /// <see cref="ProxyBindingKind.ConvexVertex"/> / <see cref="ProxyBindingKind.BoundaryVertex"/>
+    /// handle (or a future spline control point, Waves D/F) carries the element's ordinal here.
+    /// The single-handle <see cref="ProxyBindingKind.BoundaryThickness"/> uses 0; the proxy family
+    /// is keyed <c>(Kind, Index)</c> (see <c>ProxySyncSystem</c>).
     /// </summary>
     public int Index;
 

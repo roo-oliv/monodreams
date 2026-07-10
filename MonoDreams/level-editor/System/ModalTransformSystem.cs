@@ -5,6 +5,7 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Transform;
@@ -32,7 +33,8 @@ namespace MonoDreams.LevelEditor.System;
 /// <see cref="TransformEditCommand"/> (its <c>Position</c> is the camera centre); <c>S</c> edits its
 /// authored zoom via <see cref="CameraZoomEditCommand"/> (a bigger frustum ⇒ a lower zoom —
 /// <c>newZoom = beforeZoom / factor</c>, clamped to the camera-nav range); <c>R</c> is refused for the
-/// rig with a status note.</para>
+/// rig with a status note. A <b>box collider entity</b> likewise refuses <c>R</c> (axis-aligned by the
+/// CE model), and a <b>baked product</b> refuses modal entry entirely (it regenerates from its source).</para>
 ///
 /// <para><b>Weave.</b> Register it with the input-owner block, immediately AFTER
 /// <c>editor.shortcuts</c> (which ENTERS it) and BEFORE the tools (<c>editor.gizmo</c>) + the draw
@@ -171,10 +173,30 @@ public sealed class ModalTransformSystem : ISystem<GameState>
             return false;
         }
 
+        // Baked-product guardrail (colliders-as-entities): a boundary's baked segment regenerates from
+        // its source, so a modal move/scale would be overwritten — refuse; edit the source instead.
+        if (target.Has<BakedProductComponent>())
+        {
+            Logger.Warning(
+                "[level-editor] Modal transform refused: this is a baked product — it regenerates " +
+                "from its source. Edit the source (e.g. the boundary) instead.");
+            return false;
+        }
+
         _targetIsRig = target.Has<CameraRigComponent>();
         if (mode == EditorModalMode.Rotate && _targetIsRig)
         {
             Logger.Warning("[level-editor] Rotate is disabled for the camera rig.");
+            return false;
+        }
+
+        // Box colliders are axis-aligned (colliders-as-entities): refuse Rotate like the rig — a box
+        // can't rotate (use a polygon collider for a rotated hitbox). Move + Scale work.
+        if (mode == EditorModalMode.Rotate && target.Has<BoxColliderComponent>())
+        {
+            Logger.Warning(
+                "[level-editor] Box colliders are axis-aligned and can't be rotated — use a polygon " +
+                "collider for a rotated hitbox.");
             return false;
         }
 

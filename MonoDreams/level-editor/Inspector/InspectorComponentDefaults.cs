@@ -40,9 +40,10 @@ public static class InspectorComponentDefaults
     {
         if (type == typeof(BoxColliderComponent))
         {
-            // TODO(CE-C): the footprint's feet offset (Bounds.Location) is dropped here — the box is
-            // centered on the entity's transform now. A CE-C add-collider flow makes the collider a
-            // child entity carrying the offset. For CE-A the default box uses the footprint SIZE.
+            // Colliders live on their own ENTITY (Add Collider creates a child), so the collider
+            // components are NOT in the Inspector's Add candidates (see InspectorAddCandidates). This
+            // remains only for a headless `inspector:add core.BoxCollider` force-add escape hatch: the
+            // entity itself becomes a collider, box centered on its transform with the footprint SIZE.
             var bounds = entity.IsAlive && entity.Has<SpriteInfoComponent>()
                 ? ColliderDefaults.FootprintBounds(entity.Get<SpriteInfoComponent>())
                 : ColliderDefaults.FallbackFootprint;

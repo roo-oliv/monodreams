@@ -6,11 +6,18 @@ using MonoDreams.Component.Draw;
 namespace MonoDreams.LevelEditor.Proxy;
 
 /// <summary>
-/// The pure default shapes behind the editor's <b>Add collider</b> actions (island-authoring
-/// plan §5.1): a prop/building footprint is the box a top-down character collides with — the
-/// sprite's <b>full rendered width × its bottom quarter, anchored at the feet</b> — because in
-/// the reference games only the base of a tree/building blocks you (the canopy/roof is walked
-/// behind, handled by Y-sorting, not collision).
+/// The pure default shapes behind the editor's <b>Add Collider ▸ Box / Polygon</b> actions: a
+/// prop/building footprint is the box a top-down character collides with — the sprite's <b>full
+/// rendered width × its bottom quarter, anchored at the feet</b> — because in the reference games
+/// only the base of a tree/building blocks you (the canopy/roof is walked behind, handled by
+/// Y-sorting, not collision).
+///
+/// <para><b>Colliders-as-entities (CE).</b> Add Collider creates a CHILD collider ENTITY of the
+/// selected entity, so the footprint's feet offset lives on the child's <c>TransformComponent</c>
+/// (not an embedded <c>Bounds</c>): the <see cref="BoxChild"/> / <see cref="HexagonChild"/> helpers
+/// return the child's LOCAL centre (the footprint rect's centre, relative to the parent) plus a
+/// centred <c>Size</c> / origin-rebased model vertices. A box CENTERS on its entity's transform, so
+/// placing the child at the footprint centre reproduces the feet-anchored footprint exactly.</para>
 ///
 /// <para><b>The math, under the feet-origin convention.</b> <c>BoxColliderComponent.Bounds</c>
 /// is Transform-relative (<c>CollisionRect.FromBounds(bounds, transform.Position)</c> — never
@@ -36,8 +43,7 @@ public static class ColliderDefaults
     /// drifting</b> when walked into. A <c>Passive = false</c> footprint initiates collisions and
     /// is displaced by resolution — the building would slide away from the player. (Whether a
     /// passive collider reads as a physical blocker or a fire-only trigger is the game's
-    /// <c>EntityInfoComponent</c> classification, not this flag — see
-    /// <c>ColliderComponentCommand.AddBox</c>.)</summary>
+    /// <c>EntityInfoComponent</c> classification, not this flag.)</summary>
     public const bool FootprintPassive = true;
 
     /// <summary>The footprint for an entity with no usable sprite size: a small feet-anchored
@@ -80,6 +86,43 @@ public static class ColliderDefaults
     /// <summary>The polygon footprint for a sprite-less entity (hexagon inscribed in
     /// <see cref="FallbackFootprint"/>).</summary>
     public static Vector2[] FallbackHexagon() => Hexagon(FallbackFootprint);
+
+    /// <summary>A default box COLLIDER-ENTITY child for <paramref name="sprite"/>: the local
+    /// <c>Center</c> (the footprint rect's centre, relative to the parent — where the child's
+    /// <c>TransformComponent</c> sits) plus the centred <c>Size</c>. Because a box centers on its
+    /// entity's transform, a child at this centre with this size IS the feet-anchored footprint.</summary>
+    public static (Vector2 Center, Vector2 Size) BoxChild(in SpriteInfoComponent sprite)
+    {
+        var rect = FootprintBounds(sprite);
+        return (RectCenter(rect), new Vector2(rect.Width, rect.Height));
+    }
+
+    /// <summary>The default box collider child for a sprite-less parent: a 32×32 box centred on the
+    /// parent's origin (local centre <c>(0,0)</c>).</summary>
+    public static readonly (Vector2 Center, Vector2 Size) FallbackBoxChild = (Vector2.Zero, new Vector2(32, 32));
+
+    /// <summary>A default polygon COLLIDER-ENTITY child for <paramref name="sprite"/>: the local
+    /// <c>Center</c> (footprint centre, relative to the parent) plus the hexagon's model vertices
+    /// REBASED to that centre (so the child's <c>ModelVertices</c> are centred on its own transform,
+    /// matching the box's centre-anchoring).</summary>
+    public static (Vector2 Center, Vector2[] ModelVertices) HexagonChild(in SpriteInfoComponent sprite)
+    {
+        var rect = FootprintBounds(sprite);
+        var center = RectCenter(rect);
+        var hex = Hexagon(rect);
+        for (var i = 0; i < hex.Length; i++) hex[i] -= center;
+        return (center, hex);
+    }
+
+    /// <summary>The default polygon collider child for a sprite-less parent: a small hexagon in a
+    /// 32×32 box centred on the parent's origin (its vertices are already origin-centred).</summary>
+    public static (Vector2 Center, Vector2[] ModelVertices) FallbackHexagonChild()
+        => (Vector2.Zero, Hexagon(new Rectangle(-16, -16, 32, 32)));
+
+    /// <summary>The centre of <paramref name="rect"/> as a float vector (the int
+    /// <c>Rectangle.Center</c> truncates, which drifts an odd-sized footprint's collider off-centre).</summary>
+    private static Vector2 RectCenter(Rectangle rect)
+        => new(rect.Left + rect.Width / 2f, rect.Top + rect.Height / 2f);
 
     /// <summary>A hexagon inscribed in <paramref name="rect"/>, wound clockwise in the y-down
     /// world (the convex collider's documented winding).</summary>

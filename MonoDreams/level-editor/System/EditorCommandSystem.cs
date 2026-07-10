@@ -43,22 +43,22 @@ namespace MonoDreams.LevelEditor.System;
 /// One click = one <see cref="SpriteSortEditCommand"/> = one undo step; a nudge already at the
 /// band edge pushes nothing.</para>
 ///
-/// <para><b>Collider authoring (plan §5.1).</b> <see cref="AddBoxCollider"/> applies the
-/// footprint default (<see cref="ColliderDefaults.FootprintBounds"/> — full sprite width × the
-/// bottom quarter, feet-anchored), <see cref="AddConvexCollider"/> a hexagon inscribed in that
-/// footprint; <see cref="RemoveCollider"/> removes the selected proxy's bound collider (or every
-/// collider when the selection is the entity itself, as one composite undo entry) — all through
-/// snapshotting <see cref="ColliderComponentCommand"/>s, so undo restores the removed component
-/// field-for-field. <see cref="AddVertex"/> inserts an edge midpoint (after the selected vertex,
-/// or into the longest edge) — collinear by construction, so always convex-legal.</para>
+/// <para><b>Collider authoring (colliders-as-entities).</b> A collider is its own ENTITY, so
+/// <see cref="AddBoxCollider"/> / <see cref="AddConvexCollider"/> create a CHILD collider entity of
+/// the selection through <see cref="CreateEntityCommand"/> (auto-named "BoxCollider"/"PolyCollider",
+/// footprint-shaped via <see cref="ColliderDefaults"/>, passive, selected after creation), and
+/// <see cref="RemoveCollider"/> ("−Col") DELETES the selected collider entity (the snapshotting
+/// delete — the component-remove command retired). <see cref="AddVertex"/> inserts an edge midpoint
+/// into the selected convex collider entity's polygon (after the selected vertex, or into the longest
+/// edge) — collinear by construction, so always convex-legal — via <see cref="ColliderEditCommand"/>.</para>
 ///
-/// <para><b>Delete is proxy-aware.</b> When the selection is a collider proxy, Delete must NOT
-/// dispose the transient proxy entity (an un-undoable no-op that would just despawn the family):
-/// it retargets — a <see cref="ProxyBindingKind.ConvexVertex"/> proxy deletes THAT vertex
-/// (guarded: a convex collider keeps ≥ 3 vertices), a whole-shape proxy removes its bound
-/// collider component. Afterwards the selection moves to the surviving family anchor (the shape
-/// proxy for a vertex delete, else the owner) so the editing session continues. Only a plain
-/// entity selection deletes the entity (the Wave-4a snapshotting
+/// <para><b>Delete retargets a sub-element proxy.</b> When the selection is a sub-element proxy (a
+/// vertex handle), Delete must NOT dispose the transient proxy entity: it retargets — a
+/// <see cref="ProxyBindingKind.ConvexVertex"/> proxy deletes THAT vertex (guarded: a convex collider
+/// keeps ≥ 3 vertices), a <see cref="ProxyBindingKind.BoundaryVertex"/> proxy deletes that boundary
+/// point (≥ 2 guard), with the selection moving back to the owner so the editing session continues.
+/// A baked product refuses Delete (it regenerates from its source). Every other selection — a plain
+/// entity, INCLUDING a collider entity — is deleted whole (the snapshotting
 /// <see cref="DeleteEntityCommand"/>).</para>
 ///
 /// <para><b>Edit-guarded, registered <see cref="MonoDreams.System.EditTimeBehavior.RunNormally"/></b>
@@ -146,10 +146,10 @@ public sealed class EditorCommandSystem : ISystem<GameState>
 
     // ---- Delete (proxy-aware) ----
 
-    /// <summary>Deletes what the selection MEANS (see the class doc): a vertex proxy deletes its
-    /// vertex, a shape proxy removes its collider, a plain entity is deleted whole (snapshotting
-    /// sub-graph command). Public so the headless <c>collider:deleteVertex</c> op and the Delete
-    /// key share one path.</summary>
+    /// <summary>Deletes what the selection MEANS (see the class doc): a vertex/boundary-point proxy
+    /// deletes that sub-element, a bake product is refused, and a plain entity — INCLUDING a collider
+    /// entity — is deleted whole (the snapshotting sub-graph command). Public so the headless
+    /// <c>collider:deleteVertex</c> op and the Delete key share one path.</summary>
     public void DeleteSelection(GameState state)
     {
         if (!GuardEdit(state, "Delete")) return;
@@ -202,19 +202,25 @@ public sealed class EditorCommandSystem : ISystem<GameState>
                 case ProxyBindingKind.BoundaryVertex:
                     DeleteBoundaryVertex(selected, owner, binding.Index);
                     return;
-                case ProxyBindingKind.BoxColliderBounds:
-                    if (!owner.Has<BoxColliderComponent>()) return;
-                    _history.Push(ColliderComponentCommand.RemoveBox(owner));
-                    Reselect(selected, owner);
-                    return;
-                case ProxyBindingKind.ConvexColliderShape:
-                    if (!owner.Has<ConvexColliderComponent>()) return;
-                    _history.Push(ColliderComponentCommand.RemoveConvex(owner));
-                    Reselect(selected, owner);
-                    return;
             }
+            // A thickness handle (or any other sub-element proxy) has no Delete meaning — no-op.
+            return;
         }
 
+        // Baked-product guardrail (colliders-as-entities): a boundary's baked segment regenerates
+        // from its source, so deleting it is meaningless (it comes back on the next bake) — refuse
+        // and point at the source. Deleting the boundary removes its segments (they cascade).
+        if (selected.Has<BakedProductComponent>())
+        {
+            Logger.Warning(
+                "[level-editor] Delete refused: this is a baked product — it regenerates from its " +
+                "source. Delete the source (e.g. the boundary) instead.");
+            _notifications?.Notify("baked product - delete its source instead", EditorNotifySeverity.Warning);
+            return;
+        }
+
+        // A plain entity — including a collider ENTITY (colliders-as-entities) — is deleted whole via
+        // the snapshotting sub-graph command.
         _history.Push(new DeleteEntityCommand(_world, selected, _serializer));
     }
 
@@ -237,10 +243,9 @@ public sealed class EditorCommandSystem : ISystem<GameState>
                 after[j++] = vertices[i];
         _history.Push(ColliderEditCommand.ForConvex(owner, after));
 
-        // The deleted vertex's proxy despawns next sync — move the selection to the shape proxy
-        // (vertex handles stay up) so the editing session continues, else to the owner.
-        var shapeProxy = FindProxy(owner, ProxyBindingKind.ConvexColliderShape);
-        Reselect(vertexProxy, shapeProxy.IsAlive ? shapeProxy : owner);
+        // The deleted vertex's proxy despawns next sync — move the selection back to the collider
+        // ENTITY (its remaining vertex handles stay up) so the editing session continues.
+        Reselect(vertexProxy, owner);
     }
 
     private void DeleteBoundaryVertex(Entity vertexProxy, Entity owner, int index)
@@ -321,50 +326,68 @@ public sealed class EditorCommandSystem : ISystem<GameState>
 
     // ---- Collider add / remove (plan §5.1) ----
 
-    /// <summary>Adds the footprint-default box collider to the selection's owner (loud no-op if
-    /// one exists).</summary>
-    public void AddBoxCollider(GameState state)
-    {
-        const string action = "Add box collider";
-        if (!GuardEdit(state, action)) return;
-        if (!TryGetSelectionOwner(action, out _, out var owner)) return;
-        if (owner.Has<BoxColliderComponent>())
-        {
-            Logger.Warning($"[level-editor] {action}: the selection already has a box collider.");
-            return;
-        }
+    /// <summary>Add Collider ▸ Box: creates a CHILD box collider ENTITY of the selection (auto-named
+    /// "BoxCollider"), positioned + sized to the parent's sprite footprint (full width × bottom
+    /// quarter, feet-anchored — <see cref="ColliderDefaults.BoxChild"/>) or a 32×32 default for a
+    /// sprite-less parent, passive (a static blocker). Undoable — one <see cref="CreateEntityCommand"/>;
+    /// the child is selected after creation. A body may have N colliders, so there is no "already
+    /// present" guard.</summary>
+    public void AddBoxCollider(GameState state) => AddColliderChild(state, isBox: true);
 
-        var bounds = owner.Has<SpriteInfoComponent>()
-            ? ColliderDefaults.FootprintBounds(owner.Get<SpriteInfoComponent>())
-            : ColliderDefaults.FallbackFootprint;
-        // Footprints are passive static blockers (see ColliderDefaults.FootprintPassive): a static
-        // prop must block the player without being pushed by collision resolution.
-        _history.Push(ColliderComponentCommand.AddBox(owner, bounds, ColliderDefaults.FootprintPassive));
+    /// <summary>Add Collider ▸ Polygon: creates a CHILD convex collider ENTITY of the selection
+    /// (auto-named "PolyCollider"), shaped as a hexagon inscribed in the parent's footprint (or a
+    /// small default for a sprite-less parent), passive. Undoable; selected after creation.</summary>
+    public void AddConvexCollider(GameState state) => AddColliderChild(state, isBox: false);
+
+    /// <summary>Shared Add-Collider body: builds the child collider entity under the selection's
+    /// owner through <see cref="CreateEntityCommand"/> (which parents it — dropping the save-root tag
+    /// — so it serializes inside the parent's closure), refreshes a convex child's world data (physics
+    /// is frozen in Edit), and selects it.</summary>
+    private void AddColliderChild(GameState state, bool isBox)
+    {
+        var action = isBox ? "Add box collider" : "Add polygon collider";
+        if (!GuardEdit(state, action)) return;
+        if (!TryGetSelectionOwner(action, out _, out var parent)) return;
+
+        var name = isBox ? "BoxCollider" : "PolyCollider";
+        var hasSprite = parent.Has<SpriteInfoComponent>();
+        var sprite = hasSprite ? parent.Get<SpriteInfoComponent>() : default;
+        var created = default(Entity);
+        _history.Push(new CreateEntityCommand(_world, _serializer, w =>
+        {
+            var e = w.CreateEntity();
+            e.Set(new EntityInfoComponent(name));
+            if (isBox)
+            {
+                var (center, size) = hasSprite ? ColliderDefaults.BoxChild(sprite) : ColliderDefaults.FallbackBoxChild;
+                e.Set(new TransformComponent(center));
+                // Footprints are passive static blockers (ColliderDefaults.FootprintPassive): a static
+                // collider blocks an active body without being pushed by resolution.
+                e.Set(new BoxColliderComponent(size, passive: ColliderDefaults.FootprintPassive));
+            }
+            else
+            {
+                var (center, verts) = hasSprite ? ColliderDefaults.HexagonChild(sprite) : ColliderDefaults.FallbackHexagonChild();
+                e.Set(new TransformComponent(center));
+                e.Set(new ConvexColliderComponent(verts, passive: ColliderDefaults.FootprintPassive));
+            }
+            created = e;
+            return e;
+        }, parentTo: parent));
+
+        if (!created.IsAlive) return;
+        // A fresh convex collider's world data assumes an identity transform; the child is now
+        // parented + offset, so refresh against its world transform (nothing else does in Edit).
+        if (created.Has<ConvexColliderComponent>() && created.Has<TransformComponent>())
+            created.Get<ConvexColliderComponent>().UpdateWorldVertices(created.Get<TransformComponent>());
+        SelectOnly(created);
     }
 
-    /// <summary>Adds the default polygon collider (a footprint-inscribed hexagon) to the
-    /// selection's owner (loud no-op if a convex collider exists).</summary>
-    public void AddConvexCollider(GameState state)
-    {
-        const string action = "Add polygon collider";
-        if (!GuardEdit(state, action)) return;
-        if (!TryGetSelectionOwner(action, out _, out var owner)) return;
-        if (owner.Has<ConvexColliderComponent>())
-        {
-            Logger.Warning($"[level-editor] {action}: the selection already has a polygon collider.");
-            return;
-        }
-
-        var hexagon = owner.Has<SpriteInfoComponent>()
-            ? ColliderDefaults.FootprintHexagon(owner.Get<SpriteInfoComponent>())
-            : ColliderDefaults.FallbackHexagon();
-        // Footprints are passive static blockers (see ColliderDefaults.FootprintPassive).
-        _history.Push(ColliderComponentCommand.AddConvex(owner, hexagon, ColliderDefaults.FootprintPassive));
-    }
-
-    /// <summary>Removes the selected proxy's bound collider, or — when the selection is the
-    /// entity itself — every collider it carries (one composite undo entry). Loud no-op when
-    /// there is nothing to remove.</summary>
+    /// <summary>"−Col": deletes the selected collider ENTITY (colliders-as-entities retired the
+    /// component-remove command — the normal snapshotting delete is the mechanism now). Resolves a
+    /// selected sub-element proxy (a vertex handle) to its owner collider, then routes through
+    /// <see cref="DeleteSelection"/> so the prefab-owned / baked-product / screen-infra guards + the
+    /// snapshot-undo all apply. Loud no-op when the selection is not a collider entity.</summary>
     public void RemoveCollider(GameState state)
     {
         const string action = "Remove collider";
@@ -375,62 +398,17 @@ public sealed class EditorCommandSystem : ISystem<GameState>
             return;
         }
 
-        // Instance-children guardrail (PF-D): refuse a collider edit on a prefab-owned child (the ROOT
-        // stays editable — component edits on it become overrides via the diff).
-        var colliderTarget = selected.Has<GizmoProxyComponent>() ? selected.Get<GizmoProxyComponent>().Target : selected;
-        if (PrefabGuards.IsPrefabOwned(colliderTarget))
+        var target = selected.Has<GizmoProxyComponent>() ? selected.Get<GizmoProxyComponent>().Target : selected;
+        if (!target.IsAlive || !(target.Has<BoxColliderComponent>() || target.Has<ConvexColliderComponent>()))
         {
-            RefusePrefabOwned(action);
+            Logger.Warning($"[level-editor] {action}: select a collider entity to remove.");
             return;
         }
 
-        if (selected.Has<GizmoProxyComponent>())
-        {
-            var binding = selected.Get<GizmoProxyComponent>();
-            var owner = binding.Target;
-            if (!owner.IsAlive) return;
-            switch (binding.Kind)
-            {
-                case ProxyBindingKind.BoxColliderBounds when owner.Has<BoxColliderComponent>():
-                    _history.Push(ColliderComponentCommand.RemoveBox(owner));
-                    break;
-                case ProxyBindingKind.ConvexColliderShape when owner.Has<ConvexColliderComponent>():
-                case ProxyBindingKind.ConvexVertex when owner.Has<ConvexColliderComponent>():
-                    _history.Push(ColliderComponentCommand.RemoveConvex(owner));
-                    break;
-                default:
-                    return;
-            }
-            Reselect(selected, owner);
-            return;
-        }
-
-        var hasBox = selected.Has<BoxColliderComponent>();
-        var hasConvex = selected.Has<ConvexColliderComponent>();
-        if (!hasBox && !hasConvex)
-        {
-            Logger.Warning($"[level-editor] {action}: the selection has no collider.");
-            return;
-        }
-
-        if (hasBox && hasConvex)
-        {
-            // One undo entry for both removals (snapshot first, then push the composite once —
-            // Push applies it).
-            _history.Push(new CompositeCommand(new List<IEditorCommand>
-            {
-                ColliderComponentCommand.RemoveBox(selected),
-                ColliderComponentCommand.RemoveConvex(selected),
-            }));
-        }
-        else if (hasBox)
-        {
-            _history.Push(ColliderComponentCommand.RemoveBox(selected));
-        }
-        else
-        {
-            _history.Push(ColliderComponentCommand.RemoveConvex(selected));
-        }
+        // Delete the collider ENTITY itself (not a sub-element): make it the selection, then reuse
+        // DeleteSelection's guarded, snapshotting delete.
+        if (!selected.Equals(target)) SelectOnly(target);
+        DeleteSelection(state);
     }
 
     /// <summary>Inserts a vertex into the selection's convex collider: the midpoint of the edge
@@ -612,20 +590,26 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         _notifications?.Notify("prefab child - open the prefab or Unpack", EditorNotifySeverity.Warning);
     }
 
-    private Entity FindProxy(Entity owner, ProxyBindingKind kind)
-    {
-        foreach (var proxy in _proxySet.GetEntities())
-        {
-            var binding = proxy.Get<GizmoProxyComponent>();
-            if (binding.Target == owner && binding.Kind == kind) return proxy;
-        }
-        return default;
-    }
-
     private static void Reselect(Entity from, Entity to)
     {
         if (from.IsAlive && from.Has<SelectedComponent>()) from.Remove<SelectedComponent>();
         if (to.IsAlive && !to.Has<SelectedComponent>()) to.Set(new SelectedComponent());
+    }
+
+    /// <summary>Single-selects <paramref name="target"/>: clears every OTHER selection tag and sets
+    /// it on the target — used to auto-select a freshly-created collider child, and to retarget the
+    /// "−Col" delete onto the collider entity itself.</summary>
+    private void SelectOnly(Entity target)
+    {
+        List<Entity>? toClear = null;
+        foreach (var e in _selectedSet.GetEntities())
+            if (!e.Equals(target)) (toClear ??= new List<Entity>()).Add(e);
+        if (toClear != null)
+            foreach (var e in toClear)
+                if (e.IsAlive && e.Has<SelectedComponent>())
+                    e.Remove<SelectedComponent>();
+        if (target.IsAlive && !target.Has<SelectedComponent>())
+            target.Set(new SelectedComponent());
     }
 
     public void Dispose()

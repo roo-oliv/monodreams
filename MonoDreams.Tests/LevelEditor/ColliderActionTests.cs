@@ -8,13 +8,12 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Component.Physics;
-using MonoDreams.Draw;
+using MonoDreams.Message;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.Undo;
-using MonoDreams.Message;
 using MonoDreams.State;
 using MonoDreams.System;
 using MonoDreams.System.Collision;
@@ -25,14 +24,14 @@ using GameCamera = MonoDreams.Component.Camera;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the island-authoring Slice 2 collider authoring actions (plan §5.1): Add box
-/// collider applies the footprint default (full rendered width × bottom quarter, feet-anchored —
-/// pure <see cref="ColliderDefaults"/>), Add polygon collider a footprint-inscribed hexagon,
-/// Remove collider snapshots the removed component so undo restores it field-for-field, Add
-/// vertex inserts a convex-legal edge midpoint, and Delete is proxy-aware (a vertex proxy
-/// deletes its vertex with the ≥3 guard; a shape proxy removes its collider — never the
-/// transient proxy entity). Names the live premises "Prop footprints default to full width ×
-/// bottom quarter, feet-anchored" and "Convex colliders are vertex-edited through (kind, index)
+/// Protects the colliders-as-entities authoring actions (CE-C): <b>Add Collider ▸ Box / Polygon</b>
+/// creates a CHILD collider ENTITY of the selection (auto-named, footprint-shaped via
+/// <see cref="ColliderDefaults"/>, passive, selected after creation — a body may have N colliders, so
+/// no "already present" guard); <b>−Col</b> DELETES the selected collider entity (the snapshotting
+/// delete — the component-remove command retired); <b>Add Vertex</b> inserts a convex-legal edge
+/// midpoint into the selected convex collider entity; and Delete on a vertex proxy deletes its vertex
+/// (≥3 guard) — never the collider entity itself. Names the live premises "A collider is a first-class
+/// editor entity…" and "A convex collider entity's vertices are edited through (kind, index) grip
 /// proxies…" in MonoDreams/level-editor/docs/premises.md.
 /// </summary>
 public class ColliderActionTests
@@ -59,6 +58,14 @@ public class ColliderActionTests
         Target = RenderTargetID.Main,
     };
 
+    private static Entity SingleCollider<T>(World world) where T : class
+    {
+        Entity found = default;
+        using var set = world.GetEntities().With<T>().AsSet();
+        foreach (var e in set.GetEntities()) found = e;
+        return found;
+    }
+
     // ---- The footprint default math (plan §5.1), exact ----
 
     [Fact]
@@ -68,103 +75,148 @@ public class ColliderActionTests
         // it: full width centred, bottom quarter, bottom edge AT the feet.
         Assert.Equal(new Rectangle(-16, -12, 32, 12), ColliderDefaults.FootprintBounds(FeetOriginSprite()));
 
-        // Top-left origin (plain band): the quad spans (0,0)..(32,48) → footprint (0,36,32,12).
-        var topLeft = FeetOriginSprite();
-        topLeft.Origin = Vector2.Zero;
-        Assert.Equal(new Rectangle(0, 36, 32, 12), ColliderDefaults.FootprintBounds(topLeft));
-
-        // A render-scaled sprite (source 32×48 drawn at 64×96): the footprint follows the
-        // RENDERED size, and the source-pixel Origin is scaled into rendered units.
         var scaled = FeetOriginSprite();
         scaled.Size = new Vector2(64, 96);
         Assert.Equal(new Rectangle(-32, -24, 64, 24), ColliderDefaults.FootprintBounds(scaled));
 
-        // No usable size at all → the fallback feet-anchored box.
         Assert.Equal(ColliderDefaults.FallbackFootprint, ColliderDefaults.FootprintBounds(new SpriteInfoComponent()));
     }
 
     [Fact]
-    public void FootprintHexagon_InscribedInTheFootprint_AndConvex()
+    public void BoxChild_CentersOnTheFootprint_AndFallbackIs32Square()
     {
-        var hexagon = ColliderDefaults.FootprintHexagon(FeetOriginSprite());
-        Assert.Equal(6, hexagon.Length);
-        Assert.True(ProxyGeometry.IsConvex(hexagon));
-        // Inscribed in (-16,-12,32,12): x spans [-16,16], y spans [-12,0].
-        Assert.Equal(-16f, hexagon.Min(v => v.X));
-        Assert.Equal(16f, hexagon.Max(v => v.X));
-        Assert.Equal(-12f, hexagon.Min(v => v.Y));
-        Assert.Equal(0f, hexagon.Max(v => v.Y));
+        // The collider child's LOCAL centre is the footprint rect's centre; a box centered there with
+        // the footprint SIZE reproduces the feet-anchored footprint (rect (-16,-12,32,12) → centre
+        // (0,-6), size (32,12)).
+        var (center, size) = ColliderDefaults.BoxChild(FeetOriginSprite());
+        Assert.Equal(new Vector2(0, -6), center);
+        Assert.Equal(new Vector2(32, 12), size);
+
+        // A sprite-less parent → a 32×32 box centred on the parent origin.
+        Assert.Equal(Vector2.Zero, ColliderDefaults.FallbackBoxChild.Center);
+        Assert.Equal(new Vector2(32, 32), ColliderDefaults.FallbackBoxChild.Size);
     }
 
-    // ---- Add box / polygon: footprint applied, undoable, already-present guard ----
+    [Fact]
+    public void HexagonChild_IsConvex_CentredOnTheFootprintCentre()
+    {
+        var (center, verts) = ColliderDefaults.HexagonChild(FeetOriginSprite());
+        Assert.Equal(new Vector2(0, -6), center);
+        Assert.Equal(6, verts.Length);
+        Assert.True(ProxyGeometry.IsConvex(verts));
+        // Vertices are rebased to the centre: spanning ±half the footprint about the origin.
+        Assert.Equal(-16f, verts.Min(v => v.X));
+        Assert.Equal(16f, verts.Max(v => v.X));
+        Assert.Equal(-6f, verts.Min(v => v.Y));
+        Assert.Equal(6f, verts.Max(v => v.Y));
+
+        var (fbCenter, fbVerts) = ColliderDefaults.FallbackHexagonChild();
+        Assert.Equal(Vector2.Zero, fbCenter);
+        Assert.True(ProxyGeometry.IsConvex(fbVerts));
+    }
+
+    // ---- Add Collider: a CHILD collider entity, footprint-placed, auto-named, selected, undoable ----
 
     [Fact]
-    public void AddBoxCollider_AppliesFootprintDefault_Undoable()
+    public void AddBoxCollider_CreatesFootprintChildColliderEntity_Selected_Undoable()
     {
         using var world = new World();
         var (commands, history) = NewCommands(world);
-        var entity = world.CreateEntity();
-        entity.Set(new TransformComponent(new Vector2(50, 50)));
-        entity.Set(FeetOriginSprite());
-        entity.Set(new SelectedComponent());
+        var parent = world.CreateEntity();
+        parent.Set(new TransformComponent(new Vector2(50, 50)));
+        parent.Set(FeetOriginSprite());
+        parent.Set(new SelectedComponent());
 
         commands.AddBoxCollider(Edit());
-        Assert.True(entity.Has<BoxColliderComponent>());
-        var box = entity.Get<BoxColliderComponent>();
-        // CE-A: the footprint SIZE is applied (32×12); the former feet offset (-16,-12) is dropped
-        // — the box centers on the entity. TODO(CE-C): an add-collider flow that carries the offset
-        // onto a child collider entity restores the feet-anchored footprint.
-        Assert.Equal(new Vector2(32, 12), box.Size);
-        // A footprint is a PASSIVE static blocker (ColliderDefaults.FootprintPassive): Passive=true
-        // = "does not initiate a collision", so a static prop blocks the player without being pushed
-        // by resolution. (The Slice-2 assertion here was Assert.False — it asserted the wrong thing:
-        // a Passive=false footprint drifts when the player walks into it. Bug 2 fix, Slice 3.5.)
-        Assert.True(box.Passive);
-        Assert.True(box.Enabled);
+        Assert.False(parent.Has<BoxColliderComponent>()); // the shape lives on the CHILD, not the parent
+
+        var child = SingleCollider<BoxColliderComponent>(world);
+        Assert.True(child.IsAlive);
+        Assert.Equal(new Vector2(32, 12), child.Get<BoxColliderComponent>().Size);
+        Assert.True(child.Get<BoxColliderComponent>().Passive); // a footprint is a passive static blocker
+        Assert.Equal(new Vector2(0, -6), child.Get<TransformComponent>().Position); // footprint centre, parent-local
+        // Auto-named via EntityInfoComponent (Type carries the label, like AddEmptyEntity's "Empty" —
+        // the tree/inspector labeler reads Name ?? Type).
+        Assert.Equal("BoxCollider", child.Get<EntityInfoComponent>().Type);
+        Assert.Equal(parent, child.Get<ChildOfComponent>().Parent); // a CHILD (serializes in the parent's closure)
+        Assert.False(child.Has<SceneObjectComponent>()); // not a save-root (auto-parented)
+        Assert.True(child.Has<SelectedComponent>()); // selected after creation
         Assert.Equal(1, history.Count);
 
-        // Already present → loud no-op, no new history entry.
+        // No "already present" guard: a body may have N colliders — a second Add makes a second child.
         commands.AddBoxCollider(Edit());
-        Assert.Equal(1, history.Count);
+        using (var boxes = world.GetEntities().With<BoxColliderComponent>().AsSet())
+            Assert.Equal(2, boxes.Count);
+        Assert.Equal(2, history.Count);
 
         history.Undo();
-        Assert.False(entity.Has<BoxColliderComponent>());
+        using (var boxes = world.GetEntities().With<BoxColliderComponent>().AsSet())
+            Assert.Equal(1, boxes.Count);
+        history.Undo();
+        using (var boxes = world.GetEntities().With<BoxColliderComponent>().AsSet())
+            Assert.Equal(0, boxes.Count);
         history.Redo();
-        Assert.Equal(new Vector2(32, 12), entity.Get<BoxColliderComponent>().Size);
+        using (var boxes = world.GetEntities().With<BoxColliderComponent>().AsSet())
+            Assert.Equal(1, boxes.Count);
     }
 
     [Fact]
-    public void AddConvexCollider_AppliesFootprintHexagon_Undoable()
+    public void AddConvexCollider_CreatesFootprintHexagonChild_WorldDataDerived()
     {
         using var world = new World();
         var (commands, history) = NewCommands(world);
-        var entity = world.CreateEntity();
-        entity.Set(new TransformComponent(new Vector2(50, 50)));
-        entity.Set(FeetOriginSprite());
-        entity.Set(new SelectedComponent());
+        var parent = world.CreateEntity();
+        parent.Set(new TransformComponent(new Vector2(50, 50)));
+        parent.Set(FeetOriginSprite());
+        parent.Set(new SelectedComponent());
 
         commands.AddConvexCollider(Edit());
-        Assert.True(entity.Has<ConvexColliderComponent>());
-        var convex = entity.Get<ConvexColliderComponent>();
-        Assert.Equal(ColliderDefaults.FootprintHexagon(FeetOriginSprite()), convex.ModelVertices);
-        Assert.True(convex.Passive); // a footprint is a passive static blocker (Bug 2 fix, Slice 3.5)
-        // The fresh collider's derived world data reflects the entity's transform (physics is
-        // frozen in Edit — the command refreshes it itself).
-        Assert.Equal(new Vector2(50 + -8, 50 + -12), convex.WorldVertices[0]);
+        var child = SingleCollider<ConvexColliderComponent>(world);
+        Assert.True(child.IsAlive);
+        Assert.Equal("PolyCollider", child.Get<EntityInfoComponent>().Type);
+        Assert.Equal(new Vector2(0, -6), child.Get<TransformComponent>().Position);
+        Assert.True(child.Get<ConvexColliderComponent>().Passive);
+        Assert.Equal(parent, child.Get<ChildOfComponent>().Parent);
+        Assert.True(child.Has<SelectedComponent>());
+        // The fresh collider's derived world data reflects its WORLD transform: the child sits at
+        // parent (50,50) + local centre (0,-6) = world (50,44), and (identity rot/scale) each world
+        // vertex is its model vertex + that world position (physics is frozen in Edit — the command
+        // refreshes the derived data itself).
+        var convex = child.Get<ConvexColliderComponent>();
+        var childWorld = new Vector2(50, 50) + new Vector2(0, -6);
+        Assert.Equal(new Vector2(50, 44), childWorld);
+        for (var i = 0; i < convex.ModelVertices.Length; i++)
+            Assert.Equal(convex.ModelVertices[i] + childWorld, convex.WorldVertices[i]);
         Assert.Equal(1, history.Count);
 
         history.Undo();
-        Assert.False(entity.Has<ConvexColliderComponent>());
+        using var set = world.GetEntities().With<ConvexColliderComponent>().AsSet();
+        Assert.Equal(0, set.Count);
     }
 
-    // ---- Bug 2 behaviour: an editor-added footprint blocks an active body without drifting ----
+    [Fact]
+    public void AddBoxCollider_SpritelessParent_Uses32SquareFallback()
+    {
+        using var world = new World();
+        var (commands, _) = NewCommands(world);
+        var parent = world.CreateEntity();
+        parent.Set(new TransformComponent(new Vector2(10, 10)));
+        parent.Set(new EntityInfoComponent("Empty"));
+        parent.Set(new SelectedComponent());
+
+        commands.AddBoxCollider(Edit());
+        var child = SingleCollider<BoxColliderComponent>(world);
+        Assert.Equal(new Vector2(32, 32), child.Get<BoxColliderComponent>().Size);
+        Assert.Equal(Vector2.Zero, child.Get<TransformComponent>().Position); // centred on the parent origin
+    }
+
+    // ---- Bug 2 behaviour: an Add-Collider footprint blocks an active body without drifting ----
 
     /// <summary>
-    /// The footprint the <c>+Box</c> action adds is a PASSIVE static blocker: an active body walking
-    /// into it is stopped, and the footprint owner is NOT pushed by the resolution (mirrors the
-    /// walkable-island milestone's building-footprint blocking assertion). Before the Bug 2 fix the
-    /// footprint was <c>Passive=false</c> → it initiated a collision and DRIFTED away from the player.
-    /// Drives the REAL collision + physics pipeline in-process (no window).
+    /// The footprint child the <c>+Box</c> action adds is a PASSIVE static blocker: an active body
+    /// walking into it is stopped, and neither the footprint child nor its parent is pushed by the
+    /// resolution (colliders-as-entities: the collider is a CHILD entity now). Drives the REAL collision
+    /// + physics pipeline in-process (no window).
     /// </summary>
     [Fact]
     public void AddBoxFootprint_IsPassiveStaticBlocker_BlocksActiveBodyWithoutDrifting()
@@ -180,16 +232,16 @@ public class ColliderActionTests
         var resolve = new TransformPhysicalCollisionResolutionSystem(world);
         var commit = new TransformCommitSystem(world, runner);
 
-        // A static prop at (200,0) with a feet-origin sprite → footprint SIZE 32×12 centered on the
-        // prop = world box x∈[184,216], y∈[-6,6] (CE-A: the box centers on the entity). The +Box
-        // action gives it a passive footprint (Bug 2 fix).
+        // A static prop at (200,0) with a feet-origin sprite. +Box adds a CHILD footprint collider at
+        // parent-local (0,-6) → world centre (200,-6), size 32×12 → world box x∈[184,216], y∈[-12,0].
         var prop = world.CreateEntity();
         prop.Set(new EntityInfoComponent("Prop", "tree"));
         prop.Set(new TransformComponent(new Vector2(200, 0)));
         prop.Set(FeetOriginSprite());
         prop.Set(new SelectedComponent());
         commands.AddBoxCollider(Edit());
-        Assert.True(prop.Get<BoxColliderComponent>().Passive); // the fix under test
+        var footprint = SingleCollider<BoxColliderComponent>(world);
+        Assert.True(footprint.Get<BoxColliderComponent>().Passive); // the fix under test
 
         // An ACTIVE player box moving right, straddling the footprint's y-band.
         var player = world.CreateEntity();
@@ -198,7 +250,6 @@ public class ColliderActionTests
         player.Set(new BoxColliderComponent(new Vector2(16, 16))); // non-passive, centered
         player.Set(new VelocityComponent(new Vector2(15, 0)));
 
-        // Time = 1s so a velocity of v moves v units per stepped frame.
         var play = new GameState(new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(1))) { RunMode = RunMode.Play };
         for (var i = 0; i < 15; i++)
         {
@@ -211,89 +262,57 @@ public class ColliderActionTests
         var playerX = player.Get<TransformComponent>().Position.X;
         Assert.True(playerX < 184, $"player should be blocked before the footprint's left edge (184), was X={playerX}");
         Assert.True(playerX > 100, $"player should have advanced from its start (walked toward the prop), was X={playerX}");
-        // The static footprint never moved (a Passive=false footprint would have drifted right).
+        // The static footprint child (and its parent prop) never moved.
         Assert.Equal(new Vector2(200, 0), prop.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(0, -6), footprint.Get<TransformComponent>().Position);
     }
 
-    // ---- Remove: snapshots restore the component field-for-field ----
+    // ---- −Col: deletes the selected collider ENTITY (the snapshotting delete), undoable ----
 
     [Fact]
-    public void RemoveCollider_Both_OneUndoEntry_RestoresFieldForField()
+    public void RemoveCollider_DeletesTheSelectedColliderEntity_Undoable()
     {
         using var world = new World();
         var (commands, history) = NewCommands(world);
-        var entity = world.CreateEntity();
-        entity.Set(new TransformComponent(new Vector2(7, 9)));
-        entity.Set(new BoxColliderComponent(new Vector2(3, 4),
-            new HashSet<int> { 1, 2 }, passive: true, enabled: false));
-        var vertices = new[] { new Vector2(0, 0), new Vector2(10, 0), new Vector2(5, 8) };
-        entity.Set(new ConvexColliderComponent((Vector2[])vertices.Clone(),
-            new HashSet<int> { 3 }, passive: true, enabled: true, ignoreTransformRotation: true));
-        entity.Set(new SelectedComponent());
+
+        var collider = world.CreateEntity();
+        collider.Set(new EntityInfoComponent("BoxCollider"));
+        collider.Set(new TransformComponent(new Vector2(7, 9)));
+        collider.Set(new BoxColliderComponent(new Vector2(3, 4), new HashSet<int> { 1, 2 }, passive: true, enabled: false));
+        collider.Set(new SelectedComponent());
 
         commands.RemoveCollider(Edit());
-        Assert.False(entity.Has<BoxColliderComponent>());
-        Assert.False(entity.Has<ConvexColliderComponent>());
-        Assert.Equal(1, history.Count); // both removals = ONE composite undo entry
+        Assert.False(collider.IsAlive); // the whole collider entity is deleted
+        Assert.Equal(1, history.Count);
 
         history.Undo();
-        var box = entity.Get<BoxColliderComponent>();
-        Assert.Equal(new Vector2(3, 4), box.Size); // CE-A: Size round-trips (offset 1,2 is dropped)
-        Assert.True(box.ActiveLayers.SetEquals(new[] { 1, 2 }));
-        Assert.True(box.Passive);
-        Assert.False(box.Enabled);
-
-        var convex = entity.Get<ConvexColliderComponent>();
-        Assert.Equal(vertices, convex.ModelVertices);
-        Assert.True(convex.ActiveLayers.SetEquals(new[] { 3 }));
-        Assert.True(convex.Passive);
-        Assert.True(convex.Enabled);
-        Assert.True(convex.IgnoreTransformRotation);
-        // Derived world data was refreshed against the live transform on restore.
-        Assert.Equal(new Vector2(7, 9), convex.WorldVertices[0]);
+        var restored = SingleCollider<BoxColliderComponent>(world);
+        Assert.True(restored.IsAlive);
+        Assert.Equal(new Vector2(3, 4), restored.Get<BoxColliderComponent>().Size);
+        Assert.True(restored.Get<BoxColliderComponent>().Passive);
+        Assert.False(restored.Get<BoxColliderComponent>().Enabled);
 
         history.Redo();
-        Assert.False(entity.Has<BoxColliderComponent>());
-        Assert.False(entity.Has<ConvexColliderComponent>());
+        using var set = world.GetEntities().With<BoxColliderComponent>().AsSet();
+        Assert.Equal(0, set.Count);
     }
 
     [Fact]
-    public void RemoveCollider_ViaProxy_RemovesOnlyThatKind_ReselectsOwner()
+    public void RemoveCollider_WithNonColliderSelection_IsLoudNoOp()
     {
         using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         var (commands, history) = NewCommands(world);
-
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new BoxColliderComponent(new Vector2(10, 10)));
-        owner.Set(new ConvexColliderComponent(new[]
-        {
-            new Vector2(0, 0), new Vector2(10, 0), new Vector2(5, 8),
-        }));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-
-        Entity boxProxy = default;
-        foreach (var p in proxies.GetEntities())
-            if (p.Get<GizmoProxyComponent>().Kind == ProxyBindingKind.BoxColliderBounds)
-                boxProxy = p;
-        owner.Remove<SelectedComponent>();
-        boxProxy.Set(new SelectedComponent());
+        var plain = world.CreateEntity();
+        plain.Set(new TransformComponent(Vector2.Zero));
+        plain.Set(new EntityInfoComponent("Plain"));
+        plain.Set(new SelectedComponent());
 
         commands.RemoveCollider(Edit());
-        Assert.False(owner.Has<BoxColliderComponent>());   // the proxy's bound kind
-        Assert.True(owner.Has<ConvexColliderComponent>()); // the other collider survives
-        Assert.Equal(1, history.Count);
-        Assert.True(owner.Has<SelectedComponent>()); // the session continues on the owner
-
-        history.Undo();
-        Assert.True(owner.Has<BoxColliderComponent>());
+        Assert.True(plain.IsAlive); // a non-collider selection is not deleted by −Col
+        Assert.Equal(0, history.Count);
     }
 
-    // ---- Delete is proxy-aware ----
+    // ---- Delete is proxy-aware: a vertex proxy deletes its vertex (≥3 guard), not the entity ----
 
     [Fact]
     public void Delete_OnVertexProxy_DeletesTheVertex_WithMinThreeGuard()
@@ -304,38 +323,31 @@ public class ColliderActionTests
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         var (commands, history) = NewCommands(world);
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new ConvexColliderComponent(new[]
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(Vector2.Zero));
+        collider.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(20, 20), new Vector2(0, 20),
         }));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        var shapeProxy = default(Entity);
-        foreach (var p in proxies.GetEntities()) shapeProxy = p;
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
+        collider.Set(new SelectedComponent());
+        sync.Update(Edit()); // grips materialize on selecting the collider entity
 
-        // Select vertex 2 and delete it.
         Entity v2 = default;
         foreach (var p in proxies.GetEntities())
         {
             var binding = p.Get<GizmoProxyComponent>();
             if (binding.Kind == ProxyBindingKind.ConvexVertex && binding.Index == 2) v2 = p;
         }
-        shapeProxy.Remove<SelectedComponent>();
+        collider.Remove<SelectedComponent>();
         v2.Set(new SelectedComponent());
 
         commands.DeleteSelection(Edit());
-        var convex = owner.Get<ConvexColliderComponent>();
-        Assert.Equal(new[] { new Vector2(0, 0), new Vector2(20, 0), new Vector2(0, 20) },
-            convex.ModelVertices);
+        var convex = collider.Get<ConvexColliderComponent>();
+        Assert.Equal(new[] { new Vector2(0, 0), new Vector2(20, 0), new Vector2(0, 20) }, convex.ModelVertices);
         Assert.Equal(1, history.Count);
-        Assert.True(owner.IsAlive); // never a whole-entity delete
-        // The selection moved to the shape proxy: the vertex-editing session continues.
-        Assert.True(shapeProxy.Has<SelectedComponent>());
+        Assert.True(collider.IsAlive); // never a whole-entity delete
+        // The selection moved back to the collider entity: the vertex-editing session continues.
+        Assert.True(collider.Has<SelectedComponent>());
         sync.Update(Edit());
 
         // At 3 vertices the guard refuses (a convex collider keeps ≥ 3): loud no-op.
@@ -345,45 +357,56 @@ public class ColliderActionTests
             var binding = p.Get<GizmoProxyComponent>();
             if (binding.Kind == ProxyBindingKind.ConvexVertex && binding.Index == 0) v0 = p;
         }
-        shapeProxy.Remove<SelectedComponent>();
+        collider.Remove<SelectedComponent>();
         v0.Set(new SelectedComponent());
         commands.DeleteSelection(Edit());
-        Assert.Equal(3, owner.Get<ConvexColliderComponent>().ModelVertices.Length);
+        Assert.Equal(3, collider.Get<ConvexColliderComponent>().ModelVertices.Length);
         Assert.Equal(1, history.Count);
 
-        // Undo restores the deleted vertex exactly.
         history.Undo();
-        Assert.Equal(4, owner.Get<ConvexColliderComponent>().ModelVertices.Length);
-        Assert.Equal(new Vector2(20, 20), owner.Get<ConvexColliderComponent>().ModelVertices[2]);
+        Assert.Equal(4, collider.Get<ConvexColliderComponent>().ModelVertices.Length);
+        Assert.Equal(new Vector2(20, 20), collider.Get<ConvexColliderComponent>().ModelVertices[2]);
     }
 
     [Fact]
-    public void Delete_OnShapeProxy_RemovesTheCollider_NotTheProxyEntity()
+    public void Delete_OnColliderEntity_DeletesTheWholeEntity()
     {
         using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         var (commands, history) = NewCommands(world);
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new BoxColliderComponent(new Vector2(10, 12)));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Entity boxProxy = default;
-        foreach (var p in proxies.GetEntities()) boxProxy = p;
-        owner.Remove<SelectedComponent>();
-        boxProxy.Set(new SelectedComponent());
+        var collider = world.CreateEntity();
+        collider.Set(new EntityInfoComponent("BoxCollider"));
+        collider.Set(new TransformComponent(Vector2.Zero));
+        collider.Set(new BoxColliderComponent(new Vector2(10, 12)));
+        collider.Set(new SelectedComponent());
 
         commands.DeleteSelection(Edit());
-        Assert.True(owner.IsAlive);                       // the owner is never deleted
-        Assert.False(owner.Has<BoxColliderComponent>());  // its collider is
-        Assert.True(owner.Has<SelectedComponent>());      // and the selection lands on it
+        Assert.False(collider.IsAlive); // a collider entity deletes whole (the snapshotting delete)
         Assert.Equal(1, history.Count);
 
         history.Undo();
-        Assert.Equal(new Vector2(10, 12), owner.Get<BoxColliderComponent>().Size);
+        var restored = SingleCollider<BoxColliderComponent>(world);
+        Assert.Equal(new Vector2(10, 12), restored.Get<BoxColliderComponent>().Size);
+    }
+
+    [Fact]
+    public void Delete_OnBakedProduct_IsRefused()
+    {
+        using var world = new World();
+        var (commands, history) = NewCommands(world);
+
+        var segment = world.CreateEntity();
+        segment.Set(new TransformComponent(Vector2.Zero));
+        segment.Set(new ConvexColliderComponent(new[]
+        {
+            new Vector2(0, 0), new Vector2(10, 0), new Vector2(5, 4),
+        }, passive: true));
+        segment.Set(new BakedProductComponent());
+        segment.Set(new SelectedComponent());
+
+        commands.DeleteSelection(Edit());
+        Assert.True(segment.IsAlive); // a baked product regenerates — Delete refuses
+        Assert.Equal(0, history.Count);
     }
 
     // ---- Add vertex: edge midpoint, selected-vertex-aware, undoable ----
@@ -397,17 +420,17 @@ public class ColliderActionTests
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         var (commands, history) = NewCommands(world);
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new ConvexColliderComponent(new[]
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(Vector2.Zero));
+        collider.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(30, 0), new Vector2(15, 10),
         }));
-        owner.Set(new SelectedComponent());
+        collider.Set(new SelectedComponent());
 
-        // Owner selected: the longest edge (v0→v1, length 30) is split at its midpoint.
+        // Collider entity selected: the longest edge (v0→v1, length 30) is split at its midpoint.
         commands.AddVertex(Edit());
-        var convex = owner.Get<ConvexColliderComponent>();
+        var convex = collider.Get<ConvexColliderComponent>();
         Assert.Equal(new[]
         {
             new Vector2(0, 0), new Vector2(15, 0), new Vector2(30, 0), new Vector2(15, 10),
@@ -417,18 +440,13 @@ public class ColliderActionTests
 
         // A selected VERTEX proxy splits the edge AFTER that vertex instead.
         sync.Update(Edit());
-        var shapeProxy = default(Entity);
-        foreach (var p in proxies.GetEntities()) shapeProxy = p;
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
         Entity v2 = default;
         foreach (var p in proxies.GetEntities())
         {
             var binding = p.Get<GizmoProxyComponent>();
             if (binding.Kind == ProxyBindingKind.ConvexVertex && binding.Index == 2) v2 = p;
         }
-        shapeProxy.Remove<SelectedComponent>();
+        collider.Remove<SelectedComponent>();
         v2.Set(new SelectedComponent());
 
         commands.AddVertex(Edit()); // splits v2→v3: midpoint of (30,0)-(15,10) = (22.5, 5)
@@ -436,13 +454,13 @@ public class ColliderActionTests
         {
             new Vector2(0, 0), new Vector2(15, 0), new Vector2(30, 0),
             new Vector2(22.5f, 5), new Vector2(15, 10),
-        }, owner.Get<ConvexColliderComponent>().ModelVertices);
+        }, collider.Get<ConvexColliderComponent>().ModelVertices);
         Assert.Equal(2, history.Count);
 
         history.Undo();
-        Assert.Equal(4, owner.Get<ConvexColliderComponent>().ModelVertices.Length);
+        Assert.Equal(4, collider.Get<ConvexColliderComponent>().ModelVertices.Length);
         history.Undo();
-        Assert.Equal(3, owner.Get<ConvexColliderComponent>().ModelVertices.Length);
+        Assert.Equal(3, collider.Get<ConvexColliderComponent>().ModelVertices.Length);
     }
 
     // ---- Guards: editing actions are Paused-only (loud in Play), and need a selection ----
@@ -471,7 +489,8 @@ public class ColliderActionTests
         commands.AddVertex(Play());
         commands.DeleteSelection(Play());
         Assert.Equal(0, history.Count);
-        Assert.False(entity.Has<BoxColliderComponent>());
+        using var boxes = world.GetEntities().With<BoxColliderComponent>().AsSet();
+        Assert.Equal(0, boxes.Count);
         Assert.True(entity.IsAlive);
     }
 }

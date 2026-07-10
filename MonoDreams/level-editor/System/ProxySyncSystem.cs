@@ -18,26 +18,28 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
-/// Materializes and maintains the <b>edit-time gizmo proxies</b> (Wave 8b, generalized in
-/// island-authoring Slice 2): when the selected entity in <see cref="RunMode.Edit"/> carries
-/// collider components — whose shapes are component-local spatial data, not entities — this
-/// system spawns standalone proxy entities (<see cref="GizmoProxyComponent"/> binding,
-/// <c>TransformComponent</c> at the shape's world centre, a distinct outline mesh) so the shape
-/// becomes selectable and draggable through the ordinary selection + gizmo path. The family is a
-/// <b>(kind, index) list</b> — one whole-shape proxy per collider (index 0) plus, while the
-/// convex family's own proxy is selected, one <see cref="ProxyBindingKind.ConvexVertex"/> proxy
-/// per <c>ModelVertices</c> entry (index = the vertex ordinal; the same keying a future spline
-/// control point uses). Proxies are re-derived from the bound component <b>every frame</b>
-/// (cheap — only the selected entity's colliders), so they track the owner's transform edits,
-/// the gizmo's collider write-backs, and vertex-count changes (add/delete vertex, undo/redo)
-/// live; they despawn on deselect, mode exit, or target death.
+/// Materializes and maintains the <b>edit-time gizmo proxies</b> for the <b>sub-element</b> handles
+/// that survive the colliders-as-entities model (CE): a convex collider ENTITY's per-vertex grips,
+/// a boundary's per-point handles, and a boundary's thickness handle. (A collider is its own entity
+/// now — selected + moved + scaled through the ordinary selection/gizmo path — so the whole-shape
+/// box/convex proxies are retired; what remains a proxy is the point-level editing a vertex is too
+/// fine to be an entity for.) When the selected entity in <see cref="RunMode.Edit"/> is a convex
+/// collider entity or a boundary, this system spawns standalone proxy entities
+/// (<see cref="GizmoProxyComponent"/> binding, <c>TransformComponent</c> at the point's world
+/// position, a small square handle mesh) so each sub-element is selectable + draggable through the
+/// ordinary selection + gizmo path. The family is a <b>(kind, index) list</b> — one
+/// <see cref="ProxyBindingKind.ConvexVertex"/> proxy per <c>ModelVertices</c> entry, one
+/// <see cref="ProxyBindingKind.BoundaryVertex"/> per <c>Points</c> entry, plus the single
+/// <see cref="ProxyBindingKind.BoundaryThickness"/> handle. Proxies are re-derived from the bound
+/// component <b>every frame</b> (cheap — only the selected entity's), so they track the owner's
+/// transform edits, the gizmo's vertex write-backs, and vertex-count changes (add/delete vertex,
+/// undo/redo) live; they despawn on deselect, mode exit, or target death.
 ///
-/// <para><b>Trigger = selection, not a mode toggle.</b> The whole-shape proxies appear exactly
-/// while the owning entity (or one of its own proxies — clicking a proxy keeps the family
-/// alive) is selected. The per-vertex handles appear one click deeper — while the convex
-/// SHAPE proxy (or one of its vertex proxies) is selected — so selecting an entity shows its
-/// collider outlines without vertex-handle clutter, and clicking the convex outline opens the
-/// vertex-editing session (the Godot/Unity collision-shape convention).</para>
+/// <para><b>Trigger = selection, not a mode toggle.</b> A convex collider entity's vertex grips
+/// appear exactly while that collider entity (or one of its own vertex proxies — clicking a grip
+/// keeps the family alive) is selected — the collider is an ENTITY, so selecting IT opens the
+/// vertex-editing session directly (the Godot/Unity collision-shape convention: select the shape,
+/// its handles appear). A boundary's handles appear on plain selection of the boundary entity.</para>
 ///
 /// <para><b>Coexistence with <c>ColliderDebugSystem</c>.</b> The debug system stays the global
 /// diagnostic: red/green/gray thin outlines for EVERY collider, behind its own static flag,
@@ -128,7 +130,7 @@ public sealed class ProxySyncSystem : ISystem<GameState>
             return;
         }
 
-        var anchor = ResolveAnchor(out var convexFamilySelected);
+        var anchor = ResolveAnchor();
         if (anchor == default || !anchor.IsAlive || !anchor.Has<TransformComponent>())
         {
             DespawnAll();
@@ -145,14 +147,11 @@ public sealed class ProxySyncSystem : ISystem<GameState>
         if (anchor.Has<ConvexColliderComponent>())
             convexCount = anchor.Get<ConvexColliderComponent>().ModelVertices?.Length ?? 0;
 
-        SyncProxy(anchor, ProxyBindingKind.BoxColliderBounds, 0,
-            anchor.Has<BoxColliderComponent>());
-        SyncProxy(anchor, ProxyBindingKind.ConvexColliderShape, 0, convexCount >= 3);
-
-        // Per-vertex handles: only while the convex family's own proxy (shape or vertex) is
-        // selected — one proxy per ModelVertices entry, re-keyed each frame so add/delete-vertex
-        // (and their undo/redo) grow/shrink the family live.
-        var vertexCount = convexFamilySelected && convexCount >= 3 ? convexCount : 0;
+        // Convex vertex grips: one proxy per ModelVertices entry, materialized when the convex
+        // collider ENTITY (or one of its own vertex proxies) is selected — the collider is an
+        // entity now, so its grips appear on selecting IT (no whole-shape proxy to click through
+        // first). Re-keyed each frame so add/delete-vertex (and their undo/redo) grow/shrink live.
+        var vertexCount = convexCount >= 3 ? convexCount : 0;
         for (var i = 0; i < vertexCount; i++)
             SyncProxy(anchor, ProxyBindingKind.ConvexVertex, i, true);
 
@@ -245,24 +244,19 @@ public sealed class ProxySyncSystem : ISystem<GameState>
     }
 
     /// <summary>
-    /// The entity whose colliders are proxied: the selected entity itself, or — when the
-    /// selection IS a proxy (the designer clicked one) — that proxy's bound target, so selecting
-    /// a proxy never despawns the family it belongs to. <paramref name="convexFamilySelected"/>
-    /// reports whether the selection is a convex-family proxy (shape or vertex) — the trigger
-    /// for materializing the per-vertex handles.
+    /// The entity whose sub-element handles are proxied: the selected entity itself, or — when the
+    /// selection IS a proxy (the designer clicked a vertex/thickness handle) — that proxy's bound
+    /// target, so selecting a handle never despawns the family it belongs to.
     /// </summary>
-    private Entity ResolveAnchor(out bool convexFamilySelected)
+    private Entity ResolveAnchor()
     {
-        convexFamilySelected = false;
         foreach (var selected in _selectedSet.GetEntities())
         {
             if (!selected.IsAlive) continue;
             if (selected.Has<GizmoProxyComponent>())
             {
-                var binding = selected.Get<GizmoProxyComponent>();
-                convexFamilySelected = binding.Kind is ProxyBindingKind.ConvexColliderShape
-                    or ProxyBindingKind.ConvexVertex;
-                return binding.Target.IsAlive ? binding.Target : default;
+                var target = selected.Get<GizmoProxyComponent>().Target;
+                return target.IsAlive ? target : default;
             }
             return selected; // single-select: the first live selected entity is the one
         }

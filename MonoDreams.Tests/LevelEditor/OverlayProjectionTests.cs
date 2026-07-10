@@ -296,39 +296,45 @@ public class OverlayProjectionTests
     }
 
     [Fact]
-    public void ProxyEmission_BakesScreenSpaceOutline_OnTheEditorTarget()
+    public void ProxyEmission_BakesScreenSpaceHandles_OnTheEditorTarget()
     {
         using var world = new World();
         var camera = new GameCamera(800, 600) { Zoom = 1f, Position = Vector2.Zero };
         var vm = Vm(1600, 1200); // fit factor 2, dest at origin
 
-        var owner = world.CreateEntity();
-        // Centered box: place the owner at the box CENTRE (35,60) with Size (50,80) so the world
-        // corners are (10,20)–(60,100), the same rect the projection asserts below expect.
-        owner.Set(new TransformComponent(new Vector2(35, 60)));
-        owner.Set(new BoxColliderComponent(new Vector2(50, 80)));
-        owner.Set(new SelectedComponent());
+        // Colliders-as-entities: the surviving proxies are a convex collider ENTITY's vertex GRIPS
+        // (the whole-shape box/convex proxies retired). A triangle at (35,60) with model vertices
+        // placing vertex 0 at world (10,20).
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(35, 60)));
+        collider.Set(new ConvexColliderComponent(new[]
+        {
+            new Vector2(-25, -40), new Vector2(25, -40), new Vector2(0, 40),
+        }));
+        collider.Set(new SelectedComponent());
 
         using var sync = new ProxySyncSystem(world, camera, vm);
-        sync.Update(Edit());
+        sync.Update(Edit());       // grips materialize on selecting the collider entity
         sync.EmitOverlays(Edit());
 
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
         var seen = 0;
+        Entity v0 = default;
         foreach (var proxy in proxies.GetEntities())
         {
             seen++;
             ref readonly var dc = ref proxy.Get<DrawComponent>();
             Assert.Equal(RenderTargetID.Editor, dc.Target);
             Assert.True(dc.HasValidMesh);
-            // The box's world corners (10,20)–(60,100) → virtual (+400,+300) → screen ×2:
-            // (820,640)–(920,800); the 2-px-virtual (4-px-screen) stroke straddles the path.
-            var (min, max) = MeshBounds(proxy);
-            Assert.InRange(min.X, 816f, 824f);
-            Assert.InRange(min.Y, 636f, 644f);
-            Assert.InRange(max.X, 916f, 924f);
-            Assert.InRange(max.Y, 796f, 804f);
+            if (proxy.Get<GizmoProxyComponent>().Index == 0) v0 = proxy;
         }
-        Assert.Equal(1, seen);
+        Assert.Equal(3, seen); // one grip per vertex
+
+        // Vertex 0's world position (10,20) → virtual (+400,+300) → screen ×2 = (820,640): the handle
+        // square is baked centred there (a constant-on-screen square), proving the projection.
+        var (min, max) = MeshBounds(v0);
+        var center = (min + max) / 2f;
+        Assert.InRange(center.X, 814f, 826f);
+        Assert.InRange(center.Y, 634f, 646f);
     }
 }

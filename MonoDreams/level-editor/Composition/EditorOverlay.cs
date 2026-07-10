@@ -1090,6 +1090,8 @@ public sealed class EditorOverlay
         {
             case EditorContextMenuModel.OrderForwardPath: _editorCommands.BringForward(state); break;
             case EditorContextMenuModel.OrderBackPath: _editorCommands.SendBack(state); break;
+            case EditorContextMenuModel.AddColliderBoxPath: _editorCommands.AddBoxCollider(state); break;
+            case EditorContextMenuModel.AddColliderPolygonPath: _editorCommands.AddConvexCollider(state); break;
             case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
             case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
             case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;

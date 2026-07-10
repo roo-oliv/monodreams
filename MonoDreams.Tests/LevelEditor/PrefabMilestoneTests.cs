@@ -538,6 +538,71 @@ public class PrefabMilestoneTests
         });
     }
 
+    [Fact]
+    public void PrefabTab_AddColliderChild_ViaCommand_SavesAndPlacesWorldCorrect()
+    {
+        var fake = new InMemoryPlatform();
+        WithPlatform(fake, () =>
+        {
+            var shop = new PrefabWorkshop(fake);
+
+            // Author a prefab in a prefab-context world: a house root + a House2 sprite CHILD (scaled
+            // 0.5, at local (-7,-40)), then Add Collider ▸ Box on the sprite child — the CE-C authoring
+            // flow (colliders are real child entities now, created + saved end-to-end).
+            using (var author = new World())
+            {
+                var history = new EditorHistory(author);
+                var commands = new EditorCommandSystem(author, history, shop.Serializer);
+
+                var root = author.CreateEntity();
+                root.Set(new SceneObjectComponent());
+                root.Set(new EntityInfoComponent("house"));
+                root.Set(new TransformComponent(Vector2.Zero));
+
+                var house2 = author.CreateEntity();
+                house2.Set(new TransformComponent(new Vector2(-7, -40), 0f, new Vector2(0.5f, 0.5f)));
+                house2.Set(new SpriteInfoComponent
+                {
+                    Source = new Rectangle(0, 0, 32, 32), Size = new Vector2(32, 32),
+                    Origin = new Vector2(16, 32), Target = RenderTargetID.Main, AssetKey = "Island/House2",
+                });
+                house2.SetParent(root);
+                house2.Set(new SelectedComponent());
+
+                commands.AddBoxCollider(Edit());
+
+                // A box collider CHILD of the House2 sprite was authored: footprint of a 32×32 feet-origin
+                // sprite → rect (-16,-8,32,8) → local centre (0,-4), size (32,8), passive, selected.
+                var collider = ChildOf(author, house2);
+                Assert.True(collider.Has<BoxColliderComponent>());
+                Assert.Equal(new Vector2(0, -4), collider.Get<TransformComponent>().Position);
+                Assert.Equal(new Vector2(32, 8), collider.Get<BoxColliderComponent>().Size);
+                Assert.True(collider.Get<BoxColliderComponent>().Passive);
+                Assert.True(collider.Has<SelectedComponent>()); // selected after creation
+
+                shop.SavePrefab(author, "house-authored");
+            }
+
+            // Place a linked instance at a cursor position; the authored collider must land world-correct
+            // (the class of bug PF-G patched, now on a real Add-Collider-authored child, end-to-end).
+            using var placed = new World();
+            var ph = new EditorHistory(placed);
+            ph.Push(new CreateInstanceCommand(shop.Expander, "house-authored", new Vector2(500, 300)));
+            var pRoot = InstanceRoots(placed, "house-authored").Single();
+            var pHouse2 = ChildOf(placed, pRoot);
+            var pCollider = ChildOf(placed, pHouse2);
+
+            Assert.True(pCollider.Has<BoxColliderComponent>());
+            // Grandchild world pose composes the placement (500,300) + House2 local (-7,-40) → (493,260)
+            // scale 0.5; + collider local (0,-4)*0.5 → world (493,258), scale 0.5 (the world box is thus
+            // centred (493,258) with extent Size*0.5 = (16,4)).
+            var t = pCollider.Get<TransformComponent>();
+            Assert.Equal(new Vector2(493, 258), t.WorldPosition);
+            Assert.Equal(new Vector2(0.5f, 0.5f), t.WorldScale);
+            Assert.Equal(new Vector2(32, 8), pCollider.Get<BoxColliderComponent>().Size);
+        });
+    }
+
     // ─── PF-F: the multi-entity capture story (the elephant-kid family, both selection paths) ──────────
 
     [Fact]

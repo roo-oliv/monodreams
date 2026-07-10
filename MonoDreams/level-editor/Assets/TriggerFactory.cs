@@ -15,7 +15,8 @@ namespace MonoDreams.LevelEditor.Assets;
 /// unique in the scene (<c>"evidence_01"</c>, <c>"talkzone_01"</c>, …). No new component: the
 /// trigger IS a passive collider + an identity string, exactly what the <c>ZoneDialogueTriggerSystem</c>
 /// precedent reads off a collision message. The box is <b>centered on the placement point</b> so a
-/// designer drops a zone at a spot and resizes it with the ordinary box proxy handles.
+/// designer drops a zone at a spot; the trigger IS a standalone collider ENTITY, so it is then
+/// selected (border-pick on its world shape) and moved/scaled by the ordinary gizmo (colliders-as-entities).
 ///
 /// <para>Like <see cref="SpritePropFactory"/>, this is a plain builder — the same
 /// <c>Func&lt;World, Entity&gt;</c> shape <c>CreateEntityCommand</c> wraps for one-undo-step

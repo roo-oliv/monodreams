@@ -26,12 +26,18 @@ public static class InspectorAddCandidates
     ///   op force-adds it — the exclusion is a UI-candidate policy, not a command guardrail.)</item>
     ///   <item><c>BoundaryComponent</c> — a boundary is a polyline laid with the boundary tool; an empty
     ///   one bakes nothing.</item>
+    ///   <item><c>BoxColliderComponent</c> / <c>ConvexColliderComponent</c> — a shape lives on its OWN
+    ///   collider ENTITY now (colliders-as-entities); a collider is authored via <b>Add Collider ▸ Box /
+    ///   Polygon</b> (the entity/Entity-header menu + the toolbar), which creates a footprint-shaped CHILD
+    ///   collider entity — not a component the Inspector force-adds to an arbitrary entity.</item>
     /// </list>
     /// </summary>
     public static readonly IReadOnlySet<Type> NeverAddable = new HashSet<Type>
     {
         typeof(SpriteInfoComponent),
         typeof(BoundaryComponent),
+        typeof(MonoDreams.Component.Collision.BoxColliderComponent),
+        typeof(MonoDreams.Component.Collision.ConvexColliderComponent),
     };
 
     /// <summary>One addable component: the registry <see cref="Key"/> (the id an add op / menu path

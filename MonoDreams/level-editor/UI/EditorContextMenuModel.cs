@@ -81,6 +81,12 @@ public static class EditorContextMenuModel
     public const string AddEmptyPath = "add-empty";
     public const string CreateScenePath = "create-scene";
 
+    // Add Collider ▸ Box / Polygon (colliders-as-entities): creates a CHILD collider entity of the
+    // selection (the toolbar +Box/+Poly twin). The submenu path is the parent; the leaves dispatch.
+    public const string AddColliderSubmenuPath = "collider";
+    public const string AddColliderBoxPath = "collider/add-box";
+    public const string AddColliderPolygonPath = "collider/add-polygon";
+
     // Prefab paths (PF-D). The card paths carry the prefab id as a suffix (the card knows which prefab).
     public const string CreatePrefabFromSelectionPath = "prefab/from-selection";
     public const string UnpackPrefabPath = "prefab/unpack";
@@ -89,8 +95,9 @@ public static class EditorContextMenuModel
     public const string PrefabDeletePathPrefix = "prefab-delete:";
 
     /// <summary>The entity context menu (the viewport right-click AND the header <c>Entity ▾</c>
-    /// dropdown — one model, two anchors): <b>Order ▸</b> (Bring Forward / Send Backward), a separator,
-    /// the prefab actions — <b>Create Prefab from Selection…</b> (PF-D, enabled with a selection) and
+    /// dropdown — one model, two anchors): <b>Order ▸</b> (Bring Forward / Send Backward),
+    /// <b>Add Collider ▸</b> (Box / Polygon — creates a child collider entity), a separator, the prefab
+    /// actions — <b>Create Prefab from Selection…</b> (PF-D, enabled with a selection) and
     /// <b>Unpack Prefab</b> (<see cref="EditorMenuItem.Danger"/>, enabled only when the selection is a
     /// prefab instance root, <paramref name="isPrefabInstance"/>) — a separator, then <b>Delete</b>
     /// (<see cref="EditorMenuItem.Danger"/>). Every selection-gated item is disabled when nothing is
@@ -98,6 +105,7 @@ public static class EditorContextMenuModel
     public static IReadOnlyList<EditorMenuItem> EntityMenu(bool hasSelection, bool isPrefabInstance = false) => new[]
     {
         OrderSubmenu(hasSelection),
+        AddColliderSubmenu(hasSelection),
         Separator(),
         new EditorMenuItem
         {
@@ -256,6 +264,22 @@ public static class EditorContextMenuModel
             new EditorMenuItem
             {
                 Kind = EditorMenuItemKind.Action, Label = "Send Backward", Path = OrderBackPath, Enabled = enabled,
+            },
+        },
+    };
+
+    private static EditorMenuItem AddColliderSubmenu(bool enabled) => new()
+    {
+        Kind = EditorMenuItemKind.Submenu, Label = "Add Collider", Path = AddColliderSubmenuPath, Enabled = enabled,
+        Submenu = new[]
+        {
+            new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Box", Path = AddColliderBoxPath, Enabled = enabled,
+            },
+            new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Polygon", Path = AddColliderPolygonPath, Enabled = enabled,
             },
         },
     };

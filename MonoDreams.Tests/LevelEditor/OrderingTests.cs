@@ -157,7 +157,7 @@ public class OrderingTests
         Assert.Equal(0f, sprite.Get<SpriteInfoComponent>().YSortDepthBias);
     }
 
-    // ---- The action targets the OWNER when a collider proxy is selected ----
+    // ---- The action targets the OWNER when a sub-element proxy is selected ----
 
     [Fact]
     public void Ordering_TargetsTheOwner_WhenAProxyIsSelected()
@@ -168,10 +168,11 @@ public class OrderingTests
         var (commands, _) = NewCommands(world, layers);
 
         var owner = CreateSprite(world, bandDepth, selected: false);
-        owner.Set(new BoxColliderComponent(new Vector2(32, 32)));
 
+        // A selected sub-element proxy (a vertex handle) resolves to its bound owner for the order
+        // nudge, exactly as it does for Add Collider / Add Vertex (TryGetSelectionOwner).
         var proxy = world.CreateEntity();
-        proxy.Set(new GizmoProxyComponent(owner, ProxyBindingKind.BoxColliderBounds));
+        proxy.Set(new GizmoProxyComponent(owner, ProxyBindingKind.ConvexVertex));
         proxy.Set(new SelectedComponent());
 
         commands.BringForward(Edit());

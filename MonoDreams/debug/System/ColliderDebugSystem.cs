@@ -19,11 +19,15 @@ namespace MonoDreams.System.Debug;
 /// Development only — allocates per-frame (ToArray, transient entities) and is not
 /// intended for production builds.
 ///
-/// <para>Coexists with the level-editor's collider gizmo proxies (<c>ProxySyncSystem</c>): this
-/// system is the global diagnostic (thin outlines for EVERY collider, behind the static flag,
-/// selection-unaware); the proxy is the edit affordance (a thicker cyan outline over the SELECTED
-/// entity's colliders only, draggable, independent of this flag). In Edit the proxy sync keeps the
-/// selected entity's convex <c>WorldVertices</c> fresh, so the two outlines stay coherent.</para>
+/// <para>Reads collider ENTITIES (colliders-as-entities): each collider is its own entity — a
+/// <c>ColliderTagComponent</c>-tagged shape + its own <c>TransformComponent</c> — and this system
+/// draws every one from that transform's world pose (box via <c>SATCollision.BoxWorldRect</c>,
+/// convex via the collider's <c>WorldVertices</c>). It coexists with the editor: this system is the
+/// global diagnostic (thin outlines for EVERY collider, behind the static flag, selection-unaware);
+/// the editor draws the SELECTED collider entity's own outline + gives it a gizmo (colliders are
+/// first-class selectable entities now — the whole-shape proxies retired). In Edit the editor keeps
+/// the selected convex collider's <c>WorldVertices</c> fresh (<c>ProxySyncSystem</c>), so a selected
+/// collider's debug outline tracks its vertex edits.</para>
 /// </summary>
 public class ColliderDebugSystem : ISystem<GameState>
 {

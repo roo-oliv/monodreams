@@ -10,41 +10,26 @@ using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.State;
-using MonoDreams.System;
 using Xunit;
 using GameCamera = MonoDreams.Component.Camera;
 
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the Wave 8b collider gizmo-proxy invariants: colliders are component-local spatial
-/// data (NOT entities), so the editor materializes standalone proxy entities bound to
-/// (entity, component-field) via <see cref="GizmoProxyComponent"/> — spawned by
-/// <see cref="ProxySyncSystem"/> when the owning entity is selected in Edit, kept in sync with
-/// the collider every frame, despawned on deselect / mode exit / target death — and dragging a
-/// proxy through the REAL gizmo path writes back into the bound component field
-/// (<see cref="ColliderEditCommand"/>) through the coalescing undo transaction: one drag = ONE
-/// undo step, undo restores the exact prior Bounds / ModelVertices, redo re-applies.
+/// Protects the colliders-as-entities editor model (CE-C): a collider is its OWN entity — a shape
+/// component + its <c>TransformComponent</c> — so it is <b>border-picked on its world shape</b> (the
+/// camera-rig precedent for a spriteless first-class entity) and moved / scaled by the ORDINARY gizmo
+/// (a <see cref="TransformEditCommand"/> on its own transform), like any entity. A box refuses Rotate
+/// (axis-aligned); a convex rotates. A boundary's baked segment is pickable but movement-refused (it
+/// regenerates). The whole-shape box/convex PROXIES are retired — only the sub-element vertex/thickness
+/// handles remain proxies (see <see cref="ProxyVertexTests"/>).
 ///
-/// Names the live premise "Collider shapes are edited through standalone gizmo proxies" in
-/// MonoDreams/level-editor/docs/premises.md.
+/// Names the live premise "A collider is a first-class editor entity: selected on its world shape,
+/// moved/scaled by the ordinary gizmo…" in MonoDreams/level-editor/docs/premises.md.
 /// </summary>
 public class ProxyTests
 {
     private static GameState Edit() => new(new GameTime()) { RunMode = RunMode.Edit };
-    private static GameState Play() => new(new GameTime()) { RunMode = RunMode.Play };
-
-    private static Entity CreateOwnerWithBothColliders(World world, Vector2 position)
-    {
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(position));
-        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
-        owner.Set(new ConvexColliderComponent(new[]
-        {
-            new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15),
-        }));
-        return owner;
-    }
 
     private static Entity CreateCursor(World world, Vector2 worldPoint, bool pressed)
     {
@@ -58,402 +43,6 @@ public class ProxyTests
             LeftButtonPressed = pressed,
         });
         return cursor;
-    }
-
-    // ---- ProxyLifecycleTest: select spawns one proxy per collider; deselect / mode exit /
-    // target death despawn; proxies are standalone (no ChildOf) and survive a hierarchy frame ----
-
-    [Fact]
-    public void ProxyLifecycleTest_SelectSpawns_DeselectAndModeExitDespawn()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        var owner = CreateOwnerWithBothColliders(world, new Vector2(100, 100));
-        owner.Set(new SelectedComponent());
-
-        // Selecting an entity with a Box + a Convex collider spawns ONE proxy per collider.
-        sync.Update(Edit());
-        Assert.Equal(2, proxies.Count);
-
-        var sawBox = false;
-        var sawConvex = false;
-        foreach (var proxy in proxies.GetEntities())
-        {
-            var binding = proxy.Get<GizmoProxyComponent>();
-            Assert.Equal(owner, binding.Target);
-            if (binding.Kind == ProxyBindingKind.BoxColliderBounds) sawBox = true;
-            if (binding.Kind == ProxyBindingKind.ConvexColliderShape) sawConvex = true;
-
-            // Standalone overlay rules: never ChildOf-parented; the VISUAL is native-resolution
-            // chrome — a screen-baked mesh on the Editor target, NO VisibleComponent (the chrome
-            // rule: its presence would pull the mesh into MeshPrepSystem, which would overwrite
-            // the identity WorldMatrix the screen-baked vertices require).
-            Assert.False(proxy.Has<ChildOfComponent>());
-            Assert.False(proxy.Has<VisibleComponent>());
-            Assert.True(proxy.Has<TransformComponent>());
-            Assert.Equal(RenderTargetID.Editor, proxy.Get<DrawComponent>().Target);
-        }
-        Assert.True(sawBox);
-        Assert.True(sawConvex);
-
-        // Proxies survive a HierarchySystem frame (DisposeOrphans is live in Edit).
-        using (var hierarchy = new HierarchySystem(world))
-        {
-            hierarchy.Update(Edit());
-        }
-        Assert.Equal(2, proxies.Count);
-
-        // Deselect → despawn.
-        owner.Remove<SelectedComponent>();
-        sync.Update(Edit());
-        Assert.Equal(0, proxies.Count);
-
-        // Reselect → respawn; mode exit (Play) → despawn.
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(2, proxies.Count);
-        sync.Update(Play());
-        Assert.Equal(0, proxies.Count);
-    }
-
-    [Fact]
-    public void ProxyLifecycleTest_TargetDeathDespawns()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        var owner = CreateOwnerWithBothColliders(world, new Vector2(0, 0));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(2, proxies.Count);
-
-        owner.Dispose();
-        sync.Update(Edit());
-        Assert.Equal(0, proxies.Count);
-    }
-
-    [Fact]
-    public void ProxyLifecycleTest_SelectingTheProxyItselfKeepsTheFamilyAlive()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        var owner = CreateOwnerWithBothColliders(world, new Vector2(100, 100));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(2, proxies.Count);
-
-        // The designer clicks a proxy: single-select moves SelectedComponent onto the proxy.
-        // The proxies must stay alive — their anchor is the proxy's bound target.
-        Entity boxProxy = default;
-        foreach (var proxy in proxies.GetEntities())
-            if (proxy.Get<GizmoProxyComponent>().Kind == ProxyBindingKind.BoxColliderBounds)
-                boxProxy = proxy;
-        owner.Remove<SelectedComponent>();
-        boxProxy.Set(new SelectedComponent());
-
-        sync.Update(Edit());
-        Assert.Equal(2, proxies.Count);
-        Assert.True(boxProxy.IsAlive);
-    }
-
-    // ---- Sync: moving the OWNING entity's transform moves the proxy (re-derived per frame) ----
-
-    [Fact]
-    public void ProxySyncTest_OwnerTransformMoveMovesTheProxy()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        var owner = CreateOwnerWithBothColliders(world, new Vector2(100, 100));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-
-        // The box is centered on the collider entity, so the box proxy sits at the owner's world
-        // position (the box's world centre): (100,100).
-        Entity boxProxy = default, convexProxy = default;
-        foreach (var proxy in proxies.GetEntities())
-        {
-            if (proxy.Get<GizmoProxyComponent>().Kind == ProxyBindingKind.BoxColliderBounds) boxProxy = proxy;
-            else convexProxy = proxy;
-        }
-        Assert.Equal(new Vector2(100, 100), boxProxy.Get<TransformComponent>().Position);
-
-        // Move the owner; the proxies re-derive the same frame the sync runs.
-        owner.Get<TransformComponent>().Position = new Vector2(160, 130);
-        sync.Update(Edit());
-        Assert.Equal(new Vector2(160, 130), boxProxy.Get<TransformComponent>().Position);
-
-        // The sync also refreshes the convex collider's WorldVertices (physics is frozen in Edit,
-        // so nothing else would), keeping the debug outline coherent with the moved owner.
-        var convex = owner.Get<ConvexColliderComponent>();
-        Assert.Equal(new Vector2(160, 130), convex.WorldVertices[0]);
-        Assert.True(convexProxy.IsAlive);
-    }
-
-    // ---- Write-back: dragging a Box proxy by delta D shifts Bounds by D through ONE undo step ----
-
-    [Fact(Skip = "CE-C: box collider is a centered Size on its entity now (no Bounds offset). The box-proxy move/resize write-back retargets to the entity's transform/Size via the CE-C entity gizmo.")]
-    public void BoxProxyWriteBackTest_DragShiftsBounds_OneUndoStep_UndoRedo()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        var history = new EditorHistory(world);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var gizmo = new GizmoSystem(world, camera, history);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(1, proxies.Count);
-
-        Entity boxProxy = default;
-        foreach (var proxy in proxies.GetEntities()) boxProxy = proxy;
-
-        // Select the proxy (what SelectionSystem does on a border click) and press on its pivot —
-        // the collider's world centre (125, 140) — grabbing the move handle.
-        owner.Remove<SelectedComponent>();
-        boxProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
-        var cursor = CreateCursor(world, new Vector2(125, 140), pressed: true);
-        gizmo.Update(Edit());
-
-        // Drag by D = (40, 10) across two frames; the edit applies live, but no history entry yet.
-        ref var input = ref cursor.Get<CursorInputComponent>();
-        input.LeftButtonPressed = false;
-        input.WorldPosition = new Vector2(125 + 25, 140 + 5);
-        gizmo.Update(Edit());
-        input.WorldPosition = new Vector2(125 + 40, 140 + 10);
-        gizmo.Update(Edit());
-
-        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
-        Assert.Equal(0, history.Count); // still inside the coalescing transaction
-
-        // The write-back goes into the COMPONENT, never the owner's transform.
-        Assert.Equal(new Vector2(100, 100), owner.Get<TransformComponent>().Position);
-
-        // The proxy tracks the written-back collider on the next sync.
-        sync.Update(Edit());
-        Assert.Equal(new Vector2(165, 150), boxProxy.Get<TransformComponent>().Position);
-
-        // Release → exactly ONE undo step for the whole drag.
-        input.LeftButton = false;
-        input.LeftButtonReleased = true;
-        gizmo.Update(Edit());
-        Assert.Equal(1, history.Count);
-
-        // Undo restores the exact prior Size; redo re-applies.
-        history.Undo();
-        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
-        history.Redo();
-        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
-    }
-
-    // ---- Write-back: dragging a Convex proxy translates ALL ModelVertices by D, refreshes
-    // WorldVertices + BroadPhaseAABB, one undo step ----
-
-    [Fact]
-    public void ConvexProxyWriteBackTest_DragTranslatesModelVertices_OneUndoStep_UndoRedo()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        var history = new EditorHistory(world);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var gizmo = new GizmoSystem(world, camera, history);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new ConvexColliderComponent(new[]
-        {
-            new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15),
-        }));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(1, proxies.Count);
-
-        Entity convexProxy = default;
-        foreach (var proxy in proxies.GetEntities()) convexProxy = proxy;
-
-        // Select the proxy; press on its pivot — the polygon's world centroid (10, 5).
-        owner.Remove<SelectedComponent>();
-        convexProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
-        var cursor = CreateCursor(world, new Vector2(10, 5), pressed: true);
-        gizmo.Update(Edit());
-
-        // Drag by D = (6, -4); release.
-        ref var input = ref cursor.Get<CursorInputComponent>();
-        input.LeftButtonPressed = false;
-        input.WorldPosition = new Vector2(10 + 6, 5 - 4);
-        gizmo.Update(Edit());
-        input.LeftButton = false;
-        input.LeftButtonReleased = true;
-        gizmo.Update(Edit());
-
-        var convex = owner.Get<ConvexColliderComponent>();
-        Assert.Equal(new Vector2(6, -4), convex.ModelVertices[0]);
-        Assert.Equal(new Vector2(26, -4), convex.ModelVertices[1]);
-        Assert.Equal(new Vector2(16, 11), convex.ModelVertices[2]);
-        // The write-back refreshed the derived world data (owner transform is identity here), per
-        // the collision premise "BroadPhaseAABB must be refreshed when vertices change".
-        Assert.Equal(new Vector2(6, -4), convex.WorldVertices[0]);
-        Assert.Equal(new Vector2(6, -4), convex.BroadPhaseAABB.Position);
-
-        Assert.Equal(1, history.Count); // one drag = one undo step
-
-        history.Undo();
-        convex = owner.Get<ConvexColliderComponent>();
-        Assert.Equal(new Vector2(0, 0), convex.ModelVertices[0]);
-        Assert.Equal(new Vector2(20, 0), convex.ModelVertices[1]);
-        Assert.Equal(new Vector2(10, 15), convex.ModelVertices[2]);
-        Assert.Equal(new Vector2(0, 0), convex.WorldVertices[0]);
-
-        history.Redo();
-        Assert.Equal(new Vector2(6, -4), owner.Get<ConvexColliderComponent>().ModelVertices[0]);
-    }
-
-    // ---- Selection integration: a border click picks the proxy through the SAME pick path; a
-    // click inside (away from the border) still picks the owner's sprite ----
-
-    [Fact(Skip = "CE-C: a box collider on a sprite entity is centered on the entity now (not top-left aligned with the sprite), so this box-on-sprite border/inside pick geometry moves to the CE-C entity-shape pick.")]
-    public void ProxySelectionTest_BorderClickPicksProxy_InsideClickPicksOwner()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var selection = new SelectionSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-
-        // A sprite that fully covers its own box collider (the common Tile/Wall shape).
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new SpriteInfoComponent
-        {
-            Source = new Rectangle(0, 0, 32, 32),
-            Size = new Vector2(32, 32),
-            Target = RenderTargetID.Main,
-        });
-        owner.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main, LayerDepth = 0.5f });
-        owner.Set(new VisibleComponent());
-        owner.Set(new BoxColliderComponent(new Vector2(32, 32)));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(1, proxies.Count);
-        Entity boxProxy = default;
-        foreach (var proxy in proxies.GetEntities()) boxProxy = proxy;
-
-        // Click ON the collider border (left edge midpoint, world (100, 116)): the proxy wins the
-        // pick even though the sprite is under the cursor too (the proxy draws on top).
-        var cursor = CreateCursor(world, new Vector2(100, 116), pressed: true);
-        selection.Update(Edit());
-        Assert.True(boxProxy.Has<SelectedComponent>());
-        Assert.False(owner.Has<SelectedComponent>());
-
-        // The proxies stay alive (the anchor follows the selected proxy's target).
-        sync.Update(Edit());
-        Assert.True(boxProxy.IsAlive);
-
-        // Click INSIDE, away from the border (the centre, world (116, 116)): the owner's sprite is
-        // picked — the proxy only hit-tests its border, so it never shadows the entity it decorates.
-        ref var input = ref cursor.Get<CursorInputComponent>();
-        input.WorldPosition = new Vector2(116, 116);
-        input.LeftButtonPressed = true;
-        selection.Update(Edit());
-        Assert.True(owner.Has<SelectedComponent>());
-        Assert.False(boxProxy.Has<SelectedComponent>());
-    }
-
-    // ---- Click-ownership (bugfix): pressing the selected proxy's move handle — the shape's world
-    // centre, which is neither on the proxy's border nor (here) over any sprite — must not be
-    // treated as click-empty by the same frame's selection pass (which would deselect, despawn the
-    // family via ProxySyncSystem, and kill the drag). Frames run in the real pipeline order:
-    // gizmo -> proxy sync (update pipeline), then selection (end of draw pipeline). ----
-
-    [Fact(Skip = "CE-C: box collider is a centered Size on its entity now; the box-proxy move-handle press/drag write-back retargets to the entity transform via the CE-C entity gizmo.")]
-    public void ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags()
-    {
-        using var world = new World();
-        var camera = new GameCamera(800, 600);
-        var history = new EditorHistory(world);
-        using var sync = new ProxySyncSystem(world, camera);
-        using var gizmo = new GizmoSystem(world, camera, history);
-        using var selection = new SelectionSystem(world, camera);
-        using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
-        world.CreateEntity().Set(GizmoStateComponent.Default); // shared editor state (tool = Move)
-
-        void Frame(GameState state, Entity cursorEntity)
-        {
-            gizmo.Update(state);
-            sync.Update(state);
-            selection.Update(state);
-            // A real frame's press edge lasts one frame.
-            ref var input = ref cursorEntity.Get<CursorInputComponent>();
-            input.LeftButtonPressed = false;
-            input.LeftButtonReleased = false;
-        }
-
-        // A sprite-less owner (a pure trigger volume): its box collider covers EMPTY space —
-        // world rect (110,120)-(140,160) — the harshest variant of the reported bug.
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
-        owner.Set(new SelectedComponent());
-
-        var cursor = CreateCursor(world, new Vector2(0, 0), pressed: false);
-        var edit = Edit();
-        Frame(edit, cursor);
-        Assert.Equal(1, proxies.Count);
-        Entity boxProxy = default;
-        foreach (var proxy in proxies.GetEntities()) boxProxy = proxy;
-
-        // Border press: selection moves onto the proxy (8b behavior preserved), family stays alive.
-        ref var input = ref cursor.Get<CursorInputComponent>();
-        input.WorldPosition = new Vector2(110, 140); // left edge of the world rect
-        input.LeftButton = true;
-        input.LeftButtonPressed = true;
-        Frame(edit, cursor);
-        Assert.True(boxProxy.Has<SelectedComponent>());
-        input.LeftButton = false;
-        input.LeftButtonReleased = true;
-        Frame(edit, cursor);
-        Assert.True(boxProxy.IsAlive);
-        Assert.True(boxProxy.Has<SelectedComponent>());
-
-        // Press the proxy's move handle at the shape's world centre (125, 140): 15/20 units away
-        // from every border edge (outside the 8px border pick) and over no sprite. THE BUG: the
-        // selection pass treated this press as click-empty, deselecting the proxy — the family
-        // despawned and the drag died.
-        input.WorldPosition = new Vector2(125, 140);
-        input.LeftButton = true;
-        input.LeftButtonPressed = true;
-        Frame(edit, cursor);
-        Assert.True(boxProxy.Has<SelectedComponent>());
-        Assert.Equal(1, proxies.Count);
-
-        // Drag by (40, 10) and release: the write-back lands in Bounds, one undo step.
-        input.WorldPosition = new Vector2(165, 150);
-        Frame(edit, cursor);
-        input.LeftButton = false;
-        input.LeftButtonReleased = true;
-        Frame(edit, cursor);
-
-        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
-        Assert.Equal(1, history.Count);
-        Assert.True(boxProxy.IsAlive);
-        Assert.True(boxProxy.Has<SelectedComponent>());
     }
 
     // ---- Pure geometry: the world→model delta honors rotation/scale (and IgnoreTransformRotation) ----
@@ -475,9 +64,8 @@ public class ProxyTests
         Assert.Equal(0f, ignoring.Y, tol);
     }
 
-    // ---- Editor consumer mirrors the collision fix: convex outline derivation reads the WORLD
-    // transform, so a proxy/debug outline on a prefab instance's CHILD sits where the collider does
-    // (PF-G item 1). Box corners already used WorldPosition; this covers the convex path. ----
+    // ---- The collider world shape derivation reads the WORLD transform, so a collider on a CHILD
+    // (a prefab instance's child collider) sits where the collider does (PF-G item 1). ----
 
     [Fact]
     public void ConvexWorldVertices_ChildEntity_FoldInParentWorldPosition()
@@ -500,9 +88,341 @@ public class ProxyTests
         Assert.Equal(new Vector2(310, 205), outline[1]);
         Assert.Equal(new Vector2(300, 220), outline[2]);
 
-        // TryGetWorldOutline (the shape the proxy/pick use) agrees, and a single vertex maps too.
-        Assert.True(ProxyGeometry.TryGetWorldOutline(child, ProxyBindingKind.ConvexColliderShape, 0, out var viaOutline));
-        Assert.Equal(outline, viaOutline);
-        Assert.Equal(new Vector2(310, 205), ProxyGeometry.ConvexVertexWorld(childTransform, collider, 1));
+        // TryGetColliderWorldShape (the shape the pick + selection outline use) agrees.
+        Assert.True(ProxyGeometry.TryGetColliderWorldShape(child, out var viaShape));
+        Assert.Equal(outline, viaShape);
+    }
+
+    [Fact]
+    public void BoxWorldRect_ComposesTransformScale()
+    {
+        using var world = new World();
+        var box = new BoxColliderComponent(new Vector2(30, 40));
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(new Vector2(100, 100)));
+        e.Set(box);
+
+        // Scale on a box scales its Transform.Scale — the world derivation composes it (no
+        // special-case resize command). Scale (2,1) → the world rect is 60×40, still centered.
+        e.Get<TransformComponent>().Scale = new Vector2(2f, 1f);
+        var rect = MonoDreams.Extensions.Monogame.SATCollision.BoxWorldRect(box, e.Get<TransformComponent>());
+        Assert.Equal(60f, rect.Size.X);
+        Assert.Equal(40f, rect.Size.Y);
+        Assert.Equal(new Vector2(100, 100), rect.Position + rect.Size / 2f);
+    }
+
+    // ---- Selection: a collider ENTITY is border-picked on its world shape; a sprite it overlaps
+    // is still picked on a click inside (the collider hit-tests only its border) ----
+
+    [Fact]
+    public void ColliderEntity_BorderPickSelectsIt_InsideClickPicksSprite()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        using var selection = new SelectionSystem(world, camera);
+
+        // A sprite covering (84,84)-(116,116) (origin-centred on (100,100)).
+        var sprite = world.CreateEntity();
+        sprite.Set(new TransformComponent(new Vector2(100, 100)));
+        sprite.Set(new SpriteInfoComponent
+        {
+            Source = new Rectangle(0, 0, 32, 32), Size = new Vector2(32, 32),
+            Origin = new Vector2(16, 16), Target = RenderTargetID.Main,
+        });
+        sprite.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main, LayerDepth = 0.5f });
+        sprite.Set(new VisibleComponent());
+
+        // A standalone box collider ENTITY over the same world rect (centered on (100,100), 32×32).
+        var collider = world.CreateEntity();
+        collider.Set(new EntityInfoComponent("BoxCollider"));
+        collider.Set(new TransformComponent(new Vector2(100, 100)));
+        collider.Set(new BoxColliderComponent(new Vector2(32, 32)));
+
+        // Click ON the collider border (left edge midpoint, world (84,100)): the collider entity wins
+        // (it draws on top). It is selected directly (a spriteless first-class entity).
+        CreateCursor(world, new Vector2(84, 100), pressed: true);
+        selection.Update(Edit());
+        Assert.True(collider.Has<SelectedComponent>());
+        Assert.False(sprite.Has<SelectedComponent>());
+
+        // Click INSIDE, away from the border (the centre (100,100)): the sprite is picked — the
+        // collider only hit-tests its border, so it never shadows a sprite under it.
+        var cursor = world.GetEntities().With<CursorInputComponent>().AsSet();
+        Entity cursorEntity = default;
+        foreach (var c in cursor.GetEntities()) cursorEntity = c;
+        ref var input = ref cursorEntity.Get<CursorInputComponent>();
+        input.WorldPosition = new Vector2(100, 100);
+        input.LeftButtonPressed = true;
+        selection.Update(Edit());
+        Assert.True(sprite.Has<SelectedComponent>());
+        Assert.False(collider.Has<SelectedComponent>());
+    }
+
+    // ---- Pre-mortem #5: a collider on a moved + scaled PARENT is still picked on its WORLD shape,
+    // at a non-unit zoom (unselectable colliders would be orphans) ----
+
+    [Fact]
+    public void ColliderEntity_BorderPick_UnderMovedScaledParent_AtZoom()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600) { Zoom = 3f };
+        using var selection = new SelectionSystem(world, camera);
+
+        var parent = world.CreateEntity();
+        parent.Set(new TransformComponent(new Vector2(300, 200), 0f, new Vector2(2f, 2f)));
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(Vector2.Zero)); // local origin → world (300,200)
+        collider.Set(new BoxColliderComponent(new Vector2(10, 10)));
+        collider.SetParent(parent); // world box: centre (300,200), extent 10*2=20 → (290,190)-(310,210)
+
+        // Click exactly on the left edge (290,200): the world-shape border-pick composes the parent's
+        // move + scale, so the collider is selectable (tolerance 8/zoom = ~2.67, distance 0).
+        CreateCursor(world, new Vector2(290, 200), pressed: true);
+        selection.Update(Edit());
+        Assert.True(collider.Has<SelectedComponent>());
+    }
+
+    // ---- Transform: a collider ENTITY moves via the ordinary gizmo — one undo step ----
+
+    [Fact]
+    public void ColliderEntity_MoveViaGizmo_OneUndoStep_UndoRedo()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(100, 100)));
+        collider.Set(new BoxColliderComponent(new Vector2(30, 40)));
+        collider.Set(new SelectedComponent());
+
+        // Press the move handle at the collider's world position (its pivot = the box centre).
+        var cursor = CreateCursor(world, new Vector2(100, 100), pressed: true);
+        gizmo.Update(Edit());
+
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(140, 110);
+        gizmo.Update(Edit());
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(Edit());
+
+        // The ordinary transform edit moved the collider ENTITY (not any component field), one step.
+        Assert.Equal(new Vector2(140, 110), collider.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(30, 40), collider.Get<BoxColliderComponent>().Size); // shape unchanged
+        Assert.Equal(1, history.Count);
+
+        history.Undo();
+        Assert.Equal(new Vector2(100, 100), collider.Get<TransformComponent>().Position);
+        history.Redo();
+        Assert.Equal(new Vector2(140, 110), collider.Get<TransformComponent>().Position);
+    }
+
+    // ---- Transform: a box collider entity's Scale drag grows its world rect (no resize command) ----
+
+    [Fact]
+    public void BoxColliderEntity_ScaleViaGizmo_GrowsWorldRect()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        var gizmoState = world.CreateEntity();
+        var scaleState = GizmoStateComponent.Default;
+        scaleState.Tool = GizmoTool.Scale;
+        gizmoState.Set(scaleState);
+
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(100, 100)));
+        var box = new BoxColliderComponent(new Vector2(30, 40));
+        collider.Set(box);
+        collider.Set(new SelectedComponent());
+
+        // The scale handle sits at pivot + (48,-48) (invZoom 1) = (148,52). Press + drag +X to grow.
+        var cursor = CreateCursor(world, new Vector2(148, 52), pressed: true);
+        gizmo.Update(Edit());
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(148 + 120, 52); // +X drag → factor > 1
+        gizmo.Update(Edit());
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(Edit());
+
+        // Scale grew via Transform.Scale (the box Size is unchanged); the world rect composes it.
+        Assert.True(collider.Get<TransformComponent>().Scale.X > 1f);
+        Assert.Equal(new Vector2(30, 40), box.Size);
+        var rect = MonoDreams.Extensions.Monogame.SATCollision.BoxWorldRect(box, collider.Get<TransformComponent>());
+        Assert.True(rect.Size.X > 30f);
+        Assert.Equal(1, history.Count);
+    }
+
+    // ---- Box rotate is refused (axis-aligned); a convex collider rotates ----
+
+    [Fact]
+    public void BoxColliderEntity_RotateRefused_FallsBackToMove()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        var gizmoState = world.CreateEntity();
+        var rotateState = GizmoStateComponent.Default;
+        rotateState.Tool = GizmoTool.Rotate;
+        gizmoState.Set(rotateState);
+
+        var box = world.CreateEntity();
+        box.Set(new TransformComponent(new Vector2(100, 100)));
+        box.Set(new BoxColliderComponent(new Vector2(30, 40)));
+        box.Set(new SelectedComponent());
+
+        // The Rotate tool is resolved to Move for a box collider: the rotate RING (at radius ~40) is
+        // NOT hit-tested; pressing the MOVE handle at the pivot starts a move drag, not a rotate.
+        var cursor = CreateCursor(world, new Vector2(100, 100), pressed: true);
+        gizmo.Update(Edit());
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(110, 100);
+        gizmo.Update(Edit());
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(Edit());
+
+        // The box moved (Rotate → Move fallback) and never rotated.
+        Assert.Equal(0f, box.Get<TransformComponent>().Rotation);
+        Assert.Equal(new Vector2(110, 100), box.Get<TransformComponent>().Position);
+    }
+
+    [Fact]
+    public void ConvexColliderEntity_RotatesNormally()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        var gizmoState = world.CreateEntity();
+        var rotateState = GizmoStateComponent.Default;
+        rotateState.Tool = GizmoTool.Rotate;
+        gizmoState.Set(rotateState);
+
+        var convex = world.CreateEntity();
+        convex.Set(new TransformComponent(new Vector2(100, 100)));
+        convex.Set(new ConvexColliderComponent(new[]
+        {
+            new Vector2(-10, -10), new Vector2(10, -10), new Vector2(0, 12),
+        }));
+        convex.Set(new SelectedComponent());
+
+        // The rotate RING is at pivot + radius 40; press on it (140,100) and drag around the pivot.
+        var cursor = CreateCursor(world, new Vector2(140, 100), pressed: true);
+        gizmo.Update(Edit());
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(100, 140); // a quarter turn around the pivot
+        gizmo.Update(Edit());
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(Edit());
+
+        // A convex collider CAN rotate (the Rotate tool is not refused): its rotation changed.
+        Assert.NotEqual(0f, convex.Get<TransformComponent>().Rotation);
+        Assert.Equal(1, history.Count);
+    }
+
+    // ---- Click-ownership: pressing a spriteless collider's move handle (over empty space, not on
+    // its border) must not be treated as click-empty by the same frame's selection pass ----
+
+    [Fact]
+    public void ColliderEntity_MoveHandlePress_KeepsSelection_AndDrags()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        world.CreateEntity().Set(GizmoStateComponent.Default); // shared claim carrier (tool = Move)
+
+        void Frame(GameState state, Entity cursorEntity)
+        {
+            gizmo.Update(state);
+            selection.Update(state);
+            ref var i = ref cursorEntity.Get<CursorInputComponent>();
+            i.LeftButtonPressed = false;
+            i.LeftButtonReleased = false;
+        }
+
+        // A box collider covering (110,120)-(140,160): its move handle is the world centre (125,140),
+        // which is neither on the border nor over any sprite — the harshest click-ownership variant.
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(125, 140)));
+        collider.Set(new BoxColliderComponent(new Vector2(30, 40)));
+        collider.Set(new SelectedComponent());
+
+        var cursor = CreateCursor(world, new Vector2(125, 140), pressed: false);
+        var edit = Edit();
+
+        // Press the move handle at the shape centre: the gizmo claims it, so the selection pass does
+        // NOT clear the selection (the reported click-empty bug), and the drag begins.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.LeftButton = true;
+        input.LeftButtonPressed = true;
+        Frame(edit, cursor);
+        Assert.True(collider.Has<SelectedComponent>());
+
+        // Drag and release: the collider moved, one undo step, still selected.
+        input.WorldPosition = new Vector2(165, 150);
+        Frame(edit, cursor);
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        Frame(edit, cursor);
+
+        Assert.Equal(new Vector2(165, 150), collider.Get<TransformComponent>().Position);
+        Assert.Equal(1, history.Count);
+        Assert.True(collider.Has<SelectedComponent>());
+    }
+
+    // ---- Bake products are pickable but movement-refused (they regenerate from their source) ----
+
+    [Fact]
+    public void BakedProduct_IsPickable_ButMoveRefused()
+    {
+        using var world = new World();
+        var camera = new GameCamera(800, 600);
+        var history = new EditorHistory(world);
+        using var gizmo = new GizmoSystem(world, camera, history);
+        using var selection = new SelectionSystem(world, camera);
+        world.CreateEntity().Set(GizmoStateComponent.Default);
+
+        var segment = world.CreateEntity();
+        segment.Set(new TransformComponent(new Vector2(200, 200)));
+        segment.Set(new ConvexColliderComponent(new[]
+        {
+            new Vector2(-20, -4), new Vector2(20, -4), new Vector2(20, 4), new Vector2(-20, 4),
+        }, passive: true));
+        segment.Set(new BakedProductComponent());
+
+        // Border-pick the segment (top edge, world (200,196)): it IS selectable (inspectable).
+        var cursor = CreateCursor(world, new Vector2(200, 196), pressed: true);
+        selection.Update(Edit());
+        Assert.True(segment.Has<SelectedComponent>());
+
+        // Try to move it: the press on the move handle (its world centre (200,200)) is claimed but
+        // refused — a baked product regenerates from its source, so it never moves.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.WorldPosition = new Vector2(200, 200);
+        input.LeftButton = true;
+        input.LeftButtonPressed = true;
+        gizmo.Update(Edit());
+        input.LeftButtonPressed = false;
+        input.WorldPosition = new Vector2(230, 200);
+        gizmo.Update(Edit());
+        input.LeftButton = false;
+        input.LeftButtonReleased = true;
+        gizmo.Update(Edit());
+
+        Assert.Equal(new Vector2(200, 200), segment.Get<TransformComponent>().Position); // never moved
+        Assert.Equal(0, history.Count);
     }
 }

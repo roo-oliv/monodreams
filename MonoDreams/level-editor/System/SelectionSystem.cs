@@ -5,6 +5,7 @@ using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
@@ -70,16 +71,19 @@ namespace MonoDreams.LevelEditor.System;
 /// sees it (a monotonic counter = first-seen / creation order) and breaks ties by MAX id — the
 /// later-seen entity, which an undisturbed scene renders last. See <see cref="PickTopmost(int,float,int,bool,int,float,int)"/>.</para>
 ///
-/// <para><b>Gizmo proxies join the SAME pick (Wave 8b), as border-only candidates.</b> Collider
-/// proxy entities (<see cref="GizmoProxyComponent"/>) carry no <c>SpriteInfoComponent</c>, so they
-/// are folded into the pick as a second candidate source with the SAME rank + depth + id ordering
-/// (never a second pick path): rank = Main (they are world-space outlines), depth =
+/// <para><b>Spriteless entities join the SAME pick, as border-only candidates.</b> A collider
+/// ENTITY (colliders-as-entities), a boundary, the camera rig, and the surviving sub-element
+/// proxies (vertex/thickness handles) carry no pickable <c>SpriteInfoComponent</c>, so each is
+/// folded into the pick as a second candidate source with the SAME rank + depth + id ordering
+/// (never a second pick path): rank = Main (world-space outlines), depth =
 /// <see cref="ProxyBorderPickDepth"/> (a constant "drawn on top of game sprites" rank — the
 /// outline VISUAL renders on the Editor overlay layer above the whole scene, so they win where
-/// they visibly overlap), id = the same <see cref="EditorIdComponent"/> tiebreak. Their hit-test is the shape's
-/// <b>border</b> within a <c>1/Camera.Zoom</c>-scaled tolerance — never the fill — so a collider
-/// that covers its entity's sprite doesn't make the sprite unselectable: click the outline to grab
-/// the proxy, click inside to pick the entity.</para>
+/// they visibly overlap; a bake product sits a hair lower at <see cref="BakedProductPickDepth"/>,
+/// a vertex handle a hair higher at <see cref="ProxyVertexPickDepth"/>), id = the same
+/// <see cref="EditorIdComponent"/> tiebreak. The hit-test is the shape's <b>border</b> within a
+/// <c>1/Camera.Zoom</c>-scaled tolerance — never the fill — so a collider that covers a sprite
+/// doesn't make the sprite unselectable: click the outline to grab the collider, click inside to
+/// pick the sprite.</para>
 /// </summary>
 /// <remarks>A plain <see cref="ISystem{T}"/> iterating its own candidate set — deliberately NOT an
 /// <c>AEntitySetSystem</c>, whose <c>Update</c> early-outs entirely when the set is empty: in a
@@ -105,12 +109,23 @@ public sealed class SelectionSystem : ISystem<GameState>
     /// (the finer element), deterministically, not fall to the id tiebreak.</summary>
     public const float ProxyVertexPickDepth = 0.9985f;
 
+    /// <summary>The pick depth of a <b>bake product</b> (a boundary's baked segment collider) —
+    /// deliberately a hair BELOW <see cref="ProxyBorderPickDepth"/>: a bake product is derived
+    /// geometry that overlaps its authoring source (the boundary polyline picks at
+    /// <see cref="ProxyBorderPickDepth"/>), so where they coincide the SOURCE wins and stays the
+    /// edit surface. The product is still pickable (inspectable) but movement-refused — it
+    /// regenerates from its source (see the boundary premise). Still above game sprites, so a
+    /// segment reads as on-top chrome like every collider outline.</summary>
+    public const float BakedProductPickDepth = 0.9975f;
+
     private readonly World _world;
     private readonly Camera? _camera;
     private readonly EntitySet _spriteSet;
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _proxySet;
+    private readonly EntitySet _boxColliderSet;
+    private readonly EntitySet _convexColliderSet;
     private readonly EntitySet _boundarySet;
     private readonly EntitySet _cameraRigSet;
     private readonly EntitySet _gizmoStateSet;
@@ -149,6 +164,14 @@ public sealed class SelectionSystem : ISystem<GameState>
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _proxySet = world.GetEntities()
             .With<GizmoProxyComponent>().With<TransformComponent>().With<DrawComponent>().AsSet();
+        // Collider ENTITIES are spriteless — they border-pick on their world shape (the camera-rig
+        // precedent). Queried by the SHAPE component (not ColliderTagComponent, which is only
+        // auto-applied when a detection system is composed — absent in a selection-only editor / a
+        // bare unit test), so a collider entity is always pickable.
+        _boxColliderSet = world.GetEntities()
+            .With<BoxColliderComponent>().With<TransformComponent>().AsSet();
+        _convexColliderSet = world.GetEntities()
+            .With<ConvexColliderComponent>().With<TransformComponent>().AsSet();
         _boundarySet = world.GetEntities()
             .With<BoundaryComponent>().With<TransformComponent>().AsSet();
         _cameraRigSet = world.GetEntities()
@@ -239,6 +262,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         foreach (var entity in _spriteSet.GetEntities())
             EvaluateSpriteCandidate(entity);
         EvaluateProxyCandidates();
+        EvaluateColliderCandidates();
         EvaluateBoundaryCandidates();
         EvaluateCameraRigCandidate();
 
@@ -345,6 +369,51 @@ public sealed class SelectionSystem : ISystem<GameState>
                 _bestId = id;
                 _best = proxy;
             }
+        }
+    }
+
+    /// <summary>
+    /// Folds collider ENTITIES (colliders-as-entities) into the pick: a click within the border
+    /// tolerance of a collider's world shape (box corners or convex world vertices) selects the
+    /// collider entity itself — the camera-rig precedent for a spriteless first-class entity (rank
+    /// Main; depth <see cref="ProxyBorderPickDepth"/> — the same on-top rank the old collider proxy
+    /// had; id the shared tiebreak). It is a <b>border-only</b> candidate — a collider covering a
+    /// sprite never shadows the sprite (click the outline to grab the collider, click inside to pick
+    /// the sprite). A <b>bake product</b> (a boundary's baked segment) picks at the lower
+    /// <see cref="BakedProductPickDepth"/>, so its authoring source (the boundary polyline) wins
+    /// where they overlap. The collider entity is then moved/scaled by the ordinary gizmo (a
+    /// <c>TransformEditCommand</c> on its own transform) — a first-class entity, not a proxy;
+    /// once selected, a convex collider's per-vertex grips (spawned by <c>ProxySyncSystem</c>) rank
+    /// higher (<see cref="ProxyVertexPickDepth"/>) so a click near a vertex grabs the vertex.
+    /// </summary>
+    private void EvaluateColliderCandidates()
+    {
+        var invZoom = _camera != null && _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
+        var tolerance = ProxyBorderPickTolerancePixels * invZoom;
+        foreach (var e in _boxColliderSet.GetEntities()) EvaluateColliderCandidate(e, tolerance);
+        foreach (var e in _convexColliderSet.GetEntities()) EvaluateColliderCandidate(e, tolerance);
+    }
+
+    private void EvaluateColliderCandidate(Entity entity, float tolerance)
+    {
+        if (!entity.IsAlive) return;
+        if (!ProxyGeometry.TryGetColliderWorldShape(entity, out var outline)) return;
+        if (!ProxyGeometry.BorderContains(outline, _worldPoint, tolerance)) return;
+
+        if (!entity.Has<EditorIdComponent>())
+            entity.Set(new EditorIdComponent(_nextEditorId++));
+        var id = entity.Get<EditorIdComponent>().Id;
+        var rank = TargetRank(RenderTargetID.Main); // collider outlines are world-space on Main
+        // A bake product picks below a normal collider + below its source boundary polyline.
+        var depth = entity.Has<BakedProductComponent>() ? BakedProductPickDepth : ProxyBorderPickDepth;
+
+        if (Beats(rank, depth, id, _hasBest, _bestRank, _bestDepth, _bestId))
+        {
+            _hasBest = true;
+            _bestRank = rank;
+            _bestDepth = depth;
+            _bestId = id;
+            _best = entity;
         }
     }
 
@@ -509,6 +578,8 @@ public sealed class SelectionSystem : ISystem<GameState>
         _cursorSet.Dispose();
         _selectedSet.Dispose();
         _proxySet.Dispose();
+        _boxColliderSet.Dispose();
+        _convexColliderSet.Dispose();
         _boundarySet.Dispose();
         _cameraRigSet.Dispose();
         _gizmoStateSet.Dispose();

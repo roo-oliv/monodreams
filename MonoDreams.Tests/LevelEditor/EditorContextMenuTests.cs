@@ -62,29 +62,35 @@ public class EditorContextMenuTests
     [Fact]
     public void EntityMenu_HasOrderSubmenu_PrefabActions_AndDangerDelete()
     {
-        // PF-D: Order ▸ | --- | Create Prefab from Selection… | Unpack Prefab (Danger) | --- | Delete (Danger).
+        // Order ▸ | Add Collider ▸ | --- | Create Prefab from Selection… | Unpack Prefab (Danger) | --- | Delete (Danger).
         var items = EditorContextMenuModel.EntityMenu(hasSelection: true);
-        Assert.Equal(6, items.Count);
+        Assert.Equal(7, items.Count);
         Assert.Equal(EditorMenuItemKind.Submenu, items[0].Kind);
         Assert.NotNull(items[0].Submenu);
         Assert.Equal(2, items[0].Submenu!.Count);
         Assert.Equal(EditorContextMenuModel.OrderForwardPath, items[0].Submenu![0].Path);
         Assert.Equal(EditorContextMenuModel.OrderBackPath, items[0].Submenu![1].Path);
-        Assert.Equal(EditorMenuItemKind.Separator, items[1].Kind);
-        Assert.Equal(EditorContextMenuModel.CreatePrefabFromSelectionPath, items[2].Path);
-        Assert.True(items[2].Enabled); // enabled with a selection
-        Assert.Equal(EditorContextMenuModel.UnpackPrefabPath, items[3].Path);
-        Assert.True(items[3].Danger);
-        Assert.Equal(EditorMenuItemKind.Separator, items[4].Kind);
-        Assert.Equal(EditorContextMenuModel.DeletePath, items[5].Path);
-        Assert.True(items[5].Danger);
+        // Add Collider ▸ Box / Polygon (colliders-as-entities): creates a child collider entity.
+        Assert.Equal(EditorMenuItemKind.Submenu, items[1].Kind);
+        Assert.Equal(EditorContextMenuModel.AddColliderSubmenuPath, items[1].Path);
+        Assert.Equal(2, items[1].Submenu!.Count);
+        Assert.Equal(EditorContextMenuModel.AddColliderBoxPath, items[1].Submenu![0].Path);
+        Assert.Equal(EditorContextMenuModel.AddColliderPolygonPath, items[1].Submenu![1].Path);
+        Assert.Equal(EditorMenuItemKind.Separator, items[2].Kind);
+        Assert.Equal(EditorContextMenuModel.CreatePrefabFromSelectionPath, items[3].Path);
+        Assert.True(items[3].Enabled); // enabled with a selection
+        Assert.Equal(EditorContextMenuModel.UnpackPrefabPath, items[4].Path);
+        Assert.True(items[4].Danger);
+        Assert.Equal(EditorMenuItemKind.Separator, items[5].Kind);
+        Assert.Equal(EditorContextMenuModel.DeletePath, items[6].Path);
+        Assert.True(items[6].Danger);
     }
 
     [Fact]
     public void EntityMenu_UnpackEnabledOnlyForAPrefabInstance()
     {
-        Assert.False(EditorContextMenuModel.EntityMenu(hasSelection: true, isPrefabInstance: false)[3].Enabled);
-        Assert.True(EditorContextMenuModel.EntityMenu(hasSelection: true, isPrefabInstance: true)[3].Enabled);
+        Assert.False(EditorContextMenuModel.EntityMenu(hasSelection: true, isPrefabInstance: false)[4].Enabled);
+        Assert.True(EditorContextMenuModel.EntityMenu(hasSelection: true, isPrefabInstance: true)[4].Enabled);
     }
 
     [Fact]
@@ -110,9 +116,11 @@ public class EditorContextMenuTests
         var items = EditorContextMenuModel.EntityMenu(hasSelection: false);
         Assert.False(items[0].Enabled);            // Order submenu
         Assert.False(items[0].Submenu![0].Enabled); // Bring Forward
-        Assert.False(items[2].Enabled);            // Create Prefab from Selection
-        Assert.False(items[3].Enabled);            // Unpack (also needs an instance)
-        Assert.False(items[5].Enabled);            // Delete
+        Assert.False(items[1].Enabled);            // Add Collider submenu
+        Assert.False(items[1].Submenu![0].Enabled); // Add Collider ▸ Box
+        Assert.False(items[3].Enabled);            // Create Prefab from Selection
+        Assert.False(items[4].Enabled);            // Unpack (also needs an instance)
+        Assert.False(items[6].Enabled);            // Delete
     }
 
     [Fact]
@@ -155,10 +163,10 @@ public class EditorContextMenuTests
     [Fact]
     public void MenuHeight_CountsRowsAndShorterSeparators()
     {
-        var items = EditorContextMenuModel.EntityMenu(hasSelection: true); // 4 item rows + 2 separators (PF-D)
+        var items = EditorContextMenuModel.EntityMenu(hasSelection: true); // 5 item rows + 2 separators
         var h = EditorContextMenuLayout.MenuHeight(items, 1f);
         var expected = EditorContextMenuLayout.VerticalPadding * 2
-                       + 4 * EditorContextMenuLayout.ItemHeight
+                       + 5 * EditorContextMenuLayout.ItemHeight
                        + 2 * EditorContextMenuLayout.SeparatorHeight;
         Assert.Equal(expected, h);
     }
@@ -205,7 +213,7 @@ public class EditorContextMenuTests
         Assert.False(menu.IsOpen);
         menu.OpenAt(EditorContextMenuModel.EntityMenu(true), new Point(100, 100));
         Assert.True(menu.IsOpen);
-        Assert.Equal(6, menu.Items.Count); // PF-D: Order / --- / Create Prefab / Unpack / --- / Delete
+        Assert.Equal(7, menu.Items.Count); // Order / Add Collider / --- / Create Prefab / Unpack / --- / Delete
 
         menu.Close();
         Assert.False(menu.IsOpen);
@@ -271,7 +279,7 @@ public class EditorContextMenuTests
         var items = EditorContextMenuModel.EntityMenu(true);
         menu.OpenAt(items, new Point(100, 100));
         var menuRect = EditorContextMenuLayout.MenuRect(new Point(100, 100), items, 800, 600, 1f);
-        var deleteRect = EditorContextMenuLayout.ItemRect(menuRect, items, 5, 1f); // Delete (PF-D: index 5)
+        var deleteRect = EditorContextMenuLayout.ItemRect(menuRect, items, 6, 1f); // Delete (index 6 with Add Collider)
         SetCursorScreen(cursor, Center(deleteRect), leftReleased: true);
 
         menu.Update(Edit());

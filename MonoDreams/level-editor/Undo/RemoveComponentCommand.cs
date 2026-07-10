@@ -7,8 +7,8 @@ namespace MonoDreams.LevelEditor.Undo;
 /// <summary>
 /// A reversible <b>remove</b> of a component from an entity — the DevTools-grade Inspector's per-row
 /// delete (PF-A §3). Pure data: the target entity, the component <see cref="Type"/>, and a boxed
-/// <b>snapshot</b> of the component's value taken at construction (so undo restores it field-for-field,
-/// mirroring <c>ColliderComponentCommand</c>'s remove-snapshot). <see cref="Apply"/> removes;
+/// <b>snapshot</b> of the component's value taken at construction (so undo restores it field-for-field).
+/// <see cref="Apply"/> removes;
 /// <see cref="Revert"/> re-sets the snapshot. A dead target is a safe no-op.
 ///
 /// <para><b>Guardrails (pre-mortem #6).</b> Removing a <c>SpriteInfoComponent</c> also removes the

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
@@ -15,14 +14,16 @@ using GameCamera = MonoDreams.Component.Camera;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// Protects the island-authoring Slice 2 proxy generalization: <c>ProxySyncSystem</c> keys its
-/// family by <c>(kind, index)</c>, and a <see cref="ProxyBindingKind.ConvexVertex"/> proxy per
-/// <c>ModelVertices</c> entry materializes while the convex family's own proxy (shape or vertex)
-/// is selected — one click deep. Dragging a vertex proxy writes back exactly ONE model vertex
-/// through <see cref="ColliderEditCommand"/> (one drag = one undo step), and a drag frame whose
-/// result would break convexity is rejected (the loud-reject strategy). Names the live premise
-/// "Convex colliders are vertex-edited through (kind, index) proxies; invalid shapes are
-/// rejected loudly" in MonoDreams/level-editor/docs/premises.md.
+/// Protects the surviving sub-element proxy: a convex collider ENTITY's per-vertex grips
+/// (colliders-as-entities retired the whole-shape proxies, but a vertex is too fine to be its own
+/// entity). <c>ProxySyncSystem</c> materializes one <see cref="ProxyBindingKind.ConvexVertex"/> proxy
+/// per <c>ModelVertices</c> entry while the convex collider entity (or one of its own vertex proxies)
+/// is selected — the grips appear on selecting the collider directly, no whole-shape proxy to click
+/// through. Dragging a vertex proxy writes back exactly ONE model vertex through
+/// <see cref="ColliderEditCommand"/> (one drag = one undo step), and a drag whose result would break
+/// convexity is rejected (the loud-reject strategy). Names the live premise "A convex collider entity's
+/// vertices are edited through (kind, index) grip proxies…" in
+/// MonoDreams/level-editor/docs/premises.md.
 /// </summary>
 public class ProxyVertexTests
 {
@@ -42,13 +43,6 @@ public class ProxyVertexTests
         return cursor;
     }
 
-    private static List<Entity> Proxies(EntitySet set)
-    {
-        var list = new List<Entity>();
-        foreach (var e in set.GetEntities()) list.Add(e);
-        return list;
-    }
-
     private static Entity FindProxy(EntitySet set, ProxyBindingKind kind, int index = 0)
     {
         foreach (var e in set.GetEntities())
@@ -59,38 +53,29 @@ public class ProxyVertexTests
         return default;
     }
 
-    // ---- Family lifecycle: entity selection = shape proxies only; selecting the shape proxy
-    // materializes the per-vertex handles; deselection despawns everything ----
+    // ---- Family lifecycle: selecting the convex collider ENTITY materializes the per-vertex grips
+    // directly (no whole-shape proxy); deselection despawns everything ----
 
     [Fact]
-    public void VertexProxies_MaterializeWhenTheConvexFamilyProxyIsSelected()
+    public void VertexProxies_MaterializeWhenTheConvexColliderEntityIsSelected()
     {
         using var world = new World();
         var camera = new GameCamera(800, 600);
         using var sync = new ProxySyncSystem(world, camera);
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new ConvexColliderComponent(new[]
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(100, 100)));
+        collider.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15),
         }));
-        owner.Set(new SelectedComponent());
+        collider.Set(new SelectedComponent());
 
-        // Entity selected: the whole-shape proxy only — no vertex clutter.
+        // Selecting the convex collider entity shows its vertex grips directly — one per
+        // ModelVertices entry, keyed (ConvexVertex, i). There is NO whole-shape proxy.
         sync.Update(Edit());
-        Assert.Equal(1, proxies.Count);
-        var shapeProxy = FindProxy(proxies, ProxyBindingKind.ConvexColliderShape);
-        Assert.True(shapeProxy.IsAlive);
-        Assert.Equal(0, shapeProxy.Get<GizmoProxyComponent>().Index);
-
-        // Shape proxy selected (the designer clicked the outline): vertex handles materialize —
-        // one per ModelVertices entry, keyed (ConvexVertex, i).
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(4, proxies.Count); // shape + 3 vertices
+        Assert.Equal(3, proxies.Count);
         for (var i = 0; i < 3; i++)
             Assert.True(FindProxy(proxies, ProxyBindingKind.ConvexVertex, i).IsAlive);
 
@@ -98,21 +83,20 @@ public class ProxyVertexTests
         var v1 = FindProxy(proxies, ProxyBindingKind.ConvexVertex, 1);
         Assert.Equal(new Vector2(120, 100), v1.Get<TransformComponent>().Position);
 
-        // Selecting a VERTEX proxy keeps the whole family (still one click inside the session).
-        shapeProxy.Remove<SelectedComponent>();
+        // Selecting a VERTEX proxy keeps the whole family (anchor = the proxy's bound collider).
+        collider.Remove<SelectedComponent>();
         v1.Set(new SelectedComponent());
         sync.Update(Edit());
-        Assert.Equal(4, proxies.Count);
+        Assert.Equal(3, proxies.Count);
 
-        // Back to the owner: the vertex handles fold away, the shape proxy stays.
+        // Back to the collider: the family stays (still selecting the collider).
         v1.Remove<SelectedComponent>();
-        owner.Set(new SelectedComponent());
+        collider.Set(new SelectedComponent());
         sync.Update(Edit());
-        Assert.Equal(1, proxies.Count);
-        Assert.True(FindProxy(proxies, ProxyBindingKind.ConvexColliderShape).IsAlive);
+        Assert.Equal(3, proxies.Count);
 
         // Deselect everything: the family despawns.
-        owner.Remove<SelectedComponent>();
+        collider.Remove<SelectedComponent>();
         sync.Update(Edit());
         Assert.Equal(0, proxies.Count);
     }
@@ -126,32 +110,28 @@ public class ProxyVertexTests
         using var sync = new ProxySyncSystem(world, camera);
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new ConvexColliderComponent(new[]
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(Vector2.Zero));
+        collider.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(20, 20), new Vector2(0, 20),
         }));
-        owner.Set(new SelectedComponent());
+        collider.Set(new SelectedComponent());
         sync.Update(Edit());
-        var shapeProxy = FindProxy(proxies, ProxyBindingKind.ConvexColliderShape);
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
-        Assert.Equal(5, proxies.Count); // shape + 4 vertices
+        Assert.Equal(4, proxies.Count); // one grip per vertex
 
         // Shrink the vertex list through the real command path (a delete-vertex edit).
-        history.Push(ColliderEditCommand.ForConvex(owner, new[]
+        history.Push(ColliderEditCommand.ForConvex(collider, new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(20, 20),
         }));
         sync.Update(Edit());
-        Assert.Equal(4, proxies.Count); // shape + 3 vertices — index 3 pruned
+        Assert.Equal(3, proxies.Count); // index 3 pruned
 
         // Undo grows it back.
         history.Undo();
         sync.Update(Edit());
-        Assert.Equal(5, proxies.Count);
+        Assert.Equal(4, proxies.Count);
     }
 
     // ---- Vertex drag: writes exactly ONE model vertex, one undo step, world data refreshed ----
@@ -166,22 +146,18 @@ public class ProxyVertexTests
         using var gizmo = new GizmoSystem(world, camera, history);
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new ConvexColliderComponent(new[]
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(100, 100)));
+        collider.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15),
         }));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        var shapeProxy = FindProxy(proxies, ProxyBindingKind.ConvexColliderShape);
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
+        collider.Set(new SelectedComponent());
         sync.Update(Edit());
 
         // Select vertex 1 (world (120,100)) and press on its pivot — the move handle.
         var v1 = FindProxy(proxies, ProxyBindingKind.ConvexVertex, 1);
-        shapeProxy.Remove<SelectedComponent>();
+        collider.Remove<SelectedComponent>();
         v1.Set(new SelectedComponent());
         sync.Update(Edit());
         var cursor = CreateCursor(world, new Vector2(120, 100), pressed: true);
@@ -196,7 +172,7 @@ public class ProxyVertexTests
         input.LeftButtonReleased = true;
         gizmo.Update(Edit());
 
-        var convex = owner.Get<ConvexColliderComponent>();
+        var convex = collider.Get<ConvexColliderComponent>();
         Assert.Equal(new Vector2(0, 0), convex.ModelVertices[0]);   // untouched
         Assert.Equal(new Vector2(26, -4), convex.ModelVertices[1]); // the dragged vertex
         Assert.Equal(new Vector2(10, 15), convex.ModelVertices[2]); // untouched
@@ -205,7 +181,7 @@ public class ProxyVertexTests
         Assert.Equal(1, history.Count); // one drag = one undo step
 
         history.Undo();
-        convex = owner.Get<ConvexColliderComponent>();
+        convex = collider.Get<ConvexColliderComponent>();
         Assert.Equal(new Vector2(20, 0), convex.ModelVertices[1]);
         Assert.Equal(new Vector2(120, 100), convex.WorldVertices[1]);
     }
@@ -226,20 +202,16 @@ public class ProxyVertexTests
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(20, 20), new Vector2(0, 20),
         };
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new ConvexColliderComponent((Vector2[])square.Clone()));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        var shapeProxy = FindProxy(proxies, ProxyBindingKind.ConvexColliderShape);
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(Vector2.Zero));
+        collider.Set(new ConvexColliderComponent((Vector2[])square.Clone()));
+        collider.Set(new SelectedComponent());
         sync.Update(Edit());
 
         // Select vertex 0 (world (0,0)); press its handle; drag INTO the square (15,15) — the
         // result is non-convex, so the frame is rejected and nothing is applied.
         var v0 = FindProxy(proxies, ProxyBindingKind.ConvexVertex, 0);
-        shapeProxy.Remove<SelectedComponent>();
+        collider.Remove<SelectedComponent>();
         v0.Set(new SelectedComponent());
         sync.Update(Edit());
         var cursor = CreateCursor(world, new Vector2(0, 0), pressed: true);
@@ -249,14 +221,14 @@ public class ProxyVertexTests
         input.LeftButtonPressed = false;
         input.WorldPosition = new Vector2(15, 15);
         gizmo.Update(Edit());
-        Assert.Equal(square, owner.Get<ConvexColliderComponent>().ModelVertices);
+        Assert.Equal(square, collider.Get<ConvexColliderComponent>().ModelVertices);
 
         // Release: no valid frame was ever pushed → the transaction commits nothing.
         input.LeftButton = false;
         input.LeftButtonReleased = true;
         gizmo.Update(Edit());
         Assert.Equal(0, history.Count);
-        Assert.Equal(square, owner.Get<ConvexColliderComponent>().ModelVertices);
+        Assert.Equal(square, collider.Get<ConvexColliderComponent>().ModelVertices);
 
         // A valid drag on the same vertex (outward, stays convex) lands normally.
         input.WorldPosition = new Vector2(0, 0);
@@ -271,7 +243,7 @@ public class ProxyVertexTests
         input.LeftButtonReleased = true;
         gizmo.Update(Edit());
 
-        Assert.Equal(new Vector2(-5, -5), owner.Get<ConvexColliderComponent>().ModelVertices[0]);
+        Assert.Equal(new Vector2(-5, -5), collider.Get<ConvexColliderComponent>().ModelVertices[0]);
         Assert.Equal(1, history.Count);
     }
 
@@ -311,7 +283,7 @@ public class ProxyVertexTests
         Assert.False(ProxyGeometry.IsConvex(null));
     }
 
-    // ---- Selection: a click near a vertex picks the VERTEX handle over the shape border ----
+    // ---- Selection: a click near a vertex picks the VERTEX handle over the collider entity border ----
 
     [Fact]
     public void VertexHandle_WinsThePick_WhereItRidesTheShapeBorder()
@@ -322,26 +294,22 @@ public class ProxyVertexTests
         using var selection = new SelectionSystem(world, camera);
         using var proxies = world.GetEntities().With<GizmoProxyComponent>().AsSet();
 
-        var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new ConvexColliderComponent(new[]
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(new Vector2(100, 100)));
+        collider.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15),
         }));
-        owner.Set(new SelectedComponent());
-        sync.Update(Edit());
-        var shapeProxy = FindProxy(proxies, ProxyBindingKind.ConvexColliderShape);
-        owner.Remove<SelectedComponent>();
-        shapeProxy.Set(new SelectedComponent());
-        sync.Update(Edit());
+        collider.Set(new SelectedComponent());
+        sync.Update(Edit()); // grips materialize on selecting the collider entity
 
-        // Click exactly at vertex 0's world position: both the shape border and the vertex handle
-        // are under the cursor; the vertex's dedicated pick depth wins deterministically.
+        // Click exactly at vertex 0's world position: both the collider entity's border and the
+        // vertex handle are under the cursor; the vertex's higher pick depth wins deterministically.
         CreateCursor(world, new Vector2(100, 100), pressed: true);
         selection.Update(Edit());
 
         var v0 = FindProxy(proxies, ProxyBindingKind.ConvexVertex, 0);
         Assert.True(v0.Has<SelectedComponent>());
-        Assert.False(shapeProxy.Has<SelectedComponent>());
+        Assert.False(collider.Has<SelectedComponent>());
     }
 }

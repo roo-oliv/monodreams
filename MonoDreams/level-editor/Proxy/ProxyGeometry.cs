@@ -38,11 +38,12 @@ public static class ProxyGeometry
     public const float VertexHandleWorldHalfExtent = 2f;
 
     /// <summary>
-    /// The world-space outline polygon of the shape <paramref name="kind"/> binds on
-    /// <paramref name="target"/> — box corners (TL→TR→BR→BL), the convex world vertices, or a
-    /// small square around the <paramref name="index"/>-th convex vertex for a per-vertex
-    /// binding. False when the target is dead, no longer carries the bound component, or the
-    /// index is out of range (a stale vertex proxy after a delete).
+    /// The world-space outline polygon of the sub-element <paramref name="kind"/> binds on
+    /// <paramref name="target"/> — a small square around the <paramref name="index"/>-th convex
+    /// vertex / boundary point, or the boundary's thickness handle. False when the target is dead,
+    /// no longer carries the bound component, or the index is out of range (a stale vertex proxy
+    /// after a delete). (The former whole-shape box/convex cases are retired — a collider is its
+    /// own entity now; see <see cref="TryGetColliderWorldShape"/> for a collider entity's outline.)
     /// </summary>
     public static bool TryGetWorldOutline(Entity target, ProxyBindingKind kind, int index, out Vector2[] outline)
     {
@@ -52,18 +53,6 @@ public static class ProxyGeometry
 
         switch (kind)
         {
-            case ProxyBindingKind.BoxColliderBounds:
-                if (!target.Has<BoxColliderComponent>()) return false;
-                outline = BoxWorldCorners(transform, target.Get<BoxColliderComponent>());
-                return true;
-
-            case ProxyBindingKind.ConvexColliderShape:
-                if (!target.Has<ConvexColliderComponent>()) return false;
-                var convex = target.Get<ConvexColliderComponent>();
-                if (convex.ModelVertices == null || convex.ModelVertices.Length < 3) return false;
-                outline = ConvexWorldVertices(transform, convex);
-                return true;
-
             case ProxyBindingKind.ConvexVertex:
                 if (!target.Has<ConvexColliderComponent>()) return false;
                 var collider = target.Get<ConvexColliderComponent>();
@@ -95,6 +84,35 @@ public static class ProxyGeometry
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// The world-space outline polygon of a collider ENTITY's shape — box corners (TL→TR→BR→BL)
+    /// or the convex world vertices — derived from the entity's own <c>TransformComponent</c>
+    /// (colliders-as-entities). This is the pick surface + selection outline for a spriteless
+    /// collider entity (the camera-rig border-pick precedent): the collider is selected by a
+    /// border click on this outline and moved/scaled by the ordinary gizmo. False when the entity
+    /// is dead, has no transform, or carries no (usable) shape component.
+    /// </summary>
+    public static bool TryGetColliderWorldShape(Entity entity, out Vector2[] outline)
+    {
+        outline = Array.Empty<Vector2>();
+        if (!entity.IsAlive || !entity.Has<TransformComponent>()) return false;
+        var transform = entity.Get<TransformComponent>();
+
+        if (entity.Has<BoxColliderComponent>())
+        {
+            outline = BoxWorldCorners(transform, entity.Get<BoxColliderComponent>());
+            return true;
+        }
+        if (entity.Has<ConvexColliderComponent>())
+        {
+            var convex = entity.Get<ConvexColliderComponent>();
+            if (convex.ModelVertices == null || convex.ModelVertices.Length < 3) return false;
+            outline = ConvexWorldVertices(transform, convex);
+            return true;
+        }
+        return false;
     }
 
     /// <summary>A small world-space square around <paramref name="world"/> — the pick anchor a
