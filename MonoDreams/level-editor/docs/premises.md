@@ -1492,6 +1492,17 @@ state …" (the toolbar icon set this pattern seeded); rendering — the mesh
 
 ## Collider shapes are edited through standalone gizmo proxies; write-back targets the bound component, through the undo history
 
+> **CE-A UPDATE (partial; full rewrite is CE-C).** The engine now makes a collider its own
+> ENTITY (a shape + its own `TransformComponent`; see collision — "A collider IS an entity").
+> `BoxColliderComponent` lost `Bounds` and carries only a centered `Vector2 Size`. This premise's
+> proxy machinery is kept COMPILING against the new shape for CE-A but is the retiring path: the
+> box world pose routes through `SATCollision.BoxWorldRect` (so the box proxy sits at the box's
+> world centre = the collider entity's `WorldPosition`, no `Bounds.Center` offset), and the
+> box-resize/move proxy write-back + box-on-sprite border pick are marked `TODO(CE-C)` and their
+> tests skipped-with-reason — in CE-C a collider child is selected (border-pick on its world shape)
+> and moved/scaled by the ordinary gizmo, and only the convex vertex grips remain proxy-style.
+> The text below describes the pre-CE-C mechanism; convex/vertex proxies still hold as written.
+
 Colliders are **not** entities — `BoxColliderComponent.Bounds` (an entity-relative rectangle) and
 `ConvexColliderComponent.ModelVertices` (local-space vertices; `WorldVertices` is derived) are
 component-local spatial data on the game entity, so neither the selection (which picks rendered

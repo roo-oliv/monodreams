@@ -2,26 +2,59 @@
 
 > Technical invariants the engine assumes about the collision module:
 > `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`,
-> `IColliderComponent`, `CollisionMessage`, `TransformCollisionDetectionSystem`,
-> and the two resolution systems. Read this before changing any of those
-> pieces or any system that emits or consumes `CollisionMessage`.
+> `IColliderComponent`, `CollisionMessage`, `ColliderBody`,
+> `TransformCollisionDetectionSystem`, and the two resolution systems. Read this
+> before changing any of those pieces or any system that emits or consumes
+> `CollisionMessage`.
 
-## `ColliderTagComponent` is the canonical query target
+## A collider IS an entity (colliders-as-entities)
 
-`TransformCollisionDetectionSystem` queries entities by
-`ColliderTagComponent`, not by `BoxColliderComponent` or
-`ConvexColliderComponent`. The tag is auto-applied to any entity that
-gains either collider component.
+A collider is its own entity: a shape component (`BoxColliderComponent` or
+`ConvexColliderComponent`) + its own `TransformComponent` (its pose, relative to a
+parent body via the ordinary `ChildOf`/`Transform.Parent` hierarchy, or standalone)
++ an auto-applied `ColliderTagComponent`. The shape carries no embedded pose:
+`BoxColliderComponent` is `{ Vector2 Size, ActiveLayers, Passive, Enabled }` and is
+**centered** on the collider entity's `WorldPosition` with extent `Size` scaled by
+`WorldScale` (rotation is intentionally ignored — the box stays axis-aligned; use a
+convex for a rotated hitbox). `ConvexColliderComponent` keeps `ModelVertices` in the
+collider entity's local space; `WorldVertices`/`BroadPhaseAABB` derive from that
+entity's own `WorldMatrix`. `SATCollision.BoxWorldRect` is the single source of the
+box's world pose (detection, resolution, debug outlines, and proxy geometry all route
+through it).
 
-**Why:** the unification lets detection treat box and convex colliders
-through the same query, dispatching to the right narrowphase test by
-type at iteration time. Two separate queries would duplicate the
-broadphase loop.
-**Breaks:** game code that adds `ColliderTagComponent` manually (or
-removes it while a collider remains) desyncs the tag from collider
-presence — the entity is queried but has no collider to test, or has a
-collider detection ignores.
-**Tests:** none yet.
+**Why:** the RFC's authoring-model fix — a collider authored off-center (a prefab
+child, a feet-anchored footprint) places by moving/parenting the collider ENTITY, not
+by an embedded offset that diverged authored-in-prefab vs placed-in-scene (the class of
+bug PF-G patched). A flat scene where the collider sat at the entity's origin is
+byte-identical.
+**Breaks:** deriving a box world rect anywhere but `BoxWorldRect` (e.g. re-adding a
+`Bounds` offset) reintroduces the offset divergence; putting two shape components on one
+entity makes it a single collider entity with undefined shape (give each its own child
+entity instead).
+**Tests:** `MonoDreams.Tests/Collision/SATCollisionTests.cs` (box/convex world geometry,
+centered box corners, child-entity world shape); `MonoDreams.Tests/Collision/ColliderEntityTests.cs`
+(child-collider world shape under a moved/scaled parent).
+**Depends on:** foundation — "`HierarchySystem` must run ahead of any system reading
+WorldPosition"; foundation — "`WorldMatrix` is cached and computed lazily".
+
+## `ColliderTagComponent` tags collider ENTITIES and is the canonical query target
+
+`TransformCollisionDetectionSystem` queries by `ColliderTagComponent`, not by
+`BoxColliderComponent` or `ConvexColliderComponent`. The tag is auto-applied (by the
+detection system's component-added subscriptions) to any entity that gains either
+collider component — under the entity model, that IS the collider entity.
+
+**Why:** the unification lets detection treat box and convex colliders through the same
+query, dispatching to the right narrowphase test by type at iteration time. Two separate
+queries would duplicate the broadphase loop.
+**Breaks:** game code that adds `ColliderTagComponent` manually (or removes it while a
+collider remains) desyncs the tag from collider presence. **The auto-tag is added on
+the component-added event, so the detection system must be constructed BEFORE the
+collider entities it should see** (or the entities re-add their collider) — a detection
+system created after a collider entity never tags it, and the collider is invisible to
+detection. The reference pipeline (and the tests) construct detection first.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs` (the behavior tests rely
+on detection-before-entities auto-tagging).
 **Depends on:** —
 
 ## Swept collision reads `TransformComponent.Delta`
@@ -64,45 +97,72 @@ A custom system that mutates vertices outside detection has no
 protection.
 **Depends on:** —
 
-## Collider world geometry derives from the entity's WORLD transform
+## A collider's body is resolved via `ColliderBody.Resolve` (nearest RigidBody, else Velocity, else self)
 
-Both narrowphase shapes are placed in the world from the entity's **world**
-transform, not its local one: `ConvexColliderComponent.UpdateWorldVertices`
-scales/rotates/translates `ModelVertices` by
-`TransformComponent.WorldScale`/`WorldRotation`/`WorldPosition`, and every box
-AABB / box-polygon (detection broadphase + narrowphase, resolution, and
-`SATCollision.BoxToPolygon`) is anchored at `TransformComponent.WorldPosition`.
-So a collider authored on a **child** entity — the first real case being a
-prefab instance's child (`house` → `House2` with a convex collider) — sits at
-its world location once placed, exactly where the editor's proxy / debug
-outlines (which already read `WorldPosition`) draw it. This **closes the former
-root-level-entity limitation** the convex derivation carried. For a root entity
-the world transform equals the local one (`WorldPosition == Position`,
-`WorldRotation == Rotation`, `WorldScale == Scale`), so every flat-hierarchy
-scene is **byte-identical** to the pre-change behaviour; the resolution
-position write-backs still mutate the *local* `Position`, correct only for a
-root dynamic mover (a dynamic child would need a world→local map — out of
-scope, interim).
+`ColliderBody.Resolve(collider)` is the one body-resolution primitive shared by
+detection, resolution, and message construction. It walks the `ChildOf` chain up from
+the collider entity (including the collider entity itself) and returns the nearest
+ancestor carrying `RigidBodyComponent`; failing that, the nearest carrying
+`VelocityComponent`; failing that, the collider entity itself. RigidBody wins outright
+over a nearer Velocity (the `else` is a fallback, not a nearest-wins race). A standalone
+collider — no physics ancestor — is therefore its own body: static geometry and trigger
+zones reduce to collider == body.
 
-**Why:** a prefab collider authored on a child used to land at its
-parent-relative local position when the instance was placed — "more to the top
-and right" of where it belonged — because the derivation read local `Position`.
-Reading the world transform makes authoring-in-prefab == placed-in-scene.
-**Breaks:** if a system mutates a moved ancestor without the world matrix being
-refreshed (foundation — "HierarchySystem must run ahead of any system reading
-WorldPosition"), a child collider tests against a stale world position; a baked
-child collider that ALSO copies the parent's world position onto its own local
-field would double-count once the matrix link is synced (see level-editor's
-`BoundaryBakeSystem` — segments sit at local origin, parented).
-**Tests:**
-`MonoDreams.Tests/Collision/SATCollisionTests.cs::ConvexCollider_ChildEntity_WorldVertices_IncludeParentWorldPosition`
-and `::BoxCollider_Root_WorldPosition_ByteIdenticalToLocal`;
-`MonoDreams.Tests/LevelEditor/PrefabMilestoneTests.cs` (author-collider-on-child
-→ instance → world-correct collider).
-**Depends on:** foundation — "HierarchySystem must run ahead of any system
-reading WorldPosition"; foundation — "`WorldMatrix` is cached and computed
-lazily". *CE (colliders-as-entities) will re-derive collider world geometry via
-the owning entity's `WorldMatrix` natively, subsuming this.*
+**Why:** a "body" is the physical thing a contact acts on; resolution write-back and the
+swept movement delta belong to it, not to a collider child riding it. One shared helper
+keeps detection/resolution/messages from each inventing a different answer.
+**Breaks:** resolving to the collider child instead of the body corrects the wrong entity
+(pre-mortem #1); a body query that stops at the first Velocity would pick a nearer
+kinematic proxy over the real RigidBody.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs` (the Resolve matrix:
+standalone / RigidBody ancestor / Velocity ancestor / RigidBody-wins-over-nearer-Velocity /
+plain-parent-falls-back-to-self).
+**Depends on:** foundation — "`ChildOfComponent` and `TransformComponent.Parent` are two
+intentional links"; physics — "`GravitySystem`/`VelocitySystem`" (the body markers).
+
+## Resolution corrects the BODY's Transform/Velocity, never the collider child
+
+The resolution systems apply the position correction (box: translate the body so its
+collider's world centre lands at the swept contact point; convex/SAT: translate the body
+by the MTV) and the velocity zeroing/damping to the **body** (`CollisionMessage.BodyA`),
+read the shapes from the **colliders** (`ColliderA`/`ColliderB`), and read the swept
+movement delta from the body's `TransformComponent.Delta`. The correction is a
+world-space vector applied to a root body via `Translate`; for a root body world delta ==
+local delta and the collider child follows via its parent's world matrix.
+
+**Why:** pre-mortem #1 — correcting a collider CHILD would drift it inside its parent
+while the body sails on. The body is the mover; the collider only describes where it is.
+A collider child's own local `Delta` is ~0 (it rides the body), so the swept test must
+read the body's delta or it never sweeps.
+**Breaks:** writing the correction to the collider entity de-syncs collider from body;
+reading the collider's own `Delta` for the sweep starves fast movers of contacts. A
+dynamic body that is itself a non-root child would need a world→local map for the
+correction — the same interim limitation as before CE (documented, out of scope).
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs::Resolution_CorrectsTheBody_NotTheColliderChild`
+(the child's local position is untouched while the body is blocked);
+`MonoDreams.Tests/LevelEditor/IslandMilestoneTests.cs` (a player BODY with a CHILD collider
+walks the island — the pre-mortem #1 tripwire).
+**Depends on:** this file — "A collider's body is resolved via `ColliderBody.Resolve`";
+foundation — "`TransformComponent.Delta` is meaningful only after `TransformCommitSystem` ran".
+
+## Multi-collider bodies are legal; resolution accumulates sequentially with re-validation
+
+A body may own N collider children (the former one-collider-of-each-type-per-entity
+assumption is RETIRED — detection iterates collider entities, so it falls out naturally).
+When two of a body's colliders both contact in one frame, resolution processes the
+messages in contact-time order and each `Resolve*` **re-runs the narrowphase at the
+current positions**: once an earlier correction has separated the body, the later
+message's re-validation finds no penetration and no-ops. Sequential correction with
+per-message re-validation is the accumulation rule — a body is never double-corrected
+into an explosion.
+
+**Why:** the entity model makes multi-collider bodies trivial to author (a hitbox per
+limb, a wide + a narrow footprint); the re-validation the resolver already did for a
+single contact is exactly what keeps N contacts stable.
+**Breaks:** applying every message's precomputed penetration blind (no re-validation)
+double-counts overlapping corrections and flings the body.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs::TwoColliderBody_BothChildrenContact_ResolvesWithoutExploding`.
+**Depends on:** this file — "Resolution corrects the BODY's Transform/Velocity".
 
 ## Reference physics pipeline order: Movement → Velocity → Detection → Resolution → Commit
 
@@ -144,20 +204,14 @@ entity positions.
 **Tests:** none yet.
 **Depends on:** —
 
-## One collider of each type per entity
+## One collider of each type per entity — RETIRED (colliders-as-entities)
 
-The framework assumes an entity has at most one `BoxColliderComponent`
-and at most one `ConvexColliderComponent`. Multiple colliders of the
-same type on a single entity is undefined behavior.
-
-**Why:** the assumption simplifies queries and narrowphase dispatch.
-The use case for multi-collider entities (e.g., one body, multiple
-hitboxes) hasn't appeared, so the framework hasn't designed for it.
-**Breaks:** queries pick one collider non-deterministically; detection
-may test against the wrong one. If the use case appears, this becomes
-a framework change, not a workaround.
-**Tests:** none yet.
-**Depends on:** —
+The former assumption (at most one `BoxColliderComponent` and one
+`ConvexColliderComponent` per entity) is gone. A collider is its own entity, and a body
+owns N collider children — see "A collider IS an entity" and "Multi-collider bodies are
+legal; resolution accumulates sequentially with re-validation". Authoring two shapes on
+ONE entity is still not a thing (that entity would be a single collider entity with an
+ambiguous shape); give each shape its own child collider entity.
 
 ## Layer-based filtering is the semantic pair filter
 
@@ -181,8 +235,9 @@ the layer wasn't set.
 
 `TransformCollisionDetectionSystem` narrows candidate pairs with a
 uniform spatial grid rebuilt every frame, not an all-pairs sweep. Each
-enabled collider's world AABB — **expanded by its
-`TransformComponent.Delta`** — is bucketed into every grid cell it
+enabled collider's world AABB — **expanded by its BODY's
+`TransformComponent.Delta`** (the collider rides its body; its own local delta
+is ~0) — is bucketed into every grid cell it
 overlaps, and only colliders sharing a cell are pair-tested (deduped on
 the *ordered* pair). The grid changes performance, not results: it emits
 exactly the `CollisionMessage` set the old all-pairs loop did. Two
@@ -231,22 +286,54 @@ spatial substitutes until this loosens.
 **Depends on:** foundation — "Don't mix two Transform-shaped components
 in one project".
 
-## `CollisionMessage` is the contract between detection and consumers
+## `CollisionMessage` carries both collider and body granularities
 
-Detection emits `CollisionMessage` (or a custom message that satisfies
-`ICollisionMessage` — `TransformCollisionDetectionSystem` is generic on
-the message type via a `CreateCollisionMessageDelegate`). The message
-carries the entity pair, contact point, contact normal, contact time,
-penetration depth, layer, and collision type. Resolution systems and
-game systems are the consumers.
+Detection emits `CollisionMessage` (or a custom message satisfying `ICollisionMessage` —
+`TransformCollisionDetectionSystem` is generic via `CreateCollisionMessageDelegate`). The
+message names FOUR entities: `ColliderA`/`ColliderB` (the collider entities — where the
+shape and identity live) and `BodyA`/`BodyB` (the resolved bodies, via `ColliderBody`).
+A is the initiator (the active, non-passive mover); B is the other side. Plus contact
+point/normal/time, penetration depth, layer, and collision type. The delegate receives
+all four entities, so a game classifier can key on identity (collider) or physics (body)
+without re-walking the hierarchy.
 
-**Why:** the generic message type lets games extend with custom fields
-(damage, knockback strength, sound cue ID) without modifying the
-framework. The base fields are the minimum contract for any contact.
-**Breaks:** a custom message that drops a base field silently breaks
-the resolution systems' assumption about what's available.
-**Tests:** none yet.
-**Depends on:** —
+**Each consumer reads the side it needs (the pre-mortem #4 audit):**
+| Consumer | side | why |
+|---|---|---|
+| resolution systems | `ColliderA/B` (shapes) + `BodyA` (write-back) + `BodyB` (touch msg) | geometry on the collider, correction on the body |
+| `GameCollisionHelper` / runner classifier | identity, collider-first-then-body | "Player" rides the body, "Zone"/"Collectible" ride the collider |
+| `ZoneDialogueTriggerSystem` | `ColliderB` | the zone's `DialogueZoneComponent` is on the collider entity |
+| `RunnerCollisionHandlerSystem` | `BodyA` (player state), `BodyB` (dispose) | dispose the whole collectible/obstacle body, not a collider child |
+| physics-demo `BallBounceSystem` | `BodyA` (write), `BodyB` (`FloorTag`) | collider == body there, so both resolve to the standalone entity |
+
+**Why:** identity and physics live on different entities now (a player's identity on its
+body, its collider on a child; a zone's identity on the collider entity itself), so a
+single "the other entity" field could not serve both dialogue zones and physics.
+**Breaks:** a consumer reading the wrong side misses identity (a dialogue zone read via
+`BodyB` when the body is a physics parent) or disposes/queries a collider child instead of
+the game object; a custom message dropping a base field breaks resolution.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs::CollisionMessage_CarriesColliderAndBody_ForBothSides`;
+the consumer sides are exercised by `IslandMilestoneTests`, `TriggerPlacementTests`,
+`PrefabMilestoneTests`, and `InfiniteRunnerTests`.
+**Depends on:** this file — "A collider's body is resolved via `ColliderBody.Resolve`".
+
+## Colliders-as-entities perf is parity-or-better (RFC criterion)
+
+The entity model reads an already-computed `WorldMatrix`/`WorldPosition` per collider
+instead of doing per-frame local-offset math, so it is expected to be parity-or-better —
+the RFC's cache-hop concern applies only at scales this game does not approach. Coarse,
+non-gating smoke measurement (in-process, one detection pass over 500 convex collider
+entities, Debug build):
+`ColliderEntityTests.PerfSmoke_ManyConvexColliders_OneDetectionPass_Completes` measured
+**~0.3 ms** per pass. The test asserts only a generous 2000 ms ceiling (catches a
+catastrophic regression, not a micro-regression).
+
+**Why:** the RFC gated CE on "no material perf regression"; this records the informal
+number so a later change that regresses it is visible.
+**Breaks:** a change that reintroduces per-collider per-frame allocation or an O(n²) pair
+loop would blow past the ceiling.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs::PerfSmoke_ManyConvexColliders_OneDetectionPass_Completes`.
+**Depends on:** "Broadphase is a uniform spatial grid, and it is behavior-preserving".
 
 ## Known limitations (acknowledged gaps)
 
@@ -255,21 +342,28 @@ the resolution systems' assumption about what's available.
   ratios it can still occur. The only mitigation today is keeping
   gameplay velocities and collider sizes reasonable. *Velocity-cap
   safety net is on the backlog.*
+- **Dynamic collider body that is itself a non-root child** — the resolution
+  write-back applies a world-space correction to the body via `Translate`, which equals a
+  local move only when the body is a root. A dynamic body nested under another moving/
+  scaled/rotated transform would need a world→local map. No such case exists today (bodies
+  are roots); documented as interim, same limitation as before CE.
 
 ## Open questions
 
-- **`Passive` flag on `BoxColliderComponent` / `ConvexColliderComponent`** —
-  the field exists but the semantic isn't yet documented (probably
-  "detect but don't apply response"). Needs confirmation.
-- **`ColliderTagComponent` on disposal** — is it auto-removed when the
-  collider is removed, or only auto-added?
+- **`Passive` semantic (now documented, confirmed):** `Passive = true` means "does not
+  INITIATE a collision" — a passive collider is never the resolver's moved body (it is
+  never side A), but an active body IS resolved out of it, so passive static geometry
+  BLOCKS while staying put (the `WallEntityFactory`/footprint/boundary idiom). Whether a
+  passive collider reads as a physical blocker or a fire-only sensor is the game's
+  `EntityInfoComponent` classification, not this flag.
+- **`ColliderTagComponent` on disposal** — is it auto-removed when the collider component
+  is removed, or only auto-added? (Auto-add is on the component-added event; there is no
+  auto-remove.)
 
 ## Aspirational direction
 
 - Loose coupling to `TransformComponent` so the collision stack works
   against any Transform-shaped contract.
-- Multi-collider entities, if the use case appears — needs a defined
-  combination semantic (intersection? union? per-layer override?).
 - Velocity-cap safety net to prevent tunneling regardless of gameplay
   speed.
 
@@ -277,16 +371,14 @@ the resolution systems' assumption about what's available.
 
 The following premises currently have **Tests: none yet**:
 
-- `ColliderTagComponent` is the canonical query target
 - Swept collision reads `TransformComponent.Delta`
 - Reference physics pipeline order
 - `TransformCollisionDetectionSystem` is single-threaded by design
-- One collider of each type per entity
 - Layer-based filtering is the semantic pair filter
 - Collision today couples to `TransformComponent` directly
-- `CollisionMessage` is the contract between detection and consumers
 
-The `ConvexColliderComponent.BroadPhaseAABB` premise is the only one
-with test protection. The pipeline-order premise is the highest-leverage
-gap — an architectural test would catch screens that omit
-`TransformCommitSystem`.
+The `BroadPhaseAABB`, the colliders-as-entities model, body resolution, the write-back
+rule, multi-collider bodies, the four-entity message, and the perf smoke now carry test
+protection (`SATCollisionTests`, `ColliderEntityTests`, the milestone suites). The
+pipeline-order premise is the highest-leverage remaining gap — an architectural test would
+catch screens that omit `TransformCommitSystem`.

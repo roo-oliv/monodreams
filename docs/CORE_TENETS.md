@@ -205,11 +205,16 @@ gravity — and the pipeline assembler picks which to register.
 
 **Components.** `Velocity` carries current and last velocity vectors
 (the delta is exposed); `RigidBody` carries mass, gravity participation,
-kinematic flag, and freeze-axis flags; `BoxCollider` carries an AABB
-and active layers; `ConvexCollider` carries model-space vertices,
+kinematic flag, and freeze-axis flags. A collider is its OWN entity now
+(colliders-as-entities): `BoxCollider` carries a centered `Size`
+(no offset — pose comes from the collider entity's `Transform`) and
+active layers; `ConvexCollider` carries collider-entity-local vertices,
 world-space vertices, a broadphase AABB and active layers. `ColliderTag`
-is auto-applied to any entity with a collider component so detection
-queries can match a unified tag.
+is auto-applied to any collider entity so detection queries can match a
+unified tag. A collider's **body** (the entity a contact acts on) is
+resolved via `ColliderBody.Resolve` — nearest `RigidBody`/`Velocity`
+ancestor, else itself — and `CollisionMessage` carries both the collider
+entities and their bodies; resolution writes corrections to the body.
 
 **The reference physics pipeline order**, from
 `LoadLevelExampleGameScreen.cs:277–286`:
@@ -242,11 +247,15 @@ holds instance-level polygon buffers. It is intentionally not
 thread-safe; do not register two instances or invoke it from parallel
 contexts.
 
-**One collider of each type per entity.** Today the framework assumes
-an entity has at most one `BoxCollider` and at most one `ConvexCollider`.
-This is implicit, not enforced. Multiple colliders of the same type on
-a single entity is undefined behavior — if you need it, that's a
-framework change, not a workaround.
+**Multiple colliders per body (colliders-as-entities).** A collider is its
+own entity, so a body owns N collider children — the former
+one-collider-of-each-type-per-entity assumption is retired. Detection
+iterates collider entities; resolution corrects each contact's body,
+accumulating sequentially with per-message re-validation so a body hit
+through two of its colliders in one frame is not double-corrected. Two
+shape components on ONE entity is still not a thing (it would be a single
+collider entity with an ambiguous shape) — give each shape its own child
+collider entity.
 
 ### Aspirational direction
 

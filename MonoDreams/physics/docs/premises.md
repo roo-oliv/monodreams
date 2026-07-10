@@ -41,6 +41,32 @@ the impulse history is wrong.
 **Tests:** none yet (indirectly exercised by `InfiniteRunnerTests`).
 **Depends on:** collision — "Swept collision reads `TransformComponent.Delta`".
 
+## A physics body owns its colliders as child entities; it is the collision write-back target
+
+Under the colliders-as-entities model a collider is its own entity (a shape + its own
+`TransformComponent`), typically a `ChildOf` child of the physics BODY — the entity
+carrying `RigidBodyComponent`/`VelocityComponent`. `VelocitySystem` moves the BODY; its
+collider children ride it via the world-matrix cascade, so a collider child's own local
+`Delta` is ~0. Collision detection resolves each collider's body with
+`ColliderBody.Resolve` (nearest `RigidBody` ancestor, else `VelocityComponent`, else the
+collider itself), reads the swept movement from the BODY's `Delta`, and resolution writes
+the position/velocity correction back to the BODY. A body with no collider children of its
+own (the collider on the same entity) is its own body — the pre-CE flat case, unchanged.
+
+**Why:** motion and mass live on the body; the collider only describes where the body is.
+Keeping `VelocityComponent` on the body (not the collider child) is what makes
+`ColliderBody.Resolve` find it and what keeps the correction on the mover (collision
+pre-mortem #1). `GravitySystem`/`VelocitySystem` query the body's components directly, so
+a collider child never needs them.
+**Breaks:** putting `VelocityComponent` on a collider child instead of the body makes the
+child its own body — resolution then corrects the child (it drifts inside its parent) and
+gravity pulls the collider, not the body.
+**Tests:** `MonoDreams.Tests/Collision/ColliderEntityTests.cs` (body resolution matrix +
+resolution-corrects-the-body); `MonoDreams.Tests/LevelEditor/IslandMilestoneTests.cs`
+(a player body with a child collider walks the island).
+**Depends on:** collision — "A collider's body is resolved via `ColliderBody.Resolve`";
+collision — "Resolution corrects the BODY's Transform/Velocity, never the collider child".
+
 ## `RigidBodyComponent.FreezePositionX/Y` and `FreezeRotation` are NOT yet honored by resolution
 
 The freeze flags exist on `RigidBodyComponent` and are *intended* to be the single

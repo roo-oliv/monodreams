@@ -73,7 +73,11 @@ must read the link relevant to its concern.
 **Why:** the split came from hierarchical UI like a dialogue panel, where
 a banner, avatars, text, and a waiting-indicator move and dispose together
 but may not share matrix scaling. The split is a known wart and is on the
-refactor backlog (consolidation desired).
+refactor backlog (consolidation desired). Under colliders-as-entities the
+structural link carries new weight: `ColliderBody.Resolve` walks the
+`ChildOfComponent` chain to find a collider's physics body (a collider child of a
+body), and lifecycle cascade disposes a body's collider children with it — so a
+collider child must be `ChildOf`-parented to its body, not only matrix-linked.
 **Breaks:** code that reads only `TransformComponent.Parent` misses the
 disposal cascade; code that reads only `ChildOfComponent` misses the
 matrix behavior. A future consolidation will collapse both into one
