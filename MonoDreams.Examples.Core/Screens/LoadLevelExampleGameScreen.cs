@@ -182,10 +182,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 // The Game screen is the level-parameterized HOST: its scene id is the level it was
                 // asked to load (UX-C) — so Save targets <levelId>.mdscene, not the manifest default.
                 _editor.SetSceneId(levelId);
-                // The transport's Restart re-publishes this exact load request (the screen records
-                // what it loaded); the transport clears CurrentLevelComponent + disposes the scene
-                // entities first, so the parsers re-parse from scratch. Unsaved edits are discarded.
-                _editor.Transport.Reload = () => _world.Publish(new LoadLevelRequest(levelId));
+                // The transport's Restart re-publishes a load for the ACTIVE scene tab (the transport
+                // clears CurrentLevelComponent + disposes the scene entities first, so the parsers re-parse
+                // from scratch; unsaved edits are discarded). TB-A: it reads `_editor.SceneId` (the active
+                // tab's id) rather than the load-time `levelId`, so with several Game-hosted scene tabs open
+                // a Restart reloads whichever one is active — never a stale captured level.
+                _editor.Transport.Reload = () => _world.Publish(new LoadLevelRequest(_editor.SceneId));
             }
 
             // Remove the service so it doesn't interfere with future screen loads
