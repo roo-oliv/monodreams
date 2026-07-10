@@ -194,11 +194,15 @@ public static class EngineComponentSerializers
         e.Set(new EntityInfoComponent(dto.Type ?? "", dto.Name));
     }
 
-    // ---- BoxColliderComponent (world bounds + layers + flags; AABB derived) ----
+    // ---- BoxColliderComponent (centered size + layers + flags; world rect derived from Transform) ----
+    // TODO(CE-B): the on-disk field is now "size" (float[2]); the pose (former Bounds.Location offset)
+    // lives on the collider entity's Transform. Committed v1 scenes still carry the old "bounds"
+    // (int[4]) — CE-B owns the SceneData version bump, the fail-loud v1 refusal, and the
+    // `monodreams migrate-colliders` CLI that rewrites committed content.
 
     private sealed class BoxColliderDto
     {
-        [JsonPropertyName("bounds")] public int[] Bounds { get; set; } = { 0, 0, 0, 0 };
+        [JsonPropertyName("size")] public float[] Size { get; set; } = { 0f, 0f };
         [JsonPropertyName("activeLayers")] public int[] ActiveLayers { get; set; } = { -1 };
         [JsonPropertyName("passive")] public bool Passive { get; set; }
         [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
@@ -209,7 +213,7 @@ public static class EngineComponentSerializers
         var c = e.Get<BoxColliderComponent>();
         return CanonicalJson.SerializeToElement(new BoxColliderDto
         {
-            Bounds = Rect(c.Bounds),
+            Size = Vec(c.Size),
             ActiveLayers = SortedLayers(c.ActiveLayers), // a HashSet has no stable order — sort for byte-stable output
             Passive = c.Passive,
             Enabled = c.Enabled,
@@ -219,7 +223,7 @@ public static class EngineComponentSerializers
     private static void ReadBoxCollider(Entity e, JsonElement json)
     {
         var dto = json.Deserialize<BoxColliderDto>()!;
-        e.Set(new BoxColliderComponent(ToRect(dto.Bounds), new HashSet<int>(dto.ActiveLayers), dto.Passive, dto.Enabled));
+        e.Set(new BoxColliderComponent(ToVec(dto.Size), new HashSet<int>(dto.ActiveLayers), dto.Passive, dto.Enabled));
     }
 
     // ---- ConvexColliderComponent (model vertices + layers + flags; world verts/AABB derived) ----

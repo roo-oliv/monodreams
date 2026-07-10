@@ -78,8 +78,10 @@ public sealed class ColliderComponentCommand : IEditorCommand
     public static ColliderComponentCommand RemoveBox(Entity entity)
     {
         var box = entity.Get<BoxColliderComponent>();
+        // Snapshot Size as the rect extent (location unused — the box is centered on its entity).
+        var bounds = new Rectangle(0, 0, (int)MathF.Round(box.Size.X), (int)MathF.Round(box.Size.Y));
         return new ColliderComponentCommand(entity, isBox: true, isAdd: false,
-            box.Bounds, null, false, box.ActiveLayers.ToArray(), box.Passive, box.Enabled);
+            bounds, null, false, box.ActiveLayers.ToArray(), box.Passive, box.Enabled);
     }
 
     /// <summary>Removes the entity's live <c>ConvexColliderComponent</c>, snapshotting every
@@ -110,8 +112,10 @@ public sealed class ColliderComponentCommand : IEditorCommand
 
         if (_isBox)
         {
+            // TODO(CE-C): the box is a centered Size on the collider entity now; the former
+            // footprint offset (Bounds.Location) would move onto a child collider entity's Transform.
             _entity.Set(new BoxColliderComponent(
-                _bounds, new HashSet<int>(_activeLayers), _passive, _enabled));
+                new Vector2(_bounds.Width, _bounds.Height), new HashSet<int>(_activeLayers), _passive, _enabled));
             return;
         }
 

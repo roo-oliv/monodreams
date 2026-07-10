@@ -51,12 +51,15 @@ public sealed class ColliderEditCommand : IEditorCommand
         _afterVertices = afterVertices;
     }
 
-    /// <summary>Builds a box-bounds edit from the entity's <b>current</b>
-    /// <c>BoxColliderComponent.Bounds</c> as the "before" and <paramref name="afterBounds"/> as
-    /// the "after". Convenience for the gizmo's proxy drag path.</summary>
+    /// <summary>Builds a box-size edit from the entity's <b>current</b>
+    /// <c>BoxColliderComponent.Size</c> as the "before" and <paramref name="afterBounds"/>'s SIZE as
+    /// the "after". TODO(CE-C): the box-resize proxy retires — a collider entity is moved/resized via
+    /// the ordinary gizmo/Inspector. Only the SIZE round-trips here (the box is centered on its
+    /// entity now); the former <c>Bounds.Location</c> move is dropped.</summary>
     public static ColliderEditCommand ForBox(Entity entity, Rectangle afterBounds)
     {
-        var before = entity.Get<BoxColliderComponent>().Bounds;
+        var size = entity.Get<BoxColliderComponent>().Size;
+        var before = new Rectangle(0, 0, (int)MathF.Round(size.X), (int)MathF.Round(size.Y));
         return new ColliderEditCommand(entity, ProxyBindingKind.BoxColliderBounds,
             before, afterBounds, null, null);
     }
@@ -82,7 +85,8 @@ public sealed class ColliderEditCommand : IEditorCommand
         {
             case ProxyBindingKind.BoxColliderBounds:
                 if (!_entity.Has<BoxColliderComponent>()) return;
-                _entity.Get<BoxColliderComponent>().Bounds = bounds;
+                // TODO(CE-C): only Size survives — the box is centered on its entity's transform.
+                _entity.Get<BoxColliderComponent>().Size = new Vector2(bounds.Width, bounds.Height);
                 break;
 
             case ProxyBindingKind.ConvexColliderShape:

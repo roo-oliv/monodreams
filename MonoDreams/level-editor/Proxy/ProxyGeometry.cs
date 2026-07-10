@@ -4,6 +4,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
+using MonoDreams.Extensions.Monogame;
 using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
 
@@ -117,17 +118,19 @@ public static class ProxyGeometry
         kind is ProxyBindingKind.ConvexVertex or ProxyBindingKind.BoundaryVertex
             or ProxyBindingKind.BoundaryThickness;
 
-    /// <summary>The box collider's four world corners (TL→TR→BR→BL) — the axis-aligned AABB at
-    /// <c>WorldPosition + Bounds</c>, exactly the quad <c>ColliderDebugSystem</c> outlines.</summary>
+    /// <summary>The box collider's four world corners (TL→TR→BR→BL) — the axis-aligned rect
+    /// <b>centered</b> on the collider entity's <c>WorldPosition</c> with extent <c>Size</c> (scaled),
+    /// exactly the quad detection tests and <c>ColliderDebugSystem</c> outlines
+    /// (<c>SATCollision.BoxWorldRect</c> is the single source of the box pose).</summary>
     public static Vector2[] BoxWorldCorners(TransformComponent transform, BoxColliderComponent box)
     {
-        var wp = transform.WorldPosition;
+        var rect = SATCollision.BoxWorldRect(box, transform);
         return new[]
         {
-            new Vector2(wp.X + box.Bounds.Left, wp.Y + box.Bounds.Top),
-            new Vector2(wp.X + box.Bounds.Right, wp.Y + box.Bounds.Top),
-            new Vector2(wp.X + box.Bounds.Right, wp.Y + box.Bounds.Bottom),
-            new Vector2(wp.X + box.Bounds.Left, wp.Y + box.Bounds.Bottom),
+            new Vector2(rect.Left, rect.Top),
+            new Vector2(rect.Right, rect.Top),
+            new Vector2(rect.Right, rect.Bottom),
+            new Vector2(rect.Left, rect.Bottom),
         };
     }
 

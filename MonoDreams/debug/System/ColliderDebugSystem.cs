@@ -7,6 +7,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
+using MonoDreams.Extensions.Monogame;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Debug;
@@ -79,18 +80,13 @@ public class ColliderDebugSystem : ISystem<GameState>
     {
         var color = GetDebugColor(box);
 
-        var topLeft = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Left,
-            transform.WorldPosition.Y + box.Bounds.Top);
-        var topRight = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Right,
-            transform.WorldPosition.Y + box.Bounds.Top);
-        var bottomRight = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Right,
-            transform.WorldPosition.Y + box.Bounds.Bottom);
-        var bottomLeft = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Left,
-            transform.WorldPosition.Y + box.Bounds.Bottom);
+        // Box pose comes from the collider entity's transform (centered, scaled) — the single
+        // source is SATCollision.BoxWorldRect, so the outline matches what detection tests.
+        var rect = SATCollision.BoxWorldRect(box, transform);
+        var topLeft = new Vector2(rect.Left, rect.Top);
+        var topRight = new Vector2(rect.Right, rect.Top);
+        var bottomRight = new Vector2(rect.Right, rect.Bottom);
+        var bottomLeft = new Vector2(rect.Left, rect.Bottom);
 
         var vertices = new List<VertexPositionColor>();
         var indices = new List<int>();

@@ -468,8 +468,11 @@ public sealed class GizmoSystem : ISystem<GameState>
             case ProxyBindingKind.BoxColliderBounds:
                 if (!owner.Has<BoxColliderComponent>()) return false;
                 var box = owner.Get<BoxColliderComponent>();
-                _beforeBounds = box.Bounds;
-                _dragStartRefWorld = ownerTransform.WorldPosition + new Vector2(box.Bounds.X, box.Bounds.Y);
+                // TODO(CE-C): box-resize proxy retires — a collider entity moves/resizes via the
+                // ordinary gizmo/Inspector. The box is a centered Size now: snapshot the extent
+                // (location 0) and reference the box's world top-left (WorldPosition - Size/2).
+                _beforeBounds = new Rectangle(0, 0, (int)MathF.Round(box.Size.X), (int)MathF.Round(box.Size.Y));
+                _dragStartRefWorld = ownerTransform.WorldPosition - box.Size / 2f;
                 break;
 
             case ProxyBindingKind.ConvexColliderShape:

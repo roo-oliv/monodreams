@@ -32,7 +32,9 @@ public static class TriggerFactory
         var entity = world.CreateEntity();
         entity.Set(new EntityInfoComponent(type.Prefix, name));
         entity.Set(new TransformComponent(position));
-        entity.Set(new BoxColliderComponent(CenteredBounds(type.Size), passive: true));
+        // A trigger IS a standalone collider entity now (collider == body): the box is centered on
+        // the placement point by the shape itself (former CenteredBounds), no offset needed.
+        entity.Set(new BoxColliderComponent(type.Size, passive: true));
         // No SceneObjectComponent here — the placement path's CreateEntityCommand tags the root.
         return entity;
     }
