@@ -63,13 +63,15 @@
 > idempotent, `--dry-run`, dir recursion; box `bounds`→centered `size` on the collider
 > entity, convex verbatim to a child, dialogue/trigger ZONES reshape in place so the
 > zone identity stays on the collider — pre-mortem #4); committed `sample.mdscene` +
-> `Blender_Level.mdscene` migrated in-repo. **Deviation:** the **Blender importer is being
-> RETIRED** (user directive 2026-07-10 — levels are authored in the MonoDreams editor now,
-> not imported from Blender), so the Blender parser's box-offset seam was deliberately NOT
-> closed with new collider-child code; the parser stays import-only, off the live boot path,
-> and the committed `Blender_Level.mdscene` boots as a migrated NATIVE scene (not via the
-> parser). LDtk factory colliders were already child entities from CE-A. Full removal of the
-> `level-blender` module is a tracked follow-up.
+> `Blender_Level.mdscene` migrated in-repo. **Deviation:** the Blender parser's box-offset
+> seam was deliberately NOT closed with new collider-child code — the parser is import-only
+> and off the live boot path (PS5), and the committed `Blender_Level.mdscene` boots as a
+> migrated NATIVE scene (not via the parser). LDtk factory colliders were already child
+> entities from CE-A. **Open question for the user (NOT a directive — no retirement has
+> been ordered): with native authoring + prefabs landed, should the `level-blender` module
+> (parser, exporter plugin, `Blender_` dispatch) be retired?** Until answered, the import
+> path stays as-is; a Blender box-collider import with a non-centre origin lands slightly
+> offset (the unclosed seam) — acceptable for an import-only path pending the decision.
 
 ## 3. The editor (proxies die for colliders)
 
