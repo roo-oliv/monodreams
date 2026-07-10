@@ -92,6 +92,8 @@ public sealed class EditorTransport
             _stack = stack;
             _stack.Rebind(history, shell);
             _stack.SweepSceneEntities = DisposeSceneEntities;
+            Logger.Info($"[level-editor] Transport: rebound the host session stack — active tab " +
+                        $"'{_stack.Active.Id}' ({_stack.ActiveKind}), {_stack.Contexts.Count} tab(s).");
         }
         else
         {

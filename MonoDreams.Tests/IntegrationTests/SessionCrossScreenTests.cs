@@ -58,4 +58,67 @@ public class SessionCrossScreenTests
             "Editor overlay composed on InfiniteRunnerScreen",
             "TB-A: consumed pending activation");
     }
+
+    /// <summary>
+    /// The user's exact TB-A scenario, end-to-end through the real host: on the menu, Play spawns the Game
+    /// tab (RunMode = Play) — then clicking a level button IN THE PLAYED GAME (the menu's ui.interaction is
+    /// Freeze-gated, so it RUNS while Playing) fires a gameplay <c>ScreenTransitionRequest → LoadScreen</c>.
+    /// The session rides the switch: the destination screen's transport rebinds the SAME stack with the
+    /// <b>Game tab still active</b> and the menu's scene tab intact (2 tabs), <b>no</b> pending-activation
+    /// restore happens (gameplay owns the world), <b>RunMode stays Play</b> (nothing re-asserts Edit — the
+    /// log shows no "Paused" after Play), and no second Game-tab snapshot is taken (one per session).
+    /// </summary>
+    [Fact]
+    public async Task GameTab_FollowsAGameplayScreenTransition_SessionSurvives_StaysPlaying()
+    {
+        // The menu's buttons are AutoLayout-centered on the WORLD origin; the "Level 1" button's band is
+        // ~27 world-units tall just above/below y=0 (font-metric dependent), so a short vertical click
+        // sweep at x=0 robustly lands one click inside it. Extra clicks after the transition land on the
+        // game world (harmless — the platformer has no click UI), and the destination's replayed Play op
+        // is a no-op (already Playing on the Game tab), so its driver drains and owns the exit.
+        var ops = new List<EditorOp> { new() { Frame = 10, Kind = EditorOpKind.Play } };
+        var frame = 16;
+        foreach (var y in new[] { -20, -12, -4, 4 })
+        {
+            ops.Add(new EditorOp { Frame = frame, Kind = EditorOpKind.MoveCursor, X = 0, Y = y });
+            ops.Add(new EditorOp { Frame = frame + 2, Kind = EditorOpKind.LeftDown, X = 0, Y = y });
+            ops.Add(new EditorOp { Frame = frame + 4, Kind = EditorOpKind.LeftUp, X = 0, Y = y });
+            frame += 8;
+        }
+
+        var result = await GameTestRunner.RunAsync(new InputReplayPlan
+        {
+            StartScreen = "LevelSelection",
+            Description = "Play on the menu, then click Level 1 IN the played game — the Game tab follows",
+            Commands = new List<InputReplayCommand>(),
+        },
+        timeoutSeconds: 90,
+        environment: EditorEnv,
+        editorOpPlan: new EditorOpPlan
+        {
+            Description = "Play (spawn the Game tab), then a click sweep over the Level 1 button",
+            Ops = ops,
+            TailFrames = 40, // let the destination boot + settle before the (replayed) driver exits
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        // In order: menu overlay → Play spawns the Game tab → Playing → the gameplay transition boots the
+        // destination, whose transport REBINDS the surviving session with the Game tab still active and the
+        // menu scene tab intact (2 tabs; the Game tab's id is its origin scene until the destination's
+        // SetSceneId renames it) → the destination screen's overlay composes over the same session.
+        result.AssertLogContainsInOrder(
+            "Editor overlay composed on LevelSelectionScreen",
+            "Transport: spawned the Game tab",
+            "Transport: Playing.",
+            "rebound the host session stack — active tab 'level_selection' (Game), 2 tab(s)",
+            "Editor overlay composed on LoadLevelExampleGameScreen");
+
+        var log = string.Join("\n", result.LogLines);
+        // NO restore rode the gameplay transition (pre-mortem #3: gameplay owns the world)...
+        Assert.DoesNotContain("TB-A: consumed pending activation", log);
+        // ...RunMode stayed Play across the switch (nothing re-asserted Edit; the transport never paused)...
+        Assert.DoesNotContain("Transport: Paused.", log);
+        // ...and the destination's replayed Play op was a no-op: ONE Game-tab snapshot per session.
+        Assert.Single(result.LogLines.Where(l => l.Contains("Transport: spawned the Game tab")));
+    }
 }
