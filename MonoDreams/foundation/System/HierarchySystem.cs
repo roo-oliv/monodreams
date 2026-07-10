@@ -122,15 +122,30 @@ public class HierarchySystem : ISystem<GameState>
             }
         }
 
-        // Propagate dirty flags
+        // Propagate dirty flags. Key off NeedsHierarchyUpdate — NOT IsDirty — because IsDirty is
+        // cleared as a side effect of any WorldMatrix read: a reader running between an edit and this
+        // pass (e.g. ButtonMeshPrepSystem reading a moved button's WorldPosition before HierarchySystem)
+        // would otherwise erase the signal and leave descendants stale (the gizmo-vs-modal divergence).
+        // Snapshot the changed roots first so children re-flagged during propagation don't add roots
+        // mid-pass, then clear every transform's propagation flag for the next frame.
+        List<TransformComponent> changedRoots = null;
         foreach (var entity in _transformSet.GetEntities())
         {
             ref var transform = ref entity.Get<TransformComponent>();
-            if (transform.IsDirty && _parentToChildren.ContainsKey(transform))
+            if (transform.NeedsHierarchyUpdate && _parentToChildren.ContainsKey(transform))
             {
-                PropagateIsDirtyToChildren(transform);
+                (changedRoots ??= new List<TransformComponent>()).Add(transform);
             }
         }
+
+        if (changedRoots != null)
+        {
+            foreach (var root in changedRoots)
+                PropagateIsDirtyToChildren(root);
+        }
+
+        foreach (var entity in _transformSet.GetEntities())
+            entity.Get<TransformComponent>().ClearHierarchyDirty();
     }
 
     private void PropagateIsDirtyToChildren(TransformComponent parent)

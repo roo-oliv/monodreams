@@ -53,14 +53,41 @@ dirty. `WorldMatrix` is a cached property whose getter re-walks the chain
 when next read. `HierarchySystem.PropagateDirtyFlags()` is the system that
 propagates the flag through the descendant tree each frame.
 
+The propagation uses a signal SEPARATE from `IsDirty`: `NeedsHierarchyUpdate`.
+`IsDirty` is the world-matrix **cache-validity** bit — the `WorldMatrix` getter
+clears it as a side effect of *recomputing on read*. `NeedsHierarchyUpdate` is the
+**"my descendants are stale" propagation** signal — set by every mutator (via
+`SetDirty`) and cleared ONLY by `HierarchySystem` (via `ClearHierarchyDirty`) after
+it has re-dirtied the subtree. `PropagateDirtyFlags` keys off `NeedsHierarchyUpdate`,
+never `IsDirty`, so a `WorldMatrix` read that lands between a parent's edit and the
+`HierarchySystem` pass cannot silently drop the child update. The child invalidation
+itself still goes through the matrix-cache bit (the recursion calls `SetDirty` on
+descendants).
+
 **Why:** caching the world matrix avoids recomputing it on every read,
 which would dominate hot paths in deep hierarchies (UI layouts, nested
-entities).
+entities). But a single flag doing both jobs is order-fragile: the level editor's
+modal transform (`G`) edits a transform EARLY in the update pipeline, before
+`ButtonMeshPrepSystem` reads the same transform's `WorldPosition` (which cleared the
+one flag), so `HierarchySystem` saw a clean parent and never moved the button's label
+child — while a gizmo drag (edits AFTER that reader) moved both. Splitting the
+cache-validity bit from the propagation signal is what makes gizmo and modal edits
+behave identically for any changed parent, and fixes the same latent staleness for
+every consumer.
 **Breaks:** if a system bypasses the dirty flag (e.g., mutates internal
 fields directly via reflection), descendants render and collide at stale
-world positions while their parents have moved.
-**Tests:** none yet.
-**Depends on:** —
+world positions while their parents have moved. If propagation were keyed off
+`IsDirty` again, any read between an edit and `HierarchySystem` re-opens the
+gizmo-vs-modal divergence: the parent moves but its children lag one frame or freeze
+in place.
+**Tests:** `MonoDreams.Tests/Foundation/HierarchyDirtyPropagationTests.cs`
+(`ChildFollowsParentMove_EvenWhenWorldPositionIsReadBeforeHierarchySystem`,
+`ChildFollow_IsIdentical_ForGizmoOrderAndModalOrder`,
+`GrandchildFollowsRootMove_WithInterveningRead`,
+`PropagationSignal_IsClearedAfterEachHierarchyPass`).
+**Depends on:** level-editor — "The modal transform (G/S/R) owns the pointer +
+keyboard …" (the modal edit path this parity protects) and "The gizmo applies a
+quantized … transform edit" (the gizmo path it matches).
 
 ## `ChildOfComponent` and `TransformComponent.Parent` are two intentional links
 
@@ -408,7 +435,6 @@ documented but not programmatically protected:
 
 - Don't mix two Transform-shaped components in one project
 - `TransformComponent.Delta` is meaningful only after `TransformCommitSystem` ran
-- `TransformComponent.IsDirty` cascades through the parent chain
 - `ChildOfComponent` and `TransformComponent.Parent` are two intentional links
 - `HierarchySystem` must run ahead of any system reading WorldPosition
 - Children are disposed with their parents
