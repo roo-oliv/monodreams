@@ -1868,6 +1868,11 @@ public sealed class EditorOverlay
         var writer = new SceneWriter(Serializer, PrefabSource);
         var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
         WarnIfNotShipReady(scene);
+        // Self-healing duplicate-id repair (PF-F): if the writer re-stamped colliding ids, surface it.
+        if (writer.LastBuildDuplicateIdRestamps > 0)
+            Notifications.Notify(
+                $"Repaired {writer.LastBuildDuplicateIdRestamps} duplicate scene id(s) on save.",
+                EditorNotifySeverity.Warning);
         var savedPath = writer.Save(scene, target);
         // Zero-touch bundling (PS6): append the MGCB /copy: entry for a NEW level so it bundles to the
         // title on the next build with no manual .mgcb edit (idempotent for existing ones). The copy

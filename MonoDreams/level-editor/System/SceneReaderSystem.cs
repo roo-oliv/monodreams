@@ -244,17 +244,52 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// </summary>
     private static void RetagSceneRoots(SceneData scene, List<Entity> created)
     {
+        // Self-heal duplicate stable ids in the FILE (PF-F): a corrupt scene (e.g. a double-load that
+        // was saved) can carry two roots with the SAME `id`. Restoring both verbatim keeps the collision
+        // stable across load → save (the writer preserves restored ids), so the diff never recovers.
+        // Re-stamp the LATER duplicates to the next free id in-world (the load still succeeds); the next
+        // Save then writes distinct ids and the scene is byte-stable again. First pass: the max id present.
+        var maxId = -1;
+        for (var i = 0; i < created.Count && i < scene.Entities.Count; i++)
+            if (!HasInScopeParent(scene, created.Count, i) && scene.Entities[i].Id is { } present)
+                maxId = Math.Max(maxId, present);
+        var nextFree = maxId + 1;
+        var usedIds = new HashSet<int>();
+        var restamped = 0;
+
         for (var i = 0; i < created.Count && i < scene.Entities.Count; i++)
         {
-            var parentIndex = scene.Entities[i].Parent;
-            var hasInScopeParent = parentIndex is { } pi && pi >= 0 && pi < created.Count;
-            if (hasInScopeParent) continue;
+            if (HasInScopeParent(scene, created.Count, i)) continue;
 
             created[i].Set(new SceneObjectComponent());
             if (scene.Entities[i].Id is { } id)
+            {
+                if (!usedIds.Add(id))
+                {
+                    var healed = nextFree++;
+                    usedIds.Add(healed);
+                    Logger.Warning(
+                        $"[level-editor] Scene had a duplicate stable id {id} — re-stamped a later root " +
+                        $"to {healed} on load (self-healing a corrupt/double-loaded scene). The next Save " +
+                        "writes distinct ids.");
+                    id = healed;
+                    restamped++;
+                }
                 created[i].Set(new SceneEntityIdComponent(id));
+            }
         }
+
+        if (restamped > 0)
+            Logger.Warning(
+                $"[level-editor] Loaded scene self-healed {restamped} duplicate stable id(s) — Save to " +
+                "persist the repair.");
     }
+
+    /// <summary>Whether the entry at <paramref name="index"/> has an in-scope parent (a <c>ChildOf</c>
+    /// descendant), mirroring <see cref="SceneSerializer.Deserialize"/>'s in-scope test — a top-level
+    /// entry (no in-scope parent) is a scene root.</summary>
+    private static bool HasInScopeParent(SceneData scene, int createdCount, int index) =>
+        scene.Entities[index].Parent is { } pi && pi >= 0 && pi < createdCount;
 
     /// <summary>
     /// Rehydrates the live <c>Texture2D</c> for every loaded entity whose <c>SpriteInfo.AssetKey</c>

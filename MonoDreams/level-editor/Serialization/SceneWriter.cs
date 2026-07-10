@@ -47,6 +47,10 @@ public sealed class SceneWriter
     private readonly SceneSerializer serializer;
     private readonly Func<string, PrefabData?>? _prefabSource;
 
+    /// <summary>How many duplicate stable ids the LAST <see cref="BuildScene"/> self-healed (PF-F) — the
+    /// caller (the overlay's Save path) reads it to raise a status notification. Zero on a clean build.</summary>
+    public int LastBuildDuplicateIdRestamps { get; private set; }
+
     /// <param name="serializer">The in-memory component round-trip seam.</param>
     /// <param name="prefabSource">Optional prefab resolver (<c>id → <see cref="PrefabData"/></c>), needed
     /// only to <b>compact linked prefab instances</b>: the writer diffs an instance root's live components
@@ -73,14 +77,39 @@ public sealed class SceneWriter
     /// </summary>
     public SceneData BuildScene(World world, Camera? camera = null, DrawLayerMap? layers = null)
     {
+        LastBuildDuplicateIdRestamps = 0;
         var members = CollectOrderedMembership(world);
         var scene = serializer.Serialize(members);
 
         // Stamp each root's persisted stable id onto its entry (a top-level, parent-null entry). A
         // ChildOf descendant carries no id of its own (it is ordered within its ancestor's closure).
+        // SELF-HEAL colliding ids (PF-F): a corrupt world (a double-load that restored two roots with the
+        // SAME id) would write two entries with equal ids and stay corrupt across re-saves. Re-stamp the
+        // LATER duplicates to the next free id — mutating the live SceneEntityIdComponent too, so the heal
+        // sticks — and record the count so the caller can notify. The save proceeds (self-healing).
+        var maxId = -1;
         for (var i = 0; i < members.Count && i < scene.Entities.Count; i++)
             if (scene.Entities[i].Parent == null && members[i].Has<SceneEntityIdComponent>())
-                scene.Entities[i].Id = members[i].Get<SceneEntityIdComponent>().Id;
+                maxId = Math.Max(maxId, members[i].Get<SceneEntityIdComponent>().Id);
+        var nextFree = maxId + 1;
+        var usedIds = new HashSet<int>();
+        for (var i = 0; i < members.Count && i < scene.Entities.Count; i++)
+        {
+            if (scene.Entities[i].Parent != null || !members[i].Has<SceneEntityIdComponent>()) continue;
+            var id = members[i].Get<SceneEntityIdComponent>().Id;
+            if (!usedIds.Add(id))
+            {
+                var healed = nextFree++;
+                usedIds.Add(healed);
+                members[i].Set(new SceneEntityIdComponent(healed)); // self-heal the live world too
+                Logger.Warning(
+                    $"[level-editor] Save self-healed a duplicate stable id {id} → {healed} (a corrupt or " +
+                    "double-loaded scene had two roots sharing an id). The save proceeds with distinct ids.");
+                id = healed;
+                LastBuildDuplicateIdRestamps++;
+            }
+            scene.Entities[i].Id = id;
+        }
 
         // Compact each linked prefab-instance root into its {prefab + core.Transform + overrides} entry.
         // (Its prefab-owned children were already excluded from the membership closure below.)
