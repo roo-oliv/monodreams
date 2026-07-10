@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f2c08400601d",
+  "session_id": "99588020-158e-40d6-aa8e-de0c7ddae9dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-10T16:36:29.928648Z",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs",
+    "MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs",
+    "MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs",
+    "MonoDreams.Tests/LevelEditor/SceneLintTests.cs",
+    "MonoDreams/level-blender/Level/BlenderLevelData.cs",
+    "MonoDreams/level-blender/System/Level/BlenderLevelParserSystem.cs",
+    "MonoDreams/level-blender/Tools/blender_level_export.py",
+    "MonoDreams/level-blender/docs/overview.md",
+    "MonoDreams/level-blender/docs/premises.md",
+    "MonoDreams/level-blender/module.json",
+    "docs/level-editor/colliders-as-entities.md",
+    "docs/level-editor/editor-shell-ui-ux-2.md",
+    "docs/level-editor/editor-shell-ui-ux-3.md",
+    "docs/level-editor/editor-shell-ui-ux.md",
+    "docs/level-editor/island-authoring-plan.md",
+    "docs/level-editor/prefab-workflow.md",
+    "docs/level-editor/project-persistence-plan.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "8d6e81d4-642c-473b-bb18-554e3e42d781",
+  "token_usage": {
+    "input_tokens": 117180,
+    "cache_creation_tokens": 19445717,
+    "cache_read_tokens": 263707889,
+    "output_tokens": 993089,
+    "api_call_count": 564
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-10T16:36:27.344295Z",
+    "agent_lines": 0,
+    "human_added": 5935,
+    "human_modified": 2279,
+    "human_removed": 0,
+    "total_committed": 5935,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-level-editor/99588020-158e-40d6-aa8e-de0c7ddae9dd.jsonl"
+}
