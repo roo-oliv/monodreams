@@ -283,7 +283,11 @@ public class EditorTransportTests
         var windowBar = Array.ConvertAll(EditorChromeBuilder.DefaultButtons, b => b.action);
         Assert.DoesNotContain(EditorToolbarAction.PlayPause, windowBar);
         Assert.DoesNotContain(EditorToolbarAction.ToolMove, windowBar);
-        Assert.Contains(EditorToolbarAction.Save, windowBar);
+        // PF-F: Save left the window bar too — it lives in the Scene header's right cluster as a fixed
+        // affordance (like the Camera-view nav button), not part of either button-row array.
+        Assert.DoesNotContain(EditorToolbarAction.Save, windowBar);
+        Assert.DoesNotContain(EditorToolbarAction.Save, header);
+        Assert.Contains(EditorToolbarAction.Undo, windowBar);
     }
 
     private static Entity MakeToolbarButton(World world, EditorToolbarAction action, Rectangle bounds)
