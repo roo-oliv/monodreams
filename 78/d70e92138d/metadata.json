@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "78d70e92138d",
+  "strategy": "manual-commit",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/level-blender/docs/premises.md",
+    "docs/level-editor/colliders-as-entities.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/78/d70e92138d/0/metadata.json",
+      "transcript": "/78/d70e92138d/0/full.jsonl",
+      "context": "/78/d70e92138d/0/context.md",
+      "content_hash": "/78/d70e92138d/0/content_hash.txt",
+      "prompt": "/78/d70e92138d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 7949,
+    "cache_read_tokens": 4675571,
+    "output_tokens": 6018,
+    "api_call_count": 7
+  }
+}
