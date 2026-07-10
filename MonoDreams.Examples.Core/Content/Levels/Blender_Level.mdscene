@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "layers": [],
   "sources": [],
   "entities": [
@@ -25,6 +25,60 @@
     },
     {
       "id": 1,
+      "components": {
+        "core.EntityInfo": {
+          "type": "NPC",
+          "name": "Boldo"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "GreasePencil/Boldo",
+          "source": [
+            0,
+            0,
+            185,
+            351
+          ],
+          "size": [
+            18.5039,
+            35.1947
+          ],
+          "color": "/////w==",
+          "origin": [
+            86.4875,
+            160.30171
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 19.14,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            79.6936,
+            -33.1469
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": 0.034906585,
+          "cycleDuration": 0.5
+        }
+      }
+    },
+    {
       "components": {
         "core.ConvexCollider": {
           "modelVertices": [
@@ -164,40 +218,10 @@
           "enabled": true,
           "ignoreTransformRotation": true
         },
-        "core.EntityInfo": {
-          "type": "NPC",
-          "name": "Boldo"
-        },
-        "core.SpriteInfo": {
-          "assetKey": "GreasePencil/Boldo",
-          "source": [
-            0,
-            0,
-            185,
-            351
-          ],
-          "size": [
-            18.5039,
-            35.1947
-          ],
-          "color": "/////w==",
-          "origin": [
-            86.4875,
-            160.30171
-          ],
-          "offset": [
-            0,
-            0
-          ],
-          "target": 0,
-          "layerDepth": 0.6,
-          "ySortOffset": 19.14,
-          "ySortDepthBias": 0
-        },
         "core.Transform": {
           "position": [
-            79.6936,
-            -33.1469
+            0,
+            0
           ],
           "rotation": 0,
           "scale": [
@@ -208,20 +232,14 @@
             0,
             0
           ]
-        },
-        "game.StopMotionEffect": {
-          "baseRotation": 0,
-          "offsetRadians": 0.034906585,
-          "cycleDuration": 0.5
         }
-      }
+      },
+      "parent": 1
     },
     {
       "components": {
         "core.BoxCollider": {
-          "bounds": [
-            -23,
-            -26,
+          "size": [
             46,
             52
           ],
@@ -293,6 +311,80 @@
           "maxDistanceY": 100,
           "isActive": true
         },
+        "core.EntityInfo": {
+          "type": "Player",
+          "name": "Pete"
+        },
+        "core.RigidBody": {
+          "mass": 1,
+          "gravityActive": true,
+          "gravityFactor": 1,
+          "isKinematic": false,
+          "freezeRotation": false,
+          "freezePositionX": false,
+          "freezePositionY": false
+        },
+        "core.SpriteInfo": {
+          "assetKey": "GreasePencil/Pete",
+          "source": [
+            0,
+            0,
+            147,
+            214
+          ],
+          "size": [
+            14.7677,
+            21.4973
+          ],
+          "color": "/////w==",
+          "origin": [
+            70.1778,
+            106.2938
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 10.01,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            0.309,
+            -7.8609
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "core.Velocity": {
+          "current": [
+            0,
+            0
+          ],
+          "last": [
+            0,
+            0
+          ]
+        },
+        "game.PlayerState": {},
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": 0.034906585,
+          "cycleDuration": 0.5
+        }
+      }
+    },
+    {
+      "components": {
         "core.ConvexCollider": {
           "modelVertices": [
             [
@@ -431,35 +523,47 @@
           "enabled": true,
           "ignoreTransformRotation": true
         },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 5
+    },
+    {
+      "id": 3,
+      "components": {
         "core.EntityInfo": {
-          "type": "Player",
-          "name": "Pete"
-        },
-        "core.RigidBody": {
-          "mass": 1,
-          "gravityActive": true,
-          "gravityFactor": 1,
-          "isKinematic": false,
-          "freezeRotation": false,
-          "freezePositionX": false,
-          "freezePositionY": false
+          "type": "NPC",
+          "name": "elephant-kid"
         },
         "core.SpriteInfo": {
-          "assetKey": "GreasePencil/Pete",
+          "assetKey": "elephant-kid",
           "source": [
             0,
             0,
-            147,
-            214
+            1920,
+            1920
           ],
           "size": [
-            14.7677,
-            21.4973
+            23.3796,
+            23.3796
           ],
           "color": "/////w==",
           "origin": [
-            70.1778,
-            106.2938
+            960,
+            960
           ],
           "offset": [
             0,
@@ -467,13 +571,13 @@
           ],
           "target": 0,
           "layerDepth": 0.6,
-          "ySortOffset": 10.01,
+          "ySortOffset": 8.095048,
           "ySortDepthBias": 0
         },
         "core.Transform": {
           "position": [
-            0.309,
-            -7.8609
+            43.2,
+            -0
           ],
           "rotation": 0,
           "scale": [
@@ -485,17 +589,6 @@
             0
           ]
         },
-        "core.Velocity": {
-          "current": [
-            0,
-            0
-          ],
-          "last": [
-            0,
-            0
-          ]
-        },
-        "game.PlayerState": {},
         "game.StopMotionEffect": {
           "baseRotation": 0,
           "offsetRadians": 0.034906585,
@@ -504,7 +597,6 @@
       }
     },
     {
-      "id": 3,
       "components": {
         "core.ConvexCollider": {
           "modelVertices": [
@@ -644,40 +736,10 @@
           "enabled": true,
           "ignoreTransformRotation": true
         },
-        "core.EntityInfo": {
-          "type": "NPC",
-          "name": "elephant-kid"
-        },
-        "core.SpriteInfo": {
-          "assetKey": "elephant-kid",
-          "source": [
-            0,
-            0,
-            1920,
-            1920
-          ],
-          "size": [
-            23.3796,
-            23.3796
-          ],
-          "color": "/////w==",
-          "origin": [
-            960,
-            960
-          ],
-          "offset": [
-            0,
-            0
-          ],
-          "target": 0,
-          "layerDepth": 0.6,
-          "ySortOffset": 8.095048,
-          "ySortDepthBias": 0
-        },
         "core.Transform": {
           "position": [
-            43.2,
-            -0
+            0,
+            0
           ],
           "rotation": 0,
           "scale": [
@@ -688,20 +750,14 @@
             0,
             0
           ]
-        },
-        "game.StopMotionEffect": {
-          "baseRotation": 0,
-          "offsetRadians": 0.034906585,
-          "cycleDuration": 0.5
         }
-      }
+      },
+      "parent": 7
     },
     {
       "components": {
         "core.BoxCollider": {
-          "bounds": [
-            -29,
-            -17,
+          "size": [
             58,
             35
           ],
@@ -717,7 +773,7 @@
         "core.Transform": {
           "position": [
             0,
-            0
+            0.5
           ],
           "rotation": 0,
           "scale": [
@@ -737,7 +793,7 @@
           "hasBeenTriggered": false
         }
       },
-      "parent": 5
+      "parent": 7
     },
     {
       "components": {
@@ -761,7 +817,7 @@
           ]
         }
       },
-      "parent": 5
+      "parent": 7
     },
     {
       "components": {
@@ -816,14 +872,12 @@
           "cycleDuration": 0.5
         }
       },
-      "parent": 5
+      "parent": 7
     },
     {
       "components": {
         "core.BoxCollider": {
-          "bounds": [
-            -29,
-            -17,
+          "size": [
             58,
             35
           ],
@@ -839,7 +893,7 @@
         "core.Transform": {
           "position": [
             0,
-            0
+            0.5
           ],
           "rotation": 0,
           "scale": [
@@ -859,7 +913,7 @@
           "hasBeenTriggered": false
         }
       },
-      "parent": 8
+      "parent": 11
     },
     {
       "components": {
@@ -883,37 +937,11 @@
           ]
         }
       },
-      "parent": 8
+      "parent": 11
     },
     {
       "id": 4,
       "components": {
-        "core.ConvexCollider": {
-          "modelVertices": [
-            [
-              -49.9662,
-              22.020023
-            ],
-            [
-              -8.964436,
-              20.094774
-            ],
-            [
-              -7.37009,
-              53.96711
-            ],
-            [
-              -48.371853,
-              55.892353
-            ]
-          ],
-          "activeLayers": [
-            -1
-          ],
-          "passive": false,
-          "enabled": true,
-          "ignoreTransformRotation": true
-        },
         "core.EntityInfo": {
           "type": "Collision",
           "name": "store"
@@ -960,6 +988,52 @@
           ]
         }
       }
+    },
+    {
+      "components": {
+        "core.ConvexCollider": {
+          "modelVertices": [
+            [
+              -49.9662,
+              22.020023
+            ],
+            [
+              -8.964436,
+              20.094774
+            ],
+            [
+              -7.37009,
+              53.96711
+            ],
+            [
+              -48.371853,
+              55.892353
+            ]
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": false,
+          "enabled": true,
+          "ignoreTransformRotation": true
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 14
     }
   ]
 }
