@@ -113,6 +113,17 @@ public class MigratedLevelTests
         return list;
     }
 
+    /// <summary>Whether <paramref name="parent"/> has a CHILD entity carrying collider component
+    /// <typeparamref name="TCollider"/> — the version-2 shape, where a visual entity's collider lives on
+    /// its own child collider entity (CE-B) rather than embedded on the visual entity.</summary>
+    private static bool HasColliderChild<TCollider>(World world, Entity parent)
+    {
+        using var set = world.GetEntities().With<ChildOfComponent>().With<TCollider>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.Get<ChildOfComponent>().Parent == parent) return true;
+        return false;
+    }
+
     [Fact]
     public void CommittedBlenderLevel_IsByteCanonical_LoadSaveIsAFixedPoint()
     {
@@ -159,7 +170,10 @@ public class MigratedLevelTests
             Assert.Equal("Pete", pete.Get<EntityInfoComponent>().Name);
             Assert.True(pete.Has<StopMotionEffect>());
             Assert.True(pete.Has<CameraFollowTargetComponent>());
-            Assert.True(pete.Has<ConvexColliderComponent>());
+            // Colliders-as-entities (CE-B): Pete's convex hull now lives on its own CHILD collider entity,
+            // not embedded on the visual Player entity. Pete is the body; the collider rides it.
+            Assert.False(pete.Has<ConvexColliderComponent>());
+            Assert.True(HasColliderChild<ConvexColliderComponent>(world, pete));
             Assert.Equal("GreasePencil/Pete", pete.Get<SpriteInfoComponent>().AssetKey);
 
             var npcs = With<EntityInfoComponent>(world)
@@ -169,7 +183,8 @@ public class MigratedLevelTests
 
             var store = With<EntityInfoComponent>(world)
                 .Single(e => e.Get<EntityInfoComponent>().Name == "store");
-            Assert.True(store.Has<ConvexColliderComponent>());
+            Assert.False(store.Has<ConvexColliderComponent>());
+            Assert.True(HasColliderChild<ConvexColliderComponent>(world, store)); // convex on a child collider entity
             Assert.Equal("GreasePencil/store", store.Get<SpriteInfoComponent>().AssetKey);
         });
     }

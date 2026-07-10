@@ -368,7 +368,7 @@ public class NativeFirstLoadTests
     /// <c>MonoDreams.Examples.Core/Content/Levels/sample.mdscene</c> — both come from the same serializer).</summary>
     private const string ExpectedSampleScene =
         "{\n" +
-        "  \"version\": 1,\n" +
+        "  \"version\": 2,\n" +
         "  \"layers\": [],\n" +
         "  \"sources\": [],\n" +
         "  \"entities\": [\n" +
