@@ -103,11 +103,56 @@ public sealed class EditorTransport
                 SweepSceneEntities = DisposeSceneEntities,
             };
         }
+        // TD: clear the code-content rebuild seam on every (re)bind — the host-scoped stack survives a
+        // screen switch, so the previous screen's builder must not linger. Each screen re-points it in Load
+        // (an unset one is a no-op, i.e. the pre-TD blank-on-empty-snapshot behaviour, never the WRONG
+        // screen's content).
+        _stack.RebuildCodeContent = null;
     }
 
-    /// <summary>The screen's "re-publish my original load request" callback — set it in the
-    /// screen's <c>Load</c> once it knows what it loaded. Null = Restart is a loud no-op.</summary>
-    public Action? Reload { get; set; }
+    /// <summary>
+    /// The screen's <b>code-content rebuild</b> (TD): re-runs the screen's code-owned builders — UI
+    /// builders, demo create-methods, everything the screen creates in code that is never
+    /// <c>SceneObjectComponent</c>-tagged. Set in the screen's <c>Load</c>. This is the seam the
+    /// <see cref="ViewportContextStack"/> invokes between the sweep and the reader restore on a Game-tab
+    /// exit / same-screen scene switch (so a code-built screen — a menu, a demo — never sweeps to a blank
+    /// screen), AND the first half of a <see cref="Restart"/> (<see cref="Reload"/>). Forwarded to the
+    /// stack. Null (a screen whose content is entirely scene-owned, e.g. the level Game screen) → a no-op.
+    /// </summary>
+    public Action? RebuildCodeContent
+    {
+        get => _stack.RebuildCodeContent;
+        set => _stack.RebuildCodeContent = value;
+    }
+
+    /// <summary>
+    /// The screen's <b>scene-content reload</b> (TD): re-publishes the screen's bound level load (the
+    /// game screen's <c>LoadLevelRequest</c>, a bound menu/runner/demo's optional scene load). Set in the
+    /// screen's <c>Load</c>. This is the second half of a <see cref="Restart"/> (<see cref="Reload"/>) — a
+    /// reload FROM DISK (source-first). It is deliberately NOT invoked on a Game-tab exit / same-screen
+    /// scene switch: there the in-memory snapshot restores the scene-owned entities through the reader, so
+    /// re-loading from disk would double the content. Null → Restart reloads only the code content.
+    /// </summary>
+    public Action? ReloadSceneContent { get; set; }
+
+    /// <summary>
+    /// The screen's full reload — <see cref="RebuildCodeContent"/> then <see cref="ReloadSceneContent"/>
+    /// in order — the <see cref="Restart"/> rebuild. <c>null</c> when neither half is set (Restart is then
+    /// a loud no-op). The setter is kept for back-compat: a single combined delegate is stored as the
+    /// code-content half (and clears the scene half) — prefer setting the two halves directly, so a
+    /// Game-tab exit rebuilds ONLY the code content and never re-loads scene content from disk.
+    /// </summary>
+    public Action? Reload
+    {
+        get => RebuildCodeContent == null && ReloadSceneContent == null
+            ? null
+            : () => { RebuildCodeContent?.Invoke(); ReloadSceneContent?.Invoke(); };
+        set
+        {
+            RebuildCodeContent = value;
+            ReloadSceneContent = null;
+        }
+    }
 
     /// <summary>Optional screen exclusions from the restart sweep: return true for screen
     /// infrastructure that must survive (entities a system created once at construction and holds

@@ -126,6 +126,20 @@ public sealed class ViewportContextStack
     public Action? SweepSceneEntities { get; set; }
 
     /// <summary>
+    /// Rebuilds the screen's <b>CODE-OWNED content</b> (menu UI builders, demo create-methods) — the
+    /// entities a screen creates in code that are NEVER <c>SceneObjectComponent</c>-tagged and so are
+    /// never captured in a snapshot (TD). Injected by the transport (forwarding the screen's
+    /// <see cref="EditorTransport.RebuildCodeContent"/>). Invoked <b>between the sweep and the reader
+    /// restore</b> on every SAME-screen <see cref="SwitchTo"/> / <see cref="CloseCleanContext"/> whose
+    /// target shows the screen's own content (a Scene/Game context, NEVER a Prefab context), so a
+    /// Game-tab exit / same-screen scene switch keeps the code-built UI (the menu's buttons, the demo's
+    /// entities) instead of sweeping to a blank screen and restoring an empty snapshot. Null (tests, or a
+    /// screen that builds no code content — e.g. the level Game screen, whose content is scene-owned) →
+    /// a no-op, so the pre-TD snapshot-only restore is byte-identical.
+    /// </summary>
+    public Action? RebuildCodeContent { get; set; }
+
+    /// <summary>
     /// True for the exact duration of a <b>prefab-context</b> reader restore (PF-D, pre-mortem #8): the
     /// overlay's <see cref="RestoreSnapshot"/> reads it to publish the in-memory
     /// <c>LoadSceneRequest</c> with <c>SuppressCameraRig</c> set, so a prefab tab's content-load never
@@ -280,6 +294,11 @@ public sealed class ViewportContextStack
 
         if (!leaving.IsDiscard) SnapshotActive();       // a persistent context is preserved (never discarded)
         SweepSceneEntities?.Invoke();                   // the transport's survivor-sparing sweep
+
+        // TD: rebuild the screen's code-owned content (never snapshot-captured) BETWEEN the sweep and the
+        // reader restore, so a Game-tab exit / same-screen scene switch keeps the menu UI / demo entities
+        // instead of a blank screen. A Prefab target is isolated (only the prefab shows), so skip it.
+        if (target.Kind != ViewportContextKind.Prefab) RebuildCodeContent?.Invoke();
 
         // A prefab target restores WITHOUT the camera rig (PF-D, pre-mortem #8 — it has none).
         RestoringPrefabContext = target.Kind == ViewportContextKind.Prefab;
@@ -450,6 +469,9 @@ public sealed class ViewportContextStack
             var target = _contexts[neighbour];
             SweepSceneEntities?.Invoke();
             _history?.Clear();
+            // TD: rebuild code-owned content between the sweep and the restore (as SwitchTo does), so
+            // closing the active tab back to a Scene/Game neighbour keeps the screen's code-built UI.
+            if (target.Kind != ViewportContextKind.Prefab) RebuildCodeContent?.Invoke();
             RestoringPrefabContext = target.Kind == ViewportContextKind.Prefab;
             if (target.Snapshot != null) RestoreSnapshot?.Invoke(target.Snapshot);
             RestoringPrefabContext = false;
