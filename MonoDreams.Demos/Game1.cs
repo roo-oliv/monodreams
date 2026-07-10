@@ -127,32 +127,42 @@ public class Game1 : Game
         _runner = new DefaultParallelRunner(1);
         _screenController = new ScreenController(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
 
+        // TD: resolve the versioned project (desktop-only) under the flag so the Scenes panel lists the
+        // demo scenes, Save has a root, and the universal palette composes. The multi-manifest tie-break
+        // hint keeps a Demos-host resolve on MonoDreams.Demos/Content/game.mdproj — the repo also holds
+        // Examples' manifest at the same depth (a bare shallowest-then-ordinal tie would pick it). Null off
+        // the flag. (A co-located Demos run resolves via walk-up before the repo search; the hint is
+        // defence-in-depth + what the pure disambiguation test asserts.)
+        var projectContext = _editor ? EditorProjectContext.Resolve("MonoDreams.Demos") : null;
+
         // TB-A: the host-scoped editor session — its viewport tab stack survives a screen switch (the
-        // launcher Play → Game tab following a transition to a demo screen). Null off the flag.
-        var session = _editor ? new EditorSession() : null;
+        // launcher Play → Game tab following a transition to a demo screen). Seeded with the launcher's
+        // bound scene id so the boot tab is NAMED (never "untitled"); the boot screen's Load corrects it
+        // when a demo is booted directly (headless --screen). Null off the flag.
+        var session = _editor ? new EditorSession(DemoLauncherScreen.BoundSceneId) : null;
 
         // Under the editor run flag EVERY demo screen composes the editor overlay (the editor is
         // host- and screen-agnostic — a demo is a scene like any level). Each screen brings its
         // own cursor pipeline, so the overlay never doubles it; keys come from the engine's
         // DefaultEditorKeys via the DemoEditor helper.
-        // UX-C: demo screens declare plain display-name ScreenInfo (no bound scene, not a scene host —
-        // the demos have no project context, so the editor's Scenes panel lists them as screens only
-        // and shows no scene files). The editor is still composed on every demo (universal overlay).
+        // UX-C (TD): each demo screen declares its BOUND scene id — the demo selector itself is a scene too
+        // (the launcher) — so the editor's Scenes panel lists the five demos as scenes and each Save targets
+        // <id>.mdscene. The project context is handed to every screen so a demo scene can be saved/loaded.
         _screenController.RegisterScreen(DemoScreens.Launcher,
-            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
-            new ScreenInfo("Launcher"));
+            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Launcher", DemoLauncherScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Camera,
-            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
-            new ScreenInfo("Camera Demo"));
+            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Camera Demo", MonoDreams.Demo.Camera.CameraDemoScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Physics,
-            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor, session: session),
-            new ScreenInfo("Physics Demo"));
+            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Physics Demo", MonoDreams.Demo.Physics.PhysicsDemoScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Dialogue,
-            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
-            new ScreenInfo("Dialogue Demo"));
+            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Dialogue Demo", MonoDreams.Demo.Dialogue.DialogueDemoScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Ui,
-            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
-            new ScreenInfo("UI Demo"));
+            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("UI Demo", MonoDreams.Demo.Ui.UiDemoScreen.BoundSceneId));
 
         if (_editor)
         {

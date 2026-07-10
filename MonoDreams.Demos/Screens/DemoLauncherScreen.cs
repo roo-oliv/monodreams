@@ -24,6 +24,11 @@ namespace MonoDreams.Demos.Screens;
 /// into the demo screen.
 public class DemoLauncherScreen : IGameScreen
 {
+    /// <summary>The scene id this screen (the demo selector itself, per the user) is bound to (TD/UX-C):
+    /// its editor Save writes <c>launcher.mdscene</c>, and the Scenes panel lists it as a scene. Also the
+    /// session's boot-tab seed (a named boot tab, never "untitled").</summary>
+    public const string BoundSceneId = "launcher";
+
     private readonly ContentManager _content;
     private readonly GraphicsDevice _graphicsDevice;
     private readonly Camera _camera;
@@ -37,6 +42,7 @@ public class DemoLauncherScreen : IGameScreen
     // registries the editor's systems panel binds to (see DemoEditor).
     private readonly bool _editorEnabled;
     private readonly EditorSession _session;
+    private readonly EditorProjectContext? _projectContext;
     private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
@@ -49,7 +55,8 @@ public class DemoLauncherScreen : IGameScreen
     public World World => _world;
 
     public DemoLauncherScreen(GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false, EditorSession session = null)
+        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false,
+        EditorSession session = null, EditorProjectContext projectContext = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
@@ -58,6 +65,7 @@ public class DemoLauncherScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
         _session = session;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -90,6 +98,15 @@ public class DemoLauncherScreen : IGameScreen
             ShapeBuilder.Arrow(26f, Color.Black, Color.White).Generate(), RenderTargetID.HUD);
 
         BuildUI();
+
+        if (_editor != null)
+        {
+            // TD split seam: the code-content rebuild is the launcher's UI builder (the sweep disposed the
+            // menu entities; the cursor survives). So closing the Game tab (report 2 — "back to the untitled
+            // scene tab everything went blank") rebuilds the demo-selection buttons instead of a blue void.
+            _editor.Overlay.Transport.RebuildCodeContent = BuildUI;
+            _editor.BindScene(screenController, _world, _content.RootDirectory, DemoScreens.Launcher, BoundSceneId);
+        }
     }
 
     private void OnDemoButtonClicked(in DemoButtonClicked msg)
@@ -195,7 +212,8 @@ public class DemoLauncherScreen : IGameScreen
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers —
         // the launcher menu is a scene like any other.
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
-            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game, session: _session);
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
+            session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
@@ -250,6 +268,11 @@ public class DemoLauncherScreen : IGameScreen
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Overlay.Inspector, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+            // TD/PF-F universal palette: with a resolved project the overlay builds a default catalog +
+            // bands from this screen's layer map (the demo supplies none), so a demo gets the Assets +
+            // Prefabs tabs too — empty assetRoots is legal (the Prefabs tab still works, no crash).
+            if (_editor.Overlay.Palette != null)
+                p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
             EditTimeBehavior.RunNormally);

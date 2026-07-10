@@ -6,6 +6,8 @@ using MonoDreams.Draw;
 using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
+using MonoDreams.Screen;
+using MonoDreams.State;
 using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.Demos;
@@ -33,10 +35,11 @@ public enum DemoDrawLayer
 /// the same PPMondwest font as the Examples shells, so the editor reads identically across hosts.
 public sealed class DemoEditor
 {
-    private DemoEditor(DefaultEditorKeys keys, EditorOverlay overlay)
+    private DemoEditor(DefaultEditorKeys keys, EditorOverlay overlay, EditorProjectContext? projectContext)
     {
         Keys = keys;
         Overlay = overlay;
+        ProjectContext = projectContext;
     }
 
     /// The default editor keyboard surface (registrar entry `editor.keys`).
@@ -44,6 +47,11 @@ public sealed class DemoEditor
 
     /// The universal editor overlay, built over the calling screen's world/camera/layers.
     public EditorOverlay Overlay { get; }
+
+    /// The resolved editor project context (TD): handed to the overlay so Save/the Scenes panel/the
+    /// palette have a project root, and reused by <see cref="BindScene"/>'s optional-scene-load. Null off
+    /// the flag or when unresolved.
+    public EditorProjectContext? ProjectContext { get; }
 
     /// The minimal <see cref="DrawLayerMap"/> a demo screen hands the editor seam
     /// (see <see cref="DemoDrawLayer"/>).
@@ -64,7 +72,9 @@ public sealed class DemoEditor
         SpriteBatch spriteBatch,
         ViewportManager viewportManager,
         Func<Game?> game,
-        EditorSession? session = null)
+        EditorSession? session = null,
+        EditorProjectContext? projectContext = null,
+        string? sceneId = null)
     {
         if (!editorEnabled) return null;
 
@@ -81,12 +91,42 @@ public sealed class DemoEditor
                 var host = game();
                 if (host != null) host.IsMouseVisible = visible;
             },
+            // TD: this screen's bound scene id (Save target + the active tab's name) and the resolved
+            // project context (so the Scenes panel lists scenes, Save has a root, and the universal palette
+            // composes — empty assetRoots is legal, the Prefabs tab still works).
+            sceneId: sceneId,
+            projectContext: projectContext,
             // TB-A: the host-scoped session — its viewport tab stack survives a screen switch (the launcher
             // Play → Game tab following a transition to a demo screen, "fix them all" — Demos included).
             session: session);
         // Modal capture (keyboard half): while a Save/Load dialog is open the editor keyboard stands
         // down so the dialog owns the keys (the mouse half is the dialog consuming the cursor edges).
         keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen || overlay.Menu.IsOpen || overlay.Modal.IsActive || overlay.InspectorOwnsKeyboard;
-        return new DemoEditor(keys, overlay);
+        return new DemoEditor(keys, overlay, projectContext);
+    }
+
+    /// <summary>
+    /// The common Load-time editor wiring for a bound Demos screen (TD/UX-C), mirroring the Examples
+    /// screens: name the active tab from the screen's bound scene id; register the <b>scene-content
+    /// reload</b> (the optional bound-scene load, source-first) that <see cref="EditorTransport.Restart"/>
+    /// re-runs; publish that optional load now (so a saved <c>&lt;sceneId&gt;.mdscene</c> comes up under the
+    /// code-built demo) UNLESS a cross-screen tab activation is restoring this tab's snapshot instead; and
+    /// bind the Scenes catalog + the plain-<see cref="ScreenController.LoadScreen"/> switch hand-off (Demos
+    /// needs no requested-level concept — every Demos screen has a fixed binding). The caller sets
+    /// <see cref="EditorTransport.RebuildCodeContent"/> (its own create-methods) separately.
+    /// </summary>
+    public void BindScene(ScreenController screenController, World world, string contentRoot,
+        string screenName, string boundSceneId)
+    {
+        Overlay.SetSceneId(boundSceneId);
+        Overlay.Transport.ReloadSceneContent = () =>
+            NativeLevelLoader.TryPublishSceneLoad(world, contentRoot, boundSceneId, ProjectContext);
+        if (!Overlay.RestorePendingActivation(screenController.State))
+            NativeLevelLoader.TryPublishSceneLoad(world, contentRoot, boundSceneId, ProjectContext);
+        Overlay.BindSceneCatalog(screenName,
+            () => screenController.RegisteredScreens,
+            // Demos: a plain LoadScreen hand-off — every Demos screen has a fixed scene binding, so there
+            // is no requested-level concept (the Examples level host's EditorSceneSwitch equivalent).
+            entry => screenController.LoadScreen(entry.ScreenName));
     }
 }

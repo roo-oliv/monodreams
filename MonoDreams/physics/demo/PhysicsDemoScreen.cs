@@ -70,6 +70,10 @@ public class PhysicsDemoScreen : IGameScreen
     // normal bounces are untouched but runaway energy is capped.
     private const float MaxBallSpeed  = 1050f;
 
+    /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
+    /// <c>physics-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
+    public const string BoundSceneId = "physics-demo";
+
     private const int DefaultRedCount  = 7;
     private const int DefaultBlueCount = 3;
     private const int MaxBallsPerColor = 999999; // clamp on the editable counts
@@ -111,6 +115,7 @@ public class PhysicsDemoScreen : IGameScreen
     // registries the editor's systems panel binds to (see DemoEditor).
     private readonly bool _editorEnabled;
     private readonly EditorSession _session;
+    private readonly EditorProjectContext? _projectContext;
     private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
@@ -122,7 +127,8 @@ public class PhysicsDemoScreen : IGameScreen
 
     public PhysicsDemoScreen(GraphicsDevice graphicsDevice, ContentManager content,
         MonoDreams.Component.Camera camera, ViewportManager viewportManager, SpriteBatch spriteBatch,
-        IParallelRunner runner, bool editorEnabled = false, EditorSession session = null)
+        IParallelRunner runner, bool editorEnabled = false, EditorSession session = null,
+        EditorProjectContext projectContext = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
@@ -132,6 +138,7 @@ public class PhysicsDemoScreen : IGameScreen
         _runner = runner;
         _editorEnabled = editorEnabled;
         _session = session;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -169,6 +176,22 @@ public class PhysicsDemoScreen : IGameScreen
         CreateWalls();
         RebuildBalls();
         BuildHud(content);
+
+        if (_editor != null)
+        {
+            // TD split seam: the code-content rebuild re-creates the boundary, floor, walls, balls (a
+            // fresh random layout — the authored initial state) and HUD, all disposed by the sweep. So
+            // closing the Game tab resets the balls to their initial positions instead of a blank screen.
+            _editor.Overlay.Transport.RebuildCodeContent = () =>
+            {
+                CreateBoundary();
+                CreateFloorVisual();
+                CreateWalls();
+                RebuildBalls();
+                BuildHud(_content);
+            };
+            _editor.BindScene(screenController, _world, _content.RootDirectory, DemoScreens.Physics, BoundSceneId);
+        }
     }
 
     // ─── public bridges for the keyboard system ───────────────────────────────
@@ -617,7 +640,8 @@ public class PhysicsDemoScreen : IGameScreen
 
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
-            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game, session: _session);
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
+            session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
@@ -684,6 +708,9 @@ public class PhysicsDemoScreen : IGameScreen
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+            // TD/PF-F universal palette (composes with a resolved project; empty assetRoots is legal).
+            if (_editor.Overlay.Palette != null)
+                p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
             EditTimeBehavior.RunNormally);

@@ -113,8 +113,13 @@ public class DialogueDemoScreen : IGameScreen
     // The universal editor overlay (null when editorEnabled is false) and the retained pipeline
     // registries the editor's systems panel binds to (see DemoEditor). Bound in Load — this
     // screen builds its pipelines there (DialogueSystem needs textures from `content`).
+    /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
+    /// <c>dialogue-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
+    public const string BoundSceneId = "dialogue-demo";
+
     private readonly bool _editorEnabled;
     private readonly EditorSession _session;
+    private readonly EditorProjectContext? _projectContext;
     private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
@@ -126,7 +131,7 @@ public class DialogueDemoScreen : IGameScreen
 
     public DialogueDemoScreen(GraphicsDevice graphicsDevice, ContentManager content,
         MonoDreams.Component.Camera camera, ViewportManager viewportManager, SpriteBatch spriteBatch,
-        bool editorEnabled = false, EditorSession session = null)
+        bool editorEnabled = false, EditorSession session = null, EditorProjectContext projectContext = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
@@ -135,6 +140,7 @@ public class DialogueDemoScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
         _session = session;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -250,6 +256,28 @@ public class DialogueDemoScreen : IGameScreen
         {
             _editor.Overlay.BindPipelines(_updatePipeline, _drawPipeline);
             EditorOverlay.LogComposition(nameof(DialogueDemoScreen), _updatePipeline, _drawPipeline);
+
+            // TD split seam: rebuild the demo's world content (ground, boundary, player, NPCs, portrait,
+            // HUD) on a Game-tab exit / scene switch, so closing the Game tab restores the scene instead
+            // of a blank screen. The persistent cowDialogue (captured here) supplies the portrait-gutter
+            // bounds. The Load-created reaction/portrait/NPC-target systems keep their captured entity refs
+            // (guarded — a dead handle is skipped), so only the visible content is what a Game-tab exit
+            // restores; the systems re-target fully on the next Restart.
+            _editor.Overlay.Transport.RebuildCodeContent = () =>
+            {
+                CreateGround();
+                CreateBoundary();
+                CreatePlayer();
+                CreateNpc(out _npc, NpcPosition, DialogueGlyphs.CowShape(CowBodyRadius), "DialogueDemoCow", CowBodyRadius);
+                CreateNpc(out _bird, BirdPosition, DialogueGlyphs.BirdShape(BirdBodyRadius), "DialogueDemoBird", BirdBodyRadius);
+                CreatePortraitSlot(cowDialogue.PortraitGutterBounds);
+                BuildHud(_content);
+            };
+            // Both DialogueSystems build their dialogue-UI sub-graph at construction and hold it by
+            // reference (root carries DialogueStateComponent) — KeepAlive spares it from the sweep so the
+            // system never NREs over a disposed UI (parity with the Examples game screen).
+            _editor.Overlay.Transport.KeepAlive = e => e.Has<MonoDreams.Dialogue.DialogueStateComponent>();
+            _editor.BindScene(screenController, _world, _content.RootDirectory, DemoScreens.Dialogue, BoundSceneId);
         }
     }
 
@@ -583,7 +611,8 @@ public class DialogueDemoScreen : IGameScreen
 
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
-            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game, session: _session);
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
+            session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
@@ -644,6 +673,9 @@ public class DialogueDemoScreen : IGameScreen
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+            // TD/PF-F universal palette (composes with a resolved project; empty assetRoots is legal).
+            if (_editor.Overlay.Palette != null)
+                p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
             EditTimeBehavior.RunNormally);

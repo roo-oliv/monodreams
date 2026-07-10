@@ -95,6 +95,10 @@ public class CameraDemoScreen : IGameScreen
     /// (Right) / rotate (Left).
     public enum HitZone { None, Left, Right }
 
+    /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
+    /// <c>camera-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
+    public const string BoundSceneId = "camera-demo";
+
     private readonly ContentManager _content;
     private readonly GraphicsDevice _graphicsDevice;
     private readonly MonoDreams.Component.Camera _camera;
@@ -111,6 +115,7 @@ public class CameraDemoScreen : IGameScreen
     // registries the editor's systems panel binds to (see DemoEditor).
     private readonly bool _editorEnabled;
     private readonly EditorSession _session;
+    private readonly EditorProjectContext? _projectContext;
     private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
@@ -145,7 +150,8 @@ public class CameraDemoScreen : IGameScreen
     public World World => _world;
 
     public CameraDemoScreen(GraphicsDevice graphicsDevice, ContentManager content, MonoDreams.Component.Camera camera,
-        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false, EditorSession session = null)
+        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false,
+        EditorSession session = null, EditorProjectContext projectContext = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
@@ -154,6 +160,7 @@ public class CameraDemoScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
         _session = session;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -198,6 +205,24 @@ public class CameraDemoScreen : IGameScreen
         MonoDreams.Cursor.Cursor.CreateMesh(_world,
             ShapeBuilder.Arrow(26f, Color.Black, Color.White).Generate(), RenderTargetID.HUD);
 
+        BuildContent();
+
+        if (_editor != null)
+        {
+            // TD split seam: the code-content rebuild re-creates the whole demo world (anchor, boundary,
+            // zones, ball, crosses, minimap, HUD) and re-applies the current mode — all disposed by the
+            // sweep. So closing the Game tab restores the demo instead of a blank screen.
+            _editor.Overlay.Transport.RebuildCodeContent = BuildContent;
+            _editor.BindScene(_screenController!, _world, _content.RootDirectory, DemoScreens.Camera, BoundSceneId);
+        }
+    }
+
+    /// <summary>Builds (or rebuilds) the demo's code-owned world content — everything the sweep disposes
+    /// except the cursor (which survives). Runs once from <c>Load</c> and again as the TD
+    /// <see cref="EditorTransport.RebuildCodeContent"/> on a Game-tab exit / scene switch. The dictionaries
+    /// re-key their entries in place, so a rebuild leaves no stale handles.</summary>
+    private void BuildContent()
+    {
         _cameraAnchor = _world.CreateEntity();
         _cameraAnchor.Set(new TransformComponent(Vector2.Zero));
 
@@ -210,7 +235,7 @@ public class CameraDemoScreen : IGameScreen
         CreateCornerPriorityAnchor();
         CreateCameraCenterCross();
         CreateMinimapFrame();
-        BuildHud(content);
+        BuildHud(_content);
 
         SetMode(_mode);
     }
@@ -872,7 +897,8 @@ public class CameraDemoScreen : IGameScreen
 
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
-            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game, session: _session);
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
+            session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 
@@ -939,6 +965,9 @@ public class CameraDemoScreen : IGameScreen
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+            // TD/PF-F universal palette (composes with a resolved project; empty assetRoots is legal).
+            if (_editor.Overlay.Palette != null)
+                p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
             EditTimeBehavior.RunNormally);
