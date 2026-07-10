@@ -29,7 +29,9 @@ public class ZoneDialogueTriggerSystem : ISystem<GameState>
     {
         if (message.Type != CollisionType.Dialogue) return;
 
-        var zoneEntity = message.CollidingEntity;
+        // Identity consumer: the zone's DialogueZoneComponent lives on the COLLIDER entity (ColliderB),
+        // not the resolved body — read the collider side.
+        var zoneEntity = message.ColliderB;
         if (!zoneEntity.Has<DialogueZoneComponent>()) return;
 
         var zone = zoneEntity.Get<DialogueZoneComponent>();

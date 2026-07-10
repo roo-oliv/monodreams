@@ -21,9 +21,9 @@ public class CharmFactory(DrawLayerMap layers) : IEntityFactory
 
         var size = (int)RunnerConstants.CharmSize;
         entity.Set(new TransformComponent(request.Position, rotation: MathHelper.PiOver4));
-        entity.Set(new BoxColliderComponent(
-            new Rectangle(-size / 2, -size / 2, size, size),
-            passive: true));
+        // Colliders-as-entities: the charm IS its own collider (standalone; Velocity makes it its own
+        // body). The former centered bounds become a centered Size — byte-identical world rect.
+        entity.Set(new BoxColliderComponent(new Vector2(size, size), passive: true));
         entity.Set(new VelocityComponent(new Vector2(-RunnerConstants.TreadmillScrollSpeed, 0)));
 
         var mesh = new FilledRectangleMeshGenerator(

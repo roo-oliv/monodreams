@@ -10,6 +10,7 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
+using MonoDreams.Extension;
 using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
@@ -83,14 +84,15 @@ public class WallEntityFactory : IEntityFactory
             Target = RenderTargetID.Main,
         });
 
-        // Add collision components for walls
-        var colliderBounds = new Rectangle(
-            Point.Zero, // Relative to entity position
-            new Point((int)request.Size.X, (int)request.Size.Y)
-        );
-        
-        entity.Set(new BoxColliderComponent(colliderBounds, passive: true));
+        // Add collision components for walls. Colliders-as-entities: the collider is a child entity;
+        // the wall is the body (RigidBody). The former top-left footprint's centre (Size/2) keeps the
+        // world rect unchanged (box now centered on the child's transform).
         entity.Set(new RigidBodyComponent());
+
+        var wallCollider = world.CreateEntity();
+        wallCollider.Set(new TransformComponent(new Vector2(request.Size.X / 2f, request.Size.Y / 2f)));
+        wallCollider.Set(new BoxColliderComponent(new Vector2(request.Size.X, request.Size.Y), passive: true));
+        wallCollider.SetParent(entity);
 
         // Process any additional custom fields
         ProcessCustomFields(entity, request.CustomFields);

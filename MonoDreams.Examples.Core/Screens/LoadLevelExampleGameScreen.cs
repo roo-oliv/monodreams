@@ -398,8 +398,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
 
             var zoneWidth = (int)(npcDimensions.X * 2.5f);
             var zoneHeight = (int)(npcDimensions.Y * 1.5f);
-            var zoneBounds = new Rectangle(-zoneWidth / 2, -zoneHeight / 2, zoneWidth, zoneHeight);
-            zoneEntity.Set(new BoxColliderComponent(zoneBounds, passive: true));
+            // Colliders-as-entities: the zone IS a collider entity (its identity + DialogueZone ride
+            // it). The former centered bounds become a centered Size on the zone's transform —
+            // byte-identical world rect; the zone stays parented to the NPC.
+            zoneEntity.Set(new BoxColliderComponent(new Vector2(zoneWidth, zoneHeight), passive: true));
             zoneEntity.Set(new DialogueZoneComponent(npcName, oneTimeOnly: false, autoStart: false, npcName: npcName));
 
             // Create floating icon entity (above the NPC sprite)

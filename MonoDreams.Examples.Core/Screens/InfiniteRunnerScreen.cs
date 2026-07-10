@@ -12,6 +12,7 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
+using MonoDreams.Extension;
 using MonoDreams.Examples.Component.Runner;
 using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Runner;
@@ -171,10 +172,17 @@ public class InfiniteRunnerScreen : IGameScreen
         var collider = _world.CreateEntity();
         collider.Set(new EntityInfoComponent("Wall"));
         collider.Set(new TransformComponent(new Vector2(0, RunnerConstants.TreadmillY)));
-        collider.Set(new BoxColliderComponent(
-            new Rectangle(0, 0, (int)RunnerConstants.TreadmillTotalWidth, (int)RunnerConstants.TreadmillSegmentHeight),
-            passive: true));
         collider.Set(new RigidBodyComponent(isKinematic: true, gravityActive: false));
+
+        // Colliders-as-entities: the collider is a child entity; the "Wall" entity is the body
+        // (RigidBody). Former top-left footprint centre keeps the world rect: local (W/2, H/2).
+        var treadmillCollider = _world.CreateEntity();
+        treadmillCollider.Set(new TransformComponent(new Vector2(
+            RunnerConstants.TreadmillTotalWidth / 2f, RunnerConstants.TreadmillSegmentHeight / 2f)));
+        treadmillCollider.Set(new BoxColliderComponent(
+            new Vector2(RunnerConstants.TreadmillTotalWidth, RunnerConstants.TreadmillSegmentHeight),
+            passive: true));
+        treadmillCollider.SetParent(collider);
 
         // Cosmetic segments — top row (scrolls left)
         for (int i = 0; i < RunnerConstants.TreadmillSegmentCount; i++)
@@ -242,12 +250,10 @@ public class InfiniteRunnerScreen : IGameScreen
         var entity = _world.CreateEntity();
         entity.Set(new EntityInfoComponent("Player"));
         entity.Set(new TransformComponent(RunnerConstants.PlayerStartPosition));
+        // The runner player collider was already centered (offset = -radius); it stays on the player
+        // (standalone, its own body via RigidBody+Velocity) as a centered Size — byte-identical.
         entity.Set(new BoxColliderComponent(
-            new Rectangle(
-                RunnerConstants.PlayerColliderOffset.X,
-                RunnerConstants.PlayerColliderOffset.Y,
-                RunnerConstants.PlayerColliderSize.X,
-                RunnerConstants.PlayerColliderSize.Y)));
+            new Vector2(RunnerConstants.PlayerColliderSize.X, RunnerConstants.PlayerColliderSize.Y)));
         entity.Set(new RigidBodyComponent());
         entity.Set(new VelocityComponent());
         entity.Set(new RunnerState());
@@ -290,17 +296,20 @@ public class InfiniteRunnerScreen : IGameScreen
     }
 
     private static CollisionMessage CreateRunnerCollision(
-        Entity entity, Entity target, Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
+        Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB,
+        Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
     {
-        var entityType = entity.Get<EntityInfoComponent>().Type;
-        var targetType = target.Get<EntityInfoComponent>().Type;
+        // Classify by the BODIES' identity ("Player" on the player body; "Collectible"/"Obstacle"/
+        // "Wall" on the collectible/obstacle/treadmill bodies).
+        var entityType = bodyA.Has<EntityInfoComponent>() ? bodyA.Get<EntityInfoComponent>().Type : null;
+        var targetType = bodyB.Has<EntityInfoComponent>() ? bodyB.Get<EntityInfoComponent>().Type : null;
         var type = (entityType, targetType) switch
         {
             ("Player", "Collectible") => CollisionType.Collectible,
             ("Player", "Obstacle") => CollisionType.Damage,
             _ => CollisionType.Physics
         };
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
+        return new CollisionMessage(colliderA, colliderB, bodyA, bodyB, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()

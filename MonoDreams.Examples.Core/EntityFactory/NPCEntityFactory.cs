@@ -10,6 +10,7 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
+using MonoDreams.Extension;
 using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
@@ -30,9 +31,14 @@ public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEn
         var name = request.CustomFields.TryGetValue("name", out var n) ? n as string : null;
         entity.Set(new EntityInfoComponent(nameof(EntityType.NPC), name));
         entity.Set(new TransformComponent(request.Position));
-        entity.Set(new BoxColliderComponent(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new RigidBodyComponent());
         entity.Set(new VelocityComponent());
+
+        // Colliders-as-entities: the collider is a child entity; the NPC is the body.
+        var npcCollider = world.CreateEntity();
+        npcCollider.Set(new TransformComponent(new Vector2(Constants.PlayerSize.X / 2f, Constants.PlayerSize.Y / 2f)));
+        npcCollider.Set(new BoxColliderComponent(new Vector2(Constants.PlayerSize.X, Constants.PlayerSize.Y)));
+        npcCollider.SetParent(entity);
 
         // Add sprite information for rendering
         entity.Set(new SpriteInfoComponent
