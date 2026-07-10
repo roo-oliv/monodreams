@@ -34,7 +34,12 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
     public override void Update(GameState state)
     {
         base.Update(state);
-        if (InputState.Grab.Pressed(state))
+        // Debug convenience: reload Level_0 on Grab (K). This is an ADDITIVE load — SceneReaderSystem never
+        // sweeps, so publishing it onto a world that already holds content STACKS a duplicate copy. That is
+        // a corruption footgun while EDITING (a save then persists the duplicates — a double-load), so it is
+        // gated OUT of Edit mode (PF-F). It stays a Play-only debug reload; the editor's own scene switches
+        // all go through the transport's survivor-sparing sweep.
+        if (state.RunMode != RunMode.Edit && InputState.Grab.Pressed(state))
         {
             world.Publish(new LoadLevelRequest("Level_0"));
         }
