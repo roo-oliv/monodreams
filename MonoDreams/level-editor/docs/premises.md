@@ -146,8 +146,7 @@ root's `ChildOfComponent` descendant closure, so a factory's sub-graph (e.g. a p
 orbiting orbs) round-trips with its parent graph intact even though only the root is tagged.
 Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar, and the UX2-E
 camera rig — never `SceneObjectComponent`-tagged, so it never enters `entities[]`, pre-mortem #4) are
-untagged → excluded; Blender-origin entities are untagged in this wave (their save is deferred) →
-view-only. `SceneWriter` computes the closure, serializes it through the Wave-2 `SceneSerializer`
+untagged → excluded. `SceneWriter` computes the closure, serializes it through the Wave-2 `SceneSerializer`
 into a `SceneData` (attaching the **camera rig's** state as `scene.camera` — UX2-E: the writer reads the
 authored camera FROM the rig, not the live view — and the `DrawLayerMap` banding), and writes
 the canonical JSON through `IPlatformServices.WriteAllText` into the versioned project source tree
@@ -185,7 +184,7 @@ swallowing an unregistered key would silently lose a designer's data.
 sprite root + a `ChildOf` child, write, reload via `LoadSceneRequest`, assert Transform + `SpriteInfo`
 SOURCE sort fields + `AssetKey` + texture rehydration + parent graph + camera/layers reproduce;
 `MembershipFilterTest` — only tagged roots + their `ChildOf` closure serialize, transient/untagged
-and Blender-style entities excluded, and the UX2-E camera rig excluded (pre-mortem #4); `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
+content entities excluded, and the UX2-E camera rig excluded (pre-mortem #4); `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
 frame recomputes the identical derived `DrawComponent.LayerDepth`;
 `ReloadedSceneReTagsRoots_LoadEditSaveIsAFixedPoint` — save mixed content, reload, edit a loaded
 transform, re-save: the same 3 roots reproduce, the boundary bake child stays excluded, and the edit
@@ -2291,8 +2290,8 @@ scan there) — the graduation step is the exit.
 **Tests:** `MonoDreams.Tests/LevelEditor/AssetCatalogTests.cs` (scan/sidecars/lazy/missing),
 `SceneRoundTripTests.cs` (`FileAssetKeyRoundTripTest`, `MissingFileAssetOnReloadTest`).
 **Depends on:** this file — "`SpriteInfoComponent` serializes an `AssetKey`, never the live
-`Texture2D`" (this premise extends the key's grammar); level-blender — the `TitleContainer`
-content-stream premise (the same portable read seam).
+`Texture2D`" (this premise extends the key's grammar); level-loading — "Native `.mdscene` levels are
+bundled by an MGCB `/copy:` entry and read via `TitleContainer`" (the same portable read seam).
 
 ## Y-sorted props use the feet-origin convention, factory-applied
 
@@ -2847,7 +2846,7 @@ bound-screen optional load (`NativeLevelLoader.TryPublishSourceFirst`). It runs 
 **with no editor composed**: `LoadLevelExampleGameScreen` reuses the overlay's reader when the editor is
 present, else builds a standalone one (engine **and game** serializers — PS5), so a shipped game boots
 native scenes too. When no `.mdscene` exists for the id the boot dispatcher **fails loud** — the
-LDtk/Blender loaders are import-only (PS5) and not wired to boot, so there is no silent legacy attempt.
+LDtk loader is import-only (PS5) and not wired to boot, so there is no silent legacy attempt.
 The bundled
 `game.mdproj` (read at boot via
 `ManifestBoot.TryReadManifest` over `TitleContainer`) drives the entry: `ManifestBoot.ResolveStartScene`
@@ -3139,9 +3138,9 @@ the Wave-5 in-process-integration precedent).
 round-trip reconstructs from registered components, not factories"; collision — SAT + the `Passive`
 static-blocker semantics.
 
-## LDtk/Blender are import-only; the importer round-trips a parsed world to native
+## LDtk is import-only; the importer round-trips a parsed world to native
 
-The LDtk and Blender parsers are no longer wired to live game boot (PS5). They are **import
+The LDtk parser is no longer wired to live game boot (PS5). It is **import
 machinery**: run once, via the import op (`Game1`'s headless `--export-scene <id>` /
 `MONODREAMS_EXPORT_SCENE`, or a future editor toolbar action), to re-parse a legacy level into a native
 `.mdscene` the game then owns. `LevelImporter` is the testable core: given a world a parser populated, it
@@ -3158,11 +3157,11 @@ before importing so only level content is captured.
 
 **Why:** native `.mdscene` is the game's real level format; keeping the parsers as one-way importers
 (not live loaders) is what makes the boot path native-only and closes the parser-asymmetry, while still
-letting a gamedev migrate an LDtk/Blender level they already authored.
+letting a gamedev migrate an LDtk level they already authored.
 **Breaks:** if the importer did not tag the parsed roots, a straight `SceneWriter.Save` would write an
 empty scene (the parsers never set the transient save-root tag); if a parsed component had no registered
 serializer, its data drops silently (a loud write-time warning surfaces it).
-**Tests:** `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (LDtk-like + Blender-like worlds →
+**Tests:** `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (an LDtk-like world →
 import → reload via the native reader → equivalent world: counts, game components, transforms, parent
 graph; `TagContentRoots` excludes infra/bake and is idempotent).
 **Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories",
@@ -3188,7 +3187,7 @@ byte-lock test catches it); a missing game-component serializer would throw when
 (`CommittedBlenderLevel_IsByteCanonical_LoadSaveIsAFixedPoint`,
 `CommittedBlenderLevel_BootsThroughTheShippedReader_YieldingPlayerAndNpcs`),
 `MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelBootsNative`.
-**Depends on:** this file — "LDtk/Blender are import-only; the importer round-trips a parsed world to
+**Depends on:** this file — "LDtk is import-only; the importer round-trips a parsed world to
 native", "The game boots native scenes native-first via `LoadLevelRequest`".
 
 ## Game components round-trip through registered serializers
@@ -3196,7 +3195,7 @@ native", "The game boots native scenes native-first via `LoadLevelRequest`".
 Full component serialization spans the game's own components, not just the engine's. The reference game
 registers serializers for `PlayerState`, `OrbitalMotion`, `StopMotionEffect`, and `DialogueZoneComponent`
 via `GameComponentSerializers.RegisterGameComponents`, and the engine ships one for
-`CameraFollowTargetComponent` — so a native scene migrated from an LDtk/Blender level reconstructs the
+`CameraFollowTargetComponent` — so a native scene migrated from a legacy LDtk level reconstructs the
 same world through the registry. `RegisterGameComponents` is called on **both** the editor overlay's live
 registry (in-editor Load/Save) **and** the shipped game's standalone native-reader registry (a booted
 native scene reconstructs game components with no editor composed). Runtime-derived affordances that hold

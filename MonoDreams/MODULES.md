@@ -25,7 +25,7 @@ MonoDreams/
     ...source files...    ← all files inside ARE the module
 ```
 
-The 14 modules:
+The 13 modules:
 
 ```
 foundation              (required base — installed by `monodreams init`)
@@ -35,14 +35,12 @@ foundation              (required base — installed by `monodreams init`)
 │   ├── cursor
 │   ├── debug              (+ collision)
 │   ├── level-ldtk         (+ level-loading)
-│   ├── level-blender      (+ level-loading)
 │   └── ui
 │       └── dialogue       (+ rendering-text)
 ├── physics
 ├── collision              (+ physics, soft)
 ├── level-loading
-│   ├── level-ldtk
-│   └── level-blender
+│   └── level-ldtk
 └── level-editor           (+ rendering, ui, cursor, level-loading)
 ```
 

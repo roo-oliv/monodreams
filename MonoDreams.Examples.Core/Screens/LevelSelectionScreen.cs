@@ -192,7 +192,7 @@ public class LevelSelectionScreen : IGameScreen
         // Create entities first. Play buttons only — the editor is entered exclusively through the
         // --editor / MONODREAMS_EDITOR=1 run configuration (the transport model), never via a menu
         // button. Level ids resolve to NATIVE .mdscene levels now (PS5: native-first is native-only;
-        // the LDtk/Blender loaders are import-only). "Level 1" → the migrated native Blender_Level;
+        // the legacy LDtk loader is import-only). "Level 1" → the migrated native Blender_Level;
         // the runner is a screen, not a level file. The LDtk Level_0 is not migrated yet (its ~21k
         // per-tile entities need a native tile-layer batching primitive — a PS6 item), so it is not
         // offered here: booting it native-only would fail loud.

@@ -53,7 +53,7 @@ dotnet run
 
 `monodreams list` shows every module and preset; `--verbose` adds deps and NuGet refs.
 
-## The 14 modules
+## The 13 modules
 
 ```
 foundation              required base — installed by `monodreams init`
@@ -64,7 +64,6 @@ foundation              required base — installed by `monodreams init`
 │   ├── cursor          textured cursor with hover types
 │   ├── debug           collider/sprite overlays, screenshot capture
 │   ├── level-ldtk      load LDtk-exported levels
-│   ├── level-blender   load Blender-exported levels (+ exporter plugin)
 │   └── ui              flexbox layout, builders, button primitives
 │       └── dialogue    YarnSpinner integration
 ├── physics             velocity + gravity, decoupled from collision
@@ -98,12 +97,11 @@ Browsing a module's source tells you what it contains at a glance:
 - **Systems** end in `System` (e.g. `HierarchySystem`, `GravitySystem`, `MasterRenderSystem`).
 - **Messages** are publish-subscribe events flowing through the ECS world (e.g. `CollisionMessage`, `LoadLevelRequest`).
 
-## Three reference games
+## Two reference games
 
-The repo's `MonoDreams.Examples/` directory contains three games, each a clean subset of the module graph:
+The repo's `MonoDreams.Examples/` directory contains two games, each a clean subset of the module graph:
 
 - **LDtk platformer** — full stack with dialogue, UI, cursor (`monodreams add --preset ldtk-platformer`)
-- **Blender platformer** — same minus LDtk, plus Blender level export (`--preset blender-platformer`)
 - **Infinite runner** — procedural shapes, no level files, no UI, just physics + collision (`--preset infinite-runner`)
 
 They're the proof that the module boundaries are correct: each example is exactly the union of its preset's modules.

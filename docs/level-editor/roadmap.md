@@ -79,9 +79,10 @@ the new `LoadSceneRequest` message, separate from `LoadLevelRequest`).
   one step); undo entries are DATA + an applying system, not OO command objects.
 
 **Decisions deferred.**
-- **GAP-B = Blender-origin save deferred.** Blender-direct entities are untagged in
-  Wave A → view-only; editing a Blender level can't save those props yet. Revisit when
-  a content-driven format dispatch replaces the `Blender_` prefix hack.
+- **GAP-B = Blender-origin save deferred — OBSOLETE (wave BR).** This gap existed only for
+  entities the live Blender parser produced; that parser was deleted in wave BR, so there are no
+  Blender-origin runtime entities left to save. The committed `Blender_Level` is a native scene whose
+  entities are ordinary tagged save-roots.
 
 **Plug-in points.** Game components register serializers on the registry
 (`registry.Register(key, type, write, read)`); a screen opts a system into freezing by
@@ -627,10 +628,17 @@ the `collision` / `physics` / `level-editor` premises + `CORE_TENETS` §5.
 **Wave 8b (collider gizmo proxies) is SUPERSEDED by this phase** — the proxy layer it shipped is exactly
 what the RFC below deleted. The Wave-8b section above is kept for history.
 
-**Queued next — wave BR: retire the Blender importer** (user directive 2026-07-10, "we are getting rid of
-it", no compatibility owed): delete the parser + data types, the `Blender_` dispatch, the `Tools/` exporter
-plugin, Examples import wiring, the CLI registry entry + module-count docs, and the Blender-shaped test
-fixtures. Left as retirement notes in the CE docs; not started.
+**Landed — wave BR: the Blender importer is retired** (user directive 2026-07-10, "we are getting rid of
+it", no compatibility owed). Deleted `MonoDreams/level-blender/` wholesale (the `BlenderLevelParserSystem`
+parser + `BlenderLevelData` types + module docs + the `Tools/blender_level_export.py` exporter plugin), the
+Examples `importMode` Blender wiring in `LoadLevelExampleGameScreen`, the `blender-platformer` CLI preset
+(`monodreams add level-blender` now errors like any unknown module; `list` no longer shows it), and the
+Blender-shaped `LevelImporterTests` fixture. Decremented the module count (14 → 13) across `CLAUDE.md` /
+`MODULES.md` / `README.md` / `CONTRIBUTING.md` / `docs/index.md` / `skills-config.md`, and swept the
+flow/premise docs (the `Blender_` dispatch premises removed, `docs/flows/level-blender.md` deleted). The
+committed native `Content/Levels/Blender_Level.mdscene` (origin Blender, now a native scene the game owns)
+and its GreasePencil textures STAY — gated by `BlenderLevelTests`/`MigratedLevelTests` booting it native.
+The LDtk import path (parser + one-way `LevelImporter`) is untouched.
 
 **Named terrain (CE follow-ups, with triggers):**
 - **Rotated axis-aligned hitboxes → use a polygon.** A `BoxColliderComponent` is intentionally

@@ -17,9 +17,7 @@ content pipeline and calls `world.Set(new CurrentLevelComponent(...))`. The two 
 `LDtkTileParserSystem` and `LDtkEntityParserSystem` — never see the message. Each subscribes in
 its constructor to `world.SubscribeWorldComponentAdded<CurrentLevelComponent>(...)` and runs its
 parse in the add handler; their `Update(GameState)` is empty. This is the engine's intended
-**component-driven** dispatch and the explicit contrast with `level-blender`, whose
-`BlenderLevelParserSystem` subscribes to `LoadLevelRequest` directly (a documented, load-bearing
-asymmetry — see `level-loading` and the `Blender_`-prefix premise). Each parser also runs a
+**component-driven** dispatch. Each parser also runs a
 constructor-time catch-up (`if (_world.Has<CurrentLevelComponent>()) HandleLevelLoaded(...)`) so
 registration order relative to the load doesn't lose a level already present.
 
@@ -57,12 +55,10 @@ parser does not subscribe to removal (entity cleanup is the factory/game's conce
 Authoritative list in [`MonoDreams/level-ldtk/docs/premises.md`](../../MonoDreams/level-ldtk/docs/premises.md); the ones this parse path leans on:
 
 - Both parsers fire on `CurrentLevelComponent` **added**, never on `LoadLevelRequest` — the
-  component-driven seam shared with `level-loading`, and the deliberate inverse of `level-blender`.
+  component-driven seam shared with `level-loading`.
 - Tile and entity parsers are independent registrations; a game can register either alone.
 - `layer.Visible` is the LDtk editor toggle, not the runtime `VisibleComponent` owned by
   `CullingSystem` — never collapse the two in a rename.
-- A `Blender_`-prefixed identifier routes to the Blender parser and `LevelLoadRequestSystem` removes
-  `CurrentLevelComponent`, so this module's parsers do not fire for it.
 
 ## Load-bearing quantities
 
@@ -80,8 +76,6 @@ Authoritative list in [`MonoDreams/level-ldtk/docs/premises.md`](../../MonoDream
 
 ## Failure modes
 
-- **LDtk level named with a `Blender_` prefix** — silently routes to the Blender parser; the LDtk
-  path loads nothing and the level appears empty. Highest-likelihood real mistake in this flow.
 - **Missing factory registration** — an LDtk entity/tile identifier (`"Tile"`, `"Wall"`, or any
   entity `_Identifier`) with no registered `IEntityFactory` is warn-and-dropped by `EntitySpawnSystem`;
   the entity is silently absent. Diagnosed only via the `Logger.Warning`.

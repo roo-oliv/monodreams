@@ -1,8 +1,7 @@
 # Native MonoDreams scene format
 
 > The on-disk format for a native MonoDreams scene — what the in-game level
-> editor saves and loads. Distinct from the LDtk (`.ldtk`) and Blender
-> (`.json` export) level formats: those are *imported* by per-format parsers
+> editor saves and loads. Distinct from the LDtk (`.ldtk`) level format: it is *imported* by parsers
 > that re-run factories; a native scene is a **full component serialization**
 > that round-trips by reconstructing components, never by re-running factories.
 > The native scene is loaded by a dedicated `LoadSceneRequest` message (Wave 3),
@@ -17,11 +16,11 @@ the file writer/reader (`SceneWriter` + `LoadSceneRequest` + `SceneReaderSystem`
 the **canonical byte-stable serializer** with **stable per-entity ids** (PS1),
 the **`game.mdproj` manifest** (PS2), **save into the versioned source tree**
 (PS3), **native-first boot via `LoadLevelRequest` + `/copy:` bundling** (PS4),
-**LDtk/Blender import-only** (PS5), and the **ship-readiness lint** (PS6) are all
+**LDtk import-only** (PS5), and the **ship-readiness lint** (PS6) are all
 live. The parametric `sources[]` waves (D–F) land later still; the schema is
 designed forward-stable so those waves extend it without a breaking version bump.
 
-Serialization is **System.Text.Json**, consistent with `BlenderLevelData`, and
+Serialization is **System.Text.Json** and
 runs on **save/load only** — never per-frame. All scene JSON is written and read
 through one **canonical policy** ([`CanonicalJson`](../Serialization/CanonicalJson.cs))
 so the bytes are deterministic — see [Canonical serialization](#canonical-serialization).

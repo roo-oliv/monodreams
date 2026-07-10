@@ -119,8 +119,8 @@ pipeline):
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
 2. **Level / scene load** — `LoadLevelRequest` (native-only at boot, PS5: the probe → native reader, or
    fail loud) + `LoadSceneRequest` (`SceneReaderSystem`, the editor's Save-then-reload + the Scenes-panel
-   load; there is no Load button — UX-D). The LDtk/Blender
-   parsers are import-only (composed only in the export op's `importMode`), so they are not on this live
+   load; there is no Load button — UX-D). The LDtk
+   parser is import-only (composed only in the export op's `importMode`), so it is not on this live
    path. The transport's Restart re-drives it: it removes `CurrentLevelComponent`, disposes the scene
    entities, and re-publishes the screen-recorded original load request. Migrating a legacy level into a
    native `.mdscene` is a one-shot `LevelImporter` op (see the module overview), not part of this flow.

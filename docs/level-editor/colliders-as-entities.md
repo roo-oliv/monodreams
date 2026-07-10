@@ -70,9 +70,9 @@
 > entities from CE-A. **The Blender importer is RETIRED (user directive 2026-07-10, given
 > to the CE-B wave directly and re-confirmed to the orchestrator: "we are getting rid of
 > it", no compatibility owed).** The unclosed box-offset import seam is therefore moot;
-> the full module deletion is **wave BR** (after CE-D): parser + data types, `Blender_`
-> dispatch, the exporter plugin under `Tools/`, Examples import wiring, the CLI registry
-> entry + module-count docs, and the Blender-shaped test fixtures.
+> the full module deletion **landed in wave BR**: the parser + data types, the `Blender_`
+> dispatch, the exporter plugin, the Examples import wiring, the `blender-platformer` CLI
+> preset + module-count docs, and the Blender-shaped test fixture.
 
 ## 3. The editor (proxies die for colliders) — LANDED (CE-C)
 

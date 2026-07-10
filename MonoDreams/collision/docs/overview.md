@@ -61,4 +61,4 @@ Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderCo
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants for this module (`ColliderTagComponent` canonical query, swept-collision `Delta` dependency, single-threaded detection, the reference pipeline order)
-- Related modules: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging), `level-blender` (the `-collider` suffix convention spawns `ConvexColliderComponent`s)
+- Related modules: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging)

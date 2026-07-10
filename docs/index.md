@@ -14,7 +14,7 @@ next to each module's source.
 
 ## Per-module docs
 
-Each of the 14 modules ships its own `docs/` subfolder colocated with the
+Each of the 13 modules ships its own `docs/` subfolder colocated with the
 module source. Read `overview.md` for the tour (purpose, components,
 systems, wiring), `premises.md` for the load-bearing invariants.
 
@@ -28,7 +28,6 @@ systems, wiring), `premises.md` for the load-bearing invariants.
 | `collision` | [overview](../MonoDreams/collision/docs/overview.md) | [premises](../MonoDreams/collision/docs/premises.md) |
 | `level-loading` | [overview](../MonoDreams/level-loading/docs/overview.md) | [premises](../MonoDreams/level-loading/docs/premises.md) |
 | `level-ldtk` | [overview](../MonoDreams/level-ldtk/docs/overview.md) | [premises](../MonoDreams/level-ldtk/docs/premises.md) |
-| `level-blender` | [overview](../MonoDreams/level-blender/docs/overview.md) | [premises](../MonoDreams/level-blender/docs/premises.md) |
 | `ui` | [overview](../MonoDreams/ui/docs/overview.md) | [premises](../MonoDreams/ui/docs/premises.md) |
 | `cursor` | [overview](../MonoDreams/cursor/docs/overview.md) | [premises](../MonoDreams/cursor/docs/premises.md) |
 | `dialogue` | [overview](../MonoDreams/dialogue/docs/overview.md) | [premises](../MonoDreams/dialogue/docs/premises.md) |
@@ -63,7 +62,6 @@ with the change's module footprint (see
 | [`collision`](flows/collision.md) | | Detection (AABB + SAT, swept via Delta) → `CollisionMessage` → resolution. |
 | [`level-loading`](flows/level-loading.md) | | `LoadLevelRequest` → `CurrentLevelComponent` / `EntitySpawnRequest` → factory-by-id dispatch. |
 | [`level-ldtk`](flows/level-ldtk.md) | | Component-driven LDtk parse (tiles + entities) on `CurrentLevelComponent` add. |
-| [`level-blender`](flows/level-blender.md) | | Message-driven Blender parse; the exporter↔parser JSON contract. |
 | [`ui`](flows/ui.md) | | Auto-layout: build tree → intrinsic sizing (bottom-up) → flexbox placement (top-down). |
 | [`cursor`](flows/cursor.md) | | Poll input → project across coordinate spaces → paint cursor on top (HUD). |
 | [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |

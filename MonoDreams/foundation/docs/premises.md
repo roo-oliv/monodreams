@@ -181,13 +181,13 @@ browser — e.g. `GameSettings` reading a save file off a disk that doesn't
 exist, or `Logger` writing to a `StreamWriter` that can't open. (Read-only
 *game content* is the exception: it is not a host-filesystem concern — it
 goes through `ContentManager`/`TitleContainer`, which serves it over HTTP on
-web. See level-blender — "Blender level JSON is read as content, not host
-filesystem".)
+web. See level-loading — "Native `.mdscene` levels are bundled by an MGCB
+`/copy:` entry and read via `TitleContainer`".)
 **Tests:** `MonoDreams.Tests/Platform/PlatformServicesTests.cs` (asserts
 `Logger` and `InputReplayPlan.TryLoad` route through a fake
 `IPlatformServices` with no real disk, and that `DesktopPlatformServices`
 round-trips the real filesystem); the routed runtime sites are exercised
-end-to-end on the desktop FS by `BlenderLevelTests` and `HeadlessDemoTests`.
+end-to-end on the desktop FS by the native `Blender_Level` boot (`BlenderLevelTests`) and `HeadlessDemoTests`.
 **Depends on:** —
 
 ## The platform (backend + OS services) is selected by the head project, never by engine source
@@ -257,7 +257,7 @@ composes the always-on editor and the transport owns RunMode").
 **Why:** the run-state model was added to `foundation` (a sensitive domain) so the
 in-game level editor can freeze the game pipeline without forking it (see
 `docs/CORE_TENETS.md` — "The editor is part of the game"). Adding a property to
-`GameState` that every screen across all 14 modules carries is only safe if the
+`GameState` that every screen across all 13 modules carries is only safe if the
 default leaves every existing screen untouched. Opt-in-only gating is what makes
 that true.
 **Breaks:** if `RunMode` defaulted to `Edit`, or if a system consulted `RunMode`

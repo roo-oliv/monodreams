@@ -19,12 +19,11 @@ import-only and not offered by the reference menu.
 
 **Why:** native `.mdscene` is the game's real level format; keeping the parsers as one-way importers is
 what closes the parser-asymmetry (CORE_TENETS §6/§10) while preserving the LDtk authoring path.
-**Breaks:** re-wiring the parsers to game boot reopens the asymmetry (dual-subscribe dispatch, LDtk error
-noise for Blender ids).
+**Breaks:** re-wiring the parsers to game boot reopens the asymmetry.
 **Tests:** `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (import → native round-trip);
 `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`.
 **Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails
-loud otherwise)"; level-editor — "LDtk/Blender are import-only; the importer round-trips a parsed world
+loud otherwise)"; level-editor — "LDtk is import-only; the importer round-trips a parsed world
 to native".
 
 ## Both parsers subscribe to `CurrentLevelComponent` being added, not to `LoadLevelRequest`
@@ -164,29 +163,6 @@ is its own protection; the desktop path is exercised by the Examples
 content build that `LDtkLevelTests` depends on).
 **Depends on:** —
 
-## `Blender_` prefix routes around this module
-
-Levels whose `LoadLevelRequest.LevelIdentifier` starts with `Blender_`
-are intercepted by `BlenderLevelParserSystem` (in `level-blender`),
-which subscribes to the message directly. `LevelLoadRequestSystem`
-also fires for those identifiers but fails to load them as LDtk and
-explicitly removes `CurrentLevelComponent` — so the LDtk parsers in
-this module do not fire for Blender-prefixed identifiers. This is the
-dispatch hack between the two parser modules; restated here from this
-module's viewpoint so a consumer reading the LDtk premises knows why
-some loads don't reach them.
-
-**Why:** the prefix-based dispatch is a quick hack documented in
-`level-loading`'s premises. Naming an LDtk level with a `Blender_`
-prefix accidentally routes it to the wrong parser.
-**Breaks:** a developer renames an LDtk level to `Blender_World1`,
-expecting the LDtk parser to handle it. Nothing in this module fires;
-instead the Blender parser logs "no file found" and the level loads
-empty.
-**Tests:** none yet.
-**Depends on:** level-loading — "`Blender_` identifier prefix
-dispatches to the Blender parser".
-
 ## Open questions
 
 - **Tile-layer ordering** — `LDtkTileParserSystem` walks
@@ -204,9 +180,6 @@ dispatches to the Blender parser".
 
 - Add streaming support for large LDtk worlds (multi-level
   concurrency from `level-loading`'s aspirational direction).
-- A content-driven format dispatch (level data declares its format)
-  that replaces the `Blender_` prefix hack so this module doesn't
-  need the prefix-routing premise at all.
 
 ## Follow-up debt
 
@@ -221,4 +194,3 @@ The following premises currently have **Tests: none yet**:
 - Consumers still surface the LDtk content-pipeline DLL to MGCB via
   `/reference:` (content build is its own protection; web path lands in
   Phase 3)
-- `Blender_` prefix routes around this module

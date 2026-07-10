@@ -265,42 +265,32 @@ end-state is collision against any Transform-shaped contract.
 ## 6. Level loading & entity spawning
 
 **The shipped game boots native `.mdscene` levels only** (see "Native-only
-load" below). The LDtk (`.ldtk`) and Blender (`.json` from
-`Tools/blender_level_export.py`) parsers are now **import-only**: they run
+load" below). The LDtk (`.ldtk`) parser is now **import-only**: it runs
 once, off the game boot, to migrate a legacy level into a native scene the
 game then owns. The pipeline below describes that **import** path — a
-request loads a file, a parser walks the data, and the parser emits
-`EntitySpawnRequest` messages that a factory turns into entities (LDtk) or
-creates entities directly (Blender). It is composed only in the reference
-screen's `importMode`, never at live boot.
+request loads a file, the parser walks the data, and it emits
+`EntitySpawnRequest` messages that a factory turns into entities. It is
+composed only in the reference screen's `importMode`, never at live boot.
 
 **The pipeline.**
 1. Game code publishes `LoadLevelRequest`.
-2. **Two systems subscribe to the message directly** —
-   `LevelLoadRequestSystem` (LDtk path) and `BlenderLevelParserSystem`
-   (Blender path). Each gates on the level identifier (see the
-   `Blender_` prefix note below).
-3. `LevelLoadRequestSystem` loads the LDtk file and **adds
-   `CurrentLevelComponent` to the world**; the LDtk parsers
-   (`LDtkEntityParserSystem`, `LDtkTileParserSystem`) then **subscribe
-   to `CurrentLevelComponent` being added** and parse on add.
-   `BlenderLevelParserSystem`, in contrast, parses directly from the
-   message — an asymmetry that's a known wart (see "Aspirational
-   direction" below and the per-module premises).
+2. `LevelLoadRequestSystem` subscribes to the message. On the import path
+   (`enableLegacyLdtkFallback: true`) it loads the LDtk file and **adds
+   `CurrentLevelComponent` to the world**.
+3. The LDtk parsers (`LDtkEntityParserSystem`, `LDtkTileParserSystem`)
+   **subscribe to `CurrentLevelComponent` being added** and parse on add.
 4. Parsers emit `EntitySpawnRequest`s.
 5. `EntitySpawnSystem` consumes each spawn request and dispatches to an
    `IEntityFactory` registered for the request's string identifier.
 
 **Key invariant — the LDtk parsers react to component lifecycle, not
 to push messages.** Their pattern (subscribe to `CurrentLevelComponent`
-added) is the engine-wide *intended* default. A test or tool that adds
+added) is the engine-wide default. A test or tool that adds
 `CurrentLevelComponent` manually triggers them just as well as the
-regular `LoadLevelRequest` path. The Blender parser predates the
-pattern and remains message-driven; harmonizing it is on the backlog
-(§10). For new parsers, follow the LDtk pattern — resist the urge to
-make a system "only respond when the right message arrived" — that's
-coupling the system to an upstream sequence that should be the
-assembler's choice.
+regular `LoadLevelRequest` path. For new parsers, follow this pattern —
+resist the urge to make a system "only respond when the right message
+arrived"; that couples the system to an upstream sequence that should be
+the assembler's choice.
 
 **Factory registration.** `EntitySpawnSystem` keeps a dictionary of
 `string → IEntityFactory`. Game code registers factories at screen
@@ -309,41 +299,29 @@ warning and the spawn is silently dropped. **Intended behavior is to
 throw** — this is on the backlog (§10). For now, treat the warning as a
 high-severity signal during development.
 
-**`Blender_` identifier prefix (import-only now).** In the `importMode`
-composition both `LevelLoadRequestSystem` (LDtk, with
-`enableLegacyLdtkFallback: true`) and `BlenderLevelParserSystem` (Blender)
-subscribe to `LoadLevelRequest`; the Blender parser filters by the
-`Blender_` prefix and the LDtk path handles the rest (harmlessly logging an
-error for a Blender-prefixed id it can't load). **This dual-subscribe
-name-prefix dispatch survives only inside the import op** — it never runs at
-game boot, where the single native-only dispatcher decides everything. The
-quick hack is therefore no longer on the live path; it is retired end-to-end
-when the parsers are eventually deleted (they remain as import machinery for
-now).
-
 **Native-only load — the content-driven unification (PS5, asymmetry
 resolved).** `LevelLoadRequestSystem` is now a **native-only** dispatcher:
 each `LoadLevelRequest` probes for a bundled native scene
 `Content/Levels/<id>.mdscene` via `TitleContainer` (the console-portable
-read, exactly like `blender_level.json`) and, on a hit, loads it through the
-generalized `SceneReaderSystem` (the same native reader the editor's
-`LoadSceneRequest` uses — reconstructing entities from serialized
-components, not factories). An id with **no** native scene **fails loud** —
-there is no silent LDtk/Blender attempt. Native `.mdscene` is the game's real
-level format: versioned in `Content/Levels/`, MGCB-`/copy:`-bundled, read
-read-only via `TitleContainer` on every platform (only the desktop editor
-writes, PS3). **The LDtk and Blender parsers are now IMPORT-ONLY machinery:**
-they run once — via the import op (a headless `--export-scene <id>` /
-`MONODREAMS_EXPORT_SCENE` dev op, or a future editor toolbar action) — to
-re-parse a legacy level and serialize the resulting world to a native
-`.mdscene` the game then owns; they are **not wired to live game boot**
-(composed only in the reference screen's `importMode`). This closes the
-parser-asymmetry backlog (§10): one content-driven load path, no
-dual-subscribe dispatch, no `Blender_` name-prefix hack. Migration status:
-the Examples Blender level is migrated to a committed
-`Content/Levels/Blender_Level.mdscene`; the LDtk `Level_0` is not yet
-migrated (its ~21k per-tile entities need a native tile-layer batching
-primitive — a follow-up, §10).
+read) and, on a hit, loads it through the generalized `SceneReaderSystem`
+(the same native reader the editor's `LoadSceneRequest` uses —
+reconstructing entities from serialized components, not factories). An id
+with **no** native scene **fails loud** — there is no silent LDtk attempt.
+Native `.mdscene` is the game's real level format: versioned in
+`Content/Levels/`, MGCB-`/copy:`-bundled, read read-only via `TitleContainer`
+on every platform (only the desktop editor writes, PS3). **The LDtk parser
+is now IMPORT-ONLY machinery:** it runs once — via the import op (a headless
+`--export-scene <id>` / `MONODREAMS_EXPORT_SCENE` dev op, or a future editor
+toolbar action) — to re-parse a legacy level and serialize the resulting
+world to a native `.mdscene` the game then owns; it is **not wired to live
+game boot** (composed only in the reference screen's `importMode`). This
+closes the parser-asymmetry backlog (§10): one content-driven load path.
+(The Blender importer that once shared this path was retired in wave BR —
+see §10.) Migration status: the committed
+`Content/Levels/Blender_Level.mdscene` (a native scene originally migrated
+from Blender) boots native; the LDtk `Level_0` is not yet migrated (its
+~21k per-tile entities need a native tile-layer batching primitive — a
+follow-up, §10).
 
 ## 7. The reference pipeline
 
@@ -437,7 +415,7 @@ debug directory, writes an `InputReplayPlan`, waits for exit, and
 exposes log-assertion helpers (`AssertLogContains`,
 `AssertLogContainsInOrder`, `GetLogLines`). The gold-standard tests
 today are `SATCollisionTests` (pure-logic), `BlenderLevelTests`
-(parsing), and `InfiniteRunnerTests` (integration).
+(native scene boot), and `InfiniteRunnerTests` (integration).
 
 **No architectural tests today.** ArchUnit-style assertions
 ("`MonoDreams/Component/*.cs` must contain only data") do not exist
@@ -611,18 +589,20 @@ code".
   Open question: would moving it complicate the bulk add/remove
   pattern `CullingSystem` uses today?
 - **`Blender_` identifier prefix / parser-asymmetry** (§6). **RESOLVED
-  (PS5).** The game boot is now a single native-only dispatcher
-  (`LevelLoadRequestSystem`): `LoadLevelRequest` → native `.mdscene` via
-  `SceneReaderSystem`, or fail loud. The LDtk + Blender parsers are
-  import-only machinery (composed only in the reference screen's
-  `importMode`, run by the export op), so the dual-subscribe name-prefix
-  dispatch never runs at boot. There is no LDtk-vs-Blender-vs-native
-  asymmetry on the live path. Residual: the LDtk `Level_0` is not yet
-  migrated to native (it needs a **native tile-layer batching primitive** —
-  a compact representation for ~21k per-tile entities, so its `.mdscene`
-  isn't a multi-MB per-entity dump); until then it is import-only and not
-  offered by the reference menu. When both parsers are eventually deleted,
-  the import op moves to a standalone tool.
+  (PS5); Blender importer DELETED (wave BR).** The game boot is a single
+  native-only dispatcher (`LevelLoadRequestSystem`): `LoadLevelRequest` →
+  native `.mdscene` via `SceneReaderSystem`, or fail loud. The LDtk parser
+  is import-only machinery (composed only in the reference screen's
+  `importMode`, run by the export op), so nothing legacy runs at boot. The
+  Blender importer that once shared the `Blender_` name-prefix dispatch was
+  retired wholesale in wave BR (parser + data types + exporter plugin + CLI
+  registry entry + module-count docs), so the name-prefix hack is gone
+  end-to-end — no parser asymmetry remains. Residual: the LDtk `Level_0` is
+  not yet migrated to native (it needs a **native tile-layer batching
+  primitive** — a compact representation for ~21k per-tile entities, so its
+  `.mdscene` isn't a multi-MB per-entity dump); until then it is import-only
+  and not offered by the reference menu. When the LDtk parser too is
+  eventually deleted, the import op moves to a standalone tool.
 - **`EntitySpawnSystem` silent-drops unregistered factories** (§6).
   Intended behaviour is to throw.
 - **`Transform.Delta` consistency not enforced** (§3). No API today

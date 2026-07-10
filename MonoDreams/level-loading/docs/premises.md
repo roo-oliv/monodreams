@@ -4,7 +4,7 @@
 > plumbing: `LoadLevelRequest`, `CurrentLevelComponent`,
 > `LevelLoadRequestSystem`, `EntitySpawnRequest`, `EntitySpawnSystem`,
 > and `IEntityFactory`. Parser-specific invariants live in the
-> `level-ldtk` and `level-blender` modules; this file covers the
+> `level-ldtk` module; this file covers the
 > contract every parser ships into.
 
 ## `LevelLoadRequestSystem`'s LDtk path adds `CurrentLevelComponent` (import-only now)
@@ -27,7 +27,7 @@ competes with `LevelLoadRequestSystem`, possibly seeing the message before the l
 is actually loaded.
 **Tests:**
 `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (the import → native round-trip
-over LDtk-/Blender-shaped worlds) and
+over an LDtk-shaped world) and
 `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
 (an unmigrated LDtk id fails loud at boot — the LDtk path is not wired there).
 **Depends on:** "Parsers are component-driven, not message-driven".
@@ -46,7 +46,7 @@ read). A **null** context (a shipped / console / web build) skips the source bra
 so the bundled path is byte-identical to before. On a hit it loads through the native reader
 (`SceneReaderSystem`, generalized off the editor-only `LoadSceneRequest`) and returns `true` —
 `LevelLoadRequestSystem` then returns. **No native scene ⇒ it fails loud** (a logged error, no
-entities), with no legacy LDtk/Blender attempt. The legacy LDtk `Content.Load<LDtkLevel>` path
+entities), with no legacy LDtk attempt. The legacy LDtk `Content.Load<LDtkLevel>` path
 runs **only** when a caller explicitly opts in with `enableLegacyLdtkFallback: true` — the
 import op's dedicated composition, never the shipped boot. The delegate is a plain
 `Func<string,bool>` so `level-loading` never depends upward on `level-editor`; the
@@ -66,9 +66,8 @@ Restart reload, and the bound-screen load all agree. `TryPublishSceneLoad` publi
 LDtk `CurrentLevelComponent` path.
 
 **Why:** native `.mdscene` is the game's real level format (the shipped game reads
-bundled scenes via `TitleContainer`, exactly like `blender_level.json`). A single
-native-only boot path is what closes the LDtk-vs-Blender parser-asymmetry (the
-`Blender_` premise) — the parsers are import-only machinery now, off the boot path.
+bundled scenes via `TitleContainer`). A single native-only boot path is what closed
+the LDtk parser-asymmetry — the LDtk parser is import-only machinery now, off the boot path.
 **Breaks:** if the boot path silently fell back to LDtk on a native miss, the
 asymmetry would reopen and an unmigrated id would load stale content instead of
 surfacing the migration gap. If the delegate imported a `level-editor` type into
@@ -77,7 +76,7 @@ surfacing the migration gap. If the delegate imported a `level-editor` type into
 `MonoDreams.Tests/IntegrationTests/NativeSceneBootTests.cs` (the real headless game
 boots the committed `Levels/sample.mdscene` native),
 `MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::BlenderLevelBootsNative`
-(the migrated `Blender_Level` boots native, no Blender parse), and
+(the migrated `Blender_Level` boots native, no legacy parse), and
 `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
 (no native scene ⇒ fail loud, no LDtk boot), plus in-process
 `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`
@@ -93,7 +92,7 @@ LoadLevelRequest".
 
 Native scene files live in the source content tree at `Content/Levels/<id>.mdscene`
 (versioned in git). They are bundled to the title content by an MGCB `/copy:` entry
-(the same raw-copy mechanism as `blender_level.json` / `game.mdproj`); on build each
+(the same raw-copy mechanism as `game.mdproj`); on build each
 file lands at `<ContentRoot>/Levels/<id>.mdscene` (verified: desktop
 `bin/…/Content/Levels/`; web `wwwroot/Content/Levels/`). The shipped game reads them
 read-only through `TitleContainer.OpenStream(Path.Combine(ContentRoot, "Levels",
@@ -162,9 +161,7 @@ subscribe to `CurrentLevelComponent` being added — they do not consume
 `LoadLevelRequest` directly. This is the engine-wide default: react to
 component lifecycle events when the work depends on persistent state;
 reserve push messages for one-shot events (input, collision, screen
-transitions). The Blender parser is currently an exception (see the
-"`Blender_` identifier prefix" premise below); the long-term direction
-is to move it onto the component-driven path too.
+transitions). All shipping parsers now follow this component-driven pattern.
 
 **Why:** the component-driven pattern lets a test or tool add
 `CurrentLevelComponent` manually and trigger the parsers without
@@ -177,32 +174,6 @@ and game code that adds the level state without publishing the
 message bypasses it.
 **Tests:** none yet.
 **Depends on:** —
-
-## `Blender_` identifier prefix is import-only (never on the game boot path)
-
-The `Blender_` name-prefix dispatch survives **only inside the import op's
-composition** (`importMode`), where `BlenderLevelParserSystem` subscribes to
-`LoadLevelRequest` (processing ids starting with `Blender_`) alongside a
-`LevelLoadRequestSystem` composed with `enableLegacyLdtkFallback: true` (the LDtk
-path harmlessly logs an error for a Blender id). At **game boot** neither parser is
-composed — the single native-only dispatcher decides everything — so this
-dual-subscribe name-prefix hack **never runs on the live path**. *Status: the
-parser-asymmetry is RESOLVED (PS5): the game boots native `.mdscene` only; the
-parsers are import machinery. The hack is retired end-to-end when the parsers are
-eventually deleted (the import op then moves to a standalone tool).*
-
-**Why:** the dispatch landed as a quick path for the Blender export plugin. Native
-`.mdscene` replaced it as the game's real format: a level id resolves to a native
-scene at boot, and the legacy parsers only run once, via the import op, to migrate a
-legacy level. A native id never starts with `Blender_`, so the two never conflict
-even inside the import composition.
-**Breaks:** if the parsers were re-wired to game boot, the asymmetry reopens (the
-LDtk path would log spurious errors for Blender ids again, masking real failures).
-**Tests:**
-`MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
-(no legacy dispatch at boot) and `MonoDreams.Tests/LevelEditor/LevelImporterTests.cs`
-(the import path over LDtk-/Blender-shaped worlds).
-**Depends on:** level-blender — "`Blender_` prefix is the parser's opt-in hook".
 
 ## `EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`
 
@@ -235,8 +206,7 @@ fork the parser or post-process the entities.
 **Tests:** `MonoDreams.Tests/LevelEditor/PrefabExpansionTests.cs`
 (`EntitySpawnSystem_PrefixDispatch_RoutesPrefabRequestsToTheFactory`,
 `Factory_UnknownPrefabId_WarnsAndDrops_NoThrow`); the exact-match spawn
-path is still exercised indirectly via `BlenderLevelTests` and
-`InfiniteRunnerTests`.
+path is still exercised indirectly via `InfiniteRunnerTests`.
 **Depends on:** level-editor — "Prefabs are LINKED instances…" (the
 `prefab:` prefix channel's factory + expander).
 
@@ -335,11 +305,6 @@ content-pipeline DLL to MGCB via `/reference:`"; foundation — "The platform
 
 ## Aspirational direction
 
-- **Content-driven format dispatch** instead of identifier-prefix
-  hack — a format field in the level data, or explicit per-format
-  registration on the loader.
-- **Move the Blender parser onto the component-driven path** so all
-  parsers share the same lifecycle hook.
 - **Throw on unregistered factory identifier** instead of warn-and-drop.
 - **Multi-level concurrency** for streaming adjacent regions (e.g., a
   large overworld split into chunks loaded near the player).
@@ -353,7 +318,6 @@ The following premises currently have **Tests: none yet**:
 
 - `CurrentLevelComponent` is a world-scoped singleton
 - Parsers are component-driven, not message-driven
-- `Blender_` identifier prefix dispatches to the Blender parser
 - `EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`
 - Unregistered factory identifiers log a warning and silently drop the
   spawn
@@ -363,5 +327,4 @@ The following premises currently have **Tests: none yet**:
 The `LoadLevelRequest` flow is the only one with happy-path test
 coverage. An architectural test asserting that no parser system
 subscribes directly to `LoadLevelRequest` would protect the
-component-driven pattern (and would currently flag the Blender parser as
-the lone exception).
+component-driven pattern.

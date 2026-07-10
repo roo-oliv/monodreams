@@ -4,7 +4,7 @@ Load levels authored in LDtk (Level Designer Toolkit): both tile layers and enti
 
 ## Purpose
 
-LDtk is one of the two level-authoring tools MonoDreams ships first-class support for (Blender is the other). This module ships the parser systems plus the content-pipeline integration that lets MGCB read `.ldtk` files. It splits parsing into two independent systems — tiles and entities — so a game can opt into both, only one, or neither by which systems it registers. The module uses the engine-wide component-driven dispatch pattern: parsers subscribe to `CurrentLevelComponent` being added, which makes tests and tooling able to trigger parsing without faking a `LoadLevelRequest` message.
+LDtk is a level-authoring tool MonoDreams ships first-class support for. This module ships the parser systems plus the content-pipeline integration that lets MGCB read `.ldtk` files. It splits parsing into two independent systems — tiles and entities — so a game can opt into both, only one, or neither by which systems it registers. The module uses the engine-wide component-driven dispatch pattern: parsers subscribe to `CurrentLevelComponent` being added, which makes tests and tooling able to trigger parsing without faking a `LoadLevelRequest` message.
 
 ## What ships
 
@@ -40,7 +40,7 @@ new LDtkEntityParserSystem(world, ...)
 ```
 Register only the parsers you need — entities-only games can omit `LDtkTileParserSystem`.
 
-Trigger a load by publishing `LoadLevelRequest` from game code. Note: do not name LDtk levels with the `Blender_` prefix — that prefix routes to the Blender parser (and the LDtk path explicitly removes `CurrentLevelComponent` for those identifiers).
+Trigger a load by publishing `LoadLevelRequest` from game code.
 
 ## Cross-module dependencies
 
@@ -51,9 +51,8 @@ Trigger a load by publishing `LoadLevelRequest` from game code. Note: do not nam
 
 - **Custom field types.** `LDtkEntityParserSystem.ParseFieldValue` warns and returns raw values for unknown LDtk field types. Add a case there to recognize a new custom-field shape.
 - **Per-entity behavior.** Register an `IEntityFactory` for each LDtk entity identifier (in `EntitySpawnSystem` from `level-loading`). The factory reads `EntitySpawnRequest.CustomFields` to apply per-instance configuration from the LDtk editor.
-- **Multi-format dispatch (future).** The `Blender_` prefix dispatch is a known refactor candidate; the aspirational direction is a format field in `LoadLevelRequest` (or per-format registration) replacing the prefix hack.
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (component-driven dispatch, tile/entity parser independence, LDtk's `layer.Visible` ≠ engine `VisibleComponent`, the content-pipeline DLL reference quirk, `Blender_` prefix routing around this module)
-- Related modules: `level-loading` (the plumbing this module plugs into), `level-blender` (the alternative parser; uses message-driven pattern — note the asymmetry), `rendering` (consumes the sprite entities spawned by tile parsing)
+- [Premises](premises.md) — load-bearing invariants (component-driven dispatch, tile/entity parser independence, LDtk's `layer.Visible` ≠ engine `VisibleComponent`, the content-pipeline DLL reference quirk)
+- Related modules: `level-loading` (the plumbing this module plugs into), `rendering` (consumes the sprite entities spawned by tile parsing)

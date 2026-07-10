@@ -48,7 +48,7 @@ dotnet restore
 # solution build — see "Targeting the web (KNI/BlazorGL)" below.
 dotnet build
 
-# Run the desktop example game (LDtk + Blender platformer)
+# Run the desktop example game (LDtk platformer)
 dotnet run --project MonoDreams.Examples.Desktop/MonoDreams.Examples.Desktop.csproj
 
 # Run the CLI from source
@@ -98,12 +98,12 @@ known open Reach 32-bit-index render limit.
 dotnet test MonoDreams.Tests/
 ```
 
-The integration tests use the **headless replay** harness in `MonoDreams.Tests/IntegrationTests/`. Each test writes an `InputReplayPlan`, spawns the example game in headless mode with a temporary debug directory, waits for it to exit, and asserts on the resulting log. See `GameTestRunner.cs` for the runner and the existing tests (LDtk, Blender, infinite-runner) for patterns.
+The integration tests use the **headless replay** harness in `MonoDreams.Tests/IntegrationTests/`. Each test writes an `InputReplayPlan`, spawns the example game in headless mode with a temporary debug directory, waits for it to exit, and asserts on the resulting log. See `GameTestRunner.cs` for the runner and the existing tests (LDtk, infinite-runner) for patterns.
 
 ## Repo layout
 
 ```
-MonoDreams/                  ← the engine (14 modules + project files)
+MonoDreams/                  ← the engine (13 modules + project files)
   module.schema.json          ← JSON Schema for every module.json
   presets.json               ← named module combinations
   MODULES.md                  ← module authoring guide
@@ -111,7 +111,7 @@ MonoDreams/                  ← the engine (14 modules + project files)
   <module>/                   ← e.g. foundation/, rendering/, cursor/
     module.json               ← module manifest
     ...source files...       ← every file inside is part of the module
-MonoDreams.Examples.Core/    ← reference games, shared lib (LDtk, Blender, infinite-runner)
+MonoDreams.Examples.Core/    ← reference games, shared lib (LDtk, infinite-runner)
 MonoDreams.Examples.Desktop/ ← DesktopGL head (Program.cs -> game.Run())
 MonoDreams.Examples.Web/     ← BlazorGL (KNI) WASM head
 MonoDreams.Cli/              ← the `monodreams` global tool (init / add / list)
@@ -175,7 +175,7 @@ dotnet build .sandbox/Sandbox/Sandbox.sln
 
 ## Engine invariants
 
-Before any non-trivial change, read [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.md). For each module you touch, read the matching `MonoDreams/<module>/docs/premises.md` (foundation, rendering, rendering-text, camera, physics, collision, level-loading, level-ldtk, level-blender, ui, cursor, dialogue, debug). Skipping these is the most common way changes silently break an engine contract. If your change affects platform targeting, the load-bearing invariants are the *backend/OS-agnostic engine* and *platform-selected-by-head* premises in `foundation` and the *content-built-per-platform* premise in `level-loading` (see [`docs/web-targeting.md`](./docs/web-targeting.md)).
+Before any non-trivial change, read [`docs/CORE_TENETS.md`](./docs/CORE_TENETS.md). For each module you touch, read the matching `MonoDreams/<module>/docs/premises.md` (foundation, rendering, rendering-text, camera, physics, collision, level-loading, level-ldtk, ui, cursor, dialogue, debug). Skipping these is the most common way changes silently break an engine contract. If your change affects platform targeting, the load-bearing invariants are the *backend/OS-agnostic engine* and *platform-selected-by-head* premises in `foundation` and the *content-built-per-platform* premise in `level-loading` (see [`docs/web-targeting.md`](./docs/web-targeting.md)).
 
 ## Coding style
 

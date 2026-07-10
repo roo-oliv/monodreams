@@ -157,9 +157,9 @@ The editor never cares which host or screen it lands in — a menu, a demo, a le
 - `ui` — the chrome reuses `SimpleButtonComponent` / `ButtonMeshPrepSystem` for panel + button meshes (on the native-resolution Editor target since Wave 7).
 - `cursor` — selection and gizmo dragging read `CursorInputComponent.WorldPosition`.
 - `collision` / `physics` — the serializer registry ships serializers for the collider/body components. Under colliders-as-entities (CE) a collider is its own entity: the editor selects / moves / scales it through the ordinary selection + gizmo path, and only a convex collider entity's per-vertex grips write back through `ColliderEditCommand.ForConvex` (refreshing the convex world data per the collision premises).
-- `level-loading` — scene save/load reuses the spawn-request plumbing and the `IPlatformServices` storage seam; since PS5 the game boot is native-only (`LoadLevelRequest` → native reader, fail-loud otherwise) and the LDtk/Blender parsers are import-only machinery (the `LoadSceneRequest`/`LoadLevelRequest` split is now a live-native-path vs import-op distinction, not a parallel-loaders one).
+- `level-loading` — scene save/load reuses the spawn-request plumbing and the `IPlatformServices` storage seam; since PS5 the game boot is native-only (`LoadLevelRequest` → native reader, fail-loud otherwise) and the LDtk parser is import-only machinery (the `LoadSceneRequest`/`LoadLevelRequest` split is now a live-native-path vs import-op distinction, not a parallel-loaders one).
 
-## Importing legacy levels (LDtk/Blender → native `.mdscene`)
+## Importing legacy levels (LDtk → native `.mdscene`)
 
 `LevelImporter` (Composition) is the one-way import core: given a world a legacy parser populated, it
 tags the scene-content roots (`SceneObjectComponent`, excluding editor-infra and bake products) and
@@ -167,8 +167,8 @@ serializes through the canonical `SceneWriter` to a native `.mdscene` the game t
 on load by components, never by re-running the parser. The reference game drives it with a headless
 export op (`Game1`: `--export-scene <id>` / `MONODREAMS_EXPORT_SCENE`, boots in Edit so frozen physics
 can't perturb positions, excludes system-built UI like the dialogue sub-graph, writes into the project
-source tree via `EditorProjectContext`). The Examples Blender level is migrated to a committed
-`Content/Levels/Blender_Level.mdscene`; the LDtk `Level_0` awaits a native tile-layer batching primitive
+source tree via `EditorProjectContext`). The Examples `Blender_Level` is already a committed native
+`Content/Levels/Blender_Level.mdscene` (its origin was a Blender export; the game now owns it as a native scene, migrated once — there is no live Blender parser); the LDtk `Level_0` awaits a native tile-layer batching primitive
 (a follow-up) before its ~21k per-tile entities can migrate. An editor toolbar "Import" action is a
 natural next binding of the same core.
 

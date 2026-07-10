@@ -86,7 +86,7 @@
             "type": "string",
             "enum": ["code", "asset", "tool"],
             "default": "code",
-            "description": "`code` — C# source (default). `asset` — non-compiled resource, copied as-is. `tool` — supporting script (e.g. Blender exporter) dropped under `Tools/`."
+            "description": "`code` — C# source (default). `asset` — non-compiled resource, copied as-is. `tool` — supporting script (e.g. an editor/exporter plugin) dropped under `Tools/`."
           }
         }
       },

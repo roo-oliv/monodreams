@@ -1,7 +1,7 @@
 namespace MonoDreams.Examples.Draw;
 
 /// <summary>
-/// Draw layer ordering for the main game screens (LDtk/Blender levels).
+/// Draw layer ordering for the main game screens (native + LDtk-import levels).
 /// First member = 1.0 (front), last = 0.0 (back), evenly spaced.
 /// </summary>
 public enum GameDrawLayer
