@@ -71,15 +71,38 @@ public class MigratedLevelTests
         return r;
     }
 
-    /// <summary>Reads a repo-relative source file by walking up from the test base dir to the repo root
-    /// (the directory containing <c>MonoDreams.Examples.Core</c>).</summary>
+    /// <summary>Reads the COMMITTED bytes of a repo-relative file (<c>git show HEAD:&lt;path&gt;</c>),
+    /// walking up from the test base dir to the repo root (the directory containing
+    /// <c>MonoDreams.Examples.Core</c>). These tests gate what the repo COMMITS — reading the
+    /// working tree instead lets a developer's uncommitted level edits (e.g. a WIP prefab
+    /// reference) redden the suite (the ship-lint precedent: git is the source of truth for
+    /// "committed").</summary>
     private static string ReadRepoFile(string relative)
     {
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "MonoDreams.Examples.Core")))
             dir = Directory.GetParent(dir)?.FullName;
         if (dir == null) throw new InvalidOperationException("Could not find the repo root.");
-        return File.ReadAllText(Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var psi = new global::System.Diagnostics.ProcessStartInfo("git", $"show HEAD:{relative}")
+        {
+            WorkingDirectory = dir,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        using var proc = global::System.Diagnostics.Process.Start(psi)!;
+        var content = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit();
+        if (proc.ExitCode != 0 || content.Length == 0)
+            throw new InvalidOperationException($"git show HEAD:{relative} failed (exit {proc.ExitCode}).");
+        return content;
+    }
+
+    /// <summary>The committed bytes of <c>Content/Prefabs/&lt;id&gt;.mdprefab</c>, or null when the repo
+    /// commits no such prefab (untracked WIP prefabs are invisible here by design).</summary>
+    private static string? TryReadCommittedPrefab(string id)
+    {
+        try { return ReadRepoFile($"MonoDreams.Examples.Core/Content/Prefabs/{id}.mdprefab"); }
+        catch (InvalidOperationException) { return null; }
     }
 
     private static List<Entity> With<T>(World world)
@@ -116,8 +139,18 @@ public class MigratedLevelTests
             // missing a serializer, DeserializeEntity would throw here — this is the regression guard
             // that the game-component serializers are registered on the shipped path.
             var registry = FullRegistry();
-            using var reader = new SceneReaderSystem(world, new SceneSerializer(registry),
-                content: null!, loadTexture: _ => (Texture2D)null!);
+            // Mirror the SHIPPED screen composition: it now composes a PrefabExpander too (a bundled
+            // scene may carry linked prefab instances). Committed content resolves prefabs from the
+            // committed tree the same way — an id with no committed .mdprefab fails loud, the guard
+            // this boot test exists to keep honest.
+            var serializer = new SceneSerializer(registry);
+            var expander = new PrefabExpander(serializer,
+                id => TryReadCommittedPrefab(id) is { } json
+                    ? PrefabData.FromScene(id, CanonicalJson.Deserialize<SceneData>(json)!)
+                    : null,
+                loadTexture: _ => (Texture2D)null!);
+            using var reader = new SceneReaderSystem(world, serializer,
+                content: null!, loadTexture: _ => (Texture2D)null!, prefabExpander: expander);
             world.Publish(new LoadSceneRequest(path, fromContent: false));
 
             // The migrated Blender level yields the player (Pete) with its game components, the NPCs,

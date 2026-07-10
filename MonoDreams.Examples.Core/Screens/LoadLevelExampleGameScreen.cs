@@ -460,7 +460,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
             var prefabExpander = new PrefabExpander(
                 new SceneSerializer(prefabRegistry),
                 new PrefabFileSource(_content.RootDirectory, _projectContext).Resolve,
-                loadTexture: key => _content.Load<Texture2D>(key));
+                loadTexture: key => _content.Load<Texture2D>(key),
+                fileTextureLoader: new FileAssetTextureLoader(_graphicsDevice, _content.RootDirectory).Load);
             entitySpawnSystem.RegisterEntityFactoryPrefix(
                 MonoDreams.LevelEditor.EntityFactory.PrefabFactory.IdentifierPrefix,
                 new MonoDreams.LevelEditor.EntityFactory.PrefabFactory(prefabExpander));
@@ -505,8 +506,16 @@ public class LoadLevelExampleGameScreen : IGameScreen
             nativeRegistry.RegisterGameComponents();
             var nativeSerializer = new SceneSerializer(nativeRegistry);
             var nativeAssetTextures = new FileAssetTextureLoader(_graphicsDevice, _content.RootDirectory);
-            nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
+            // The shipped reader needs the prefab expander too: a bundled scene may carry linked
+            // prefab instances (PF-C), and a reader without the expander fails the whole load on
+            // the first `prefab` entry (the editor path reuses the overlay's expander above).
+            var nativePrefabExpander = new PrefabExpander(
+                nativeSerializer,
+                new PrefabFileSource(_content.RootDirectory, _projectContext).Resolve,
+                loadTexture: key => _content.Load<Texture2D>(key),
                 fileTextureLoader: nativeAssetTextures.Load);
+            nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
+                fileTextureLoader: nativeAssetTextures.Load, prefabExpander: nativePrefabExpander);
         }
         // Source-first when the editor's project is resolved (UX-D pre-mortem #5): a Restart-after-Save
         // re-publishes LoadLevelRequest through this probe, and the source tree — not the stale bundle —
