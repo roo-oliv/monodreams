@@ -9,6 +9,7 @@ using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Selection;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.State;
+using MonoDreams.UI;
 using Xunit;
 
 namespace MonoDreams.Tests.LevelEditor;
@@ -70,6 +71,21 @@ public class SelectionTests
         });
         e.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = target, LayerDepth = finalDepth });
         e.Set(new VisibleComponent());
+        return e;
+    }
+
+    /// <summary>A menu button (SimpleButtonComponent mesh, NO sprite) at <paramref name="position"/>
+    /// (world top-left origin) sized <paramref name="size"/>. Optionally on a non-Main target, with a
+    /// baked draw depth, or tagged as editor infrastructure (the chrome-exclusion gate).</summary>
+    private static Entity MakeButton(World world, Vector2 position, Vector2 size,
+        RenderTargetID target = RenderTargetID.Main, float? drawDepth = null, bool infrastructure = false)
+    {
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(position));
+        e.Set(new SimpleButtonComponent { Size = size, Target = target, Color = Color.White, LineThickness = 2f });
+        if (drawDepth.HasValue)
+            e.Set(new DrawComponent { Type = DrawElementType.Mesh, Target = target, LayerDepth = drawDepth.Value });
+        if (infrastructure) e.Set(new EditorInfrastructureComponent());
         return e;
     }
 
@@ -525,5 +541,88 @@ public class SelectionTests
         var plain = world.CreateEntity();
         plain.Set(new TransformComponent(Vector2.Zero));
         Assert.Equal(plain, SelectionSystem.ResolveViewportSelection(plain)); // a non-prefab entity → itself
+    }
+
+    // ---- TB-B: menu buttons (SimpleButtonComponent, no sprite) are pickable in the viewport, and the
+    // editor's own chrome buttons are never candidates. ----
+
+    /// <summary>A Main-target menu button under the world cursor is selected (it was unpickable before
+    /// TB-B because it has no SpriteInfoComponent).</summary>
+    [Fact]
+    public void SelectionButton_MainTarget_IsPickedViaWorldPosition()
+    {
+        using var world = new World();
+        var button = MakeButton(world, new Vector2(0, 0), new Vector2(100, 40));
+        MakeCursor(world, new Vector2(10, 10), leftPressed: true);
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Equal(button, Selected(world));
+    }
+
+    /// <summary>A UI-target button hit-tests the cursor's VirtualPosition (the camera has "moved": the
+    /// world point is far away) — the on-screen UI rule.</summary>
+    [Fact]
+    public void SelectionButton_UiTarget_IsPickedViaVirtualPosition()
+    {
+        using var world = new World();
+        var button = MakeButton(world, new Vector2(50, 50), new Vector2(80, 30), RenderTargetID.UI);
+        MakeCursor(world, worldPoint: new Vector2(9000, 9000), leftPressed: true,
+            virtualPoint: new Vector2(60, 60));
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Equal(button, Selected(world));
+    }
+
+    /// <summary>The chrome rule: the editor's own buttons are never scene-pickable — neither an
+    /// Editor-target button (rank &lt; 0) nor a scene-target button tagged
+    /// <c>EditorInfrastructureComponent</c> (the belt-and-suspenders gate).</summary>
+    [Fact]
+    public void SelectionButton_EditorChrome_IsNeverACandidate()
+    {
+        using var world = new World();
+        MakeButton(world, new Vector2(0, 0), new Vector2(100, 40), RenderTargetID.Editor);        // Editor target
+        MakeButton(world, new Vector2(0, 0), new Vector2(100, 40), RenderTargetID.HUD, infrastructure: true); // tagged
+        MakeCursor(world, new Vector2(10, 10), leftPressed: true, virtualPoint: new Vector2(10, 10));
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Null(Selected(world));
+    }
+
+    /// <summary>A click outside the button's quad selects nothing (and click-empty clears).</summary>
+    [Fact]
+    public void SelectionButton_ClickOutsideQuad_DoesNotSelect()
+    {
+        using var world = new World();
+        MakeButton(world, new Vector2(0, 0), new Vector2(100, 40));
+        MakeCursor(world, new Vector2(300, 300), leftPressed: true);
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Null(Selected(world));
+    }
+
+    /// <summary>A button and a sprite overlap on the Main target; the button's baked 0.95 draw depth
+    /// beats the sprite's lower depth, so the button (drawn on top) wins — proving it competes through
+    /// the same rank + depth rule as a sprite, not a separate path.</summary>
+    [Fact]
+    public void SelectionButton_OnMain_BeatsLowerSpriteWhereTheyOverlap()
+    {
+        using var world = new World();
+        var sprite = MakeSprite(world, new Vector2(0, 0), finalDepth: 0.5f, size: 100);
+        var button = MakeButton(world, new Vector2(0, 0), new Vector2(100, 100)); // unset depth → 0.95 default
+        MakeCursor(world, new Vector2(10, 10), leftPressed: true);
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        Assert.Equal(button, Selected(world));
+        Assert.False(sprite.Has<SelectedComponent>());
     }
 }

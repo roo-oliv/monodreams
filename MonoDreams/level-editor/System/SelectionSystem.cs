@@ -13,6 +13,7 @@ using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.Selection;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.State;
+using MonoDreams.UI;
 
 namespace MonoDreams.LevelEditor.System;
 
@@ -128,6 +129,7 @@ public sealed class SelectionSystem : ISystem<GameState>
     private readonly EntitySet _convexColliderSet;
     private readonly EntitySet _boundarySet;
     private readonly EntitySet _cameraRigSet;
+    private readonly EntitySet _buttonSet;
     private readonly EntitySet _gizmoStateSet;
     private int _nextEditorId;
 
@@ -176,6 +178,12 @@ public sealed class SelectionSystem : ISystem<GameState>
             .With<BoundaryComponent>().With<TransformComponent>().AsSet();
         _cameraRigSet = world.GetEntities()
             .With<CameraRigComponent>().With<TransformComponent>().AsSet();
+        // Menu buttons are SimpleButtonComponent meshes with NO SpriteInfoComponent, so they join the
+        // pick as their own candidate source (like colliders / the rig). Queried by the component; the
+        // Editor-target + EditorInfrastructureComponent gate in EvaluateButtonCandidates keeps the
+        // editor's own chrome buttons out.
+        _buttonSet = world.GetEntities()
+            .With<SimpleButtonComponent>().With<TransformComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
     }
 
@@ -265,6 +273,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         EvaluateColliderCandidates();
         EvaluateBoundaryCandidates();
         EvaluateCameraRigCandidate();
+        EvaluateButtonCandidates();
 
         hit = _best;
         return _hasBest;
@@ -497,6 +506,58 @@ public sealed class SelectionSystem : ISystem<GameState>
         }
     }
 
+    /// <summary>
+    /// Folds menu buttons (Wave TB-B) into the pick: a <see cref="SimpleButtonComponent"/> mesh has no
+    /// <see cref="SpriteInfoComponent"/>, so it never entered the sprite candidate set — the reason
+    /// menu buttons read as "unclickable" in Edit. It competes through the SAME rank + depth + id rule
+    /// as a sprite: rank = the button's <c>Target</c> composite rank, depth = its final draw
+    /// <c>DrawComponent.LayerDepth</c> (ButtonMeshPrepSystem's baked value, treating unset as the 0.95
+    /// default), tested with the button's own axis-aligned quad (world top-left origin + <c>Size</c> —
+    /// the same rect <c>ButtonInteractionSystem</c> hover-tests) in the target's space (Main →
+    /// <see cref="CursorInputComponent.WorldPosition"/>, UI/HUD → <c>VirtualPosition</c>). The editor's
+    /// OWN toolbar / tab-strip / panel buttons are NEVER candidates — they live on the
+    /// <see cref="RenderTargetID.Editor"/> target (rank &lt; 0) AND carry
+    /// <see cref="EditorInfrastructureComponent"/>; both gates are checked so a stray editor button on a
+    /// scene target still can't be scene-selected (the chrome rule).
+    /// </summary>
+    private void EvaluateButtonCandidates()
+    {
+        foreach (var entity in _buttonSet.GetEntities())
+        {
+            // The chrome rule (belt-and-suspenders): the editor's own buttons must never become
+            // scene-pickable. Gate on the infrastructure tag AND the Editor target rank below.
+            if (entity.Has<EditorInfrastructureComponent>()) continue;
+
+            ref readonly var button = ref entity.Get<SimpleButtonComponent>();
+            var rank = TargetRank(button.Target);
+            if (rank < 0) continue; // Editor chrome target (or any non-scene target)
+
+            var point = button.Target == RenderTargetID.Main ? _worldPoint : _virtualPoint;
+            var origin = entity.Get<TransformComponent>().WorldPosition;
+            // Axis-aligned quad from the world top-left origin + Size — identical to the button's
+            // hover hit-test, so "click selects it" matches "hover highlights it".
+            var bounds = new Rectangle((int)origin.X, (int)origin.Y, (int)button.Size.X, (int)button.Size.Y);
+            if (!bounds.Contains(point)) continue;
+
+            if (!entity.Has<EditorIdComponent>())
+                entity.Set(new EditorIdComponent(_nextEditorId++));
+            var id = entity.Get<EditorIdComponent>().Id;
+            // Frontmost key = the button's baked draw depth; unset (no DrawComponent yet, or LayerDepth
+            // 0) resolves to ButtonMeshPrepSystem's 0.95 default so a button ranks above the menu content.
+            var depth = entity.Has<DrawComponent>() ? entity.Get<DrawComponent>().LayerDepth : 0f;
+            if (depth <= 0f) depth = 0.95f;
+
+            if (Beats(rank, depth, id, _hasBest, _bestRank, _bestDepth, _bestId))
+            {
+                _hasBest = true;
+                _bestRank = rank;
+                _bestDepth = depth;
+                _bestId = id;
+                _best = entity;
+            }
+        }
+    }
+
     /// <summary>The active coarse tool mode (see <see cref="EditorToolMode"/>). No gizmo-state
     /// entity — e.g. a selection-only composition — means the default
     /// <see cref="EditorToolMode.SelectTransform"/>.</summary>
@@ -582,6 +643,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         _convexColliderSet.Dispose();
         _boundarySet.Dispose();
         _cameraRigSet.Dispose();
+        _buttonSet.Dispose();
         _gizmoStateSet.Dispose();
     }
 }

@@ -443,6 +443,19 @@ Edit-guarded (inert in Play), and a plain `ISystem` iterating its own candidate 
 `AEntitySetSystem`, whose `Update` early-outs on an empty set (a scene with zero rendered sprites
 must still border-pick proxies and click-empty clear).
 
+**Menu buttons are a candidate source (TB-B).** A menu button is a `SimpleButtonComponent` mesh with
+a `DynamicText` label and **no** `SpriteInfoComponent`, so it never entered the sprite candidate set —
+the reason level-selection / demo-launcher buttons read as "unclickable" in Edit. Buttons now join the
+pick as their own source (like collider entities and the rig): hit-tested with the button's own
+axis-aligned quad (world top-left origin + `Size` — the SAME rect `ButtonInteractionSystem` hover-tests)
+in the button's `Target` space (Main → `WorldPosition`, UI/HUD → `VirtualPosition`), ranked by the same
+composite-`TargetRank` + MAX-final-`DrawComponent.LayerDepth` (a button's baked 0.95 default when unset)
++ `EditorIdComponent` tiebreak. The editor's OWN toolbar / tab-strip / panel buttons are NEVER
+candidates: they render on the `Editor` target (`TargetRank` −1) **and** carry
+`EditorInfrastructureComponent`, and selection gates on BOTH (the chrome rule — a stray editor button on
+a scene target still can't be scene-selected). A viewport pick resolves through the same
+`ResolveViewportSelection` redirect, so a button that is a prefab-owned child selects its instance root.
+
 **Click-ownership: the gizmo owns its presses.** `GizmoSystem` publishes a frame-scoped claim
 (`GizmoStateComponent.PressClaimed`) on **every** Edit frame it runs: true when the press edge
 landed on the active tool's handle (a sub-element proxy forces the Move handle) or while a handle drag
@@ -503,7 +516,10 @@ on different depths, click selects MAX final depth, click-empty clears, hit-test
 rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by the selection-owned
 `EditorId` tiebreak, deterministically; `SelectionTargetAware*` — UI sprite picked via
 `VirtualPosition`, Main via `WorldPosition`, HUD wins an overlap with Main regardless of raw depth,
-Editor-target never a candidate, the pure cross-target rule; `GizmoTests.GizmoUiTargetTest` — the
+Editor-target never a candidate, the pure cross-target rule; `SelectionButton_*` — a menu button
+(SimpleButtonComponent, no sprite) is picked on Main via `WorldPosition` and on UI via `VirtualPosition`,
+a button beats a lower sprite where they overlap, and the editor's own chrome buttons — Editor-target OR
+`EditorInfrastructureComponent`-tagged — are never candidates; `GizmoTests.GizmoUiTargetTest` — the
 gizmo drags a HUD-target entity in virtual space; its overlay VISUALS land on the Editor layer);
 click-ownership: `GizmoTests.ClickOwnershipTest_*` (rotate/scale handle press outside the sprite
 bounds keeps the selection and the drag completes as one undo step; a handle press over another

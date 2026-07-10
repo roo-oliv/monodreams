@@ -17,6 +17,7 @@ using MonoDreams.LevelEditor.Undo;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.UI;
 
 namespace MonoDreams.LevelEditor.System;
 
@@ -776,6 +777,22 @@ public sealed class GizmoSystem : ISystem<GameState>
                 target.Get<TransformComponent>(), target.Get<SpriteInfoComponent>());
             return new PolygonOutlineMeshGenerator(
                 Project(corners, projection), thickness, color, closed: true).Generate();
+        }
+
+        // A selected menu button (TB-B, colliders-as-entities' sibling): trace its outline quad — the
+        // same world top-left-origin + Size rect the pick + hover tested — so the selection feedback
+        // frames the button, not a tiny pivot box.
+        if (target.Has<SimpleButtonComponent>())
+        {
+            ref readonly var button = ref target.Get<SimpleButtonComponent>();
+            var o = target.Get<TransformComponent>().WorldPosition;
+            var quad = new[]
+            {
+                o, new Vector2(o.X + button.Size.X, o.Y),
+                o + button.Size, new Vector2(o.X, o.Y + button.Size.Y),
+            };
+            return new PolygonOutlineMeshGenerator(
+                Project(quad, projection), thickness, color, closed: true).Generate();
         }
 
         // No sprite bounds: a small box around the pivot (constant screen size).
