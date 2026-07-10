@@ -46,3 +46,6 @@
 /importer:BitmapFontImporter
 /processor:BitmapFontProcessor
 /build:Fonts/PPMondwest-Regular-fnt.fnt
+
+#begin ./game.mdproj
+/copy:./game.mdproj
