@@ -10,6 +10,7 @@ using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.State;
 using Xunit;
@@ -733,7 +734,7 @@ public class PalettePlacementTests
             prefabLister: () => new[] { "npc" },
             placePrefab: (id, pos) => { placedId = id; placedAt = pos; });
 
-        // Arm a prefab (mutually exclusive with an asset/trigger) — Place mode, no sprite ghost (v1).
+        // Arm a prefab (mutually exclusive with an asset/trigger) — Place mode.
         palette.ArmPrefab("npc");
         Assert.Equal("npc", palette.ArmedPrefab);
         Assert.False(palette.HasGhost);
@@ -744,10 +745,145 @@ public class PalettePlacementTests
 
         Assert.Equal("npc", placedId);
         Assert.Equal(new Vector2(37, 42), placedAt); // snap off by default → the raw cursor world position
+        // PF-G: with no prefab resolver wired, the prefab has no resolvable sprite → the crosshair aim
+        // indicator shows (not the sprite ghost).
+        Assert.False(palette.HasGhost);
+        Assert.True(palette.HasCrosshair);
 
         // Escape / disarm clears the armed prefab.
         palette.Disarm();
         Assert.Null(palette.ArmedPrefab);
+        palette.Dispose();
+    }
+
+    // ---- Prefab placement ghost (PF-G item 4) ----
+
+    // A house-like prefab: root (collider only) → child sprite at a local offset + sub-1 scale.
+    private const string GhostHouseJson = """
+    {
+      "version": 1,
+      "entities": [
+        {
+          "id": 0,
+          "components": {
+            "core.BoxCollider": { "bounds": [-15, 5, 27, 20], "activeLayers": [-1], "passive": true, "enabled": true },
+            "core.Transform": { "position": [0, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+          }
+        },
+        {
+          "components": {
+            "core.SpriteInfo": {
+              "assetKey": "file:Island/House2.png", "source": [0, 0, 128, 192], "size": [128, 192],
+              "color": "/////w==", "origin": [3, 5], "offset": [0, 0], "target": 0, "layerDepth": 0.1
+            },
+            "core.Transform": { "position": [-7, -40], "rotation": 0, "scale": [0.5, 0.5], "origin": [0, 0] }
+          },
+          "parent": 0
+        }
+      ]
+    }
+    """;
+
+    private static PrefabData? ResolveGhostHouse(string id) =>
+        id == "house" ? PrefabData.FromScene(id, CanonicalJson.Deserialize<SceneData>(GhostHouseJson)!) : null;
+
+    [Fact]
+    public void PrefabGhost_ArmedPrefabWithSprite_ShowsSpriteGhost_FollowingCursor_AtPlacementSpot()
+    {
+        using var world = new World();
+        MakeGizmoState(world); // snap OFF by default → ghost position is exactly cursor + offset
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+
+        string? placedId = null;
+        var placedAt = new Vector2(-1, -1);
+        var palette = new PalettePlacementSystem(world, MakeCatalog(), Bands, MakeLoader(), serializer, history,
+            viewportManager: null, font: null,
+            prefabResolver: ResolveGhostHouse,
+            placePrefab: (id, pos) => { placedId = id; placedAt = pos; });
+
+        palette.ArmPrefab("house");
+        SetCursor(cursor, new Vector2(200, 120)); // hover, no click yet
+        palette.Update(Edit());
+
+        // The ghost is the prefab's dominant (child) sprite — resolved root-first — following the cursor.
+        Assert.True(palette.HasGhost);
+        Assert.False(palette.HasCrosshair);
+        var ghost = palette.Ghost;
+        ref readonly var sprite = ref ghost.Get<SpriteInfoComponent>();
+        Assert.Equal(new Rectangle(0, 0, 128, 192), sprite.Source);
+        Assert.Equal(new Vector2(3, 5), sprite.Origin);
+        Assert.Equal(new Vector2(0.5f, 0.5f), ghost.Get<TransformComponent>().Scale);
+        // Ghost sits where the placed instance's sprite will land: root at the (snapped) cursor + the
+        // sprite's prefab-space offset (-7,-40).
+        Assert.Equal(new Vector2(193, 80), ghost.Get<TransformComponent>().Position);
+
+        // A left click places the instance ROOT at the snapped cursor — i.e. where the ghost was aimed.
+        SetCursor(cursor, new Vector2(200, 120), leftPressed: true);
+        palette.Update(Edit());
+        Assert.Equal("house", placedId);
+        Assert.Equal(new Vector2(200, 120), placedAt);
+        // The placed root (200,120) + the sprite offset (-7,-40) == where the ghost showed the sprite.
+        Assert.Equal(placedAt + new Vector2(-7, -40), ghost.Get<TransformComponent>().Position);
+
+        palette.Dispose();
+    }
+
+    [Fact]
+    public void PrefabGhost_OutsideViewport_ParksTheGhost()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var palette = new PalettePlacementSystem(world, MakeCatalog(), Bands, MakeLoader(), serializer, history,
+            viewportManager: null, font: null, prefabResolver: ResolveGhostHouse);
+
+        palette.ArmPrefab("house");
+        SetCursor(cursor, new Vector2(500, 500), outsideViewport: true);
+        palette.Update(Edit());
+
+        Assert.True(palette.HasGhost); // exists but parked off-screen (culling drops its VisibleComponent)
+        Assert.Equal(SystemsPanelLayout.ParkedPosition, palette.Ghost.Get<TransformComponent>().Position);
+        palette.Dispose();
+    }
+
+    [Fact]
+    public void PrefabGhost_SpritelessPrefab_ShowsCrosshair_NotSpriteGhost()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+
+        const string zoneJson = """
+        {
+          "version": 1,
+          "entities": [
+            {
+              "id": 0,
+              "components": {
+                "core.BoxCollider": { "bounds": [0, 0, 32, 32], "activeLayers": [-1], "passive": true, "enabled": true },
+                "core.Transform": { "position": [0, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+              }
+            }
+          ]
+        }
+        """;
+        var palette = new PalettePlacementSystem(world, MakeCatalog(), Bands, MakeLoader(), serializer, history,
+            viewportManager: null, font: null,
+            prefabResolver: id => id == "zone" ? PrefabData.FromScene(id, CanonicalJson.Deserialize<SceneData>(zoneJson)!) : null);
+
+        palette.ArmPrefab("zone");
+        SetCursor(cursor, new Vector2(64, 48));
+        palette.Update(Edit());
+
+        Assert.False(palette.HasGhost);    // no sprite to ghost
+        Assert.True(palette.HasCrosshair); // the aim crosshair stands in
+
+        // Disarm tears the crosshair down too.
+        palette.Disarm();
+        Assert.False(palette.HasCrosshair);
         palette.Dispose();
     }
 }

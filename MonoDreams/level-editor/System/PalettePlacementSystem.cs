@@ -117,6 +117,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private readonly Action<string, Point>? _prefabCardMenu;
     private readonly Action<Point>? _prefabShelfMenu;
     private readonly Action<string, GameState>? _editPrefab;
+    // PF-G — resolves a prefab id to its validated PrefabData, so a card thumbnail + placement ghost can
+    // show the prefab's dominant sprite (via PrefabSpritePreview). Null → cards keep the glyph, ghost the
+    // crosshair.
+    private readonly Func<string, PrefabData?>? _prefabResolver;
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _gizmoStateSet;
@@ -156,14 +160,17 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     }
 
     // A prefab shelf card (PF-D): the card body + label + a prefab GLYPH mesh (EditorIcons.Prefab) in the
-    // icon box (rendered thumbnails are terrain). Click arms; right-click opens the card menu; double-click
-    // edits.
+    // icon box. PF-G: a card resolves its prefab's dominant sprite once per shelf refresh (Preview) and, when
+    // it has one, shows a real Thumbnail (through the SAME texture path the asset cards use) in place of the
+    // glyph. Click arms; right-click opens the card menu; double-click edits.
     private sealed class PrefabCard
     {
         public required string Id;
         public Entity Button;
         public Entity Label;
-        public Entity Glyph; // the EditorIcons.Prefab mesh on the Editor target
+        public Entity Glyph;      // the EditorIcons.Prefab mesh on the Editor target (spriteless fallback)
+        public Entity Thumbnail;  // native-res art preview sprite on the Editor target (when Preview resolves)
+        public PrefabSpritePreview? Preview; // the prefab's dominant sprite, resolved once per shelf refresh
         public (int Row, int X) Flowed;
         public float HoverProgress;
     }
@@ -210,6 +217,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private Entity _ghost;
     private bool _ghostAlive;
 
+    // PF-G — the spriteless-prefab placement aim indicator: a world-space crosshair mesh on the Main target
+    // (like ColliderDebugSystem's debug meshes — NO TransformComponent, so MeshPrepSystem skips it and its
+    // world-baked vertices render raw; NO SpriteInfoComponent, so CullingSystem/SpritePrepSystem ignore it).
+    private Entity _crosshair;
+    private bool _crosshairAlive;
+
     // Multi-stamp hold-drag state (Slice 4): a stroke coalesces all its stamps into one undo step.
     private bool _stamping;
     private Vector2 _lastStampWorld;    // the raw cursor world of the last stamp (arc-length anchor)
@@ -244,7 +257,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Action<string, Vector2>? placePrefab = null,
         Action<string, Point>? prefabCardMenu = null,
         Action<Point>? prefabShelfMenu = null,
-        Action<string, GameState>? editPrefab = null)
+        Action<string, GameState>? editPrefab = null,
+        Func<string, PrefabData?>? prefabResolver = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -274,6 +288,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _prefabCardMenu = prefabCardMenu;
         _prefabShelfMenu = prefabShelfMenu;
         _editPrefab = editPrefab;
+        _prefabResolver = prefabResolver;
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
@@ -376,6 +391,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// <summary>The ghost preview entity (default when none) — exposed for tests/tooling.</summary>
     public Entity Ghost => HasGhost ? _ghost : default;
 
+    /// <summary>Whether the spriteless-prefab placement crosshair currently exists (PF-G) — exposed for
+    /// tests/tooling.</summary>
+    public bool HasCrosshair => _crosshairAlive && _crosshair.IsAlive;
+
     /// <summary>Arms the palette item with the given <see cref="AssetCatalogEntry.Id"/> or full
     /// <c>file:</c> AssetKey (the headless <c>palette:&lt;id&gt;</c> op). Returns false (loud) for
     /// an unknown id.</summary>
@@ -450,6 +469,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _armedRotation = 0f; // a fresh arm starts axis-aligned
         SetMode(EditorToolMode.SelectTransform);
         DespawnGhost();
+        DespawnCrosshair();
     }
 
     /// <summary>The armed prefab id (PF-D), or null when no prefab is armed. Set by
@@ -460,10 +480,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// <summary>
     /// Arms a prefab for placement (PF-D — a Prefabs-shelf card click): the shared mode flips to
     /// <see cref="EditorToolMode.Place"/> and a viewport click stamps a linked instance at the snapped
-    /// cursor (through <c>placePrefab</c> → an undoable <c>CreateInstanceCommand</c>). <b>Prefab ghost v1
-    /// = none</b> (placement is click-on-viewport, the trigger precedent — the placed instance
-    /// auto-selects, showing where it landed; a live root-sprite ghost is terrain). Mutually exclusive
-    /// with an armed asset / trigger.
+    /// cursor (through <c>placePrefab</c> → an undoable <c>CreateInstanceCommand</c>). PF-G: a ghost of the
+    /// prefab's dominant sprite follows the cursor so placement is aim-able (a spriteless prefab shows a
+    /// crosshair). Mutually exclusive with an armed asset / trigger.
     /// </summary>
     public void ArmPrefab(string prefabId)
     {
@@ -472,6 +491,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _armedIndex = -1;
         _armedTrigger = -1;
         DespawnGhost();
+        DespawnCrosshair();
         SetMode(EditorToolMode.Place);
         Logger.Info($"[level-editor] Palette: armed prefab '{prefabId}' for placement.");
     }
@@ -586,6 +606,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         {
             EndStroke(); // commit any open multi-stamp stroke before the palette goes inert
             DespawnGhost();
+            DespawnCrosshair();
         }
 
         if (_built)
@@ -858,12 +879,12 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
     private void UpdateGhostAndPlace(GameState state)
     {
-        // Prefab placement (PF-D): no sprite ghost (v1 — the trigger precedent); a viewport left-click
+        // Prefab placement (PF-G): a ghost of the prefab's dominant sprite follows the cursor so
+        // placement is aim-able (spriteless prefabs fall back to a crosshair); a viewport left-click
         // stamps a linked instance at the snapped cursor through placePrefab (an undoable command).
         if (_armedPrefab != null)
         {
-            DespawnGhost();
-            PlacePrefabOnClick(state);
+            UpdatePrefabGhostAndPlace();
             return;
         }
 
@@ -872,6 +893,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         if (_armedTrigger >= 0)
         {
             DespawnGhost();
+            DespawnCrosshair();
             PlaceTriggerOnClick();
             return;
         }
@@ -879,9 +901,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         if (_armedIndex < 0)
         {
             DespawnGhost();
+            DespawnCrosshair();
             return;
         }
 
+        DespawnCrosshair(); // an asset (sprite) is armed — no crosshair
         var entry = _catalog.Entries[_armedIndex];
         var band = ResolveBand(entry); // marked band if set, else the global selector (FW3)
         var texture = _textures.Load(entry.AssetKey); // lazy + memoized; magenta when missing
@@ -1116,6 +1140,147 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _ghostAlive = false;
     }
 
+    // ---- Prefab placement ghost (PF-G item 4) ----
+
+    /// <summary>The armed prefab's cached dominant-sprite preview (resolved once per shelf refresh on its
+    /// card), or null when nothing is armed / the card is unknown / the prefab has no sprite.</summary>
+    private PrefabSpritePreview? ArmedPrefabPreview()
+    {
+        if (_armedPrefab == null) return null;
+        foreach (var card in _prefabItems)
+            if (card.Id == _armedPrefab)
+                return card.Preview; // cached per shelf refresh (the common path)
+        // No card yet (a headless arm before the shelf builds): resolve on the fly (uncached).
+        if (_prefabResolver != null && PrefabSpritePreview.TryResolve(_prefabResolver(_armedPrefab), out var resolved))
+            return resolved;
+        return null;
+    }
+
+    /// <summary>Drives the armed prefab's placement preview + stamp: a ghost of the prefab's dominant sprite
+    /// (positioned exactly where the placed instance's sprite will land — root at the snapped cursor +
+    /// the sprite's prefab-space offset) follows the cursor; a spriteless prefab (or missing art) shows a
+    /// crosshair instead. A left-button press stamps a linked instance at the snapped cursor.</summary>
+    private void UpdatePrefabGhostAndPlace()
+    {
+        var preview = ArmedPrefabPreview();
+        // A prefab WITH a sprite shows the sprite ghost (even if its art is missing → the magenta
+        // placeholder, exactly like the asset ghost); a SPRITELESS prefab shows the crosshair.
+        var texture = preview is { } p ? _textures.Load(p.AssetKey) : null;
+
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref readonly var input = ref cursor.Get<CursorInputComponent>();
+
+            if (preview is { } sprite)
+            {
+                DespawnCrosshair();
+                EnsurePrefabSpriteGhost(sprite, texture);
+                if (input.OutsideViewport) Park(_ghost);
+                else Place(_ghost, SnapPosition(input.WorldPosition) + sprite.Offset);
+            }
+            else
+            {
+                DespawnGhost();
+                if (input.OutsideViewport) DespawnCrosshair(); // pointer over chrome — hide the aim indicator
+                else UpdateCrosshair(SnapPosition(input.WorldPosition));
+            }
+
+            // A left press stamps one linked instance at the snapped cursor (the instance ROOT lands
+            // there; the ghost showed its sprite at root + offset). Single cursor, single stamp per press.
+            if (!input.OutsideViewport && input.LeftButtonPressed && _placePrefab != null)
+                _placePrefab(_armedPrefab!, SnapPosition(input.WorldPosition));
+
+            return; // single cursor
+        }
+    }
+
+    /// <summary>Creates (if needed) and populates the sprite ghost for a prefab: the SAME Main-target
+    /// ghost sprite the asset placement uses (GhostTint, no VisibleComponent — CullingSystem owns it),
+    /// but its source / origin / scale / rotation come from the prefab's dominant sprite so it renders
+    /// exactly as the placed instance's sprite will. Position is set separately by the caller.</summary>
+    private void EnsurePrefabSpriteGhost(PrefabSpritePreview preview, Texture2D? texture)
+    {
+        if (!_ghostAlive || !_ghost.IsAlive)
+        {
+            _ghost = _world.CreateEntity();
+            _ghost.Set(new EditorInfrastructureComponent()); // never scene content; survives Restart
+            _ghost.Set(new TransformComponent(SystemsPanelLayout.ParkedPosition));
+            _ghost.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main });
+            _ghost.Set(new SpriteInfoComponent());
+            _ghostAlive = true;
+        }
+
+        var source = preview.Source.Width > 0 && preview.Source.Height > 0
+            ? preview.Source
+            : texture != null ? new Rectangle(0, 0, texture.Width, texture.Height) : Rectangle.Empty;
+
+        ref var sprite = ref _ghost.Get<SpriteInfoComponent>();
+        sprite.SpriteSheet = texture;
+        sprite.AssetKey = null; // the ghost is not a save-candidate; keep it key-less
+        sprite.Source = source;
+        sprite.Size = new Vector2(source.Width, source.Height);
+        sprite.Color = GhostColor;
+        sprite.Target = RenderTargetID.Main;
+        sprite.LayerDepth = preview.LayerDepth;
+        sprite.YSortOffset = 0f;
+        sprite.Origin = preview.SpriteOrigin;
+
+        // The prefab's own world scale/rotation (WITHIN the prefab) so the ghost matches the placed size.
+        ref var transform = ref _ghost.Get<TransformComponent>();
+        transform.Scale = preview.Scale;
+        transform.Rotation = preview.Rotation;
+    }
+
+    /// <summary>The world-space half-length of the spriteless-prefab crosshair arms.</summary>
+    private const float CrosshairWorldHalf = 12f;
+
+    /// <summary>The crosshair arm thickness in world units.</summary>
+    private const float CrosshairThickness = 1.5f;
+
+    /// <summary>Rebuilds the spriteless-prefab crosshair (a GhostTint "+") centred at
+    /// <paramref name="worldCentre"/> — world-baked vertices on a Main-target mesh (camera-transformed),
+    /// created lazily.</summary>
+    private void UpdateCrosshair(Vector2 worldCentre)
+    {
+        if (!_crosshairAlive || !_crosshair.IsAlive)
+        {
+            _crosshair = _world.CreateEntity();
+            _crosshair.Set(new EditorInfrastructureComponent()); // transient overlay; survives Restart
+            // No TransformComponent (MeshPrepSystem would overwrite the world-baked vertices) and no
+            // SpriteInfoComponent (CullingSystem/SpritePrepSystem then ignore it) — the debug-mesh idiom.
+            _crosshair.Set(new DrawComponent
+            {
+                Type = DrawElementType.Mesh,
+                Target = RenderTargetID.Main,
+                LayerDepth = ThumbnailDepth,
+                WorldMatrix = Matrix.Identity,
+            });
+            _crosshair.Set<VisibleComponent>();
+            _crosshairAlive = true;
+        }
+
+        var vertices = new List<VertexPositionColor>(8);
+        var indices = new List<int>(12);
+        var offset = 0;
+        LineMeshGenerator.AddLine(vertices, indices,
+            worldCentre + new Vector2(-CrosshairWorldHalf, 0), worldCentre + new Vector2(CrosshairWorldHalf, 0),
+            CrosshairThickness, GhostColor, ref offset);
+        LineMeshGenerator.AddLine(vertices, indices,
+            worldCentre + new Vector2(0, -CrosshairWorldHalf), worldCentre + new Vector2(0, CrosshairWorldHalf),
+            CrosshairThickness, GhostColor, ref offset);
+
+        ref var draw = ref _crosshair.Get<DrawComponent>();
+        draw.Vertices = vertices.ToArray();
+        draw.Indices = indices.ToArray();
+        draw.PrimitiveType = PrimitiveType.TriangleList;
+    }
+
+    private void DespawnCrosshair()
+    {
+        if (_crosshairAlive && _crosshair.IsAlive) _crosshair.Dispose();
+        _crosshairAlive = false;
+    }
+
     // ---- Chrome build / layout / state ----
 
     private void BuildChrome()
@@ -1174,12 +1339,25 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             _prefabItems.Add(CreatePrefabCard(id));
     }
 
-    /// <summary>One prefab shelf card: the card body button, its id label, and the prefab GLYPH mesh
-    /// (<see cref="EditorIcons.EditorIcon.Prefab"/>) in the icon box.</summary>
+    /// <summary>One prefab shelf card: the card body button, its id label, the prefab GLYPH mesh
+    /// (<see cref="EditorIcons.EditorIcon.Prefab"/>) and an art thumbnail. The dominant sprite is resolved
+    /// ONCE here (per shelf refresh — <see cref="BuildPrefabCards"/> rebuilds the whole list), so the layout
+    /// pass draws either the thumbnail (sprite found) or the glyph (spriteless) without re-reading the file.</summary>
     private PrefabCard CreatePrefabCard(string id)
     {
         var label = CreateLabel(id);
-        return new PrefabCard { Id = id, Button = CreateButton(label), Label = label, Glyph = CreatePrefabGlyphMesh() };
+        PrefabSpritePreview? preview = null;
+        if (_prefabResolver != null && PrefabSpritePreview.TryResolve(_prefabResolver(id), out var resolved))
+            preview = resolved;
+        return new PrefabCard
+        {
+            Id = id,
+            Button = CreateButton(label),
+            Label = label,
+            Glyph = CreatePrefabGlyphMesh(),
+            Thumbnail = CreateThumbnail(),
+            Preview = preview,
+        };
     }
 
     private Entity CreatePrefabGlyphMesh()
@@ -1204,6 +1382,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         if (card.Button.IsAlive) card.Button.Dispose();
         if (card.Label.IsAlive) card.Label.Dispose();
         if (card.Glyph.IsAlive) card.Glyph.Dispose();
+        if (card.Thumbnail.IsAlive) card.Thumbnail.Dispose();
     }
 
     /// <summary>A prefab card click: a double-click (same card, within <see cref="DoubleClickSeconds"/>)
@@ -1471,14 +1650,53 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         visual.Size = new Vector2(rect.Width, rect.Height);
         PlaceCardLabel(card.Label, card.Id, PaletteLayout.CardLabelRect(rect, scale), labelHeight, scale);
 
-        var glyphRect = EditorIcons.CenteredIconRect(PaletteLayout.CardIconRect(rect, scale));
-        SetGlyphMesh(card.Glyph, EditorIcons.Build(EditorIcons.EditorIcon.Prefab, glyphRect, EditorTheme.Text1));
+        // Prefer a real art thumbnail (the prefab's dominant sprite, through the SAME texture path the
+        // asset cards use); fall back to the prefab glyph when the prefab has no sprite or its art is
+        // missing (magenta placeholder). Exactly one of {thumbnail, glyph} shows.
+        var box = PaletteLayout.CardIconRect(rect, scale);
+        if (TryPlacePrefabThumbnail(card, box))
+        {
+            ClearScrollMesh(card.Glyph); // hide the glyph — the thumbnail stands in for it
+        }
+        else
+        {
+            card.Thumbnail.Get<DrawComponent>().Texture = null; // blank the thumbnail (draws nothing)
+            var glyphRect = EditorIcons.CenteredIconRect(box);
+            SetGlyphMesh(card.Glyph, EditorIcons.Build(EditorIcons.EditorIcon.Prefab, glyphRect, EditorTheme.Text1));
+        }
+    }
+
+    /// <summary>Populates a prefab card's thumbnail from its resolved dominant sprite (aspect-fit into the
+    /// icon box, native resolution), returning true when a real texture drew. False (thumbnail left blank)
+    /// when the prefab has no sprite or its texture is missing/placeholder — the caller draws the glyph.</summary>
+    private bool TryPlacePrefabThumbnail(PrefabCard card, Rectangle box)
+    {
+        if (card.Preview is not { } preview) return false;
+        var texture = _textures.Load(preview.AssetKey);
+        if (texture == null || ReferenceEquals(texture, _textures.Placeholder)) return false;
+
+        var source = preview.Source.Width > 0 && preview.Source.Height > 0
+            ? preview.Source
+            : new Rectangle(0, 0, texture.Width, texture.Height);
+        var dest = PaletteLayout.ThumbnailFit(box, source.Width, source.Height);
+
+        var draw = card.Thumbnail.Get<DrawComponent>();
+        draw.Texture = texture;
+        draw.SourceRectangle = source;
+        draw.Position = new Vector2(dest.X, dest.Y);
+        draw.Size = new Vector2(dest.Width, dest.Height);
+        draw.Origin = Vector2.Zero;
+        draw.Rotation = 0f;
+        draw.Color = EditorTheme.NeutralTint;
+        draw.LayerDepth = ThumbnailDepth;
+        return true;
     }
 
     private void ParkPrefabCard(PrefabCard card)
     {
         ParkButton(card.Button, card.Label);
         ClearScrollMesh(card.Glyph); // blanks the glyph mesh (draws nothing while parked)
+        card.Thumbnail.Get<DrawComponent>().Texture = null; // blanks the thumbnail while parked
     }
 
     private static void SetGlyphMesh(Entity e, MeshData mesh)
@@ -1734,6 +1952,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     {
         EndStroke(); // never leave an open transaction on the shared history
         DespawnGhost();
+        DespawnCrosshair();
         foreach (var b in _bandButtons)
         {
             if (b.Button.IsAlive) b.Button.Dispose();

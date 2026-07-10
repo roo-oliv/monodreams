@@ -528,7 +528,10 @@ public sealed class EditorOverlay
                 placePrefab: PlacePrefabInstance,
                 prefabCardMenu: (id, pt) => _menu.OpenAt(EditorContextMenuModel.PrefabCardMenu(id), pt),
                 prefabShelfMenu: pt => _menu.OpenAt(EditorContextMenuModel.PrefabShelfMenu(), pt),
-                editPrefab: (id, s) => OpenPrefabTab(id, s));
+                editPrefab: (id, s) => OpenPrefabTab(id, s),
+                // PF-G: resolve a prefab id → its PrefabData so a card thumbnail + placement ghost can show
+                // the prefab's dominant sprite (the SAME source the reader/expander read from).
+                prefabResolver: PrefabSource);
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -983,7 +986,9 @@ public sealed class EditorOverlay
             case EditorMenuContext.Viewport:
                 if (!InSelectTransform()) return; // armed → right-click disarms (palette/boundary), no menu
                 if (!TryPickAtCursor(out var hit)) return; // empty viewport → no menu, no selection change
-                _selection.SelectExclusive(hit);
+                // Viewport pick → instance root (Unity's model): a right-click anywhere on a placed
+                // instance targets the whole instance, matching the left-click select redirect.
+                _selection.SelectExclusive(SelectionSystem.ResolveViewportSelection(hit));
                 _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance()), CursorScreenPoint());
                 break;
             case EditorMenuContext.EntitiesPanel:

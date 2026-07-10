@@ -393,6 +393,19 @@ the coarser **tool modality**: selection processes viewport presses only while
 `GizmoStateComponent.Mode == SelectTransform` (see "Viewport presses belong to exactly one tool
 family" below) — in `Place` mode the palette owns every viewport press.
 
+**A viewport pick on a prefab-owned child redirects to the instance ROOT (PF-G, Unity's model).**
+After the topmost hit is found, a VIEWPORT selection resolves it through
+`SelectionSystem.ResolveViewportSelection` (`PrefabGuards.InstanceRootOf`): if the hit is a strict
+`ChildOf` descendant of a `PrefabInstanceComponent` root, the ROOT is selected instead — so clicking
+anywhere on a placed instance selects, and therefore moves/rotates/scales, the whole instance rather
+than its prefab-owned child (whose gizmo/modal/inspector edits the instance-children guardrail
+refuses). A hit on a plain entity, an instance root itself, or a non-child candidate (a collider
+proxy, a boundary, the camera rig) is unchanged. Both viewport picks share the redirect — this
+system's left/right press AND the overlay's `menu:open viewport` op. The **Entities tree** deliberately
+does NOT redirect: it selects a child directly for inspection (edits still refused with the status
+hint), which is why the redirect lives at the viewport-pick sites, not inside `SelectExclusive` (which
+the tree/panel rows call).
+
 **Why:** the selected entity must be the one the designer sees on top; on-screen UI lives on the
 UI/HUD targets in virtual space (hit-testing it with the camera-relative world point would desync
 the pick the moment the camera moves), and those targets composite above the world — so target
@@ -410,8 +423,14 @@ selecting its own chrome; a non-deterministic / unstable pick on an exact-depth 
 rotated/scaled sprite mis-picked because the hit-test ignored its transform; without the claim —
 a rotate/scale-handle press outside the sprite clears the selection and kills the drag the same
 frame, a handle press overlapping another sprite re-selects it and retargets the drag mid-flight,
-and a proxy's centre-handle press deselects the proxy and despawns the family.
-**Tests:** `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`SelectionTopmostTest` — stacked sprites
+and a proxy's centre-handle press deselects the proxy and despawns the family; without the
+prefab-instance redirect — a viewport click on a placed instance selects its prefab-owned child, whose
+edits the guardrail refuses, so the instance reads as unmovable (the user-reported PF-G bug).
+**Tests:** `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`ViewportPick_OnPrefabInstanceChild_RedirectsSelectionToInstanceRoot`
++ `ViewportRightClick_…` — a pick on an instance's child selects the editable root, not the owned child;
+`SelectExclusive_OnInstanceChild_SelectsChildDirectly_NoRedirect` — the tree path is unchanged;
+`ResolveViewportSelection_RootForOwnedChild_UnchangedOtherwise` — the pure redirect rule;
+`SelectionTopmostTest` — stacked sprites
 on different depths, click selects MAX final depth, click-empty clears, hit-test honors
 rotation/scale/origin; `SelectionOrderingTest` — exact-depth tie resolves by the selection-owned
 `EditorId` tiebreak, deterministically; `SelectionTargetAware*` — UI sprite picked via
@@ -3278,12 +3297,13 @@ viewport-context stack. Six moving parts, one mechanism each:
 - **The Prefabs shelf tab.** The bottom shelf's tab strip is now interactive (`Assets | Prefabs`,
   OWNED by `PalettePlacementSystem` — the retired static tab left `EditorChromeBuilder`). The Prefabs
   tab lists `Content/Prefabs/*.mdprefab` (source-first via the overlay's injected `ListPrefabIds`; an
-  unresolved project ⇒ an empty shelf + a message) as cards — an `EditorIcons.Prefab` glyph (a
-  box/package) + the id label; rendered thumbnails are terrain. A card click **arms placement** through
-  the SAME Place-mode machinery assets use (so there is ONE `Place`-mode owner, ONE ghost, ONE
-  placement click); asset/trigger/prefab arming is mutually exclusive. **The prefab ghost v1 is NONE**
-  (placement is click-on-viewport, the trigger precedent — the placed instance auto-selects, showing
-  where it landed; a live root-sprite ghost is terrain). A viewport click stamps a **linked instance**
+  unresolved project ⇒ an empty shelf + a message) as cards — a real art **thumbnail** when the prefab
+  has a sprite, else an `EditorIcons.Prefab` glyph (a box/package), + the id label (PF-G — see "The
+  prefab shelf card + placement ghost show the prefab's dominant sprite"). A card click **arms placement**
+  through the SAME Place-mode machinery assets use (so there is ONE `Place`-mode owner, ONE ghost, ONE
+  placement click); asset/trigger/prefab arming is mutually exclusive. **The prefab placement ghost**
+  shows the prefab's dominant sprite following the cursor (a spriteless prefab shows a crosshair) so
+  placement is aim-able (PF-G). A viewport click stamps a **linked instance**
   at the snapped cursor through the overlay's undoable `PlacePrefabInstance` → a `CreateInstanceCommand`
   (delete-undo disposes the whole instance subtree, nothing dangles; redo re-instantiates through the
   ONE `PrefabExpander`). Card right-click → `PrefabCardMenu` (**Edit Prefab** / **Delete**,
@@ -3424,6 +3444,44 @@ Inspector is editable, DevTools-style … (PF-A)" (works as-is in a prefab conte
 children), "Editor-overlay entities are standalone; delete snapshots the disposed sub-graph" (the
 instance-subtree dispose on unstamp/undo), "The editor history tracks a dirty save-point signal"
 (per-context dirty + the save point).
+
+## The prefab shelf card + placement ghost show the prefab's dominant sprite (PF-G)
+
+A prefab's **dominant sprite** is resolved by a pure ROOT-FIRST walk of its `.mdprefab` entities
+(`PrefabSpritePreview.TryResolve` — the root, then its `ChildOf` descendants breadth-first, in document
+order) for the first `core.SpriteInfo` with a usable asset key. The user's `house` prefab carries its
+sprite on the CHILD (`House2`), so the walk must descend — reading only the root would find nothing. The
+resolved key feeds the palette's `FileAssetTextureLoader` — the SAME texture path the asset cards use —
+so a **Prefabs shelf card** shows a real aspect-fit thumbnail when the prefab has a sprite and its art
+loads (else it falls back to the `EditorIcons.Prefab` glyph); resolution is cached per shelf refresh (on
+the card, rebuilt by `RefreshPrefabs`). While a prefab is **armed**, the placement **ghost** shows that
+same sprite (the asset-ghost machinery, `GhostTint`) at `SnapPosition(cursor) + Offset`, where `Offset`
+is the sprite's WORLD position WITHIN the prefab (root normalized to origin) — so the ghost sits exactly
+where the placed instance's sprite will land (the instance root goes at the snapped cursor). A
+**spriteless** prefab (a bare dialogue zone) shows a `GhostTint` crosshair instead. The crosshair is a
+Main-target mesh with world-baked vertices and NO `TransformComponent` (so `MeshPrepSystem` skips it) and
+NO `SpriteInfoComponent` (so `CullingSystem`/`SpritePrepSystem` ignore it) — the `ColliderDebugSystem`
+debug-mesh idiom.
+
+**Why:** the user's first prefab session had prefab cards as generic glyphs and placement blind (no
+ghost), so a prefab was indistinguishable from another and impossible to aim. Resolving through the SAME
+loader as asset cards keeps ONE texture path; positioning the ghost at `cursor + Offset` keeps the
+preview and the actual placement in agreement (aim-able).
+**Breaks:** reading only the prefab root finds no sprite for the common root-is-a-container shape (the
+`house`); a ghost centred at the raw cursor (ignoring `Offset`) shows the sprite where it will NOT land;
+a crosshair built with a `TransformComponent` is overwritten by `MeshPrepSystem`; gating the ghost on
+texture availability (rather than sprite presence) would hide the aim indicator for a prefab whose art is
+a missing-file placeholder (the asset ghost shows regardless).
+**Tests:** `MonoDreams.Tests/LevelEditor/PrefabSpritePreviewTests.cs` (root-first walk descends to the
+child sprite with its world placement; root sprite preferred; spriteless / null → false);
+`MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`PrefabGhost_ArmedPrefabWithSprite_ShowsSpriteGhost_FollowingCursor_AtPlacementSpot`,
+`PrefabGhost_OutsideViewport_ParksTheGhost`, `PrefabGhost_SpritelessPrefab_ShowsCrosshair_NotSpriteGhost`,
+and the `PrefabShelf_ArmPrefab…` crosshair fallback).
+**Depends on:** this file — "The prefab UX … (PF-D)" (the shelf cards + Place-mode ghost this enriches),
+"Prefabs are LINKED instances … (PF-C)" (the `PrefabData` the resolver reads, the `CreateInstanceCommand`
+placement the ghost previews), "The palette lists assets as cards …" (the same thumbnail/texture path);
+rendering — "Layer depth ownership" (the ghost/crosshair are Main-target draws the real pipeline renders).
 
 ## See also
 
