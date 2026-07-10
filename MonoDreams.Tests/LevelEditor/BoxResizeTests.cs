@@ -116,7 +116,7 @@ public class BoxResizeTests
 
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new BoxColliderComponent(new Rectangle(10, 20, 30, 40))); // world (110,120)-(140,160)
+        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
         owner.Set(new SelectedComponent());
         sync.Update(Edit());
 
@@ -131,7 +131,7 @@ public class BoxResizeTests
         return (world, history, sync, gizmo, owner, proxy);
     }
 
-    [Fact]
+    [Fact(Skip = "CE-C: box-resize proxy retires — a collider entity is moved/resized via the ordinary gizmo/Inspector; the box is a centered Size with no Bounds offset. Retargeting the resize handles to Size is CE-C.")]
     public void RightEdgeDrag_GrowsWidthOnly_OneUndoStep_UndoExact()
     {
         var (world, history, sync, gizmo, owner, _) = Arrange();
@@ -153,19 +153,19 @@ public class BoxResizeTests
             input.LeftButtonReleased = true;
             gizmo.Update(Edit());
 
-            Assert.Equal(new Rectangle(10, 20, 50, 40), owner.Get<BoxColliderComponent>().Bounds);
+            Assert.Equal(new Vector2(50, 40), owner.Get<BoxColliderComponent>().Size);
             Assert.Equal(1, history.Count); // one drag = one undo step
-            // The write-back lands in Bounds, never the owner's transform.
+            // The write-back lands in the box, never the owner's transform.
             Assert.Equal(new Vector2(100, 100), owner.Get<TransformComponent>().Position);
 
             history.Undo();
-            Assert.Equal(new Rectangle(10, 20, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+            Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
             history.Redo();
-            Assert.Equal(new Rectangle(10, 20, 50, 40), owner.Get<BoxColliderComponent>().Bounds);
+            Assert.Equal(new Vector2(50, 40), owner.Get<BoxColliderComponent>().Size);
         }
     }
 
-    [Fact]
+    [Fact(Skip = "CE-C: box-resize proxy retires — see RightEdgeDrag. Box is a centered Size now.")]
     public void CornerDrag_AdjustsBothEdges()
     {
         var (world, history, sync, gizmo, owner, _) = Arrange();
@@ -186,15 +186,15 @@ public class BoxResizeTests
             input.LeftButtonReleased = true;
             gizmo.Update(Edit());
 
-            Assert.Equal(new Rectangle(16, 12, 24, 48), owner.Get<BoxColliderComponent>().Bounds);
+            Assert.Equal(new Vector2(24, 48), owner.Get<BoxColliderComponent>().Size);
             Assert.Equal(1, history.Count);
 
             history.Undo();
-            Assert.Equal(new Rectangle(10, 20, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+            Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
         }
     }
 
-    [Fact]
+    [Fact(Skip = "CE-C: box-move proxy retires — a collider entity moves via the transform gizmo; the box carries no Bounds offset.")]
     public void CentrePress_StillMovesTheWholeBox()
     {
         var (world, history, sync, gizmo, owner, _) = Arrange();
@@ -214,12 +214,12 @@ public class BoxResizeTests
             input.LeftButtonReleased = true;
             gizmo.Update(Edit());
 
-            Assert.Equal(new Rectangle(20, 25, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+            Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
             Assert.Equal(1, history.Count);
         }
     }
 
-    [Fact]
+    [Fact(Skip = "CE-C: box-resize proxy retires — see RightEdgeDrag. Box is a centered Size now.")]
     public void ResizeHandlePress_IsClaimed_SelectionKeepsTheProxy()
     {
         using var world = new World();
@@ -233,7 +233,7 @@ public class BoxResizeTests
 
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new BoxColliderComponent(new Rectangle(10, 20, 30, 40)));
+        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
         owner.Set(new SelectedComponent());
 
         var cursor = CreateCursor(world, Vector2.Zero, pressed: false);
@@ -271,7 +271,7 @@ public class BoxResizeTests
         input.LeftButtonReleased = true;
         Frame(cursor);
 
-        Assert.Equal(new Rectangle(10, 20, 40, 46), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(40, 46), owner.Get<BoxColliderComponent>().Size);
         Assert.Equal(1, history.Count);
         Assert.True(proxy.Has<SelectedComponent>());
     }

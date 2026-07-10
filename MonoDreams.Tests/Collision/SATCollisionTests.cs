@@ -112,13 +112,13 @@ public class SATCollisionTests
     [Fact]
     public void BoxToPolygon_MatchesAABB()
     {
-        var box = new BoxColliderComponent(new Rectangle(-10, -10, 20, 20));
+        var box = new BoxColliderComponent(new Vector2(20, 20));
         var transform = new TransformComponent(new Vector2(100, 200));
         var output = new Vector2[4];
 
         SATCollision.BoxToPolygon(box, transform, output);
 
-        // Expected: bounds (-10,-10)+(100,200) = (90,190) to (110,210)
+        // Expected: size (20,20) centered on (100,200) = (90,190) to (110,210)
         Assert.Equal(new Vector2(90, 190), output[0]);  // top-left
         Assert.Equal(new Vector2(110, 190), output[1]); // top-right
         Assert.Equal(new Vector2(110, 210), output[2]); // bottom-right
@@ -129,18 +129,18 @@ public class SATCollisionTests
     public void BoxToPolygon_SATMatchesIntersection()
     {
         // Two overlapping boxes — SAT on converted polygons should agree with AABB intersection
-        var boxA = new BoxColliderComponent(new Rectangle(0, 0, 20, 20));
+        var boxA = new BoxColliderComponent(new Vector2(20, 20));
         var transformA = new TransformComponent(new Vector2(0, 0));
         var polyA = new Vector2[4];
         SATCollision.BoxToPolygon(boxA, transformA, polyA);
 
-        var boxB = new BoxColliderComponent(new Rectangle(0, 0, 20, 20));
+        var boxB = new BoxColliderComponent(new Vector2(20, 20));
         var transformB = new TransformComponent(new Vector2(15, 15));
         var polyB = new Vector2[4];
         SATCollision.BoxToPolygon(boxB, transformB, polyB);
 
-        var aabbA = CollisionRect.FromBounds(boxA.Bounds, transformA.Position);
-        var aabbB = CollisionRect.FromBounds(boxB.Bounds, transformB.Position);
+        var aabbA = SATCollision.BoxWorldRect(boxA, transformA);
+        var aabbB = SATCollision.BoxWorldRect(boxB, transformB);
         var aabbIntersects = aabbA.Intersects(aabbB);
 
         var satResult = SATCollision.PolygonVsPolygon(polyA, polyB, out _, out _);
@@ -393,16 +393,16 @@ public class SATCollisionTests
     [Fact]
     public void BoxCollider_Root_WorldPosition_ByteIdenticalToLocal()
     {
-        // For a ROOT entity WorldPosition == Position, so the box-polygon anchor is byte-identical to
-        // the former local anchor — the box-on-root path the user confirmed still places correctly.
-        var box = new BoxColliderComponent(new Rectangle(-4, -6, 8, 12));
+        // For a ROOT entity WorldPosition == Position; the box is a centered Size, so the world quad
+        // is [pos - Size/2, pos + Size/2] — the box-on-root path still places correctly.
+        var box = new BoxColliderComponent(new Vector2(8, 12));
         var transform = new TransformComponent(new Vector2(50, 70)); // root: no parent
         Assert.Equal(transform.Position, transform.WorldPosition);
 
         var poly = new Vector2[4];
         SATCollision.BoxToPolygon(box, transform, poly);
 
-        Assert.Equal(new Vector2(46, 64), poly[0]); // TL = pos + (Left, Top)
+        Assert.Equal(new Vector2(46, 64), poly[0]); // TL = pos - Size/2
         Assert.Equal(new Vector2(54, 64), poly[1]); // TR
         Assert.Equal(new Vector2(54, 76), poly[2]); // BR
         Assert.Equal(new Vector2(46, 76), poly[3]); // BL
@@ -411,16 +411,16 @@ public class SATCollisionTests
     [Fact]
     public void BoxCollider_ChildEntity_Polygon_IncludesParentWorldPosition()
     {
-        // The box path follows a parent too (byte-identical for roots; world-correct for children).
-        var box = new BoxColliderComponent(new Rectangle(0, 0, 10, 10));
+        // The box path follows a parent too — the box is centered on the child's WORLD position.
+        var box = new BoxColliderComponent(new Vector2(10, 10));
         var root = new TransformComponent(new Vector2(200, 90));
         var child = new TransformComponent(new Vector2(-20, 15)) { Parent = root };
 
         var poly = new Vector2[4];
         SATCollision.BoxToPolygon(box, child, poly);
 
-        // anchor = child.WorldPosition = (180, 105); poly[0] = anchor + (Left, Top) = (180, 105).
-        Assert.Equal(new Vector2(180, 105), poly[0]);
-        Assert.Equal(new Vector2(190, 115), poly[2]);
+        // center = child.WorldPosition = (180, 105); quad = center ± Size/2 = (175,100)..(185,110).
+        Assert.Equal(new Vector2(175, 100), poly[0]);
+        Assert.Equal(new Vector2(185, 110), poly[2]);
     }
 }

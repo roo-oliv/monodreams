@@ -73,7 +73,7 @@ public class PrefabCaptureTests
         var dz1 = w.CreateEntity();
         dz1.Set(new EntityInfoComponent("talkzone", "dz_shil"));
         dz1.Set(new TransformComponent(new Vector2(0, 4)));
-        dz1.Set(new BoxColliderComponent(new Rectangle(-24, -24, 48, 48), passive: true));
+        dz1.Set(new BoxColliderComponent(new Vector2(48, 48), passive: true));
         dz1.Set(new DialogueZoneComponent("shil_talk", npcName: "Shil"));
         dz1.SetParent(shil);
 
@@ -85,7 +85,7 @@ public class PrefabCaptureTests
         var dz2 = w.CreateEntity();
         dz2.Set(new EntityInfoComponent("talkzone", "dz_kid"));
         dz2.Set(new TransformComponent(new Vector2(0, 6)));
-        dz2.Set(new BoxColliderComponent(new Rectangle(-24, -24, 48, 48), passive: true));
+        dz2.Set(new BoxColliderComponent(new Vector2(48, 48), passive: true));
         dz2.Set(new DialogueZoneComponent("kid_talk", npcName: "Kid"));
         dz2.SetParent(root);
 

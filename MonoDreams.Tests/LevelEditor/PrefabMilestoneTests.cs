@@ -186,8 +186,8 @@ public class PrefabMilestoneTests
             var shop = new PrefabWorkshop(fake);
             var serializer = shop.Serializer;
             var propBand = new PaletteBand("Props", LayerDepth: 0.5f, YSorted: true);
-            var npcFootprintV1 = new Rectangle(-20, -20, 40, 40);
-            var npcFootprintV2 = new Rectangle(-30, -30, 60, 60); // the "re-edit": a larger footprint
+            var npcFootprintV1 = new Vector2(40, 40); // centered box Size (former Rectangle(-20,-20,40,40))
+            var npcFootprintV2 = new Vector2(60, 60); // the "re-edit": a larger footprint
 
             // ============ (a) Build an NPC prefab from a scene selection ============
             // Assemble in the scene: a sprite via the placement path (a file: AssetKey) + a child sprite,
@@ -236,7 +236,7 @@ public class PrefabMilestoneTests
                 dzHistory.Push(new AddComponentCommand(root, typeof(EntityInfoComponent),
                     new EntityInfoComponent("talkzone", "dz_talk_01")));
                 dzHistory.Push(new AddComponentCommand(root, typeof(BoxColliderComponent),
-                    new BoxColliderComponent(new Rectangle(-24, -24, 48, 48), passive: true)));
+                    new BoxColliderComponent(new Vector2(48, 48), passive: true)));
                 dzHistory.Push(new AddComponentCommand(root, typeof(DialogueZoneComponent),
                     new DialogueZoneComponent("zone_talk", npcName: "Zone")));
                 shop.SavePrefab(dzCtx, "dialogue-zone");
@@ -312,7 +312,7 @@ public class PrefabMilestoneTests
             {
                 var prefabHistory = new EditorHistory(prefabCtx);
                 var root = shop.OpenPrefabContext(prefabCtx, "npc");
-                Assert.Equal(npcFootprintV1, root.Get<BoxColliderComponent>().Bounds);
+                Assert.Equal(npcFootprintV1, root.Get<BoxColliderComponent>().Size);
                 // Change the collider footprint through the Inspector (remove + add — a whole-component edit).
                 prefabHistory.Push(RemoveComponentCommand.Create(root, typeof(BoxColliderComponent))!);
                 prefabHistory.Push(new AddComponentCommand(root, typeof(BoxColliderComponent),
@@ -328,7 +328,7 @@ public class PrefabMilestoneTests
 
             var restoredNpcs = InstanceRoots(restoredWorld, "npc");
             Assert.Equal(2, restoredNpcs.Count);
-            Assert.All(restoredNpcs, n => Assert.Equal(npcFootprintV2, n.Get<BoxColliderComponent>().Bounds)); // propagated
+            Assert.All(restoredNpcs, n => Assert.Equal(npcFootprintV2, n.Get<BoxColliderComponent>().Size)); // propagated
             // The overridden yarn node SURVIVES on the overridden instance; the other still inherits.
             Assert.Equal(1, restoredNpcs.Count(n => n.Get<DialogueZoneComponent>().YarnNodeName == "npc_talk_alt"));
             Assert.Equal(1, restoredNpcs.Count(n => n.Get<DialogueZoneComponent>().YarnNodeName == "npc_talk"));
@@ -372,7 +372,7 @@ public class PrefabMilestoneTests
             // sensor collision fires carrying the zone's identity (the passive trigger participates).
             playerRoot.Get<TransformComponent>().Position = new Vector2(60, -100);
             playerRoot.Get<TransformComponent>().CommitPosition();
-            playerRoot.Set(new BoxColliderComponent(new Rectangle(-8, -8, 16, 16))); // non-passive mover
+            playerRoot.Set(new BoxColliderComponent(new Vector2(16, 16))); // non-passive mover, centered
             playerRoot.Set(new VelocityComponent(new Vector2(15, 0)));
 
             var hits = new List<CollisionMessage>();
@@ -382,7 +382,7 @@ public class PrefabMilestoneTests
             var commit = new TransformCommitSystem(bootWorld, runner);
             var play = Play();
             for (var i = 0; i < 10; i++) { velocity.Update(play); detect.Update(play); resolve.Update(play); commit.Update(play); }
-            Assert.Contains(hits, m => Identity(m.CollidingEntity) == dzIdentity);
+            Assert.Contains(hits, m => Identity(m.ColliderB) == dzIdentity);
 
             // ============ Restart-equivalent: reload returns the authored state ============
             using var restartWorld = new World();
@@ -486,7 +486,7 @@ public class PrefabMilestoneTests
         root.Set(new SceneObjectComponent());
         root.Set(new EntityInfoComponent("house"));
         root.Set(new TransformComponent(Vector2.Zero));
-        root.Set(new BoxColliderComponent(new Rectangle(-15, 5, 27, 20), passive: true));
+        root.Set(new BoxColliderComponent(new Vector2(27, 20), passive: true));
 
         var band = new PaletteBand("Props", LayerDepth: 0.5f, YSorted: true);
         var child = SpritePropFactory.Create(w, Whole("Island/House2.png", "House2"), band, new Vector2(-7, -40), texture: null);
@@ -555,7 +555,7 @@ public class PrefabMilestoneTests
             // root(sprite+collider+info) → child(sprite+info) → grandchild(info), + a sibling zone child.
             var root = SpritePropFactory.Create(world, Whole("Island/kid.png", "elephant-kid"), band, new Vector2(300, 200), null);
             root.Set(new SceneObjectComponent());
-            root.Set(new BoxColliderComponent(new Rectangle(-20, -20, 40, 40), passive: true));
+            root.Set(new BoxColliderComponent(new Vector2(40, 40), passive: true));
             var child = SpritePropFactory.Create(world, Whole("Island/shil.png", "shilhouette"), band, new Vector2(0, -4), null);
             child.SetParent(root);
             var grandchild = world.CreateEntity();
@@ -565,7 +565,7 @@ public class PrefabMilestoneTests
             var zone = world.CreateEntity();
             zone.Set(new EntityInfoComponent("talkzone", "kid_zone"));
             zone.Set(new TransformComponent(new Vector2(0, 6)));
-            zone.Set(new BoxColliderComponent(new Rectangle(-24, -24, 48, 48), passive: true));
+            zone.Set(new BoxColliderComponent(new Vector2(48, 48), passive: true));
             zone.Set(new DialogueZoneComponent("kid_talk", npcName: "Kid"));
             zone.SetParent(root);
 
@@ -693,7 +693,7 @@ public class PrefabMilestoneTests
         var root = SpritePropFactory.Create(w, Whole("Island/npc/boldo.png", "boldo"),
             band, new Vector2(200, 100), texture: null);
         root.Set(new SceneObjectComponent());
-        root.Set(new BoxColliderComponent(footprint, passive: true));
+        root.Set(new BoxColliderComponent(new Vector2(footprint.Width, footprint.Height), passive: true));
         root.Set(new DialogueZoneComponent("npc_talk", npcName: "Boldo"));
         var child = SpritePropFactory.Create(w, Whole("Island/npc/hat.png", "hat"),
             band, new Vector2(0, -16), texture: null);

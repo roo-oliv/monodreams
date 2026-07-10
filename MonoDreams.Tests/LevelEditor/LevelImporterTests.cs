@@ -114,7 +114,7 @@ public class LevelImporterTests
         player.Set(new EntityInfoComponent("Player"));
         player.Set(new PlayerState());
         player.Set(new TransformComponent(new Vector2(96, 112)));
-        player.Set(new BoxColliderComponent(new Rectangle(0, 0, 16, 24), passive: false));
+        player.Set(new BoxColliderComponent(new Vector2(16, 24), passive: false));
         player.Set(new RigidBodyComponent());
         player.Set(new VelocityComponent());
         player.Set(new CameraFollowTargetComponent { DampingX = 5f, DampingY = 5f, MaxDistanceX = 150f, MaxDistanceY = 100f });
@@ -145,7 +145,7 @@ public class LevelImporterTests
         wall.Set(new EntityInfoComponent("Wall"));
         wall.Set(new TransformComponent(new Vector2(0, 300)));
         wall.Set(new SpriteInfoComponent { AssetKey = "Atlas/TX Tileset Wall", Source = new Rectangle(0, 0, 16, 16), Size = new Vector2(16, 16) });
-        wall.Set(new BoxColliderComponent(new Rectangle(0, 0, 16, 16), passive: true));
+        wall.Set(new BoxColliderComponent(new Vector2(16, 16), passive: true));
         wall.Set(new RigidBodyComponent());
     }
 

@@ -111,7 +111,10 @@ public class ColliderActionTests
         commands.AddBoxCollider(Edit());
         Assert.True(entity.Has<BoxColliderComponent>());
         var box = entity.Get<BoxColliderComponent>();
-        Assert.Equal(new Rectangle(-16, -12, 32, 12), box.Bounds);
+        // CE-A: the footprint SIZE is applied (32×12); the former feet offset (-16,-12) is dropped
+        // — the box centers on the entity. TODO(CE-C): an add-collider flow that carries the offset
+        // onto a child collider entity restores the feet-anchored footprint.
+        Assert.Equal(new Vector2(32, 12), box.Size);
         // A footprint is a PASSIVE static blocker (ColliderDefaults.FootprintPassive): Passive=true
         // = "does not initiate a collision", so a static prop blocks the player without being pushed
         // by resolution. (The Slice-2 assertion here was Assert.False — it asserted the wrong thing:
@@ -127,7 +130,7 @@ public class ColliderActionTests
         history.Undo();
         Assert.False(entity.Has<BoxColliderComponent>());
         history.Redo();
-        Assert.Equal(new Rectangle(-16, -12, 32, 12), entity.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(32, 12), entity.Get<BoxColliderComponent>().Size);
     }
 
     [Fact]
@@ -177,8 +180,9 @@ public class ColliderActionTests
         var resolve = new TransformPhysicalCollisionResolutionSystem(world);
         var commit = new TransformCommitSystem(world, runner);
 
-        // A static prop at (200,0) with a feet-origin sprite → footprint world box x∈[184,216],
-        // y∈[-12,0]. The +Box action gives it a passive footprint (Bug 2 fix).
+        // A static prop at (200,0) with a feet-origin sprite → footprint SIZE 32×12 centered on the
+        // prop = world box x∈[184,216], y∈[-6,6] (CE-A: the box centers on the entity). The +Box
+        // action gives it a passive footprint (Bug 2 fix).
         var prop = world.CreateEntity();
         prop.Set(new EntityInfoComponent("Prop", "tree"));
         prop.Set(new TransformComponent(new Vector2(200, 0)));
@@ -191,7 +195,7 @@ public class ColliderActionTests
         var player = world.CreateEntity();
         player.Set(new EntityInfoComponent("Player"));
         player.Set(new TransformComponent(new Vector2(100, 0)));
-        player.Set(new BoxColliderComponent(new Rectangle(-8, -8, 16, 16))); // non-passive
+        player.Set(new BoxColliderComponent(new Vector2(16, 16))); // non-passive, centered
         player.Set(new VelocityComponent(new Vector2(15, 0)));
 
         // Time = 1s so a velocity of v moves v units per stepped frame.
@@ -220,7 +224,7 @@ public class ColliderActionTests
         var (commands, history) = NewCommands(world);
         var entity = world.CreateEntity();
         entity.Set(new TransformComponent(new Vector2(7, 9)));
-        entity.Set(new BoxColliderComponent(new Rectangle(1, 2, 3, 4),
+        entity.Set(new BoxColliderComponent(new Vector2(3, 4),
             new HashSet<int> { 1, 2 }, passive: true, enabled: false));
         var vertices = new[] { new Vector2(0, 0), new Vector2(10, 0), new Vector2(5, 8) };
         entity.Set(new ConvexColliderComponent((Vector2[])vertices.Clone(),
@@ -234,7 +238,7 @@ public class ColliderActionTests
 
         history.Undo();
         var box = entity.Get<BoxColliderComponent>();
-        Assert.Equal(new Rectangle(1, 2, 3, 4), box.Bounds);
+        Assert.Equal(new Vector2(3, 4), box.Size); // CE-A: Size round-trips (offset 1,2 is dropped)
         Assert.True(box.ActiveLayers.SetEquals(new[] { 1, 2 }));
         Assert.True(box.Passive);
         Assert.False(box.Enabled);
@@ -264,7 +268,7 @@ public class ColliderActionTests
 
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new BoxColliderComponent(new Rectangle(0, 0, 10, 10)));
+        owner.Set(new BoxColliderComponent(new Vector2(10, 10)));
         owner.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(10, 0), new Vector2(5, 8),
@@ -364,7 +368,7 @@ public class ColliderActionTests
 
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(Vector2.Zero));
-        owner.Set(new BoxColliderComponent(new Rectangle(2, 3, 10, 12)));
+        owner.Set(new BoxColliderComponent(new Vector2(10, 12)));
         owner.Set(new SelectedComponent());
         sync.Update(Edit());
         Entity boxProxy = default;
@@ -379,7 +383,7 @@ public class ColliderActionTests
         Assert.Equal(1, history.Count);
 
         history.Undo();
-        Assert.Equal(new Rectangle(2, 3, 10, 12), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(10, 12), owner.Get<BoxColliderComponent>().Size);
     }
 
     // ---- Add vertex: edge midpoint, selected-vertex-aware, undoable ----

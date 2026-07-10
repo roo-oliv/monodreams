@@ -214,7 +214,7 @@ public class PrefabFormatTests
         // adds a BoxCollider the prefab lacks (addition).
         var instance = MakeRoot(world, "npc", new Vector2(99, 99)); // different Transform (always kept)
         instance.Set(new EntityInfoComponent("Prop", "renamed"));   // OVERRIDE
-        instance.Set(new BoxColliderComponent(new Rectangle(0, 0, 8, 8), new HashSet<int> { 1 })); // ADDITION
+        instance.Set(new BoxColliderComponent(new Vector2(8, 8), new HashSet<int> { 1 })); // ADDITION
         var instanceComponents = registry.SerializeEntity(instance).Components;
 
         var overrides = PrefabDiff.ComputeOverrides(instanceComponents, prefabComponents);

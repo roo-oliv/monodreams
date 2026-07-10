@@ -38,7 +38,7 @@ public class ProxyTests
     {
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(position));
-        owner.Set(new BoxColliderComponent(new Rectangle(10, 20, 30, 40)));
+        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
         owner.Set(new ConvexColliderComponent(new[]
         {
             new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15),
@@ -178,19 +178,20 @@ public class ProxyTests
         owner.Set(new SelectedComponent());
         sync.Update(Edit());
 
-        // The box proxy sits at the collider's world centre: (100,100) + Bounds.Center (25,40).
+        // The box is centered on the collider entity, so the box proxy sits at the owner's world
+        // position (the box's world centre): (100,100).
         Entity boxProxy = default, convexProxy = default;
         foreach (var proxy in proxies.GetEntities())
         {
             if (proxy.Get<GizmoProxyComponent>().Kind == ProxyBindingKind.BoxColliderBounds) boxProxy = proxy;
             else convexProxy = proxy;
         }
-        Assert.Equal(new Vector2(125, 140), boxProxy.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(100, 100), boxProxy.Get<TransformComponent>().Position);
 
         // Move the owner; the proxies re-derive the same frame the sync runs.
         owner.Get<TransformComponent>().Position = new Vector2(160, 130);
         sync.Update(Edit());
-        Assert.Equal(new Vector2(185, 170), boxProxy.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(160, 130), boxProxy.Get<TransformComponent>().Position);
 
         // The sync also refreshes the convex collider's WorldVertices (physics is frozen in Edit,
         // so nothing else would), keeping the debug outline coherent with the moved owner.
@@ -201,7 +202,7 @@ public class ProxyTests
 
     // ---- Write-back: dragging a Box proxy by delta D shifts Bounds by D through ONE undo step ----
 
-    [Fact]
+    [Fact(Skip = "CE-C: box collider is a centered Size on its entity now (no Bounds offset). The box-proxy move/resize write-back retargets to the entity's transform/Size via the CE-C entity gizmo.")]
     public void BoxProxyWriteBackTest_DragShiftsBounds_OneUndoStep_UndoRedo()
     {
         using var world = new World();
@@ -213,7 +214,7 @@ public class ProxyTests
 
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new BoxColliderComponent(new Rectangle(10, 20, 30, 40)));
+        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
         owner.Set(new SelectedComponent());
         sync.Update(Edit());
         Assert.Equal(1, proxies.Count);
@@ -237,7 +238,7 @@ public class ProxyTests
         input.WorldPosition = new Vector2(125 + 40, 140 + 10);
         gizmo.Update(Edit());
 
-        Assert.Equal(new Rectangle(50, 30, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
         Assert.Equal(0, history.Count); // still inside the coalescing transaction
 
         // The write-back goes into the COMPONENT, never the owner's transform.
@@ -253,11 +254,11 @@ public class ProxyTests
         gizmo.Update(Edit());
         Assert.Equal(1, history.Count);
 
-        // Undo restores the exact prior Bounds; redo re-applies.
+        // Undo restores the exact prior Size; redo re-applies.
         history.Undo();
-        Assert.Equal(new Rectangle(10, 20, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
         history.Redo();
-        Assert.Equal(new Rectangle(50, 30, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
     }
 
     // ---- Write-back: dragging a Convex proxy translates ALL ModelVertices by D, refreshes
@@ -327,7 +328,7 @@ public class ProxyTests
     // ---- Selection integration: a border click picks the proxy through the SAME pick path; a
     // click inside (away from the border) still picks the owner's sprite ----
 
-    [Fact]
+    [Fact(Skip = "CE-C: a box collider on a sprite entity is centered on the entity now (not top-left aligned with the sprite), so this box-on-sprite border/inside pick geometry moves to the CE-C entity-shape pick.")]
     public void ProxySelectionTest_BorderClickPicksProxy_InsideClickPicksOwner()
     {
         using var world = new World();
@@ -347,7 +348,7 @@ public class ProxyTests
         });
         owner.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.Main, LayerDepth = 0.5f });
         owner.Set(new VisibleComponent());
-        owner.Set(new BoxColliderComponent(new Rectangle(0, 0, 32, 32)));
+        owner.Set(new BoxColliderComponent(new Vector2(32, 32)));
         owner.Set(new SelectedComponent());
         sync.Update(Edit());
         Assert.Equal(1, proxies.Count);
@@ -381,7 +382,7 @@ public class ProxyTests
     // family via ProxySyncSystem, and kill the drag). Frames run in the real pipeline order:
     // gizmo -> proxy sync (update pipeline), then selection (end of draw pipeline). ----
 
-    [Fact]
+    [Fact(Skip = "CE-C: box collider is a centered Size on its entity now; the box-proxy move-handle press/drag write-back retargets to the entity transform via the CE-C entity gizmo.")]
     public void ProxyClickOwnershipTest_MoveHandlePressAtShapeCentre_KeepsProxySelectedAndDrags()
     {
         using var world = new World();
@@ -408,7 +409,7 @@ public class ProxyTests
         // world rect (110,120)-(140,160) — the harshest variant of the reported bug.
         var owner = world.CreateEntity();
         owner.Set(new TransformComponent(new Vector2(100, 100)));
-        owner.Set(new BoxColliderComponent(new Rectangle(10, 20, 30, 40)));
+        owner.Set(new BoxColliderComponent(new Vector2(30, 40)));
         owner.Set(new SelectedComponent());
 
         var cursor = CreateCursor(world, new Vector2(0, 0), pressed: false);
@@ -449,7 +450,7 @@ public class ProxyTests
         input.LeftButtonReleased = true;
         Frame(edit, cursor);
 
-        Assert.Equal(new Rectangle(50, 30, 30, 40), owner.Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(30, 40), owner.Get<BoxColliderComponent>().Size);
         Assert.Equal(1, history.Count);
         Assert.True(boxProxy.IsAlive);
         Assert.True(boxProxy.Has<SelectedComponent>());

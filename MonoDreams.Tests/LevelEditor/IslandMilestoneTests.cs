@@ -11,6 +11,7 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
+using MonoDreams.Extension;
 using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
@@ -93,7 +94,7 @@ public class IslandMilestoneTests
         });
         // Footprint: a 40×40 base box, PASSIVE = static world geometry (the WallEntityFactory
         // idiom — it blocks the active player without being moved by the resolution).
-        e.Set(new BoxColliderComponent(new Rectangle(-20, -20, 40, 40), passive: true));
+        e.Set(new BoxColliderComponent(new Vector2(40, 40), passive: true));
         e.Set(new SceneObjectComponent());
         return e;
     }
@@ -189,11 +190,18 @@ public class IslandMilestoneTests
             Assert.Equal(new Vector2(400, 200), worldPoly[1]);
 
             // ============ PLAY: drive the player ============
+            // Pre-mortem #1 tripwire: the player is a BODY with a CHILD collider entity. Resolution
+            // must correct the BODY (player) so it walks the island; correcting the collider child
+            // would drift it inside the parent and the block/advance assertions below would fail.
             var player = world.CreateEntity();
             player.Set(new EntityInfoComponent("Player"));
             player.Set(new TransformComponent(new Vector2(100, 100)));
-            player.Set(new BoxColliderComponent(new Rectangle(-8, -8, 16, 16))); // non-passive
             player.Set(new VelocityComponent(new Vector2(15, 0)));
+
+            var playerCollider = world.CreateEntity();
+            playerCollider.Set(new TransformComponent(Vector2.Zero)); // centered on the player body
+            playerCollider.Set(new BoxColliderComponent(new Vector2(16, 16))); // non-passive
+            playerCollider.SetParent(player);
 
             var hits = new List<CollisionMessage>();
             world.Subscribe((in CollisionMessage m) => hits.Add(m));
@@ -217,7 +225,7 @@ public class IslandMilestoneTests
                 $"player should be blocked by the building footprint, was at X={player.Get<TransformComponent>().Position.X}");
             Assert.True(player.Get<TransformComponent>().Position.X > 118,
                 "player should have advanced past its start (walked toward the building)");
-            Assert.Contains(hits, m => Identity(m.CollidingEntity) == ("evidence", "evidence_01"));
+            Assert.Contains(hits, m => Identity(m.ColliderB) == ("evidence", "evidence_01"));
 
             // Row-2 pass: teleport to a clear row, enter the talk zone, then be BLOCKED by the
             // coastline (baked segment at x ∈ [390,410]).
@@ -228,7 +236,7 @@ public class IslandMilestoneTests
             for (var i = 0; i < 30; i++) Step();
             Assert.True(player.Get<TransformComponent>().Position.X < 390,
                 $"player should be blocked by the coastline, was at X={player.Get<TransformComponent>().Position.X}");
-            Assert.Contains(hits, m => Identity(m.CollidingEntity) == ("talkzone", "talkzone_01"));
+            Assert.Contains(hits, m => Identity(m.ColliderB) == ("talkzone", "talkzone_01"));
 
             // ============ RESTART-equivalent: reload again rebuilds the whole scene ============
             // (For a native scene the transport's Restart re-publishes the original LoadSceneRequest,

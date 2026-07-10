@@ -303,8 +303,10 @@ public class OverlayProjectionTests
         var vm = Vm(1600, 1200); // fit factor 2, dest at origin
 
         var owner = world.CreateEntity();
-        owner.Set(new TransformComponent(new Vector2(10, 20)));
-        owner.Set(new BoxColliderComponent(new Rectangle(0, 0, 50, 80)));
+        // Centered box: place the owner at the box CENTRE (35,60) with Size (50,80) so the world
+        // corners are (10,20)–(60,100), the same rect the projection asserts below expect.
+        owner.Set(new TransformComponent(new Vector2(35, 60)));
+        owner.Set(new BoxColliderComponent(new Vector2(50, 80)));
         owner.Set(new SelectedComponent());
 
         using var sync = new ProxySyncSystem(world, camera, vm);

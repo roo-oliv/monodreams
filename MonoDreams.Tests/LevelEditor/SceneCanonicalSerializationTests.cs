@@ -92,7 +92,7 @@ public class SceneCanonicalSerializationTests
         using var world = new World();
         var e = MakeRoot(world, "a", new Vector2(1, 2));
         // Add more components so the map has several keys whose live storage order is unspecified.
-        e.Set(new BoxColliderComponent(new Rectangle(0, 0, 8, 8), new HashSet<int> { 3, 1, 2 }, passive: true));
+        e.Set(new BoxColliderComponent(new Vector2(8, 8), new HashSet<int> { 3, 1, 2 }, passive: true));
 
         var json = CanonicalJson.Serialize(NewWriter().BuildScene(world));
 

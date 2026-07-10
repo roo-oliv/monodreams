@@ -28,11 +28,12 @@ internal static class MilestoneCollision
         "evidence", "talkzone", "exit",
     };
 
-    public static CollisionMessage Create(Entity entity, Entity target, Vector2 contactPoint,
-        Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
+    public static CollisionMessage Create(Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB,
+        Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
     {
-        var type = IsTrigger(target) ? CollisionType.Generic : CollisionType.Physics;
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
+        // Trigger-vs-solid identity lives on the COLLIDER entity (a trigger/zone is its own collider).
+        var type = IsTrigger(colliderB) ? CollisionType.Generic : CollisionType.Physics;
+        return new CollisionMessage(colliderA, colliderB, bodyA, bodyB, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
     }
 
     private static bool IsTrigger(Entity e) =>

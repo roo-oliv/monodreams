@@ -68,7 +68,7 @@ public class ComponentSerializerRegistryTest
             YSortOffset = 7f,
             YSortDepthBias = 0.001f,
         });
-        parent.Set(new BoxColliderComponent(new Rectangle(0, 0, 16, 32), new HashSet<int> { 1, 2 }, passive: true, enabled: false));
+        parent.Set(new BoxColliderComponent(new Vector2(16, 32), new HashSet<int> { 1, 2 }, passive: true, enabled: false));
         parent.Set(new RigidBodyComponent(mass: 5f, isKinematic: true, gravityActive: false, gravityScale: 0.25f));
         parent.Set(new VelocityComponent(new Vector2(1, -2)));
 
@@ -116,7 +116,7 @@ public class ComponentSerializerRegistryTest
 
         // BoxCollider reproduces shape + layers + flags.
         var box = loadedParent.Get<BoxColliderComponent>();
-        Assert.Equal(new Rectangle(0, 0, 16, 32), box.Bounds);
+        Assert.Equal(new Vector2(16, 32), box.Size);
         Assert.Equal(new HashSet<int> { 1, 2 }, box.ActiveLayers);
         Assert.True(box.Passive);
         Assert.False(box.Enabled);

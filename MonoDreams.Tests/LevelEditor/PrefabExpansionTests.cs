@@ -67,7 +67,7 @@ public class PrefabExpansionTests
             LayerDepth = 0.5f,
         });
         if (withCollider)
-            root.Set(new BoxColliderComponent(new Rectangle(0, 0, 16, 8), new HashSet<int> { 1 }, passive: true));
+            root.Set(new BoxColliderComponent(new Vector2(16, 8), new HashSet<int> { 1 }, passive: true));
 
         var child = w.CreateEntity();
         child.Set(new EntityInfoComponent("Prop", "head"));

@@ -168,7 +168,7 @@ public class OrderingTests
         var (commands, _) = NewCommands(world, layers);
 
         var owner = CreateSprite(world, bandDepth, selected: false);
-        owner.Set(new BoxColliderComponent(new Rectangle(0, 0, 32, 32)));
+        owner.Set(new BoxColliderComponent(new Vector2(32, 32)));
 
         var proxy = world.CreateEntity();
         proxy.Set(new GizmoProxyComponent(owner, ProxyBindingKind.BoxColliderBounds));

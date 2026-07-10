@@ -40,7 +40,7 @@ public class TriggerPlacementTests
 
         var box = trigger.Get<BoxColliderComponent>();
         Assert.True(box.Passive); // a trigger senses, it does not block
-        Assert.Equal(new Rectangle(-24, -24, 48, 48), box.Bounds); // centered on the point
+        Assert.Equal(new Vector2(48, 48), box.Size); // centered on the point by the shape
         Assert.Equal(new Vector2(100, 100), trigger.Get<TransformComponent>().Position);
     }
 
@@ -76,7 +76,7 @@ public class TriggerPlacementTests
         Assert.Equal("evidence", info.Type);
         Assert.Equal("evidence_01", info.Name);
         Assert.True(restored[0].Get<BoxColliderComponent>().Passive);
-        Assert.Equal(new Rectangle(-24, -24, 48, 48), restored[0].Get<BoxColliderComponent>().Bounds);
+        Assert.Equal(new Vector2(48, 48), restored[0].Get<BoxColliderComponent>().Size);
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class TriggerPlacementTests
         var player = world.CreateEntity();
         player.Set(new EntityInfoComponent("Player"));
         player.Set(new TransformComponent(new Vector2(0, 0)));
-        player.Set(new BoxColliderComponent(new Rectangle(-8, -8, 16, 16)));
+        player.Set(new BoxColliderComponent(new Vector2(16, 16)));
         player.Set(new MonoDreams.Component.Physics.VelocityComponent(new Vector2(20, 0)));
 
         // The trigger: a Passive zone at x=60 with the evidence identity.
@@ -114,8 +114,8 @@ public class TriggerPlacementTests
         }
 
         Assert.Contains(hits, m =>
-            m.CollidingEntity == trigger
-            && m.CollidingEntity.Get<EntityInfoComponent>().Type == "evidence"
-            && m.CollidingEntity.Get<EntityInfoComponent>().Name == "evidence_01");
+            m.ColliderB == trigger
+            && m.ColliderB.Get<EntityInfoComponent>().Type == "evidence"
+            && m.ColliderB.Get<EntityInfoComponent>().Name == "evidence_01");
     }
 }
