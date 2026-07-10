@@ -7,8 +7,10 @@ namespace MonoDreams.Component.Collision;
 
 /// <summary>
 /// Convex polygon collider defined by an ordered set of vertices (clockwise winding).
-/// ModelVertices are in local space; WorldVertices are updated each frame by the detection system.
-/// BroadPhaseAABB is recomputed from WorldVertices for fast rejection before SAT.
+/// ModelVertices are in the collider ENTITY's local space; WorldVertices are updated each frame by
+/// the detection system from that entity's own <see cref="TransformComponent"/> world transform
+/// (colliders-as-entities model). BroadPhaseAABB is recomputed from WorldVertices for fast rejection
+/// before SAT.
 /// </summary>
 public class ConvexColliderComponent : IColliderComponent
 {
