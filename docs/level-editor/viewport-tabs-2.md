@@ -111,6 +111,18 @@ Gate per wave: full-solution Release, zero skips.
    gates on ITS dirty, not the live world's.
 5. **Demos hosts** — a second `ScreenController` + session; the wiring must be
    symmetric or the Demos tabs silently regress ("this also happens in all Demos").
+   **CLOSED (wave TD).** TB-A gave the Demos host a session but left it with a NULL project
+   context and NO screen-scene bindings, so its Scenes panel read "(unresolved) … (no scenes)",
+   its boot tab read "untitled", and there were no bound scenes to activate cross-screen. TD makes
+   the Demos host resolve an `EditorProjectContext` (with the `MonoDreams.Demos` multi-manifest
+   disambiguation hint), commits `MonoDreams.Demos/Content/game.mdproj` + its MGCB `/copy:`, seeds
+   the session with the launcher's scene, and binds every demo screen to a scene id (launcher /
+   camera-demo / physics-demo / dialogue-demo / ui-demo) via `DemoEditor.BindScene`. Cross-screen tab
+   activation between demo scenes now works (`DemosSessionCrossScreenTests`). TD also fixes a latent
+   bug the whole model shared — the **Game-tab-exit blank screen** on a code-built screen (report 2):
+   the `Reload` seam SPLITS into `RebuildCodeContent` + `ReloadSceneContent`, and the tab-exit sweep
+   now runs `RebuildCodeContent` between the sweep and the snapshot restore (`ViewportContextStack`),
+   so a menu / demo launcher / physics demo comes back instead of a blue void.
 6. **Modal NotifyChanged** — if confirmed, the fix is engine-level (foundation/
    editor command path); every changed-filter consumer benefits — do not patch it
    menu-locally.

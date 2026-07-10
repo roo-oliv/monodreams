@@ -1287,9 +1287,11 @@ under `MONODREAMS_EDITOR=1` log their composed `editor.*` entries — the runner
 overlay-provided `editor.cursorInput`/`editor.cursorPosition`; the menu run exits through the
 editor-op channel, the runner through replay auto-exit);
 `MonoDreams.Tests/IntegrationTests/DemosEditorOverlayTests.cs` (all five Demos screens under
-`MONODREAMS_EDITOR=1` log their composed `editor.*` entries headless, and a flag-off Demos run
-composes nothing — with `RunDemosAsync` pinning the env flag off unless a test opts in); flag-off
-behavior is protected by the entire pre-existing suite.
+`MONODREAMS_EDITOR=1` log their composed `editor.*` entries headless — TD also asserting the Demos host now
+**resolves a project** ("Project resolved"), composes the **universal palette** ("editor.palette", with
+zero asset roots — no crash), and seeds a **named** boot tab ("active tab 'launcher'", never "untitled") —
+and a flag-off Demos run composes nothing — with `RunDemosAsync` pinning the env flag off unless a test opts
+in); flag-off behavior is protected by the entire pre-existing suite.
 **Depends on:** this file — "The pipeline registrar is the composition seam" and "The editor run
 flag opts game screens into the overlay"; foundation — "Edit-time behaviour is a per-system policy
 honoured by `GatedSystem`".
@@ -1732,9 +1734,20 @@ commands reference entities about to die — replaying them in either direction 
 `world.Remove<CurrentLevelComponent>()` + `Remove<CurrentBackgroundColorComponent>()` (the LDtk
 parsers subscribe to the component **added** event — a re-publish over a still-set component fires
 *Changed* and never re-parses), dispose every scene entity, then invoke the screen-recorded
-`Reload` (each screen registers "re-publish my original load request" in `Load`: the game screen
-re-publishes `LoadLevelRequest(levelId)`, the menu re-runs its UI builder, the runner re-runs its
-create methods). Restart while Playing also lands **Paused**; Restart **while the Game tab is active
+`Reload`. **`Reload` is a SPLIT seam (TD).** A screen registers TWO callbacks in `Load` —
+**`RebuildCodeContent`** (its code-owned builders: the menu's UI builder, the runner's / a demo's
+create-methods — everything the screen creates in code that is never `SceneObjectComponent`-tagged and so
+is never snapshot-captured) and **`ReloadSceneContent`** (its bound level load: the game screen's
+`LoadLevelRequest(levelId)`, a bound menu/runner/demo's optional `NativeLevelLoader.TryPublishSceneLoad`).
+`Transport.Reload` runs **both in order** (code first, then scene), so Restart is unchanged: the game screen
+re-publishes its load, the menu re-builds its UI **and** re-runs its optional scene load, the runner
+re-creates its entities **and** its scene load. A screen whose content is entirely scene-owned (the level
+Game screen) leaves `RebuildCodeContent` null and registers only `ReloadSceneContent`. **The split exists
+because the Game-tab exit needs the code half WITHOUT the scene half** — see "The viewport context stack …"
+(the exit runs `RebuildCodeContent` between the sweep and the in-memory snapshot restore, so a code-built
+screen — a menu, a demo launcher, the physics demo — comes back instead of a blank screen, while the
+scene-owned entities restore from the snapshot rather than a disk re-load). Restart while Playing also
+lands **Paused**; Restart **while the Game tab is active
 also lands the Scene tab with the in-memory snapshot dropped** — the snapshot IS an unsaved edit, so
 Restart's discard contract covers it with no special case (the disk reload is the source of truth;
 see "The viewport context stack …"). **Unsaved live edits since the load
@@ -1758,13 +1771,14 @@ recorded `Reload` is a **loud no-op**
 (warning, nothing disposed): tearing the world down with no way to rebuild it would strand the
 designer on a blank screen.
 
-**Source-first reload (UX-D, pre-mortem #5).** The screen's `Reload` re-publishes its original
+**Source-first reload (UX-D, pre-mortem #5).** The screen's `ReloadSceneContent` re-publishes its original
 `LoadLevelRequest`, which resolves through `NativeLevelLoader.CreateProbe`. That probe now resolves
 **source-first when the editor project is resolved** — so a Restart reflects the last **Save** to the
 source tree, not the stale bundled copy from the last build (see level-loading — "`LevelLoadRequestSystem`
-resolves `LoadLevelRequest` native-only"). A bound menu/runner screen (no `LoadLevelRequest`) instead
-re-runs its optional `NativeLevelLoader.TryPublishSceneLoad` **inside** `Reload`, so a Restart on those
-screens restores the bound scene's placed content too, not just the code-built UI. **Save Backup As…
+resolves `LoadLevelRequest` native-only"). A bound menu/runner/demo screen (no `LoadLevelRequest`) registers
+its optional `NativeLevelLoader.TryPublishSceneLoad` as its `ReloadSceneContent`, so a Restart on those
+screens restores the bound scene's placed content too (after `RebuildCodeContent` re-creates the code-built
+UI). **Save Backup As…
 (UX-D) composes exactly this:** it writes the dangling backup file, then calls `Restart` to return the
 working scene to its on-disk (source) truth — the backup captured the edits; the working scene reloads
 clean.
@@ -1790,7 +1804,13 @@ rig's identity survives the sweep and its state re-syncs from the file — unsav
 `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled`
 (the reload reads the SOURCE bytes under a resolved context — the pre-mortem #5 regression);
 `MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs::SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene`
-(Save Backup As… composes a write + Restart that reloads the bound scene).
+(Save Backup As… composes a write + Restart that reloads the bound scene); **the TD split seam**:
+`MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs::ExitGameTab_OnACodeBuiltScreen_RebuildsTheCodeUi_NotBlank_SceneRestoredOnTop`
+(+ `…_WithoutRebuildCodeContent_LeavesTheCodeUiSwept_TheReport2Blank` — the Game-tab exit runs
+`RebuildCodeContent` so a code-built screen is not blank; the contrast pins the seam as the fix) and
+`MonoDreams.Tests/LevelEditor/ViewportContextStackTests.cs::ExitGameTab_InvokesRebuildCodeContent_BetweenSweepAndRestore`
+(+ `SwitchToPrefabTab_DoesNotRebuildCodeContent_PrefabContextIsIsolated` — the sweep → rebuild → restore
+order, skipped for a prefab target).
 **Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
 transport is the only mode owner); level-loading — the `LoadLevelRequest` →
 `CurrentLevelComponent`-added parse trigger this premise routes around, and "`LevelLoadRequestSystem`
@@ -1842,7 +1862,9 @@ Scene/Prefab tabs are edited Paused. The mechanism:
   `CaptureSnapshot` + the rig + the VIEW + the history dirty flag) **UNLESS it is a discard context** — a
   Game tab is NEVER re-snapshotted on leave (discard semantics verbatim) → **sweep** (the transport's
   survivor-sparing `DisposeSceneEntities`, injected as the stack's `SweepSceneEntities` —
-  `EditorInfrastructureComponent` / cursor / `KeepAlive` survive) → reader-restore the target's snapshot via
+  `EditorInfrastructureComponent` / cursor / `KeepAlive` survive) → **`RebuildCodeContent`** (TD — the
+  screen's code-owned builders, injected as the stack's `RebuildCodeContent`; skipped when the target is a
+  Prefab context, which shows only the prefab) → reader-restore the target's snapshot via
   an **in-memory `LoadSceneRequest(SceneData)`** (so re-tag, texture rehydration incl. `file:` keys,
   `DrawComponent` restore, and camera-rig re-sync are ALL shared with the file load — pre-mortem #2: the
   reader is the ONLY restore implementation) → `EditorHistory.Clear()` (undo after a switch is a no-op —
@@ -1850,7 +1872,13 @@ Scene/Prefab tabs are edited Paused. The mechanism:
   the reader's auto-frame, **only when `CameraViewSnapshot.IsValid`** (a positive zoom; UX3-A pre-mortem #2
   — a zeroed/unwired capture would let `Camera.Zoom` clamp 0 → `0.1f` and blank the view at the origin, so
   it is NOT applied). A discard context being left is **dropped from the strip** afterward — the Game tab
-  never persists in the background.
+  never persists in the background. **The `RebuildCodeContent` step (TD) is the fix for the Game-tab-exit
+  blank:** a code-built screen (a menu, the Demos launcher, the physics demo) has no `SceneObjectComponent`
+  content, so its snapshot is empty and the sweep-then-restore alone would land a blank screen — rebuilding
+  the code content between the sweep and the restore brings the screen's own UI/entities back (the discard
+  semantics thereby become correct for code content too, e.g. the physics demo's balls reset to their
+  authored initial state), with any scene-owned content restored on top from the in-memory snapshot (NOT a
+  disk re-load — that would double the content).
 - **Cross-screen activation (TB-A).** Activating a tab whose `ScreenName` != the live screen is orchestrated
   by the OVERLAY, not the in-place stack ops: `ViewportContextStack.PrepareCrossScreenActivation` snapshots
   a persistent leaving context (or DROPS a leaving Game tab — a discard context is never snapshotted) and
@@ -2677,6 +2705,17 @@ probe, else a silent no-op) so its saved scene comes up UNDER its code-built UI 
 stays **untagged / never serialized**: the existing `SceneObjectComponent` membership policy is now the
 ownership policy — screen UI is code-owned, only loaded/placed/editor-created content is scene-owned.
 
+**Demos adopts this pattern wholesale (TD).** Every Demos screen now declares a `BoundSceneId` — the
+launcher (`launcher` — the demo selector itself is a scene, per the user), `camera-demo`, `physics-demo`,
+`dialogue-demo`, `ui-demo` — so the Scenes panel lists the five demos as scenes (the "Project: (unresolved)
+… (no scenes)" state is gone once the Demos host resolves its project context). The common Load wiring is
+the `DemoEditor.BindScene` helper (name the active tab from the bound id; register `ReloadSceneContent` =
+the optional scene load; publish that load now unless a cross-screen activation is restoring the tab; bind
+the catalog + a **plain `LoadScreen`** switch hand-off — Demos needs no requested-level concept, every
+Demos screen has a fixed binding). A demo Save lands `<id>.mdscene` in the DEMOS source tree. The session
+is seeded with the launcher's id, so the boot tab is NAMED, never the `untitled` fallback the null-context
+Demos host used to show.
+
 **There is no Load action — selecting a scene opens (or activates) its tab (TB-A).** Clicking a
 Scenes-panel row (or the `scenes:select <key>` op) routes through the ONE initiator
 `EditorOverlay.SelectScene`, which no longer swaps the world in place behind a dirty modal — it drives the
@@ -2731,7 +2770,13 @@ unresolved-skips-source); `MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs
 (`ScenesTab_SceneCatalogRowClick_ForwardsTheEntryToTheSelectCallback`);
 `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (Create Empty Scene — the dialog's collision
 refusal + accept + empty-name, and the canonical empty-world write on a fake FS — UX2-D);
-`MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs` (the `ScreenInfo` binding + enumeration).
+`MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs` (the `ScreenInfo` binding + enumeration);
+**TD — Demos adoption**: `MonoDreams.Tests/LevelEditor/DemosSceneWiringTests.cs`
+(`SceneCatalog_WithTheFiveDemoBindings_ResolvedProject_ListsFiveNamedScenes` — the five bound demos list as
+named scenes; `FirstSave_OfADemoScene_TargetsTheDemosProjectLevelsTree_NotExamples` — a demo Save targets
+the Demos tree) and `MonoDreams.Tests/IntegrationTests/DemosSessionCrossScreenTests.cs`
+(`TabOpen_ActivatesABoundDemoSceneCrossScreen_TheSessionSurvivesTheScreenSwitch` — launcher → physics-demo
+cross-screen through the real Demos host, closing the TB-A "Demos cross-screen limitation").
 **Depends on:** foundation — "Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its
 `RunMode`) are the survivors of a screen switch" (the `GameState`/`RunMode` and the host-scoped
 `EditorSession` that both survive the hand-off); this file — "The viewport context stack is the ONE
@@ -2903,9 +2948,20 @@ in FW1):
    walk-up alone can't reach it. While ascending, detect the repository/solution root (an ancestor
    holding a `.git` entry — **file OR directory**, so git worktrees work — or a `*.sln`), then
    recursively search under it for `game.mdproj`, **excluding every `bin`/`obj` path**. When several
-   source manifests exist (e.g. a web head's `wwwroot/Content` copy) the choice is deterministic:
-   shallowest path first, then ordinal — so a normal `dotnet run`/Rider run from inside the repo
-   resolves the SOURCE with **no env var**.
+   source manifests exist the choice is deterministic: a match on the head's
+   **`preferProjectDirName`** hint first, then shallowest path, then ordinal — so a normal
+   `dotnet run`/Rider run from inside the repo resolves the SOURCE with **no env var**.
+   - **Multi-manifest disambiguation (TD).** The repo now holds **more than one** game manifest
+     (`MonoDreams.Examples.Core/Content/game.mdproj` **and** `MonoDreams.Demos/Content/game.mdproj`, both at
+     the same depth — plus the Examples web head's `wwwroot/Content` copy). A bare shallowest-then-ordinal
+     tie would resolve BOTH hosts to the alphabetically-first manifest (`MonoDreams.Demos`, since `D < E`).
+     So each head passes its OWN content-project directory name as `preferProjectDirName`
+     (`EditorProjectContext.Resolve("MonoDreams.Examples.Core")` from the Examples head,
+     `Resolve("MonoDreams.Demos")` from the Demos head), and `FindSourceManifest` prefers the manifest whose
+     path contains that segment. The Examples head **needs** the hint (its content is in a SIBLING `.Core`,
+     so walk-up finds nothing and FALLBACK 2 runs); a co-located Demos run resolves its own manifest via
+     **walk-up** before FALLBACK 2 is even reached, so the hint is defence-in-depth there. Net: an
+     Examples-host resolve is UNCHANGED (still `.Core`) and a Demos-host resolve lands on Demos'.
 4. **UNRESOLVED — only an output copy (or nothing) found.** `Resolved = false`; Save is disabled with
    an actionable reason (never a silent write to `bin`).
 
@@ -2939,7 +2995,11 @@ git diff.
 **Tests:** `MonoDreams.Tests/LevelEditor/EditorProjectContextTests.cs` (env / walk-up / unresolved /
 malformed / env-miss-falls-back; **FW1**: `WalkUp_FromBinBaseDir_ResolvesTheSourceManifest_NeverTheBinOutputCopy`
 — a bin base dir + a source + an output + a web copy + a `.git` file resolves the SOURCE, never the bin
-copy; `EnvVar_Wins_EvenWhenABinCopyAndSourceExist`; `OnlyABinOutputCopy_AndNoSource_IsUnresolved_NeverTheBinCopy`),
+copy; `EnvVar_Wins_EvenWhenABinCopyAndSourceExist`; `OnlyABinOutputCopy_AndNoSource_IsUnresolved_NeverTheBinCopy`;
+**TD multi-manifest**: `MultiManifest_ExamplesHost_ResolvesExamplesManifest_ViaHint_NotDemos` — with BOTH
+manifests present, no hint resolves Demos (the regression) and the Examples hint resolves Examples; and
+`MultiManifest_DemosHost_ResolvesDemosManifest_ViaWalkUp_NotExamples` — a co-located Demos run resolves
+Demos' manifest via walk-up),
 `MonoDreams.Tests/LevelEditor/GameProjectTests.cs` (canonical round-trip, byte-stable, `assetRoots`
 order preserved, canonical shape locked).
 **Depends on:** this file — "Scene serialization is canonical and byte-stable…" (the shared
