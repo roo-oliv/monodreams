@@ -127,6 +127,10 @@ public class Game1 : Game
         _runner = new DefaultParallelRunner(1);
         _screenController = new ScreenController(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
 
+        // TB-A: the host-scoped editor session — its viewport tab stack survives a screen switch (the
+        // launcher Play → Game tab following a transition to a demo screen). Null off the flag.
+        var session = _editor ? new EditorSession() : null;
+
         // Under the editor run flag EVERY demo screen composes the editor overlay (the editor is
         // host- and screen-agnostic — a demo is a scene like any level). Each screen brings its
         // own cursor pipeline, so the overlay never doubles it; keys come from the engine's
@@ -135,19 +139,19 @@ public class Game1 : Game
         // the demos have no project context, so the editor's Scenes panel lists them as screens only
         // and shows no scene files). The editor is still composed on every demo (universal overlay).
         _screenController.RegisterScreen(DemoScreens.Launcher,
-            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
             new ScreenInfo("Launcher"));
         _screenController.RegisterScreen(DemoScreens.Camera,
-            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
             new ScreenInfo("Camera Demo"));
         _screenController.RegisterScreen(DemoScreens.Physics,
-            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor),
+            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor, session: session),
             new ScreenInfo("Physics Demo"));
         _screenController.RegisterScreen(DemoScreens.Dialogue,
-            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
             new ScreenInfo("Dialogue Demo"));
         _screenController.RegisterScreen(DemoScreens.Ui,
-            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor),
+            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session),
             new ScreenInfo("UI Demo"));
 
         if (_editor)

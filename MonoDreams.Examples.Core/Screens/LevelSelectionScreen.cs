@@ -75,13 +75,14 @@ public class LevelSelectionScreen : IGameScreen
     // pipeline registries the systems panel binds to.
     private readonly bool _editorEnabled;
     private readonly EditorProjectContext? _projectContext;
+    private readonly EditorSession _session;
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
     private EditorOverlay _editor;
 
     public LevelSelectionScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
-        bool editorEnabled = false, EditorProjectContext? projectContext = null)
+        bool editorEnabled = false, EditorProjectContext? projectContext = null, EditorSession session = null)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -92,6 +93,7 @@ public class LevelSelectionScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
         _projectContext = projectContext;
+        _session = session;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
@@ -146,6 +148,9 @@ public class LevelSelectionScreen : IGameScreen
 
         if (_editor != null)
         {
+            // TB-A: this screen hosts the level_selection scene tab — name the active tab so the strip +
+            // Save target track it (the session's boot tab, or the cross-screen target this activation lands).
+            _editor.SetSceneId(BoundSceneId);
             // The transport's Restart rebuilds the menu from scratch: the sweep disposed the UI
             // entities (the cursor survives), so re-running the builder IS the original load. It must
             // ALSO re-run the optional scene load (UX-D) — otherwise a Restart (e.g. after Save Backup As)
@@ -158,8 +163,11 @@ public class LevelSelectionScreen : IGameScreen
             };
             // Optional scene load (UX-C): bring level_selection.mdscene up under the code-built menu
             // UI if it exists (source-first, then bundled; absent → silently skip). The code UI stays.
-            NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
-            // The Scenes panel + the dirty-gated switch (Examples hand-off).
+            // TB-A: SKIP it when a cross-screen tab activation restores this tab's in-memory snapshot
+            // instead — the restore runs the reader OVER the code-built UI (no sweep, no double content).
+            if (!_editor.RestorePendingActivation(screenController.State))
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            // The Scenes panel + the tab-open/activate switch (Examples hand-off).
             _editor.BindSceneCatalog(ScreenName.LevelSelection,
                 () => screenController.RegisteredScreens,
                 entry => EditorSceneSwitch.Switch(screenController, entry));
@@ -337,7 +345,8 @@ public class LevelSelectionScreen : IGameScreen
                 requestExit: _game.Exit,
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
                 sceneId: BoundSceneId, // explicit per-screen id (UX-C) — Save targets level_selection.mdscene
-                projectContext: _projectContext);
+                projectContext: _projectContext,
+                session: _session);
             // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
             if (_editor.HasEditorOpPlan) cursorInputSystem.SkipHardwareRead = true;
         }

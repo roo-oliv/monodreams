@@ -276,6 +276,142 @@ public class ViewportContextStackTests
         Assert.True(h.History.IsDirty);           // the Scene's dirtiness is restored (per-context isolation)
     }
 
+    // ─────────────── TB-A: named per-scene tabs, multi-tab switch, per-tab dirty, close gates ─────────
+
+    [Fact]
+    public void SceneTab_IsTitledByItsSceneId_NotTheWordScene()
+    {
+        var h = new Harness();
+        Assert.Equal("island", h.Shell.ViewportTabs[0].Label); // the scene id, not "Scene"
+        h.Stack.SetActiveSceneId("island2");
+        Assert.Equal("island2", h.Stack.Active.Id);
+        Assert.Equal("island2", h.Shell.ViewportTabs[0].Label);
+    }
+
+    [Fact]
+    public void AddSceneContext_OpensASecondNamedTab_NotYetActive_MakesBothClosable()
+    {
+        var h = new Harness();
+        var idx = h.Stack.AddSceneContext("island2", "Game", "island2");
+        Assert.Equal(1, idx);
+        Assert.Equal(2, h.Stack.Contexts.Count);
+        Assert.Equal(0, h.Stack.ActiveIndex);          // AddSceneContext does not activate
+        Assert.Equal(2, h.Stack.SceneTabCount);
+        Assert.Equal("island2", h.Shell.ViewportTabs[1].Label);
+        Assert.Equal(1, h.Stack.IndexOfSceneTab("island2"));
+        Assert.Equal(-1, h.Stack.IndexOfSceneTab("nope"));
+        // With two scene tabs open, BOTH become closable in the strip (the last one refuses at close).
+        Assert.True(h.Shell.ViewportTabs[0].Closable);
+        Assert.True(h.Shell.ViewportTabs[1].Closable);
+    }
+
+    [Fact]
+    public void TwoSceneTabs_SwitchFreely_EditBoth_PerTabDirty_NeverDiscards()
+    {
+        var h = new Harness();
+        h.WorldState = 10;                          // island (tab 0) content
+        var b = h.Stack.AddSceneContext("island2", "Game", "island2");
+        h.Stack.SwitchTo(b);                        // island snapshotted(10, clean), swept; island2 clean
+        h.WorldState = 20;                          // "edit" island2 content
+        h.History.Push(new NoopCommand());          // dirty island2
+        h.Stack.SwitchTo(0);                        // leave island2 (snapshot 20 + dirty), restore island(10)
+        Assert.Equal(10, h.WorldState);             // island's snapshot restored (never discarded)
+        Assert.False(h.History.IsDirty);            // island was clean
+        h.Stack.SwitchTo(b);                        // back to island2 — its snapshot(20) + dirty reproduced
+        Assert.Equal(20, h.WorldState);
+        Assert.True(h.History.IsDirty);             // island2's per-tab dirty restored
+    }
+
+    [Fact]
+    public void DecideClose_LastSceneTab_Refused_ButClosableOnceASecondIsOpen()
+    {
+        var h = new Harness();
+        Assert.Equal(ViewportCloseDecision.Refused, h.Stack.DecideClose(0)); // the only scene tab
+        h.Stack.AddSceneContext("island2", "Game", "island2");
+        Assert.Equal(ViewportCloseDecision.CloseClean, h.Stack.DecideClose(0)); // no longer the last
+        Assert.Equal(ViewportCloseDecision.CloseClean, h.Stack.DecideClose(1));
+    }
+
+    [Fact]
+    public void DecideClose_DirtySceneTab_ConfirmDirty()
+    {
+        var h = new Harness();
+        h.Stack.AddSceneContext("island2", "Game", "island2");
+        h.History.Push(new NoopCommand());          // dirty the active (island, index 0)
+        Assert.Equal(ViewportCloseDecision.ConfirmDirty, h.Stack.DecideClose(0));
+    }
+
+    [Fact]
+    public void CloseCleanContext_ActiveSceneTab_ReturnsToNeighbour_RestoresIt()
+    {
+        var h = new Harness();
+        var b = h.Stack.AddSceneContext("island2", "Game", "island2");
+        h.WorldState = 10;                          // island content
+        h.Stack.SwitchTo(b);                        // island snapshotted(10), on island2
+        h.WorldState = 20;
+        h.Log.Clear();
+        h.Stack.CloseCleanContext(b);               // close island2 (active) → back to island + restore
+        Assert.Single(h.Stack.Contexts);
+        Assert.Equal(0, h.Stack.ActiveIndex);
+        Assert.Equal(10, h.WorldState);             // island restored
+        Assert.Contains("restore", h.Log);
+    }
+
+    [Fact]
+    public void CloseCleanContext_BackgroundSceneTab_JustRemoved_NoWorldChange()
+    {
+        var h = new Harness();
+        h.Stack.AddSceneContext("island2", "Game", "island2"); // index 1, background (active stays 0)
+        h.Log.Clear();
+        h.Stack.CloseCleanContext(1);               // background close
+        Assert.Single(h.Stack.Contexts);
+        Assert.Equal(0, h.Stack.ActiveIndex);
+        Assert.Empty(h.Log);                        // no sweep/restore for a background close
+    }
+
+    [Fact]
+    public void PrepareCrossScreenActivation_SnapshotsAPersistentLeaving_AimsAtTheTarget_NoSweep()
+    {
+        var h = new Harness();
+        h.WorldState = 10;
+        var b = h.Stack.AddSceneContext("island2", "Game", "island2");
+        h.Log.Clear();
+        h.Stack.PrepareCrossScreenActivation(b);    // the overlay's cross-screen prep (no sweep/restore)
+        Assert.Equal(new[] { "snapshot" }, h.Log);  // the leaving island was preserved, NOT swept
+        Assert.Equal(b, h.Stack.ActiveIndex);       // aimed at the target
+        Assert.NotNull(h.Stack.Contexts[0].Snapshot); // island's snapshot captured for the return
+    }
+
+    [Fact]
+    public void PrepareCrossScreenActivation_DropsALeavingGameTab_NeverSnapshotsIt()
+    {
+        var h = new Harness();
+        h.Stack.EnterGame();                        // active = the discard Game tab
+        var origin = h.Stack.GameOriginIndex;       // the scene it was spawned from (0)
+        h.Log.Clear();
+        h.Stack.PrepareCrossScreenActivation(origin);
+        Assert.DoesNotContain("snapshot", h.Log);   // the Game tab is discard — never re-snapshotted
+        Assert.Single(h.Stack.Contexts);            // the Game tab was dropped
+        Assert.Equal(ViewportContextKind.Scene, h.Stack.ActiveKind);
+    }
+
+    [Fact]
+    public void RestoreActiveSnapshot_RestoresThroughTheReader_WithoutSweeping()
+    {
+        var h = new Harness();
+        h.WorldState = 10;
+        var b = h.Stack.AddSceneContext("island2", "Game", "island2");
+        h.Stack.SwitchTo(b);                        // island snapshotted(10)
+        h.WorldState = 20;
+        h.Stack.PrepareCrossScreenActivation(0);    // aim at island (snapshot present)
+        h.Log.Clear();
+        h.WorldState = 999;                          // a fresh screen load we must REPLACE, not double
+        h.Stack.RestoreActiveSnapshot();            // the cross-screen restore (no sweep)
+        Assert.Equal(10, h.WorldState);             // island restored (not 999)
+        Assert.DoesNotContain("sweep", h.Log);      // no sweep — the screen skipped its fresh load
+        Assert.Contains("restore", h.Log);
+    }
+
     private sealed class NoopCommand : IEditorCommand
     {
         public void Apply(World world) { }

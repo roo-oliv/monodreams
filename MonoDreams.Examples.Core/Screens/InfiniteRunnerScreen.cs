@@ -76,13 +76,14 @@ public class InfiniteRunnerScreen : IGameScreen
     // pipeline registries the systems panel binds to.
     private readonly bool _editorEnabled;
     private readonly EditorProjectContext? _projectContext;
+    private readonly EditorSession _session;
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
     private EditorOverlay _editor;
 
     public InfiniteRunnerScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
-        bool editorEnabled = false, EditorProjectContext? projectContext = null)
+        bool editorEnabled = false, EditorProjectContext? projectContext = null, EditorSession session = null)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -93,6 +94,7 @@ public class InfiniteRunnerScreen : IGameScreen
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
         _projectContext = projectContext;
+        _session = session;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -143,6 +145,8 @@ public class InfiniteRunnerScreen : IGameScreen
 
         if (_editor != null)
         {
+            // TB-A: name the active tab so the strip + Save target track this screen's bound scene.
+            _editor.SetSceneId(BoundSceneId);
             // The transport's Restart re-runs exactly this load (the sweep disposed the runner
             // entities — treadmill, player, spawn point, HUD, and everything the spawner added). It must
             // ALSO re-run the optional scene load (UX-D) — otherwise a Restart (e.g. after Save Backup As)
@@ -158,8 +162,10 @@ public class InfiniteRunnerScreen : IGameScreen
             };
             // Optional scene load (UX-C): bring infinite_runner.mdscene up under the code-built runner
             // if it exists (source-first, then bundled; absent → skip). The code entities stay.
-            NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
-            // The Scenes panel + the dirty-gated switch (Examples hand-off).
+            // TB-A: SKIP it when a cross-screen tab activation restores this tab's snapshot instead.
+            if (!_editor.RestorePendingActivation(screenController.State))
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            // The Scenes panel + the tab-open/activate switch (Examples hand-off).
             _editor.BindSceneCatalog(ScreenName.InfiniteRunner,
                 () => screenController.RegisteredScreens,
                 entry => EditorSceneSwitch.Switch(screenController, entry));
@@ -357,7 +363,8 @@ public class InfiniteRunnerScreen : IGameScreen
                 setOsCursorVisible: visible => _game.IsMouseVisible = visible,
                 provideCursorPipeline: true,
                 sceneId: BoundSceneId, // explicit per-screen id (UX-C) — Save targets infinite_runner.mdscene
-                projectContext: _projectContext);
+                projectContext: _projectContext,
+                session: _session);
             // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
             if (_editor.HasEditorOpPlan) _editor.CursorInput.SkipHardwareRead = true;
         }

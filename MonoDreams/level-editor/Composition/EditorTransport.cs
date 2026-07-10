@@ -77,17 +77,30 @@ public sealed class EditorTransport
     public Action<int, GameState>? ConfirmDirtyClose { get; set; }
 
     public EditorTransport(World world, EditorHistory history,
-        EditorShellStateComponent? shellState = null, string? sceneId = null)
+        EditorShellStateComponent? shellState = null, string? sceneId = null,
+        ViewportContextStack? stack = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _history = history ?? throw new ArgumentNullException(nameof(history));
+        var shell = shellState ?? new EditorShellStateComponent();
         // The ONE context-switching mechanism (PF-B). The sweep it runs on every switch is THIS transport's
         // survivor-sparing sweep, so tab switches and Restart share the exact same teardown boundary.
-        _stack = new ViewportContextStack(history, shellState ?? new EditorShellStateComponent(),
-            sceneId ?? EditorOverlay.DefaultSceneId)
+        if (stack != null)
         {
-            SweepSceneEntities = DisposeSceneEntities,
-        };
+            // TB-A: a host-scoped EditorSession owns the stack (its tab list survives a screen switch).
+            // (Re)bind it to THIS screen's history + shell, and point its sweep at this transport.
+            _stack = stack;
+            _stack.Rebind(history, shell);
+            _stack.SweepSceneEntities = DisposeSceneEntities;
+        }
+        else
+        {
+            // No session (tests / a standalone single-screen transport): own a fresh stack.
+            _stack = new ViewportContextStack(history, shell, sceneId ?? EditorOverlay.DefaultSceneId)
+            {
+                SweepSceneEntities = DisposeSceneEntities,
+            };
+        }
     }
 
     /// <summary>The screen's "re-publish my original load request" callback — set it in the
@@ -140,9 +153,14 @@ public sealed class EditorTransport
     /// <c>EditorCameraRig.SnapViewToRig</c>).</summary>
     public Action? SnapViewToRig { get => _stack.SnapViewToRig; set => _stack.SnapViewToRig = value; }
 
-    /// <summary>Updates the Scene context's id (the overlay's <c>SetSceneId</c> in <c>Load</c>), so the
-    /// status bar / tab id track the scene the screen loaded.</summary>
-    public void SetSceneId(string sceneId) => _stack.SceneContext.Id = sceneId ?? EditorOverlay.DefaultSceneId;
+    /// <summary>Updates the ACTIVE context's scene id + label (the overlay's <c>SetSceneId</c> in
+    /// <c>Load</c>), so the status bar / active tab track the scene the live screen loaded (TB-A — the
+    /// active tab, not necessarily the boot tab, since several named scene tabs may be open).</summary>
+    public void SetSceneId(string sceneId) => _stack.SetActiveSceneId(sceneId ?? EditorOverlay.DefaultSceneId);
+
+    /// <summary>Sets the active scene tab's owning screen name when it does not yet carry one — the boot
+    /// tab learns its screen when the first overlay binds the Scenes catalog (TB-A).</summary>
+    public void SetScreenName(string? screenName) => _stack.SetActiveScreenName(screenName);
 
     // ─── Transport (RunMode) ────────────────────────────────────────────────────────────────────────
 

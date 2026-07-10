@@ -63,7 +63,8 @@ public sealed class DemoEditor
         GraphicsDevice graphicsDevice,
         SpriteBatch spriteBatch,
         ViewportManager viewportManager,
-        Func<Game?> game)
+        Func<Game?> game,
+        EditorSession? session = null)
     {
         if (!editorEnabled) return null;
 
@@ -79,7 +80,10 @@ public sealed class DemoEditor
             {
                 var host = game();
                 if (host != null) host.IsMouseVisible = visible;
-            });
+            },
+            // TB-A: the host-scoped session — its viewport tab stack survives a screen switch (the launcher
+            // Play → Game tab following a transition to a demo screen, "fix them all" — Demos included).
+            session: session);
         // Modal capture (keyboard half): while a Save/Load dialog is open the editor keyboard stands
         // down so the dialog owns the keys (the mouse half is the dialog consuming the cursor edges).
         keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen || overlay.Menu.IsOpen || overlay.Modal.IsActive || overlay.InspectorOwnsKeyboard;

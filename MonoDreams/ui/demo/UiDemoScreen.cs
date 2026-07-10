@@ -126,6 +126,7 @@ public class UiDemoScreen : IGameScreen
     // The universal editor overlay (null when editorEnabled is false) and the retained pipeline
     // registries the editor's systems panel binds to (see DemoEditor).
     private readonly bool _editorEnabled;
+    private readonly EditorSession _session;
     private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
@@ -176,7 +177,7 @@ public class UiDemoScreen : IGameScreen
     public World World => _world;
 
     public UiDemoScreen(GraphicsDevice graphicsDevice, ContentManager content, MonoDreams.Component.Camera camera,
-        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false)
+        ViewportManager viewportManager, SpriteBatch spriteBatch, bool editorEnabled = false, EditorSession session = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
@@ -184,6 +185,7 @@ public class UiDemoScreen : IGameScreen
         _viewportManager = viewportManager;
         _spriteBatch = spriteBatch;
         _editorEnabled = editorEnabled;
+        _session = session;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -1327,7 +1329,7 @@ public class UiDemoScreen : IGameScreen
 
         // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
-            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game);
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game, session: _session);
         // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
         if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
 

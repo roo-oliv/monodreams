@@ -92,13 +92,15 @@ public class LoadLevelExampleGameScreen : IGameScreen
     private readonly bool _editorEnabled;
     private readonly bool _importMode;
     private readonly EditorProjectContext? _projectContext;
+    private readonly EditorSession _session;
     private readonly EditorPipelineRegistrar _updatePipeline = new();
     private readonly EditorPipelineRegistrar _drawPipeline = new();
     private EditorOverlay _editor;
 
     public LoadLevelExampleGameScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
         ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
-        bool editorEnabled = false, EditorProjectContext? projectContext = null, bool importMode = false)
+        bool editorEnabled = false, EditorProjectContext? projectContext = null, bool importMode = false,
+        EditorSession session = null)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -110,6 +112,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
         _editorEnabled = editorEnabled;
         _importMode = importMode;
         _projectContext = projectContext;
+        _session = session;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, _viewportManager.VirtualWidth, _viewportManager.VirtualHeight) },
@@ -166,7 +169,13 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             // Load the requested level
             var levelId = requestedLevel.LevelIdentifier;
-            _world.Publish(new LoadLevelRequest(levelId));
+            // TB-A: when a cross-screen scene tab activation is in flight, the editor restores that tab's
+            // in-memory snapshot through the reader instead — so SKIP the disk load (no double content,
+            // pre-mortem #2). A plain boot / a Game tab riding a gameplay transition has no pending
+            // activation, so this returns false and the fresh disk load runs (RunMode untouched → stays
+            // Playing when the Game tab follows gameplay, pre-mortem #3).
+            if (_editor == null || !_editor.RestorePendingActivation(screenController.State))
+                _world.Publish(new LoadLevelRequest(levelId));
 
             if (_editor != null)
             {
@@ -287,7 +296,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 assetCatalog: assetCatalog,
                 paletteBands: paletteBands,
                 triggerTypes: triggerTypes,
-                projectContext: _projectContext);
+                projectContext: _projectContext,
+                session: _session);
 
             // Game-component serializers (PS5): register the reference game's own component
             // serializers onto the editor's live registry so the in-editor Load/Save round-trips

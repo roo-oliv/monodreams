@@ -188,6 +188,12 @@ public class Game1 : Game
         // the editor flag is parsed — so the module stays game-agnostic. Null off the flag.
         var projectContext = _editor ? EditorProjectContext.Resolve() : null;
 
+        // TB-A: the host-scoped editor session — its viewport tab stack (the open scene/Game tabs + their
+        // data snapshots) survives a screen switch, exactly like the shared GameState. Created once here
+        // beside the ScreenController and passed to every editor-enabled screen like the project context;
+        // each screen's overlay BINDS to it. Null off the flag.
+        var session = _editor ? new EditorSession() : null;
+
         // Under the editor run flag EVERY screen composes the editor overlay (Wave 8a: the editor
         // is screen-agnostic — the menu and the runner are scenes like any level). The runner has
         // no cursor pipeline of its own, so its overlay brings one (provideCursorPipeline inside
@@ -197,14 +203,14 @@ public class Game1 : Game
         // Game screen is the level-parameterized HOST (it loads whatever scene is requested), so every
         // .mdscene not claimed by a binding is listed under it. Explicit ids kill the pre-UX-C hazard
         // where all three screens defaulted to manifest.startScene and would save to the same file.
-        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext),
+        _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, session: session),
             new ScreenInfo("Level Selection", LevelSelectionScreen.BoundSceneId));
         // In the export op the Game screen composes the LDtk import machinery (importMode); a
         // normal / editor boot composes native-only (the parsers are not wired to live game boot, PS5).
         var importMode = _exportSceneId != null;
-        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, importMode: importMode),
+        _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, importMode: importMode, session: session),
             new ScreenInfo("Game", BoundSceneId: null, HostsSceneFiles: true));
-        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext),
+        _screenController.RegisterScreen(ScreenName.InfiniteRunner, () => new InfiniteRunnerScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, session: session),
             new ScreenInfo("Infinite Runner", InfiniteRunnerScreen.BoundSceneId));
 
         if (_editor)

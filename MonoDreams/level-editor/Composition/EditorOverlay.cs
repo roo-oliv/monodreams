@@ -89,7 +89,11 @@ public sealed class EditorOverlay
     private readonly World _world;
     private readonly Camera _camera;
     private readonly DrawLayerMap _layers;
-    // Mutable: the Save dialog's confirm renames the scene the editor holds (see DispatchToolbarAction).
+    // TB-A: the host-scoped session (its ViewportContextStack survives a screen switch). Null when the
+    // overlay owns a single-screen stack (no host session — e.g. a standalone test path).
+    private readonly EditorSession? _session;
+    // Mutable: tracks the ACTIVE scene tab's id (Save target / catalog current-detection). Set by
+    // SetSceneId + synced from the active context on every tab switch (TB-A).
     private string _sceneId;
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
@@ -157,13 +161,15 @@ public sealed class EditorOverlay
         AssetCatalog? assetCatalog = null,
         IReadOnlyList<PaletteBand>? paletteBands = null,
         IReadOnlyList<TriggerType>? triggerTypes = null,
-        EditorProjectContext? projectContext = null)
+        EditorProjectContext? projectContext = null,
+        EditorSession? session = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _layers = layers ?? throw new ArgumentNullException(nameof(layers));
         if (input == null) throw new ArgumentNullException(nameof(input));
         _projectContext = projectContext;
+        _session = session;
         _sceneId = ResolveSceneId(sceneId, projectContext);
 
         // The shared editor infrastructure. The registry ships the engine serializers; a game
@@ -198,9 +204,10 @@ public sealed class EditorOverlay
         shellStateEntity.Set(_shellState);
 
         // The transport owns RunMode AND drives the ViewportContextStack (PF-B — the ONE tab-switching
-        // mechanism). It is handed the shared shell state (so the stack rewrites the tab-strip descriptors
-        // the tab-strip system reads) and the current scene id (the Scene tab's id).
-        Transport = new EditorTransport(world, History, _shellState, _sceneId);
+        // mechanism). TB-A: when a host-scoped session is present the transport (re)binds ITS stack to this
+        // screen's history + shell (the tab list survives the screen switch); otherwise it owns a fresh
+        // single-screen stack seeded with the current scene id.
+        Transport = new EditorTransport(world, History, _shellState, _sceneId, _session?.Stack);
 
         // The camera rig (UX2-E): the authored game-camera state as a standalone entity, split from the
         // free editor VIEW (the shared Camera CameraNavSystem drives). It re-syncs from scene.camera on
@@ -360,9 +367,13 @@ public sealed class EditorOverlay
         // writes; clicks route to the transport (SwitchToTab / the dirty-gated CloseTab) by slot. Live in
         // both transport states (leaving the Game tab must work while Playing) and suppressed during a
         // shell drag (a drag releasing over a tab must not fire it).
+        // TB-A: a tab body click routes through the overlay's ActivateViewportTab (same-screen in-place vs
+        // cross-screen host hand-off); a × through CloseViewportTab (the dirty-close gate + scene-vs-prefab
+        // save). Both need the current screen name + the host switch seam the overlay owns — so they are not
+        // the transport's raw SwitchToTab/CloseTab (which stay the in-place primitives the overlay calls).
         ViewportTabs = new ViewportTabStripSystem(world, viewportManager, toolbarFont, _shellState,
-            switchToTab: (index, state) => Transport.SwitchToTab(index, state),
-            closeTab: (index, state) => Transport.CloseTab(index, state),
+            switchToTab: ActivateViewportTab,
+            closeTab: CloseViewportTab,
             isInputSuppressed: () => _shellState.IsDragging);
         // The two editor panels (UX2-B) share ONE collapse/expand state component (ECS purity: the
         // state lives once, both panels read/write their own fields). On an editor-infra entity so it
@@ -463,7 +474,10 @@ public sealed class EditorOverlay
         // sandbox churn. RunNormally — live in both transport states.
         StatusBar = new EditorStatusBarSystem(
             world, viewportManager, toolbarFont, _modal,
-            sceneId: () => _sceneId,
+            // TB-A: the status bar's right side shows the ACTIVE tab's id (scene / game-played scene /
+            // prefab), not the Save-target _sceneId — so a prefab tab reads its prefab id and a Game tab
+            // reads the played scene.
+            sceneId: () => Transport.ContextStack.Active.Id,
             isDirty: () => Transport.ActiveContextKind == ViewportContextKind.Game
                 ? Transport.SnapshotWasDirty
                 : History.IsDirty,
@@ -874,6 +888,10 @@ public sealed class EditorOverlay
         _currentScreenName = currentScreenName;
         _registeredScreens = registeredScreens ?? throw new ArgumentNullException(nameof(registeredScreens));
         _switchScene = switchScene ?? throw new ArgumentNullException(nameof(switchScene));
+        // TB-A: the boot scene tab learns the screen it loads on here (so a later cross-screen activation
+        // knows this scene lives elsewhere). SetActiveScreenName only fills a NULL screen — a cross-screen
+        // target tab already carries its screen (set when it was opened), so this never overwrites it.
+        Transport.SetScreenName(currentScreenName);
     }
 
     /// <summary>Builds the current Scenes catalog from the bound inputs (empty until
@@ -912,36 +930,178 @@ public sealed class EditorOverlay
     }
 
     /// <summary>
-    /// The ONE place a scene switch is initiated (pre-mortem #7 — the dirty gate lives here, and both
-    /// the Scenes-panel click and the <c>scenes:select</c> op route through it). Same entry → no-op;
-    /// clean → the host <see cref="_switchScene"/> callback fires immediately; dirty → the confirm-switch
-    /// modal opens ("Unsaved changes in &lt;scene&gt;"), whose Save &amp; Switch runs the SAME guarded
-    /// <see cref="SaveCurrentScene"/> then switches, Discard switches without saving, and Cancel stays.
+    /// The ONE place the Scenes panel opens/activates a scene (TB-A — both the panel row click and the
+    /// <c>scenes:select</c> / <c>tab:open</c> ops route through it). The old "switching IS selecting,
+    /// dirty-gated in place" premise is SUPERSEDED by named per-scene tabs: selecting a scene <b>opens a new
+    /// tab</b> (or <b>activates the existing one</b>) — switching tabs NEVER discards (the leaving context
+    /// is snapshotted), so there is no confirm-on-switch; only CLOSING a tab dirty-gates
+    /// (<see cref="CloseViewportTab"/>). Already-open + a DIFFERENT screen → cross-screen activation; a new
+    /// tab always routes through the host screen switch (the screen loads it fresh).
     /// </summary>
     public void SelectScene(SceneCatalogEntry entry, GameState state)
     {
-        // PF-B: a scene switch while the Game tab is active LEAVES the Game tab first (full snapshot
-        // restore), so the normal dirty gate below runs on the RESTORED real scene — not on sandbox churn.
-        // One gate flavor, no bypass.
-        if (Transport.ActiveContextKind == ViewportContextKind.Game) Transport.ExitToSceneMode(state);
-
-        switch (SceneCatalog.DecideSwitch(entry, History.IsDirty))
+        var stack = Transport.ContextStack;
+        var existing = stack.IndexOfSceneTab(entry.SceneId);
+        if (existing >= 0)
         {
-            case SceneSwitchDecision.NoOp:
-                return; // clicking the active scene is a no-op
-            case SceneSwitchDecision.Switch:
-                if (SwitchGuardMissing()) return;
-                _switchScene!(entry);
+            // Already open. No-op only when it is the ACTIVE scene tab (not the Game sandbox over it).
+            if (existing == stack.ActiveIndex && stack.ActiveKind == ViewportContextKind.Scene) return;
+            ActivateViewportTab(existing, state); // drops a leaving Game tab; same-screen in-place or cross-screen
+            return;
+        }
+
+        // Not open — open a NEW scene tab through the host screen switch (the screen loads it fresh; a new
+        // tab has no snapshot, so the new screen's RestorePendingActivation keeps that fresh load).
+        if (SwitchGuardMissing()) return;
+        var newIndex = stack.AddSceneContext(entry.SceneId, entry.ScreenName, entry.SceneId);
+        stack.PrepareCrossScreenActivation(newIndex); // preserve the leaving context / drop a leaving Game tab
+        if (_session != null) _session.PendingActivation = true;
+        state.RunMode = RunMode.Edit; // a scene tab is edited Paused
+        _switchScene!(entry);
+    }
+
+    // ─── Viewport tab activation + close (TB-A) ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The ONE viewport-tab activation entry (the tab strip's body click, <c>scenes:select</c>, close-then-
+    /// activate). A SAME-screen target (or the Game/Prefab tab) is an in-place
+    /// <see cref="EditorTransport.SwitchToTab"/> (sweep + reader-restore, lands Paused, drops a leaving Game
+    /// tab). A CROSS-SCREEN scene target snapshots the leaving context (drops a leaving Game tab), aims the
+    /// session's active index at the target, sets the pending-activation flag, and hands off to the host
+    /// screen switch — the new screen's overlay restores the target snapshot in <c>Load</c>
+    /// (<see cref="RestorePendingActivation"/>).
+    /// </summary>
+    public void ActivateViewportTab(int index, GameState state)
+    {
+        var stack = Transport.ContextStack;
+        if (index < 0 || index >= stack.Contexts.Count || index == stack.ActiveIndex) return;
+        var target = stack.Contexts[index];
+
+        if (IsSameScreenTarget(target))
+        {
+            Transport.SwitchToTab(index, state); // in-place, lands Paused
+            SyncSceneIdFromActiveContext();
+            return;
+        }
+
+        stack.PrepareCrossScreenActivation(index); // drop a leaving Game tab / snapshot a leaving persistent
+        if (_session != null) _session.PendingActivation = true;
+        state.RunMode = RunMode.Edit;
+        SwitchToScreen(target);
+    }
+
+    /// <summary>The × / <c>tab:close</c> gate (TB-A): the Game tab discards to its origin scene; the last
+    /// scene tab is refused; a clean scene/prefab tab closes; a dirty one routes the Save &amp; Close /
+    /// Discard / Cancel confirm (scene → <see cref="SaveCurrentScene"/>, prefab → <see cref="SavePrefabCurrent"/>).</summary>
+    public void CloseViewportTab(int index, GameState state)
+    {
+        var stack = Transport.ContextStack;
+        switch (stack.DecideClose(index))
+        {
+            case ViewportCloseDecision.Refused:
+                Logger.Warning($"[level-editor] Tab #{index} cannot be closed (the last scene tab, or a bad index).");
+                Notifications.Notify("The last scene tab cannot be closed", EditorNotifySeverity.Warning);
                 return;
-            case SceneSwitchDecision.Confirm:
-                if (SwitchGuardMissing()) return;
-                // Save & Switch runs the SAME guarded SaveCurrentScene then switches; Discard switches
-                // without saving; Cancel (dialog close) does neither.
-                Dialog.OpenConfirmSwitch(_sceneId,
-                    onSaveAndSwitch: s => { SaveCurrentScene(s); _switchScene!(entry); },
-                    onDiscardAndSwitch: _ => _switchScene!(entry));
+            case ViewportCloseDecision.DiscardImmediately: // the Game tab — leave the sandbox to its origin
+                ActivateViewportTab(stack.GameOriginIndex, state);
+                return;
+            case ViewportCloseDecision.CloseClean:
+                CloseCleanTab(index, state);
+                return;
+            case ViewportCloseDecision.ConfirmDirty:
+                var ctx = stack.Contexts[index];
+                if (index != stack.ActiveIndex && !IsSameScreenTarget(ctx))
+                {
+                    // A cross-screen background dirty tab: activate it first (the host switch restores it);
+                    // the designer closes it again once it is the live tab (TB-A scope — no cross-screen save).
+                    ActivateViewportTab(index, state);
+                    return;
+                }
+                if (index != stack.ActiveIndex) Transport.SwitchToTab(index, state); // in-place activate (same-screen)
+                SyncSceneIdFromActiveContext();
+                var activeIndex = stack.ActiveIndex;
+                var isPrefab = stack.Active.Kind == ViewportContextKind.Prefab;
+                Dialog.OpenConfirmClose(stack.Active.Id,
+                    onSaveAndClose: st => { if (isPrefab) SavePrefabCurrent(st); else SaveCurrentScene(st); CloseCleanTab(activeIndex, st); },
+                    onDiscardAndClose: st => CloseCleanTab(activeIndex, st));
                 return;
         }
+    }
+
+    /// <summary>Closes a clean (or already-confirmed) closable tab. A BACKGROUND tab is just dropped; the
+    /// ACTIVE tab lands on the previous tab — in-place when that neighbour is same-screen, else a
+    /// cross-screen host hand-off. Lands Paused.</summary>
+    private void CloseCleanTab(int index, GameState state)
+    {
+        var stack = Transport.ContextStack;
+        if (index != stack.ActiveIndex)
+        {
+            var newActive = index < stack.ActiveIndex ? stack.ActiveIndex - 1 : stack.ActiveIndex;
+            stack.RemoveContextAt(index, newActive); // background close: no world change
+            SyncSceneIdFromActiveContext();
+            return;
+        }
+
+        var neighbour = Math.Max(0, index - 1);
+        var target = stack.Contexts[neighbour];
+        if (IsSameScreenTarget(target))
+        {
+            state.RunMode = RunMode.Edit;
+            stack.CloseCleanContext(index); // in-place: removes + reader-restores the same-screen neighbour
+            SyncSceneIdFromActiveContext();
+            return;
+        }
+
+        // Cross-screen neighbour: drop the closed active tab, aim at the neighbour, hand off to LoadScreen.
+        stack.RemoveContextAt(index, neighbour);
+        if (_session != null) _session.PendingActivation = true;
+        state.RunMode = RunMode.Edit;
+        SwitchToScreen(stack.Active);
+    }
+
+    /// <summary>
+    /// Consumes a pending cross-screen activation in the new screen's <c>Load</c> (TB-A, pre-mortem #2):
+    /// when a cross-screen tab activation is in flight, this restores the (already-active) target scene
+    /// context THROUGH THE READER and returns <c>true</c> so the screen SKIPS its own fresh content load
+    /// (no double content). Returns <c>false</c> when there is no pending activation (a plain boot, or the
+    /// Game tab riding a gameplay transition — pre-mortem #3) or when the target has no snapshot (a
+    /// freshly-opened tab), so the screen does its normal fresh load. A pending activation always lands
+    /// Paused.
+    /// </summary>
+    public bool RestorePendingActivation(GameState state)
+    {
+        if (_session == null || !_session.PendingActivation) return false;
+        _session.PendingActivation = false;          // consume exactly once
+        state.RunMode = RunMode.Edit;                // a cross-screen scene activation lands Paused
+        SyncSceneIdFromActiveContext();
+        if (Transport.ContextStack.Active.Snapshot == null) return false; // a fresh tab: let the screen load from disk
+        Transport.ContextStack.RestoreActiveSnapshot(); // reader-restore over the code-built UI (no sweep)
+        return true;
+    }
+
+    /// <summary>A target tab activates in place (no host screen switch) when it is the Game/Prefab tab, or a
+    /// scene tab with no owning screen, or a scene tab whose screen is the live one — else it is cross-screen.</summary>
+    private bool IsSameScreenTarget(ViewportContext target) =>
+        target.Kind != ViewportContextKind.Scene
+        || target.ScreenName == null
+        || string.Equals(target.ScreenName, _currentScreenName, StringComparison.Ordinal);
+
+    /// <summary>Hands off to the host screen switch for a cross-screen tab activation (the seam Examples
+    /// wires to <c>EditorSceneSwitch.Switch</c>, Demos to plain <c>LoadScreen</c>).</summary>
+    private void SwitchToScreen(ViewportContext target)
+    {
+        if (SwitchGuardMissing()) return;
+        _switchScene!(new SceneCatalogEntry(
+            Key: target.Id, Label: target.Label, ScreenName: target.ScreenName ?? _currentScreenName ?? string.Empty,
+            SceneId: target.Id, IsCurrent: false));
+    }
+
+    /// <summary>Syncs the Save-target <see cref="_sceneId"/> from the active context (Scene / Game — a
+    /// Prefab tab leaves it, since Save-prefab targets the prefab id directly, not <see cref="_sceneId"/>).</summary>
+    private void SyncSceneIdFromActiveContext()
+    {
+        var active = Transport.ContextStack.Active;
+        if (active.Kind != ViewportContextKind.Prefab) _sceneId = active.Id;
     }
 
     private bool SwitchGuardMissing()
@@ -2578,17 +2738,27 @@ public sealed class EditorOverlay
         var arg = space < 0 ? string.Empty : rest.Substring(space + 1).Trim();
         switch (verb.ToLowerInvariant())
         {
-            case "scene": Transport.ExitToSceneMode(state); break;
+            case "open": // TB-A: open (or activate) the named scene's tab through the Scenes-panel flow
+                if (FindCatalogEntry(arg) is { } entry) SelectScene(entry, state);
+                else Logger.Warning($"[level-editor] Editor-op '{name}': no scene '{arg}' in the catalog to open.");
+                break;
+            case "scene": // activate the (first) scene tab — leaves the Game sandbox to its origin
+                ActivateViewportTab(
+                    Transport.ActiveContextKind == ViewportContextKind.Game
+                        ? Transport.ContextStack.GameOriginIndex
+                        : 0,
+                    state);
+                break;
             case "game": Transport.Play(state); break;
             case "close":
                 var index = Transport.ContextStack.IndexOfId(arg);
-                if (index >= 0) Transport.CloseTab(index, state);
+                if (index >= 0) CloseViewportTab(index, state);
                 else Logger.Warning($"[level-editor] Editor-op '{name}': no viewport tab '{arg}' to close.");
                 break;
             default:
                 Logger.Warning(
-                    $"[level-editor] Editor-op '{name}': expected tab:scene | tab:game | tab:close <id> " +
-                    "(or the mode:scene / mode:game aliases).");
+                    $"[level-editor] Editor-op '{name}': expected tab:open <id> | tab:scene | tab:game | " +
+                    "tab:close <id> (or the mode:scene / mode:game aliases).");
                 break;
         }
     }
