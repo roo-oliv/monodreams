@@ -4,6 +4,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Extension;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Proxy;
 using MonoDreams.LevelEditor.System;
@@ -471,5 +472,36 @@ public class ProxyTests
         var ignoring = ProxyGeometry.WorldDeltaToModelDelta(transform, ignoreRotation: true, new Vector2(10f, 0f));
         Assert.Equal(5f, ignoring.X, tol);
         Assert.Equal(0f, ignoring.Y, tol);
+    }
+
+    // ---- Editor consumer mirrors the collision fix: convex outline derivation reads the WORLD
+    // transform, so a proxy/debug outline on a prefab instance's CHILD sits where the collider does
+    // (PF-G item 1). Box corners already used WorldPosition; this covers the convex path. ----
+
+    [Fact]
+    public void ConvexWorldVertices_ChildEntity_FoldInParentWorldPosition()
+    {
+        using var world = new World();
+        var model = new[] { new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15) };
+
+        var root = world.CreateEntity();
+        root.Set(new TransformComponent(new Vector2(300, 200)));
+        var child = world.CreateEntity();
+        child.Set(new TransformComponent(new Vector2(-10, 5)));
+        child.Set(new ConvexColliderComponent((Vector2[])model.Clone()));
+        child.SetParent(root); // matrix link → child.WorldPosition = (290, 205)
+
+        var childTransform = child.Get<TransformComponent>();
+        var collider = child.Get<ConvexColliderComponent>();
+
+        var outline = ProxyGeometry.ConvexWorldVertices(childTransform, collider);
+        Assert.Equal(new Vector2(290, 205), outline[0]);   // model[0] + child.WorldPosition
+        Assert.Equal(new Vector2(310, 205), outline[1]);
+        Assert.Equal(new Vector2(300, 220), outline[2]);
+
+        // TryGetWorldOutline (the shape the proxy/pick use) agrees, and a single vertex maps too.
+        Assert.True(ProxyGeometry.TryGetWorldOutline(child, ProxyBindingKind.ConvexColliderShape, 0, out var viaOutline));
+        Assert.Equal(outline, viaOutline);
+        Assert.Equal(new Vector2(310, 205), ProxyGeometry.ConvexVertexWorld(childTransform, collider, 1));
     }
 }

@@ -475,6 +475,69 @@ public class PrefabMilestoneTests
         });
     }
 
+    // ─── PF-G item 1: a collider authored on a prefab CHILD is world-correct once the instance is placed ──
+
+    /// <summary>Seeds the user's <c>house</c> shape: a root with only a BOX collider (no sprite) and a child
+    /// carrying the SPRITE + a CONVEX collider, at a local offset and sub-1 scale.</summary>
+    private static void SeedHousePrefab(PrefabWorkshop shop)
+    {
+        using var w = new World();
+        var root = w.CreateEntity();
+        root.Set(new SceneObjectComponent());
+        root.Set(new EntityInfoComponent("house"));
+        root.Set(new TransformComponent(Vector2.Zero));
+        root.Set(new BoxColliderComponent(new Rectangle(-15, 5, 27, 20), passive: true));
+
+        var band = new PaletteBand("Props", LayerDepth: 0.5f, YSorted: true);
+        var child = SpritePropFactory.Create(w, Whole("Island/House2.png", "House2"), band, new Vector2(-7, -40), texture: null);
+        child.Get<TransformComponent>().Scale = new Vector2(0.5f, 0.5f);
+        child.Set(new ConvexColliderComponent(
+            new[] { new Vector2(0, 0), new Vector2(20, 0), new Vector2(10, 15) }, passive: true));
+        child.SetParent(root);
+
+        shop.SavePrefab(w, "house");
+    }
+
+    [Fact]
+    public void PrefabInstance_ChildConvexCollider_IsWorldCorrectOncePlaced()
+    {
+        var fake = new InMemoryPlatform();
+        WithPlatform(fake, () =>
+        {
+            var shop = new PrefabWorkshop(fake);
+            SeedHousePrefab(shop);
+
+            using var world = new World();
+            var history = new EditorHistory(world);
+
+            // Place the instance ROOT at a cursor position (the user's flow — CreateInstanceCommand
+            // mutates the root position in place, so the child's matrix link stays valid).
+            var place = new Vector2(500, 300);
+            history.Push(new CreateInstanceCommand(shop.Expander, "house", place));
+            var root = InstanceRoots(world, "house").Single();
+
+            // The box collider on the ROOT places correctly (byte-identical: a root's WorldPosition == its
+            // local Position) — the user's confirmed-correct control.
+            Assert.Equal(place, root.Get<TransformComponent>().WorldPosition);
+
+            // The convex collider on the CHILD sits at its WORLD position (root placement folded in), NOT
+            // at its parent-relative local offset. Derive the world shape the collision system will use.
+            var child = ChildOf(world, root);
+            Assert.True(child.Has<ConvexColliderComponent>());
+            var convex = child.Get<ConvexColliderComponent>();
+            convex.UpdateWorldVertices(child.Get<TransformComponent>());
+
+            // child.WorldPosition = place + local (-7,-40) = (493, 260); world scale = 0.5.
+            Assert.Equal(new Vector2(493, 260), child.Get<TransformComponent>().WorldPosition);
+            Assert.Equal(new Vector2(493, 260), convex.WorldVertices[0]);        // (0,0)*0.5 + (493,260)
+            Assert.Equal(new Vector2(503, 260), convex.WorldVertices[1]);        // (20,0)*0.5 + (493,260)
+            Assert.Equal(new Vector2(498, 267.5f), convex.WorldVertices[2]);     // (10,15)*0.5 + (493,260)
+            // Repro guard: the OLD local-only derivation put vertex 0 at the child's local offset (-7,-40),
+            // missing the (500,300) placement entirely.
+            Assert.NotEqual(new Vector2(-7, -40), convex.WorldVertices[0]);
+        });
+    }
+
     // ─── PF-F: the multi-entity capture story (the elephant-kid family, both selection paths) ──────────
 
     [Fact]

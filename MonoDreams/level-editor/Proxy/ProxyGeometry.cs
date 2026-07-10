@@ -19,10 +19,10 @@ namespace MonoDreams.LevelEditor.Proxy;
 /// <para><b>The derivations deliberately mirror the collision module.</b> Box corners are
 /// <c>Transform.WorldPosition + Bounds</c> offsets, axis-aligned, exactly as
 /// <c>ColliderDebugSystem</c> draws them; convex world vertices reproduce
-/// <c>ConvexColliderComponent.UpdateWorldVertices</c> (scale → rotate → translate by the LOCAL
-/// <c>Position</c>, honoring <c>IgnoreTransformRotation</c>) without mutating the collider — so
-/// the proxy shows the truth the collision system will use, including its documented
-/// root-level-entities-only limitation.</para>
+/// <c>ConvexColliderComponent.UpdateWorldVertices</c> (scale → rotate → translate by the WORLD transform
+/// — <c>WorldPosition</c>/<c>WorldRotation</c>/<c>WorldScale</c>, honoring <c>IgnoreTransformRotation</c>) without mutating the collider — so
+/// the proxy shows the exact truth the collision system will use, for a child entity (a prefab
+/// instance's child collider) as much as a root.</para>
 ///
 /// <para><b>Extension point (Waves D/F).</b> A new <see cref="ProxyBindingKind"/> (e.g. a spline
 /// control point) adds its derivation case to <see cref="TryGetWorldOutline"/> here; everything
@@ -134,14 +134,14 @@ public static class ProxyGeometry
     /// <summary>
     /// The convex collider's world vertices, computed purely (never mutating the collider's own
     /// <c>WorldVertices</c>): scale, then rotate (unless <c>IgnoreTransformRotation</c>), then
-    /// translate by the local <c>Position</c> — the same math as
-    /// <c>ConvexColliderComponent.UpdateWorldVertices</c>, root-level-entity contract included.
+    /// translate by the WORLD transform — the same math as
+    /// <c>ConvexColliderComponent.UpdateWorldVertices</c>, correct for a child entity as much as a root.
     /// </summary>
     public static Vector2[] ConvexWorldVertices(TransformComponent transform, ConvexColliderComponent collider)
     {
-        var pos = transform.Position;
-        var rot = collider.IgnoreTransformRotation ? 0f : transform.Rotation;
-        var scale = transform.Scale;
+        var pos = transform.WorldPosition;
+        var rot = collider.IgnoreTransformRotation ? 0f : transform.WorldRotation;
+        var scale = transform.WorldScale;
         var cos = MathF.Cos(rot);
         var sin = MathF.Sin(rot);
 
@@ -160,13 +160,13 @@ public static class ProxyGeometry
     }
 
     /// <summary>One convex model vertex mapped to world space — the same scale → rotate →
-    /// translate-by-local-<c>Position</c> math as <see cref="ConvexWorldVertices"/>, for a single
+    /// translate-by-WORLD-transform math as <see cref="ConvexWorldVertices"/>, for a single
     /// <paramref name="index"/> (a <see cref="ProxyBindingKind.ConvexVertex"/> handle's anchor).</summary>
     public static Vector2 ConvexVertexWorld(TransformComponent transform, ConvexColliderComponent collider, int index)
     {
-        var pos = transform.Position;
-        var rot = collider.IgnoreTransformRotation ? 0f : transform.Rotation;
-        var scale = transform.Scale;
+        var pos = transform.WorldPosition;
+        var rot = collider.IgnoreTransformRotation ? 0f : transform.WorldRotation;
+        var scale = transform.WorldScale;
         var cos = MathF.Cos(rot);
         var sin = MathF.Sin(rot);
         var v = collider.ModelVertices[index];

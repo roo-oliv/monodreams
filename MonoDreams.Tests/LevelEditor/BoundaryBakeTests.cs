@@ -64,8 +64,10 @@ public class BoundaryBakeTests
             // collision (so resolution never moves it) but the active player is pushed out of it.
             Assert.True(child.Get<ConvexColliderComponent>().Passive);
             Assert.Equal(boundary, child.Get<ChildOfComponent>().Parent);
-            // The segment's collider sits at the boundary's world position (root-level collision).
-            Assert.Equal(new Vector2(100, 100), child.Get<TransformComponent>().Position);
+            // The segment sits at LOCAL origin, parented to the boundary — so its WORLD position IS
+            // the boundary's (SetParent wires the matrix link eagerly; no HierarchySystem tick needed).
+            Assert.Equal(Vector2.Zero, child.Get<TransformComponent>().Position);
+            Assert.Equal(new Vector2(100, 100), child.Get<TransformComponent>().WorldPosition);
         }
     }
 
@@ -119,7 +121,7 @@ public class BoundaryBakeTests
             new[] { new Vector2(0, 0), new Vector2(40, 0) }, new Vector2(100, 100)); // 1 edge, thickness 16
         bake.Update(Edit());
         var first = Assert.Single(BakedChildren(world, boundary));
-        Assert.Equal(new Vector2(100, 100), first.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(100, 100), first.Get<TransformComponent>().WorldPosition);
 
         // Move the whole boundary (mutate the Transform directly, as the gizmo does).
         boundary.Get<TransformComponent>().Position = new Vector2(300, 250);
@@ -127,10 +129,11 @@ public class BoundaryBakeTests
 
         Assert.False(first.IsAlive); // the old segment was disposed
         var moved = Assert.Single(BakedChildren(world, boundary));
-        Assert.Equal(new Vector2(300, 250), moved.Get<TransformComponent>().Position);
+        Assert.Equal(new Vector2(300, 250), moved.Get<TransformComponent>().WorldPosition);
 
-        // The baked collider's WORLD vertices are correct at the new position (root-level collision
-        // reads the local Position field): the quad straddles x∈[300,340], y∈[242,258] (±8).
+        // The baked collider's WORLD vertices are correct at the new position (the segment is parented
+        // to the boundary, so its world transform is the boundary's): the quad straddles
+        // x∈[300,340], y∈[242,258] (±8).
         var collider = moved.Get<ConvexColliderComponent>();
         collider.UpdateWorldVertices(moved.Get<TransformComponent>());
         foreach (var v in collider.WorldVertices)

@@ -5,6 +5,7 @@ using DefaultEcs;
 using DefaultEcs.System;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
+using MonoDreams.Extension;
 using MonoDreams.LevelEditor.Boundary;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.State;
@@ -40,11 +41,11 @@ namespace MonoDreams.LevelEditor.System;
 /// the children regenerate on load). Re-baking first disposes the boundary's existing segment
 /// children, so an edit never accumulates stale segments.</para>
 ///
-/// <para><b>Root-level collision.</b> <c>ConvexColliderComponent.UpdateWorldVertices</c> uses the
-/// entity's LOCAL <c>Position</c> (the documented root-level-only limitation), so each segment child
-/// gets the boundary's world position copied onto its own <c>TransformComponent.Position</c> and its
-/// <c>ModelVertices</c> in the boundary's local frame — the segment then resolves to the correct
-/// world quad regardless of the (harmless) <c>ChildOf</c> transform parenting the hierarchy applies.</para>
+/// <para><b>World-placed segments.</b> <c>ConvexColliderComponent.UpdateWorldVertices</c> derives
+/// world geometry from <c>TransformComponent.WorldPosition</c>/<c>WorldRotation</c>/<c>WorldScale</c>,
+/// so each segment child is parented to the boundary (<c>SetParent</c>) and left at LOCAL origin with
+/// its <c>ModelVertices</c> in the boundary's local frame — its WORLD transform is the boundary's, and
+/// the quad resolves to the correct world position (following a moved / scaled / rotated boundary).</para>
 ///
 /// <para><b>Runs in both run modes</b> (<c>RunNormally</c>, no Edit guard): a shipped game loading a
 /// native scene with a boundary must bake it too — the bake is a scene-loading participant, not
@@ -148,8 +149,12 @@ public sealed class BoundaryBakeSystem : ISystem<GameState>
         var component = boundary.Get<BoundaryComponent>();
         if (component.Points == null || component.Points.Length < BoundaryGeometry.MinPoints) return;
 
-        // Segment quads are in the boundary's LOCAL frame; copy the boundary's world position onto
-        // each child so root-level collision (which uses the local Position field) places them right.
+        // Segment quads are in the boundary's LOCAL frame. Each segment is parented to the boundary
+        // (SetParent) and sits at LOCAL origin, so its WORLD transform IS the boundary's — collision
+        // (which now derives world geometry from TransformComponent.WorldPosition) places the quad
+        // right, and a moved/scaled/rotated boundary carries its segments with it. Copying the world
+        // position onto the child's local field (the former root-level workaround) would DOUBLE-COUNT
+        // once the parent matrix link is synced.
         var worldPosition = boundary.Has<TransformComponent>()
             ? boundary.Get<TransformComponent>().Position
             : Microsoft.Xna.Framework.Vector2.Zero;
@@ -160,16 +165,17 @@ public sealed class BoundaryBakeSystem : ISystem<GameState>
         {
             var segment = _world.CreateEntity();
             segment.Set(new BakedProductComponent()); // never serialized; excluded from membership
-            segment.Set(new TransformComponent(worldPosition));
+            segment.Set(new TransformComponent(Microsoft.Xna.Framework.Vector2.Zero)); // local; parent places it
             // Passive = static world geometry (the WallEntityFactory idiom): a passive collider
             // never initiates a collision (so it is never moved by resolution — the player is the
             // non-passive mover), but the active player IS resolved out of it, so it BLOCKS while
             // staying put. All layers; the collider clones the quad internally.
             segment.Set(new ConvexColliderComponent(quad, passive: true));
-            // ChildOf for lifecycle (DisposeOrphans cleans them with the boundary) + membership
-            // grouping. The transform-parent sync HierarchySystem applies is harmless: collision
-            // uses the local Position field (root-level), which already holds the world position.
-            segment.Set(new ChildOfComponent(boundary));
+            // SetParent wires BOTH the structural ChildOf link (lifecycle: DisposeOrphans cleans the
+            // segments with the boundary; membership grouping) AND the matrix link (world placement),
+            // eagerly — so the segment's WorldPosition is the boundary's from the first frame, no
+            // HierarchySystem tick required.
+            segment.SetParent(boundary);
         }
 
         BakeCount++;
