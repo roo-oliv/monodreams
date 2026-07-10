@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Extension;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Selection;
 using MonoDreams.LevelEditor.System;
@@ -440,5 +441,89 @@ public class SelectionTests
 
         Assert.Equal(0, requests);
         Assert.Null(Selected(world));
+    }
+
+    // ---- PF-G item 2: a viewport pick on a prefab instance's child redirects to the instance ROOT
+    // (Unity's model), so the placed instance is movable. The user's house: root `house` (no sprite)
+    // → child `House2` (the only sprite). Repro-first: on HEAD the child sprite is picked + selected,
+    // and being prefab-OWNED its gizmo/modal edits are refused — the instance reads as unmovable. ----
+
+    /// <summary>Builds a placed linked instance: a root carrying <see cref="PrefabInstanceComponent"/>
+    /// (no sprite, like the house root) and a single child sprite parented to it (the only pick target).</summary>
+    private static (Entity Root, Entity Child) MakeInstance(World world, Vector2 rootPos, Vector2 childLocal)
+    {
+        var root = world.CreateEntity();
+        root.Set(new TransformComponent(rootPos));
+        root.Set(new PrefabInstanceComponent("house"));
+
+        var child = MakeSprite(world, childLocal, finalDepth: 0.8f); // child's local Transform = childLocal
+        child.SetParent(root); // ChildOf + matrix link → child.WorldPosition = rootPos + childLocal
+        return (root, child);
+    }
+
+    [Fact]
+    public void ViewportPick_OnPrefabInstanceChild_RedirectsSelectionToInstanceRoot()
+    {
+        using var world = new World();
+        var (root, child) = MakeInstance(world, rootPos: new Vector2(200, 120), childLocal: new Vector2(-10, -5));
+        MakeGizmoState(world);
+        // Click inside the child sprite's WORLD rect (world pos (190,115), 10×10 top-left origin).
+        MakeCursor(world, new Vector2(193, 118), leftPressed: true);
+
+        using var selection = new SelectionSystem(world);
+        selection.Update(Edit());
+
+        // The pick lands on the child, but selection resolves to the editable instance ROOT.
+        Assert.Equal(root, Selected(world));
+        Assert.False(child.Has<SelectedComponent>());
+        // And the selected entity is NOT prefab-owned, so gizmo/modal/inspector edits are allowed
+        // (this is the assertion that FAILS on HEAD, where the owned child was selected).
+        Assert.False(PrefabGuards.IsPrefabOwned(Selected(world)!.Value));
+    }
+
+    [Fact]
+    public void ViewportRightClick_OnPrefabInstanceChild_RedirectsToInstanceRoot()
+    {
+        using var world = new World();
+        var (root, child) = MakeInstance(world, rootPos: new Vector2(0, 0), childLocal: new Vector2(0, 0));
+        MakeGizmoState(world);
+        MakeCursor(world, new Vector2(5, 5), leftPressed: false, rightPressed: true);
+
+        using var selection = new SelectionSystem(world);
+        var requests = 0;
+        selection.ViewportContextMenuRequested = _ => requests++;
+        selection.Update(Edit());
+
+        Assert.Equal(1, requests);          // the entity menu opened (a hit)
+        Assert.Equal(root, Selected(world)); // on the instance, not its child
+        Assert.False(child.Has<SelectedComponent>());
+    }
+
+    [Fact]
+    public void SelectExclusive_OnInstanceChild_SelectsChildDirectly_NoRedirect()
+    {
+        // The Entities tree / panel path selects a child DIRECTLY for inspection (edits still refused
+        // with the hint) — the redirect is a VIEWPORT-pick behavior, not a SelectExclusive one.
+        using var world = new World();
+        var (_, child) = MakeInstance(world, rootPos: new Vector2(50, 50), childLocal: new Vector2(1, 1));
+
+        using var selection = new SelectionSystem(world);
+        selection.SelectExclusive(child);
+
+        Assert.Equal(child, Selected(world));
+    }
+
+    [Fact]
+    public void ResolveViewportSelection_RootForOwnedChild_UnchangedOtherwise()
+    {
+        using var world = new World();
+        var (root, child) = MakeInstance(world, rootPos: Vector2.Zero, childLocal: Vector2.Zero);
+
+        Assert.Equal(root, SelectionSystem.ResolveViewportSelection(child)); // owned child → instance root
+        Assert.Equal(root, SelectionSystem.ResolveViewportSelection(root));  // the root is not "owned" → itself
+
+        var plain = world.CreateEntity();
+        plain.Set(new TransformComponent(Vector2.Zero));
+        Assert.Equal(plain, SelectionSystem.ResolveViewportSelection(plain)); // a non-prefab entity → itself
     }
 }

@@ -199,7 +199,7 @@ public sealed class SelectionSystem : ISystem<GameState>
             if (TryPick(worldPoint, virtualPoint, out var hit))
             {
                 ClearSelection();
-                hit.Set(new SelectedComponent());
+                ResolveViewportSelection(hit).Set(new SelectedComponent());
             }
             else
             {
@@ -213,7 +213,7 @@ public sealed class SelectionSystem : ISystem<GameState>
             // Select the hit first (keeping it if it was already selected), then raise the request.
             if (TryPick(worldPoint, virtualPoint, out var hit))
             {
-                SelectExclusive(hit);
+                SelectExclusive(ResolveViewportSelection(hit));
                 ViewportContextMenuRequested?.Invoke(state);
             }
         }
@@ -263,6 +263,22 @@ public sealed class SelectionSystem : ISystem<GameState>
                     e.Remove<SelectedComponent>();
         if (!target.Has<SelectedComponent>())
             target.Set(new SelectedComponent());
+    }
+
+    /// <summary>
+    /// Unity's instance-pick model (PF-G): a VIEWPORT pick that lands on a prefab-owned CHILD resolves to
+    /// the whole instance's editable <b>ROOT</b> (<see cref="PrefabGuards.InstanceRootOf"/>), so clicking
+    /// anywhere on a placed instance selects — and thus moves / rotates / scales — the instance rather than
+    /// its prefab-owned child (whose edits the PF-D guardrail refuses). A pick on a plain entity, an
+    /// instance root itself, or a non-child candidate (a collider proxy, a boundary, the camera rig) is
+    /// returned unchanged. The <b>Entities tree</b> deliberately does NOT route through here: it selects a
+    /// child directly for inspection (edits still refused with the status hint). Shared by this system's
+    /// left/right viewport press and the overlay's <c>menu:open viewport</c> op — the two viewport picks.
+    /// </summary>
+    public static Entity ResolveViewportSelection(Entity hit)
+    {
+        var root = PrefabGuards.InstanceRootOf(hit);
+        return root == default ? hit : root;
     }
 
     private void EvaluateSpriteCandidate(in Entity entity)

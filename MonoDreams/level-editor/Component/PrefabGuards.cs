@@ -46,6 +46,31 @@ public static class PrefabGuards
         return false; // bounded walk exhausted (malformed cycle) — treat as not owned
     }
 
+    /// <summary>
+    /// The <see cref="PrefabInstanceComponent"/> instance ROOT that owns <paramref name="entity"/> — the
+    /// nearest <c>ChildOf</c> ancestor carrying the marker — or <c>default</c> when <paramref name="entity"/>
+    /// is not prefab-owned (a plain entity, or an instance root itself: a root is not its own owner). This is
+    /// the redirect target for <b>Unity's instance-pick model</b>: a viewport pick that lands on a
+    /// prefab-owned child selects the whole instance (its editable ROOT) instead of the refused child. Shares
+    /// the SAME bounded <c>ChildOf</c> walk as <see cref="IsPrefabOwned"/> (one predicate, one traversal).
+    /// </summary>
+    public static Entity InstanceRootOf(Entity entity)
+    {
+        if (!entity.IsAlive) return default;
+
+        var current = entity;
+        for (var depth = 0; depth < MaxParentWalk; depth++)
+        {
+            if (!current.Has<ChildOfComponent>()) return default; // top-level: no prefab ancestor
+            var parent = current.Get<ChildOfComponent>().Parent;
+            if (!parent.IsAlive) return default;
+            if (parent.Has<PrefabInstanceComponent>()) return parent; // the instance root that owns entity
+            current = parent;
+        }
+
+        return default; // bounded walk exhausted (malformed cycle)
+    }
+
     /// <summary>The ONE loud status hint every refused mutation on a prefab-owned child emits (there is no
     /// transient-toast channel in the editor — a <c>Logger.Warning</c> IS the status hint). Naming the
     /// escape hatches (open the prefab, or Unpack) keeps the refusal actionable.</summary>
