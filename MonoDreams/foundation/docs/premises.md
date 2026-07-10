@@ -301,7 +301,7 @@ fake runs in `Play` and is skipped in `Edit`; a `RunNormally`-wrapped fake runs 
 both; the gate honours its own `IsEnabled`).
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
-## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) is the only survivor of a screen switch
+## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) are the survivors of a screen switch
 
 `ScreenController.RegisterScreen` has two overloads: the historical `(name, creator)` (which records a
 default `ScreenInfo(name)` — display name = the screen name, no bound scene, not a scene host) and an
@@ -311,8 +311,14 @@ file), and whether the screen is the level-parameterized host that loads whateve
 `RegisteredScreens` enumerates the `(Name, Info)` pairs in **registration order** (a list, not the
 creators `Dictionary`, whose enumeration order is not contractual). Duplicate-name registration throws,
 unchanged. A screen switch (`LoadScreen` → the deferred swap in `Update`) disposes the outgoing screen's
-**entire world**; the only state that survives is the shared `GameState` on the controller — including
-its `RunMode`, so the editor stays in `Edit` across a switch (the transport never has to re-assert it).
+**entire world**; the state that survives on the controller is the shared `GameState` — including its
+`RunMode`, so the editor stays in `Edit` across a switch (the transport never has to re-assert it). **Under
+the editor run flag there is now a SECOND host-scoped survivor beside `GameState`: the level-editor's
+`EditorSession`** — created in the host's `Game1` and passed to every screen exactly like the shared
+`GameState`, it owns the `ViewportContextStack` (the open scene/Game tabs + their `SceneData` snapshots). A
+screen switch disposes the world, but the session (like `GameState`) survives, so the open tabs + the Game
+sandbox ride cross-screen transitions. The editor module owns the session; `foundation` stays editor-free —
+the host wires it, as it wires the overlay.
 
 **Why:** the editor's Scenes panel (level-editor UX-C) needs code to declare which configuration file a
 screen loads from, and needs the list in a stable order. Keeping `ScreenInfo` a pure foundation record
@@ -325,10 +331,15 @@ time the designer opened another scene; a default overload that recorded no info
 pre-UX-C screen invisible to the panel.
 **Tests:** `MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs`
 (`DefaultOverload_RecordsDefaultInfo`, `ExplicitInfo_IsEnumeratedInRegistrationOrder`,
-`DuplicateName_Throws`, `RegisteredScreens_IsReadOnlySnapshotOfRegistrationOrder`).
+`DuplicateName_Throws_ForEitherOverload`, `RegisteredScreens_IsEmptyBeforeAnyRegistration`);
+`MonoDreams.Tests/LevelEditor/EditorSessionTests.cs` (`TabList_SurvivesAScreenSwitch_ViaRebind`,
+`Session_HoldsTheStack_SeedsTheBootSceneTab_PendingDefaultsOff` — the host-scoped editor session that
+survives the switch beside `GameState`).
 **Depends on:** this file — "Default `RunMode = Play` preserves all existing pipelines" (the `RunMode`
-that survives the switch); level-editor — "Game screens declare their bound scene; the Scenes panel
-lists screens + scene files and switching IS selecting" (the consumer).
+that survives the switch); level-editor — "The viewport context stack is the ONE tab-switching mechanism …
+(PF-B/TB-A)" (the host-scoped `EditorSession`/`ViewportContextStack` that is the second survivor), "Game
+screens declare their bound scene; the Scenes panel lists screens + scene files and selecting opens (or activates) its tab (TB-A)"
+(the consumer).
 
 ## Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is injected, never `#if`'d
 
