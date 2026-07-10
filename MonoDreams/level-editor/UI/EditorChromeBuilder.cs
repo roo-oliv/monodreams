@@ -248,10 +248,10 @@ public sealed class EditorChromeBuilder
         _saveButton = CreateButton(
             EditorToolbarAction.Save, labelEntity: null, iconEntity: CreateIconMesh(), tooltip: "Save Scene");
 
-        // PF-B: the [Scene | Game] mode toggle is retired. The viewport TAB STRIP takes the header's
-        // START — its (dynamic) tab entities are owned + laid out each frame by the dedicated
-        // ViewportTabStripSystem, not the chrome builder; the chrome only reserves the header space they
-        // occupy (EditorChromeLayout.ViewportTabsReservedWidth) so the transport row begins after them.
+        // PF-B/TB-A: the [Scene | Game] mode toggle is retired. The viewport TAB STRIP owns the header's
+        // full-width TAB ROW (row 1) — its (dynamic) tab entities are owned + laid out each frame by the
+        // dedicated ViewportTabStripSystem, not the chrome builder; the tools + transport live in the
+        // TOOL ROW (row 2) below, so the two never overlap (no reserved-width offset needed anymore).
 
         Relayout(screenWidth, screenHeight);
         return _buttonEntities;

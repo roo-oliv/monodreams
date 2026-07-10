@@ -87,13 +87,6 @@ public static class EditorChromeLayout
     /// Scene panel header sets the transport cluster apart from the tool cluster with this wider gap.</summary>
     public const int ClusterGap = 18;
 
-    /// <summary>The fixed reservation (logical points) the <b>viewport tab strip</b> (PF-B) takes at the
-    /// Scene header's START — the transport row begins after it (plus a <see cref="ClusterGap"/>), so the
-    /// transport never overlaps the tabs. Fixed (not per-tab-dynamic) for PF-B — it comfortably fits the
-    /// Scene + Game tabs; a future many-prefab-tab strip revisits this (dynamic width / scroll). Replaces
-    /// the retired mode-toggle reservation.</summary>
-    public const int ViewportTabStripWidth = 190;
-
     /// <summary>Horizontal padding inside a viewport tab (logical points).</summary>
     public const int ViewportTabPaddingX = 10;
 
@@ -315,23 +308,6 @@ public static class EditorChromeLayout
         ButtonRowIn(new Rectangle(0, 0, 1, Px(TopBarHeight, scale)), buttonWidths, scale);
 
     /// <summary>
-    /// The Scene panel header's <b>nav-corner button</b> (UX2-E): a square icon button
-    /// (<see cref="ButtonHeight"/> a side) docked at the header's RIGHT edge, inset by the row margin
-    /// and vertically centered — the Blender back-to-camera-view affordance, opposite the left-anchored
-    /// transport/tool row so it never collides with it. Right-anchored (unlike
-    /// <see cref="ButtonRowIn"/>'s left-to-right flow), so it stays in the corner as the header widens.
-    /// </summary>
-    public static Rectangle SceneHeaderNavButton(Rectangle sceneHeader, float scale = 1f)
-    {
-        var size = Px(ButtonHeight, scale);
-        var margin = Px(RowMarginX, scale);
-        return new Rectangle(
-            sceneHeader.Right - margin - size,
-            sceneHeader.Y + (sceneHeader.Height - size) / 2,
-            size, size);
-    }
-
-    /// <summary>
     /// Lays a right-anchored button cluster in the Scene header's tool row (TB-A row 2 far right): the
     /// <b>camera-view · Play/Pause · Restart · Save</b> cluster, in the given left-to-right order, docked at
     /// the row's RIGHT edge (inset by the row margin) and vertically centered. Returns one rect per width,
@@ -354,14 +330,7 @@ public static class EditorChromeLayout
         return rects;
     }
 
-    // ── The viewport tab strip (PF-B): tabs at the header's START, transport offset after them ───────
-
-    /// <summary>The horizontal space (screen pixels) the viewport tab strip reserves at the Scene
-    /// header's start before the transport row begins: the fixed <see cref="ViewportTabStripWidth"/> plus
-    /// a <see cref="ClusterGap"/>. The chrome builder offsets the header button row by this so the
-    /// transport never overlaps the tabs. Replaces the retired mode-toggle reservation.</summary>
-    public static int ViewportTabsReservedWidth(float scale = 1f) =>
-        Px(ViewportTabStripWidth, scale) + Px(ClusterGap, scale);
+    // ── The viewport tab strip (TB-A): the tabs own the header's full-width TAB ROW (row 1) ─────────
 
     /// <summary>A viewport tab's total width (screen pixels) for a <paramref name="labelWidthPx"/> already
     /// measured in screen pixels: symmetric padding + the label + a glyph box for the ▶ play marker
