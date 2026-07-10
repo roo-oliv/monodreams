@@ -534,6 +534,48 @@ layer order (Main, UI, HUD, then screen-space overlays); this file — "The gizm
 quantized (snap-on) or raw (snap-off) transform edit, honoring Origin" (the drag whose ownership
 the claim protects).
 
+## Menu buttons are one root entity with a label child; a manual move sticks because the button is layout slot CONTENT (TB-B)
+
+A menu button (Examples' level-selection buttons, Demos' launcher buttons) is built as ONE **root
+entity** — `TransformComponent` (the select/move/gizmo handle) + `SimpleButtonComponent` (the pickable
++ interaction surface, whose outline mesh `ButtonMeshPrepSystem` draws) + the game behavior
+(`LevelSelector` / `DemoButtonComponent`) — with the text **label as a `ChildOf` child**. There is no
+separate container entity and no shared-`TransformComponent` hack: selecting / moving / `G` / `S` /
+gizmo operate on the root, and the label follows through the ordinary hierarchy. This is the SINGLE
+button shape across Examples + Demos (the no-duplicate-ways tenet); the button systems
+(`ButtonInteractionSystem` / `DemoButtonInteractionSystem` / `ButtonMeshPrepSystem`) are unchanged
+because their `SimpleButtonComponent` + `TransformComponent` (+ behavior) query is all on the root.
+
+The layout-vs-manual-placement decision is **(b) the manual move sticks** (not (a) refuse). A button is
+attached to an `AutoLayout` slot as CONTENT — `SlotBuilder` parents the button root under the slot
+entity it creates — and `AutoLayoutSystem` writes only SLOT transforms, never the content's. So a
+gizmo / modal move edits the button root's LOCAL offset under its slot and persists across every layout
+re-run (undoable via the ordinary `TransformEditCommand`): the layout owns WHERE the slot is anchored,
+and the manual offset composes on top of it. No detach is needed because the layout never owned the
+button's transform in the first place.
+
+**Why:** the user expects to move menu buttons in Edit (they are editable citizens), and the old
+"layout-owned, not gizmo-editable" degradation was actually a mis-read — the button content was never a
+slot, so its transform was never solver-owned. Making the root carry the pickable surface + behavior
+keeps every button system single-path; making the label a child is what lets one edit move the whole
+button. Sticking (rather than refusing) matches the mental model and needs no new detach machinery.
+**Breaks:** putting `SimpleButtonComponent` on a child while the behavior stays on the root would fork
+every button query into two entities; attaching the button AS a slot (not as content) would let
+`AutoLayoutSystem` overwrite a manual move every frame (snap-back). If the label were a matrix-only
+sibling sharing the root transform again (the old hack), a modal `G` would move the mesh but freeze the
+label whenever a `WorldPosition` reader runs before `HierarchySystem` (the divergence the foundation fix
+closes).
+**Tests:** `MonoDreams.Tests/LevelEditor/ButtonEditingTests.cs`
+(`GizmoMove_OnButtonRoot_LabelChildFollows`,
+`ModalGrab_OnButtonRoot_LabelChildFollows_EvenWithMeshPrepReadBeforeHierarchy`,
+`ModalScale_OnButtonRoot_LabelChildFollows`, `ManualMove_OnLayoutSlotContent_Sticks_AcrossAutoLayoutRerun`,
+`NewShapeButton_HoverRecolorsLabelChild_AndClickDispatches_InPlay`);
+`MonoDreams.Tests/LevelEditor/MenuWiringTests.cs` (the Play transition path).
+**Depends on:** ui — "`AutoLayoutBuilder` is the canonical entry point", "`LayoutNodeComponent` is a pure
+C# tree, not an ECS hierarchy" (slot vs content); foundation — "`TransformComponent.IsDirty` cascades
+through the parent chain" (the label-follows-root propagation); this file — "Selection picks MAX final
+`LayerDepth` …" (the button candidate source that makes the root pickable).
+
 ## The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit, honoring Origin
 
 A gizmo drag computes the selected entity's new transform from the drag-start state plus the cursor
@@ -2177,6 +2219,15 @@ them; `RunNormally`, self-guarded to `RunMode.Edit` (a modal cannot survive into
 `modal:grab|scale|rotate` / `modal:axis x|y` / `modal:digits <text>` / `modal:cursor <dx> <dy>` /
 `modal:confirm|cancel` ops drive the full flow headlessly (chords aren't in the replay channel).
 
+**Children follow a modal edit exactly as under a gizmo drag (TB-B parity).** Both paths write the SAME
+`TransformEditCommand` (position/rotation/scale by-ref, marking the transform dirty), so a moved entity's
+`ChildOf` descendants — e.g. a menu button's label under its root — track the edit identically. This held
+only after the foundation fix: `ModalTransformSystem` is woven EARLY (`editor.modal`, before the layout /
+`ui.buttonMeshPrep` weave), so it edits the transform BEFORE a `WorldPosition` reader clears the
+matrix-cache dirty bit; `HierarchySystem` now propagates off a read-stable signal
+(`TransformComponent.NeedsHierarchyUpdate`), so that intervening read no longer drops the child. Before
+the fix, a modal `G` moved the button mesh (the root, re-read by `ButtonMeshPrepSystem`) but froze the
+label child, while a gizmo drag (woven AFTER that reader) moved both — the user-reported divergence.
 **Why:** the design §5 modal transforms — a keyboard-first alternative to the gizmo drag on the same
 coalesced-undo machinery. The pointer + keyboard ownership is the same modal-capture the dialog/menu use;
 without it a confirm-click also re-picks (pre-mortem #4) and a mid-modal keystroke leaks to the game or a

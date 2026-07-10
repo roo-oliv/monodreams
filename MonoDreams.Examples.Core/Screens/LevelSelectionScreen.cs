@@ -48,8 +48,11 @@ namespace MonoDreams.Examples.Screens;
 /// panel. <c>layout</c> stays <c>RunNormally</c>:
 /// the auto-layout solver is the menu's content placement (the analogue of the game screen's level
 /// parsers, which also run in Edit) — freezing it would boot an unlaid-out menu under
-/// <c>--editor</c>. Consequence: layout-managed transforms are owned by the solver and are not
-/// gizmo-editable (documented degradation until menu editing is sprite-based).</para>
+/// <c>--editor</c>. A menu button is layout slot CONTENT (its root is a <c>ChildOf</c> child of the
+/// slot the builder creates), and <c>AutoLayoutSystem</c> writes only SLOT transforms — never the
+/// content's — so a gizmo/modal move of a button edits its LOCAL offset under its slot and STICKS
+/// (undoable): the layout owns where the slot is anchored, and the manual offset composes on top. So
+/// menu buttons ARE editable (TB-B), not the old "layout-owned, not gizmo-editable" degradation.</para>
 /// </summary>
 public class LevelSelectionScreen : IGameScreen
 {
@@ -265,15 +268,19 @@ public class LevelSelectionScreen : IGameScreen
             textSize.Width + style.Padding * 2,
             textSize.Height + style.Padding * 2);
 
-        // Create button container entity
-        var buttonContainerEntity = _world.CreateEntity();
-        var buttonTransform = new TransformComponent(Vector2.Zero);
-        buttonContainerEntity.Set(buttonTransform);
+        // TB-B button hierarchy: ONE root entity carries the transform (the move/select/gizmo handle),
+        // the pickable + interaction surface (SimpleButtonComponent, whose outline mesh
+        // ButtonMeshPrepSystem draws), and the LevelSelector behavior. The label is a ChildOf CHILD, so
+        // select / move / G / S operate on the root and the label follows through the ordinary
+        // hierarchy — no more separate container + shared-transform hack. This is the single button
+        // shape across Examples + Demos (the no-duplicate-ways tenet).
+        var buttonEntity = _world.CreateEntity();
+        buttonEntity.Set(new TransformComponent(Vector2.Zero));
 
-        // Create button text entity with its own transform, offset by padding to center text
+        // Label: its own transform (offset by padding), parented to the button root.
         var buttonTextEntity = _world.CreateEntity();
         buttonTextEntity.Set(new TransformComponent(new Vector2(style.Padding, style.Padding)));
-        buttonTextEntity.SetParent(buttonContainerEntity);
+        buttonTextEntity.SetParent(buttonEntity);
         buttonTextEntity.Set(new DynamicTextComponent
         {
             Target = RenderTargetID.Main,
@@ -287,10 +294,7 @@ public class LevelSelectionScreen : IGameScreen
         });
         buttonTextEntity.Set<VisibleComponent>();
 
-        // Create outline entity (shares transform with button)
-        var outlineEntity = _world.CreateEntity();
-        outlineEntity.Set(buttonTransform); // Share transform
-        outlineEntity.Set(new SimpleButtonComponent
+        buttonEntity.Set(new SimpleButtonComponent
         {
             Size = buttonSize,
             LineThickness = style.BorderThickness,
@@ -298,7 +302,7 @@ public class LevelSelectionScreen : IGameScreen
             TextEntity = buttonTextEntity,
             Target = RenderTargetID.Main
         });
-        outlineEntity.Set(new LevelSelector
+        buttonEntity.Set(new LevelSelector
         {
             LevelIndex = levelIndex,
             LevelName = levelName,
@@ -309,9 +313,9 @@ public class LevelSelectionScreen : IGameScreen
             HoveredColor = style.HoveredColor,
             DisabledColor = style.DisabledColor
         });
-        outlineEntity.Set<VisibleComponent>();
+        buttonEntity.Set<VisibleComponent>();
 
-        return (buttonContainerEntity, buttonSize);
+        return (buttonEntity, buttonSize);
     }
 
     private static Vector2 MeasureText(Entity entity)
