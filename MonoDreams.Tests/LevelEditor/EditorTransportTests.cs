@@ -271,20 +271,23 @@ public class EditorTransportTests
     // ---- The transport buttons: the Scene panel header, live in BOTH modes; tools stay Paused-only ----
 
     [Fact]
-    public void SceneHeader_LeadsWithTheTransportButtons()
+    public void SceneHeader_LeadsWithTheToolCluster_TransportInTheRightCluster()
     {
-        // UX2-B: the transport relocated off the window bar to the Scene panel header, leading it;
-        // UX2-C: the transform tools joined it in the header (transport cluster, then tool cluster).
+        // TB-A two-row header: the tab strip owns row 1; row 2's LEFT cluster is the tools (Move leads),
+        // and the transport (Play/Pause + Restart) relocated to the far-RIGHT cluster beside Save.
         var header = Array.ConvertAll(EditorChromeBuilder.HeaderButtons, b => b.action);
-        Assert.Equal(EditorToolbarAction.PlayPause, header[0]);
-        Assert.Equal(EditorToolbarAction.Restart, header[1]);
-        Assert.Contains(EditorToolbarAction.ToolMove, header);
-        // The window bar keeps the remaining editing actions (no transport, no transform tools).
+        Assert.Equal(EditorToolbarAction.ToolMove, header[0]);
+        Assert.Contains(EditorToolbarAction.ToggleSnap, header);
+        // The transport is its own right-cluster array now — NOT in HeaderButtons.
+        Assert.DoesNotContain(EditorToolbarAction.PlayPause, header);
+        Assert.DoesNotContain(EditorToolbarAction.Restart, header);
+        var transport = Array.ConvertAll(EditorChromeBuilder.HeaderTransportButtons, b => b.action);
+        Assert.Equal(EditorToolbarAction.PlayPause, transport[0]);
+        Assert.Equal(EditorToolbarAction.Restart, transport[1]);
+        // The window bar keeps the remaining editing actions (no transport, no transform tools, no Save).
         var windowBar = Array.ConvertAll(EditorChromeBuilder.DefaultButtons, b => b.action);
         Assert.DoesNotContain(EditorToolbarAction.PlayPause, windowBar);
         Assert.DoesNotContain(EditorToolbarAction.ToolMove, windowBar);
-        // PF-F: Save left the window bar too — it lives in the Scene header's right cluster as a fixed
-        // affordance (like the Camera-view nav button), not part of either button-row array.
         Assert.DoesNotContain(EditorToolbarAction.Save, windowBar);
         Assert.DoesNotContain(EditorToolbarAction.Save, header);
         Assert.Contains(EditorToolbarAction.Undo, windowBar);

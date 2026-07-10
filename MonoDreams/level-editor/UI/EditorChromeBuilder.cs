@@ -72,6 +72,9 @@ public sealed class EditorChromeBuilder
     private Entity _saveButton;       // PF-F: the Save icon button in the Scene header (left of camera-view)
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _headerButtonEntities = new();
+    // TB-A: the transport cluster (Play/Pause, Restart) — laid out in the tool row's right cluster beside
+    // camera-view + Save, not with the left tool cluster.
+    private readonly List<Entity> _headerTransportEntities = new();
     private bool _built;
 
     /// <summary>The window size the chrome was last laid out for (0 until <see cref="Build"/>).</summary>
@@ -146,29 +149,40 @@ public sealed class EditorChromeBuilder
     };
 
     /// <summary>
-    /// The Scene panel header's buttons (UX2-B transport + UX2-C tools) — icon buttons whose
-    /// <c>label</c> is the hover tooltip. Order: the <b>transport cluster</b> (Play/Pause single toggle —
-    /// its icon <c>ToolbarSystem</c> swaps with the state — and Restart), a separator gap, then the
-    /// <b>tool cluster</b> (Move/Rotate/Scale/Boundary/Snap — a radio over <c>GizmoState</c>). The
-    /// transport dispatches in BOTH transport states (<c>IsTransport</c>); the tools are Paused-only, like
-    /// the window bar's editing actions. Same <c>ToolbarButtonComponent</c>/<c>ToolbarSystem</c> machinery
-    /// — the ONE toolbar system hit-tests + dispatches both rows.
+    /// The Scene panel header's <b>tool row LEFT cluster</b> (TB-A row 2, left): the tool cluster
+    /// (Move/Rotate/Scale/Boundary/Snap — a radio over <c>GizmoState</c>) then the Overlays + Entity ▾
+    /// dropdowns. Icon buttons whose <c>label</c> is the hover tooltip (Entity stays a text button + caret).
+    /// TB-A relocated the transport (Play/Pause + Restart) OUT of this array into
+    /// <see cref="HeaderTransportButtons"/> — the far-right cluster beside Save (design §3); these are
+    /// Paused-only editing actions. Same <c>ToolbarButtonComponent</c>/<c>ToolbarSystem</c> machinery — the
+    /// ONE toolbar system hit-tests + dispatches every header button.
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] HeaderButtons =
     {
-        (EditorToolbarAction.PlayPause, "Play"),
-        (EditorToolbarAction.Restart, "Restart"),
         (EditorToolbarAction.ToolMove, "Move"),
         (EditorToolbarAction.ToolRotate, "Rotate"),
         (EditorToolbarAction.ToolScale, "Scale"),
         (EditorToolbarAction.ToolBoundary, "Boundary"),
         (EditorToolbarAction.ToggleSnap, "Snap to grid"),
-        // UX2-D: the fixed "Entity" dropdown (a TEXT button + a small ▾ caret mesh) — the discoverable
-        // twin of the viewport right-click, acting on the current selection.
-        (EditorToolbarAction.EntityMenu, "Entity"),
         // UX3-D: the "Overlays" dropdown (an ICON button — two overlapping circles; the label is its
         // tooltip) — Blender's per-viewport Overlays menu, opened below the button.
         (EditorToolbarAction.Overlays, "Overlays"),
+        // UX2-D: the fixed "Entity" dropdown (a TEXT button + a small ▾ caret mesh) — the discoverable
+        // twin of the viewport right-click, acting on the current selection.
+        (EditorToolbarAction.EntityMenu, "Entity"),
+    };
+
+    /// <summary>
+    /// The Scene panel header's <b>transport cluster</b> (TB-A row 2, far right): the Play/Pause single
+    /// toggle (its icon <c>ToolbarSystem</c> swaps with the state) and Restart. They join the camera-view +
+    /// Save buttons in one right-anchored cluster (design §3: <c>camera-view · Play/Pause · Restart ·
+    /// Save</c>). The transport dispatches in BOTH transport states (<c>IsTransport</c>) — they are how the
+    /// designer leaves either state.
+    /// </summary>
+    public static readonly (EditorToolbarAction action, string label)[] HeaderTransportButtons =
+    {
+        (EditorToolbarAction.PlayPause, "Play"),
+        (EditorToolbarAction.Restart, "Restart"),
     };
 
     /// <summary>Extra width (logical points) reserved past the <c>Entity</c> label for its ▾ caret.</summary>
@@ -210,10 +224,11 @@ public sealed class EditorChromeBuilder
         // The window top bar's buttons (icon where an icon exists, else a text label).
         CreateButtons(_buttons, _buttonEntities);
 
-        // The Scene-header transport + tool buttons — same ToolbarButtonComponent machinery, so the ONE
-        // ToolbarSystem hit-tests + dispatches them alongside the window-bar buttons (dispatch
-        // unchanged); IsTransport keeps the transport live in both transport states.
+        // The Scene-header tool cluster (left) + the transport cluster (right) — same ToolbarButtonComponent
+        // machinery, so the ONE ToolbarSystem hit-tests + dispatches them alongside the window-bar buttons
+        // (dispatch unchanged); IsTransport keeps the transport live in both transport states.
         CreateButtons(_headerButtons, _headerButtonEntities);
+        CreateButtons(HeaderTransportButtons, _headerTransportEntities);
 
         // UX2-D: the "Entity" dropdown's ▾ caret — a screen-baked triangle mesh (font-independent, the
         // disclosure-arrow pattern) baked + positioned each Relayout beside the Entity text button.
@@ -279,24 +294,19 @@ public sealed class EditorChromeBuilder
         PlacePanel(_bottomSplitter,
             EditorChromeLayout.BottomSplitter(screenWidth, screenHeight, scale, bottomHeightPt));
 
-        // PF-B: the viewport tab strip takes the header START; the transport row is offset to begin AFTER
-        // its fixed reservation (so the transport never overlaps the tabs — the tab entities themselves
-        // are the ViewportTabStripSystem's, laid out within this reserved zone).
-        var headerAfterTabs = new Rectangle(
-            sceneHeader.X + EditorChromeLayout.ViewportTabsReservedWidth(scale), sceneHeader.Y,
-            Math.Max(1, sceneHeader.Width - EditorChromeLayout.ViewportTabsReservedWidth(scale)), sceneHeader.Height);
+        // TB-A two-row header: the viewport tab strip owns the full-width TAB ROW (row 1, laid out by
+        // ViewportTabStripSystem); the tools + transport live in the TOOL ROW (row 2).
+        var toolRow = EditorChromeLayout.SceneHeaderToolRow(sceneHeader, scale);
 
-        // The window top bar's editing buttons, then the Scene header's transport + tool clusters — both
-        // through the same button-row layout (the header anchors inside the carved-out header rect, with
-        // a cluster gap separating the transport from the tools).
+        // The window top bar's editing buttons, then the Scene header's LEFT tool cluster (from the tool
+        // row's left margin — the tabs are on their own row now, so no reservation offset).
         LayoutButtonRow(_buttonEntities,
             EditorChromeLayout.ButtonRow(MeasureWidths(_buttons, scale), scale), scale);
         LayoutButtonRow(_headerButtonEntities,
-            EditorChromeLayout.ButtonRowIn(headerAfterTabs, MeasureWidths(_headerButtons, scale), scale,
-                HeaderSeparatorIndex()), scale);
+            EditorChromeLayout.ButtonRowIn(toolRow, MeasureWidths(_headerButtons, scale), scale), scale);
         LayoutEntityMenuCaret(scale);
-        LayoutCameraViewButton(sceneHeader, scale);
-        LayoutSaveButton(sceneHeader, scale);
+        // The right-anchored transport cluster: camera-view · Play/Pause · Restart · Save (design §3).
+        LayoutHeaderRightCluster(toolRow, scale);
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
@@ -324,16 +334,6 @@ public sealed class EditorChromeBuilder
             }
         }
         return widths;
-    }
-
-    /// <summary>The index of the last transport button in the header set — the cluster separator sits
-    /// after it, so the transport reads apart from the tool cluster (UX2-C). -1 when none.</summary>
-    private int HeaderSeparatorIndex()
-    {
-        var last = -1;
-        for (var i = 0; i < _headerButtons.Length; i++)
-            if (_headerButtons[i].action.IsTransport()) last = i;
-        return last;
     }
 
     private bool HasHeaderAction(EditorToolbarAction action)
@@ -365,29 +365,28 @@ public sealed class EditorChromeBuilder
         }
     }
 
-    /// <summary>Positions the UX2-E camera-view nav button at the Scene header's right corner (its
-    /// <c>ToolbarSystem</c> bakes the Camera glyph from these <c>Bounds</c> each frame). Right-anchored,
-    /// so it never overlaps the left-anchored transport/tool row.</summary>
-    private void LayoutCameraViewButton(Rectangle sceneHeader, float scale)
+    /// <summary>Positions the TB-A right-anchored transport cluster in the Scene header's tool row: the
+    /// <b>camera-view · Play/Pause · Restart · Save</b> icon buttons (design §3), left-to-right, docked at
+    /// the row's right corner. The ONE <c>ToolbarSystem</c> hit-tests + dispatches + bakes each glyph from
+    /// the <c>Bounds</c> set here.</summary>
+    private void LayoutHeaderRightCluster(Rectangle toolRow, float scale)
     {
-        if (!_cameraViewButton.IsAlive) return;
-        var rect = EditorChromeLayout.SceneHeaderNavButton(sceneHeader, scale);
-        PlaceEntity(_cameraViewButton, new Vector2(rect.X, rect.Y));
-        _cameraViewButton.Get<ToolbarButtonComponent>().Bounds = rect;
-        _cameraViewButton.Get<SimpleButtonComponent>().Size = new Vector2(rect.Width, rect.Height);
-    }
+        var iconW = EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale); // icon buttons are square
+        var cluster = new List<Entity>();
+        if (_cameraViewButton.IsAlive) cluster.Add(_cameraViewButton);
+        cluster.AddRange(_headerTransportEntities); // Play/Pause then Restart
+        if (_saveButton.IsAlive) cluster.Add(_saveButton);
+        if (cluster.Count == 0) return;
 
-    /// <summary>Positions the PF-F Save button just LEFT of the camera-view nav button in the Scene
-    /// header's right corner (same size + a small gap), so the two form one right-anchored cluster.</summary>
-    private void LayoutSaveButton(Rectangle sceneHeader, float scale)
-    {
-        if (!_saveButton.IsAlive) return;
-        var nav = EditorChromeLayout.SceneHeaderNavButton(sceneHeader, scale);
-        var gap = EditorChromeLayout.Px(6, scale);
-        var rect = new Rectangle(nav.X - nav.Width - gap, nav.Y, nav.Width, nav.Height);
-        PlaceEntity(_saveButton, new Vector2(rect.X, rect.Y));
-        _saveButton.Get<ToolbarButtonComponent>().Bounds = rect;
-        _saveButton.Get<SimpleButtonComponent>().Size = new Vector2(rect.Width, rect.Height);
+        var widths = new int[cluster.Count];
+        for (var i = 0; i < widths.Length; i++) widths[i] = iconW;
+        var rects = EditorChromeLayout.SceneHeaderRightCluster(toolRow, widths, scale);
+        for (var i = 0; i < cluster.Count; i++)
+        {
+            PlaceEntity(cluster[i], new Vector2(rects[i].X, rects[i].Y));
+            cluster[i].Get<ToolbarButtonComponent>().Bounds = rects[i];
+            cluster[i].Get<SimpleButtonComponent>().Size = new Vector2(rects[i].Width, rects[i].Height);
+        }
     }
 
     private static void BakeMesh(Entity e, MeshData mesh)

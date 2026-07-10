@@ -55,11 +55,21 @@ public static class EditorChromeLayout
     /// tabs' home (UX2-B activated the left region UX-B reserved at 0).</summary>
     public const int LeftPanelWidth = 240;
 
-    /// <summary>The center region's <b>Scene panel header</b> band height, logical points — carved
-    /// out of the game viewport just below the top bar (so <see cref="ViewportInset"/>'s top margin is
-    /// <see cref="TopBarHeight"/> + this). Hosts the transport (UX2-B) and, in later waves, the tool
-    /// cluster / Entity menu / mode toggle / camera button (the panel-header framework slots).</summary>
-    public const int SceneHeaderHeight = 40;
+    /// <summary>The Scene panel header's <b>tab row</b> height (TB-A row 1), logical points — the full-width
+    /// viewport tab strip lives here alone, so many tabs never collide with the tools below.</summary>
+    public const int SceneHeaderTabRowHeight = 30;
+
+    /// <summary>The Scene panel header's <b>tool row</b> height (TB-A row 2), logical points — the left tool
+    /// cluster (Move/Rotate/Scale/Boundary/Snap · Overlays · Entity ▾) and the right transport cluster
+    /// (camera-view · Play/Pause · Restart · Save) share it. Sized like the old single header row so the
+    /// button layout math inside it is unchanged.</summary>
+    public const int SceneHeaderToolRowHeight = 40;
+
+    /// <summary>The center region's <b>Scene panel header</b> band height, logical points — carved out of
+    /// the game viewport just below the top bar (so <see cref="ViewportInset"/>'s top margin is
+    /// <see cref="TopBarHeight"/> + this). TWO rows (TB-A): the tab strip (row 1) over the tools + transport
+    /// (row 2).</summary>
+    public const int SceneHeaderHeight = SceneHeaderTabRowHeight + SceneHeaderToolRowHeight;
 
     /// <summary>The window <b>status bar</b> height (UX3-F), logical points — a thin strip flush with
     /// the window bottom, BELOW the assets shelf, so <see cref="ViewportInset"/>'s bottom margin is the
@@ -153,6 +163,19 @@ public static class EditorChromeLayout
         Px(TopBarHeight, scale),
         Math.Max(1, screenWidth - Px(leftWidthPt, scale) - Px(rightWidthPt, scale)),
         Px(SceneHeaderHeight, scale));
+
+    /// <summary>The Scene header's <b>tab row</b> (TB-A row 1): the top band, full header width, hosting
+    /// the viewport tab strip alone.</summary>
+    public static Rectangle SceneHeaderTabRow(Rectangle sceneHeader, float scale = 1f) =>
+        new(sceneHeader.X, sceneHeader.Y, sceneHeader.Width, Px(SceneHeaderTabRowHeight, scale));
+
+    /// <summary>The Scene header's <b>tool row</b> (TB-A row 2): the bottom band, below the tab row, full
+    /// header width — the left tool cluster and the right transport cluster live here.</summary>
+    public static Rectangle SceneHeaderToolRow(Rectangle sceneHeader, float scale = 1f) => new(
+        sceneHeader.X,
+        sceneHeader.Y + Px(SceneHeaderTabRowHeight, scale),
+        sceneHeader.Width,
+        Px(SceneHeaderToolRowHeight, scale));
 
     /// <summary>The right panel strip: between the top bar and the bottom shelf, docked right.
     /// <paramref name="rightWidthPt"/>/<paramref name="bottomHeightPt"/> default to the fixed
@@ -308,6 +331,29 @@ public static class EditorChromeLayout
             size, size);
     }
 
+    /// <summary>
+    /// Lays a right-anchored button cluster in the Scene header's tool row (TB-A row 2 far right): the
+    /// <b>camera-view · Play/Pause · Restart · Save</b> cluster, in the given left-to-right order, docked at
+    /// the row's RIGHT edge (inset by the row margin) and vertically centered. Returns one rect per width,
+    /// in order (so the LAST entry sits at the far-right corner).
+    /// </summary>
+    public static Rectangle[] SceneHeaderRightCluster(Rectangle toolRow, IReadOnlyList<int> buttonWidths, float scale = 1f)
+    {
+        var rects = new Rectangle[buttonWidths.Count];
+        var height = Px(ButtonHeight, scale);
+        var gap = Px(ButtonGap, scale);
+        var y = toolRow.Y + (toolRow.Height - height) / 2;
+        var total = 0;
+        for (var i = 0; i < buttonWidths.Count; i++) total += buttonWidths[i] + (i > 0 ? gap : 0);
+        var x = toolRow.Right - Px(RowMarginX, scale) - total;
+        for (var i = 0; i < buttonWidths.Count; i++)
+        {
+            rects[i] = new Rectangle(x, y, buttonWidths[i], height);
+            x += buttonWidths[i] + gap;
+        }
+        return rects;
+    }
+
     // ── The viewport tab strip (PF-B): tabs at the header's START, transport offset after them ───────
 
     /// <summary>The horizontal space (screen pixels) the viewport tab strip reserves at the Scene
@@ -328,18 +374,18 @@ public static class EditorChromeLayout
         return w;
     }
 
-    /// <summary>Lays the viewport tabs out left-to-right (adjacent, mirroring the panel tab bar) at the
-    /// START of the Scene panel header, <see cref="ButtonHeight"/> tall, vertically centered, from the
-    /// left row margin. Returns one rect per entry of <paramref name="tabWidths"/>, in order.</summary>
-    public static Rectangle[] ViewportTabRow(Rectangle sceneHeader, IReadOnlyList<int> tabWidths, float scale = 1f)
+    /// <summary>Lays the viewport tabs out left-to-right (adjacent, mirroring the panel tab bar) filling the
+    /// Scene header's <b>tab row</b> (TB-A row 1), from the left row margin, each tab the FULL tab-row
+    /// height (so the active-tab underline sits flush against the tool row below). Pass
+    /// <see cref="SceneHeaderTabRow"/> as <paramref name="tabRow"/>. Returns one rect per entry of
+    /// <paramref name="tabWidths"/>, in order.</summary>
+    public static Rectangle[] ViewportTabRow(Rectangle tabRow, IReadOnlyList<int> tabWidths, float scale = 1f)
     {
         var rects = new Rectangle[tabWidths.Count];
-        var h = Px(ButtonHeight, scale);
-        var x = sceneHeader.X + Px(RowMarginX, scale);
-        var y = sceneHeader.Y + (sceneHeader.Height - h) / 2;
+        var x = tabRow.X + Px(RowMarginX, scale);
         for (var i = 0; i < tabWidths.Count; i++)
         {
-            rects[i] = new Rectangle(x, y, tabWidths[i], h);
+            rects[i] = new Rectangle(x, tabRow.Y, tabWidths[i], tabRow.Height);
             x += tabWidths[i];
         }
         return rects;

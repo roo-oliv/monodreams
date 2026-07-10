@@ -134,7 +134,11 @@ public class EditorShellTests
         // ViewportTabComponent (NOT ToolbarButtonComponent), owned by ViewportTabStripSystem (not the
         // chrome builder), so they are not counted here.
         Assert.Equal(EditorChromeBuilder.DefaultButtons.Length, windowCount);
-        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length + 2, headerCount);
+        // TB-A: the tool row carries the tool cluster (HeaderButtons) + the transport cluster
+        // (HeaderTransportButtons: Play/Pause + Restart) + the two fixed right-cluster affordances
+        // (Camera view + Save). The tab strip's tab entities carry ViewportTabComponent (not
+        // ToolbarButtonComponent), so they are not counted here.
+        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length + EditorChromeBuilder.HeaderTransportButtons.Length + 2, headerCount);
         Assert.Equal(1600, chrome.LaidOutWidth);
         Assert.Equal(900, chrome.LaidOutHeight);
     }
@@ -445,11 +449,12 @@ public class EditorShellTests
     public void ChromeLayout_AtDpr2_DoublesEveryPointMetric()
     {
         const int w = 3840, h = 2160; // a 1920×1080-point window on a 2× (Retina) backbuffer
-        const int topBar2 = 44 * 2, header2 = 40 * 2, left2 = 240 * 2, right2 = 280 * 2, bottom2 = 168 * 2;
+        // TB-A: the Scene header is TWO rows — the tab strip (30pt) over the tools+transport (40pt) = 70pt.
+        const int topBar2 = 44 * 2, header2 = (30 + 40) * 2, left2 = 240 * 2, right2 = 280 * 2, bottom2 = 168 * 2;
         const int statusBar2 = 22 * 2, insetBottom2 = bottom2 + statusBar2; // UX3-F: shelf + status strip
 
         var (left, top, right, bottom) = EditorChromeLayout.ViewportInset(2f);
-        // left = LeftPanelWidth × 2; top = (TopBar 44 + SceneHeader 40) × 2; bottom = (shelf + status) × 2.
+        // left = LeftPanelWidth × 2; top = (TopBar 44 + SceneHeader 70) × 2; bottom = (shelf + status) × 2.
         Assert.Equal((left2, topBar2 + header2, right2, insetBottom2), (left, top, right, bottom));
 
         Assert.Equal(new Rectangle(0, 0, w, topBar2), EditorChromeLayout.TopBar(w, 2f));
@@ -466,12 +471,43 @@ public class EditorShellTests
     }
 
     [Fact]
+    public void SceneHeader_TwoRows_TabRowOverToolRow_RightClusterAnchored_AtDpr1AndDpr2()
+    {
+        // TB-A: SceneHeader (70pt) = tab row (30) over tool row (40); the transport cluster
+        // (camera-view · Play/Pause · Restart · Save) is right-anchored inside the tool row. Both DPRs.
+        foreach (var scale in new[] { 1f, 2f })
+        {
+            var header = EditorChromeLayout.SceneHeader(1600, 900, scale);
+            var tabRow = EditorChromeLayout.SceneHeaderTabRow(header, scale);
+            var toolRow = EditorChromeLayout.SceneHeaderToolRow(header, scale);
+
+            // The two rows exactly partition the header (tab row on top, tool row below).
+            Assert.Equal(header.X, tabRow.X);
+            Assert.Equal(header.Y, tabRow.Y);
+            Assert.Equal(header.Width, tabRow.Width);
+            Assert.Equal(EditorChromeLayout.Px(EditorChromeLayout.SceneHeaderTabRowHeight, scale), tabRow.Height);
+            Assert.Equal(tabRow.Bottom, toolRow.Y);
+            Assert.Equal(EditorChromeLayout.Px(EditorChromeLayout.SceneHeaderToolRowHeight, scale), toolRow.Height);
+            Assert.Equal(header.Bottom, toolRow.Bottom);
+
+            // The right cluster: 4 square icon buttons, docked at the tool row's right corner (Save last),
+            // ordered left-to-right, all inside the tool row.
+            var iconW = EditorChromeLayout.Px(EditorChromeLayout.ButtonHeight, scale);
+            var rects = EditorChromeLayout.SceneHeaderRightCluster(toolRow, new[] { iconW, iconW, iconW, iconW }, scale);
+            Assert.Equal(4, rects.Length);
+            Assert.Equal(toolRow.Right - EditorChromeLayout.Px(EditorChromeLayout.RowMarginX, scale), rects[3].Right);
+            for (var i = 0; i < 4; i++) Assert.True(toolRow.Contains(rects[i]));
+            Assert.True(rects[0].X < rects[1].X && rects[1].X < rects[2].X && rects[2].X < rects[3].X);
+        }
+    }
+
+    [Fact]
     public void ChromeLayout_DefaultScale_IsThePreDprLayout()
     {
-        // scale 1 reproduces the point constants unscaled. UX2-B: left activates (240) and the top
-        // inset is the top bar (44) PLUS the Scene panel header (40) = 84; UX3-F: the bottom inset is the
-        // shelf (168) PLUS the status bar (22) = 190.
-        Assert.Equal((240, 44 + 40, 280, 168 + 22), EditorChromeLayout.ViewportInset());
+        // scale 1 reproduces the point constants unscaled. UX2-B: left activates (240); TB-A: the top
+        // inset is the top bar (44) PLUS the two-row Scene panel header (30 tab + 40 tools = 70) = 114;
+        // UX3-F: the bottom inset is the shelf (168) PLUS the status bar (22) = 190.
+        Assert.Equal((240, 44 + 70, 280, 168 + 22), EditorChromeLayout.ViewportInset());
         Assert.Equal(EditorChromeLayout.TopBar(1600), EditorChromeLayout.TopBar(1600, 1f));
     }
 

@@ -106,19 +106,22 @@ public sealed class ViewportTabStripSystem : ISystem<GameState>
         var header = EditorChromeLayout.SceneHeader(
             _viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
             _shell.LeftWidthPt, _shell.RightWidthPt);
+        // TB-A: the tab strip owns the header's FULL-WIDTH first row (the tools + transport are row 2), so
+        // many named scene tabs never collide with the buttons.
+        var tabRow = EditorChromeLayout.SceneHeaderTabRow(header, scale);
 
         var tabs = _shell.ViewportTabs;
         var active = _shell.ActiveViewportTab;
         var count = Math.Min(tabs.Count, PoolSize);
 
-        // Lay out the visible tabs left-to-right within the header's reserved tab zone.
+        // Lay out the visible tabs left-to-right across the tab row.
         var widths = new int[count];
         for (var i = 0; i < count; i++)
             widths[i] = EditorChromeLayout.ViewportTabWidth(
                 _measureLabel(tabs[i].Label) * scale,
                 showPlayMarker: tabs[i].Kind == ViewportContextKind.Game,
                 closable: tabs[i].Closable, scale);
-        var rects = EditorChromeLayout.ViewportTabRow(header, widths, scale);
+        var rects = EditorChromeLayout.ViewportTabRow(tabRow, widths, scale);
 
         ReadCursor(out var cursorPresent, out var point, out var clicked, out var leftDown);
         var suppressed = _isInputSuppressed?.Invoke() ?? false;

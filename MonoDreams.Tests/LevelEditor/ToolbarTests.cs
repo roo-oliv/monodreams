@@ -299,14 +299,18 @@ public class ToolbarTests
         Assert.DoesNotContain(EditorToolbarAction.ToolBoundary, windowActions);
         Assert.DoesNotContain(EditorToolbarAction.ToggleSnap, windowActions);
 
-        // The header leads with the transport cluster, then the tool cluster.
-        Assert.Equal(EditorToolbarAction.PlayPause, headerActions[0]);
-        Assert.Equal(EditorToolbarAction.Restart, headerActions[1]);
-        Assert.Contains(EditorToolbarAction.ToolMove, headerActions);
+        // TB-A: the header's LEFT cluster (HeaderButtons) is the tools (Move leads); the transport
+        // (Play/Pause + Restart) is its own far-RIGHT cluster array beside Save, NOT in HeaderButtons.
+        Assert.Equal(EditorToolbarAction.ToolMove, headerActions[0]);
         Assert.Contains(EditorToolbarAction.ToolRotate, headerActions);
         Assert.Contains(EditorToolbarAction.ToolScale, headerActions);
         Assert.Contains(EditorToolbarAction.ToolBoundary, headerActions);
         Assert.Contains(EditorToolbarAction.ToggleSnap, headerActions);
+        Assert.DoesNotContain(EditorToolbarAction.PlayPause, headerActions);
+        Assert.DoesNotContain(EditorToolbarAction.Restart, headerActions);
+        var transportActions = EditorChromeBuilder.HeaderTransportButtons.Select(b => b.action).ToArray();
+        Assert.Equal(EditorToolbarAction.PlayPause, transportActions[0]);
+        Assert.Equal(EditorToolbarAction.Restart, transportActions[1]);
 
         // PF-F: Save left the window bar for the Scene panel header (ONE Save affordance, beside the
         // camera-view button) — it is a fixed header button, not part of HeaderButtons or DefaultButtons.
