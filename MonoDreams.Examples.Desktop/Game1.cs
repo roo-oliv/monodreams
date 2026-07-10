@@ -186,7 +186,10 @@ public class Game1 : Game
         // walk-up to game.mdproj. Handed to every screen's overlay so Save is gated on a resolved root
         // (unresolved ⇒ Save disabled with the "no project root" reason). Resolved once here — where
         // the editor flag is parsed — so the module stays game-agnostic. Null off the flag.
-        var projectContext = _editor ? EditorProjectContext.Resolve() : null;
+        // TD: pass this head's content-project dir name as the multi-manifest tie-break — the repo now also
+        // holds MonoDreams.Demos/Content/game.mdproj (same depth as Examples' .Core manifest), so without
+        // the hint the repo-root search would tie-break to Demos' manifest on ordinal (D < E).
+        var projectContext = _editor ? EditorProjectContext.Resolve("MonoDreams.Examples.Core") : null;
 
         // TB-A: the host-scoped editor session — its viewport tab stack (the open scene/Game tabs + their
         // data snapshots) survives a screen switch, exactly like the shared GameState. Created once here
@@ -359,7 +362,7 @@ public class Game1 : Game
         // the sub-graph before importing so only parsed level content is captured.
         DisposeInfrastructureSubgraphs(world);
 
-        var ctx = EditorProjectContext.Resolve();
+        var ctx = EditorProjectContext.Resolve("MonoDreams.Examples.Core");
         var levelsPath = ctx.Resolved
             ? ctx.LevelsPath
             : PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "Content", "Levels");

@@ -113,8 +113,19 @@ public sealed class EditorProjectContext
     /// Project resolution is a <b>desktop-only, editor-init host concern</b> (it never runs on web — the
     /// web head has no source tree to author into), so these two probes are the module's only direct
     /// <see cref="System.IO"/> access and stay OUT of the pure <see cref="Resolve"/> overload below,
-    /// which the tests drive with a simulated filesystem.</para></summary>
-    public static EditorProjectContext Resolve()
+    /// which the tests drive with a simulated filesystem.</para>
+    ///
+    /// <para><b>Multi-manifest disambiguation (TD).</b> When more than one game lives in the same repo,
+    /// each head passes its own content-project directory name as <paramref name="preferProjectDirName"/>
+    /// (e.g. <c>MonoDreams.Examples.Core</c> from the Examples head, <c>MonoDreams.Demos</c> from the Demos
+    /// head). The repo-root source search (FALLBACK 2) then prefers the manifest whose path contains that
+    /// segment, so an Examples-host resolve lands on Examples' manifest and a Demos-host resolve on Demos'
+    /// — even though both manifests sit at the same depth (a bare shallowest-then-ordinal tie would pick
+    /// the alphabetically-first, the wrong one). A Demos run whose content is co-located with its executable
+    /// resolves via walk-up before FALLBACK 2 is even reached; the hint is defence-in-depth there.</para></summary>
+    /// <param name="preferProjectDirName">The calling head's content-project directory name — the
+    /// multi-manifest tie-break hint (see the remarks). Null keeps the shallowest-then-ordinal default.</param>
+    public static EditorProjectContext Resolve(string? preferProjectDirName = null)
     {
         var platform = PlatformServices.Current;
         return Resolve(
@@ -123,7 +134,8 @@ public sealed class EditorProjectContext
             platform.FileExists,
             platform.ReadAllText,
             directoryExists: SafeDirectoryExists,
-            enumerateFiles: SafeEnumerateFiles);
+            enumerateFiles: SafeEnumerateFiles,
+            preferProjectDirName: preferProjectDirName);
     }
 
     private static bool SafeDirectoryExists(string path)
