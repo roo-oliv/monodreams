@@ -160,17 +160,16 @@ public class PrefabMilestoneTests
         /// CreateInstance). Returns the created instance root.</summary>
         public Entity CreatePrefabFromSelection(World world, Entity root, string id, EditorHistory history)
         {
-            var captured = Serializer.Serialize(EntitySubgraph.Collect(world, root));
-            using (var tmp = new World())
-            {
-                var created = Serializer.Deserialize(tmp, captured);
-                created[0].Set(new SceneObjectComponent());
-                SavePrefab(tmp, id); // the file is written BEFORE the composite (durable; undo never touches it)
-            }
+            // PF-F: capture through the ONE shared helper (robust root-finding + empty-capture refusal +
+            // naming) — exactly as EditorOverlay.CreatePrefabFromSelection does.
+            var result = PrefabCapture.Build(world, root, id, Serializer, Source);
+            Assert.True(result.Ok, result.Refusal);
+            var saved = new SceneWriter(Serializer, Source).Save(result.Scene!, PrefabPath(id)); // durable; undo never touches it
+            Assert.Equal(PrefabPath(id), saved);
 
             var worldPos = root.Has<TransformComponent>() ? root.Get<TransformComponent>().Position : Vector2.Zero;
             var delete = new DeleteEntityCommand(world, root, Serializer);
-            var create = new CreateInstanceCommand(Expander, id, worldPos);
+            var create = new CreateInstanceCommand(Expander, id, worldPos, autoName: true);
             history.Push(new CompositeCommand(new List<IEditorCommand> { delete, create }));
             return create.Root;
         }
@@ -474,6 +473,150 @@ public class PrefabMilestoneTests
             Assert.True(spawned.Has<SceneObjectComponent>());                     // … a first-class scene object …
             Assert.NotEqual(default, ChildOf(world, spawned));                    // … with its prefab-owned child
         });
+    }
+
+    // ─── PF-F: the multi-entity capture story (the elephant-kid family, both selection paths) ──────────
+
+    [Fact]
+    public void MultiEntityCapture_DeepFamily_CaptureViaRoot_PlaceReloadRoundTrips_AndEmptyRefused()
+    {
+        var fake = new InMemoryPlatform();
+        WithPlatform(fake, () =>
+        {
+            var shop = new PrefabWorkshop(fake);
+            var band = new PaletteBand("Props", LayerDepth: 0.5f, YSorted: true);
+
+            using var world = new World();
+            var history = new EditorHistory(world);
+
+            // root(sprite+collider+info) → child(sprite+info) → grandchild(info), + a sibling zone child.
+            var root = SpritePropFactory.Create(world, Whole("Island/kid.png", "elephant-kid"), band, new Vector2(300, 200), null);
+            root.Set(new SceneObjectComponent());
+            root.Set(new BoxColliderComponent(new Rectangle(-20, -20, 40, 40), passive: true));
+            var child = SpritePropFactory.Create(world, Whole("Island/shil.png", "shilhouette"), band, new Vector2(0, -4), null);
+            child.SetParent(root);
+            var grandchild = world.CreateEntity();
+            grandchild.Set(new EntityInfoComponent("Icon", "kidIcon"));
+            grandchild.Set(new TransformComponent(new Vector2(0, -8)));
+            grandchild.SetParent(child);
+            var zone = world.CreateEntity();
+            zone.Set(new EntityInfoComponent("talkzone", "kid_zone"));
+            zone.Set(new TransformComponent(new Vector2(0, 6)));
+            zone.Set(new BoxColliderComponent(new Rectangle(-24, -24, 48, 48), passive: true));
+            zone.Set(new DialogueZoneComponent("kid_talk", npcName: "Kid"));
+            zone.SetParent(root);
+
+            root.Set(new SelectedComponent());
+            var instance = shop.CreatePrefabFromSelection(world, root, "elephant-kid", history);
+
+            // The whole 4-entity family was captured (root + child + grandchild + sibling zone).
+            var prefab = shop.Resolve("elephant-kid")!;
+            Assert.Equal(4, prefab.Scene.Entities.Count);
+            Assert.Equal(1, prefab.Scene.Entities.Count(e => e.Parent == null));
+            Assert.True(prefab.Root.Components.ContainsKey(EngineComponentSerializers.SpriteInfoKey));
+            Assert.True(prefab.Root.Components.ContainsKey(EngineComponentSerializers.BoxColliderKey));
+            // The selection was replaced by a linked instance carrying its prefab-owned subtree.
+            Assert.True(instance.Has<PrefabInstanceComponent>());
+            Assert.NotEqual(default, ChildOf(world, instance));
+
+            // Save the scene → reload → the instance re-expands to the full family (compact on disk).
+            new SceneWriter(shop.Serializer, shop.Source).Save(world, SceneFile, new GameCamera(800, 600), null);
+            var saved = CanonicalJson.Deserialize<SceneData>(fake.Files[SceneFile])!;
+            Assert.Single(saved.Entities);                 // ONE compact prefab entry, zero children serialized
+            Assert.Equal("elephant-kid", saved.Entities[0].Prefab);
+
+            using var reloaded = new World();
+            var expander = new PrefabExpander(shop.Serializer, shop.Source, loadTexture: _ => null);
+            using (NewReader(reloaded, shop.Serializer, expander))
+                reloaded.Publish(new LoadSceneRequest(SceneFile, fromContent: false));
+            var reInstance = InstanceRoots(reloaded, "elephant-kid").Single();
+            Assert.NotEqual(default, ChildOf(reloaded, reInstance)); // the family came back from the prefab
+
+            // Empty-capture is REFUSED: a bare Transform root captures nothing (the empty-shell symptom).
+            using var w2 = new World();
+            var bare = w2.CreateEntity();
+            bare.Set(new TransformComponent(Vector2.Zero));
+            var refused = PrefabCapture.Build(w2, bare, "empty-shell", shop.Serializer, shop.Source);
+            Assert.False(refused.Ok);
+            Assert.Equal(PrefabCapture.EmptyRefusal, refused.Refusal);
+            Assert.False(fake.Files.ContainsKey(shop.PrefabPath("empty-shell"))); // nothing written
+        });
+    }
+
+    // ─── PF-F: assemble a prefab from EMPTY via palette placement, then place named+unique instances ────
+
+    [Fact]
+    public void AssembleFromEmpty_ViaPalettePlacement_AutoParented_SaveSucceeds_InstancesNamedUnique()
+    {
+        var fake = new InMemoryPlatform();
+        WithPlatform(fake, () =>
+        {
+            var shop = new PrefabWorkshop(fake);
+            var band = new PaletteBand("Props", LayerDepth: 0.5f, YSorted: true);
+
+            shop.CreateEmptyPrefab("hut"); // a one-root .mdprefab to assemble from scratch
+
+            using (var prefabCtx = new World())
+            {
+                var history = new EditorHistory(prefabCtx);
+                var root = shop.OpenPrefabContext(prefabCtx, "hut"); // the single prefab root
+
+                // "Place sprites in the prefab tab" — the palette's CreateEntityCommand with parentTo=root
+                // (auto-parent): each placed sprite becomes a CHILD of the root, never a second root.
+                PlaceUnderRoot(prefabCtx, history, root, band, "wall", new Vector2(10, 0));
+                PlaceUnderRoot(prefabCtx, history, root, band, "roof", new Vector2(0, -12));
+
+                Assert.Equal(1, SceneRootCount(prefabCtx)); // still EXACTLY one root — assembly stayed single-root
+
+                // Save Prefab SUCCEEDS (the one-root validation passes): root + 2 placed children.
+                var scene = new PrefabWriter(new SceneWriter(shop.Serializer, shop.Source))
+                    .BuildPrefab(prefabCtx, "hut", shop.Source);
+                Assert.Equal(3, scene.Entities.Count);
+                Assert.Equal(1, scene.Entities.Count(e => e.Parent == null));
+                new SceneWriter(shop.Serializer, shop.Source).Save(scene, shop.PrefabPath("hut"));
+            }
+
+            // Place instances into a scene → each is NAMED + UNIQUE ("hut", "hut 2", "hut 3").
+            using var sceneWorld = new World();
+            var sh = new EditorHistory(sceneWorld);
+            var c1 = new CreateInstanceCommand(shop.Expander, "hut", new Vector2(100, 100), autoName: true);
+            var c2 = new CreateInstanceCommand(shop.Expander, "hut", new Vector2(200, 100), autoName: true);
+            var c3 = new CreateInstanceCommand(shop.Expander, "hut", new Vector2(300, 100), autoName: true);
+            sh.Push(c1);
+            sh.Push(c2);
+            sh.Push(c3);
+            Assert.Equal("hut", c1.Root.Get<EntityInfoComponent>().Name);
+            Assert.Equal("hut 2", c2.Root.Get<EntityInfoComponent>().Name);
+            Assert.Equal("hut 3", c3.Root.Get<EntityInfoComponent>().Name);
+            // Each instance carries its assembled children (from the prefab).
+            Assert.NotEqual(default, ChildOf(sceneWorld, c1.Root));
+        });
+    }
+
+    /// <summary>Simulates a palette placement inside a prefab tab: a <see cref="CreateEntityCommand"/> with
+    /// <c>parentTo</c> = the prefab root (the auto-parent the palette resolves in a prefab context), so the
+    /// placed sprite becomes a CHILD of the root, not a second scene root.</summary>
+    private static void PlaceUnderRoot(World w, EditorHistory h, Entity root, PaletteBand band, string label, Vector2 pos)
+    {
+        var serializer = new SceneSerializer(NewRegistry());
+        h.Push(new CreateEntityCommand(w, serializer,
+            world => SpritePropFactory.Create(world, Whole($"Island/{label}.png", label), band, pos, texture: null),
+            parentTo: root));
+    }
+
+    /// <summary>The count of parentless <see cref="SceneObjectComponent"/> roots (a multi-root world would
+    /// refuse a prefab save).</summary>
+    private static int SceneRootCount(World w)
+    {
+        var n = 0;
+        using var set = w.GetEntities().With<SceneObjectComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+        {
+            if (!e.IsAlive) continue;
+            if (e.Has<ChildOfComponent>() && e.Get<ChildOfComponent>().Parent.IsAlive) continue;
+            n++;
+        }
+        return n;
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────────────────────────────
