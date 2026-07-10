@@ -25,7 +25,7 @@ public class ConvexColliderComponent : IColliderComponent
 
     /// <summary>
     /// When true, UpdateWorldVertices ignores TransformComponent.Rotation (treats it as 0).
-    /// Used for colliders whose rotation is baked into ModelVertices (e.g. imported from Blender).
+    /// Used for colliders whose rotation is baked into ModelVertices.
     /// </summary>
     public bool IgnoreTransformRotation;
 

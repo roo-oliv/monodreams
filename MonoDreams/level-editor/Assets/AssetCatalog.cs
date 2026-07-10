@@ -25,7 +25,7 @@ namespace MonoDreams.LevelEditor.Assets;
 /// enumeration over the content output dir (desktop-editor-first; the web/shipping path is the
 /// MGCB graduation recorded in <see cref="FileAssetKey"/>'s doc). Each individual texture load
 /// then goes through <c>TitleContainer.OpenStream</c> (the same portable content-stream seam the
-/// Blender parser and scene reader use), so the load path itself stays backend-uniform.</para>
+/// scene reader uses), so the load path itself stays backend-uniform.</para>
 ///
 /// <para>Fail-soft, loud: a missing drop folder yields an empty catalog (logged Info — a fresh
 /// checkout has no packs downloaded yet); a malformed sidecar logs a Warning and the sheet falls

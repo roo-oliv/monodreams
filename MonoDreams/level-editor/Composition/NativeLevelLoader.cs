@@ -20,10 +20,10 @@ namespace MonoDreams.LevelEditor.Composition;
 /// <para><b>Where scenes live + how they are read.</b> A level id <c>"island"</c> resolves to the
 /// content-relative path <c>Levels/island.mdscene</c> (see <see cref="ContentRelativePath"/>). The probe
 /// checks the bundled file through <c>TitleContainer</c> (the console-portable content-stream primitive —
-/// a file read on desktop, an HTTP fetch on web, matching <c>BlenderLevelParserSystem</c>), and on a hit
+/// a file read on desktop, an HTTP fetch on web, matching <c>SceneReaderSystem</c>), and on a hit
 /// publishes <c>LoadSceneRequest(rel, fromContent: true)</c>, which the composed <c>SceneReaderSystem</c>
 /// resolves the same way. The scene files are bundled by an MGCB <c>/copy:</c> entry for
-/// <c>Content/Levels/*.mdscene</c> (the same mechanism as <c>blender_level.json</c> / <c>game.mdproj</c>),
+/// <c>Content/Levels/*.mdscene</c> (the same mechanism as <c>game.mdproj</c>),
 /// so <c>TitleContainer</c> finds them at <c>&lt;ContentRoot&gt;/Levels/&lt;id&gt;.mdscene</c> on every platform.</para>
 /// </summary>
 public static class NativeLevelLoader
@@ -55,7 +55,7 @@ public static class NativeLevelLoader
     ///   <c>LoadSceneRequest(sourcePath, fromContent:false)</c> and return <c>true</c>;</item>
     ///   <item><b>bundled</b> — else the bundled <c>Content/Levels/&lt;id&gt;.mdscene</c> exists → publish
     ///   <c>LoadSceneRequest(rel, fromContent)</c> and return <c>true</c>;</item>
-    ///   <item><b>miss</b> — else <c>false</c> so the caller falls through to LDtk/Blender.</item>
+    ///   <item><b>miss</b> — else <c>false</c> so the caller falls through to the legacy LDtk fallback.</item>
     /// </list>
     /// A <b>null</b> <paramref name="projectContext"/> (a shipped / console / web build) skips the
     /// source-first branch entirely — it never touches <paramref name="sourceExists"/> — so the bundled

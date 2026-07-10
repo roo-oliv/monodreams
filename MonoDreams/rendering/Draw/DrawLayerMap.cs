@@ -7,7 +7,7 @@ namespace MonoDreams.Draw;
 /// Maps named draw layers to evenly-spaced depth values.
 /// Created from any enum via <see cref="FromEnum{TEnum}"/>: the first member maps to 1.0 (front),
 /// the last to 0.0 (back), with even spacing in between.
-/// Supports type-safe lookup for game code and string-based lookup for core systems (e.g. Blender parser).
+/// Supports type-safe lookup for game code and string-based lookup for core systems.
 /// </summary>
 public sealed class DrawLayerMap
 {

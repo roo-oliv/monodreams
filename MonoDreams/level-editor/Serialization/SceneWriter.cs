@@ -32,8 +32,7 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// <c>TitleContainer</c> (console-portable, PS4); only the desktop editor writes.</para>
 ///
 /// <para>Only tagged roots and their child closure are written: transient cursor / UI / HUD /
-/// gizmo / overlay entities are untagged and excluded, and Blender-origin entities are untagged in
-/// this wave (their save is deferred), so the Blender world stays view-only.</para>
+/// gizmo / overlay entities are untagged and excluded.</para>
 ///
 /// <para>It is infrastructure, not a component (ECS purity): it holds the write behaviour and runs
 /// at save time only — never per frame.</para>

@@ -13,7 +13,7 @@ namespace MonoDreams.LevelEditor.Assets;
 /// Loads the <c>Texture2D</c> behind a <c>file:</c> AssetKey (see <see cref="FileAssetKey"/>) —
 /// lazily, memoized per PNG path, through <c>TitleContainer.OpenStream</c> +
 /// <c>Texture2D.FromStream</c> (island-authoring plan §2.1; the same content-stream seam the
-/// Blender parser uses). The catalog scan never touches this: textures load on first use (arming a
+/// scene reader uses). The catalog scan never touches this: textures load on first use (arming a
 /// palette item, placing, or rehydrating a loaded scene).
 ///
 /// <para><b>Missing file = loud warning + a visible magenta placeholder, never invisible.</b>

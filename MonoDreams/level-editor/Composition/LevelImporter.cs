@@ -10,14 +10,14 @@ using MonoDreams.State;
 namespace MonoDreams.LevelEditor.Composition;
 
 /// <summary>
-/// The <b>one-way importer</b> that turns a world produced by a legacy loader (the LDtk/Blender
-/// parsers, now <b>import-only</b> — PS5) into a native <c>.mdscene</c> the game then owns and boots.
+/// The <b>one-way importer</b> that turns a world produced by a legacy loader (the LDtk
+/// parser, now <b>import-only</b> — PS5) into a native <c>.mdscene</c> the game then owns and boots.
 /// It runs the parser <b>once</b> against a source level, then captures the resulting world: it tags
 /// every scene-content root with <see cref="SceneObjectComponent"/> (the save-root marker the writer's
 /// membership closure keys on) and hands the world to the canonical <see cref="SceneWriter"/>, which
 /// serializes each tagged root plus its <c>ChildOf</c> closure into byte-stable native JSON.
 ///
-/// <para><b>Why tag on import.</b> The LDtk/Blender parsers never set <see cref="SceneObjectComponent"/>
+/// <para><b>Why tag on import.</b> The LDtk parser never sets <see cref="SceneObjectComponent"/>
 /// (it is transient editor state), so a freshly parsed world has zero save-roots and a straight
 /// <see cref="SceneWriter.Save"/> would write an empty scene. The importer promotes the parsed content
 /// to save-roots so the closure — and thus the serialized scene — matches what the parser produced.
@@ -36,7 +36,7 @@ namespace MonoDreams.LevelEditor.Composition;
 /// are rebuilt at play time rather than baked into the file.</para>
 ///
 /// <para>It is infrastructure, not a component (ECS purity): a one-shot, dev/editor-time operation that
-/// never runs per frame. An editor toolbar "Import LDtk/Blender level" action and a headless
+/// never runs per frame. An editor toolbar "Import LDtk level" action and a headless
 /// dev/export op both drive this same core.</para>
 /// </summary>
 public sealed class LevelImporter

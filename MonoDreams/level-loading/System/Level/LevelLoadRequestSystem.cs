@@ -14,7 +14,7 @@ namespace MonoDreams.System.Level;
 /// The <b>native-first level-load dispatcher</b> on <c>LoadLevelRequest</c>. For the shipped game it is
 /// <b>native-only</b> (PS5): a level id resolves to a bundled native MonoDreams scene
 /// (<c>Content/Levels/&lt;id&gt;.mdscene</c>) loaded through the native reader, and there is <b>no</b>
-/// legacy LDtk/Blender boot loader — those parsers are now import-only machinery (they run once, via the
+/// legacy LDtk boot loader — that parser is now import-only machinery (it runs once, via the
 /// import op, to produce a <c>.mdscene</c>), never wired to live game boot. This closes the CORE_TENETS
 /// §6/§10 parser-asymmetry: one content-driven load path.
 ///
@@ -29,9 +29,7 @@ namespace MonoDreams.System.Level;
 /// <para><b>Legacy fallback = import-only opt-in.</b> The old LDtk <c>Content.Load</c> path survives
 /// <b>only</b> when a caller explicitly opts in via <c>enableLegacyLdtkFallback</c> (the import op's
 /// dedicated composition, which re-parses a legacy level so the importer can capture and serialize it).
-/// The normal game/editor boot passes <c>false</c>, so the shipped game never touches the LDtk content.
-/// The <c>Blender_</c>-prefixed <c>BlenderLevelParserSystem</c> is likewise composed only in that import
-/// composition — never at live game boot.</para>
+/// The normal game/editor boot passes <c>false</c>, so the shipped game never touches the LDtk content.</para>
 /// </summary>
 public sealed class LevelLoadRequestSystem : ISystem<GameState>
 {
@@ -85,13 +83,13 @@ public sealed class LevelLoadRequestSystem : ISystem<GameState>
             return;
         }
 
-        // Native-only game boot (PS5): no native scene ⇒ fail loud. The LDtk/Blender loaders are
+        // Native-only game boot (PS5): no native scene ⇒ fail loud. The LDtk loader is
         // import-only and not wired here, so there is no silent legacy attempt.
         if (!_enableLegacyLdtkFallback)
         {
             Logger.Error(
                 $"No native scene 'Content/Levels/{levelIdentifier}.mdscene' found for level " +
-                $"'{levelIdentifier}', and the legacy LDtk/Blender loaders are import-only (not wired to " +
+                $"'{levelIdentifier}', and the legacy LDtk loader is import-only (not wired to " +
                 "game boot). The level was not loaded. Migrate it to a native .mdscene (the import op).");
             return;
         }

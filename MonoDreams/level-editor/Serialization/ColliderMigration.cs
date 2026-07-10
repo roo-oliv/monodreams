@@ -32,7 +32,7 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// </list>
 ///
 /// <para><b>Where the collider entity comes from.</b> If E is a <b>dedicated collider carrier</b> (its only
-/// non-structural component is the one collider — a bare collision node the old Blender/LDtk pipelines
+/// non-structural component is the one collider — a bare collision node a legacy import pipeline
 /// produced), E <b>IS</b> the collider entity: the box is reshaped in place (its Transform nudged by the
 /// bounds centre); a convex needs no change at all. Otherwise (E carries a sprite / body / other data) the
 /// collider is stripped from E and moved onto a NEW child collider entity inserted immediately after E —

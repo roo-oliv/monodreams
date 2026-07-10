@@ -11,8 +11,7 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// <see cref="ComponentSerializerRegistry"/> populates <see cref="SceneEntityData.Components"/>
 /// from an entity's registered components, never by re-running factories.
 ///
-/// The on-disk format mirrors this type 1:1 via System.Text.Json (consistent with
-/// <c>BlenderLevelData</c>). The full format is specified in
+/// The on-disk format mirrors this type 1:1 via System.Text.Json. The full format is specified in
 /// <c>MonoDreams/level-editor/docs/scene-format.md</c>.
 ///
 /// <para><b>Wave 2 scope.</b> This type and the registry exist so an entity's registered

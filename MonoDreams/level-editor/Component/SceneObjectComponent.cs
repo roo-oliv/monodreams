@@ -8,8 +8,7 @@ namespace MonoDreams.LevelEditor.Component;
 ///
 /// <para>Transient and overlay entities — the cursor, UI / HUD widgets, the editor's own gizmo /
 /// selection / toolbar entities — are deliberately left untagged, so they are excluded from the
-/// scene. Blender-origin entities are also untagged in this wave (their save is deferred), so the
-/// Blender world stays view-only.</para>
+/// scene.</para>
 ///
 /// <para>It is a pure tag (no fields) — ECS purity: membership is data on the entity, the closure
 /// computation lives in the scene writer. The editor's placement / load paths add this tag to the

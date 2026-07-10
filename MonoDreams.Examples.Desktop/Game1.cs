@@ -35,7 +35,7 @@ public class Game1 : Game
     private readonly bool _headless;
     private readonly bool _editor;
     // PS5 dev/import op: when set (via --export-scene <id> or MONODREAMS_EXPORT_SCENE), the head boots
-    // headless, loads the given legacy level through the LDtk/Blender parser (the migration fallback,
+    // headless, loads the given legacy level through the LDtk parser (the migration fallback,
     // still present when this op runs), imports the resulting world to a native .mdscene under the
     // resolved project source tree, and exits. This is how the committed migrated levels are generated;
     // it never runs in a normal launch (the field is null unless the flag is present).
@@ -199,7 +199,7 @@ public class Game1 : Game
         // where all three screens defaulted to manifest.startScene and would save to the same file.
         _screenController.RegisterScreen(ScreenName.LevelSelection, () => new LevelSelectionScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext),
             new ScreenInfo("Level Selection", LevelSelectionScreen.BoundSceneId));
-        // In the export op the Game screen composes the LDtk/Blender import machinery (importMode); a
+        // In the export op the Game screen composes the LDtk import machinery (importMode); a
         // normal / editor boot composes native-only (the parsers are not wired to live game boot, PS5).
         var importMode = _exportSceneId != null;
         _screenController.RegisterScreen(ScreenName.Game, () => new LoadLevelExampleGameScreen(this, GraphicsDevice, Content, _camera, _viewportManager, _runner, _spriteBatch, editorEnabled: _editor, projectContext: projectContext, importMode: importMode),
@@ -216,7 +216,7 @@ public class Game1 : Game
             Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): game screens compose the editor overlay; booting in Edit mode.");
         }
 
-        // PS5 headless import op: load the legacy level (via the still-present LDtk/Blender fallback)
+        // PS5 headless import op: load the legacy level (via the still-present LDtk fallback)
         // and, on the first Update, import the parsed world to a native .mdscene, then exit. Takes
         // precedence over the normal boot branches; only active when the export flag is set.
         if (_exportSceneId != null)
@@ -271,7 +271,7 @@ public class Game1 : Game
     protected override void Update(GameTime gameTime)
     {
         // PS5 headless import op: the screen's Load (during Initialize) already published
-        // LoadLevelRequest, so the LDtk/Blender parser + factories populated the world synchronously.
+        // LoadLevelRequest, so the LDtk parser + factories populated the world synchronously.
         // Import that pristine parsed world (before any game logic runs) to a native .mdscene and exit.
         if (_exportSceneId != null && !_exported)
         {

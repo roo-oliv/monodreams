@@ -24,7 +24,7 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// reads the manifest later, PS4) reaches it without a new cross-module dependency. The committed
 /// example manifest for the reference game is
 /// <c>MonoDreams.Examples.Core/Content/game.mdproj</c> (under <c>Content/</c> so MGCB bundles it and
-/// the shipped game can read it via <c>TitleContainer</c>, exactly like <c>blender_level.json</c>).</para>
+/// the shipped game can read it via <c>TitleContainer</c>, exactly like the bundled <c>.mdscene</c> levels).</para>
 ///
 /// <para><b>Scope (v1).</b> The four fields below only. Engine-version pinning, build settings, and
 /// per-scene metadata are deferred (add fields here when needed — the canonical serializer keeps

@@ -14,7 +14,7 @@ namespace MonoDreams.Examples.Serialization;
 /// <see cref="ComponentSerializerRegistry"/> — the game-side half of full component serialization
 /// (PS5). The engine ships serializers for its components
 /// (<see cref="EngineComponentSerializers.RegisterEngineComponents"/>); a game registers its own
-/// through this seam so a native <c>.mdscene</c> migrated from an LDtk/Blender level round-trips the
+/// through this seam so a native <c>.mdscene</c> migrated from a legacy LDtk level round-trips the
 /// <b>same</b> world the parser + factories would have produced — reconstructed from components, never
 /// by re-running factories.
 ///
@@ -24,7 +24,7 @@ namespace MonoDreams.Examples.Serialization;
 ///
 /// <para>What it registers: <c>PlayerState</c> (a tag — the player identity the interaction/orb
 /// systems query), <c>OrbitalMotion</c> (the orbit params for the player's orb sub-graph),
-/// <c>StopMotionEffect</c> (the Blender character rotation cadence), and <c>DialogueZoneComponent</c>
+/// <c>StopMotionEffect</c> (the stop-motion character rotation cadence), and <c>DialogueZoneComponent</c>
 /// (the NPC dialogue-trigger data). All are plain value components. Bodies route through
 /// <see cref="CanonicalJson.SerializeToElement"/> so they obey the same null-omission / invariant-float
 /// / sorted-key rules as the rest of the scene file.</para>

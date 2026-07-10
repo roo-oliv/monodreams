@@ -205,8 +205,8 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
     /// <summary>
     /// Reads the scene JSON. A content-relative path is read through <see cref="TitleContainer"/>
-    /// (the portable content-stream primitive — a file read on desktop, an HTTP fetch on web,
-    /// matching <c>BlenderLevelParserSystem</c>); a host-filesystem path goes through
+    /// (the portable content-stream primitive — a file read on desktop, an HTTP fetch on web);
+    /// a host-filesystem path goes through
     /// <see cref="IPlatformServices.ReadAllText"/>.
     /// </summary>
     private string ReadSceneJson(string path, bool fromContent)

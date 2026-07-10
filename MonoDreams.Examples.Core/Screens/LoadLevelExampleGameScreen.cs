@@ -41,7 +41,6 @@ using MonoDreams.System.Draw;
 using MonoDreams.Util;
 using MonoDreams.System.Input;
 using MonoDreams.System.Level;
-using MonoDreams.Level;
 using MonoDreams.Draw;
 using MonoDreams.Examples.Draw;
 using MonoDreams.Renderer;
@@ -52,7 +51,7 @@ using MonoGame.Extended.BitmapFonts;
 namespace MonoDreams.Examples.Screens;
 
 /// <summary>
-/// The reference platformer screen (LDtk + Blender levels) — and, since Wave 6, the single
+/// The reference platformer screen (LDtk levels + native scenes) — and, since Wave 6, the single
 /// composition path for the in-game level editor. The pipeline is built through an
 /// <see cref="EditorPipelineRegistrar"/> (every entry named + wrapped in a run-state gate with
 /// the §4-matrix policy: game logic / physics / dialogue and camera-follow <c>Freeze</c> in Edit,
@@ -330,113 +329,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // it to a native .mdscene). The shipped game/editor boot is native-only — these never run at
         // live boot, closing the parser-asymmetry. Constructing the factories here also loads their
         // textures, so gating construction keeps a normal boot from touching legacy tilesets.
-        BlenderLevelParserSystem blenderParser = null;
         EntitySpawnSystem entitySpawnSystem = null;
         if (_importMode)
         {
-        blenderParser = new BlenderLevelParserSystem(_world, _content, _camera);
-        blenderParser.SetDrawLayerMap(_layers);
-        blenderParser.RegisterCollectionHandler("Player", (entity, blenderObj) =>
-        {
-            var isChild = !string.IsNullOrEmpty(blenderObj.Parent);
-
-            if (!isChild)
-            {
-                entity.Set(new PlayerState());
-                entity.Set(new StopMotionEffect { OffsetRadians = MathHelper.ToRadians(2f) });
-            }
-            else
-            {
-                // Child entities (silhouettes) get visual effects only
-                var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
-                var offset = isSilhouette
-                    ? MathHelper.ToRadians(-4f)
-                    : MathHelper.ToRadians(2f);
-                entity.Set(new StopMotionEffect { OffsetRadians = offset });
-
-                if (isSilhouette)
-                {
-                    ref var sprite = ref entity.Get<SpriteInfoComponent>();
-                    sprite.YSortDepthBias = -0.0005f;
-                }
-            }
-        });
-        blenderParser.RegisterCollectionHandler("NPC", (entity, blenderObj) =>
-        {
-            var npcName = blenderObj.Name;
-            entity.Set(new EntityInfoComponent("NPC", npcName));
-
-            // EMPTY objects (parent empties in hierarchy) don't have sprites — skip visual setup
-            if (!entity.Has<SpriteInfoComponent>()) return;
-
-            var isSilhouette = blenderObj.Name.EndsWith("shilhouette");
-
-            // Silhouette entities rotate counterclockwise; compensate for parent's +2° with -4° local
-            var offset = isSilhouette
-                ? MathHelper.ToRadians(-4f)
-                : MathHelper.ToRadians(2f);
-            entity.Set(new StopMotionEffect { OffsetRadians = offset });
-
-            // Silhouette renders behind parent: negative bias = lower depth = further back
-            if (isSilhouette)
-            {
-                ref var sprite = ref entity.Get<SpriteInfoComponent>();
-                sprite.YSortDepthBias = -0.0005f;
-            }
-
-            var npcTransform = entity.Get<TransformComponent>();
-            var npcSprite = entity.Get<SpriteInfoComponent>();
-            var npcDimensions = new Vector2(
-                blenderObj.Dimensions?.X ?? npcSprite.Size.X,
-                blenderObj.Dimensions?.Y ?? npcSprite.Size.Y);
-
-            // Create interaction zone entity (wider than the NPC for approach detection)
-            var zoneEntity = _world.CreateEntity();
-            zoneEntity.Set(new EntityInfoComponent("NPCZone"));
-            zoneEntity.Set(new TransformComponent());
-            zoneEntity.SetParent(entity);
-
-            var zoneWidth = (int)(npcDimensions.X * 2.5f);
-            var zoneHeight = (int)(npcDimensions.Y * 1.5f);
-            // Colliders-as-entities: the zone IS a collider entity (its identity + DialogueZone ride
-            // it). The former centered bounds become a centered Size on the zone's transform —
-            // byte-identical world rect; the zone stays parented to the NPC.
-            zoneEntity.Set(new BoxColliderComponent(new Vector2(zoneWidth, zoneHeight), passive: true));
-            zoneEntity.Set(new DialogueZoneComponent(npcName, oneTimeOnly: false, autoStart: false, npcName: npcName));
-
-            // Create floating icon entity (above the NPC sprite)
-            var iconEntity = _world.CreateEntity();
-            iconEntity.Set(new EntityInfoComponent("InteractionIcon", $"{npcName}Icon"));
-
-            // Compute icon position above NPC visual top
-            var originOffsetY = blenderObj.OriginOffset?.Y ?? 0.5f;
-            var visualTop = -npcDimensions.Y * (1 - originOffsetY);
-            var iconOffset = new Vector2(0, visualTop - 6f);
-
-            iconEntity.Set(new TransformComponent(iconOffset));
-            iconEntity.SetParent(entity);
-            iconEntity.Set(new DynamicTextComponent
-            {
-                Target = RenderTargetID.Main,
-                Font = promptFont,
-                TextContent = "E",
-                Color = Color.White,
-                Scale = 0.4f,
-                LayerDepth = _layers.GetDepth(GameDrawLayer.Characters, -0.01f),
-                IsRevealed = true,
-                VisibleCharacterCount = 1,
-                RevealingSpeed = 0,
-                RevealStartTime = 0
-            });
-            iconEntity.Set(new DrawComponent
-            {
-                Type = DrawElementType.Text,
-                Target = RenderTargetID.Main
-            });
-            // No VisibleComponent initially — managed by NPCInteractionSystem
-
-            zoneEntity.Set(new NPCInteractionIcon { IconEntity = iconEntity });
-        });
 
         entitySpawnSystem = new EntitySpawnSystem(_world, _content, _renderTargets);
         entitySpawnSystem.RegisterEntityFactory("Tile", new TileEntityFactory(_layers));
@@ -487,10 +382,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // Native-first level loading (PS4): the game boots bundled .mdscene levels through the native
         // reader. The reader is composed once — reuse the editor overlay's when present (else build a
         // standalone one so a SHIPPED game with no editor still boots native scenes; behaviorally inert
-        // for the current LDtk/Blender levels, which have no .mdscene and fall through). The probe is
+        // for a legacy LDtk level, which has no .mdscene and falls through). The probe is
         // handed to LevelLoadRequestSystem: on a LoadLevelRequest whose id has a bundled
         // Content/Levels/<id>.mdscene, it publishes a LoadSceneRequest (handled synchronously by the
-        // reader) and the LDtk path is skipped. No native file ⇒ the LDtk/Blender fallback runs unchanged
+        // reader) and the LDtk path is skipped. No native file ⇒ the legacy LDtk fallback runs unchanged
         // (migration coexistence — removed in PS5).
         ISystem<GameState> nativeSceneReader;
         if (_editor != null)
@@ -502,7 +397,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             var nativeRegistry = new ComponentSerializerRegistry();
             nativeRegistry.RegisterEngineComponents();
             // Game-component serializers on the SHIPPED (no-editor) reader (PS5 handoff): a booted
-            // native scene migrated from an LDtk/Blender level carries game components (PlayerState,
+            // native scene migrated from a legacy LDtk level carries game components (PlayerState,
             // StopMotionEffect, …) — register them here too, else the load throws on the first
             // unknown component key. The editor path registers them on its own registry above.
             nativeRegistry.RegisterGameComponents();
@@ -535,11 +430,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             if (_importMode)
             {
-                // Import machinery (dev/export op): re-parse the legacy LDtk/Blender level so the
+                // Import machinery (dev/export op): re-parse the legacy LDtk level so the
                 // importer can capture + serialize it. No native probe — force the legacy parse even if
                 // a .mdscene already exists (re-import). The importer takes the parsed world afterwards.
                 g.Add("requests", new LevelLoadRequestSystem(_world, _content, tryLoadNativeScene: null, enableLegacyLdtkFallback: true));
-                g.Add("blender", blenderParser);
                 g.Add("ldtkTiles", new LDtkTileParserSystem(_world, _content));
                 g.Add("ldtkEntities", new LDtkEntityParserSystem(_world));
                 g.Add("entitySpawn", entitySpawnSystem);
@@ -547,7 +441,7 @@ public class LoadLevelExampleGameScreen : IGameScreen
             else
             {
                 // Native-only game boot (PS5): the game loads bundled .mdscene levels through the native
-                // reader; the legacy LDtk/Blender loaders are import-only (composed only above), so a
+                // reader; the legacy LDtk loader is import-only (composed only above), so a
                 // LoadLevelRequest with no native scene fails loud — no silent legacy attempt. This is
                 // the single content-driven load path that closes the parser-asymmetry.
                 g.Add("requests", new LevelLoadRequestSystem(_world, _content, nativeSceneProbe, enableLegacyLdtkFallback: false));

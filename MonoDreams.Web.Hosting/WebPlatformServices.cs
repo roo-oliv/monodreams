@@ -8,7 +8,7 @@ namespace MonoDreams.Web.Hosting
     /// Web (Blazor/WASM) implementation of <see cref="IPlatformServices"/>, shared by every web
     /// head. There is no writable host filesystem and no process environment in the browser
     /// sandbox, so:
-    ///   - reads of game CONTENT (XNB assets, and raw /copy: files like the Blender level JSON)
+    ///   - reads of game CONTENT (XNB assets, and raw /copy: files like the native <c>.mdscene</c> levels)
     ///     go through MonoGame's <c>ContentManager</c> / <c>TitleContainer</c> (served over HTTP),
     ///     never through here — so they work on web;
     ///   - reads of USER DATA / dev files that used <see cref="File"/> (settings, the debug
