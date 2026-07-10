@@ -208,6 +208,76 @@ public class CollisionConsumerAuditTests
         Assert.True(runnerState.IsGameOver); // BodyA state flipped
     }
 
+    // ─── End-to-end: the REAL pipeline chain (detection + GameCollisionHelper → ZoneDialogueTrigger) ──
+
+    /// <summary>The full shipping dialogue-trigger chain, exactly as <c>LoadLevelExampleGameScreen</c>
+    /// composes it: the REAL <see cref="TransformCollisionDetectionSystem{T}"/> classifying through the
+    /// REAL <see cref="GameCollisionHelper.Create"/>, the REAL physical resolver, and the REAL
+    /// <see cref="ZoneDialogueTriggerSystem"/> — over the CE entity shapes (a "Player" BODY with a
+    /// collider CHILD walks into a standalone "Zone" collider entity). The zone's identity rides the
+    /// collider entity, the classifier maps ("Player","Zone") → Dialogue, the trigger system reads
+    /// ColliderB and publishes <see cref="DialogueStartMessage"/> — and because Dialogue is not Physics,
+    /// the resolver ignores it: the zone SENSES without BLOCKING (the player sails through).</summary>
+    [Fact]
+    public void RealPipeline_PlayerBodyWithColliderChild_EntersZone_DialogueFires_AndZoneDoesNotBlock()
+    {
+        using var world = new World();
+        using var runner = new DefaultEcs.Threading.DefaultParallelRunner(1);
+
+        // The shipping composition (LoadLevelExampleGameScreen): detection classifies via
+        // GameCollisionHelper; the physical resolver consumes Physics only; the zone trigger reads
+        // Dialogue. Detection FIRST so its component-added subscription auto-tags the colliders below.
+        var detect = new TransformCollisionDetectionSystem<CollisionMessage>(world, GameCollisionHelper.Create);
+        var resolve = new TransformPhysicalCollisionResolutionSystem(world);
+        using var zoneTrigger = new ZoneDialogueTriggerSystem(world);
+        var velocity = new MonoDreams.System.Physics.TransformVelocitySystem(world, runner);
+        var commit = new MonoDreams.System.TransformCommitSystem(world, runner);
+
+        // Player: identity + velocity on the BODY; the collider is a CHILD entity (PlayerEntityFactory's shape).
+        var player = world.CreateEntity();
+        player.Set(new EntityInfoComponent("Player"));
+        player.Set(new TransformComponent(new Vector2(0, 0)));
+        player.Set(new MonoDreams.Component.Physics.VelocityComponent(new Vector2(20, 0)));
+        var playerCollider = world.CreateEntity();
+        playerCollider.Set(new TransformComponent(Vector2.Zero));
+        playerCollider.Set(new BoxColliderComponent(new Vector2(16, 16)));
+        playerCollider.SetParent(player);
+
+        // The dialogue zone: a STANDALONE collider entity (the trigger palette's output) — identity +
+        // zone component ON the collider entity, passive (senses, never initiates).
+        var zone = world.CreateEntity();
+        zone.Set(new EntityInfoComponent("Zone", "BoldoZone"));
+        // oneTimeOnly so the multi-frame overlap fires exactly once (also proving that guard here).
+        zone.Set(new DialogueZoneComponent("Boldo_Start", oneTimeOnly: true, autoStart: true));
+        zone.Set(new TransformComponent(new Vector2(80, 0)));
+        zone.Set(new BoxColliderComponent(new Vector2(48, 48), passive: true));
+
+        var starts = new List<DialogueStartMessage>();
+        world.Subscribe((in DialogueStartMessage m) => starts.Add(m));
+
+        var play = new GameState(new GameTime(global::System.TimeSpan.Zero, global::System.TimeSpan.FromSeconds(1)))
+            { RunMode = RunMode.Play };
+        for (var i = 0; i < 10; i++)
+        {
+            velocity.Update(play);
+            detect.Update(play);
+            resolve.Update(play);
+            commit.Update(play);
+        }
+
+        // The dialogue fired FROM the zone collider entity with its yarn node …
+        Assert.Single(starts);
+        Assert.Equal(zone, starts[0].DialogueEntity);
+        Assert.Equal("Boldo_Start", starts[0].StartNode);
+        Assert.True(zone.Get<DialogueZoneComponent>().HasBeenTriggered);
+        // … and the zone did NOT block (Dialogue ≠ Physics, so the resolver ignored it): the player
+        // sailed through and past the zone (zone right edge = 80+24 = 104).
+        Assert.True(player.Get<TransformComponent>().Position.X > 104,
+            $"the zone must sense, not block; player X={player.Get<TransformComponent>().Position.X}");
+        // The collider child never drifted inside its parent (pre-mortem #1, on the shipping chain).
+        Assert.Equal(Vector2.Zero, playerCollider.Get<TransformComponent>().Position);
+    }
+
     // ─── NPCInteractionSystem: the proximity consumer resolves the collider CHILD ────────────────
 
     [Fact]
