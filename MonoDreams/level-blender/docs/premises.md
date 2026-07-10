@@ -6,7 +6,7 @@
 > `Tools/blender_level_export.py` exporter plugin. Read this before
 > changing the parser, the JSON schema, or the exporter plugin.
 
-## The Blender parser is import-only (not wired to live game boot); retirement is an OPEN QUESTION
+## The Blender parser is import-only (not wired to live game boot) — and is RETIRED by directive
 
 Since PS5 `BlenderLevelParserSystem` is **import machinery**, not a live loader. The shipped game boots
 native `.mdscene` levels only; the Blender parser runs once, via the import op, to migrate a
@@ -19,17 +19,17 @@ derived content path) so the imported native scene re-loads the GreasePencil tex
 Runtime-derived NPC affordances (the dialogue zone's live `Entity` icon reference + the icon's live font)
 are excluded from the migrated scene — a follow-up.
 
-> **RETIREMENT — an OPEN QUESTION, not a directive.** No retirement has been ordered; the user has not
-> decided whether the Blender import path still has a future now that levels are authored natively in
-> the MonoDreams editor with prefabs. Pending that decision, CE-B added **no new code** to this parser:
-> the collider-child production the other producers gained (LDtk factories, the committed scene migrated
-> by `monodreams migrate-colliders`) was deliberately NOT wired into it (its box still embeds on the
-> entity, correct only for a centered origin — see the `_ = boundsOffset` seam in `ProcessCollections`).
-> The parser remains import-only and off the live boot path, so this is safe: a Blender box-collider
-> import with a non-centre origin lands slightly offset until the seam is closed OR the module is
-> retired. If retirement IS chosen, the deletion sweep covers: the parser, the `Blender_` dispatch, the
-> exporter plugin (`Tools/`), Examples import wiring, this module's premises, and the
-> `LevelImporterTests` Blender-shaped fixture.
+> **RETIREMENT (user directive 2026-07-10, given to the CE-B wave and re-confirmed to the
+> orchestrator).** "With the MonoDreams Level Editor functional, the Blender Level Editor adaptation
+> is retired and we don't need to care about compatibility — we are getting rid of it." Levels are
+> authored natively in the MonoDreams editor with prefabs. Accordingly CE-B added **no new code** to
+> this parser (the collider-child seam — `_ = boundsOffset` in `ProcessCollections` — stays unclosed;
+> the parser is import-only and off the live boot path, so this is safe until deletion). The committed
+> `Blender_Level.mdscene` remains as a NATIVE v2 scene (only its origin was Blender); the GreasePencil
+> textures it uses stay. The **deletion sweep (wave BR)** covers: the parser + `BlenderLevelData`, the
+> `Blender_` dispatch, the exporter plugin (`Tools/blender_level_export.py`), Examples import wiring,
+> the CLI module-registry entry + `MODULES.md`/`docs/index.md`/`CLAUDE.md` module-count updates, this
+> module's docs, and the `LevelImporterTests` Blender-shaped fixture.
 
 **Why:** native `.mdscene` is the game's real level format; keeping the parser as a one-way importer is
 what closes the parser-asymmetry (CORE_TENETS §6/§10) while preserving the Blender authoring path.

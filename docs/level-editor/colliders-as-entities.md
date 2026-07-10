@@ -67,11 +67,12 @@
 > seam was deliberately NOT closed with new collider-child code — the parser is import-only
 > and off the live boot path (PS5), and the committed `Blender_Level.mdscene` boots as a
 > migrated NATIVE scene (not via the parser). LDtk factory colliders were already child
-> entities from CE-A. **Open question for the user (NOT a directive — no retirement has
-> been ordered): with native authoring + prefabs landed, should the `level-blender` module
-> (parser, exporter plugin, `Blender_` dispatch) be retired?** Until answered, the import
-> path stays as-is; a Blender box-collider import with a non-centre origin lands slightly
-> offset (the unclosed seam) — acceptable for an import-only path pending the decision.
+> entities from CE-A. **The Blender importer is RETIRED (user directive 2026-07-10, given
+> to the CE-B wave directly and re-confirmed to the orchestrator: "we are getting rid of
+> it", no compatibility owed).** The unclosed box-offset import seam is therefore moot;
+> the full module deletion is **wave BR** (after CE-D): parser + data types, `Blender_`
+> dispatch, the exporter plugin under `Tools/`, Examples import wiring, the CLI registry
+> entry + module-count docs, and the Blender-shaped test fixtures.
 
 ## 3. The editor (proxies die for colliders)
 
