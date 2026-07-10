@@ -167,6 +167,7 @@ booted and played. What the walkthrough surfaces gets fixed in-wave.
 | **PF-C** | `.mdprefab` format + reader expansion + diff-based writer compaction + `PrefabInstanceComponent` + `PrefabFactory` + bundling + fail-loud/cycle rules (core, test-first — no UI) | — |
 | **PF-D** | Prefabs shelf tab + placement + Create-from-Selection + Create-Empty + prefab editing tabs + Save Prefab + live propagation + Unpack + instance-children guardrails | PF-A, PF-B, PF-C |
 | **PF-E** | the NPC/dialogue/Player walkthrough + fixes + docs/premises/roadmap sweep | PF-D |
+| **PF-F** | reality fixes after the hands-on test (§8) — capture reliability + feedback, shelf refresh, prefab-context hygiene, instance naming, the notify seam, Save relocation, universal palette, duplicate-id self-heal | PF-E |
 
 Verify gate per wave: `dotnet build MonoDreams/MonoDreams.csproj && dotnet test
 --configuration Release` (full solution).
@@ -196,3 +197,42 @@ Verify gate per wave: `dotnet build MonoDreams/MonoDreams.csproj && dotnet test
    serialize a camera into the prefab (format violation) and confuse the tree.
 9. **Tab-switch data safety** — every switch path goes through the dirty-gated
    confirm; the × on a dirty prefab tab must never silently discard.
+
+## 8. PF-F — reality fixes (post-hands-on)
+
+The user's first hands-on prefab session surfaced concrete breakages; PF-F fixes them:
+
+- **Capture reliability + feedback.** Create-Prefab-from-Selection routes ONE
+  shared `PrefabCapture` helper: it finds the parentless root **robustly** (never
+  `created[0]`) and **refuses an empty capture** — a bare-`Transform` root with no
+  children is "selection appears empty - nothing captured" (the user's
+  `elephant-kid` empty-shell; Create-Empty is the path for a bare root). On success
+  it confirms `Created prefab '<id>' (N entities)` and **refreshes the shelf** so the
+  card appears without a relaunch (also after Create-Empty / Save-Prefab / Delete /
+  RefreshCatalog).
+- **Prefab-context hygiene.** Every root-creating action inside a prefab tab
+  (palette / trigger / Add Empty / boundary) **auto-parents** the new entity under
+  the single prefab root (`CreateEntityCommand.parentTo` → `PrefabContextRoot`), so
+  assembly can never leave a second, un-savable root; a genuine multi-root Save-Prefab
+  refusal **names** the offending roots. A **screen-KeepAlive delete guard** refuses
+  deleting the dialogue-UI root a live system holds (the crash fix), and the Entities
+  tree **hides** KeepAlive infrastructure in a prefab context.
+- **Naming.** Create-Empty roots get `EntityInfoComponent(prefabId)`;
+  create-from-selection preserves the source root's name; **instances** get a UNIQUE
+  name (prefab root name else id, uniquified: `House`, `House 2`, … via
+  `EntityNaming`), landing before the tree materializes.
+- **The notify seam.** A pure `EditorNotifications` model (newest-wins, ~4.5s)
+  surfaces every user-action refusal / confirmation on the status bar's LEFT
+  (severity-colored) AS WELL AS logging it.
+- **Save affordance.** The Save icon button moved OFF the window bar into the Scene
+  panel header (beside the camera-view button), context-aware (Save Scene / Save
+  Prefab), disabled on the Game tab — ONE Save affordance.
+- **Universal palette.** When a screen supplies no catalog/bands but the project is
+  resolved, the OVERLAY builds them (drop-folder scan + a band per layer of the
+  screen's own map), so a menu / demo gets the Assets + Prefabs tabs too — the editor
+  is oblivious to which scene is loaded.
+- **Duplicate-id self-heal.** A corrupt/double-loaded scene (the user's `island2`:
+  two roots sharing a stable id) LOADS and heals — the reader re-stamps later
+  duplicates on load, the writer on save — so colliding ids never persist across the
+  diff. The one un-swept additive-load path found (a debug `InputMappingSystem` K
+  reload) is gated out of Edit; the editor's own scene switches all sweep-before-load.

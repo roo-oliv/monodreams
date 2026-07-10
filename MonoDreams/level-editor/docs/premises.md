@@ -272,6 +272,13 @@ format is culture-invariant and shortest-round-trippable (it normalizes `1.0`→
 round-trips and re-serializes identically, so the fixed point holds). The later **additive `prefab`
 field** on a `SceneEntityData` (PF-C — a linked prefab instance) is null/omitted for an ordinary
 entity, so every pre-prefab scene stays byte-identical; see "Prefabs are LINKED instances…".
+**Ids self-heal (PF-F): duplicates are re-stamped, never persisted.** A corrupt or double-loaded scene
+can carry two roots with the SAME id (the user's `island2`); left verbatim the collision is stable
+across `load → save` (the writer preserves restored ids) and the diff never recovers. So BOTH halves
+re-stamp the later duplicates to the next free id: the reader (`SceneReaderSystem.RetagSceneRoots`) on
+load — the scene loads and heals in-world — and the writer (`SceneWriter.BuildScene`) on save, mutating
+the live `SceneEntityIdComponent` and notifying the count. One heal converges the file to distinct,
+byte-stable ids; the invariant "ids are unique, monotonic, preserved" holds again.
 
 **Why:** meaningful `.mdscene` git diffs and tractable merges — the precondition for versioning
 levels — require deterministic bytes: STJ does not sort object keys by default (the live
@@ -290,7 +297,9 @@ conflates the render tiebreak with scene identity and loses the id on reload; a 
 `MovingOneEntity_TouchesOnlyThatEntitysLines` — a transform move is a minimal, localized diff;
 `ComponentMapKeys_AreOrdinalSorted` — component keys + `activeLayers` sorted;
 `Floats_UnderNonInvariantCulture_UsePeriodDecimal` — a comma-decimal `CurrentCulture` still emits `.`;
-`NewRootAfterLoad_GetsNextFreeStableId`).
+`NewRootAfterLoad_GetsNextFreeStableId`); PF-F self-heal:
+`MonoDreams.Tests/LevelEditor/DuplicateIdSelfHealTests.cs` (`Writer_TwoRootsShareAnId_ReStampsTheLaterOne_AndConvergesByteStable`,
+`Reader_DuplicateIdsInFile_LoadSucceeds_LaterDuplicateReStampedInWorld`).
 **Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories"
 (the round-trip whose bytes this makes deterministic); foundation — the `IPlatformServices` write seam.
 
@@ -499,8 +508,9 @@ the within-band Order (`OrderForward`/`OrderBack`) buttons OFF the toolbar entir
 context menus — the `EditorToolbarAction`s and their dispatch stay (the menus fire them), only the
 buttons are gone; and it **appended a fixed `EntityMenu` ("Entity") text button + a ▾ caret mesh** to
 the header (its dispatch opens the entity context menu below it). The window bar (`DefaultButtons`) now
-keeps **Save / Undo / Redo / Refresh** (ICON buttons) plus the still-text **collider/vertex** authoring
-actions (their future home is a follow-up, not built this wave). Icon buttons are ~square (their width is
+keeps **Undo / Redo / Refresh** (ICON buttons) plus the still-text **collider/vertex** authoring
+actions (their future home is a follow-up, not built this wave). **PF-F: Save left the window bar** for
+the Scene panel header (see the Camera-view note below) — ONE Save affordance. Icon buttons are ~square (their width is
 the `ButtonHeight`); text buttons stay label-width (the Entity button reserves an extra caret allowance).
 The dispatch/gating is unchanged (the ONE `ToolbarSystem` still hit-tests both rows; editing buttons dim
 while Playing, transport always live; `EntityMenu` is an editing action). How the buttons DRAW — the
@@ -512,6 +522,11 @@ left-anchored transport/tool row, the Blender nav-corner affordance), a fixed he
 from `HeaderButtons`. It is an ordinary `ToolbarButtonComponent`, so the ONE `ToolbarSystem` hit-tests +
 dispatches it and bakes its glyph; an editing action (Paused-only), it snaps the editor VIEW onto the
 camera rig (`view:camera` — see "The editor splits the free VIEW from the authored camera rig").
+**PF-F: the Save icon button now sits in this same right cluster, just LEFT of the Camera-view button**
+(`_saveButton`, an `EditorToolbarAction.Save` icon button, not part of `HeaderButtons`): the ONE
+`ToolbarSystem` hit-tests + dispatches + bakes its floppy glyph, dims it on the Game tab / unresolved
+project via the shared save-guard, and makes its tooltip **context-aware** — "Save Scene" on a
+scene/game tab, "Save Prefab" in a prefab tab.
 **PF-B: the Scene header leads with the viewport TAB STRIP** (`[ Scene ] [ ▶ Game × ]`) — the retired
 `[Scene | Game]` mode toggle's replacement. It is a **separate** system (`ViewportTabStripSystem`, woven
 in the `editor.toolbar` group), NOT `ToolbarButtonComponent`s: a tab dispatches by SLOT index
@@ -1085,7 +1100,10 @@ the editor is composed); a host with no keyboard-action mapping layer (Demos) us
 sprite prep gains the cull → sprite-prep → Y-sort chain under the flag so loaded scenes preview; a
 screen whose `DrawLayerMap` has no Y-sorted layer (or that creates a minimal map just for the seam,
 like Demos' `DemoEditor.CreateLayers`) degrades gracefully (Y-sort passes depths through and
-selection picks on the final source-derived `LayerDepth`). Per-screen edit policies are declared at
+selection picks on the final source-derived `LayerDepth`). **PF-F:** a screen that supplies no asset
+catalog/bands but has a resolved project gets the palette anyway — the overlay builds a default catalog +
+bands from the screen's own layer map (see "The palette lists assets as cards …"), so the Assets + Prefabs
+tabs are universal too, not just on the game screen. Per-screen edit policies are declared at
 the registration site: menus and demo UIs freeze `ui.interaction` in Edit (a click belongs to the
 editor, never to a screen transition — the toolbar's Play transport button or the systems panel
 re-arms it) but keep `layout` live
@@ -1570,7 +1588,14 @@ scene rebuild — see "The editor splits the free VIEW from the authored camera 
 pipeline (`CursorControllerComponent`/`CursorInputComponent` — screen input infrastructure, not
 scene content), or when the screen's `KeepAlive` predicate names it (system-constructed screen
 infrastructure held by reference, e.g. the dialogue UI root via `DialogueStateComponent`) — keeps
-propagate DOWN the `ChildOf` chain. A Restart with no recorded `Reload` is a **loud no-op**
+propagate DOWN the `ChildOf` chain. **A KeepAlive entity is also delete-guarded (PF-F, the crash fix):**
+`Transport.IsScreenInfrastructure` (the `KeepAlive` predicate plus the `ChildOf` ancestor walk, now
+public) is consulted by `EditorCommandSystem.DeleteSelection`, which REFUSES deleting such an entity
+everywhere delete routes (command / menu / Delete key) with the status hint "screen infrastructure -
+cannot be deleted" — disposing the dialogue-UI root a live `DialogueSystem` still references NRE'd the
+game. The Entities tree also **hides** KeepAlive infrastructure in a PREFAB context (it survives the
+sweep by design but is not prefab content); in a scene context it stays visible. A Restart with no
+recorded `Reload` is a **loud no-op**
 (warning, nothing disposed): tearing the world down with no way to rebuild it would strand the
 designer on a blank screen.
 
@@ -2013,8 +2038,14 @@ paints the `Bg0` band + a top `Border` rule (so the panels-cover-the-margins tes
 `EditorStatusBarSystem` places the dynamic content each frame on the native `Editor` target (no
 `VisibleComponent` — the chrome rule; live in BOTH transport states). **LEFT:** while a modal transform is
 active, its live readout (`StatusBarModel.LeftModal` — mode word + ΔX/ΔY / factor / degrees + axis tag +
-the typed buffer + the confirm/cancel hint), else the contextual status (`LeftStatus` — the selected
-entity's name or "No selection", and the non-infra entity count). **RIGHT (PF-B):** `StatusBarModel.Right` —
+the typed buffer + the confirm/cancel hint), else (PF-F) a transient **notification** while one is
+showing, else the contextual status (`LeftStatus` — the selected
+entity's name or "No selection", and the non-infra entity count). **The notification seam (PF-F):** the
+pure `EditorNotifications` model (newest-wins, a bounded ~4.5s display clock the status bar ticks),
+severity-colored via the `EditorTheme` intent roles (Info / Success / Warning / Danger), ASCII-only like
+the rest of the bar — what EVERY user-action refusal / confirmation raises AS WELL AS logging (a save
+guard, a prefab capture confirmation, a guardrail hint, the multi-root message); a live modal readout
+always wins over it. **RIGHT (PF-B):** `StatusBarModel.Right` —
 the ACTIVE viewport tab's id, plus its transport state on the Game tab (`island` on the Scene tab,
 `island | Playing` / `island | Paused` on the Game tab — the run state replaces the retired "Scene mode" /
 "Game mode" words, since the tab strip now names the active context), with a `Warning` dirty dot drawn as a
@@ -2037,7 +2068,9 @@ grab/scale/rotate incl. axis + buffer + the press-X-or-Y prompt + the rig "Zoom"
 with count pluralization, `Right_ShowsActiveTabId_AndRunStateOnTheGameTab` — the Scene tab shows just the id,
 the Game tab the id + Playing/Paused) and `MonoDreams.Tests/LevelEditor/EditorStatusBarSystemTests.cs`
 (the Scene tab shows the id + the dirty dot mesh only when dirty, `Right_ReflectsGameTab_ShowsRunState` — the
-Game tab shows `id | Paused`, the left flip from status to the modal readout, "No selection"). The strip joining the ONE inset (the panels-cover-the-margins + DPR-2 doubling
+Game tab shows `id | Paused`, the left flip from status to the modal readout, "No selection"); PF-F
+notify seam: `MonoDreams.Tests/LevelEditor/EditorNotificationsTests.cs` (newest-wins, the bounded display
+clock, current-read). The strip joining the ONE inset (the panels-cover-the-margins + DPR-2 doubling
 + the `StatusBar` rect) is `MonoDreams.Tests/LevelEditor/EditorShellTests.cs`
 (`ChromeLayout_PanelsCoverExactlyTheInsetMargins`, `ChromeLayout_AtDpr2_DoublesEveryPointMetric`,
 `ChromeBuilder_PanelsAreOpaqueAndCoverTheMargins`) + `MonoDreams.Tests/LevelEditor/EditorShellStateTests.cs`
@@ -2281,7 +2314,13 @@ interactive (`Assets | Prefabs`, OWNED by this system — the retired static tab
 `EditorChromeBuilder`); the **Prefabs** tab lists `.mdprefab` cards (a prefab glyph + id) and reuses the
 SAME `Place`-mode arm/ghost/click machinery (mutually exclusive with an armed asset/trigger; the prefab
 ghost v1 is none — click-on-viewport). Each tab's chrome parks when the other is active. See "The prefab
-UX … (PF-D)".
+UX … (PF-D)". **PF-F — the palette is now UNIVERSAL:** when a screen supplies NO catalog/bands of its own
+but the project context is resolved, the OVERLAY builds them itself — a default catalog scanned from the
+`Content/Island` drop-folder convention (`EditorOverlay.DefaultAssetDropFolder`) + one band per layer of
+the SCREEN's own `DrawLayerMap` (`EditorOverlay.DefaultBandsFromLayers`) — so a menu / demo gets the
+Assets + Prefabs tabs too, not just the game screen (the user's "the editor should be oblivious to what
+kind of scene is loaded"). An unresolved project keeps the no-palette behavior; a screen that supplies
+its own catalog/bands overrides it; the screen still weaves `overlay.Palette` into its pipeline.
 
 **Why:** the user's report that the palette assets "should be bigger, take a little more height … and
 be actual cards with the icon/preview on top and text on the bottom" — flat text rows are hard to
@@ -3321,6 +3360,25 @@ viewport-context stack. Six moving parts, one mechanism each:
   v1-refused with a hint (nested-prefab authoring is terrain — the core recursion exists but is not
   surfaced).
 
+- **Capture + assembly hardening (PF-F).** Create-Prefab-from-Selection captures through the ONE
+  `PrefabCapture` helper (shared by the overlay and its test double, so they never drift): it finds the
+  parentless root ROBUSTLY (never `created[0]`) and **refuses an empty capture** — a bare-`core.Transform`
+  root with no children and no other components is "selection appears empty - nothing captured" (the
+  user's `elephant-kid` empty-shell symptom; Create-Empty is the path for a bare root), refused loud +
+  on the status bar with nothing written. It names the captured root (its own `EntityInfoComponent`,
+  else `EntityInfoComponent(prefabId)`). On success it confirms `Created prefab '<id>' (N entities)` on
+  the status bar and **refreshes the shelf** (`PalettePlacementSystem.RefreshPrefabs` — also after
+  Create-Empty / Save-Prefab / a card Delete / the RefreshCatalog action) so the card appears without a
+  relaunch. Every root-creating action **inside a prefab tab** (palette place, trigger place, Add Empty
+  Entity, boundary commit) **auto-parents** the new entity under the single prefab root
+  (`CreateEntityCommand.parentTo` → `PrefabContextRoot.Resolve`, dropping its save-root tag), so assembly
+  can never leave a second, un-savable root; undo/redo re-establish the parent. A genuine multi-root
+  Save-Prefab refusal **names the offending roots** ("2 roots: 'A', 'B' - parent everything under one
+  root"). A placed **instance** gets a UNIQUE `EntityInfoComponent` name — the prefab root's name (else
+  the prefab id), uniquified against the live world (`House`, `House 2`, … via `EntityNaming`) — applied
+  before the tree materializes (a `CreateInstanceCommand(autoName: true)`). Guardrail hints + prefab
+  refusals + capture confirmations all surface via the status-bar notify seam, not just the log.
+
 **Ops.** `prefabs:list`; `prefab:edit <id>` (open the tab), `prefab:place <id>` (one-shot place at the
 cursor), `prefab:unpack`, `prefab:delete <id>`, `prefab:create-from-selection <name>`,
 `prefab:create-empty <name>`; `dialog:prefab` (the Save-Prefab confirm rides the dialog grammar);
@@ -3348,7 +3406,13 @@ tab per prefab, per-context dirty isolation, `DecideClose`→`ConfirmDirty`, `Cl
 `PrefabShelfMenu`); the end-to-end acceptance walkthrough
 `MonoDreams.Tests/LevelEditor/PrefabMilestoneTests.cs` (Create-Prefab-from-Selection → place instances →
 per-instance override → Save-Prefab propagation on the scene's restore → Unpack, driven exactly as the
-overlay's prefab ops drive them).
+overlay's prefab ops drive them; PF-F: `MultiEntityCapture_DeepFamily…` — a deep family captured via the
+root, placed, saved compact, reloaded, re-expanded, and a bare-root capture refused;
+`AssembleFromEmpty_ViaPalettePlacement_AutoParented_SaveSucceeds_InstancesNamedUnique`).
+PF-F unit coverage: `MonoDreams.Tests/LevelEditor/PrefabCaptureTests.cs` (robust root-finding, the empty
+refusal, root naming, the uniquifier series), `MonoDreams.Tests/LevelEditor/PrefabContextHygieneTests.cs`
+(auto-parent + undo/redo, the `PrefabContextRoot` resolver, the screen-infra delete guard,
+`Transport.IsScreenInfrastructure`).
 **Depends on:** this file — "Prefabs are LINKED instances … (PF-C)" (the core this exposes: the
 expander, the diff-based compaction, `PrefabPropagation`, the bundling), "The viewport context stack is
 the ONE tab-switching mechanism … (PF-B)" (prefab contexts are its new consumer), "The editor splits the
