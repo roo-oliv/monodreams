@@ -394,8 +394,14 @@ public class PhysicsDemoScreen : IGameScreen
     private Entity CreateWall(Rectangle bounds, HashSet<int> activeLayers)
     {
         var wall = _world.CreateEntity();
-        wall.Set(new TransformComponent(Vector2.Zero));
-        wall.Set(new BoxColliderComponent(bounds, activeLayers));
+        // Colliders-as-entities: the box is a centered Size on the collider entity's transform.
+        // These walls are invisible, static, collision-only, and their OWN body (no physics), so we
+        // position the entity at the box CENTER and give the box the Size — the world rect is
+        // byte-identical to the former top-left Bounds, the position is still constant (zero Delta,
+        // so the swept test self-skips), and FloorTag stays on the body the resolver reads.
+        var center = new Vector2(bounds.X + bounds.Width / 2f, bounds.Y + bounds.Height / 2f);
+        wall.Set(new TransformComponent(center));
+        wall.Set(new BoxColliderComponent(new Vector2(bounds.Width, bounds.Height), activeLayers));
         return wall;
     }
 
@@ -595,12 +601,13 @@ public class PhysicsDemoScreen : IGameScreen
     // ─── pipeline ────────────────────────────────────────────────────────────
 
     /// Adapter to the `CreateCollisionMessageDelegate<CollisionMessage>` shape that
-    /// `TransformCollisionDetectionSystem` expects. Always emits Physics-type messages.
+    /// `TransformCollisionDetectionSystem` expects. Always emits Physics-type messages. Every demo
+    /// entity is its own body (collider == body), so the collider and body entities coincide.
     private static CollisionMessage CreateCollisionMessage(
-        Entity entity, Entity target,
+        Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB,
         Vector2 contactPoint, Vector2 contactNormal,
         float contactTime, float penetrationDepth, int layer)
-        => new(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, CollisionType.Physics);
+        => new(colliderA, colliderB, bodyA, bodyB, contactPoint, contactNormal, contactTime, penetrationDepth, layer, CollisionType.Physics);
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
@@ -941,8 +948,9 @@ public class BallBounceSystem : ISystem<GameState>
 
     private void Resolve(CollisionMessage msg)
     {
-        var entity = msg.BaseEntity;
-        var other  = msg.CollidingEntity;
+        // Physics consumers read the BODY side; every demo entity is its own body (collider == body).
+        var entity = msg.BodyA;
+        var other  = msg.BodyB;
         if (!entity.IsAlive || !other.IsAlive) return;
 
         // Walls have no velocity component (and shouldn't move); guard.

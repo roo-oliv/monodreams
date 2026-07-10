@@ -501,6 +501,12 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
 
         var boundsOffset = new Point(intLeft, intTop);
         var boundsSize = new Point(intRight - intLeft, intBottom - intTop);
+        // TODO(CE-B): colliders are entities now — the box carries only Size (centered on the
+        // entity's transform). For a default (0.5,0.5) origin boundsOffset centers the box already
+        // (byte-identical); a non-centered origin needs the offset placed on a child collider
+        // entity's Transform, which the CE-B import refinement + `monodreams migrate-colliders`
+        // handle. This parser is IMPORT-ONLY (never live boot), so the seam is safe to leave marked.
+        _ = boundsOffset;
 
         // Check for Collision collection
         if (meshObj.Collections.Contains("Collision"))
@@ -517,9 +523,8 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
                 passive = GetBoolProperty(collisionProps, "passive", false);
             }
 
-            var bounds = new Rectangle(boundsOffset, boundsSize);
             var activeLayers = new HashSet<int> { layer };
-            entity.Set(new BoxColliderComponent(bounds, activeLayers, passive));
+            entity.Set(new BoxColliderComponent(new Vector2(boundsSize.X, boundsSize.Y), activeLayers, passive));
 
             Logger.Debug($"Added BoxColliderComponent to '{meshObj.Name}' (layer: {layer}, passive: {passive})");
         }
@@ -530,7 +535,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
             if (string.IsNullOrEmpty(meshObj.Parent))
             {
                 entity.Set(new EntityInfoComponent("Player", meshObj.Name));
-                entity.Set(new BoxColliderComponent(new Rectangle(boundsOffset, boundsSize)));
+                entity.Set(new BoxColliderComponent(new Vector2(boundsSize.X, boundsSize.Y)));
                 entity.Set(new RigidBodyComponent());
                 entity.Set(new VelocityComponent());
 
@@ -562,8 +567,7 @@ public sealed class BlenderLevelParserSystem : ISystem<GameState>
         {
             if (!entity.Has<BoxColliderComponent>())
             {
-                var bounds = new Rectangle(boundsOffset, boundsSize);
-                entity.Set(new BoxColliderComponent(bounds, passive: true));
+                entity.Set(new BoxColliderComponent(new Vector2(boundsSize.X, boundsSize.Y), passive: true));
             }
             entity.Set(new EntityInfoComponent("Trigger", meshObj.Name));
             Logger.Debug($"Set as Trigger zone for '{meshObj.Name}'");
