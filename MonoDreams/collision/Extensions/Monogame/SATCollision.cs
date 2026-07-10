@@ -129,11 +129,13 @@ public static class SATCollision
     /// </summary>
     /// <remarks>
     /// Treats the box as axis-aligned regardless of <see cref="TransformComponent.Rotation"/>,
-    /// consistent with the swept-AABB model used for Box-vs-Box collisions.
+    /// consistent with the swept-AABB model used for Box-vs-Box collisions. Anchored at
+    /// <see cref="TransformComponent.WorldPosition"/> so a box collider on a child entity sits at
+    /// its world location (byte-identical to the former local anchor for a root — world == local).
     /// </remarks>
     public static void BoxToPolygon(BoxColliderComponent box, TransformComponent transform, Span<Vector2> output)
     {
-        var pos = transform.Position;
+        var pos = transform.WorldPosition;
         var bounds = box.Bounds;
 
         output[0] = new Vector2(pos.X + bounds.Left, pos.Y + bounds.Top);

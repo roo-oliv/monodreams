@@ -123,7 +123,7 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
             var hasBox = entity.Has<BoxColliderComponent>();
             var aabb = hasBox
-                ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, transform.Position)
+                ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, transform.WorldPosition)
                 : entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
 
             // Expand by this frame's movement so a fast mover shares a cell with
@@ -230,12 +230,12 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
     {
         var boxA = entity.Get<BoxColliderComponent>();
         var transformA = entity.Get<TransformComponent>();
-        var dynamicRect = CollisionRect.FromBounds(boxA.Bounds, transformA.Position);
+        var dynamicRect = CollisionRect.FromBounds(boxA.Bounds, transformA.WorldPosition);
         var displacement = transformA.Delta;
 
         var boxB = target.Get<BoxColliderComponent>();
         var transformB = target.Get<TransformComponent>();
-        var targetRect = CollisionRect.FromBounds(boxB.Bounds, transformB.Position);
+        var targetRect = CollisionRect.FromBounds(boxB.Bounds, transformB.WorldPosition);
 
         var collides = DynamicRectVsRect(
             dynamicRect, displacement, targetRect,
@@ -257,10 +257,10 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
     {
         // Broad-phase AABB rejection first (cheap)
         var aabbA = hasBoxA
-            ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, entity.Get<TransformComponent>().Position)
+            ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, entity.Get<TransformComponent>().WorldPosition)
             : entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
         var aabbB = hasBoxB
-            ? CollisionRect.FromBounds(target.Get<BoxColliderComponent>().Bounds, target.Get<TransformComponent>().Position)
+            ? CollisionRect.FromBounds(target.Get<BoxColliderComponent>().Bounds, target.Get<TransformComponent>().WorldPosition)
             : target.Get<ConvexColliderComponent>().BroadPhaseAABB;
 
         if (!aabbA.Intersects(aabbB)) return;

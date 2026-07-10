@@ -72,10 +72,13 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
     {
         ref var transform = ref entity.Get<TransformComponent>();
         var collidable = entity.Get<BoxColliderComponent>();
-        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.Position);
+        // World-anchored to match detection (byte-identical for a root — world == local). The
+        // position write-backs below stay in LOCAL space: the dynamic mover is a root entity today,
+        // so local == world; a dynamic CHILD would need world→local mapping (out of scope, interim).
+        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.WorldPosition);
 
         var targetTransform = collidingEntity.Get<TransformComponent>();
-        var targetRect = CollisionRect.FromBounds(collidingEntity.Get<BoxColliderComponent>().Bounds, targetTransform.Position);
+        var targetRect = CollisionRect.FromBounds(collidingEntity.Get<BoxColliderComponent>().Bounds, targetTransform.WorldPosition);
 
         if (!TransformCollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, transform.Delta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;

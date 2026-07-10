@@ -64,6 +64,46 @@ A custom system that mutates vertices outside detection has no
 protection.
 **Depends on:** —
 
+## Collider world geometry derives from the entity's WORLD transform
+
+Both narrowphase shapes are placed in the world from the entity's **world**
+transform, not its local one: `ConvexColliderComponent.UpdateWorldVertices`
+scales/rotates/translates `ModelVertices` by
+`TransformComponent.WorldScale`/`WorldRotation`/`WorldPosition`, and every box
+AABB / box-polygon (detection broadphase + narrowphase, resolution, and
+`SATCollision.BoxToPolygon`) is anchored at `TransformComponent.WorldPosition`.
+So a collider authored on a **child** entity — the first real case being a
+prefab instance's child (`house` → `House2` with a convex collider) — sits at
+its world location once placed, exactly where the editor's proxy / debug
+outlines (which already read `WorldPosition`) draw it. This **closes the former
+root-level-entity limitation** the convex derivation carried. For a root entity
+the world transform equals the local one (`WorldPosition == Position`,
+`WorldRotation == Rotation`, `WorldScale == Scale`), so every flat-hierarchy
+scene is **byte-identical** to the pre-change behaviour; the resolution
+position write-backs still mutate the *local* `Position`, correct only for a
+root dynamic mover (a dynamic child would need a world→local map — out of
+scope, interim).
+
+**Why:** a prefab collider authored on a child used to land at its
+parent-relative local position when the instance was placed — "more to the top
+and right" of where it belonged — because the derivation read local `Position`.
+Reading the world transform makes authoring-in-prefab == placed-in-scene.
+**Breaks:** if a system mutates a moved ancestor without the world matrix being
+refreshed (foundation — "HierarchySystem must run ahead of any system reading
+WorldPosition"), a child collider tests against a stale world position; a baked
+child collider that ALSO copies the parent's world position onto its own local
+field would double-count once the matrix link is synced (see level-editor's
+`BoundaryBakeSystem` — segments sit at local origin, parented).
+**Tests:**
+`MonoDreams.Tests/Collision/SATCollisionTests.cs::ConvexCollider_ChildEntity_WorldVertices_IncludeParentWorldPosition`
+and `::BoxCollider_Root_WorldPosition_ByteIdenticalToLocal`;
+`MonoDreams.Tests/LevelEditor/PrefabMilestoneTests.cs` (author-collider-on-child
+→ instance → world-correct collider).
+**Depends on:** foundation — "HierarchySystem must run ahead of any system
+reading WorldPosition"; foundation — "`WorldMatrix` is cached and computed
+lazily". *CE (colliders-as-entities) will re-derive collider world geometry via
+the owning entity's `WorldMatrix` natively, subsuming this.*
+
 ## Reference physics pipeline order: Movement → Velocity → Detection → Resolution → Commit
 
 Each stage owns one job and the next depends on the previous stage's

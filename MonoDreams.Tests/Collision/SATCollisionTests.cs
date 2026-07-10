@@ -362,4 +362,65 @@ public class SATCollisionTests
         Assert.Equal(101f, collider.BroadPhaseAABB.Right, 3);
         Assert.Equal(201f, collider.BroadPhaseAABB.Bottom, 3);
     }
+
+    // ---- Collider world geometry derives from the entity's WORLD transform (PF-G item 1) ----
+    // Repro-first: a convex collider on a CHILD (a prefab instance's child) must sit at its WORLD
+    // position once the root is placed. On HEAD this FAILED — the derivation read local Position, so
+    // the child collider ignored the root's placement ("more to the top and right").
+
+    [Fact]
+    public void ConvexCollider_ChildEntity_WorldVertices_IncludeParentWorldPosition()
+    {
+        var model = new Vector2[] { new(-1, -1), new(1, -1), new(1, 1), new(-1, 1) };
+        var collider = new ConvexColliderComponent(model);
+
+        // Instance root placed at a cursor position; the collider-bearing child is offset locally.
+        var root = new TransformComponent(new Vector2(100, 40));
+        var child = new TransformComponent(new Vector2(5, -3)) { Parent = root };
+        Assert.Equal(new Vector2(105, 37), child.WorldPosition); // sanity: composed world position
+
+        collider.UpdateWorldVertices(child);
+
+        // world = model + child.WorldPosition (the root's placement folded in) — NOT model + local.
+        Assert.Equal(new Vector2(104, 36), collider.WorldVertices[0]);
+        Assert.Equal(new Vector2(106, 36), collider.WorldVertices[1]);
+        Assert.Equal(new Vector2(106, 38), collider.WorldVertices[2]);
+        Assert.Equal(new Vector2(104, 38), collider.WorldVertices[3]);
+        // The OLD local-only derivation would have produced model + (5,-3), missing the (100,40) root.
+        Assert.NotEqual(new Vector2(4, -4), collider.WorldVertices[0]);
+    }
+
+    [Fact]
+    public void BoxCollider_Root_WorldPosition_ByteIdenticalToLocal()
+    {
+        // For a ROOT entity WorldPosition == Position, so the box-polygon anchor is byte-identical to
+        // the former local anchor — the box-on-root path the user confirmed still places correctly.
+        var box = new BoxColliderComponent(new Rectangle(-4, -6, 8, 12));
+        var transform = new TransformComponent(new Vector2(50, 70)); // root: no parent
+        Assert.Equal(transform.Position, transform.WorldPosition);
+
+        var poly = new Vector2[4];
+        SATCollision.BoxToPolygon(box, transform, poly);
+
+        Assert.Equal(new Vector2(46, 64), poly[0]); // TL = pos + (Left, Top)
+        Assert.Equal(new Vector2(54, 64), poly[1]); // TR
+        Assert.Equal(new Vector2(54, 76), poly[2]); // BR
+        Assert.Equal(new Vector2(46, 76), poly[3]); // BL
+    }
+
+    [Fact]
+    public void BoxCollider_ChildEntity_Polygon_IncludesParentWorldPosition()
+    {
+        // The box path follows a parent too (byte-identical for roots; world-correct for children).
+        var box = new BoxColliderComponent(new Rectangle(0, 0, 10, 10));
+        var root = new TransformComponent(new Vector2(200, 90));
+        var child = new TransformComponent(new Vector2(-20, 15)) { Parent = root };
+
+        var poly = new Vector2[4];
+        SATCollision.BoxToPolygon(box, child, poly);
+
+        // anchor = child.WorldPosition = (180, 105); poly[0] = anchor + (Left, Top) = (180, 105).
+        Assert.Equal(new Vector2(180, 105), poly[0]);
+        Assert.Equal(new Vector2(190, 115), poly[2]);
+    }
 }
