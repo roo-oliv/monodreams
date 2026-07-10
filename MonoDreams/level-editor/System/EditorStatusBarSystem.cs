@@ -45,6 +45,7 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
     private readonly Func<string> _sceneId;
     private readonly Func<bool> _isDirty;
     private readonly Func<ViewportContextKind> _activeKind;
+    private readonly EditorNotifications? _notifications;
     private readonly EntitySet _selectedSet;
     private readonly EntitySet _entitySet;
 
@@ -60,6 +61,10 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
     /// panel reads (the Game-tab snapshot dirty state while it is active, else the history).</param>
     /// <param name="activeKind">The active viewport tab's kind (PF-B) — the right side shows the tab id,
     /// plus Playing/Paused on the Game tab.</param>
+    /// <param name="notifications">The transient notification seam (PF-F): when a notification is active
+    /// (and no modal readout is), the LEFT side shows it severity-colored for
+    /// <see cref="EditorNotifications.DisplaySeconds"/> instead of the contextual status. Null (a test
+    /// with no notify channel) keeps the plain contextual status.</param>
     public EditorStatusBarSystem(
         World world,
         ViewportManager viewportManager,
@@ -67,7 +72,8 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
         ModalTransformSystem modal,
         Func<string> sceneId,
         Func<bool> isDirty,
-        Func<ViewportContextKind> activeKind)
+        Func<ViewportContextKind> activeKind,
+        EditorNotifications? notifications = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
@@ -76,6 +82,7 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
         _sceneId = sceneId ?? throw new ArgumentNullException(nameof(sceneId));
         _isDirty = isDirty ?? throw new ArgumentNullException(nameof(isDirty));
         _activeKind = activeKind ?? throw new ArgumentNullException(nameof(activeKind));
+        _notifications = notifications;
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         // "Entity count" = the editable, non-infra spatial entities (what the Entities tree pools).
         _entitySet = world.GetEntities().With<TransformComponent>().Without<EditorInfrastructureComponent>().AsSet();
@@ -92,11 +99,25 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
         var y = bar.Y + (bar.Height - labelHeight) / 2f;
         var pad = EditorChromeLayout.Px(EditorChromeLayout.RowMarginX, scale);
 
-        // ── Left: the modal readout while active, else the contextual status.
-        var leftText = _modal.IsActive
-            ? StatusBarModel.LeftModal(_modal.Readout)
-            : StatusBarModel.LeftStatus(SelectedName(), CountEntities());
-        PlaceLabel(_leftLabel, new Vector2(bar.X + pad, y), leftText, EditorTheme.Text1, scale);
+        // ── Left: the modal readout while active (the live-editing readout always wins), else a transient
+        // notification (severity-colored, PF-F) while one is showing, else the contextual status.
+        _notifications?.Tick(state.Time);
+        string leftText;
+        var leftColor = EditorTheme.Text1;
+        if (_modal.IsActive)
+        {
+            leftText = StatusBarModel.LeftModal(_modal.Readout);
+        }
+        else if (_notifications != null && _notifications.TryGetCurrent(out var note, out var severity))
+        {
+            leftText = note;
+            leftColor = SeverityColor(severity);
+        }
+        else
+        {
+            leftText = StatusBarModel.LeftStatus(SelectedName(), CountEntities());
+        }
+        PlaceLabel(_leftLabel, new Vector2(bar.X + pad, y), leftText, leftColor, scale);
 
         // ── Right: the active tab id (+ Playing/Paused on the Game tab), right-aligned; the dirty dot
         // sits just left of it.
@@ -118,6 +139,16 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
             ClearMesh(_dirtyDot);
         }
     }
+
+    /// <summary>The status-bar color for a notification severity — the shared <see cref="EditorTheme"/>
+    /// intent roles (Info blue / Success green / Warning amber / Danger red).</summary>
+    private static Color SeverityColor(EditorNotifySeverity severity) => severity switch
+    {
+        EditorNotifySeverity.Success => EditorTheme.Success,
+        EditorNotifySeverity.Warning => EditorTheme.Warning,
+        EditorNotifySeverity.Danger => EditorTheme.Danger,
+        _ => EditorTheme.Info,
+    };
 
     private string SelectedName()
     {

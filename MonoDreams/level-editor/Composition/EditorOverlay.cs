@@ -167,6 +167,10 @@ public sealed class EditorOverlay
         Registry.RegisterEngineComponents();
         Serializer = new SceneSerializer(Registry);
         History = new EditorHistory(world);
+        // The transient notification seam (PF-F): user-action sites raise a one-line status message
+        // (a save refusal, a prefab confirmation, a guardrail hint) AS WELL AS logging it. The status
+        // bar renders the current one on its LEFT; guarded editor systems that emit hints share it.
+        Notifications = new EditorNotifications();
 
         // The single gizmo-state entity: the toolbar's tool-select / snap-toggle mutate it,
         // GizmoSystem reads it.
@@ -448,7 +452,8 @@ public sealed class EditorOverlay
             isDirty: () => Transport.ActiveContextKind == ViewportContextKind.Game
                 ? Transport.SnapshotWasDirty
                 : History.IsDirty,
-            activeKind: () => Transport.ActiveContextKind);
+            activeKind: () => Transport.ActiveContextKind,
+            notifications: Notifications);
         // The viewport right-click (SelectionSystem, SelectTransform + a hit) opens the entity menu at
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
@@ -513,6 +518,11 @@ public sealed class EditorOverlay
 
     /// <summary>The scene serializer every save/load/undo-snapshot path shares.</summary>
     public SceneSerializer Serializer { get; }
+
+    /// <summary>The transient notification seam (PF-F): raise a one-line status message (severity-colored)
+    /// on the status bar's LEFT alongside logging it. Shared with the guarded editor systems (delete /
+    /// guardrail hints) so every user-action refusal/confirmation can surface without tailing the log.</summary>
+    public EditorNotifications Notifications { get; }
 
     /// <summary>The prefab resolver (<c>id → <see cref="PrefabData"/></c>): source-first in-editor, else
     /// bundled via <c>TitleContainer</c>. Shared by the reader, the writer (instance compaction), the
