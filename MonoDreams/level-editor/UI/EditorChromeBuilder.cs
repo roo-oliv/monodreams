@@ -69,6 +69,7 @@ public sealed class EditorChromeBuilder
     // static single "Assets" tab was retired from the chrome builder.
     private Entity _entityMenuCaret; // UX2-D: the ▾ caret mesh beside the header "Entity" text button
     private Entity _cameraViewButton; // UX2-E: the right-corner "Camera view" nav button (icon)
+    private Entity _saveButton;       // PF-F: the Save icon button in the Scene header (left of camera-view)
     private readonly List<Entity> _buttonEntities = new();
     private readonly List<Entity> _headerButtonEntities = new();
     private bool _built;
@@ -131,7 +132,9 @@ public sealed class EditorChromeBuilder
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] DefaultButtons =
     {
-        (EditorToolbarAction.Save, "Save"),
+        // PF-F: Save relocated OFF the window bar into the Scene panel header (right cluster, beside the
+        // camera-view button) — ONE Save affordance, context-aware (Save Scene / Save Prefab). See
+        // _saveButton below.
         (EditorToolbarAction.Undo, "Undo"),
         (EditorToolbarAction.Redo, "Redo"),
         // Island-authoring Slice 2: collider authoring (text — no icon this wave). Order relocated (UX2-D).
@@ -223,6 +226,13 @@ public sealed class EditorChromeBuilder
         _cameraViewButton = CreateButton(
             EditorToolbarAction.CameraView, labelEntity: null, iconEntity: CreateIconMesh(), tooltip: "Camera view");
 
+        // PF-F: the Save icon button — relocated into the Scene header's right cluster, just LEFT of the
+        // camera-view button (ONE Save affordance; the window bar no longer carries it). The ONE
+        // ToolbarSystem hit-tests + dispatches it (Save action) + bakes its floppy glyph + dims it on the
+        // Game tab / unresolved project, and makes its tooltip context-aware (Save Scene / Save Prefab).
+        _saveButton = CreateButton(
+            EditorToolbarAction.Save, labelEntity: null, iconEntity: CreateIconMesh(), tooltip: "Save Scene");
+
         // PF-B: the [Scene | Game] mode toggle is retired. The viewport TAB STRIP takes the header's
         // START — its (dynamic) tab entities are owned + laid out each frame by the dedicated
         // ViewportTabStripSystem, not the chrome builder; the chrome only reserves the header space they
@@ -286,6 +296,7 @@ public sealed class EditorChromeBuilder
                 HeaderSeparatorIndex()), scale);
         LayoutEntityMenuCaret(scale);
         LayoutCameraViewButton(sceneHeader, scale);
+        LayoutSaveButton(sceneHeader, scale);
 
         LaidOutWidth = screenWidth;
         LaidOutHeight = screenHeight;
@@ -364,6 +375,19 @@ public sealed class EditorChromeBuilder
         PlaceEntity(_cameraViewButton, new Vector2(rect.X, rect.Y));
         _cameraViewButton.Get<ToolbarButtonComponent>().Bounds = rect;
         _cameraViewButton.Get<SimpleButtonComponent>().Size = new Vector2(rect.Width, rect.Height);
+    }
+
+    /// <summary>Positions the PF-F Save button just LEFT of the camera-view nav button in the Scene
+    /// header's right corner (same size + a small gap), so the two form one right-anchored cluster.</summary>
+    private void LayoutSaveButton(Rectangle sceneHeader, float scale)
+    {
+        if (!_saveButton.IsAlive) return;
+        var nav = EditorChromeLayout.SceneHeaderNavButton(sceneHeader, scale);
+        var gap = EditorChromeLayout.Px(6, scale);
+        var rect = new Rectangle(nav.X - nav.Width - gap, nav.Y, nav.Width, nav.Height);
+        PlaceEntity(_saveButton, new Vector2(rect.X, rect.Y));
+        _saveButton.Get<ToolbarButtonComponent>().Bounds = rect;
+        _saveButton.Get<SimpleButtonComponent>().Size = new Vector2(rect.Width, rect.Height);
     }
 
     private static void BakeMesh(Entity e, MeshData mesh)

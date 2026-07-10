@@ -128,12 +128,13 @@ public class EditorShellTests
             Assert.Equal(RenderTargetID.Editor, visual.Target);
         }
         // The window bar carries the editing set; the Scene header carries the transport set PLUS the
-        // UX2-E right-corner "Camera view" nav button (a fixed header affordance, not part of
-        // HeaderButtons). PF-B: the [Scene | Game] mode-toggle SEGMENTS are retired — the viewport tab
-        // strip replaced them, and its tab entities carry ViewportTabComponent (NOT ToolbarButtonComponent),
-        // owned by ViewportTabStripSystem (not the chrome builder), so they are not counted here.
+        // UX2-E right-corner "Camera view" nav button AND (PF-F) the relocated Save button — two fixed
+        // header affordances, neither part of HeaderButtons. PF-B: the [Scene | Game] mode-toggle SEGMENTS
+        // are retired — the viewport tab strip replaced them, and its tab entities carry
+        // ViewportTabComponent (NOT ToolbarButtonComponent), owned by ViewportTabStripSystem (not the
+        // chrome builder), so they are not counted here.
         Assert.Equal(EditorChromeBuilder.DefaultButtons.Length, windowCount);
-        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length + 1, headerCount);
+        Assert.Equal(EditorChromeBuilder.HeaderButtons.Length + 2, headerCount);
         Assert.Equal(1600, chrome.LaidOutWidth);
         Assert.Equal(900, chrome.LaidOutHeight);
     }

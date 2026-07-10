@@ -344,7 +344,9 @@ public sealed class EditorOverlay
                                    is SaveBlockReason.NoProjectRoot or SaveBlockReason.GameMode,
             // A shell splitter/scrollbar drag that happens to release over the toolbar must not also
             // fire the button (the drag holds the shared token through its release edge).
-            isInputSuppressed: () => _shellState.IsDragging);
+            isInputSuppressed: () => _shellState.IsDragging,
+            // PF-F: the relocated Save button's tooltip is context-aware (Save Scene / Save Prefab).
+            activeContextKind: () => Transport.ActiveContextKind);
         // The ONE pooled hover tooltip for the icon buttons (UX2-C) — reads the per-button hover clock
         // ToolbarClicks advances, so it weaves right AFTER ToolbarClicks in the editor.toolbar group.
         Tooltip = new EditorTooltipSystem(world, viewportManager, toolbarFont);
@@ -1809,17 +1811,21 @@ public sealed class EditorOverlay
                         Logger.Warning(
                             "[level-editor] Save is blocked while the transport is Playing — saving " +
                             "mid-simulation would bake transient run state into the scene. Pause first.");
+                        Notifications.Notify("Save blocked while Playing - pause first.", EditorNotifySeverity.Warning);
                         return;
                     case SaveBlockReason.GameMode:
                         Logger.Warning(
                             "[level-editor] Save is blocked in Game mode — the sandbox is not saved (its " +
                             "edits discard on exit). Return to Scene mode to save the real scene.");
+                        Notifications.Notify("Save blocked on the Game tab - leave it to save the scene.",
+                            EditorNotifySeverity.Warning);
                         return;
                     case SaveBlockReason.NoProjectRoot:
                         Logger.Warning(
                             "[level-editor] Save is blocked: no project root resolved (no " +
                             $"{GameProject.FileName} found). Set {EditorProjectContext.ProjectRootVariable} " +
                             "in the run configuration, or run from a build output inside the project source tree.");
+                        Notifications.Notify("Save blocked - no project root resolved.", EditorNotifySeverity.Danger);
                         return;
                 }
                 Dialog.OpenSave(_sceneId);
@@ -1902,6 +1908,8 @@ public sealed class EditorOverlay
                 $"[level-editor] Save refused for '{_sceneId}': the world has no scene content (zero " +
                 "SceneObjectComponent roots) and no scene was loaded this session — nothing to save. " +
                 "Place or load something first.");
+            Notifications.Notify("Save refused - nothing to save (place or load something first).",
+                EditorNotifySeverity.Warning);
             return;
         }
 
@@ -1934,6 +1942,7 @@ public sealed class EditorOverlay
                     $"[level-editor] Saved scene '{_sceneId}' to '{savedPath}' OUTSIDE the levels dir " +
                     $"('{_projectContext?.LevelsPath}') — not auto-bundled; move it under Content/Levels to ship it.");
             Logger.Info($"[level-editor] Saved scene '{_sceneId}' to '{savedPath}'.");
+            Notifications.Notify($"Saved scene '{_sceneId}'", EditorNotifySeverity.Success);
         }
     }
 

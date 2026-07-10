@@ -308,8 +308,11 @@ public class ToolbarTests
         Assert.Contains(EditorToolbarAction.ToolBoundary, headerActions);
         Assert.Contains(EditorToolbarAction.ToggleSnap, headerActions);
 
+        // PF-F: Save left the window bar for the Scene panel header (ONE Save affordance, beside the
+        // camera-view button) — it is a fixed header button, not part of HeaderButtons or DefaultButtons.
+        Assert.DoesNotContain(EditorToolbarAction.Save, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.Save, headerActions);
         // The remaining editing actions stay on the window bar this wave.
-        Assert.Contains(EditorToolbarAction.Save, windowActions);
         Assert.Contains(EditorToolbarAction.Undo, windowActions);
         Assert.Contains(EditorToolbarAction.Redo, windowActions);
         Assert.Contains(EditorToolbarAction.RefreshCatalog, windowActions);
@@ -415,10 +418,20 @@ public class ToolbarTests
         toolbar.Update(playing);
         Assert.Contains(EditorToolbarAction.PlayPause, dispatched);
 
-        // A window-bar editing button (Save) is inert while Playing — a click belongs to the game.
+        // A window-bar editing button (Undo) is inert while Playing — a click belongs to the game.
+        dispatched.Clear();
+        var undo = BoundsOf(EditorToolbarAction.Undo);
+        Assert.True(EditorChromeLayout.TopBar(1600).Contains(undo), "Undo is not in the window top bar");
+        input.ScreenPosition = new Vector2(undo.Center.X, undo.Center.Y);
+        input.LeftButtonReleased = true;
+        toolbar.Update(playing);
+        Assert.DoesNotContain(EditorToolbarAction.Undo, dispatched);
+
+        // PF-F: the relocated Save button lives in the Scene header and, being an EDITING action, is
+        // likewise inert while Playing (Save reflects the paused scene, never mid-simulation state).
         dispatched.Clear();
         var save = BoundsOf(EditorToolbarAction.Save);
-        Assert.True(EditorChromeLayout.TopBar(1600).Contains(save), "Save is not in the window top bar");
+        Assert.True(EditorChromeLayout.SceneHeader(1600, 900).Contains(save), "Save is not in the Scene header");
         input.ScreenPosition = new Vector2(save.Center.X, save.Center.Y);
         input.LeftButtonReleased = true;
         toolbar.Update(playing);

@@ -65,6 +65,7 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     private readonly Action<EditorToolbarAction, GameState> _dispatch;
     private readonly Func<EditorToolbarAction, GameState, bool>? _isEditingActionBlocked;
     private readonly Func<bool>? _isInputSuppressed;
+    private readonly Func<ViewportContextKind>? _activeContextKind;
 
     private bool _cursorPresent;
     private Vector2 _cursorPoint;
@@ -84,14 +85,19 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
     /// toolbar dispatches nothing (a shell splitter/scrollbar drag owns the pointer — a drag that
     /// happens to release over a toolbar button must not also fire it). Null (the default) never
     /// suppresses.</param>
+    /// <param name="activeContextKind">PF-F: the active viewport context's kind — makes the relocated
+    /// Save button's tooltip context-aware ("Save Scene" on a scene/game tab, "Save Prefab" in a prefab
+    /// tab). Null (a test) keeps the button's static tooltip.</param>
     public ToolbarSystem(World world, Action<EditorToolbarAction, GameState> dispatch,
         Func<EditorToolbarAction, GameState, bool>? isEditingActionBlocked = null,
-        Func<bool>? isInputSuppressed = null)
+        Func<bool>? isInputSuppressed = null,
+        Func<ViewportContextKind>? activeContextKind = null)
         : base(world.GetEntities().With<ToolbarButtonComponent>().With<TransformComponent>().AsSet())
     {
         _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
         _isEditingActionBlocked = isEditingActionBlocked;
         _isInputSuppressed = isInputSuppressed;
+        _activeContextKind = activeContextKind;
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         // The shared gizmo state (tool / snap / mode) drives the ACTIVE-tool icon tint. There is exactly
         // one; absent (unit tests that build bare buttons) → every button reads as inactive.
@@ -134,6 +140,10 @@ public sealed class ToolbarSystem : AEntitySetSystem<GameState>
             button.Tooltip = state.RunMode == RunMode.Play ? "Pause" : "Play";
             SyncPlayPauseLabel(entity, state);
         }
+
+        // PF-F: the relocated Save button names its target by the active context (Save Scene / Save Prefab).
+        if (button.Action == EditorToolbarAction.Save && _activeContextKind != null)
+            button.Tooltip = _activeContextKind() == ViewportContextKind.Prefab ? "Save Prefab" : "Save Scene";
 
         // Transport controls are live in both modes (they are how you leave either state); editing
         // buttons only while Paused (Edit) — and an editing button may be additionally gated (e.g. Save
