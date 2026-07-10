@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using MonoDreams.LevelEditor.Serialization;
@@ -119,9 +120,12 @@ public class MgcbLevelBundleTests
     [Fact]
     public void CommittedMgcb_HasACopyEntry_ForEveryCommittedLevel()
     {
-        var mgcbText = File.ReadAllText(RepoPath("MonoDreams.Examples.Core/Content/Content.mgcb"));
-        var levelsDir = RepoPath("MonoDreams.Examples.Core/Content/Levels");
-        var levels = Directory.GetFiles(levelsDir, "*.mdscene", SearchOption.AllDirectories);
+        // COMMITTED bytes + git-TRACKED levels only (the ship-lint precedent): this test gates what
+        // the repo commits. Reading the working tree instead lets a developer's untracked WIP scenes
+        // (which legitimately have no committed /copy: entry yet) or their in-progress mgcb edits
+        // redden the suite — git is the source of truth for "committed".
+        var mgcbText = GitShow("MonoDreams.Examples.Core/Content/Content.mgcb");
+        var levels = GitTrackedLevelScenes();
         Assert.NotEmpty(levels);
 
         foreach (var level in levels)
@@ -146,5 +150,35 @@ public class MgcbLevelBundleTests
             dir = Directory.GetParent(dir)?.FullName;
         Assert.NotNull(dir);
         return Path.Combine(dir!, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>The COMMITTED bytes of a repo-relative file (<c>git show HEAD:&lt;path&gt;</c>).</summary>
+    private static string GitShow(string relative)
+    {
+        var output = RunGit($"show HEAD:{relative}");
+        Assert.False(string.IsNullOrEmpty(output), $"git show HEAD:{relative} returned nothing.");
+        return output;
+    }
+
+    /// <summary>The git-TRACKED <c>*.mdscene</c> files (repo-relative paths) under the Examples
+    /// Levels dir — untracked WIP scenes are excluded by construction.</summary>
+    private static List<string> GitTrackedLevelScenes() =>
+        RunGit("ls-files -- MonoDreams.Examples.Core/Content/Levels/*.mdscene")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+    private static string RunGit(string arguments)
+    {
+        var psi = new global::System.Diagnostics.ProcessStartInfo("git", arguments)
+        {
+            WorkingDirectory = RepoPath(""),
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        using var proc = global::System.Diagnostics.Process.Start(psi)!;
+        var stdout = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit();
+        Assert.Equal(0, proc.ExitCode);
+        return stdout;
     }
 }
