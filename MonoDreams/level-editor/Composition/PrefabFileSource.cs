@@ -92,6 +92,9 @@ public sealed class PrefabFileSource
             Logger.Warning($"[level-editor] Prefab '{prefabId}' deserialized to null; treating as absent.");
             return null;
         }
+        // Prefabs share the scene format + the CE-B version gate: a version-1 .mdprefab with embedded
+        // colliders is refused with the migrator hint (run monodreams migrate-colliders), same as a scene.
+        SceneVersionGuard.CheckFileLoad(scene, $"{prefabId}{PrefabWriter.PrefabFileExtension}");
         return PrefabData.FromScene(prefabId, scene); // validates one-root (throws loud on malformed)
     }
 

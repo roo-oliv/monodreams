@@ -195,10 +195,11 @@ public static class EngineComponentSerializers
     }
 
     // ---- BoxColliderComponent (centered size + layers + flags; world rect derived from Transform) ----
-    // TODO(CE-B): the on-disk field is now "size" (float[2]); the pose (former Bounds.Location offset)
-    // lives on the collider entity's Transform. Committed v1 scenes still carry the old "bounds"
-    // (int[4]) — CE-B owns the SceneData version bump, the fail-loud v1 refusal, and the
-    // `monodreams migrate-colliders` CLI that rewrites committed content.
+    // The on-disk field is "size" (float[2]); the pose (former Bounds.Location offset) lives on the
+    // collider entity's Transform. The reader is deliberately STRICT — it reads only "size", with NO
+    // legacy "bounds" tolerance, so a version-1 collider can never silently half-load. The gate that
+    // stops a version-1 collider file is SceneVersionGuard (fail-loud on file read); the committed v1
+    // content was rewritten to version 2 by `monodreams migrate-colliders` (ColliderMigration).
 
     private sealed class BoxColliderDto
     {

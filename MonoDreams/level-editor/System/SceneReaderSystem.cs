@@ -153,6 +153,11 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             return;
         }
 
+        // Fail-loud version gate (CE-B, pre-mortem #2): a version-1 file carrying embedded colliders would
+        // deserialize to silently-wrong shapes (the old box 'bounds' maps to no field), so refuse it with the
+        // migrator hint. Only FILE reads guard — the in-memory snapshot path above is version-agnostic.
+        SceneVersionGuard.CheckFileLoad(scene, path);
+
         Load(scene, path, message.SuppressCameraRig);
     }
 

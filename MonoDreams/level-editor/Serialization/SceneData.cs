@@ -21,9 +21,26 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// </summary>
 public class SceneData
 {
-    /// <summary>Scene format version. Bump on any breaking change to the schema.</summary>
+    /// <summary>The current native scene/prefab format version (see <see cref="Version"/>). Lives here —
+    /// on the dependency-free format type — so both the engine's <see cref="SceneVersionGuard"/> and the
+    /// source-linked CLI migrator (<see cref="ColliderMigration"/>) reference ONE constant without either
+    /// pulling in the component-serializer registry.</summary>
+    public const int CurrentVersion = 2;
+
+    /// <summary>
+    /// Scene format version. Bump on any breaking change to the schema.
+    ///
+    /// <para><b>Version 2 (colliders-as-entities, CE-B).</b> The default is <c>2</c>: everything the writer
+    /// emits (scenes AND prefabs) is version 2. A version-2 collider is a shape on its own collider ENTITY
+    /// (box <c>size</c> centered on the entity's Transform; convex <c>modelVertices</c> entity-local) — the
+    /// former embedded box <c>bounds</c> offset is gone. A version-1 file that carries an embedded collider
+    /// (a <c>core.BoxCollider</c>/<c>core.ConvexCollider</c> body) is <b>refused on file read</b> by
+    /// <see cref="SceneVersionGuard"/> (run <c>monodreams migrate-colliders</c>); a version-1 file WITHOUT
+    /// colliders still loads and re-saves as version 2. In-memory <see cref="SceneData"/> (Game-mode
+    /// snapshots) is version-agnostic — only file reads guard.</para>
+    /// </summary>
     [JsonPropertyName("version")]
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = CurrentVersion;
 
     /// <summary>Camera state (position / zoom / rotation) captured at save time.</summary>
     [JsonPropertyName("camera")]
