@@ -25,7 +25,7 @@
 > (canonical, byte-stable scene serialization + a persisted stable scene-local id
 > ordering `entities[]`), and the **UX2 phase** invariants (UX2-B left tabs + right
 > Inspector + region headers; UX2-C procedural icon buttons + tooltips; UX2-D context
-> menus; UX2-E the camera-rig view/authored split; **UX2-F** the Scene/Game-mode
+> menus; UX2-E/CM the camera-entity view/authored split; **UX2-F** the Scene/Game-mode
 > sandbox — snapshot on enter, reader-shared restore on exit, Save blocked in Game
 > mode, one-owner transport; and **UX3-D** the viewport Overlays menu — checkable
 > (Toggle) menu items, the session overlay settings, the one-value grid = snap step,
@@ -33,7 +33,7 @@
 > keyboard-shortcut chord table — Undo/Redo/Delete/FrameScene/AddMenu over the foundation chord layer,
 > gated by a single viewport context, consolidating the editor keyboard bindings and removing the bare
 > `Z`/`Y` undo/redo; and **UX3-F** the Blender-style modal transforms — bare `G`/`S`/`R` enter a
-> coalesced-undo modal edit that owns the pointer + keyboard (axis locks, numeric entry, rig composition,
+> coalesced-undo modal edit that owns the pointer + keyboard (axis locks, numeric entry, camera-entity composition,
 > Escape priority), plus the window status bar (one thin strip in the ONE inset, a pure formatting model)),
 > and the **PF-A** phase (the DevTools-grade editable Inspector — a filter field, type-colored member
 > values, inline value editing, and add/remove components through undoable commands, with the
@@ -144,11 +144,12 @@ SOURCE fields are written; the derived-depth *reproduction* across a full save�
 A scene saves the registered components of every `SceneObjectComponent`-tagged root **plus** each
 root's `ChildOfComponent` descendant closure, so a factory's sub-graph (e.g. a player and its
 orbiting orbs) round-trips with its parent graph intact even though only the root is tagged.
-Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar, and the UX2-E
-camera rig — never `SceneObjectComponent`-tagged, so it never enters `entities[]`, pre-mortem #4) are
-untagged → excluded. `SceneWriter` computes the closure, serializes it through the Wave-2 `SceneSerializer`
-into a `SceneData` (attaching the **camera rig's** state as `scene.camera` — UX2-E: the writer reads the
-authored camera FROM the rig, not the live view — and the `DrawLayerMap` banding), and writes
+Transient / overlay entities (cursor, UI / HUD, the editor's gizmo / selection / toolbar, and the
+camera-glyph overlay — never `SceneObjectComponent`-tagged, so they never enter `entities[]`) are
+untagged → excluded. The camera ENTITY, by contrast, IS `SceneObjectComponent`-tagged (CM), so it rides
+`entities[]` like any content root. `SceneWriter` computes the closure, serializes it through the Wave-2
+`SceneSerializer` into a `SceneData` (with the `DrawLayerMap` banding; there is no camera side-channel —
+the camera is captured in the closure), and writes
 the canonical JSON through `IPlatformServices.WriteAllText` into the versioned project source tree
 (`ProjectRoot/LevelsDir/<sceneId>.mdscene` — PS3; see "The editor Save writes versioned `.mdscene`
 into the project source tree"). Loading is a
@@ -184,7 +185,8 @@ swallowing an unregistered key would silently lose a designer's data.
 sprite root + a `ChildOf` child, write, reload via `LoadSceneRequest`, assert Transform + `SpriteInfo`
 SOURCE sort fields + `AssetKey` + texture rehydration + parent graph + camera/layers reproduce;
 `MembershipFilterTest` — only tagged roots + their `ChildOf` closure serialize, transient/untagged
-content entities excluded, and the UX2-E camera rig excluded (pre-mortem #4); `DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
+content entities excluded, and the camera ENTITY included (CM — it is a tagged scene root now);
+`DerivedDepthReproductionTest` — after reload, a prep + `YSortSystem`
 frame recomputes the identical derived `DrawComponent.LayerDepth`;
 `ReloadedSceneReTagsRoots_LoadEditSaveIsAFixedPoint` — save mixed content, reload, edit a loaded
 transform, re-save: the same 3 roots reproduce, the boundary bake child stays excluded, and the edit
@@ -221,9 +223,10 @@ Idempotent (a scene that already has one is left alone) and skipped for a prefab
 camera). See "The scene reader ensures exactly one camera entity" / camera — "Exactly one camera entity per
 scene".
 
-The pre-CM `scene.camera` file block is gone: the authored camera is the camera ENTITY now. The reader's
-`applyCameraToRig` seam survives only as a **CM-B bridge** — a v3 scene passes it `null` (no block), so the
-vestigial editor rig adopts the just-framed view; CM-B deletes the rig and this seam.
+The pre-CM `scene.camera` file block is gone: the authored camera is the camera ENTITY now. There is no
+`applyCameraToRig` seam — the reader just frames the view and ensures the camera entity (the editor rig,
+its glyph/snap/edit ops, and the seam were all deleted in CM-B). In Play `CameraSyncSystem` drives the
+view from the camera entity; in Edit the view is the editor's free camera and this framing centres it.
 
 **Why:** the render pipeline's `SpriteInfoComponent ⇒ DrawComponent` pairing is what puts a sprite on
 screen; the reader reconstructs the transient `DrawComponent` rather than serializing it (which would
@@ -244,8 +247,8 @@ The CM reader-ensure is protected by `MonoDreams.Tests/LevelEditor/CameraEntityT
 `Reader_PureRoundTripPath_DoesNotEnsureACamera`).
 **Depends on:** rendering — `SpritePrepSystem`'s `[With(DrawComponent, …)]` query and `CullingSystem`'s
 `VisibleComponent` add (the draw-path gates); this file — "Editor camera navigation pans/zooms/frames
-the scene directly" (the `CameraNav` frame-scene math reused), "The editor splits the free VIEW from the
-authored camera rig" (the rig the editor path routes `scene.camera` to); "Y-sorted props use the
+the scene directly" (the `CameraNav` frame-scene math reused), "The editor visualizes + edits the scene
+camera ENTITY" (the camera the view frames toward); "Y-sorted props use the
 feet-origin convention, factory-applied" (`SpritePropFactory`, the pairing this mirrors); camera —
 `CameraFollowTargetComponent` (the follow-target signal that suppresses camera positioning).
 
@@ -460,7 +463,7 @@ must still border-pick proxies and click-empty clear).
 **Menu buttons are a candidate source (TB-B).** A menu button is a `SimpleButtonComponent` mesh with
 a `DynamicText` label and **no** `SpriteInfoComponent`, so it never entered the sprite candidate set —
 the reason level-selection / demo-launcher buttons read as "unclickable" in Edit. Buttons now join the
-pick as their own source (like collider entities and the rig): hit-tested with the button's own
+pick as their own source (like collider entities and the camera entity): hit-tested with the button's own
 axis-aligned quad (world top-left origin + `Size` — the SAME rect `ButtonInteractionSystem` hover-tests)
 in the button's `Target` space (Main → `WorldPosition`, UI/HUD → `VirtualPosition`), ranked by the same
 composite-`TargetRank` + MAX-final-`DrawComponent.LayerDepth` (a button's baked 0.95 default when unset)
@@ -495,7 +498,7 @@ After the topmost hit is found, a VIEWPORT selection resolves it through
 anywhere on a placed instance selects, and therefore moves/rotates/scales, the whole instance rather
 than its prefab-owned child (whose gizmo/modal/inspector edits the instance-children guardrail
 refuses). A hit on a plain entity, an instance root itself, or a non-child candidate (a collider
-proxy, a boundary, the camera rig) is unchanged. Both viewport picks share the redirect — this
+proxy, a boundary, the camera entity) is unchanged. Both viewport picks share the redirect — this
 system's left/right press AND the overlay's `menu:open viewport` op. The **Entities tree** deliberately
 does NOT redirect: it selects a child directly for inspection (edits still refused with the status
 hint), which is why the redirect lives at the viewport-pick sites, not inside `SelectExclusive` (which
@@ -690,7 +693,7 @@ left-to-right, so Save sits at the corner).
 **UX2-E: the "Camera view" nav button** (`EditorToolbarAction.CameraView`, the video-camera icon) is the
 LEFTMOST of that right cluster — an ordinary `ToolbarButtonComponent`, so the ONE `ToolbarSystem` hit-tests
 + dispatches it and bakes its glyph; an editing action (Paused-only), it snaps the editor VIEW onto the
-camera rig (`view:camera` — see "The editor splits the free VIEW from the authored camera rig").
+camera entity (`view:camera` — see "The editor visualizes + edits the scene camera ENTITY").
 **PF-F: the Save icon button** (`_saveButton`, an `EditorToolbarAction.Save` icon button, not part of
 `HeaderButtons` or `DefaultButtons`) sits at the far-right CORNER of that cluster — ONE Save affordance: the
 ONE `ToolbarSystem` hit-tests + dispatches + bakes its floppy glyph, dims it on the Game tab / unresolved
@@ -965,12 +968,12 @@ bar + the tab fills).
 
 In `RunMode.Edit` the editor — not `CameraFollowSystem` — drives the shared `Camera` (the §9
 interaction matrix: camera-follow is `Freeze`-gated). **The shared `Camera` is the free editor VIEW —
-whatever the viewport looks through — NOT the authored game camera.** The authored game-camera state
-(what `scene.camera` persists) lives on the standalone **camera rig** (UX2-E — see "The editor splits
-the free VIEW from the authored camera rig" below); `CameraNavSystem` moves the VIEW freely without
-touching the rig, and **Save serializes the rig, never the view**, so panning/zooming the editor no
-longer moves the game camera. `CameraFollowTargetComponent` semantics are untouched: in Play the
-follow system drives the same shared `Camera` as before. `CameraNavSystem` provides the view drive:
+whatever the viewport looks through — NOT the authored game camera.** The authored camera is an ordinary
+`core.Camera` **scene entity** now (CM — see "The editor visualizes + edits the scene camera ENTITY"
+below); `CameraNavSystem` moves the VIEW freely without touching that entity, and Save serializes the
+camera entity (in `entities[]`), never the view, so panning/zooming the editor no longer moves the game
+camera. `CameraFollowTargetComponent` semantics are untouched: in Play `CameraFollowSystem` eases the
+camera entity and `CameraSyncSystem` drives the shared `Camera` from it. `CameraNavSystem` provides the view drive:
 **pan** (middle-mouse drag → the camera moves the opposite way to the cursor's virtual-pixel delta so
 the grabbed world point stays under the cursor — `Position -= virtualDelta / Zoom`) and **zoom** (scroll
 wheel → a geometric step on `Camera.Zoom`, clamped to a sane range, default 0.25–4.0). **Frame-scene** —
@@ -1006,143 +1009,114 @@ framing on empty content would jump/zoom to a degenerate AABB instead of no-op'i
 `CursorInputComponent` (`MiddleButton` / `ScrollWheelDelta` / `VirtualPosition`) and `CursorPositionSystem`
 (which derives the cursor's world position from the camera — hence the ordering); foundation — the
 run-state model (`GameState.RunMode` + the `Freeze`-gated `CameraFollowSystem` the editor replaces in Edit);
-this file — "The editor splits the free VIEW from the authored camera rig" (the rig this view drive is now
-distinct from), "The editor's keyboard shortcuts are ONE chord table, gated by a single viewport context"
+this file — "The editor visualizes + edits the scene camera ENTITY" (the authored camera this view drive
+is now distinct from), "The editor's keyboard shortcuts are ONE chord table, gated by a single viewport context"
 (the Home shortcut + the `view:frame` op that trigger `FrameScene`).
 
-## The editor splits the free VIEW from the authored camera rig; Save serializes the rig, not the view
-
-> **SUPERSEDED (CM-A) — the camera is a scene ENTITY now; this rig is a vestigial bridge CM-B deletes.**
-> The authored camera is no longer a `scene.camera` block routed through this rig — it is an ordinary
-> `core.Camera` scene entity (`EntityInfoComponent` + `TransformComponent` + `CameraComponent`), captured
-> in the membership closure and serialized in `entities[]` like everything else. `SceneWriter.BuildScene`
-> DROPPED its camera parameter (it no longer reads `EditorCameraRig.AsCamera()`); the reader's
-> `applyCameraToRig` seam receives `null` for a v3 scene (no block); Save/load own the camera ENTITY, not
-> the rig. `EditorCameraRig` still COMPILES and its glyph/`SnapViewToRig`/pick/move/scale-→-zoom ops still
-> run this wave (so the editor remains usable), but they read the vestigial rig entity — its state is no
-> longer persisted (the reader-ensured/loaded camera entity is the authored truth). The paragraphs below
-> describe the pre-CM rig behaviour, kept for the bridge; CM-B removes `EditorCameraRig`,
-> `CameraRigComponent`, `CameraZoomEditCommand`, the rig tree-row + labeler special-cases, and the
-> `applyCameraToRig` seam wholesale, and retargets the glyph to the camera entity. See camera — "The camera
-> is a scene entity", "`CameraSyncSystem` is the only writer of the `Camera` adapter in Play", "Exactly one
-> camera entity per scene".
+## The editor visualizes + edits the scene camera ENTITY (glyph, snap, S→Zoom, R legal, last-camera delete guard)
 
 Under the editor the shared `Camera` is the free **VIEW** (`CameraNavSystem` pans/zooms/frames it — see
-above). The **authored game-camera state** — the position/zoom/rotation `scene.camera` persists — lives on
-a standalone **camera rig** entity the overlay materializes (`EditorCameraRig`): a `TransformComponent`
-(position = the camera centre, so the ordinary gizmo moves it via a `TransformEditCommand` — the write-back
-target is the rig's own transform, needing no new proxy machinery) + a `CameraRigComponent` (zoom + rotation;
-the immutable virtual size stays on the shared `Camera`) + `EditorInfrastructureComponent` + a mesh
-`DrawComponent` on the native `Editor` target (the frustum glyph, identity `WorldMatrix`, **no**
-`VisibleComponent` — the chrome rule; `CullingSystem` ignores it, having no `SpriteInfoComponent`). **The
-`.mdscene` format is unchanged** — `scene.camera` stays the persisted form; the rig is just where the editor
-holds it. Invariants:
+above). The **authored camera** is an ordinary `core.Camera` **scene entity** now (CM — the rig is gone):
+`EntityInfoComponent("Camera")` + `TransformComponent` (position + rotation) + `CameraComponent` (zoom),
+`SceneObjectComponent`-tagged, serialized in `entities[]` and captured in the membership closure like
+everything else. The editor does NOT hold the camera state — it merely **visualizes** the camera entity
+(its frustum glyph) and **edits** it through the ordinary selection/gizmo/modal/Inspector paths. The one
+piece of editor-owned infrastructure is a standalone **glyph overlay entity** (`CameraEntityOverlay` owns
+it, like `EditorGrid` owns the grid mesh): `EditorInfrastructureComponent` + a mesh `DrawComponent` on the
+native `Editor` target (identity `WorldMatrix`, **no** `VisibleComponent` — the chrome rule; `CullingSystem`
+ignores it, having no `SpriteInfoComponent`). Invariants:
 
-- **The rig is NEVER `SceneObjectComponent`-tagged**, so it never enters `entities[]` (pre-mortem #4);
-  `SceneWriter.BuildScene` reads `scene.camera` FROM the rig (the overlay passes `EditorCameraRig.AsCamera()`),
-  never the live view — so **moving the VIEW never dirties the scene nor changes what Save writes**, while
-  moving the RIG is an ordinary undoable transform edit (dirty as any edit).
-- **It is materialized/re-synced from `scene.camera` on every load** (`SceneReaderSystem`'s optional rig seam →
-  `EditorCameraRig.SyncFromScene`); Restart/reload/switch rebuild its STATE, not its IDENTITY — the rig entity
-  carries `EditorInfrastructureComponent`, so it survives the transport's teardown sweep and the reload re-syncs
-  it (like every other scene rebuild — unsaved rig moves are discarded).
-- **Null-camera default = the post-load view (UX3-A).** A scene that persists a camera syncs it to the rig
-  verbatim (exact). A scene that persists `camera: null` — **every pre-UX2-E scene** (the UX2-E audit) — makes
-  the rig adopt the **post-load VIEW**: the reader sequences the rig sync **after** it auto-frames the free view
-  on content (`SceneReaderSystem.ApplyCamera` passes the rig `scene.camera ?? <the just-framed view>`), so **"the
-  authored camera starts on the content"**, never the rig's pre-load origin ctor default. This is the UX3-A
-  blank-Game-mode fix: without it, entering Game mode (which snaps the view onto the rig — `Camera := rig`) lands
-  on empty world and the scene "disappears"; and because the Game-mode snapshot re-persists the origin rig,
-  returning to Scene mode restores the Scene view + entities but never cures the origin rig — so **every**
-  Game-mode entry is blank ("returning doesn't help"). The first Save then writes the on-content `scene.camera`,
-  so the null-camera class evaporates as scenes are saved.
-- **It is selectable — via the Entities tree row AND a viewport border-pick — and gizmo-editable** through the
-  ORDINARY editor path. **Tree row (UX2-G):** the Entities tree folds the rig in as a **"Camera" row** even though
-  it carries `EditorInfrastructureComponent` (which the tree normally hides) — it is the ONE explicit infra
-  include; every OTHER infra entity stays hidden. It has no `EntityInfoComponent`, so the tree/Inspector labeler
-  special-cases it to "Camera"; clicking the row selects it exactly like any entity (two-way with the viewport
-  selection AND the Inspector, which reflects its `TransformComponent` + `CameraRigComponent`). This tree row is
-  the **guaranteed** selection path. **Viewport border-pick:** `SelectionSystem` folds it into the SAME pick as
-  the collider ENTITIES + boundaries — a **border-pick on its frustum world-rect** at `ProxyBorderPickDepth`, at the SAME
-  `ProxyBorderPickTolerancePixels` (÷ zoom) tolerance the colliders/boundaries use (the frustum's fill never shadows
-  a sprite under it). **Gizmo (UX2-G — no longer Move-only):** BOTH Move and Scale are legal (see the gizmo's
-  `ResolveTool`). **Move** drives the rig's own transform via a `TransformEditCommand`; **Scale** edits its
-  authored `CameraRigComponent.Zoom` via `CameraZoomEditCommand` — a bigger frustum ⇒ a LOWER zoom
-  (`newZoom = beforeZoom / dragFactor`, the SAME `GizmoTransform.ScaleFactor` drag mapping a sprite scale uses),
-  clamped to the camera-nav range `CameraNavSystem.DefaultMinZoom`..`DefaultMaxZoom` (0.25..4.0), drag-coalesced
-  into one undo step and dirtying the scene like any edit; the frustum glyph + the border-pick both re-read the
-  live rig zoom, so they track the drag frame-by-frame. **Rotate stays disabled** for the rig (forced to Move,
-  as UX2-E left it — rig rotation editing is a future wave). It is a **first-class entity**, not a collider proxy,
-  so it uses NO `ProxyBindingKind` (the proxy seam is for component-local spatial data that is NOT its own entity;
-  the rig IS an entity — its `TransformComponent` and `CameraRigComponent.Zoom` ARE the edited data — so Scale
-  writes back to the rig's own component, never a proxy). It is **not deletable** — `EditorCommandSystem.DeleteSelection`
-  refuses it with a loud warning.
-- **The glyph** draws the rig's frustum world-rect (virtual resolution ÷ rig zoom, centred on the rig) as bounds
-  + the X of corner diagonals, through the existing overlay-projection path (`EditorOverlayPrepSystem` →
-  `EditorCameraRig.EmitGlyph`, on the `Editor` target, clipped to the game viewport, in the `EditorTheme.CameraGlyph`
-  role at `Depths.CameraGlyph`). It shows only while the view **differs** from the rig (position/zoom epsilon —
-  `CameraRigGlyph.PositionEpsilon` = 0.5 world units, `ZoomEpsilon` = 1e-3); when they match ("you ARE the camera")
-  it hides (empty mesh), as it does outside Edit. A large pan that scrolls the frustum off-screen clips it to
-  nothing (`OverlayMeshClip`) — "pan back to see it".
-- **Back-to-camera-view**: the Scene-header right-corner nav button (`EditorToolbarAction.CameraView`, the Camera
-  frustum icon) + the `view:camera` op snap the view onto the rig (`Camera := rig`), so the view matches and the
-  glyph hides. An editing action (dispatches Paused only).
-- **Shipped games (no editor overlay) have no rig.** `SceneReaderSystem` with no rig seam applies `scene.camera`
-  to the live camera directly when present (respecting the authored view), else auto-frames — the reader's
-  camera split (see the reader premise). The reference shipped screen passes the reader no camera, so
-  `CameraFollowSystem` still owns it, byte-identical to before.
-- **Play / the Game tab** (PF-B, wired): entering Play, `CameraFollowSystem` (unfrozen) drives the shared `Camera`
-  as today; spawning the Game tab sets `Camera := rig` (`SnapViewToRig`), reading the rig state this premise makes
-  available — and Play from the Scene tab spawns the Game tab AND auto-plays. The rig glyph is scene-context-only
-  (`ActiveContextKind == Scene`). **PF-D (wired):** a prefab context has NO rig — the gate is four-fold: the glyph
-  (this rule), the "Camera" tree row (`EditorPanelSystem.MaterializeScene` skips the rig fold in a prefab context),
-  the reader's rig sync (`LoadSceneRequest.SuppressCameraRig` skips `ApplyCamera`'s rig seam), and the writer (a
-  prefab-context snapshot is camera-less + `PrefabWriter` nulls the camera). See "The prefab UX … (PF-D)".
+- **The camera is ordinary scene content**: `SceneObjectComponent`-tagged (so it rides `entities[]` and the
+  Game-mode snapshot like any entity), NOT `EditorInfrastructureComponent`. So it appears in the Entities
+  tree naturally via its `EntityInfoComponent("Camera")` name — **no special fold, no labeler special-case**
+  (contrast the old rig). The writer refuses a second one and the reader ensures one exists (camera — "Exactly
+  one camera entity per scene"); a prefab context has none (prefabs refuse cameras), so nothing camera-shaped
+  appears in a prefab tab.
+- **Selection — the camera entity border-picks on its frustum.** It has no sprite, so `SelectionSystem` folds
+  it into the SAME pick as the collider ENTITIES + boundaries — a **border-pick on its frustum world-rect** at
+  `ProxyBorderPickDepth`, at the SAME `ProxyBorderPickTolerancePixels` (÷ zoom) tolerance (the frustum's fill
+  never shadows a sprite under it). Queried by `CameraComponent`; the frustum corners come from
+  `CameraEntityGlyph.FrustumWorldCorners(WorldPosition, CameraComponent.Zoom, virtualWidth, virtualHeight)`.
+  It is a **first-class entity**, not a collider proxy, so it uses NO `ProxyBindingKind`.
+- **Editing — the ordinary gizmo + modal, with S→Zoom.** `G` moves its Transform (a `TransformEditCommand`);
+  `R` **rotates** its Transform — **legal now** (CM pre-mortem #1: one rotation, the Transform's, which
+  `CameraSyncSystem` reads via `WorldRotation`); `S` (the gizmo Scale handle AND modal S) edits its authored
+  `CameraComponent.Zoom` via the **standard `MemberEditCommand`** (`typeof(CameraComponent)`, `"Zoom"`) — a
+  bigger frustum ⇒ a LOWER zoom (`newZoom = beforeZoom / dragFactor`, the SAME `GizmoTransform.ScaleFactor` /
+  `ModalTransform.UniformScaleFactor` mapping a sprite scale uses), clamped to the camera-nav range
+  `CameraNavSystem.DefaultMinZoom`..`DefaultMaxZoom` (0.25..4.0), transaction-coalesced into one undo step and
+  dirtying the scene like any edit; the frustum glyph + the border-pick both re-read the live zoom, so they
+  track the drag frame-by-frame. Zoom is also an ordinary editable Inspector float (the Inspector reflects
+  `CameraComponent.Zoom` through the same reflection `MemberEditCommand` uses). The `S` gesture keys off
+  `target.Has<CameraComponent>()` in the gizmo's `ApplyDragEdit` / `ModalTransformSystem.ApplyLiveEdit`;
+  `ResolveTool` no longer special-cases the camera (Move/Rotate are ordinary; Scale is intercepted downstream).
+- **Delete guard — the LAST camera is not deletable.** `EditorCommandSystem.DeleteSelection` refuses deleting a
+  `CameraComponent` entity when it is the only one (`IsLastCamera`), with a loud "scenes need a camera" hint —
+  a scene needs a camera (the reader ensures one, the writer refuses a second). `core.Camera` also stays out of
+  the Add-component candidates (CM `InspectorAddCandidates.NeverAddable`).
+- **The glyph** draws the camera entity's frustum world-rect (virtual resolution ÷ `CameraComponent.Zoom`,
+  centred on `WorldPosition`) as bounds + the X of corner diagonals, through the existing overlay-projection
+  path (`EditorOverlayPrepSystem` → `CameraEntityOverlay.EmitGlyph`, on the `Editor` target, clipped to the
+  game viewport, in the `EditorTheme.CameraGlyph` role at `Depths.CameraGlyph`). It shows only while the view
+  **differs** from the camera entity (position/zoom epsilon — `CameraEntityGlyph.PositionEpsilon` = 0.5 world
+  units, `ZoomEpsilon` = 1e-3); when they match ("you ARE the camera") it hides (empty mesh), as it does
+  outside Edit, when the UX3-D "Camera" overlay gate is off, or when there is no camera entity (a prefab
+  context — naturally inert). A large pan that scrolls the frustum off-screen clips it to nothing
+  (`OverlayMeshClip`) — "pan back to see it".
+- **Back-to-camera-view**: the Scene-header right-corner nav button (`EditorToolbarAction.CameraView`, the
+  Camera frustum icon) + the `view:camera` op snap the view onto the camera entity
+  (`CameraEntityOverlay.SnapViewToCameraEntity` — `Camera := (WorldPosition, Zoom, WorldRotation)`), so the
+  view matches and the glyph hides. An editing action (dispatches Paused only). **Game-tab entry** adopts the
+  same state (`ViewportContextStack.EnterGame` invokes `SnapViewToCameraEntity`).
+- **Play / the Game tab** (PF-B): entering Play, `CameraSyncSystem` (unfrozen) drives the shared `Camera` from
+  the camera entity each frame, and `CameraFollowSystem` eases the camera entity toward its target (camera —
+  "`CameraSyncSystem` is the only writer of the `Camera` adapter in Play"). The Game-tab snapshot carries the
+  camera entity like everything else, so a Play session that moved it (follow) does NOT leak into the scene tab
+  (the sandbox discard). The glyph is scene-context-only (`ActiveContextKind == Scene`).
 
-**Why:** the user's ask — "the camera visible when you're not in camera view", Blender's bounds + X glyph, a
-back-to-camera-view button — requires separating the free editor view from the authored game camera; today
-panning the editor LITERALLY moved the game camera (Save captured the live view). The rig makes the authored
-camera a thing the designer sees (the glyph) and edits (select + move) without disturbing the view, and Save now
-captures authored truth, not wherever the designer happened to be looking.
-**Breaks:** tagging the rig `SceneObjectComponent` serializes a camera entity into `entities[]` and breaks the
-format (pre-mortem #4); capturing the live view at Save (the pre-UX2-E behaviour) means panning the editor
-silently re-authors the game camera; a `ChildOf`-parented or non-infrastructure rig is cascade-disposed by the
-live `DisposeOrphans` or the Restart sweep; a fill-based (not border) frustum pick shadows every sprite inside
-the frustum; a `VisibleComponent` on the glyph pulls it into `MeshPrepSystem`, which overwrites the identity
-`WorldMatrix` its screen-baked vertices require; a deletable rig strands the authored camera.
-**Tests:** the CM camera-entity model is protected by
-`MonoDreams.Tests/LevelEditor/CameraEntityTests.cs` (writer one-camera refusal, reader-ensure, byte
-round-trip) + camera — "Exactly one camera entity per scene". The surviving (bridged) rig behaviour is
-`MonoDreams.Tests/LevelEditor/CameraRigTests.cs` (`FrustumWorldCorners_*` + `ViewMatchesRig_*` — the pure
-glyph math + epsilon; `CameraRig_IsNeverSceneMembership`; `Glyph_HiddenWhenViewMatchesRig_*` +
-`Glyph_DprAndInsetProjection_ClipsToTheGameViewport`; `SnapViewToRig_*`; `RigBorderPick_SelectsTheRig_*` +
-`RigMoveDrag_IsOneUndoStep_UndoRestores`;
-`RigScaleDrag_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores_Dirties` +
-`RigScaleDrag_ClampsZoomToTheCameraNavRange`; `RigDelete_IsRefused_*`). The scene-tab VIEW enter/exit is
-`MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs::Camera_Enter_AdoptsRigView_Exit_RestoresCapturedSceneView`,
-and the camera-entity Game-tab sandbox isolation is
-`…::CameraEntity_MovedInPlay_DoesNotLeakIntoTheSceneTab` (pre-mortem #4). (The pre-CM rig-persistence tests
-— `RigMaterializesFromLoad`, `NullCameraLoad`, `SaveReadsRig`, `MovingTheView`, `RigSurvivesRestart`,
-`ShippedReader_NoRigSeam` — were REMOVED: they tested the `scene.camera` block round-trip the camera entity
-replaced.)
-`MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (`SceneTree_IncludesTheCameraRig_LabeledCamera_AndSelectsIt` —
-the rig appears as a "Camera" tree row, other infra hidden, clicking it selects it) +
-`MonoDreams.Tests/LevelEditor/EntitySceneTreeTests.cs` (`Build_IncludesTheCameraRig_EvenThoughItIsInfrastructure`) +
-`MonoDreams.Tests/LevelEditor/GizmoTests.cs` (`ScaleFactor_MapsDragXToAUniformFactor_FlooredAboveZero` — the
-shared drag→factor mapping the rig zoom divides by);
-`MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs` (`MembershipFilterTest` — the rig excluded);
-`MonoDreams.Tests/LevelEditor/EditorShellTests.cs` (the header carries the extra Camera-view nav button).
-**Depends on:** this file — "Editor camera navigation pans/zooms/frames the scene directly" (the view drive the
-rig is now distinct from), "A loaded sprite entity carries a `DrawComponent` … and the reader auto-frames the
-camera on content" (the reader's editor/shipped camera split), "Selection picks MAX final `LayerDepth` …" (the
-border-pick ordering the rig joins), "The gizmo applies a quantized … transform edit" (the move it is edited by),
-"A collider is a first-class editor entity: selected on its world shape…" (the border-pick sibling — a collider
-is now ALSO a first-class border-picked entity, joining the rig on the SAME ordering), "The transport's Restart
-rebuilds the scene …" (the sweep the rig survives),
-"Editor-overlay entities are standalone …" (the standalone + infra rules), "Every level-editor color and depth is
-an `EditorTheme` role" (the `CameraGlyph` role + depth), "Toolbar icon buttons are procedural meshes …" (the
-Camera icon + the nav button); rendering — the `Camera` class + `MasterRenderSystem`'s mesh Editor pass; camera —
-`CameraFollowTargetComponent` (untouched; drives the shared `Camera` in Play).
+**Why:** the CM tenet — there is one data model; a camera that is a real entity gets file authoring, Inspector
+editing, undo, dirty, prefab overrides, byte-stable diffs and sandbox protection for free (the collider-as-entity
+cure applied to the camera). The user's ask — "the camera visible when you're not in camera view", Blender's
+bounds + X glyph, a back-to-camera-view button — is now just visualization over that entity; the editor no longer
+holds a bespoke rig with its own persistence, commands and sync seams (where the three camera defects in three
+days lived).
+**Breaks:** growing `CameraComponent` a `Rotation` field reintroduces two rotations that drift (pre-mortem #1 —
+`R` must land on the Transform, and the sync reads it there); a fill-based (not border) frustum pick shadows every
+sprite inside the frustum; a `VisibleComponent` on the glyph overlay pulls it into `MeshPrepSystem`, which
+overwrites the identity `WorldMatrix` its screen-baked vertices require; deleting the last camera strands the
+scene (nothing drives the adapter in Play) — the guard refuses it; routing S to `Transform.Scale` instead of
+`CameraComponent.Zoom` mis-authors the camera.
+**Tests:** `MonoDreams.Tests/LevelEditor/CameraEntityEditorTests.cs` — the glyph math + epsilon
+(`FrustumWorldCorners_*`, `ViewMatchesCamera_*`), `CameraEntity_IsSceneMembership`, glyph visibility/gate
+(`Glyph_HiddenWhenViewMatchesCamera_*`, `Glyph_NoCameraEntity_IsInert`, `Glyph_DprAndInsetProjection_ClipsToTheGameViewport`),
+`SnapViewToCameraEntity_*`, `CameraBorderPick_SelectsTheCameraEntity_*`, `CameraMoveDrag_IsOneUndoStep_*`,
+`CameraScaleDrag_EditsZoom_NotTransformScale_*` + `CameraScaleDrag_ClampsZoomToTheCameraNavRange`,
+`CameraRotate_IsLegal_*` + `ModalRotate_OnTheCamera_IsAccepted`, `DeleteLastCamera_IsRefused_*` +
+`DeleteCamera_WhenAnotherExists_IsAllowed`. The acceptance test (the user's bug) is
+`MonoDreams.Tests/LevelEditor/CameraZoomEditPersistsTests.cs` (gizmo + modal S edit `CameraComponent.Zoom`,
+Inspector-visible, Save writes it into `entities[]`, save→load→save byte fixed point, tab-switch round-trip). The
+CM camera-entity model is `MonoDreams.Tests/LevelEditor/CameraEntityTests.cs` (writer one-camera refusal,
+reader-ensure, byte round-trip) + camera — "Exactly one camera entity per scene". The scene-tab VIEW enter/exit
+is `MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs::Camera_Enter_AdoptsCameraEntityView_Exit_RestoresCapturedSceneView`,
+the Game-tab sandbox isolation is `…::CameraEntity_MovedInPlay_DoesNotLeakIntoTheSceneTab` (pre-mortem #4), the
+tree row is `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs::SceneTree_IncludesTheCameraEntity_LabeledCamera_AndSelectsIt`
++ `MonoDreams.Tests/LevelEditor/EntitySceneTreeTests.cs::Build_IncludesTheCameraEntity_AndHidesInfrastructure`,
+membership is `MonoDreams.Tests/LevelEditor/SceneRoundTripTests.cs::MembershipFilterTest`, the S→Zoom readout word
+is `MonoDreams.Tests/LevelEditor/StatusBarModelTests.cs::LeftModal_Scale_FreeIsUniform_ConstrainedIsPerAxis_CameraIsZoom`,
+and the UX3-A no-blank-Game-mode repro is `MonoDreams.Tests/LevelEditor/GameModeBlankSceneReproTests.cs`.
+**Depends on:** this file — "Editor camera navigation pans/zooms/frames the scene directly" (the free view drive),
+"A loaded sprite entity carries a `DrawComponent` … and the reader auto-frames the view on content and ensures one
+camera entity" (the reader's view framing + ensure), "Selection picks MAX final `LayerDepth` …" (the border-pick
+ordering the camera joins), "The gizmo applies a quantized … transform edit" (the move/rotate it is edited by),
+"A collider is a first-class editor entity: selected on its world shape…" (the border-pick sibling), "The
+transport's Restart rebuilds the scene …" (the sweep the camera survives as ordinary content),
+"Editor-overlay entities are standalone …" (the glyph overlay's standalone + infra rules), "The Inspector edits a
+member through an undoable `MemberEditCommand`" (the S→Zoom + editable-zoom path), "Every level-editor color and
+depth is an `EditorTheme` role" (the `CameraGlyph` role + depth), "Toolbar icon buttons are procedural meshes …"
+(the Camera icon + the nav button); rendering — the `Camera` class + `MasterRenderSystem`'s mesh Editor pass;
+camera — "The camera is a scene entity; `CameraComponent` holds only zoom", "`CameraSyncSystem` is the only writer
+of the `Camera` adapter in Play", "`CameraFollowSystem` eases the camera ENTITY, not the adapter", "Exactly one
+camera entity per scene".
 
 ## Injected editor cursor/op state survives the input pass; the op channel holds the session open
 
@@ -1423,13 +1397,12 @@ right. The three left tabs:
   **editor-infrastructure entities hidden** (the `EntitySet` is `With<TransformComponent>
   Without<EditorInfrastructureComponent>`, so chrome / gizmo overlays / proxies / the cursor / the
   state entities never appear); a child of a hidden entity re-parents to its nearest included
-  ancestor. **The ONE infra exception (UX2-G): the camera rig** — although it carries
-  `EditorInfrastructureComponent`, `MaterializeScene` unions in a second `With<CameraRigComponent>`
-  set so the rig IS folded back into the pool (every OTHER infra entity stays hidden), giving the
-  designer a way to select + inspect the authored camera from the tree (see "The editor splits the
-  free VIEW from the authored camera rig"). Each row is labelled by its `EntityInfoComponent` name
-  (else type, else a stable panel-local id — and the camera rig, which has no `EntityInfoComponent`,
-  is special-cased to **"Camera"**) and is **selectable**: clicking a row sets `SelectedComponent`
+  ancestor. **The camera ENTITY needs no exception (CM):** it is an ordinary `SceneObjectComponent`-tagged
+  scene entity (NOT infra), so it appears in the tree naturally alongside the content — no fold, no
+  `CameraComponent` union set (contrast the old rig, which was infra and folded in explicitly). Each row is
+  labelled by its `EntityInfoComponent` name (else type, else a stable panel-local id — and the camera
+  entity carries `EntityInfoComponent("Camera")`, so it reads as **"Camera"** through that normal path,
+  needing no labeler special-case) and is **selectable**: clicking a row sets `SelectedComponent`
   (the same tag `SelectionSystem` sets from a viewport click — and the panel's chrome click is
   `OutsideViewport`, so `SelectionSystem` never clobbers it), highlighted in the tree.
 - **Systems** — the pipeline listing (the systems-panel premise above), with per-group collapse.
@@ -1482,8 +1455,8 @@ list; `HostTab` maps a section to its tab; `MiddleEllipsis` keeps head+tail; sec
 rows indent + highlight + subtree collapse; `BuildInspector` lists + expands with NO section header);
 `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (the Systems tab mirrors both pipelines with policy
 tags; an Entities row click sets `SelectedComponent`; `panel:select` headless; editor-infra hidden;
-the camera rig folded in as a selectable "Camera" row while other infra stays hidden —
-`SceneTree_IncludesTheCameraRig_LabeledCamera_AndSelectsIt` (UX2-G);
+the camera ENTITY shown as an ordinary selectable "Camera" row while infra stays hidden —
+`SceneTree_IncludesTheCameraEntity_LabeledCamera_AndSelectsIt` (CM);
 section-header + group-arrow collapse; pooled visuals bounded by the window + the fixed tab/scrollbar
 overhead; the RightInspector-role panel lists + expands; **`LeftTreeClick_UpdatesTheRightInspectorPanel`**
 — a tree click in the left panel binds the right Inspector, two-way across panels);
@@ -1680,7 +1653,7 @@ entity — no proxy. The whole-shape box/convex gizmo proxies (and with them the
 handles remain proxies (the next premise). The four edit affordances:
 
 - **Selection — border-pick on the world shape.** A collider entity carries no sprite, so `SelectionSystem`
-  folds it into the SAME pick as a second candidate source (the camera-rig precedent for a spriteless
+  folds it into the SAME pick as a second candidate source (like the camera entity, a spriteless
   first-class entity): its world shape (`ProxyGeometry.TryGetColliderWorldShape` — box corners via
   `SATCollision.BoxWorldRect`, or the convex `WorldVertices`, both derived from the entity's own WORLD
   transform so a child collider under a moved/scaled/rotated parent picks where it visibly sits) is
@@ -1697,8 +1670,9 @@ handles remain proxies (the next premise). The four edit affordances:
   drag/session = one undo step. A box's world rect and a convex's world vertices compose `Transform.Scale`,
   so **Scale grows the shape with no special-case resize command**. A **box** collider REFUSES Rotate — it
   is axis-aligned by the CE model (`SATCollision.BoxWorldRect` ignores rotation), so
-  `GizmoSystem.ResolveTool` / `ModalTransformSystem.Enter` fall back to Move (the camera-rig rotate-refusal
-  precedent) with a status hint ("use a polygon collider for a rotated hitbox"); a **convex** collider
+  `GizmoSystem.ResolveTool` / `ModalTransformSystem.Enter` fall back to Move (the box is now the ONLY
+  rotate-refusal — the camera entity rotates normally under CM) with a status hint ("use a polygon collider
+  for a rotated hitbox"); a **convex** collider
   rotates normally. A **bake product** refuses every move/scale/rotate AND Delete with a hint (it regenerates
   from its source — edit the source). The selection OUTLINE traces the collider's world shape
   (`GizmoSystem.BuildOutline`).
@@ -1743,9 +1717,9 @@ still blocks an active body without drifting), `PrefabMilestoneTests.PrefabTab_A
 (author a collider child in a prefab tab via Add Collider → save → place → world-correct).
 **Depends on:** collision — "A collider IS an entity", "`ConvexColliderComponent.BroadPhaseAABB` must be
 refreshed when vertices change"; this file — "Selection picks MAX final `LayerDepth`…" (the border-pick
-ordering the collider joins — the camera-rig sibling), "The gizmo applies a quantized … transform edit" (the
-move/scale it uses), "Bounded undo with drag-coalescing", "The editor splits the free VIEW from the authored
-camera rig" (the spriteless border-pick precedent), "A convex collider entity's vertices are edited through
+ordering the collider joins — the camera-entity sibling), "The gizmo applies a quantized … transform edit" (the
+move/scale it uses), "Bounded undo with drag-coalescing", "The editor visualizes + edits the scene camera
+ENTITY" (the spriteless border-pick sibling), "A convex collider entity's vertices are edited through
 (kind, index) grip proxies" (the surviving proxy), "A boundary bakes into one convex quad segment per
 polyline edge…" (the bake products it picks below), "The Inspector is editable, DevTools-style…" (the
 Add-candidate exclusion), "Editor context menus are a data-driven popup…" (the Add Collider surface).
@@ -1758,7 +1732,7 @@ is the ONE owner of `GameState.RunMode` — **Paused** = `RunMode.Edit`, **Playi
 while the game runs in the inset viewport; the editing tools are Edit-guarded and therefore inert
 while Playing) — **and it DRIVES the `ViewportContextStack`** (PF-B — the tab lifecycle; see "The
 viewport context stack …"). **Play from the Scene tab spawns the Game tab**: `Play` in the Scene
-context calls `EnterGameMode` (snapshot + rig-view adopt) BEFORE flipping RunMode to Play, so the
+context calls `EnterGameMode` (snapshot + camera-entity-view adopt) BEFORE flipping RunMode to Play, so the
 snapshot-before-flip guarantee holds. `RunMode` stays with the transport (`Transport.ActiveContextKind`
 is the active-tab kind, superseding the retired `ViewMode`) — ONE owner, no parallel snapshot path.
 **Restart** returns the world to the state of the ORIGINAL load, in this exact
@@ -1788,9 +1762,8 @@ see "The viewport context stack …"). **Unsaved live edits since the load
 are DISCARDED** — the standard play-mode trade-off; Save first to keep them. The survival boundary
 is exclusion by editor markers (the engine has no entity↔level association): an entity survives
 when it carries `EditorInfrastructureComponent` (every editor-owned entity — chrome, panel rows,
-gizmo overlays/proxies, the gizmo-state entity, and the UX2-E **camera rig** — is tagged at creation; the
-rig's IDENTITY thus survives while its STATE re-syncs from `scene.camera` on the reload, like every other
-scene rebuild — see "The editor splits the free VIEW from the authored camera rig"), when it is the cursor
+gizmo overlays/proxies, the gizmo-state entity, and the **camera-glyph overlay** — is tagged at creation),
+when it is the cursor
 pipeline (`CursorControllerComponent`/`CursorInputComponent` — screen input infrastructure, not
 scene content), or when the screen's `KeepAlive` predicate names it (system-constructed screen
 infrastructure held by reference, e.g. the dialogue UI root via `DialogueStateComponent`) — keeps
@@ -1832,9 +1805,8 @@ and re-runs the recorded load; editor infrastructure + cursor + `KeepAlive`-name
 survive; unsaved-edit discard demonstrated — edit a transform through the history, restart, the
 value is back at the loaded state and undo is a no-op; the world-level components are removed;
 restart while Playing lands Paused; a reloadless restart is a loud no-op; the headless
-`Play`/`Pause`/`Restart` ops drive the same paths);
-`MonoDreams.Tests/LevelEditor/CameraRigTests.cs::RigSurvivesRestart_AndReSyncsFromTheFile` (the camera
-rig's identity survives the sweep and its state re-syncs from the file — unsaved rig moves discarded);
+`Play`/`Pause`/`Restart` ops drive the same paths; the camera ENTITY is ordinary scene content now, so
+Restart sweeps + re-loads it from disk like everything else — no camera-specific survival case);
 `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled`
 (the reload reads the SOURCE bytes under a resolved context — the pre-mortem #5 regression);
 `MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs::SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene`
@@ -1885,22 +1857,22 @@ Scene/Prefab tabs are edited Paused. The mechanism:
   the real scene the boot screen loads by the first overlay's `SetActiveSceneId`.
 - **Spawn the Game tab** (`Play` from a scene tab → `Transport.EnterGameMode` → `stack.EnterGame`): record
   the origin scene tab (`GameOriginIndex`), snapshot the ACTIVE (scene) context **FIRST** —
-  `SceneWriter.BuildScene(world, rig.AsCamera(), layers)` → a held `SceneData` (no file I/O) + the
-  `EditorHistory` dirty flag + the scene VIEW — **before** `RunMode` flips to Play (pre-mortem #7:
+  `SceneWriter.BuildScene(world, layers)` → a held `SceneData` (no file I/O; the camera rides the closure
+  like any entity) + the `EditorHistory` dirty flag + the scene VIEW — **before** `RunMode` flips to Play (pre-mortem #7:
   `Play` calls `EnterGameMode` *before* `state.RunMode = Play`, so no simulation frame mutates the scene
-  before capture), adopt the game-camera view (`SnapViewToRig`), then push a **discard** Game tab **KEEPING
+  before capture), adopt the game-camera view (`SnapViewToCameraEntity`), then push a **discard** Game tab **KEEPING
   the live world as the sandbox** (NO sweep on enter — the world already IS the scene). Play spawns +
   activates + auto-plays in ONE action; pressing Play while the Game tab is already active does NOT
   re-snapshot (**one snapshot per Game-mode session**). The Game tab's `▶` marker reuses the play glyph.
 - **`SwitchTo(index)`** (a SAME-screen tab switch): snapshot the active context (`SnapshotActive` — via
-  `CaptureSnapshot` + the rig + the VIEW + the history dirty flag) **UNLESS it is a discard context** — a
+  `CaptureSnapshot` + the VIEW + the history dirty flag; the camera rides the snapshot) **UNLESS it is a discard context** — a
   Game tab is NEVER re-snapshotted on leave (discard semantics verbatim) → **sweep** (the transport's
   survivor-sparing `DisposeSceneEntities`, injected as the stack's `SweepSceneEntities` —
   `EditorInfrastructureComponent` / cursor / `KeepAlive` survive) → **`RebuildCodeContent`** (TD — the
   screen's code-owned builders, injected as the stack's `RebuildCodeContent`; skipped when the target is a
   Prefab context, which shows only the prefab) → reader-restore the target's snapshot via
   an **in-memory `LoadSceneRequest(SceneData)`** (so re-tag, texture rehydration incl. `file:` keys,
-  `DrawComponent` restore, and camera-rig re-sync are ALL shared with the file load — pre-mortem #2: the
+  `DrawComponent` restore, and ensure-one-camera are ALL shared with the file load — pre-mortem #2: the
   reader is the ONLY restore implementation) → `EditorHistory.Clear()` (undo after a switch is a no-op —
   pre-mortem #3) + `MarkDirty()` reproducing the target's captured dirtiness → restore the target VIEW over
   the reader's auto-frame, **only when `CameraViewSnapshot.IsValid`** (a positive zoom; UX3-A pre-mortem #2
@@ -1956,8 +1928,8 @@ Scene/Prefab tabs are edited Paused. The mechanism:
   close/dirty gate on the RESTORED state — one gate flavor, no bypass.
 - **Prefab contexts (PF-D, wired).** `ViewportContextStack.OpenPrefab` pushes a closable, non-discard
   `Prefab` context: it snapshots the active context, sweeps, and reader-restores the prefab's content with
-  the camera rig **suppressed** (the transient `RestoringPrefabContext` flag drives
-  `LoadSceneRequest.SuppressCameraRig` — a prefab has no rig, pre-mortem #8), clearing the history so the
+  the **ensure-one-camera step suppressed** (the transient `RestoringPrefabContext` flag drives
+  `LoadSceneRequest.SuppressCameraEnsure` — a prefab has no camera, pre-mortem #8), clearing the history so the
   fresh context is clean. One tab per prefab; `CaptureSnapshot` builds a **camera-less** scene for a
   prefab context. `DecideClose` returns `ConfirmDirty` for a dirty prefab tab (the `Transport.CloseTab`
   activates it first, then routes `ConfirmDirtyClose`); `CloseCleanContext` closes it (returning to the
@@ -1987,7 +1959,7 @@ at the origin (UX3-A pre-mortem #2); not clearing history dangles undo against r
 discards a dirty scene loses authored work (pre-mortem #9); reflecting sandbox dirtiness on the Scenes panel
 lies about unsaved work.
 **Tests:** `MonoDreams.Tests/LevelEditor/ViewportContextStackTests.cs` — the PF-B mechanism (`EnterGame`
-snapshots the scene + adopts the rig + no sweep + keeps the live world; the Game round-trip sweeps +
+snapshots the scene + adopts the camera-entity view + no sweep + keeps the live world; the Game round-trip sweeps +
 restores + drops the tab + the scene state survives; `EnterGame` twice is one snapshot; `ExitToScene`
 restores the captured dirty + clears history; `ResetToScene` drops the Game tab + forgets the snapshot; the
 `DecideClose` truth table; a dirty scene survives a round-trip, never silently discarded) PLUS the TB-A
@@ -2012,17 +1984,19 @@ additions (`SceneTab_IsTitledByItsSceneId_NotTheWordScene`,
 `SaveBlock_GameMode_IsDistinguishable_PlayingWins_SceneModeSavesAgain` +
 `ToolbarSaveButton_IsInertInGameMode_ViaTheSharedGuard`;
 `RestartInGameMode_LandsSceneMode_ReloadsDiskState_DropsSnapshot`;
-`Camera_Enter_AdoptsRig_Exit_RestoresSceneView_RigUntouched`;
+`Camera_Enter_AdoptsCameraEntityView_Exit_RestoresCapturedSceneView`;
+`CameraEntity_MovedInPlay_DoesNotLeakIntoTheSceneTab`;
 `GameModeRoundTrip_SharesTheReader_FileKeySpriteKeepsTextureRehydrationAndDrawComponent`;
 `GameModeEntry_LandsPlaying_ExitLandsPaused`;
 `Exit_WithZeroedOrUnwiredCaptureView_KeepsTheAutoFramedView_NeverBlanks` +
 `CameraViewSnapshot_Default_IsInvalid_RealCapture_IsValid`),
 `MonoDreams.Tests/LevelEditor/EditorTransportTests.cs::Transport_OwnsViewMode_DefaultScene_ToggleEntersAndExits_ExitLandsPaused`,
 and `MonoDreams.Tests/LevelEditor/GameModeBlankSceneReproTests.cs`
-(`FreshBoot_NullCamera_EnterGameMode_ContentStaysVisible` +
-`FreshBoot_NullCamera_EnterExitReEnter_WorldIntact_AndGameModeStaysVisible` — a fresh boot of a
-`camera: null` off-origin scene stays visible spawning the Game tab AND across a round-trip, proven
-through the REAL `CullingSystem`); `MonoDreams.Tests/LevelEditor/ViewportTabStripTests.cs` (the strip
+(`FreshBoot_CameraLess_EnterGameMode_ContentStaysVisible` +
+`FreshBoot_CameraLess_EnterExitReEnter_WorldIntact_AndGameModeStaysVisible` — a fresh boot of a
+camera-less off-origin scene stays visible spawning the Game tab AND across a round-trip (the reader
+ensures a camera ON the content), proven through the REAL `CullingSystem`);
+`MonoDreams.Tests/LevelEditor/ViewportTabStripTests.cs` (the strip
 renders the descriptors, active tab `Bg1` + accent underline, the Game `▶` + closable `×`; body click →
 `SwitchToTab`, `×` click → `CloseTab` with close taking priority; suppressed during a shell drag; DPR-2 tabs
 within the scaled header; Play spawns + activates the Game tab and the strip renders it). END-TO-END through
@@ -2037,8 +2011,8 @@ active + the menu tab intact, no restore, no Pause, one Game-tab snapshot).
 beside `GameState`); this file — "The transport's Restart rebuilds the scene …" (the sweep reused + the
 reset-to-Scene), "Scene round-trip reconstructs from registered components …" (the reader restore the
 in-memory overload shares), "A loaded sprite entity carries a `DrawComponent` …" (the `DrawComponent`
-restore + rig re-sync + view framing), "The editor splits the free VIEW from the authored camera rig"
-(`AsCamera`/`SnapViewToRig`/`SyncFromScene`), "The editor history tracks a dirty save-point signal"
+restore + ensure-one-camera + view framing), "The editor visualizes + edits the scene camera ENTITY"
+(`SnapViewToCameraEntity` on Game-tab entry), "The editor history tracks a dirty save-point signal"
 (`MarkDirty` restoring the captured dirty state), "Save is blocked while Playing, while the Game tab is
 active, or when no project root is resolved" (the `GameMode` reason), "Game screens declare their bound
 scene …" (`SelectScene` opens or activates a scene tab; a scene switch leaves the Game tab first), "The
@@ -2271,10 +2245,10 @@ editor chord fires mid-modal (a re-pressed G/S/R cannot re-enter) and **Escape c
 the game (exit) nor a tool (disarm)** — the Escape priority. Mode-switch mid-modal (Blender's G→S) is
 deferred.
 
-**The camera rig composes (the UX2-G mapping).** `G` moves the rig via a `TransformEditCommand` on its
-own transform; `S` edits its authored `CameraRigComponent.Zoom` via `CameraZoomEditCommand` (a bigger
-frustum ⇒ a LOWER zoom: `newZoom = beforeZoom / factor`, clamped to the camera-nav range); `R` is
-**refused** for the rig with a status note (rig rotation editing is a future wave). `ModalTransformSystem`
+**The camera entity composes (the CM mapping).** `G` moves the camera entity via a `TransformEditCommand`
+on its transform; `S` edits its authored `CameraComponent.Zoom` via the standard `MemberEditCommand` (a
+bigger frustum ⇒ a LOWER zoom: `newZoom = beforeZoom / factor`, clamped to the camera-nav range); `R`
+**rotates** its Transform — legal now (CM pre-mortem #1: one rotation). `ModalTransformSystem`
 is woven `editor.modal` with the input-owner block, immediately AFTER `editor.shortcuts` (which enters it)
 and BEFORE the tools (`editor.gizmo`) + the draw pipeline's `editor.selection`, so its consume reaches
 them; `RunNormally`, self-guarded to `RunMode.Edit` (a modal cannot survive into Play). The
@@ -2293,14 +2267,15 @@ label child, while a gizmo drag (woven AFTER that reader) moved both — the use
 **Why:** the design §5 modal transforms — a keyboard-first alternative to the gizmo drag on the same
 coalesced-undo machinery. The pointer + keyboard ownership is the same modal-capture the dialog/menu use;
 without it a confirm-click also re-picks (pre-mortem #4) and a mid-modal keystroke leaks to the game or a
-tool (most dangerously Escape quitting the game). The rig mapping matches the gizmo's Scale→zoom (UX2-G),
-so a designer frames the shot with S the same way whether dragging or in a modal.
+tool (most dangerously Escape quitting the game). The camera-entity mapping matches the gizmo's Scale→zoom
+(CM), so a designer frames the shot with S the same way whether dragging or in a modal.
 **Breaks:** a modal that doesn't consume the pointer lets its confirm-click re-pick / clear the selection
 (pre-mortem #4); no `ShouldSuppressInput`/`ModalActive` OR lets Escape quit the game or a re-pressed G
 re-enter mid-session; pushing outside a transaction (or committing on cancel) makes a session many undo
 steps or an un-revertable edit; snapping a typed value defeats the exact affordance; editing
-`Transform.Scale` on the rig (instead of its `Zoom`) mis-authors the camera; allowing Rotate on the rig
-edits a field UX2-G left for later.
+`Transform.Scale` on the camera entity (instead of `CameraComponent.Zoom`) mis-authors the camera; growing
+`CameraComponent` a `Rotation` field so R lands there (not the Transform) reintroduces two rotations (CM
+pre-mortem #1).
 **Tests:** `MonoDreams.Tests/LevelEditor/ModalTransformTests.cs` (the pure math: grab/scale/rotate live
 results, axis constraints, the typed override incl. the grab-requires-axis rule, snap on the mouse-driven
 result vs exact typed, buffer + axis editing) and
@@ -2309,8 +2284,9 @@ result vs exact typed, buffer + axis editing) and
 `Grab_MouseMotion_EditsLive_LmbCommitsOneUndoStep`, `Grab_Rmb_CancelsAndRestoresTheStart`,
 `Escape_CancelsTheModal`, `AxisLock_ConstrainsTheGrab`, `TypedValue_AppliesExactly_AlongTheLockedAxis`,
 `OpCursor_DrivesTheLiveEdit_Headlessly`, `ConfirmClickOverAnotherEntity_DoesNotRepick_NorClear`
-(pre-mortem #4, with the real `SelectionSystem`), `Rig_Grab_MovesTheRigTransform_OneUndoStep`,
-`Rig_Scale_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores`, `Rig_Rotate_IsRefused`); the shortcut
+(pre-mortem #4, with the real `SelectionSystem`), `Camera_Grab_MovesTheCameraTransform_OneUndoStep`,
+`Camera_Scale_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores`,
+`Camera_Rotate_IsLegal_RotatesTheTransform_OneUndoStep`); the shortcut
 entry + the `ModalActive` gate are `MonoDreams.Tests/LevelEditor/EditorShortcutTests.cs`
 (`Table_BindsBareGSR_ToTheModalTransforms_UX3F`, `System_DoesNotFire_WhileAModalTransformOwnsInput`).
 **Depends on:** this file — "The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit,
@@ -2319,8 +2295,9 @@ with drag-coalescing" (the `BeginTransaction`/`CommitTransaction`/`CancelTransac
 picks MAX final `LayerDepth` …" (the click-ownership the consume protects — pre-mortem #4), "Viewport
 presses belong to exactly one tool family" (`EditorToolMode` — the modal is a keyboard-entered peer of the
 tools), "The editor's keyboard shortcuts are ONE chord table …" (the table + gate that enter it), "The
-editor splits the free VIEW from the authored camera rig …" (the rig's `Zoom` + `CameraZoomEditCommand`
-the Scale path drives), "The editor's Save dialog is a modal three-action chooser …" (the cursor-consume
+editor visualizes + edits the scene camera ENTITY …" (`CameraComponent.Zoom` + the `MemberEditCommand`
+the Scale path drives), "The Inspector is editable, DevTools-style …" (the `MemberEditCommand` seam), "The
+editor's Save dialog is a modal three-action chooser …" (the cursor-consume
 recipe); foundation — `AKeyboardInputHandlingSystem.ShouldSuppressInput` (the keyboard-half seam).
 
 ## The window status bar is one thin strip in the ONE inset, formatted by a pure model
@@ -2360,7 +2337,7 @@ Greek/symbol characters the design sketch used.
 while the Game tab is active would flicker on sandbox churn (it must read the snapshot dirty state); a
 `VisibleComponent` on the labels/dot pulls them into `MeshPrepSystem`, double-offsetting the absolute-pixel content.
 **Tests:** `MonoDreams.Tests/LevelEditor/StatusBarModelTests.cs` (the pure formatting — the modal readout for
-grab/scale/rotate incl. axis + buffer + the press-X-or-Y prompt + the rig "Zoom" word, the contextual status
+grab/scale/rotate incl. axis + buffer + the press-X-or-Y prompt + the camera-entity "Zoom" word, the contextual status
 with count pluralization, `Right_ShowsActiveTabId_AndRunStateOnTheGameTab` — the Scene tab shows just the id,
 the Game tab the id + Playing/Paused) and `MonoDreams.Tests/LevelEditor/EditorStatusBarSystemTests.cs`
 (the Scene tab shows the id + the dirty dot mesh only when dirty, `Right_ReflectsGameTab_ShowsRunState` — the
@@ -2380,7 +2357,7 @@ an `EditorTheme` role" (the `Bg0` band / `Border` rule / `Warning` dot / `Text1`
 
 ## Viewport overlays are session settings; the grid IS the snap grid, bounded, and hidden while the Game tab is active
 
-The editor's viewport overlays — the world reference grid, the selection outline, and the camera-rig
+The editor's viewport overlays — the world reference grid, the selection outline, and the camera-entity
 frustum glyph — are toggled by a per-session `ViewportOverlaySettingsComponent` on a standalone
 editor-state entity (`EditorInfrastructureComponent`-tagged, so it survives a transport Restart):
 `ShowGrid` (default **off** — preserves the current look), `OutlineSelected` (default **on**),
@@ -2406,7 +2383,7 @@ overlay depth (`EditorTheme.Depths.Grid` = 0.01, beneath `ProxyOverlay`), every 
 major-only, above ~200 major lines/axis it draws nothing — a zoomed-out view over a small spacing can
 never allocate an unbounded mesh. The grid, the selection outline (`OutlineSelected` off → the outline
 emit is suppressed; the selection itself is unaffected), and the camera glyph (`ShowCameraGlyph` off →
-hidden; the view/rig divergence rule then applies only while on) are all **Edit-only**, and **all three
+hidden; the view/camera divergence rule then applies only while on) are all **Edit-only**, and **all three
 are hidden while the Game tab is active (`ActiveContextKind == Game`)** — the sandbox looks like the game (Blender hides overlays in camera
 view). The gizmo/glyph gates are injected `Func<bool>` seams from the overlay (the systems stay
 game-agnostic); the grid emits from the draw-phase `EditorOverlayPrepSystem`, beneath the others.
@@ -2428,11 +2405,11 @@ zoomed-out view freezes/OOMs the editor; a `VisibleComponent` on the grid mesh p
 `Grid_FollowsTheSharedGridStep_ChangingItViaTheOpReSpacesTheGrid`, `Grid_ClipsToTheGameViewport_UnderAnInset_DevicePixelDestination`,
 `Grid_HiddenInPlay_AndWhenTheGateIsFalse`, `Grid_PathologicalZoomOut_DegradesToNothing_NoUnboundedMesh`,
 `Grid_ModerateZoomOut_StaysBounded_MajorOnly`; `OutlineSelectedOff_SuppressesOnlyTheOutline_HandleStays_SelectionUnaffected`,
-`GameMode_HidesAllGizmoOverlays_TheSandboxLooksLikeTheGame`, `CameraGlyphGate_Off_HidesTheFrustum_EvenWhenTheViewDiffersFromTheRig`).
+`GameMode_HidesAllGizmoOverlays_TheSandboxLooksLikeTheGame`, `CameraGlyphGate_Off_HidesTheFrustum_EvenWhenTheViewDiffersFromTheCamera`).
 **Depends on:** this file — "Editor context menus are a data-driven popup …" (the Toggle menu that drives
 these settings), "The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit" (the
-`GridStep` this shares as the ONE grid quantum), "The editor splits the free VIEW from the authored camera
-rig" (the glyph this gates), "Selection picks MAX final `LayerDepth` …" (the gizmo whose outline this
+`GridStep` this shares as the ONE grid quantum), "The editor visualizes + edits the scene camera ENTITY"
+(the frustum glyph this gates), "Selection picks MAX final `LayerDepth` …" (the gizmo whose outline this
 gates), "The editor shell insets the game viewport …" (the `OverlayProjection` + `OverlayMeshClip` +
 `Editor` target + the depth stack), "Every level-editor color and depth is an `EditorTheme` role" (the
 `GridMinor`/`GridMajor` roles + `Depths.Grid` + the lint), "The viewport context stack …"
@@ -2772,9 +2749,12 @@ a game screen type.
 **Create Empty Scene (UX2-D).** A right-click in the Scenes panel offers **Create Empty Scene…**, which
 opens a small modal on the SAME dialog machinery (name field prefilled `untitled`, `Sanitize`d,
 Create/Cancel). Confirm **refuses an existing name loudly and keeps the dialog open** (the injected
-name-collision predicate), then writes a **minimal canonical `.mdscene`** — empty `entities[]` + the
-current camera/layers the writer emits for an empty world, built through `SceneWriter`/`CanonicalJson`
-(never hand-written JSON) — into `LevelsPath`, applies the SAME zero-touch `EnsureLevelBundled` treatment
+name-collision predicate), then writes a **minimal canonical `.mdscene`** — a throwaway world seeded with a
+**default camera entity** (CM: `EntityInfoComponent("Camera")` + Transform at the origin + `CameraComponent`
+zoom 1, `SceneObjectComponent`-tagged) + the screen's layers, built through `SceneWriter`/`CanonicalJson`
+(never hand-written JSON). The camera in the template is consistent with the reader-ensure (idempotent —
+loading the file finds the camera and does not create a second), so every scene the editor authors has
+exactly one camera from birth. It writes into `LevelsPath`, applies the SAME zero-touch `EnsureLevelBundled` treatment
 a Save gets, and then **switches to it through this same `SelectScene` flow** (the catalog re-scan
 surfaces the new file immediately, opening it as a new scene tab — the working scene is snapshotted, not
 gated). It is blocked when no project root is resolved (nowhere versioned to write) — the Save-guard
@@ -3537,8 +3517,9 @@ component-serializer registry, same stable ids) with the prefab rules enforced o
 (`PrefabWriter` + `PrefabData.FindSingleRootIndex`): **exactly ONE root** (every other entity must
 parent-chain to it — a multi-root world is refused loud), the **root Transform position normalized to
 origin** (children keep their LOCAL offsets — `TransformComponent.Position` is parent-relative, so
-normalization touches only the root), and **no `camera`** (a prefab is a class, not a scene —
-pre-mortem #8: the rig is scene-context-only). A scene places a prefab as a **LINKED instance**: an
+normalization touches only the root), and **no camera** (a prefab is a class, not a scene — a camera
+inside one is refused; pre-mortem #8: a camera in a prefab is multi-camera terrain). A scene places a
+prefab as a **LINKED instance**: an
 `entities[]` entry gains an **additive optional `prefab: "<id>"` field** and a `components{}` holding
 ONLY `core.Transform` (always instance-owned) plus **whole-component overrides**. Override detection is
 **diff-based, not bookkept** (pre-mortem #1): the writer serializes the instance root's live components
@@ -3650,16 +3631,16 @@ viewport-context stack. Six moving parts, one mechanism each:
   `ConfirmDirtyClose` → the dialog's **Save & Close / Discard / Cancel** confirm (Save & Close writes the
   prefab then `CloseCleanContext`; Discard closes discarding edits; Cancel keeps it).
 
-- **No camera rig in a prefab context (pre-mortem #8).** A prefab is a class, not a scene — it has no
-  camera rig. The gate is FOUR-fold: (1) the rig **glyph** is `ActiveContextKind == Scene`-only (the
-  camera-rig premise); (2) the **"Camera" tree row** is folded in by `EditorPanelSystem.MaterializeScene`
-  only when the active context is not `Prefab`; (3) the reader's **rig sync is suppressed** — a
-  prefab-context load/restore carries `LoadSceneRequest.SuppressCameraRig` (set by the stack's transient
-  `RestoringPrefabContext` flag during the synchronous restore), so `SceneReaderSystem.ApplyCamera`
-  frames the free VIEW on the prefab content but NEVER calls the rig seam (a rig sync would corrupt the
-  SCENE's authored camera); (4) the prefab-context **snapshot captures a camera-less scene**
-  (`SceneWriter.BuildScene(world)` with no camera/layers) and `PrefabWriter.BuildPrefab` nulls any
-  camera — so **a prefab save emits no camera**.
+- **No camera in a prefab context (pre-mortem #8).** A prefab is a class, not a scene — it has no camera
+  entity (CM). The gate is: (1) the camera-entity **glyph** is naturally inert (no camera entity for the
+  emitter to find; also `ActiveContextKind == Scene`-only); (2) there is **no "Camera" tree row** (a prefab
+  has no camera entity, and the camera is ordinary scene content now — no special fold to gate); (3) the
+  reader's **ensure-one-camera is suppressed** — a prefab-context load/restore carries
+  `LoadSceneRequest.SuppressCameraEnsure` (set by the stack's transient `RestoringPrefabContext` flag during
+  the synchronous restore), so `SceneReaderSystem` frames the free VIEW on the prefab content but NEVER
+  ensures a camera (ensuring one would inject a camera into the prefab); (4) `PrefabWriter.BuildPrefab` and
+  the `PrefabExpander` **REFUSE a camera entity** (camera — "Exactly one camera entity per scene") — so a
+  prefab can never carry one.
 
 - **Save Prefab.** In a prefab context the Save button/`dialog:prefab` opens the **Save-Prefab** dialog
   (a single primary [Save Prefab] + Cancel — a prefab is one file, no Save Project / Backup); the `Game`
@@ -3734,18 +3715,18 @@ dirty `●`) in a prefab context.
 **Why:** PF-D is the user's actual goal — build NPCs / dialogue zones / the Player as prefabs, place
 them, edit them, and see edits propagate. Reusing ONE Place-mode owner / ONE expander / ONE stack / ONE
 dialog machinery / ONE guard predicate keeps the surface from forking (the no-duplicate-ways tenet). The
-no-rig gate keeps a prefab a class (no camera). The compact-snapshot propagation mechanism is correct
+no-camera gate keeps a prefab a class (no camera). The compact-snapshot propagation mechanism is correct
 for free — the reader IS propagation.
-**Breaks:** a rig materializing in a prefab tab serializes a camera into the `.mdprefab` (format
-violation) or corrupts the scene's authored camera; an empty-save guard on a prefab blocks assembling a
+**Breaks:** a camera reaching a prefab (a leaked ensure, or a writer that did not refuse one) serializes a
+camera into the `.mdprefab` — multi-camera terrain on every instance; an empty-save guard on a prefab blocks assembling a
 new one; an editable instance child desyncs from the prefab silently (Godot's editable-children trap);
 a create-from-selection that did not preserve the file on undo loses the extraction; a second Place-mode
 owner fights the palette; deleting a prefab with live instances strands them.
 **Tests:** `MonoDreams.Tests/LevelEditor/PrefabUxTests.cs` (the `IsPrefabOwned` matrix + a system-level
 Modal refusal; `CreateInstanceCommand` place/undo/redo; `UnpackPrefabCommand`; the create-from-selection
 composite + file-stays; one-root empty-legal + multi-root-refused; the background-scene re-expansion
-mechanism; the reader `SuppressCameraRig` gate; the status-bar text);
-`MonoDreams.Tests/LevelEditor/ViewportContextStackTests.cs` (`OpenPrefab*`, rig-suppressed restore, one
+mechanism; the reader `SuppressCameraEnsure` gate; the status-bar text);
+`MonoDreams.Tests/LevelEditor/ViewportContextStackTests.cs` (`OpenPrefab*`, ensure-suppressed restore, one
 tab per prefab, per-context dirty isolation, `DecideClose`→`ConfirmDirty`, `CloseCleanContext`);
 `MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs` (`PrefabShelf_ArmPrefab_ThenViewportClick…`);
 `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (the extended entity menu + `PrefabCardMenu` /
@@ -3761,8 +3742,9 @@ refusal, root naming, the uniquifier series), `MonoDreams.Tests/LevelEditor/Pref
 `Transport.IsScreenInfrastructure`).
 **Depends on:** this file — "Prefabs are LINKED instances … (PF-C)" (the core this exposes: the
 expander, the diff-based compaction, `PrefabPropagation`, the bundling), "The viewport context stack is
-the ONE tab-switching mechanism … (PF-B)" (prefab contexts are its new consumer), "The editor splits the
-free VIEW from the authored camera rig" (the four-fold no-rig gate), "The editor's Save dialog is a modal
+the ONE tab-switching mechanism … (PF-B)" (prefab contexts are its new consumer), "The editor visualizes +
+edits the scene camera ENTITY" (the no-camera gate for a prefab context); camera — "Exactly one camera
+entity per scene" (the prefab camera refusal), "The editor's Save dialog is a modal
 three-action chooser …" (the Save-Prefab + confirm modes on the same machinery), "The palette lists
 assets as cards …" (the Prefabs tab mirrors it), "Save is blocked while Playing, while the Game tab is
 active, or when no project root is resolved" (Save Prefab reuses the guard, minus the Game cause), "The
