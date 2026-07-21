@@ -100,6 +100,12 @@ public sealed class EditorCameraRig
     /// Re-syncs the rig's STATE from a loaded <c>scene.camera</c> (its identity is unchanged — the rig
     /// entity survives Restart/reload/switch). Null (a legacy camera-less scene) leaves the rig as-is.
     /// Wired to <c>SceneReaderSystem</c>'s rig seam, so every load rebuilds the rig from the file.
+    ///
+    /// <para><b>TODO(CM-B): vestigial bridge.</b> Under the camera-as-entity model (CM-A) the writer no
+    /// longer emits a <c>scene.camera</c> block, so a v3 scene passes <c>null</c> here — the rig instead
+    /// adopts the just-framed view (via the reader's <c>CameraDataFromView</c> fallback). The camera
+    /// ENTITY now carries the authored state; this rig + its glyph/snap are kept only so the editor still
+    /// compiles and runs this wave. CM-B deletes the rig wholesale (the glyph retargets to the entity).</para>
     /// </summary>
     public void SyncFromScene(SceneCameraData? camera)
     {
@@ -111,10 +117,12 @@ public sealed class EditorCameraRig
     }
 
     /// <summary>
-    /// The rig's state as a throwaway <see cref="Camera"/> for <c>SceneWriter.BuildScene</c> — so Save
-    /// captures <c>scene.camera</c> FROM THE RIG, never the live VIEW (moving the view must never change
-    /// what Save writes). The virtual size comes from the shared camera (immutable), so the produced
-    /// <c>scene.camera</c> matches what a freshly loaded rig would round-trip byte-identically.
+    /// The rig's state as a throwaway <see cref="Camera"/>.
+    ///
+    /// <para><b>TODO(CM-B): vestigial.</b> This fed the pre-CM <c>SceneWriter.BuildScene(world, camera, …)</c>
+    /// so Save captured <c>scene.camera</c> from the rig. Under CM-A <c>BuildScene</c> dropped the camera
+    /// parameter (the camera is a scene entity, captured in the membership closure), so nothing in
+    /// production calls this anymore — it survives only so the rig compiles this wave. CM-B removes it.</para>
     /// </summary>
     public Camera AsCamera()
     {

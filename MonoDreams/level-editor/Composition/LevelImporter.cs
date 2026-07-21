@@ -76,19 +76,20 @@ public sealed class LevelImporter
     /// <summary>
     /// Tags the content (see <see cref="TagContentRoots"/>) and builds the native <see cref="SceneData"/>
     /// for <paramref name="world"/> through the canonical <see cref="SceneWriter"/> (stable ids +
-    /// deterministic ordering). <paramref name="camera"/> / <paramref name="layers"/> are optional
-    /// scene metadata (camera state, layer banding).
+    /// deterministic ordering). <paramref name="layers"/> is optional layer banding. Under CM the camera
+    /// is a scene entity, so there is no camera parameter — an imported world with no camera entity gets a
+    /// default one from the reader on load (the one-camera rule).
     /// </summary>
-    public SceneData Import(World world, Camera? camera = null, DrawLayerMap? layers = null)
+    public SceneData Import(World world, DrawLayerMap? layers = null)
     {
         TagContentRoots(world);
-        return _writer.BuildScene(world, camera, layers);
+        return _writer.BuildScene(world, layers);
     }
 
     /// <summary>Imports (<see cref="Import"/>) and canonical-serializes to a byte-stable JSON string —
     /// the native <c>.mdscene</c> bytes.</summary>
-    public string ImportToJson(World world, Camera? camera = null, DrawLayerMap? layers = null)
-        => CanonicalJson.Serialize(Import(world, camera, layers));
+    public string ImportToJson(World world, DrawLayerMap? layers = null)
+        => CanonicalJson.Serialize(Import(world, layers));
 
     /// <summary>
     /// Imports and writes the native scene to <paramref name="filePath"/> through
@@ -96,9 +97,9 @@ public sealed class LevelImporter
     /// Returns the path written, or <c>null</c> when refused (null/empty path). Used by the headless
     /// export op that produces the committed migrated levels.
     /// </summary>
-    public string? ImportToFile(World world, string? filePath, Camera? camera = null, DrawLayerMap? layers = null)
+    public string? ImportToFile(World world, string? filePath, DrawLayerMap? layers = null)
     {
         TagContentRoots(world);
-        return _writer.Save(world, filePath, camera, layers);
+        return _writer.Save(world, filePath, layers);
     }
 }

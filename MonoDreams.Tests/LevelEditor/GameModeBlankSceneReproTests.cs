@@ -110,7 +110,7 @@ public class GameModeBlankSceneReproTests
             Target = RenderTargetID.Main,
             LayerDepth = 0.5f,
         });
-        new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(world, SceneFileName, camera: null, layers: null);
+        new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(world, SceneFileName, layers: null);
         Assert.True(fake.Files.ContainsKey(SceneFileName), "the null-camera scene must be written");
         Assert.DoesNotContain("\"camera\"", fake.Files[SceneFileName]); // camera: null ⇒ field omitted (canonical)
     }
@@ -139,7 +139,7 @@ public class GameModeBlankSceneReproTests
             {
                 Reload = () => World.Publish(new LoadSceneRequest(SceneFileName, fromContent: false)),
             };
-            Transport.CaptureSnapshot = () => new SceneWriter(serializer).BuildScene(World, Rig.AsCamera(), layers: null);
+            Transport.CaptureSnapshot = () => new SceneWriter(serializer).BuildScene(World, layers: null);
             Transport.RestoreSnapshot = snapshot => World.Publish(new LoadSceneRequest(snapshot));
             Transport.CaptureView = () => new CameraViewSnapshot(View.Position, View.Zoom, View.Rotation);
             Transport.RestoreView = v => { View.Position = v.Position; View.Zoom = v.Zoom; View.Rotation = v.Rotation; };

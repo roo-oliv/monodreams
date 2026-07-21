@@ -609,7 +609,7 @@ public class EditorContextMenuTests
             var writer = new SceneWriter(new SceneSerializer(registry));
 
             const string target = "/proj/Content/Levels/fresh.mdscene";
-            var scene = writer.BuildScene(world, camera, layers);
+            var scene = writer.BuildScene(world, layers);
             Assert.Empty(scene.Entities);
             var saved = writer.Save(scene, target);
 

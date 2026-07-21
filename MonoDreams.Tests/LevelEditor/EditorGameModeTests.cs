@@ -86,7 +86,7 @@ public class EditorGameModeTests
             Transport.CaptureSnapshot = () =>
             {
                 SnapshotCaptures++;
-                return new SceneWriter(serializer).BuildScene(World, Rig.AsCamera(), layers: null);
+                return new SceneWriter(serializer).BuildScene(World, layers: null);
             };
             Transport.RestoreSnapshot = snapshot => World.Publish(new LoadSceneRequest(snapshot));
             Transport.CaptureView = () => new CameraViewSnapshot(Camera.Position, Camera.Zoom, Camera.Rotation);
@@ -356,10 +356,15 @@ public class EditorGameModeTests
         Assert.Equal(1, s.SnapshotCaptures);
     }
 
-    // ─────────────── Camera: enter adopts the rig; exit restores the Scene view; rig untouched ────────
+    // ─────────────── Camera view: enter adopts the rig; exit restores the captured Scene view ──────────
+    // NOTE (CM-A): the "rig untouched across the Game round-trip" assertion was DROPPED — the rig no longer
+    // round-trips through the snapshot (the snapshot carries no camera block; the camera is a scene ENTITY
+    // now), so on exit-restore the vestigial rig adopts the reader's auto-framed view. The enter-adopts-rig
+    // + exit-restores-view VIEW behaviors below still hold this wave; the camera-entity's own Game-tab
+    // round-trip (it does NOT leak Play movement into the scene tab) is covered by CameraEntityTests.
 
     [Fact]
-    public void Camera_Enter_AdoptsRig_Exit_RestoresSceneView_RigUntouched()
+    public void Camera_Enter_AdoptsRigView_Exit_RestoresCapturedSceneView()
     {
         using var s = new Stack();
         s.AddSpriteRoot(new Vector2(200, 100));
@@ -379,9 +384,43 @@ public class EditorGameModeTests
         // Exit restores the captured Scene view (overriding the reader's auto-frame).
         Assert.Equal(new Vector2(5, 5), s.Camera.Position);
         Assert.Equal(1f, s.Camera.Zoom);
-        // The rig itself is untouched throughout (the snapshot re-synced it to its enter-time state).
-        Assert.Equal(new Vector2(100, 50), s.Rig.Position);
-        Assert.Equal(2f, s.Rig.Zoom);
+    }
+
+    // ─────────────── CM pre-mortem #4: a Play session that moved the camera ENTITY does not leak ────────
+
+    [Fact]
+    public void CameraEntity_MovedInPlay_DoesNotLeakIntoTheSceneTab()
+    {
+        using var s = new Stack();
+        s.AddSpriteRoot(new Vector2(10, 20));
+
+        // A scene camera ENTITY at its authored position (SceneObjectComponent so it is captured/restored).
+        var cam = s.World.CreateEntity();
+        cam.Set(new SceneObjectComponent());
+        cam.Set(new EntityInfoComponent("Camera"));
+        cam.Set(new TransformComponent(new Vector2(30, 40)));
+        cam.Set(new CameraComponent { Zoom = 1f });
+
+        s.Transport.EnterGameMode(Paused()); // snapshots the scene (incl. the camera entity at (30,40))
+
+        // In the sandbox, "Play" moves the camera entity (as CameraFollowSystem would).
+        CameraOf(s.World).Get<TransformComponent>().Position = new Vector2(999, 888);
+
+        s.Transport.ExitToSceneMode(Paused());
+
+        // The scene tab is restored from the snapshot — the sandbox's camera movement did NOT leak.
+        var restored = CameraOf(s.World);
+        Assert.Equal(new Vector2(30, 40), restored.Get<TransformComponent>().Position);
+        // Still exactly one camera entity (no duplication across the round-trip).
+        using var cams = s.World.GetEntities().With<CameraComponent>().AsSet();
+        Assert.Single(cams.GetEntities().ToArray());
+    }
+
+    private static Entity CameraOf(World world)
+    {
+        using var set = world.GetEntities().With<CameraComponent>().AsSet();
+        foreach (var e in set.GetEntities()) return e;
+        return default;
     }
 
     // ─────────────── The restore shares the reader: a file: sprite survives with DrawComponent ────────

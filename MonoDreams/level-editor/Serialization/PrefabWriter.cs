@@ -57,16 +57,33 @@ public sealed class PrefabWriter
     /// null only a DIRECT self-reference is caught.</param>
     public SceneData BuildPrefab(World world, string prefabId, Func<string, PrefabData?>? cycleSource = null)
     {
-        // Reuse the scene writer's membership closure + diff-based instance compaction; a prefab omits
-        // the camera (a class, not a scene) — do not pass one, and null any that slipped in.
+        // Reuse the scene writer's membership closure + diff-based instance compaction.
         var scene = _sceneWriter.BuildScene(world);
-        scene.Camera = null;
+
+        // A prefab is a CLASS, not a scene — it REFUSES any camera entity (a camera inside a prefab is
+        // multi-camera terrain, CM). The scene writer's BuildScene already refuses ≥2 cameras; a prefab
+        // refuses even ONE, so guard here on the serialized entities.
+        RefuseAnyCamera(prefabId, scene);
 
         var rootIndex = PrefabData.FindSingleRootIndex(prefabId, scene); // exactly one root, else loud
         NormalizeRootToOrigin(scene, rootIndex);
         RefuseCycles(prefabId, scene, cycleSource);
 
         return scene;
+    }
+
+    /// <summary>
+    /// Refuses (loud) a prefab world carrying ANY <c>core.Camera</c> entity — a camera inside a prefab is
+    /// multi-camera terrain (CM). Belt-and-suspenders alongside the scene writer's ≥2 refusal: a prefab
+    /// refuses even one.
+    /// </summary>
+    private static void RefuseAnyCamera(string prefabId, SceneData scene)
+    {
+        foreach (var entry in scene.Entities)
+            if (entry.Components != null && entry.Components.ContainsKey(EngineComponentSerializers.CameraKey))
+                throw new InvalidOperationException(
+                    $"[level-editor] Prefab '{prefabId}' cannot contain a camera entity ('{EngineComponentSerializers.CameraKey}') — " +
+                    "a camera belongs to a scene, not a prefab (a camera-in-prefab is multi-camera terrain). Refused.");
     }
 
     /// <summary>

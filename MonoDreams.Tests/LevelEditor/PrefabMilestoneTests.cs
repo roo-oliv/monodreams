@@ -290,7 +290,7 @@ public class PrefabMilestoneTests
             Assert.Equal("npc_talk", npcInstance0.Get<DialogueZoneComponent>().YarnNodeName); // the other inherits
 
             // ============ (e) Save the scene ============
-            new SceneWriter(serializer, shop.Source).Save(authorWorld, SceneFile, new GameCamera(800, 600), layers: null);
+            new SceneWriter(serializer, shop.Source).Save(authorWorld, SceneFile, layers: null);
             var saved = CanonicalJson.Deserialize<SceneData>(fake.Files[SceneFile])!;
 
             Assert.Equal(4, saved.Entities.Count);                            // 4 compact entries, ZERO children
@@ -648,7 +648,7 @@ public class PrefabMilestoneTests
             Assert.NotEqual(default, ChildOf(world, instance));
 
             // Save the scene → reload → the instance re-expands to the full family (compact on disk).
-            new SceneWriter(shop.Serializer, shop.Source).Save(world, SceneFile, new GameCamera(800, 600), null);
+            new SceneWriter(shop.Serializer, shop.Source).Save(world, SceneFile, (MonoDreams.Draw.DrawLayerMap?)null);
             var saved = CanonicalJson.Deserialize<SceneData>(fake.Files[SceneFile])!;
             Assert.Single(saved.Entities);                 // ONE compact prefab entry, zero children serialized
             Assert.Equal("elephant-kid", saved.Entities[0].Prefab);

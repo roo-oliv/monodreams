@@ -100,7 +100,7 @@ public class NativeFirstLoadTests
             });
         }
         new SceneWriter(new SceneSerializer(NewEngineRegistry()))
-            .Save(w, NativeLevelLoader.ContentRelativePath(levelId), camera: null, layers: null);
+            .Save(w, NativeLevelLoader.ContentRelativePath(levelId), layers: null);
     }
 
     // ---- Native-first resolution: a bundled scene → the native reader builds the world (editor-free) ----
@@ -205,7 +205,7 @@ public class NativeFirstLoadTests
         e.Set(new EntityInfoComponent("Prop", "marker"));
         e.Set(new TransformComponent(pos));
         // The writer routes through PlatformServices.Current (the ambient fake set by WithPlatform).
-        new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(w, path, camera: null, layers: null);
+        new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(w, path, layers: null);
     }
 
     [Fact]
@@ -364,11 +364,16 @@ public class NativeFirstLoadTests
         });
     }
 
-    /// <summary>The exact canonical bytes committed as the Examples sample scene (kept in sync with
-    /// <c>MonoDreams.Examples.Core/Content/Levels/sample.mdscene</c> — both come from the same serializer).</summary>
+    /// <summary>The exact canonical bytes the current serializer produces for the sample scene. Under CM
+    /// the writer stamps version 3.
+    /// <para><b>TODO(CM-C):</b> the committed <c>MonoDreams.Examples.Core/Content/Levels/sample.mdscene</c>
+    /// on disk is still version 2 (committed content stays v2 this wave; CM-C's <c>monodreams migrate</c>
+    /// bumps it to 3). A camera-less v2 file loads fine (the version guard re-saves it as v3), so booting
+    /// the committed sample is unaffected; only this canonical-bytes fixture leads the on-disk file by one
+    /// version until CM-C migrates it.</para></summary>
     private const string ExpectedSampleScene =
         "{\n" +
-        "  \"version\": 2,\n" +
+        "  \"version\": 3,\n" +
         "  \"layers\": [],\n" +
         "  \"sources\": [],\n" +
         "  \"entities\": [\n" +

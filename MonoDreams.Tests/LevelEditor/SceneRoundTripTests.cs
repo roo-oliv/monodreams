@@ -148,13 +148,10 @@ public class SceneRoundTripTests
             child.Set(new TransformComponent(new Vector2(50, 0)));
             child.SetParent(root);
 
-            // Write the scene with a camera + a layer map.
-            var camera = new MonoDreams.Component.Camera();
-            camera.Position = new Vector2(100, 200);
-            camera.Zoom = 1.25f;
+            // Write the scene with a layer map (the camera is a scene entity now — CM — not a file block).
             var layers = DrawLayerMap.FromEnum<TestLayer>();
             var writer = new SceneWriter(serializer);
-            var locator = writer.Save(sourceWorld, SceneFileName, camera, layers);
+            var locator = writer.Save(sourceWorld, SceneFileName, layers);
 
             Assert.Equal(SceneFileName, locator);
             Assert.True(fake.Files.ContainsKey(SceneFileName));
@@ -199,11 +196,11 @@ public class SceneRoundTripTests
             Assert.Equal(loadedRoot, loadedChild.Get<ChildOfComponent>().Parent);
             Assert.Same(loadedRoot.Get<TransformComponent>(), loadedChild.Get<TransformComponent>().Parent);
 
-            // Camera + layers persisted into the file (reconstructable banding).
+            // Layers persist into the file (reconstructable banding); the camera is NOT a file block under
+            // CM (it is a scene entity), so no legacy 'camera' block is written.
             var reloadedScene = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName]);
-            Assert.NotNull(reloadedScene.Camera);
-            Assert.Equal(1.25f, reloadedScene.Camera.Zoom);
-            Assert.Equal(100f, reloadedScene.Camera.Position[0]);
+            Assert.Null(reloadedScene.Camera);
+            Assert.Equal(3, reloadedScene.Version);
             Assert.NotEmpty(reloadedScene.Layers);
         });
     }
@@ -289,7 +286,7 @@ public class SceneRoundTripTests
             // Save (membership: the one tagged root).
             var registry = NewEngineRegistry();
             var serializer = new SceneSerializer(registry);
-            new SceneWriter(serializer).Save(preWorld, SceneFileName, camera, layers);
+            new SceneWriter(serializer).Save(preWorld, SceneFileName, layers);
 
             // ---- reload world: deserialize, then run the SAME prep+YSort frame ----
             using var postWorld = new World();
@@ -389,7 +386,7 @@ public class SceneRoundTripTests
                 sourceWorld, entry, band, new Vector2(120, 80), texture: null);
             placed.Set(new SceneObjectComponent()); // what CreateEntityCommand does on placement
 
-            new SceneWriter(serializer).Save(sourceWorld, SceneFileName, camera: null, layers: null);
+            new SceneWriter(serializer).Save(sourceWorld, SceneFileName, layers: null);
 
             // Reload onto a fresh world: file: keys must hit the file loader, not the content loader.
             using var loadWorld = new World();
@@ -436,7 +433,7 @@ public class SceneRoundTripTests
                 sourceWorld, entry, band, Vector2.Zero, texture: null);
             placed.Set(new SceneObjectComponent());
 
-            new SceneWriter(serializer).Save(sourceWorld, SceneFileName, camera: null, layers: null);
+            new SceneWriter(serializer).Save(sourceWorld, SceneFileName, layers: null);
 
             // Reload with the REAL file loader whose file is missing (openStream → null).
             var placeholderRequests = 0;
@@ -518,7 +515,7 @@ public class SceneRoundTripTests
             Assert.Equal(propsDepth, prop.Get<SpriteInfoComponent>().LayerDepth);
             Assert.Equal(-step, prop.Get<SpriteInfoComponent>().YSortDepthBias, 6);
 
-            new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: layers);
+            new SceneWriter(serializer).Save(world, SceneFileName, layers: layers);
 
             using var loadWorld = new World();
             using var reader = new SceneReaderSystem(loadWorld, new SceneSerializer(NewEngineRegistry()),
@@ -578,7 +575,7 @@ public class SceneRoundTripTests
                 Assert.Equal(2, count);
             }
 
-            new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
+            new SceneWriter(serializer).Save(world, SceneFileName, layers: null);
             var saved = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName]);
             // The boundary root is written (one entity, carrying the boundary component); NO baked
             // convex-collider child appears.
@@ -662,7 +659,7 @@ public class SceneRoundTripTests
             bake1.Update(edit); // 2 baked segment children (never serialized)
 
             var save1Serializer = new SceneSerializer(NewEngineRegistry());
-            new SceneWriter(save1Serializer).Save(world1, SceneFileName, camera: null, layers: null);
+            new SceneWriter(save1Serializer).Save(world1, SceneFileName, layers: null);
             var save1 = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName])!;
             Assert.Equal(3, save1.Entities.Count); // prop + trigger + boundary
             Assert.DoesNotContain(save1.Entities, e => e.Components.ContainsKey(EngineComponentSerializers.ConvexColliderKey));
@@ -689,7 +686,7 @@ public class SceneRoundTripTests
 
             // ---- SAVE #2 ----
             var save2Serializer = new SceneSerializer(NewEngineRegistry());
-            new SceneWriter(save2Serializer).Save(world2, SceneFileName, camera: null, layers: null);
+            new SceneWriter(save2Serializer).Save(world2, SceneFileName, layers: null);
             var save2 = global::System.Text.Json.JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFileName])!;
 
             // FIXED POINT: same root set (3, NOT 0), boundary bake child still excluded.

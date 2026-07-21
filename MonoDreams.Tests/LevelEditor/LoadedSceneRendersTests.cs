@@ -107,7 +107,7 @@ public class LoadedSceneRendersTests
         if (withFollowTarget)
             root.Set(new CameraFollowTargetComponent { IsActive = true });
 
-        writer.Save(world, SceneFileName, camera: null, layers: null);
+        writer.Save(world, SceneFileName, layers: null);
         Assert.True(fake.Files.ContainsKey(SceneFileName));
     }
 

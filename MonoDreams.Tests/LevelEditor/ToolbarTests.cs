@@ -101,7 +101,7 @@ public class ToolbarTests
                 case EditorToolbarAction.ToolScale: SetTool(GizmoTool.Scale); break;
                 case EditorToolbarAction.ToggleSnap: ToggleSnap(); break;
                 case EditorToolbarAction.Save:
-                    new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
+                    new SceneWriter(serializer).Save(world, SceneFileName, layers: null);
                     break;
                 case EditorToolbarAction.Undo: history.Undo(); break;
                 case EditorToolbarAction.Redo: history.Redo(); break;
@@ -262,7 +262,7 @@ public class ToolbarTests
             void DispatchSave(GameState state, EditorProjectContext ctx)
             {
                 if (EditorOverlay.IsSaveBlocked(state, ctx)) return; // (the overlay also logs a warning)
-                new SceneWriter(serializer).Save(world, SceneFileName, camera: null, layers: null);
+                new SceneWriter(serializer).Save(world, SceneFileName, layers: null);
             }
 
             // Playing (even with a resolved project): blocked.

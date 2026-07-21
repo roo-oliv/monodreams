@@ -83,7 +83,10 @@ public class ColliderMigrationTests
         Assert.Equal(EngineComponentSerializers.SpriteInfoKey, ColliderMigration.SpriteInfoKey);
         Assert.Equal(EngineComponentSerializers.RigidBodyKey, ColliderMigration.RigidBodyKey);
         Assert.Equal(EngineComponentSerializers.VelocityKey, ColliderMigration.VelocityKey);
-        Assert.Equal(SceneVersionGuard.CurrentVersion, ColliderMigration.TargetVersion);
+        // The COLLIDER lift targets version 2 — decoupled from SceneVersionGuard.CurrentVersion (now 3,
+        // which the separate CM camera lift reaches). A v1 collider file migrates to v2; the version guard
+        // then re-saves a camera-less v2 as v3, or refuses a v2 with a camera block until `monodreams migrate`.
+        Assert.Equal(2, ColliderMigration.TargetVersion);
     }
 
     // ---- Box on a dedicated collider carrier → reshaped IN PLACE (bounds → centered size) ----
@@ -297,7 +300,7 @@ public class ColliderMigrationTests
 
     private static void AssertMigrateLoadSaveFixedPoint(string v1Json)
     {
-        var migrated = ColliderMigration.Migrate(v1Json, "fixture.mdscene").Json;
+        var migrated = ColliderMigration.Migrate(v1Json, "fixture.mdscene").Json; // collider lift → v2
 
         var fake = new InMemoryPlatform();
         var previous = PlatformServices.Current;
@@ -316,9 +319,25 @@ public class ColliderMigrationTests
             world.Publish(new LoadSceneRequest(path, fromContent: false));
 
             var resaved = CanonicalJson.Serialize(new SceneWriter(serializer).BuildScene(world));
-            Assert.Equal(migrated, resaved); // pre-mortem #3: migrate → load → save is a byte fixed point
+
+            // pre-mortem #3: migrate → load → save is a byte fixed point MODULO the version bump. The
+            // collider lift stamps v2; loading a clean v2 (no camera block) re-saves at the current version
+            // (v3, per the CM guard). Everything but the version line is a fixed point — the reshaped
+            // colliders + entity ordering round-trip. (TODO(CM-C): the umbrella `monodreams migrate`
+            // produces v3 directly, making this a strict byte fixed point again.)
+            var migratedAtCurrentVersion = CanonicalJson.Serialize(BumpVersion(migrated, SceneVersionGuard.CurrentVersion));
+            Assert.Equal(migratedAtCurrentVersion, resaved);
         }
         finally { PlatformServices.Current = previous; }
+    }
+
+    /// <summary>Deserializes <paramref name="json"/>, stamps <paramref name="version"/>, and returns the
+    /// scene — so the only intended difference from the input is the version line.</summary>
+    private static SceneData BumpVersion(string json, int version)
+    {
+        var scene = CanonicalJson.Deserialize<SceneData>(json)!;
+        scene.Version = version;
+        return scene;
     }
 
     // ---- Directory recursion + dry-run + per-file summary (the CLI's file orchestration) ----

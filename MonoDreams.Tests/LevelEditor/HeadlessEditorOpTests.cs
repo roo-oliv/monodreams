@@ -147,7 +147,7 @@ public class HeadlessEditorOpTests
                 switch (action)
                 {
                     case EditorToolbarAction.Save:
-                        new SceneWriter(serializer).Save(world, SceneFileName, camera, layers: null);
+                        new SceneWriter(serializer).Save(world, SceneFileName, layers: null);
                         break;
                     case EditorToolbarAction.Undo: history.Undo(); break;
                     case EditorToolbarAction.Redo: history.Redo(); break;
@@ -238,7 +238,9 @@ public class HeadlessEditorOpTests
             var scene = JsonSerializer.Deserialize<SceneData>(json!,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 
-            // Expected: exactly the tagged root (membership closure of one), camera state, reverted position.
+            // Expected: exactly the tagged root (membership closure of one), reverted position. (This world
+            // was built in code with no camera entity, and saved directly — no ensure-reader — so it stays
+            // a single-entity scene.)
             Assert.Single(scene.Entities);
             var savedTransform = scene.Entities[0].Components["core.Transform"];
             var px = savedTransform.GetProperty("position")[0].GetSingle();
@@ -250,9 +252,8 @@ public class HeadlessEditorOpTests
             var savedSprite = scene.Entities[0].Components["core.SpriteInfo"];
             Assert.Equal("Atlas/TX Player", savedSprite.GetProperty("assetKey").GetString());
 
-            // Camera state captured at save.
-            Assert.NotNull(scene.Camera);
-            Assert.Equal(1f, scene.Camera!.Zoom, 3);
+            // The camera is a scene entity now (CM), not a file block — no legacy 'camera' block is written.
+            Assert.Null(scene.Camera);
         });
     }
 }

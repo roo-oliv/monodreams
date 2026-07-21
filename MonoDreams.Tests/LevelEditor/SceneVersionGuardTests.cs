@@ -119,7 +119,7 @@ public class SceneVersionGuardTests
     }
 
     [Fact]
-    public void Reader_V1CleanFile_Loads_AndReSavesAsVersion2()
+    public void Reader_V1CleanFile_Loads_AndReSavesAsCurrentVersion()
     {
         WithPlatform(fake =>
         {
@@ -134,10 +134,65 @@ public class SceneVersionGuardTests
             using (var set = world.GetEntities().With<TransformComponent>().AsSet())
                 Assert.Single(set.GetEntities().ToArray());
 
-            // Re-saving the loaded world stamps the current version (2) — the "v1 clean re-saves as v2" rule.
+            // Re-saving the loaded world stamps the current version (3) — the "clean legacy re-saves current" rule.
             var resaved = CanonicalJson.Deserialize<SceneData>(
                 CanonicalJson.Serialize(new SceneWriter(new SceneSerializer(registry)).BuildScene(world)))!;
-            Assert.Equal(2, resaved.Version);
+            Assert.Equal(3, resaved.Version);
+            Assert.Equal(SceneVersionGuard.CurrentVersion, resaved.Version);
+        });
+    }
+
+    // ---- CM v2→v3 camera-block gate ----
+
+    private static SceneData SceneWithCamera(int version, SceneCameraData camera, params SceneEntityData[] entities)
+    {
+        var s = Scene(version, entities);
+        s.Camera = camera;
+        return s;
+    }
+
+    [Fact]
+    public void Guard_V2WithCameraBlock_Refuses_WithMigrateHint()
+    {
+        var scene = SceneWithCamera(2, new SceneCameraData { Zoom = 1.5f },
+            Entity(0, (Ei, Info("Prop", "p")), (Xf, Transform(0, 0))));
+        var ex = Assert.Throws<InvalidOperationException>(() => SceneVersionGuard.CheckFileLoad(scene, "v2cam.mdscene"));
+        Assert.Contains("legacy 'camera' block", ex.Message);
+        Assert.Contains("monodreams migrate", ex.Message);
+        Assert.Contains("v2cam.mdscene", ex.Message);
+    }
+
+    [Fact]
+    public void Guard_V2WithoutCameraBlock_Passes()
+    {
+        var scene = Scene(2, Entity(0, (Ei, Info("Prop", "p")), (Xf, Transform(0, 0))));
+        SceneVersionGuard.CheckFileLoad(scene, "v2.mdscene"); // no throw — a camera-less v2 loads (re-saves v3)
+    }
+
+    [Fact]
+    public void Guard_V3_Passes()
+    {
+        var scene = Scene(3, Entity(0, (Ei, Info("Prop", "p")), (Xf, Transform(0, 0))));
+        SceneVersionGuard.CheckFileLoad(scene, "v3.mdscene"); // no throw — current version
+    }
+
+    [Fact]
+    public void Reader_V2FileWithCameraBlock_FailsLoud_WithMigrateHint()
+    {
+        WithPlatform(fake =>
+        {
+            const string path = "Levels/v2cam.mdscene";
+            fake.Files[path] = CanonicalJson.Serialize(SceneWithCamera(2, new SceneCameraData { Zoom = 1f },
+                Entity(0, (Ei, Info("Prop", "p")), (Xf, Transform(0, 0)))));
+
+            using var world = new World();
+            using var reader = new SceneReaderSystem(world, new SceneSerializer(Registry()), content: null!, loadTexture: _ => null!);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => world.Publish(new LoadSceneRequest(path, fromContent: false)));
+            Assert.Contains("monodreams migrate", ex.Message);
+
+            using var set = world.GetEntities().With<TransformComponent>().AsSet();
+            Assert.Empty(set.GetEntities().ToArray()); // refused before any entity was created
         });
     }
 

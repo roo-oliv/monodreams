@@ -244,7 +244,8 @@ public sealed class EditorOverlay
         // the live camera directly — see SceneReaderSystem.) The prefab expander expands linked instances.
         _sceneReaderSystem = new SceneReaderSystem(world, Serializer, content,
             fileTextureLoader: AssetTextures.Load, camera: camera,
-            applyCameraToRig: _cameraRig.SyncFromScene, prefabExpander: PrefabExpander);
+            applyCameraToRig: _cameraRig.SyncFromScene, prefabExpander: PrefabExpander,
+            ensureSingleCamera: true); // CM: a loaded scene always has exactly one camera entity
         SceneReader = _sceneReaderSystem;
 
         // UX2-F: wire the transport's Game-mode sandbox seams to the SHARED instances (Transport was
@@ -257,9 +258,11 @@ public sealed class EditorOverlay
         // prefab is a class, not a scene) and restores with the camera rig SUPPRESSED (the stack sets
         // RestoringPrefabContext for the duration of a prefab-context restore). A Scene/Game context is
         // unchanged (rig camera + layers, rig re-synced).
+        // CM: the camera is a scene entity captured in the snapshot like everything else — no camera
+        // side-channel. A prefab snapshot carries no layers (a class, not a scene); a scene carries them.
         Transport.CaptureSnapshot = () => Transport.ActiveContextKind == ViewportContextKind.Prefab
             ? new SceneWriter(Serializer, PrefabSource).BuildScene(world)
-            : new SceneWriter(Serializer, PrefabSource).BuildScene(world, _cameraRig.AsCamera(), layers);
+            : new SceneWriter(Serializer, PrefabSource).BuildScene(world, layers);
         Transport.RestoreSnapshot = snapshot => world.Publish(
             new LoadSceneRequest(snapshot, suppressCameraRig: Transport.ContextStack.RestoringPrefabContext));
         Transport.CaptureView = () => new CameraViewSnapshot(camera.Position, camera.Zoom, camera.Rotation);
@@ -1349,7 +1352,7 @@ public sealed class EditorOverlay
         // world — and write them through the shared serializer/writer.
         using var emptyWorld = new World();
         var writer = new SceneWriter(Serializer, PrefabSource);
-        var scene = writer.BuildScene(emptyWorld, _cameraRig.AsCamera(), _layers);
+        var scene = writer.BuildScene(emptyWorld, _layers);
         var savedPath = writer.Save(scene, target);
         if (savedPath == null) return;
 
@@ -1922,7 +1925,7 @@ public sealed class EditorOverlay
         }
 
         var writer = new SceneWriter(Serializer, PrefabSource);
-        var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
+        var scene = writer.BuildScene(_world, _layers);
         WarnIfNotShipReady(scene);
         var savedPath = writer.Save(scene, target);
         if (savedPath == null) return;
@@ -2118,7 +2121,7 @@ public sealed class EditorOverlay
 
         // Build once so the ship-readiness lint (PS6) can inspect the exact scene being written.
         var writer = new SceneWriter(Serializer, PrefabSource);
-        var scene = writer.BuildScene(_world, _cameraRig.AsCamera(), _layers);
+        var scene = writer.BuildScene(_world, _layers);
         WarnIfNotShipReady(scene);
         // Self-healing duplicate-id repair (PF-F): if the writer re-stamped colliding ids, surface it.
         if (writer.LastBuildDuplicateIdRestamps > 0)

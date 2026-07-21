@@ -82,27 +82,12 @@ public class CameraRigTests
 
     private static Texture2D StubTexture(string _) => null;
 
-    /// <summary>Writes a scene (one tagged sprite root at <paramref name="content"/> so the reader has
-    /// content to frame) carrying the given camera (null persists <c>camera: null</c> — the UX2-E
-    /// audit), into the in-memory store.</summary>
-    private static void WriteScene(InMemoryPlatformServices fake, Vector2 content, GameCamera? camera)
-    {
-        using var world = new World();
-        var root = world.CreateEntity();
-        root.Set(new SceneObjectComponent());
-        root.Set(new EntityInfoComponent("Prop", "Tree"));
-        root.Set(new TransformComponent(content));
-        root.Set(new SpriteInfoComponent
-        {
-            AssetKey = "Atlas/TX Tree",
-            Source = new Rectangle(0, 0, 16, 16),
-            Size = new Vector2(16, 16),
-            Color = Color.White,
-            Target = RenderTargetID.Main,
-            LayerDepth = 0.5f,
-        });
-        new SceneWriter(new SceneSerializer(NewEngineRegistry())).Save(world, SceneFileName, camera, layers: null);
-    }
+    // NOTE (CM-A): the rig's scene.camera-block persistence tests (RigMaterializesFromLoad,
+    // NullCameraLoad, SaveReadsRig, MovingTheView, RigSurvivesRestart, ShippedReader_NoRigSeam) were
+    // REMOVED — the camera is a scene ENTITY now, so the writer emits no scene.camera block for the rig to
+    // round-trip. The camera-entity round-trip is covered by CameraEntityTests. The rig itself (glyph /
+    // snap / pick / move / scale→zoom / delete-refusal / never-in-membership) still works this wave and is
+    // still exercised below; CM-B deletes the rig and this file wholesale.
 
     // ─────────────────────────── CameraRigGlyph pure math ───────────────────────────
 
@@ -135,115 +120,6 @@ public class CameraRigTests
         // Zoom: 0.0005 away (< 1e-3) matches; 0.002 away un-matches.
         Assert.True(CameraRigGlyph.ViewMatchesRig(rigPos, 1.0005f, rigPos, 1f));
         Assert.False(CameraRigGlyph.ViewMatchesRig(rigPos, 1.002f, rigPos, 1f));
-    }
-
-    // ─────────────────────────── Rig materialization from a load ───────────────────────────
-
-    [Fact]
-    public void RigMaterializesFromLoad_FileCameraBecomesRigState_ViewFramesContent()
-    {
-        var fake = new InMemoryPlatformServices();
-        WithPlatform(fake, () =>
-        {
-            var authored = new GameCamera(800, 600) { Position = new Vector2(300, -200), Rotation = 0.5f };
-            authored.Zoom = 2f;
-            WriteScene(fake, content: new Vector2(1275, -530), camera: authored);
-
-            using var world = new World();
-            var view = new GameCamera(800, 600); // the free VIEW starts at (0,0)
-            var rig = new EditorCameraRig(world, view);
-            using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
-                content: null, loadTexture: StubTexture, camera: view, applyCameraToRig: rig.SyncFromScene);
-
-            world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
-
-            // The RIG holds the authored camera state (scene.camera), verbatim.
-            Assert.Equal(new Vector2(300, -200), rig.Position);
-            Assert.Equal(2f, rig.Zoom);
-            Assert.Equal(0.5f, rig.Rotation);
-
-            // The VIEW auto-framed the off-origin content (it is NOT the authored camera — split proven).
-            Assert.True(view.Position.X > 1000f, $"view X {view.Position.X} should sit on the ~1275 content");
-            Assert.NotEqual(rig.Position, view.Position);
-        });
-    }
-
-    // ── UX3-A: a null-camera scene's rig adopts the POST-LOAD view, not the pre-load origin ──────────
-
-    [Fact]
-    public void NullCameraLoad_RigAdoptsPostLoadView_NotThePreLoadOrigin()
-    {
-        var fake = new InMemoryPlatformServices();
-        WithPlatform(fake, () =>
-        {
-            // Every pre-UX2-E scene persists camera: null (the UX2-E audit). Off-origin content.
-            WriteScene(fake, content: new Vector2(1275, -530), camera: null);
-
-            using var world = new World();
-            var view = new GameCamera(800, 600);        // the free VIEW starts at (0,0)
-            var rig = new EditorCameraRig(world, view); // ctor default = the pre-load view (origin, zoom 1)
-            using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
-                content: null, loadTexture: StubTexture, camera: view, applyCameraToRig: rig.SyncFromScene);
-
-            world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
-
-            // The VIEW auto-framed the off-origin content...
-            Assert.True(view.Position.X > 1000f, $"view X {view.Position.X} should sit on the ~1275 content");
-            // ...and the RIG adopted that post-load view (UX3-A) instead of keeping its pre-load origin
-            // ctor default — so entering Game mode (which snaps the view onto the rig) stays on content,
-            // and the Game-mode snapshot re-persists the on-content rig (the "returning doesn't help" cure).
-            Assert.NotEqual(Vector2.Zero, rig.Position);
-            Assert.Equal(view.Position, rig.Position);
-            Assert.Equal(view.Zoom, rig.Zoom);
-        });
-    }
-
-    // ─────────────────────────── Save reads the rig, never the view ───────────────────────────
-
-    [Fact]
-    public void SaveReadsRig_NotView()
-    {
-        using var world = new World();
-        var view = new GameCamera(800, 600);
-        var rig = new EditorCameraRig(world, view);
-
-        // Move the RIG (what a gizmo drag does — the rig's own transform + component).
-        rig.Entity.Get<TransformComponent>().Position = new Vector2(500, 500);
-        rig.Entity.Get<CameraRigComponent>() = new CameraRigComponent(3f, 0.25f);
-
-        // Move the VIEW somewhere else entirely.
-        view.Position = new Vector2(9999, 9999);
-        view.Zoom = 0.3f;
-
-        var scene = new SceneWriter(new SceneSerializer(NewEngineRegistry())).BuildScene(world, rig.AsCamera());
-
-        Assert.NotNull(scene.Camera);
-        Assert.Equal(500f, scene.Camera.Position[0]);
-        Assert.Equal(500f, scene.Camera.Position[1]);
-        Assert.Equal(3f, scene.Camera.Zoom);
-        Assert.Equal(0.25f, scene.Camera.Rotation);
-    }
-
-    [Fact]
-    public void MovingTheView_DoesNotChangeWhatSaveWrites_NorDirtyTheHistory()
-    {
-        using var world = new World();
-        var view = new GameCamera(800, 600) { Position = new Vector2(10, 20) };
-        var rig = new EditorCameraRig(world, view);
-        var history = new EditorHistory(world); // fresh → clean
-
-        var before = new SceneWriter(new SceneSerializer(NewEngineRegistry())).BuildScene(world, rig.AsCamera()).Camera;
-
-        // Pan/zoom the free VIEW (as CameraNavSystem does — it never touches the history).
-        view.Position = new Vector2(4321, -876);
-        view.Zoom = 0.5f;
-
-        var after = new SceneWriter(new SceneSerializer(NewEngineRegistry())).BuildScene(world, rig.AsCamera()).Camera;
-
-        Assert.Equal(before.Position[0], after.Position[0]);
-        Assert.Equal(before.Position[1], after.Position[1]);
-        Assert.Equal(before.Zoom, after.Zoom);
-        Assert.False(history.IsDirty); // moving the view is not an edit
     }
 
     // ─────────────────────────── Membership: the rig never enters entities[] (pre-mortem #4) ────────
@@ -523,67 +399,4 @@ public class CameraRigTests
         Assert.Equal(0, history.Count);    // no DeleteEntityCommand was pushed (undoable-nothing)
     }
 
-    // ─────────────────────────── Rig survives Restart and re-syncs from the file ───────────────────
-
-    [Fact]
-    public void RigSurvivesRestart_AndReSyncsFromTheFile()
-    {
-        var fake = new InMemoryPlatformServices();
-        WithPlatform(fake, () =>
-        {
-            var authored = new GameCamera(800, 600) { Position = new Vector2(300, -200) };
-            authored.Zoom = 2f;
-            WriteScene(fake, content: new Vector2(1275, -530), camera: authored);
-
-            using var world = new World();
-            var view = new GameCamera(800, 600);
-            var history = new EditorHistory(world);
-            var rig = new EditorCameraRig(world, view);
-            var transport = new EditorTransport(world, history);
-            using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
-                content: null, loadTexture: StubTexture, camera: view, applyCameraToRig: rig.SyncFromScene);
-            transport.Reload = () => world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
-
-            transport.Reload(); // initial load
-            Assert.Equal(new Vector2(300, -200), rig.Position);
-            var rigEntityBefore = rig.Entity;
-
-            // The designer drags the rig somewhere else (an unsaved edit).
-            rig.Entity.Get<TransformComponent>().Position = new Vector2(999, 999);
-
-            transport.Restart(Edit());
-
-            // The rig entity's IDENTITY survives (EditorInfrastructureComponent), and its STATE re-synced
-            // from the file — unsaved edits discarded, exactly like every other scene rebuild on Restart.
-            Assert.True(rig.Entity.IsAlive);
-            Assert.Equal(rigEntityBefore, rig.Entity);
-            Assert.Equal(new Vector2(300, -200), rig.Position);
-            Assert.Equal(2f, rig.Zoom);
-        });
-    }
-
-    // ─────────────────────────── Shipped reader (no rig seam) applies scene.camera ─────────────────
-
-    [Fact]
-    public void ShippedReader_NoRigSeam_AppliesSceneCameraToTheLiveCamera()
-    {
-        var fake = new InMemoryPlatformServices();
-        WithPlatform(fake, () =>
-        {
-            var authored = new GameCamera(800, 600) { Position = new Vector2(150, 250) };
-            authored.Zoom = 1.5f;
-            WriteScene(fake, content: new Vector2(150, 250), camera: authored);
-
-            using var world = new World();
-            var camera = new GameCamera(800, 600); // starts at (0,0)
-            // NO applyCameraToRig → the shipped path: the live camera IS the authored camera.
-            using var reader = new SceneReaderSystem(world, new SceneSerializer(NewEngineRegistry()),
-                content: null, loadTexture: StubTexture, camera: camera);
-
-            world.Publish(new LoadSceneRequest(SceneFileName, fromContent: false));
-
-            Assert.Equal(new Vector2(150, 250), camera.Position);
-            Assert.Equal(1.5f, camera.Zoom);
-        });
-    }
 }

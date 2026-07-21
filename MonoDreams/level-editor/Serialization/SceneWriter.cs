@@ -16,8 +16,8 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// <summary>
 /// Writes a native MonoDreams scene from the live world: it computes the <b>membership closure</b>
 /// (every <see cref="SceneObjectComponent"/> root plus each one's <c>ChildOfComponent</c>
-/// descendants), serializes that set through the Wave-2 <see cref="SceneSerializer"/> into a
-/// <see cref="SceneData"/>, attaches the active <see cref="Camera"/> state and the layer banding
+/// descendants — the camera is an ordinary <c>core.Camera</c> root in that set now, CM), serializes it
+/// through the <see cref="SceneSerializer"/> into a <see cref="SceneData"/>, attaches the layer banding
 /// from a <see cref="DrawLayerMap"/>, canonical-serializes it (<see cref="CanonicalJson"/>), and
 /// writes it <b>into the project source tree</b> via <see cref="IPlatformServices.WriteAllText"/>
 /// (a desktop file write that git sees immediately — see <see cref="Save"/>).
@@ -66,18 +66,25 @@ public sealed class SceneWriter
     /// Builds the <see cref="SceneData"/> for the current contents of <paramref name="world"/>:
     /// the membership closure of every <see cref="SceneObjectComponent"/> root — <b>ordered by each
     /// root's persisted stable scene-local id</b> (see <see cref="CollectOrderedMembership"/>) so a
-    /// re-save keeps <c>entities[]</c> in a stable order — plus <paramref name="camera"/> state and the
-    /// <paramref name="layers"/> banding (both optional).
+    /// re-save keeps <c>entities[]</c> in a stable order — plus the <paramref name="layers"/> banding
+    /// (optional).
+    ///
+    /// <para><b>The camera is a scene entity (CM).</b> There is no camera parameter: the camera is an
+    /// ordinary <c>core.Camera</c> entity captured in the membership closure like everything else. This
+    /// method REFUSES a world with two or more camera entities (the one-camera rule — the reader ensures
+    /// exactly one), naming them so the offender is obvious.</para>
     ///
     /// <para><b>Side effect (by design).</b> Assigns a stable id to any root lacking one — the
     /// "assigned at first serialization" step (§9); the id is stamped onto a live
     /// <see cref="SceneEntityIdComponent"/> so it sticks and is written to the file. Serializing the
     /// same world twice is therefore byte-identical (the second call reuses the ids the first stamped).</para>
     /// </summary>
-    public SceneData BuildScene(World world, Camera? camera = null, DrawLayerMap? layers = null)
+    /// <exception cref="InvalidOperationException">The world contains two or more camera entities.</exception>
+    public SceneData BuildScene(World world, DrawLayerMap? layers = null)
     {
         LastBuildDuplicateIdRestamps = 0;
         var members = CollectOrderedMembership(world);
+        RefuseMultipleCameras(members);
         var scene = serializer.Serialize(members);
 
         // Stamp each root's persisted stable id onto its entry (a top-level, parent-null entry). A
@@ -114,14 +121,6 @@ public sealed class SceneWriter
         // (Its prefab-owned children were already excluded from the membership closure below.)
         CompactPrefabInstances(scene, members);
 
-        if (camera != null)
-            scene.Camera = new SceneCameraData
-            {
-                Position = new[] { camera.Position.X, camera.Position.Y },
-                Zoom = camera.Zoom,
-                Rotation = camera.Rotation,
-            };
-
         if (layers != null)
             foreach (var (name, depth, ySorted) in layers.EnumerateLayers())
                 scene.Layers.Add(new SceneLayerData { Name = name, Depth = new[] { depth, depth }, YSorted = ySorted });
@@ -144,7 +143,7 @@ public sealed class SceneWriter
     /// <param name="filePath">Absolute destination, e.g.
     /// <c>ProjectRoot/LevelsDir/&lt;sceneId&gt;.mdscene</c>. The overlay combines
     /// <c>EditorProjectContext.LevelsPath</c> with the scene id + <see cref="SceneFileExtension"/>.</param>
-    public string? Save(World world, string? filePath, Camera? camera = null, DrawLayerMap? layers = null)
+    public string? Save(World world, string? filePath, DrawLayerMap? layers = null)
     {
         if (string.IsNullOrEmpty(filePath))
         {
@@ -155,7 +154,7 @@ public sealed class SceneWriter
             return null;
         }
 
-        return Save(BuildScene(world, camera, layers), filePath);
+        return Save(BuildScene(world, layers), filePath);
     }
 
     /// <summary>
@@ -185,6 +184,29 @@ public sealed class SceneWriter
 
         Logger.Info($"[level-editor] Saved scene ({scene.Entities.Count} entities) to '{filePath}'.");
         return filePath;
+    }
+
+    /// <summary>
+    /// Refuses (loud) a scene whose membership closure carries TWO OR MORE <see cref="CameraComponent"/>
+    /// entities — the CM one-camera rule (the sibling of the prefab one-root rule). Names each camera by
+    /// its <see cref="EntityInfoComponent"/> name (or the entity id) so the offender is obvious. Exactly
+    /// one, or zero (the reader ensures one on load), is fine.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Two or more camera entities are in scope.</exception>
+    private static void RefuseMultipleCameras(List<Entity> members)
+    {
+        var names = new List<string>();
+        foreach (var e in members)
+            if (e.Has<CameraComponent>())
+                names.Add(e.Has<EntityInfoComponent>() && !string.IsNullOrEmpty(e.Get<EntityInfoComponent>().Name)
+                    ? e.Get<EntityInfoComponent>().Name!
+                    : $"entity #{e}");
+
+        if (names.Count > 1)
+            throw new InvalidOperationException(
+                $"[level-editor] The scene has {names.Count} camera entities ({string.Join(", ", names)}) — " +
+                "a scene has exactly ONE camera (the CM one-camera rule). Delete the extras before saving " +
+                "(a second camera is multi-camera terrain, not yet supported).");
     }
 
     /// <summary>

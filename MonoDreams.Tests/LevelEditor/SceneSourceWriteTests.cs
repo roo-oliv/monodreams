@@ -131,7 +131,7 @@ public class SceneSourceWriteTests
             var path = EditorOverlay.SceneFilePath(ctx, sceneId);
             Assert.Equal(Path.Combine(EnvRoot, "Content", "Levels", "island.mdscene"), path);
 
-            var written = new SceneWriter(serializer).Save(world, path, camera: null, layers: null);
+            var written = new SceneWriter(serializer).Save(world, path, layers: null);
 
             // Landed at the resolved SOURCE path, with the exact canonical bytes.
             Assert.Equal(path, written);
@@ -310,7 +310,7 @@ public class SceneSourceWriteTests
             Assert.True(history.IsDirty);
 
             // Mirror EditorOverlay.SaveProject == SaveCurrentScene: write <sceneId>.mdscene + MarkSavePoint.
-            new SceneWriter(serializer).Save(world, path, camera: null, layers: null);
+            new SceneWriter(serializer).Save(world, path, layers: null);
             history.MarkSavePoint();
 
             // The ONE current scene was written to its file; the save point is marked (clean); no other
@@ -371,7 +371,7 @@ public class SceneSourceWriteTests
             // Mirror EditorOverlay.SaveBackupAs(backupId, state): sanitize + write <backup>.mdscene, then
             // deliberately DO NOT MarkSavePoint and DO NOT append the MGCB copy line, then Restart.
             var id = EditorTextField.Sanitize(backupId);
-            new SceneWriter(serializer).Save(world, EditorOverlay.SceneFilePath(ctx, id)!, camera: null, layers: null);
+            new SceneWriter(serializer).Save(world, EditorOverlay.SceneFilePath(ctx, id)!, layers: null);
 
             // ── phase 1: the backup write's effects (before Restart) ──
             Assert.True(fake.Files.ContainsKey(backupPath));          // the dangling backup file exists

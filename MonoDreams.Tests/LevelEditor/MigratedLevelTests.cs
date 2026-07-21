@@ -144,7 +144,16 @@ public class MigratedLevelTests
         WithPlatform(fake, () =>
         {
             const string path = "Levels/Blender_Level.mdscene";
-            fake.WriteAllText(path, committed);
+            // TODO(CM-C): the committed Blender_Level.mdscene is still a version-2 scene carrying a legacy
+            // 'camera' block, which the CM version guard refuses on file read (run `monodreams migrate`).
+            // Committed content stays v2 this wave; CM-C's `monodreams migrate` lifts the block into a
+            // 'Camera' entity and bumps it to v3 in-repo, after which this test can load the committed bytes
+            // verbatim. Until then, apply the camera lift's essentials here (drop the block, stamp v3) so the
+            // shipped-reader reconstruction guard still runs.
+            var migrated = CanonicalJson.Deserialize<SceneData>(committed)!;
+            migrated.Camera = null;
+            migrated.Version = SceneVersionGuard.CurrentVersion;
+            fake.WriteAllText(path, CanonicalJson.Serialize(migrated));
 
             using var world = new World();
             // The SHIPPED reader registry: engine + game serializers. If a game component key were

@@ -161,7 +161,7 @@ public class IslandMilestoneTests
             Assert.Equal(1, CountBaked(build)); // one edge → one segment quad
 
             // ============ SAVE ============
-            new SceneWriter(serializer).Save(build, SceneFile, camera, layers: null);
+            new SceneWriter(serializer).Save(build, SceneFile, layers: null);
             var saved = JsonSerializer.Deserialize<SceneData>(fake.Files[SceneFile]);
             Assert.NotNull(saved);
 
