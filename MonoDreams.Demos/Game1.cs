@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
@@ -27,12 +28,20 @@ public class Game1 : Game
     private ScreenController _screenController = null!;
 
     private readonly HeadlessOptions _headless;
+    private readonly bool _editor;
     private ScreenshotCaptureSystem? _screenshotCapture;
     private int _frame;
 
     public Game1(string[]? args = null)
     {
         _headless = HeadlessOptions.Parse(args);
+        // The editor run configuration: `--editor` launch arg or MONODREAMS_EDITOR=1 env var.
+        // When active, every demo screen composes the editor overlay and the host boots straight
+        // the transport Paused (RunMode.Edit). Honoured under --headless too: headless Demos renders
+        // every frame (the observe-and-self-verify channel), so an editor-flagged headless run
+        // captures the shell in its PNGs — the editor's own self-verification path. The flag-off
+        // headless contract (HeadlessDemoTests) is untouched.
+        _editor = EditorRunFlag.IsEnabled(args, Environment.GetEnvironmentVariable);
 
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
@@ -68,7 +77,15 @@ public class Game1 : Game
 
         // OS-window resize is a desktop concern; a web head sizes from the host page.
 #if !MONODREAMS_WEB
-        Window.ClientSizeChanged += (_, _) => InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        Window.ClientSizeChanged += (_, _) =>
+        {
+            if (!ApplyEditorHiDpi())
+                InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        };
+        // Editor runs are user-resizable (like the Examples head); the resize handler above already
+        // recomputes the renderer size and the shell/chrome relayout follows. Non-editor + headless
+        // runs keep the fixed window.
+        if (_editor && !_headless.Enabled) Window.AllowUserResizing = true;
 #endif
     }
 
@@ -110,16 +127,52 @@ public class Game1 : Game
         _runner = new DefaultParallelRunner(1);
         _screenController = new ScreenController(this, _runner, _viewportManager, _camera, _spriteBatch, Content);
 
+        // TD: resolve the versioned project (desktop-only) under the flag so the Scenes panel lists the
+        // demo scenes, Save has a root, and the universal palette composes. The multi-manifest tie-break
+        // hint keeps a Demos-host resolve on MonoDreams.Demos/Content/game.mdproj — the repo also holds
+        // Examples' manifest at the same depth (a bare shallowest-then-ordinal tie would pick it). Null off
+        // the flag. (A co-located Demos run resolves via walk-up before the repo search; the hint is
+        // defence-in-depth + what the pure disambiguation test asserts.)
+        var projectContext = _editor ? EditorProjectContext.Resolve("MonoDreams.Demos") : null;
+
+        // TB-A: the host-scoped editor session — its viewport tab stack survives a screen switch (the
+        // launcher Play → Game tab following a transition to a demo screen). Seeded with the launcher's
+        // bound scene id so the boot tab is NAMED (never "untitled"); the boot screen's Load corrects it
+        // when a demo is booted directly (headless --screen). Null off the flag.
+        var session = _editor ? new EditorSession(DemoLauncherScreen.BoundSceneId) : null;
+
+        // Under the editor run flag EVERY demo screen composes the editor overlay (the editor is
+        // host- and screen-agnostic — a demo is a scene like any level). Each screen brings its
+        // own cursor pipeline, so the overlay never doubles it; keys come from the engine's
+        // DefaultEditorKeys via the DemoEditor helper.
+        // UX-C (TD): each demo screen declares its BOUND scene id — the demo selector itself is a scene too
+        // (the launcher) — so the editor's Scenes panel lists the five demos as scenes and each Save targets
+        // <id>.mdscene. The project context is handed to every screen so a demo scene can be saved/loaded.
         _screenController.RegisterScreen(DemoScreens.Launcher,
-            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Launcher", DemoLauncherScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Camera,
-            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new MonoDreams.Demo.Camera.CameraDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Camera Demo", MonoDreams.Demo.Camera.CameraDemoScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Physics,
-            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner));
+            () => new MonoDreams.Demo.Physics.PhysicsDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, _runner, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Physics Demo", MonoDreams.Demo.Physics.PhysicsDemoScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Dialogue,
-            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Dialogue Demo", MonoDreams.Demo.Dialogue.DialogueDemoScreen.BoundSceneId));
         _screenController.RegisterScreen(DemoScreens.Ui,
-            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+            () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("UI Demo", MonoDreams.Demo.Ui.UiDemoScreen.BoundSceneId));
+
+        if (_editor)
+        {
+            // Boot the transport Paused (RunMode.Edit). GameState still CONSTRUCTS as Play —
+            // this is an explicit host-level opt-in mutation, so unflagged runs are untouched.
+            _screenController.State.RunMode = EditorRunFlag.InitialRunMode(true);
+            Logger.Info("Editor run flag active (--editor / MONODREAMS_EDITOR=1): demo screens compose the editor overlay; booting in Edit mode.");
+            if (_headless.Enabled)
+                Logger.Info("Editor flag + --headless: the editor shell renders into the captured frames (observe-and-self-verify).");
+        }
 
         // Headless jumps straight to the requested screen, skipping the launcher menu.
         _screenController.LoadScreen(_headless.Enabled ? _headless.Screen : DemoScreens.Launcher);
@@ -127,13 +180,40 @@ public class Game1 : Game
         base.Initialize();
     }
 
+    private bool _hiDpiApplied;
+
     protected override void Update(GameTime gameTime)
     {
+        // First-frame HiDPI application (see ApplyEditorHiDpi): the OS window has its real size
+        // only once the run loop starts, so Initialize is too early to measure it.
+        if (!_hiDpiApplied)
+        {
+            _hiDpiApplied = true;
+            ApplyEditorHiDpi();
+        }
+
         // Q exits the app from any screen; ESC is handled per-screen (typically
         // "back to launcher" inside a demo screen).
         if (!_headless.Enabled && Keyboard.GetState().IsKeyDown(Keys.Q))
             Exit();
         _screenController.Update(gameTime);
+    }
+
+    /// <summary>
+    /// Editor runs render at DEVICE resolution (macOS Retina: the stock DesktopGL backbuffer is
+    /// logical-size and OS-upscaled ~2× — blurry chrome/overlays). Applied on the first Update
+    /// and re-applied on resize; returns whether the device-resolution path took over the
+    /// renderer sizing. Headless runs keep the fixed virtual-size backbuffer (the capture
+    /// contract).
+    /// </summary>
+    private bool ApplyEditorHiDpi()
+    {
+        if (!_editor || _headless.Enabled) return false;
+        var result = EditorHiDpi.TryEnable(this);
+        if (!result.Applied) return false;
+        _viewportManager.DevicePixelRatio = result.Scale;
+        InitializeRenderer(result.Width, result.Height);
+        return true;
     }
 
     protected override void Draw(GameTime gameTime)

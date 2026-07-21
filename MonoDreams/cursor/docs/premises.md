@@ -30,6 +30,38 @@ frame's raw mouse position.
 **Tests:** none yet.
 **Depends on:** —
 
+## Button press/release edges derive from CursorInputSystem's own previous-state, immune to consumers clearing the level fields
+
+`CursorInputSystem` computes the per-frame button edges (`LeftButtonPressed` /
+`LeftButtonReleased`, and the right/middle equivalents) by diffing the current hardware
+read against `CursorInputComponent.PreviousLeftButton` / `PreviousRightButton` /
+`PreviousMiddleButton` — dedicated previous-state fields it writes straight from the raw
+read each frame, **before any consumer runs**. It does **not** reuse the mutable
+`LeftButton` / `RightButton` / `MiddleButton` level fields as the previous state. A
+downstream consumer is free to clear the level fields (and the edges) to suppress a click —
+an editor modal dialog's pointer-edge consume does exactly this every frame it is open — and
+the next frame's edges are still derived correctly. This mirrors the scroll wheel, where the
+edge (`ScrollWheelDelta`) is derived from an accumulator (`ScrollWheelValue`) that a consumer
+never clears. The `PreviousXButton` fields are not read on the `SkipHardwareRead` / injected
+path (the editor-op / replay channel authors edges directly and tracks its own previous state).
+
+**Why:** reusing the level field as the previous state means a consumer that forces
+`LeftButton = false` every frame makes `LeftButtonReleased = !LeftButton && prevLeft` forever
+false (`prevLeft` reads the cleared level) — so a system acting on the release edge (the
+Save dialog buttons) can never observe its own click. This was the confirmed cause of the
+"clicking dialog buttons does nothing" bug. Owning the previous state makes the edge
+derivation robust to ANY pointer-edge consumer, present or future.
+**Breaks:** any modal / overlay that consumes pointer edges by also clearing the button level
+silently kills its own (and every subsequent) click while open; the release edge is
+structurally unobservable.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorDialogTests.cs`
+(`SaveDialog_ClickSaveSceneThroughRealCursorPipeline_InvokesOnRelease` and
+`ConfirmSwitch_ClickDiscardThroughRealCursorPipeline_DiscardsOnRelease` — scripted press→releases
+through the real `CursorInputSystem → editor.dialog` order act on the release edge, exercising the
+consume→edge interaction the injected-edge tests bypassed).
+**Depends on:** level-editor — "The editor's Save dialog is a modal three-action chooser
+(Save Scene / Save Project / Save Backup As…) that owns input while open" (the consumer this protects).
+
 ## `CursorPositionSystem` must run after the camera updates
 
 `CursorPositionSystem` calls `camera.VirtualScreenToWorld(...)` to

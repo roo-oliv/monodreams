@@ -7,8 +7,10 @@ namespace MonoDreams.Component.Collision;
 
 /// <summary>
 /// Convex polygon collider defined by an ordered set of vertices (clockwise winding).
-/// ModelVertices are in local space; WorldVertices are updated each frame by the detection system.
-/// BroadPhaseAABB is recomputed from WorldVertices for fast rejection before SAT.
+/// ModelVertices are in the collider ENTITY's local space; WorldVertices are updated each frame by
+/// the detection system from that entity's own <see cref="TransformComponent"/> world transform
+/// (colliders-as-entities model). BroadPhaseAABB is recomputed from WorldVertices for fast rejection
+/// before SAT.
 /// </summary>
 public class ConvexColliderComponent : IColliderComponent
 {
@@ -23,7 +25,7 @@ public class ConvexColliderComponent : IColliderComponent
 
     /// <summary>
     /// When true, UpdateWorldVertices ignores TransformComponent.Rotation (treats it as 0).
-    /// Used for colliders whose rotation is baked into ModelVertices (e.g. imported from Blender).
+    /// Used for colliders whose rotation is baked into ModelVertices.
     /// </summary>
     public bool IgnoreTransformRotation;
 
@@ -48,17 +50,21 @@ public class ConvexColliderComponent : IColliderComponent
     }
 
     /// <summary>
-    /// Transforms ModelVertices into WorldVertices using the entity's position, rotation, and scale.
-    /// Recomputes BroadPhaseAABB afterward.
-    /// Uses transform.Position (local), not WorldPosition, so this only produces correct results
-    /// for root-level entities (no parent). BlenderLevelParserSystem enforces flat hierarchy today,
-    /// but there is no runtime validation.
+    /// Transforms ModelVertices into WorldVertices using the entity's WORLD position, rotation, and
+    /// scale (<c>TransformComponent.WorldPosition</c>/<c>WorldRotation</c>/<c>WorldScale</c>), so a
+    /// collider authored on a CHILD entity (e.g. a prefab instance's child) sits at its world
+    /// location, not at its parent-relative local one. Recomputes BroadPhaseAABB afterward. For a
+    /// root-level entity the world transform equals the local one, so this is byte-identical to the
+    /// former local-only derivation (position == world position, rotation/scale unchanged).
+    /// The world transform is only fresh after the entity's matrix link is set + any moved ancestor
+    /// is un-dirtied — foundation's <c>HierarchySystem</c> contract (see foundation premise
+    /// "HierarchySystem must run ahead of any system reading WorldPosition").
     /// </summary>
     public void UpdateWorldVertices(TransformComponent transform)
     {
-        var pos = transform.Position;
-        var rot = IgnoreTransformRotation ? 0f : transform.Rotation;
-        var scale = transform.Scale;
+        var pos = transform.WorldPosition;
+        var rot = IgnoreTransformRotation ? 0f : transform.WorldRotation;
+        var scale = transform.WorldScale;
         var cos = MathF.Cos(rot);
         var sin = MathF.Sin(rot);
 

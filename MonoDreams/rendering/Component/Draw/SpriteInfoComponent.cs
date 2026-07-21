@@ -19,6 +19,15 @@ public struct SpriteInfoComponent() : IComponent
     public float YSortDepthBias = 0f; // Applied after Y-sort interpolation for deterministic front/back ordering
     public float YSortOffset = 0f; // Y offset added to WorldPosition.Y when computing Y-sort depth (e.g. collider bottom)
 
+    /// <summary>
+    /// Content key used to load <see cref="SpriteSheet"/> (e.g. "Atlas/TX Player"), or <c>null</c>.
+    /// A live <see cref="Texture2D"/> cannot be serialized, so the level-editor scene serializer
+    /// persists this string and rehydrates the texture on load via <c>ContentManager.Load</c>.
+    /// Additive and optional (default <c>null</c>) — existing construction sites are unaffected;
+    /// a factory or loader sets it alongside <see cref="SpriteSheet"/> when it loads a texture.
+    /// </summary>
+    public string? AssetKey = null;
+
     public void Dispose()
     {
         SpriteSheet?.Dispose();

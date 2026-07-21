@@ -12,12 +12,14 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Demos;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
 using MonoDreams.Dialogue;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
 using MonoDreams.Input;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
 using MonoDreams.State;
@@ -108,18 +110,37 @@ public class DialogueDemoScreen : IGameScreen
     private Entity _bird;
     private bool _dialogueActive;
 
+    // The universal editor overlay (null when editorEnabled is false) and the retained pipeline
+    // registries the editor's systems panel binds to (see DemoEditor). Bound in Load — this
+    // screen builds its pipelines there (DialogueSystem needs textures from `content`).
+    /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
+    /// <c>dialogue-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
+    public const string BoundSceneId = "dialogue-demo";
+
+    private readonly bool _editorEnabled;
+    private readonly EditorSession _session;
+    private readonly EditorProjectContext? _projectContext;
+    private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private DemoEditor? _editor;
+
     public ISystem<GameState> UpdateSystem { get; private set; } = null!;
     public ISystem<GameState> DrawSystem { get; private set; } = null!;
     public World World => _world;
 
     public DialogueDemoScreen(GraphicsDevice graphicsDevice, ContentManager content,
-        MonoDreams.Component.Camera camera, ViewportManager viewportManager, SpriteBatch spriteBatch)
+        MonoDreams.Component.Camera camera, ViewportManager viewportManager, SpriteBatch spriteBatch,
+        bool editorEnabled = false, EditorSession session = null, EditorProjectContext projectContext = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
         _camera = camera;
         _viewportManager = viewportManager;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
+        _session = session;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -228,6 +249,36 @@ public class DialogueDemoScreen : IGameScreen
 
         UpdateSystem = CreateUpdateSystem(cowDialogue, birdDialogue, npcTargets, reactionSystem, portraitSystem);
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.Overlay.BindPipelines(_updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(DialogueDemoScreen), _updatePipeline, _drawPipeline);
+
+            // TD split seam: rebuild the demo's world content (ground, boundary, player, NPCs, portrait,
+            // HUD) on a Game-tab exit / scene switch, so closing the Game tab restores the scene instead
+            // of a blank screen. The persistent cowDialogue (captured here) supplies the portrait-gutter
+            // bounds. The Load-created reaction/portrait/NPC-target systems keep their captured entity refs
+            // (guarded — a dead handle is skipped), so only the visible content is what a Game-tab exit
+            // restores; the systems re-target fully on the next Restart.
+            _editor.Overlay.Transport.RebuildCodeContent = () =>
+            {
+                CreateGround();
+                CreateBoundary();
+                CreatePlayer();
+                CreateNpc(out _npc, NpcPosition, DialogueGlyphs.CowShape(CowBodyRadius), "DialogueDemoCow", CowBodyRadius);
+                CreateNpc(out _bird, BirdPosition, DialogueGlyphs.BirdShape(BirdBodyRadius), "DialogueDemoBird", BirdBodyRadius);
+                CreatePortraitSlot(cowDialogue.PortraitGutterBounds);
+                BuildHud(_content);
+            };
+            // Both DialogueSystems build their dialogue-UI sub-graph at construction and hold it by
+            // reference (root carries DialogueStateComponent) — KeepAlive spares it from the sweep so the
+            // system never NREs over a disposed UI (parity with the Examples game screen).
+            _editor.Overlay.Transport.KeepAlive = e => e.Has<MonoDreams.Dialogue.DialogueStateComponent>();
+            _editor.BindScene(screenController, _world, _content.RootDirectory, DemoScreens.Dialogue, BoundSceneId);
+        }
     }
 
     // ─── scene ────────────────────────────────────────────────────────────────
@@ -556,44 +607,133 @@ public class DialogueDemoScreen : IGameScreen
         DialogueSystem cowDialogue, DialogueSystem birdDialogue, NpcInteractionTarget[] npcTargets,
         ReactionMarkSystem reactionSystem, DialoguePortraitSystem portraitSystem)
     {
-        return new SequentialSystem<GameState>(
-            new DialogueDemoInputSystem(_interact, _up, _down),  // feed interact/up/down each frame
-            new CursorInputSystem(_world),
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager),
-            new DemoButtonInteractionSystem(_world),
-            new PlayerMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight, PlayerSpeed,
-                PlayerBodyRadius, 2f * PlayerBodyRadius, () => _dialogueActive),
-            new NpcInteractionSystem(_world, _player, npcTargets, _interact, InteractRange, () => _dialogueActive),
-            cowDialogue,   // node "Start" → fixed bottom box; routes by node ownership
-            birdDialogue,  // node "Bird"  → over-head anchored balloon
-            reactionSystem,
-            portraitSystem,
-            new TextUpdateSystem(_world),                        // advance the reveal animation
-            new DialogueDemoShortcutSystem(this),
-            new HierarchySystem(_world),
-            new CursorPositionSystem(_world, _camera, _viewportManager));
+        var cursorInputSystem = new CursorInputSystem(_world, _viewportManager);
+
+        // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
+        _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
+            session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+
+        // ---- Weave the update pipeline through the registrar. With the editor off every gate
+        // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
+        var p = _updatePipeline;
+        // Feeds interact/up/down each frame — Play-only input, frozen with the simulation.
+        p.Add("demoInput", new DialogueDemoInputSystem(_interact, _up, _down), EditTimeBehavior.Freeze);
+        p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
+            p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
+            p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Overlay.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
+        }
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
+        // Demo UI interaction FREEZES in Edit: a click belongs to the editor, never to
+        // back / exit (which would tear the screen down mid-editing).
+        p.Add("ui.interaction", new DemoButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
+        // The demo simulation freezes in Edit: movement, NPC triggers, both dialogue engines,
+        // reactions/portraits, the text reveal, and the demo shortcuts (Escape = back) all
+        // mutate the scene (or tear the screen down) per frame. One Freeze gate on the group.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("movement", new PlayerMovementSystem(_world, BoundaryHalfWidth, BoundaryHalfHeight,
+                PlayerSpeed, PlayerBodyRadius, 2f * PlayerBodyRadius, () => _dialogueActive));
+            g.Add("npcInteraction", new NpcInteractionSystem(
+                _world, _player, npcTargets, _interact, InteractRange, () => _dialogueActive));
+            g.Add("dialogueCow", cowDialogue);   // node "Start" → fixed bottom box; routes by node ownership
+            g.Add("dialogueBird", birdDialogue); // node "Bird"  → over-head anchored balloon
+            g.Add("reactions", reactionSystem);
+            g.Add("portraits", portraitSystem);
+            g.Add("textUpdate", new TextUpdateSystem(_world)); // advance the reveal animation
+            g.Add("shortcuts", new DialogueDemoShortcutSystem(this));
+        });
+        if (_editor != null)
+        {
+            p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Overlay.Gizmo, EditTimeBehavior.RunNormally);
+            p.Add("editor.proxySync", _editor.Overlay.ProxySync, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+                g.Add("viewportTabs", _editor.Overlay.ViewportTabs); // PF-B: the viewport tab strip
+            });
+            p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+            // TD/PF-F universal palette (composes with a resolved project; empty assetRoots is legal).
+            if (_editor.Overlay.Palette != null)
+                p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
+        }
+        p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
+            EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.shell", _editor.Overlay.Shell, EditTimeBehavior.RunNormally);
+            p.Add("editor.statusBar", _editor.Overlay.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
+            if (_editor.Overlay.EditorOpDriver != null)
+                p.Add("editor.opDriver", _editor.Overlay.EditorOpDriver, EditTimeBehavior.RunNormally);
+        }
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        return new SequentialSystem<GameState>(
-            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-            new TextPrepSystem(_world, pixelPerfectRendering: false),
-            new MeshPrepSystem(_world),
-            new ButtonMeshPrepSystem(_world),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.UI, _renderTargets[RenderTargetID.UI]),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]),
-            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
-            {
-                RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
-                RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
-                RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-            }));
+        var renderLayers = new List<RenderLayer>
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.Overlay.ChromeLayer);
+
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
+        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
+        // (No demo entity carries SpriteInfoComponent, so CullingSystem never touches the
+        // manually-toggled prompt/mark meshes.)
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
+        if (_editor != null)
+        {
+            p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
+            p.Add("editor.overlayPrep", _editor.Overlay.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
+        p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
+        p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),
+            EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()

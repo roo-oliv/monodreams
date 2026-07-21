@@ -22,6 +22,14 @@ public class TransformComponent
     private Matrix? _worldMatrix;
     private bool _isDirty = true;
 
+    // "Changed since HierarchySystem last propagated to my children." Set by every mutator (via
+    // SetDirty), cleared ONLY by HierarchySystem after it propagates. Deliberately SEPARATE from
+    // _isDirty because _isDirty is cleared as a side effect of reading WorldMatrix — so a WorldMatrix
+    // read that lands between an edit and HierarchySystem would otherwise erase the "my children are
+    // stale" signal and the descendants would never be re-dirtied (see HierarchySystem +
+    // foundation — "TransformComponent.IsDirty cascades through the parent chain").
+    private bool _hierarchyDirty = true;
+
     public TransformComponent(Vector2 position = default, float rotation = 0f, Vector2? scale = null, Vector2? origin = null)
     {
         _position = position;
@@ -99,9 +107,21 @@ public class TransformComponent
     public Vector2 Delta => _position - _lastPosition;
 
     /// <summary>
-    /// Gets whether this transform needs its world matrix recalculated.
+    /// Gets whether this transform needs its world matrix recalculated. Cleared as a side effect of
+    /// reading <see cref="WorldMatrix"/> (the cache-validity bit) — do NOT use it to decide hierarchy
+    /// propagation; use <see cref="NeedsHierarchyUpdate"/> for that.
     /// </summary>
     public bool IsDirty => _isDirty;
+
+    /// <summary>
+    /// Gets whether this transform changed since <c>HierarchySystem</c> last propagated the change to
+    /// its descendants. Unlike <see cref="IsDirty"/>, this signal is NOT cleared by reading
+    /// <see cref="WorldMatrix"/> — only <c>HierarchySystem</c> clears it (via
+    /// <see cref="ClearHierarchyDirty"/>) after it has invalidated the descendants' caches. This is
+    /// what makes descendant re-dirtying robust to a <see cref="WorldMatrix"/> read that lands between
+    /// an edit and <c>HierarchySystem</c> in the pipeline.
+    /// </summary>
+    public bool NeedsHierarchyUpdate => _hierarchyDirty;
 
     #region World TransformComponent (Computed)
 
@@ -180,12 +200,25 @@ public class TransformComponent
     #region Methods
 
     /// <summary>
-    /// Marks this transform as dirty, forcing recalculation of the world matrix on next access.
-    /// This is called automatically when properties are set, but can be called manually if needed.
+    /// Marks this transform as dirty, forcing recalculation of the world matrix on next access AND
+    /// flagging that <c>HierarchySystem</c> must re-propagate the change to descendants
+    /// (<see cref="NeedsHierarchyUpdate"/>). This is called automatically when properties are set, but
+    /// can be called manually if needed.
     /// </summary>
     public void SetDirty()
     {
         _isDirty = true;
+        _hierarchyDirty = true;
+    }
+
+    /// <summary>
+    /// Clears the hierarchy-propagation signal (<see cref="NeedsHierarchyUpdate"/>). Called by
+    /// <c>HierarchySystem</c> after it has propagated this transform's change to its descendants; not
+    /// intended for general use (it does not touch the world-matrix cache validity).
+    /// </summary>
+    public void ClearHierarchyDirty()
+    {
+        _hierarchyDirty = false;
     }
 
     /// <summary>

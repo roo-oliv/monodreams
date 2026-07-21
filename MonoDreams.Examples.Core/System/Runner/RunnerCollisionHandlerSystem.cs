@@ -35,14 +35,14 @@ public class RunnerCollisionHandlerSystem : ISystem<GameState>
 
     private void HandleCollectible(in CollisionMessage message)
     {
-        // Remove the collectible first to prevent duplicate collisions
-        if (message.CollidingEntity.IsAlive)
+        // Dispose the whole collectible BODY (not just a collider child) to prevent duplicate collisions.
+        if (message.BodyB.IsAlive)
         {
-            message.CollidingEntity.Dispose();
+            message.BodyB.Dispose();
         }
 
-        // Increment score
-        var playerEntity = message.BaseEntity;
+        // Increment score on the player body (RunnerState lives on the body).
+        var playerEntity = message.BodyA;
         if (playerEntity.IsAlive && playerEntity.Has<RunnerState>())
         {
             var runnerState = playerEntity.Get<RunnerState>();
@@ -53,13 +53,13 @@ public class RunnerCollisionHandlerSystem : ISystem<GameState>
 
     private void HandleObstacleHit(in CollisionMessage message)
     {
-        // Remove the obstacle to prevent repeated collision messages
-        if (message.CollidingEntity.IsAlive)
+        // Dispose the whole obstacle BODY to prevent repeated collision messages.
+        if (message.BodyB.IsAlive)
         {
-            message.CollidingEntity.Dispose();
+            message.BodyB.Dispose();
         }
 
-        var playerEntity = message.BaseEntity;
+        var playerEntity = message.BodyA;
         if (playerEntity.IsAlive && playerEntity.Has<RunnerState>())
         {
             var runnerState = playerEntity.Get<RunnerState>();

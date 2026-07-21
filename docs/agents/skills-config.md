@@ -71,7 +71,6 @@ domain's premises and lenses.
 | `collision` | `MonoDreams/collision/**` |
 | `level-loading` | `MonoDreams/level-loading/**` |
 | `level-ldtk` | `MonoDreams/level-ldtk/**` |
-| `level-blender` | `MonoDreams/level-blender/**`, `Tools/blender_level_export.py` |
 | `ui` | `MonoDreams/ui/**` |
 | `cursor` | `MonoDreams/cursor/**` |
 | `dialogue` | `MonoDreams/dialogue/**` |
@@ -122,7 +121,7 @@ modules' lenses run. No flow docs yet → only the universal lenses run until `b
 ## Conventions
 
 - **Commit/PR language:** en
-- **Conventional commits:** yes (`type(scope): description` — e.g. `feat(web):`, `fix(level-blender):`, `refactor(web):`)
+- **Conventional commits:** yes (`type(scope): description` — e.g. `feat(web):`, `fix(level-ldtk):`, `refactor(web):`)
 - **Branch naming:** `type/kebab-slug` or `ro/kebab-slug` (e.g. `feat/kni`, `ro/convex-collider-sat`)
 - **PR body:** keep PRs focused — one module or one premise per PR is ideal. Update tests,
   premises, and `postInstallNotes` in the same PR that changes behavior. See `CONTRIBUTING.md`

@@ -26,9 +26,11 @@ results in a dialogue runner that never starts. The dev sees
 no error — just a silent runtime where their `.yarn` files are loaded
 but never advance. The canonical pattern is
 `MonoDreams.Examples/System/Dialogue/ZoneDialogueTriggerSystem.cs`.
-**Tests:** none yet (the integration test
-`MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs::PlayerReachesDialogueZone`
-exercises one trigger pattern but doesn't pin this as a contract).
+**Tests:** `MonoDreams.Tests/Collision/CollisionConsumerAuditTests.cs::ZoneDialogueTrigger_ReadsColliderB_ForTheZoneComponent_AndPublishesStart`
+and `::RealPipeline_PlayerBodyWithColliderChild_EntersZone_DialogueFires_AndZoneDoesNotBlock`
+exercise the canonical game-side trigger (`ZoneDialogueTriggerSystem`) publishing
+`DialogueStartMessage` on a zone collision — game code owns the trigger, the
+module only reacts.
 **Depends on:** —
 
 ## Yarn content pipeline needs `CopyLocalLockFileAssemblies` + `EnableDynamicLoading`

@@ -17,6 +17,10 @@ public class NPCInteractionSystem : ISystem<GameState>
     private readonly World _world;
     private readonly EntitySet _playerSet;
     private readonly EntitySet _zoneSet;
+    // Colliders-as-entities: an entity's collider may live on a ChildOf child, so we no longer
+    // require ColliderTagComponent on the player/zone entity itself — the rect helper finds the
+    // collider on the entity OR on a collider child.
+    private readonly EntitySet _colliderChildSet;
     private bool _dialogueActive;
 
     public bool IsEnabled { get; set; } = true;
@@ -29,14 +33,18 @@ public class NPCInteractionSystem : ISystem<GameState>
         _playerSet = world.GetEntities()
             .With<PlayerState>()
             .With<TransformComponent>()
-            .With<ColliderTagComponent>()
             .AsSet();
 
         _zoneSet = world.GetEntities()
             .With<DialogueZoneComponent>()
             .With<NPCInteractionIcon>()
             .With<TransformComponent>()
+            .AsSet();
+
+        _colliderChildSet = world.GetEntities()
             .With<ColliderTagComponent>()
+            .With<TransformComponent>()
+            .With<ChildOfComponent>()
             .AsSet();
     }
 
@@ -65,19 +73,13 @@ public class NPCInteractionSystem : ISystem<GameState>
         if (players.Length == 0) return;
 
         var playerEntity = players[0];
-        var playerTransform = playerEntity.Get<TransformComponent>();
-        var playerRect = playerEntity.Has<BoxColliderComponent>()
-            ? CollisionRect.FromBounds(playerEntity.Get<BoxColliderComponent>().Bounds, playerTransform.WorldPosition)
-            : playerEntity.Get<ConvexColliderComponent>().BroadPhaseAABB;
+        if (!TryColliderWorldRect(playerEntity, out var playerRect)) return;
 
         var interactJustPressed = InputState.Interact.JustPressed();
 
         foreach (var zone in _zoneSet.GetEntities())
         {
-            var zoneTransform = zone.Get<TransformComponent>();
-            var zoneRect = zone.Has<BoxColliderComponent>()
-                ? CollisionRect.FromBounds(zone.Get<BoxColliderComponent>().Bounds, zoneTransform.WorldPosition)
-                : zone.Get<ConvexColliderComponent>().BroadPhaseAABB;
+            if (!TryColliderWorldRect(zone, out var zoneRect)) continue;
 
             var icon = zone.Get<NPCInteractionIcon>();
             var iconEntity = icon.IconEntity;
@@ -108,10 +110,46 @@ public class NPCInteractionSystem : ISystem<GameState>
         }
     }
 
+    /// <summary>The entity's collider world rect — from its own collider, or, under the
+    /// colliders-as-entities model, from its first collider CHILD entity. Returns false if the
+    /// entity has no collider anywhere.</summary>
+    private bool TryColliderWorldRect(Entity e, out CollisionRect rect)
+    {
+        if (e.Has<BoxColliderComponent>())
+        {
+            rect = SATCollision.BoxWorldRect(e.Get<BoxColliderComponent>(), e.Get<TransformComponent>());
+            return true;
+        }
+        if (e.Has<ConvexColliderComponent>())
+        {
+            rect = e.Get<ConvexColliderComponent>().BroadPhaseAABB;
+            return true;
+        }
+
+        foreach (var child in _colliderChildSet.GetEntities())
+        {
+            if (!child.IsAlive || child.Get<ChildOfComponent>().Parent != e) continue;
+            if (child.Has<BoxColliderComponent>())
+            {
+                rect = SATCollision.BoxWorldRect(child.Get<BoxColliderComponent>(), child.Get<TransformComponent>());
+                return true;
+            }
+            if (child.Has<ConvexColliderComponent>())
+            {
+                rect = child.Get<ConvexColliderComponent>().BroadPhaseAABB;
+                return true;
+            }
+        }
+
+        rect = default;
+        return false;
+    }
+
     public void Dispose()
     {
         _playerSet.Dispose();
         _zoneSet.Dispose();
+        _colliderChildSet.Dispose();
         GC.SuppressFinalize(this);
     }
 }

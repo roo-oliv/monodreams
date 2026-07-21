@@ -52,71 +52,80 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
 
     private void ResolveCollision(TCollisionMessage collision)
     {
-        var entity = collision.BaseEntity;
-        var collidingEntity = collision.CollidingEntity;
+        var colliderA = collision.ColliderA;
+        var colliderB = collision.ColliderB;
+        var bodyA = collision.BodyA;
+        var bodyB = collision.BodyB;
 
-        var hasBoxA = entity.Has<BoxColliderComponent>();
-        var hasBoxB = collidingEntity.Has<BoxColliderComponent>();
+        // The correction target is the BODY (pre-mortem #1: correcting a collider CHILD would drift
+        // it inside its parent). Geometry comes from the colliders; the write-back lands on BodyA.
+        if (!colliderA.IsAlive || !colliderB.IsAlive || !bodyA.IsAlive) return;
+        if (!bodyA.Has<TransformComponent>() || !colliderA.Has<TransformComponent>() || !colliderB.Has<TransformComponent>()) return;
+
+        var hasBoxA = colliderA.Has<BoxColliderComponent>();
+        var hasBoxB = colliderB.Has<BoxColliderComponent>();
 
         if (hasBoxA && hasBoxB)
         {
-            ResolveBoxVsBox(collision, entity, collidingEntity);
+            ResolveBoxVsBox(colliderA, colliderB, bodyA, bodyB);
         }
         else
         {
-            ResolveSAT(collision, entity, collidingEntity, hasBoxA, hasBoxB);
+            ResolveSAT(colliderA, colliderB, bodyA, bodyB, hasBoxA, hasBoxB);
         }
     }
 
-    private void ResolveBoxVsBox(TCollisionMessage collision, Entity entity, Entity collidingEntity)
+    private void ResolveBoxVsBox(Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB)
     {
-        ref var transform = ref entity.Get<TransformComponent>();
-        var collidable = entity.Get<BoxColliderComponent>();
-        var dynamicRect = CollisionRect.FromBounds(collidable.Bounds, transform.Position);
+        ref var bodyTransform = ref bodyA.Get<TransformComponent>();
+        // Collider world rects (centered on each collider entity's WorldPosition). The write-backs
+        // below TRANSLATE the BODY: for a root body world delta == local delta, and the collider
+        // child follows via its parent's world matrix. A dynamic body that is itself a child would
+        // need a world→local map (out of scope, interim — the same limitation as before CE).
+        var dynamicRect = SATCollision.BoxWorldRect(colliderA.Get<BoxColliderComponent>(), colliderA.Get<TransformComponent>());
+        var targetRect = SATCollision.BoxWorldRect(colliderB.Get<BoxColliderComponent>(), colliderB.Get<TransformComponent>());
 
-        var targetTransform = collidingEntity.Get<TransformComponent>();
-        var targetRect = CollisionRect.FromBounds(collidingEntity.Get<BoxColliderComponent>().Bounds, targetTransform.Position);
-
-        if (!TransformCollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, transform.Delta, targetRect,
+        if (!TransformCollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, bodyTransform.Delta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
 
         if (contactNormal.X != 0)
         {
-            transform.SetPositionX(contactPoint.X - dynamicRect.Width / 2f - collidable.Bounds.Location.X);
+            // World correction that lands the collider's center at the swept contact point.
+            bodyTransform.TranslateX(contactPoint.X - dynamicRect.Center.X);
 
-            if (entity.Has<VelocityComponent>())
+            if (bodyA.Has<VelocityComponent>())
             {
-                ref var velocity = ref entity.Get<VelocityComponent>();
+                ref var velocity = ref bodyA.Get<VelocityComponent>();
                 velocity.Current.X = 0;
             }
 
             if ((int)Math.Abs(contactPoint.X + dynamicRect.Width / 2f - targetRect.Left) == 0)
             {
-                _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Left));
+                _world.Publish(new RigidBodyTouchMessage(bodyB, RelativeReferential.Left));
             }
             else if ((int)Math.Abs(contactPoint.X - dynamicRect.Width / 2f - targetRect.Right) == 0)
             {
-                _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Right));
+                _world.Publish(new RigidBodyTouchMessage(bodyB, RelativeReferential.Right));
             }
         }
 
         if (contactNormal.Y != 0)
         {
-            transform.SetPositionY(contactPoint.Y - dynamicRect.Height / 2f - collidable.Bounds.Location.Y);
+            bodyTransform.TranslateY(contactPoint.Y - dynamicRect.Center.Y);
 
-            if (entity.Has<VelocityComponent>())
+            if (bodyA.Has<VelocityComponent>())
             {
-                ref var velocity = ref entity.Get<VelocityComponent>();
+                ref var velocity = ref bodyA.Get<VelocityComponent>();
                 velocity.Current.Y = 0;
             }
 
             if ((int)Math.Abs(contactPoint.Y + dynamicRect.Height / 2f - targetRect.Top) == 0)
             {
-                _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Top));
+                _world.Publish(new RigidBodyTouchMessage(bodyB, RelativeReferential.Top));
             }
             else if ((int)Math.Abs(contactPoint.Y - dynamicRect.Height / 2f - targetRect.Bottom) == 0)
             {
-                _world.Publish(new RigidBodyTouchMessage(collidingEntity, RelativeReferential.Bottom));
+                _world.Publish(new RigidBodyTouchMessage(bodyB, RelativeReferential.Bottom));
             }
         }
     }
@@ -125,46 +134,49 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
     private readonly Vector2[] _boxBufA = new Vector2[4];
     private readonly Vector2[] _boxBufB = new Vector2[4];
 
-    private void ResolveSAT(TCollisionMessage collision, Entity entity, Entity collidingEntity, bool hasBoxA, bool hasBoxB)
+    private void ResolveSAT(Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB, bool hasBoxA, bool hasBoxB)
     {
-        ref var transform = ref entity.Get<TransformComponent>();
+        ref var bodyTransform = ref bodyA.Get<TransformComponent>();
+        var colliderTransformA = colliderA.Get<TransformComponent>();
 
-        // Build current polygons
+        // Build current polygons from the COLLIDER entities' world transforms (colliderA's world
+        // position already reflects any correction applied to its body earlier this frame, via the
+        // lazy WorldMatrix getter — so sequential per-message correction re-validates cleanly).
         Vector2[] polyA;
         Vector2[] polyB;
 
         if (hasBoxA)
         {
-            SATCollision.BoxToPolygon(entity.Get<BoxColliderComponent>(), transform, _boxBufA);
+            SATCollision.BoxToPolygon(colliderA.Get<BoxColliderComponent>(), colliderTransformA, _boxBufA);
             polyA = _boxBufA;
         }
         else
         {
-            var convex = entity.Get<ConvexColliderComponent>();
-            convex.UpdateWorldVertices(transform);
+            var convex = colliderA.Get<ConvexColliderComponent>();
+            convex.UpdateWorldVertices(colliderTransformA);
             polyA = convex.WorldVertices;
         }
 
         if (hasBoxB)
         {
-            SATCollision.BoxToPolygon(collidingEntity.Get<BoxColliderComponent>(), collidingEntity.Get<TransformComponent>(), _boxBufB);
+            SATCollision.BoxToPolygon(colliderB.Get<BoxColliderComponent>(), colliderB.Get<TransformComponent>(), _boxBufB);
             polyB = _boxBufB;
         }
         else
         {
-            polyB = collidingEntity.Get<ConvexColliderComponent>().WorldVertices;
+            polyB = colliderB.Get<ConvexColliderComponent>().WorldVertices;
         }
 
         // Re-validate with current positions
         if (!SATCollision.PolygonVsPolygon(polyA, polyB, out var contactNormal, out var penetrationDepth)) return;
 
-        // Push entity out by MTV
-        transform.Translate(-contactNormal * penetrationDepth);
+        // Push the BODY out by the MTV (world-space; a root body maps 1:1, the collider child follows).
+        bodyTransform.Translate(-contactNormal * penetrationDepth);
 
-        // VelocityComponent damping: remove velocity component moving into the collision
-        if (entity.Has<VelocityComponent>())
+        // VelocityComponent damping: remove the body's velocity component moving into the collision
+        if (bodyA.Has<VelocityComponent>())
         {
-            ref var velocity = ref entity.Get<VelocityComponent>();
+            ref var velocity = ref bodyA.Get<VelocityComponent>();
             var velDotNormal = Vector2.Dot(velocity.Current, contactNormal);
             if (velDotNormal > 0)
             {
@@ -176,7 +188,7 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
         var side = NormalToSide(contactNormal);
         if (side.HasValue)
         {
-            _world.Publish(new RigidBodyTouchMessage(collidingEntity, side.Value));
+            _world.Publish(new RigidBodyTouchMessage(bodyB, side.Value));
         }
     }
 

@@ -35,6 +35,15 @@ public class MasterRenderSystem(
     SamplerState? spriteSampler = null,
     SamplerState? textSampler = null) : ISystem<GameState>
 {
+    /// <summary>
+    /// The render target this pass draws into. Mutable so a pass whose target tracks the window
+    /// size (e.g. the editor's native-resolution chrome target) can be retargeted after a resize
+    /// recreates the target — the mesh projection re-derives from the current destination size on
+    /// every draw, so retargeting needs no other bookkeeping. The pass does NOT own/dispose the
+    /// target (the screen or the retargeting owner does).
+    /// </summary>
+    public RenderTarget2D Destination { get; set; } = destination;
+
     private BasicEffect? _basicEffect;
 
     // A 1×1 white pixel used to stroke text underlines in the text branch (tinted with the text
@@ -80,7 +89,7 @@ public class MasterRenderSystem(
     // destination size (not the camera) so screen-space passes need no camera; the camera's
     // virtual resolution must match the destination size (it centers the view there).
     private Matrix Projection() =>
-        Matrix.CreateOrthographicOffCenter(0, destination.Width, destination.Height, 0, 0, 1);
+        Matrix.CreateOrthographicOffCenter(0, Destination.Width, Destination.Height, 0, 0, 1);
 
     private Texture2D Pixel()
     {
@@ -129,7 +138,7 @@ public class MasterRenderSystem(
     {
         EnsureBasicEffect();
 
-        graphicsDevice.SetRenderTarget(destination);
+        graphicsDevice.SetRenderTarget(Destination);
         graphicsDevice.Clear(Color.Transparent);
 
         var transformMatrix = camera?.GetViewTransformationMatrix() ?? Matrix.Identity;
@@ -238,25 +247,40 @@ public class MasterRenderSystem(
         }
     }
 
+    /// <summary>
+    /// The scale passed to <c>SpriteBatch.Draw</c> for a sprite <see cref="DrawComponent"/>.
+    /// A source-rect sprite maps its source pixels onto <see cref="DrawComponent.Size"/> (the
+    /// sub-pixel-precise source→dest fit) AND honors <see cref="DrawComponent.Scale"/> — the
+    /// entity's <c>Transform.WorldScale</c>, written by <c>SpritePrepSystem</c> — composed as
+    /// <c>(Size / source) · Scale</c>. Composing (rather than discarding <c>Scale</c> whenever a
+    /// source rect exists — the pre-fix behavior that never scaled placed props) is what makes a
+    /// gizmo/world-scaled sprite's drawn quad match its hit-test quad
+    /// (<c>GizmoTransform.SpriteWorldQuad</c>, which uses the same <c>WorldScale · (Size / source)</c>
+    /// product). With no source rect the size-fit is undefined, so the raw
+    /// <see cref="DrawComponent.Scale"/> applies (nine-patch / pre-sized-texture path).
+    /// <para>
+    /// Because <see cref="DrawComponent.Scale"/> defaults to <see cref="Vector2.One"/> and only
+    /// <c>SpritePrepSystem</c> ever writes a non-unit value (from <c>WorldScale</c>), the composition
+    /// is byte-identical to the pre-fix result for every unscaled sprite — including entities that set
+    /// <see cref="DrawComponent.Size"/> deliberately and never touch <c>Scale</c> (the palette
+    /// thumbnail, the textured cursor), which therefore never double-scale. Audit (pre-mortem #1): NO
+    /// call site pre-bakes <c>WorldScale</c> into <c>Size</c> — every writer sets <c>Size</c> to a
+    /// source/destination pixel size independent of the transform scale.
+    /// </para>
+    /// </summary>
+    internal static Vector2 ComputeSpriteScale(DrawComponent element)
+    {
+        if (element.SourceRectangle is { Width: > 0, Height: > 0 } source)
+            return new Vector2(element.Size.X / source.Width, element.Size.Y / source.Height) * element.Scale;
+        return element.Scale;
+    }
+
     private void DrawElement(DrawComponent element)
     {
         switch (element.Type)
         {
             case DrawElementType.Sprite:
                 if (element.Texture == null) return;
-
-                // Calculate scale from source to destination size for sub-pixel precision
-                Vector2 scale;
-                if (element.SourceRectangle.HasValue && element.SourceRectangle.Value.Width > 0 && element.SourceRectangle.Value.Height > 0)
-                {
-                    scale = new Vector2(
-                        element.Size.X / element.SourceRectangle.Value.Width,
-                        element.Size.Y / element.SourceRectangle.Value.Height);
-                }
-                else
-                {
-                    scale = element.Scale;
-                }
 
                 spriteBatch.Draw(
                     element.Texture,
@@ -265,7 +289,7 @@ public class MasterRenderSystem(
                     element.Color,
                     element.Rotation,
                     element.Origin,
-                    scale,
+                    ComputeSpriteScale(element),
                     SpriteEffects.None,
                     element.LayerDepth);
                 break;

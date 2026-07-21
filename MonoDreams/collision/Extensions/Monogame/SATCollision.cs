@@ -124,22 +124,33 @@ public static class SATCollision
     }
 
     /// <summary>
-    /// Converts a BoxColliderComponent + TransformComponent into a 4-vertex polygon in world space,
-    /// suitable for SAT testing against ConvexColliderComponent entities.
+    /// The box collider's world-space AABB under the colliders-as-entities model: <b>centered</b> on
+    /// the collider entity's <see cref="TransformComponent.WorldPosition"/> with extent
+    /// <see cref="BoxColliderComponent.Size"/> scaled by <see cref="TransformComponent.WorldScale"/>.
+    /// This is the single place the box's pose is derived from its entity's transform — detection,
+    /// resolution, and the box-vs-convex path all route through it. Rotation is intentionally not
+    /// applied (the box stays axis-aligned; use a convex collider for a rotated hitbox).
     /// </summary>
-    /// <remarks>
-    /// Treats the box as axis-aligned regardless of <see cref="TransformComponent.Rotation"/>,
-    /// consistent with the swept-AABB model used for Box-vs-Box collisions.
-    /// </remarks>
+    public static CollisionRect BoxWorldRect(BoxColliderComponent box, TransformComponent transform)
+    {
+        var scale = transform.WorldScale;
+        var size = new Vector2(box.Size.X * scale.X, box.Size.Y * scale.Y);
+        return new CollisionRect(transform.WorldPosition - size / 2f, size);
+    }
+
+    /// <summary>
+    /// Converts a BoxColliderComponent + TransformComponent into a 4-vertex polygon in world space,
+    /// suitable for SAT testing against ConvexColliderComponent entities. Uses
+    /// <see cref="BoxWorldRect"/> — centered on the collider entity's world position, axis-aligned.
+    /// </summary>
     public static void BoxToPolygon(BoxColliderComponent box, TransformComponent transform, Span<Vector2> output)
     {
-        var pos = transform.Position;
-        var bounds = box.Bounds;
+        var rect = BoxWorldRect(box, transform);
 
-        output[0] = new Vector2(pos.X + bounds.Left, pos.Y + bounds.Top);
-        output[1] = new Vector2(pos.X + bounds.Right, pos.Y + bounds.Top);
-        output[2] = new Vector2(pos.X + bounds.Right, pos.Y + bounds.Bottom);
-        output[3] = new Vector2(pos.X + bounds.Left, pos.Y + bounds.Bottom);
+        output[0] = new Vector2(rect.Left, rect.Top);
+        output[1] = new Vector2(rect.Right, rect.Top);
+        output[2] = new Vector2(rect.Right, rect.Bottom);
+        output[3] = new Vector2(rect.Left, rect.Bottom);
     }
 
     /// <summary>

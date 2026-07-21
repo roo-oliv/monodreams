@@ -2,6 +2,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MonoDreams.Input;
+using MonoDreams.LevelEditor.Channel;
+using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.State;
 
 namespace MonoDreams.Tests;
@@ -13,6 +16,11 @@ public class GameTestResult
 
     /// The temp debug directory the run wrote its log + screenshots into.
     public string DebugDir { get; init; } = "";
+
+    /// The isolated temp project root the run was pinned to via <c>MONODREAMS_PROJECT_ROOT</c> (see
+    /// <see cref="GameTestRunner"/>). A resolved editor process writes only under here, never the real
+    /// repo content tree — assert against it to prove isolation held.
+    public string ProjectRoot { get; init; } = "";
 
     public void AssertLogContains(string substring)
     {
@@ -126,33 +134,66 @@ public static class GameTestRunner
 
     /// <summary>
     /// Runs the Examples host headless under an input-replay plan and collects its log.
+    /// <paramref name="environment"/> adds extra process environment variables (e.g.
+    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). <paramref name="editorOpPlan"/> drops an
+    /// <c>editor_op_plan.json</c> into the debug dir — the headless editor-op channel; useful on
+    /// screens without an <c>InputReplaySystem</c> (the menu), where the op driver owns the exit.
     /// </summary>
-    public static async Task<GameTestResult> RunAsync(InputReplayPlan plan, int timeoutSeconds = 30)
+    public static async Task<GameTestResult> RunAsync(InputReplayPlan plan, int timeoutSeconds = 30,
+        IReadOnlyDictionary<string, string>? environment = null, EditorOpPlan? editorOpPlan = null)
     {
         var debugDir = CreateDebugDir();
 
         var replayJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(Path.Combine(debugDir, "input_replay.json"), replayJson);
 
-        return await RunProcessAsync("run --project MonoDreams.Examples.Desktop -- --headless", debugDir, timeoutSeconds);
+        if (editorOpPlan != null)
+        {
+            var opJson = JsonSerializer.Serialize(editorOpPlan, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
+        }
+
+        return await RunProcessAsync("run --project MonoDreams.Examples.Desktop -- --headless", debugDir,
+            timeoutSeconds, environment);
     }
 
     /// <summary>
     /// Runs the Demos host headless on a single demo screen for a fixed number of
     /// frames, then collects its log + screenshots. Mirrors <see cref="RunAsync"/>
     /// but targets the observe-and-self-verify path from issue #28.
+    /// <paramref name="environment"/> adds extra process environment variables (e.g.
+    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). Unless the caller sets it,
+    /// <c>MONODREAMS_EDITOR</c> is pinned off so a developer's exported flag can never
+    /// perturb the flag-off headless contract these runs assert.
     /// </summary>
-    public static Task<GameTestResult> RunDemosAsync(
+    public static async Task<GameTestResult> RunDemosAsync(
         string screen,
         int frames,
         int captureEvery = 0,
         int sampleEvery = 30,
-        int timeoutSeconds = 120)
+        int timeoutSeconds = 120,
+        IReadOnlyDictionary<string, string>? environment = null,
+        EditorOpPlan? editorOpPlan = null)
     {
         var debugDir = CreateDebugDir();
         var args = $"run --project MonoDreams.Demos -- --headless --screen {screen} --frames {frames} " +
                    $"--exit --capture-every {captureEvery} --sample-every {sampleEvery}";
-        return RunProcessAsync(args, debugDir, timeoutSeconds);
+
+        // The headless editor-op channel (TD): the Demos launcher has no InputReplaySystem, so a scripted
+        // op (e.g. a cross-screen tab:open) is the way to drive it — the destination screen's op driver
+        // owns the exit, exactly as RunAsync does for the Examples menu.
+        if (editorOpPlan != null)
+        {
+            var opJson = JsonSerializer.Serialize(editorOpPlan, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
+        }
+
+        var env = new Dictionary<string, string> { ["MONODREAMS_EDITOR"] = "0" };
+        if (environment != null)
+            foreach (var (key, value) in environment)
+                env[key] = value;
+
+        return await RunProcessAsync(args, debugDir, timeoutSeconds, env);
     }
 
     private static string CreateDebugDir()
@@ -162,9 +203,38 @@ public static class GameTestRunner
         return debugDir;
     }
 
-    private static async Task<GameTestResult> RunProcessAsync(string arguments, string debugDir, int timeoutSeconds)
+    /// <summary>
+    /// Creates a throwaway, per-run editor <b>project root</b> and pins the spawned process to it via
+    /// <c>MONODREAMS_PROJECT_ROOT</c> (see <see cref="RunProcessAsync"/>). This is the safe-by-construction
+    /// isolation guarantee: a spawned editor process (or a process the developer's ambient
+    /// <c>MONODREAMS_EDITOR=1</c> turned into one) resolves THIS temp tree — never the real repo
+    /// <c>MonoDreams.Examples.Core/Content</c> — so no test can ever write the user's real
+    /// <c>Content.mgcb</c> / <c>Levels</c> / <c>Prefabs</c>.
+    ///
+    /// <para><b>The manifest is mandatory.</b> <see cref="EditorProjectContext"/>'s env-var branch, when it
+    /// finds no <c>game.mdproj</c> at the named root, <b>falls through</b> to the walk-up + repo-root search
+    /// and re-discovers the REAL source manifest. So this writes a minimal
+    /// <c>&lt;root&gt;/Content/game.mdproj</c> (resolving <c>ProjectRoot</c> to <c>&lt;root&gt;/Content</c>,
+    /// mirroring the real layout) plus the <c>Levels</c>/<c>Prefabs</c> dirs and an empty
+    /// <c>Content.mgcb</c> so any Save / zero-touch bundle lands in the isolated tree.</para>
+    /// </summary>
+    private static string CreateIsolatedProjectRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "monodreams_proj_" + Guid.NewGuid().ToString("N")[..8]);
+        var content = Path.Combine(root, "Content");
+        Directory.CreateDirectory(Path.Combine(content, MgcbLevelBundle.LevelsDirectoryName));
+        Directory.CreateDirectory(Path.Combine(content, MgcbLevelBundle.PrefabsDirectoryName));
+        File.WriteAllText(Path.Combine(content, GameProject.FileName),
+            "{\n  \"formatVersion\": 1,\n  \"startScene\": \"\",\n  \"levelsDir\": \"Levels\"\n}\n");
+        File.WriteAllText(Path.Combine(content, MgcbLevelBundle.McgbFileName), "");
+        return root;
+    }
+
+    private static async Task<GameTestResult> RunProcessAsync(string arguments, string debugDir, int timeoutSeconds,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var repoRoot = FindRepoRoot();
+        var projectRoot = CreateIsolatedProjectRoot();
 
         var psi = new ProcessStartInfo
         {
@@ -177,6 +247,12 @@ public static class GameTestRunner
             CreateNoWindow = true,
         };
         psi.Environment["MONODREAMS_DEBUG_DIR"] = debugDir;
+        // Pin the editor project root to the isolated temp tree BEFORE the caller's env, so it applies to
+        // every spawned head (editor-on or ambiently editor-on) yet an explicit caller override still wins.
+        psi.Environment[EditorProjectContext.ProjectRootVariable] = projectRoot;
+        if (environment != null)
+            foreach (var (key, value) in environment)
+                psi.Environment[key] = value;
 
         using var process = Process.Start(psi)!;
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
@@ -203,6 +279,7 @@ public static class GameTestRunner
             ExitCode = process.ExitCode,
             LogLines = logLines,
             DebugDir = debugDir,
+            ProjectRoot = projectRoot,
         };
     }
 }

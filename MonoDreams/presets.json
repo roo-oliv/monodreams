@@ -22,25 +22,6 @@
       ]
     },
     {
-      "name": "blender-platformer",
-      "description": "Same as ldtk-platformer but loading Blender-exported levels (Level 2)",
-      "platforms": ["desktop", "web"],
-      "modules": [
-        "foundation",
-        "rendering",
-        "rendering-text",
-        "camera",
-        "physics",
-        "collision",
-        "level-loading",
-        "level-blender",
-        "ui",
-        "dialogue",
-        "cursor",
-        "debug"
-      ]
-    },
-    {
       "name": "infinite-runner",
       "description": "Procedural shape-driven runner with no level files, no UI, no dialogue (Level 3)",
       "platforms": ["desktop", "web"],

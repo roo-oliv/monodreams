@@ -12,11 +12,13 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
+using MonoDreams.Extension;
 using MonoDreams.Examples.Component.Runner;
 using MonoDreams.Examples.Input;
 using MonoDreams.Examples.Runner;
 using MonoDreams.Examples.System;
 using MonoDreams.Input;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Message;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
@@ -31,8 +33,30 @@ using MonoDreams.System.Physics;
 
 namespace MonoDreams.Examples.Screens;
 
+/// <summary>
+/// The infinite-runner reference game. Like every Examples screen since Wave 8a, its pipelines
+/// are built through the <see cref="EditorPipelineRegistrar"/> and, when <c>editorEnabled</c> is
+/// true (the <c>--editor</c> / <c>MONODREAMS_EDITOR=1</c> run flag), the <see cref="EditorOverlay"/>
+/// is composed over this screen's own world — the editor is screen-agnostic. This screen runs
+/// <b>no cursor pipeline of its own</b> (the runner is keyboard-only), so the overlay is asked to
+/// provide one (<c>provideCursorPipeline: true</c>): its own <c>CursorInputSystem</c> /
+/// <c>CursorPositionSystem</c> plus a minimal invisible cursor entity — that was this screen's
+/// documented editor blocker. The whole runner logic block (movement, gravity, treadmill scroll,
+/// spawner, collisions, off-screen cleanup, score) is <c>Freeze</c>-gated: those systems mutate
+/// transforms every frame and would run entities out from under the gizmo in Edit. With the flag
+/// off nothing editor-related is constructed and the pipeline is behaviourally identical.
+///
+/// <para>Note: the runner has no camera-follow — its camera is fixed at construction. In Edit the
+/// camera-nav owns the camera (pan/zoom/frame); returning to Play resumes from wherever editing
+/// left the camera (nothing re-pins it), which is the editor previewing exactly what changed.</para>
+/// </summary>
 public class InfiniteRunnerScreen : IGameScreen
 {
+    /// <summary>The scene id this screen is bound to (UX-C): its editor Save writes
+    /// <c>infinite_runner.mdscene</c>, and its optional-scene-load brings that scene up under the
+    /// code-built runner entities. Referenced by the host's <see cref="ScreenInfo"/>.</summary>
+    public const string BoundSceneId = "infinite_runner";
+
     private readonly Game _game;
     private readonly GraphicsDevice _graphicsDevice;
     private readonly ContentManager _content;
@@ -48,8 +72,18 @@ public class InfiniteRunnerScreen : IGameScreen
     private InputMappingSystem _inputMappingSystem;
 #endif
 
+    // Wave 8a: the universal editor overlay (null when editorEnabled is false) and the retained
+    // pipeline registries the systems panel binds to.
+    private readonly bool _editorEnabled;
+    private readonly EditorProjectContext? _projectContext;
+    private readonly EditorSession _session;
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private EditorOverlay _editor;
+
     public InfiniteRunnerScreen(Game game, GraphicsDevice graphicsDevice, ContentManager content, Camera camera,
-        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch)
+        ViewportManager viewportManager, DefaultParallelRunner parallelRunner, SpriteBatch spriteBatch,
+        bool editorEnabled = false, EditorProjectContext? projectContext = null, EditorSession session = null)
     {
         _game = game;
         _graphicsDevice = graphicsDevice;
@@ -58,6 +92,9 @@ public class InfiniteRunnerScreen : IGameScreen
         _viewportManager = viewportManager;
         _parallelRunner = parallelRunner;
         _spriteBatch = spriteBatch;
+        _editorEnabled = editorEnabled;
+        _projectContext = projectContext;
+        _session = session;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -73,6 +110,14 @@ public class InfiniteRunnerScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.BindPipelines(_updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(InfiniteRunnerScreen), _updatePipeline, _drawPipeline);
+        }
     }
 
     public ISystem<GameState> UpdateSystem { get; }
@@ -86,7 +131,8 @@ public class InfiniteRunnerScreen : IGameScreen
         var debugInspector = screenController.Game.Services.GetService(typeof(DebugInspector)) as DebugInspector;
         if (debugInspector != null)
         {
-            _inputMappingSystem.ShouldSuppressInput = () => debugInspector.WantsKeyboard;
+            _inputMappingSystem.ShouldSuppressInput = () =>
+                debugInspector.WantsKeyboard || (_editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive || _editor.InspectorOwnsKeyboard));
         }
 #endif
 
@@ -96,6 +142,36 @@ public class InfiniteRunnerScreen : IGameScreen
         CreateSpawnPoint();
         CreateScoreHUD(content);
         Logger.Info("InfiniteRunner screen loaded.");
+
+        if (_editor != null)
+        {
+            // TB-A: name the active tab so the strip + Save target track this screen's bound scene.
+            _editor.SetSceneId(BoundSceneId);
+            // TD split seam: the code-content rebuild re-creates the runner entities (treadmill, player,
+            // spawn point, HUD, and everything the spawner added — all disposed by the sweep); the
+            // scene-content reload is the optional bound-scene load. Restart runs BOTH (the UX-D full
+            // rebuild — source-first, so a backup-reload restores the last SAVE); a Game-tab exit / scene
+            // switch runs ONLY the code rebuild between the sweep and the snapshot restore, so the runner
+            // resets to its authored initial state instead of a blank screen, no disk double-load.
+            _editor.Transport.RebuildCodeContent = () =>
+            {
+                CreateTreadmill();
+                CreatePlayer();
+                CreateSpawnPoint();
+                CreateScoreHUD(content);
+            };
+            _editor.Transport.ReloadSceneContent = () =>
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            // Optional scene load (UX-C): bring infinite_runner.mdscene up under the code-built runner
+            // if it exists (source-first, then bundled; absent → skip). The code entities stay.
+            // TB-A: SKIP it when a cross-screen tab activation restores this tab's snapshot instead.
+            if (!_editor.RestorePendingActivation(screenController.State))
+                NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
+            // The Scenes panel + the tab-open/activate switch (Examples hand-off).
+            _editor.BindSceneCatalog(ScreenName.InfiniteRunner,
+                () => screenController.RegisteredScreens,
+                entry => EditorSceneSwitch.Switch(screenController, entry));
+        }
     }
 
     private void CreateTreadmill()
@@ -104,10 +180,17 @@ public class InfiniteRunnerScreen : IGameScreen
         var collider = _world.CreateEntity();
         collider.Set(new EntityInfoComponent("Wall"));
         collider.Set(new TransformComponent(new Vector2(0, RunnerConstants.TreadmillY)));
-        collider.Set(new BoxColliderComponent(
-            new Rectangle(0, 0, (int)RunnerConstants.TreadmillTotalWidth, (int)RunnerConstants.TreadmillSegmentHeight),
-            passive: true));
         collider.Set(new RigidBodyComponent(isKinematic: true, gravityActive: false));
+
+        // Colliders-as-entities: the collider is a child entity; the "Wall" entity is the body
+        // (RigidBody). Former top-left footprint centre keeps the world rect: local (W/2, H/2).
+        var treadmillCollider = _world.CreateEntity();
+        treadmillCollider.Set(new TransformComponent(new Vector2(
+            RunnerConstants.TreadmillTotalWidth / 2f, RunnerConstants.TreadmillSegmentHeight / 2f)));
+        treadmillCollider.Set(new BoxColliderComponent(
+            new Vector2(RunnerConstants.TreadmillTotalWidth, RunnerConstants.TreadmillSegmentHeight),
+            passive: true));
+        treadmillCollider.SetParent(collider);
 
         // Cosmetic segments — top row (scrolls left)
         for (int i = 0; i < RunnerConstants.TreadmillSegmentCount; i++)
@@ -175,12 +258,10 @@ public class InfiniteRunnerScreen : IGameScreen
         var entity = _world.CreateEntity();
         entity.Set(new EntityInfoComponent("Player"));
         entity.Set(new TransformComponent(RunnerConstants.PlayerStartPosition));
+        // The runner player collider was already centered (offset = -radius); it stays on the player
+        // (standalone, its own body via RigidBody+Velocity) as a centered Size — byte-identical.
         entity.Set(new BoxColliderComponent(
-            new Rectangle(
-                RunnerConstants.PlayerColliderOffset.X,
-                RunnerConstants.PlayerColliderOffset.Y,
-                RunnerConstants.PlayerColliderSize.X,
-                RunnerConstants.PlayerColliderSize.Y)));
+            new Vector2(RunnerConstants.PlayerColliderSize.X, RunnerConstants.PlayerColliderSize.Y)));
         entity.Set(new RigidBodyComponent());
         entity.Set(new VelocityComponent());
         entity.Set(new RunnerState());
@@ -223,17 +304,20 @@ public class InfiniteRunnerScreen : IGameScreen
     }
 
     private static CollisionMessage CreateRunnerCollision(
-        Entity entity, Entity target, Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
+        Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB,
+        Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
     {
-        var entityType = entity.Get<EntityInfoComponent>().Type;
-        var targetType = target.Get<EntityInfoComponent>().Type;
+        // Classify by the BODIES' identity ("Player" on the player body; "Collectible"/"Obstacle"/
+        // "Wall" on the collectible/obstacle/treadmill bodies).
+        var entityType = bodyA.Has<EntityInfoComponent>() ? bodyA.Get<EntityInfoComponent>().Type : null;
+        var targetType = bodyB.Has<EntityInfoComponent>() ? bodyB.Get<EntityInfoComponent>().Type : null;
         var type = (entityType, targetType) switch
         {
             ("Player", "Collectible") => CollisionType.Collectible,
             ("Player", "Obstacle") => CollisionType.Damage,
             _ => CollisionType.Physics
         };
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
+        return new CollisionMessage(colliderA, colliderB, bodyA, bodyB, contactPoint, contactNormal, contactTime, penetrationDepth, layer, type);
     }
 
     private SequentialSystem<GameState> CreateUpdateSystem()
@@ -241,6 +325,12 @@ public class InfiniteRunnerScreen : IGameScreen
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         var inputMappingSystem = new InputMappingSystem(_world);
+        // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands down
+        // while a Save/Load dialog owns the keys (the closure reads the field lazily; _editor is set
+        // just below when the editor is composed). The mouse half is the dialog consuming the cursor
+        // edges. A DEBUG build's debug-inspector wiring in Load() re-combines this with WantsKeyboard.
+        inputMappingSystem.ShouldSuppressInput = () =>
+            _editor != null && (_editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive || _editor.InspectorOwnsKeyboard);
 #if DEBUG
         _inputMappingSystem = inputMappingSystem;
 #endif
@@ -252,65 +342,132 @@ public class InfiniteRunnerScreen : IGameScreen
             ["Orb"] = InputState.Orb, ["Exit"] = InputState.Exit,
             ["Interact"] = InputState.Interact,
         };
+        // Delete / Undo / Redo / Frame are chord shortcuts (EditorShortcuts, UX3-E), not replay actions:
+        // input replay synthesizes AInputState actions, not raw chords, so chord-driven editing is
+        // exercised through the editor op channel, never replay (the chord replay caveat). This screen
+        // has no editor tool keys of its own, so the action map gains nothing under the flag.
+
+        // The editor overlay (Wave 8a), built over THIS screen's world/camera/layers. The runner
+        // has no cursor pipeline (keyboard-only game), so the overlay provides its own
+        // (provideCursorPipeline: true) — cursor input/position systems + a minimal invisible
+        // cursor entity. Chrome uses the same PPMondwest font as every other screen's shell.
+        if (_editorEnabled)
+        {
+            var chromeFont = _content.Load<MonoGame.Extended.BitmapFonts.BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+            _editor = new EditorOverlay(
+                _world, _camera, _layers, _content, chromeFont, _graphicsDevice, _spriteBatch,
+                _viewportManager,
+                // Delete / frame / undo / redo are the EditorShortcuts chord table (UX3-E), read off the
+                // raw keyboard — no game-supplied bindings needed here (this screen has no tool keys).
+                new EditorInputBindings(),
+                debugDir,
+                requestExit: _game.Exit,
+                setOsCursorVisible: visible => _game.IsMouseVisible = visible,
+                provideCursorPipeline: true,
+                sceneId: BoundSceneId, // explicit per-screen id (UX-C) — Save targets infinite_runner.mdscene
+                projectContext: _projectContext,
+                session: _session);
+            // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+            if (_editor.HasEditorOpPlan) _editor.CursorInput.SkipHardwareRead = true;
+        }
 
         var replaySystem = InputReplaySystem.TryLoad(debugDir, actionMap, _game);
 
-        ISystem<GameState> inputSystems;
         if (replaySystem != null)
         {
             inputMappingSystem.SkipHardwareRead = true;
-            inputSystems = new SequentialSystem<GameState>(replaySystem, inputMappingSystem);
+            // Hold the session open: a coexisting keyboard replay's auto-exit-on-drain defers to
+            // the editor-op driver, which owns the exit.
+            if (_editor?.SuppressReplayAutoExit != null)
+                replaySystem.SuppressAutoExit = _editor.SuppressReplayAutoExit;
         }
-        else
-        {
-            inputSystems = inputMappingSystem;
-        }
-
-        var runnerMovement = new MonoDreams.Examples.System.Runner.RunnerMovementSystem(_world);
-        var treadmillScroll = new MonoDreams.Examples.System.Runner.TreadmillScrollSystem(_world);
-        var runnerSpawner = new MonoDreams.Examples.System.Runner.RunnerSpawnerSystem(_world);
-        var runnerCollisionHandler = new MonoDreams.Examples.System.Runner.RunnerCollisionHandlerSystem(_world);
-        var gameOver = new MonoDreams.Examples.System.Runner.GameOverSystem(_world, _game, _font);
-        var offScreenCleanup = new MonoDreams.Examples.System.Runner.OffScreenCleanupSystem(_world);
-        var scoreDisplay = new MonoDreams.Examples.System.Runner.ScoreDisplaySystem(_world);
 
         var entitySpawnSystem = new MonoDreams.System.EntitySpawn.EntitySpawnSystem(_world, null, _renderTargets);
         entitySpawnSystem.RegisterEntityFactory("Charm", new MonoDreams.Examples.EntityFactory.CharmFactory(_layers));
         entitySpawnSystem.RegisterEntityFactory("Obstacle", new MonoDreams.Examples.EntityFactory.ObstacleFactory(_layers));
 
-        var logicSystems = new SequentialSystem<GameState>(
-            entitySpawnSystem,
-            runnerMovement,
-            new GravitySystem(_world, _parallelRunner, RunnerConstants.WorldGravity, RunnerConstants.MaxFallVelocity),
-            treadmillScroll,
-            runnerSpawner,
-            new TransformVelocitySystem(_world, _parallelRunner),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateRunnerCollision),
-            new TransformPhysicalCollisionResolutionSystem(_world),
-            runnerCollisionHandler,
-            new TransformCommitSystem(_world, _parallelRunner),
-            gameOver,
-            offScreenCleanup,
-            scoreDisplay
-        );
-
         var hierarchySystem = new HierarchySystem(_world);
 
-        return new SequentialSystem<GameState>(
-            inputSystems,
-            logicSystems,
-            hierarchySystem
-        );
+        // ---- Weave the update pipeline through the registrar. Composite blocks are registrar
+        // GROUPS with named children (panel-visible). With the editor off, RunMode never leaves
+        // Play and every gate is a pass-through, so the pipeline behaves exactly as the
+        // pre-editor SequentialSystem(input, logic, hierarchy). ----
+        var p = _updatePipeline;
+        p.AddGroup("input", EditTimeBehavior.RunNormally, g =>
+        {
+            if (replaySystem != null) g.Add("replay", replaySystem);
+            g.Add("mapping", inputMappingSystem);
+        });
+        if (_editor != null)
+        {
+            // The overlay-provided cursor pipeline (the runner has none): raw mouse state now,
+            // world/virtual projection later (after camera-nav).
+            p.Add("editor.cursorInput", _editor.CursorInput, EditTimeBehavior.RunNormally);
+            p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
+            // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
+            p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
+        }
+        // The WHOLE runner simulation freezes in Edit: movement, gravity, treadmill scroll,
+        // spawner, collisions, off-screen cleanup and score all mutate transforms/entities every
+        // frame and would run the scene out from under the gizmo. One Freeze gate on the group.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("entitySpawn", entitySpawnSystem);
+            g.Add("movement", new MonoDreams.Examples.System.Runner.RunnerMovementSystem(_world));
+            g.Add("gravity", new GravitySystem(_world, _parallelRunner,
+                RunnerConstants.WorldGravity, RunnerConstants.MaxFallVelocity));
+            g.Add("treadmillScroll", new MonoDreams.Examples.System.Runner.TreadmillScrollSystem(_world));
+            g.Add("spawner", new MonoDreams.Examples.System.Runner.RunnerSpawnerSystem(_world));
+            g.Add("velocity", new TransformVelocitySystem(_world, _parallelRunner));
+            g.Add("collisionDetect",
+                new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateRunnerCollision));
+            g.Add("collisionResolve", new TransformPhysicalCollisionResolutionSystem(_world));
+            g.Add("collisionHandler", new MonoDreams.Examples.System.Runner.RunnerCollisionHandlerSystem(_world));
+            g.Add("transformCommit", new TransformCommitSystem(_world, _parallelRunner));
+            g.Add("gameOver", new MonoDreams.Examples.System.Runner.GameOverSystem(_world, _game, _font));
+            g.Add("offScreenCleanup", new MonoDreams.Examples.System.Runner.OffScreenCleanupSystem(_world));
+            g.Add("scoreDisplay", new MonoDreams.Examples.System.Runner.ScoreDisplaySystem(_world));
+        });
+        if (_editor != null)
+        {
+            p.Add("editor.commands", _editor.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Gizmo, EditTimeBehavior.RunNormally);
+            // The collider proxy sync follows the gizmo so the proxies re-derive from this
+            // frame's write-back.
+            p.Add("editor.proxySync", _editor.ProxySync, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.ToolbarMeshPrep);
+                g.Add("clicks", _editor.ToolbarClicks);
+                g.Add("tooltip", _editor.Tooltip);
+                g.Add("viewportTabs", _editor.ViewportTabs); // PF-B: the viewport tab strip
+            });
+            p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.inspector", _editor.Inspector, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.CameraNav, EditTimeBehavior.RunNormally);
+            // The overlay's cursor projection — AFTER camera-nav so the camera mutation this
+            // frame is what the cursor's world position derives from (no one-frame lag).
+            p.Add("editor.cursorPosition", _editor.CursorPosition, EditTimeBehavior.RunNormally);
+            p.Add("editor.shell", _editor.Shell, EditTimeBehavior.RunNormally);
+            p.Add("editor.statusBar", _editor.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
+            if (_editor.EditorOpDriver != null)
+                p.Add("editor.opDriver", _editor.EditorOpDriver, EditTimeBehavior.RunNormally);
+        }
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
         var pixelPerfectRendering = MonoDreams.Examples.Settings.SettingsManager.Instance.Settings.PixelPerfectRendering;
-
-        var prepDrawSystems = new SequentialSystem<GameState>(
-            new MeshPrepSystem(_world),
-            new TextPrepSystem(_world, pixelPerfectRendering)
-        );
 
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
@@ -319,12 +476,15 @@ public class InfiniteRunnerScreen : IGameScreen
         var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
 
-        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
+        var renderLayers = new List<RenderLayer>
         {
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
             RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-        });
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.ChromeLayer);
+        var finalDrawToScreenSystem = new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers);
 
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
@@ -334,14 +494,40 @@ public class InfiniteRunnerScreen : IGameScreen
             IsEnabled = replayPlan?.Screenshots ?? false
         };
 
-        return new SequentialSystem<GameState>(
-            prepDrawSystems,
-            mainPass,
-            uiPass,
-            hudPass,
-            finalDrawToScreenSystem,
-            screenshotSystem
-        );
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        // The runner's own content is meshes + HUD text. With the editor composed, the sprite
+        // prep chain (cull → sprite prep → Y-sort) is added so a native scene loaded/pasted while
+        // editing actually previews (self-sufficient overlay); the runner's DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through and selection picks on the final
+        // (source-derived) LayerDepth — documented degradation.
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled)
+            {
+                g.Add("culling", new CullingSystem(_world, _camera));
+                g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering));
+                g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            }
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
+        });
+        if (_editor != null)
+        {
+            p.Add("editor.selection", _editor.Selection, EditTimeBehavior.RunNormally);
+            // The overlay visuals (gizmo handles / selection outline / proxy outlines) bake in
+            // screen pixels on the Editor target from the frame's FINAL camera + selection.
+            p.Add("editor.overlayPrep", _editor.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
+        p.Add("renderMain", mainPass, EditTimeBehavior.RunNormally);
+        p.Add("renderUI", uiPass, EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", hudPass, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", finalDrawToScreenSystem, EditTimeBehavior.RunNormally);
+        p.Add("screenshots", screenshotSystem, EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()

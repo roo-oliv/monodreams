@@ -46,8 +46,34 @@ public class ViewportManager
     private float _scaleY = 1.0f;
     private bool _dirty = true; // Flag to recalculate when screen size changes
 
-    public int IntegerScale { get; private set; } = 1;
-    public Rectangle PixelPerfectDestinationRectangle { get; private set; }
+    // Reserved chrome margins (the editor shell's viewport inset), in physical screen pixels.
+    // When any is non-zero the aspect-fit game viewport is computed inside the remaining
+    // sub-rectangle instead of the full window. All zero (the default) reproduces the
+    // historical full-window letterbox byte-identically.
+    private int _insetLeft, _insetTop, _insetRight, _insetBottom;
+
+    private int _integerScale = 1;
+    private Rectangle _pixelPerfectDestinationRectangle;
+
+    public int IntegerScale
+    {
+        get
+        {
+            if (_dirty) Recalculate();
+            return _integerScale;
+        }
+    }
+
+    // Recalculates lazily like DestinationRectangle, so a read after a resize/inset change is
+    // never stale (it used to be a plain auto-property, honest only after another getter ran).
+    public Rectangle PixelPerfectDestinationRectangle
+    {
+        get
+        {
+            if (_dirty) Recalculate();
+            return _pixelPerfectDestinationRectangle;
+        }
+    }
 
     public ViewportManager(Game game, int virtualWidth = 800, int virtualHeight = 600)
     {
@@ -80,6 +106,50 @@ public class ViewportManager
         get => _screenHeight;
         set { if (_screenHeight != value) { _screenHeight = value; MarkDirty(); } }
     }
+
+    /// <summary>
+    /// Device pixels per window LOGICAL point (Flutter's devicePixelRatio) — 1 unless the host
+    /// enabled a device-resolution backbuffer behind a scaled window (macOS Retina under the
+    /// editor run flag; see the level-editor module's <c>EditorHiDpi</c>). When it is >1,
+    /// <see cref="ScreenWidth"/>/<see cref="ScreenHeight"/> are DEVICE pixels while OS mouse
+    /// coordinates stay logical, so <c>CursorInputSystem</c> multiplies the raw mouse position by
+    /// this ratio — keeping the invariant that <c>ScreenPosition</c>, chrome layout/hit-tests, and
+    /// the backbuffer all share one space (device pixels). Chrome layout (e.g.
+    /// <c>EditorChromeLayout</c>) multiplies its point-based metrics by this ratio so on-screen
+    /// physical sizes stay constant while gaining pixel density.
+    /// </summary>
+    public float DevicePixelRatio { get; set; } = 1f;
+
+    /// <summary>Whether a viewport inset (reserved chrome margins) is currently active.</summary>
+    public bool HasViewportInset => _insetLeft != 0 || _insetTop != 0 || _insetRight != 0 || _insetBottom != 0;
+
+    /// <summary>
+    /// Reserves chrome margins around the game viewport (the editor shell's inset), in physical
+    /// screen pixels. The aspect-fit <see cref="DestinationRectangle"/> (and the pixel-perfect
+    /// rectangle) are then computed inside the remaining centered sub-rectangle, and
+    /// <see cref="ScaleMouseToVirtualCoordinates"/> inverts that same rectangle — so compositing
+    /// and mouse mapping always agree: a click inside the inset viewport maps to the correct
+    /// virtual point with no extra math, and a click in the margins maps to <c>null</c> (chrome
+    /// consumes it in screen space). All-zero margins are byte-identical to the historical
+    /// full-window letterbox. Setting the same values again is a no-op (no recalculation).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Any negative margin.</exception>
+    public void SetViewportInset(int left, int top, int right, int bottom)
+    {
+        if (left < 0 || top < 0 || right < 0 || bottom < 0)
+            throw new ArgumentOutOfRangeException(nameof(left),
+                $"Viewport inset margins must be non-negative (got {left},{top},{right},{bottom}).");
+        if (_insetLeft == left && _insetTop == top && _insetRight == right && _insetBottom == bottom)
+            return;
+        _insetLeft = left;
+        _insetTop = top;
+        _insetRight = right;
+        _insetBottom = bottom;
+        MarkDirty();
+    }
+
+    /// <summary>Clears the viewport inset — back to the full-window letterbox.</summary>
+    public void ClearViewportInset() => SetViewportInset(0, 0, 0, 0);
 
     /// <summary>
     /// Gets the calculated viewport that maintains the virtual aspect ratio (letter/pillarboxed).
@@ -135,29 +205,37 @@ public class ViewportManager
     {
         var targetAspectRatio = VirtualWidth / (float) VirtualHeight;
 
-        float screenWidth = ScreenWidth;
-        float screenHeight = ScreenHeight;
+        // The area available to the game viewport: the whole window minus the viewport-inset
+        // margins (the editor shell's chrome). With a zero inset (the default) this IS the whole
+        // window, so every computation below is byte-identical to the historical letterbox.
+        int availX = _insetLeft;
+        int availY = _insetTop;
+        int availWidth = Math.Max(1, ScreenWidth - _insetLeft - _insetRight);
+        int availHeight = Math.Max(1, ScreenHeight - _insetTop - _insetBottom);
+
+        float screenWidth = availWidth;
+        float screenHeight = availHeight;
         float screenAspectRatio = screenWidth / screenHeight;
 
         int destWidth;
         int destHeight;
 
-        if (screenAspectRatio > targetAspectRatio) // Screen is wider than virtual (Letterbox)
+        if (screenAspectRatio > targetAspectRatio) // Available area is wider than virtual (Letterbox)
         {
             destHeight = (int)screenHeight;
             destWidth = (int)(destHeight * targetAspectRatio + 0.5f);
         }
-        else // Screen is taller than virtual (Pillarbox) or same aspect ratio
+        else // Available area is taller than virtual (Pillarbox) or same aspect ratio
         {
             destWidth = (int)screenWidth;
             destHeight = (int)(destWidth / targetAspectRatio + 0.5f);
         }
 
-        // set up the new viewport centered in the backbuffer
+        // set up the new viewport centered in the available area
         _currentViewport = new Viewport
         {
-            X = (int)((screenWidth / 2f) - (destWidth / 2f)),
-            Y = (int)((screenHeight / 2f) - (destHeight / 2f)),
+            X = availX + (int)((screenWidth / 2f) - (destWidth / 2f)),
+            Y = availY + (int)((screenHeight / 2f) - (destHeight / 2f)),
             Width = destWidth,
             Height = destHeight,
             MinDepth = 0,
@@ -169,23 +247,25 @@ public class ViewportManager
         _scaleX = (float)_destinationRectangle.Width / VirtualWidth;
         _scaleY = (float)_destinationRectangle.Height / VirtualHeight;
 
-        // Calculate integer scale for pixel-perfect mode
+        // Calculate integer scale for pixel-perfect mode (within the same available area).
+        // NOTE: assign the backing fields directly — reading the lazy properties here would
+        // recurse (we are inside Recalculate; _dirty is still true).
         if (CurrentScalingMode == ScalingMode.PixelPerfect)
         {
-            int scaleX = ScreenWidth / VirtualWidth;
-            int scaleY = ScreenHeight / VirtualHeight;
-            IntegerScale = Math.Max(1, Math.Min(scaleX, scaleY));
+            int scaleX = availWidth / VirtualWidth;
+            int scaleY = availHeight / VirtualHeight;
+            _integerScale = Math.Max(1, Math.Min(scaleX, scaleY));
 
-            int ppWidth = VirtualWidth * IntegerScale;
-            int ppHeight = VirtualHeight * IntegerScale;
-            int ppX = (ScreenWidth - ppWidth) / 2;
-            int ppY = (ScreenHeight - ppHeight) / 2;
+            int ppWidth = VirtualWidth * _integerScale;
+            int ppHeight = VirtualHeight * _integerScale;
+            int ppX = availX + (availWidth - ppWidth) / 2;
+            int ppY = availY + (availHeight - ppHeight) / 2;
 
-            PixelPerfectDestinationRectangle = new Rectangle(ppX, ppY, ppWidth, ppHeight);
+            _pixelPerfectDestinationRectangle = new Rectangle(ppX, ppY, ppWidth, ppHeight);
         }
         else
         {
-            PixelPerfectDestinationRectangle = _destinationRectangle;
+            _pixelPerfectDestinationRectangle = _destinationRectangle;
         }
 
         _dirty = false;

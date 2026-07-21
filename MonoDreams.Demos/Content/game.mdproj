@@ -1,0 +1,6 @@
+{
+  "formatVersion": 1,
+  "startScene": "launcher",
+  "levelsDir": "Levels",
+  "assetRoots": []
+}

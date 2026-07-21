@@ -10,7 +10,7 @@ This module adds spatial collision detection and resolution to entities. Two col
 
 ### Components
 
-- `BoxColliderComponent` — AABB collider with size, offset, layers, passive flag
+- `BoxColliderComponent` — AABB collider with a centered `Size` (no offset — the collider is its own entity; pose comes from its `TransformComponent`), layers, passive flag
 - `ConvexColliderComponent` — SAT convex polygon collider with vertex list and cached `BroadPhaseAABB`
 - `ColliderTagComponent` — canonical query target; auto-attached when either collider component is added
 - `IColliderComponent` — interface implemented by both colliders for polymorphic narrowphase dispatch
@@ -23,7 +23,8 @@ This module adds spatial collision detection and resolution to entities. Two col
 
 ### Messages
 
-- `CollisionMessage` — entity pair, contact point, normal, contact time, penetration, layer, type
+- `CollisionMessage` — the two collider entities (`ColliderA`/`ColliderB`) AND their resolved bodies (`BodyA`/`BodyB`, via `ColliderBody.Resolve`), contact point, normal, contact time, penetration, layer, type
+- `ColliderBody` — the shared body-resolution helper (nearest `RigidBody` ancestor, else `Velocity`, else the collider itself)
 - `ICollisionMessage` — interface for custom message types (extend with game-specific fields like damage, knockback)
 - `RigidBodyTouchMessage` — emitted when rigid bodies make contact (for sound, particles, etc.)
 
@@ -60,4 +61,4 @@ Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderCo
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants for this module (`ColliderTagComponent` canonical query, swept-collision `Delta` dependency, single-threaded detection, the reference pipeline order)
-- Related modules: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging), `level-blender` (the `-collider` suffix convention spawns `ConvexColliderComponent`s)
+- Related modules: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging)

@@ -7,6 +7,7 @@ using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
+using MonoDreams.Extensions.Monogame;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Debug;
@@ -17,6 +18,16 @@ namespace MonoDreams.System.Debug;
 /// red = active, green = passive, gray = disabled.
 /// Development only — allocates per-frame (ToArray, transient entities) and is not
 /// intended for production builds.
+///
+/// <para>Reads collider ENTITIES (colliders-as-entities): each collider is its own entity — a
+/// <c>ColliderTagComponent</c>-tagged shape + its own <c>TransformComponent</c> — and this system
+/// draws every one from that transform's world pose (box via <c>SATCollision.BoxWorldRect</c>,
+/// convex via the collider's <c>WorldVertices</c>). It coexists with the editor: this system is the
+/// global diagnostic (thin outlines for EVERY collider, behind the static flag, selection-unaware);
+/// the editor draws the SELECTED collider entity's own outline + gives it a gizmo (colliders are
+/// first-class selectable entities now — the whole-shape proxies retired). In Edit the editor keeps
+/// the selected convex collider's <c>WorldVertices</c> fresh (<c>ProxySyncSystem</c>), so a selected
+/// collider's debug outline tracks its vertex edits.</para>
 /// </summary>
 public class ColliderDebugSystem : ISystem<GameState>
 {
@@ -73,18 +84,13 @@ public class ColliderDebugSystem : ISystem<GameState>
     {
         var color = GetDebugColor(box);
 
-        var topLeft = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Left,
-            transform.WorldPosition.Y + box.Bounds.Top);
-        var topRight = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Right,
-            transform.WorldPosition.Y + box.Bounds.Top);
-        var bottomRight = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Right,
-            transform.WorldPosition.Y + box.Bounds.Bottom);
-        var bottomLeft = new Vector2(
-            transform.WorldPosition.X + box.Bounds.Left,
-            transform.WorldPosition.Y + box.Bounds.Bottom);
+        // Box pose comes from the collider entity's transform (centered, scaled) — the single
+        // source is SATCollision.BoxWorldRect, so the outline matches what detection tests.
+        var rect = SATCollision.BoxWorldRect(box, transform);
+        var topLeft = new Vector2(rect.Left, rect.Top);
+        var topRight = new Vector2(rect.Right, rect.Top);
+        var bottomRight = new Vector2(rect.Right, rect.Bottom);
+        var bottomLeft = new Vector2(rect.Left, rect.Bottom);
 
         var vertices = new List<VertexPositionColor>();
         var indices = new List<int>();

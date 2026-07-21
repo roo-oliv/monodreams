@@ -23,12 +23,14 @@ public class TileEntityFactory(DrawLayerMap layers) : IEntityFactory
         // Extract from custom fields (same pattern as WallEntityFactory)
         var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : layers.GetDepth(GameDrawLayer.Tiles);
         var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
+        var tilesetKey = request.CustomFields.TryGetValue("tilesetKey", out var key) ? key as string : null;
 
         if (tilesetTexture != null)
         {
             entity.Set(new SpriteInfoComponent
             {
                 SpriteSheet = tilesetTexture,
+                AssetKey = tilesetKey, // content key so an imported native scene re-loads this tileset
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                     (int)request.Size.X, (int)request.Size.Y),
                 Size = request.Size,

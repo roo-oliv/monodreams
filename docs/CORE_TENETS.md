@@ -107,7 +107,7 @@ split exists to support complex hierarchical UI such as a dialogue
 panel — a single visual whose banner, avatars, text and waiting-indicator
 move and dispose together but may not all share matrix scaling.
 `HierarchySystem` keeps the two in sync. **This split is on the refactor
-backlog** (§9); read both fields when reasoning about hierarchy until it
+backlog** (§10); read both fields when reasoning about hierarchy until it
 is consolidated.
 
 **Dirty propagation.** Mutating a parent's transform marks the entire
@@ -121,7 +121,7 @@ two committed positions. They are meaningful only after
 `TransformCommitSystem` has run for the *previous* frame. Today no API
 prevents reading stale `Delta` mid-frame; this is on the backlog as
 "`Transform` should expose interaction methods that guarantee `Delta`
-consistency" (§9). For now, downstream systems that depend on `Delta`
+consistency" (§10). For now, downstream systems that depend on `Delta`
 (notably the collision detection's swept tests) must trust the
 assembler put `TransformCommitSystem` at the end of every frame.
 
@@ -175,7 +175,7 @@ entity that never gets `Visible` because no `CullingSystem` is in the
 pipeline, and the dev stares at an invisible sprite). The renderable
 entity stack is therefore `EntityInfo + Transform + SpriteInfo +
 DrawComponent + Visible` for Main, minus `Visible` for UI/HUD.
-**This split is a known wart** (§9): `Visible` may become a property of
+**This split is a known wart** (§10): `Visible` may become a property of
 `DrawComponent` to remove the easy-to-miss tag.
 
 **Layer depth ownership.** Three systems write `LayerDepth`, in this
@@ -205,11 +205,16 @@ gravity — and the pipeline assembler picks which to register.
 
 **Components.** `Velocity` carries current and last velocity vectors
 (the delta is exposed); `RigidBody` carries mass, gravity participation,
-kinematic flag, and freeze-axis flags; `BoxCollider` carries an AABB
-and active layers; `ConvexCollider` carries model-space vertices,
+kinematic flag, and freeze-axis flags. A collider is its OWN entity now
+(colliders-as-entities): `BoxCollider` carries a centered `Size`
+(no offset — pose comes from the collider entity's `Transform`) and
+active layers; `ConvexCollider` carries collider-entity-local vertices,
 world-space vertices, a broadphase AABB and active layers. `ColliderTag`
-is auto-applied to any entity with a collider component so detection
-queries can match a unified tag.
+is auto-applied to any collider entity so detection queries can match a
+unified tag. A collider's **body** (the entity a contact acts on) is
+resolved via `ColliderBody.Resolve` — nearest `RigidBody`/`Velocity`
+ancestor, else itself — and `CollisionMessage` carries both the collider
+entities and their bodies; resolution writes corrections to the body.
 
 **The reference physics pipeline order**, from
 `LoadLevelExampleGameScreen.cs:277–286`:
@@ -242,11 +247,15 @@ holds instance-level polygon buffers. It is intentionally not
 thread-safe; do not register two instances or invoke it from parallel
 contexts.
 
-**One collider of each type per entity.** Today the framework assumes
-an entity has at most one `BoxCollider` and at most one `ConvexCollider`.
-This is implicit, not enforced. Multiple colliders of the same type on
-a single entity is undefined behavior — if you need it, that's a
-framework change, not a workaround.
+**Multiple colliders per body (colliders-as-entities).** A collider is its
+own entity, so a body owns N collider children — the former
+one-collider-of-each-type-per-entity assumption is retired. Detection
+iterates collider entities; resolution corrects each contact's body,
+accumulating sequentially with per-message re-validation so a body hit
+through two of its colliders in one frame is not double-corrected. Two
+shape components on ONE entity is still not a thing (it would be a single
+collider entity with an ambiguous shape) — give each shape its own child
+collider entity.
 
 ### Aspirational direction
 
@@ -255,55 +264,64 @@ end-state is collision against any Transform-shaped contract.
 
 ## 6. Level loading & entity spawning
 
-Levels live in `.ldtk` files (LDtk editor) and `.json` exports from
-Blender (`Tools/blender_level_export.py`). The pipeline is identical
-in shape: a request loads a file, a parser walks the data, and the
-parser emits `EntitySpawnRequest` messages that a factory turns into
-entities.
+**The shipped game boots native `.mdscene` levels only** (see "Native-only
+load" below). The LDtk (`.ldtk`) parser is now **import-only**: it runs
+once, off the game boot, to migrate a legacy level into a native scene the
+game then owns. The pipeline below describes that **import** path — a
+request loads a file, the parser walks the data, and it emits
+`EntitySpawnRequest` messages that a factory turns into entities. It is
+composed only in the reference screen's `importMode`, never at live boot.
 
 **The pipeline.**
 1. Game code publishes `LoadLevelRequest`.
-2. **Two systems subscribe to the message directly** —
-   `LevelLoadRequestSystem` (LDtk path) and `BlenderLevelParserSystem`
-   (Blender path). Each gates on the level identifier (see the
-   `Blender_` prefix note below).
-3. `LevelLoadRequestSystem` loads the LDtk file and **adds
-   `CurrentLevelComponent` to the world**; the LDtk parsers
-   (`LDtkEntityParserSystem`, `LDtkTileParserSystem`) then **subscribe
-   to `CurrentLevelComponent` being added** and parse on add.
-   `BlenderLevelParserSystem`, in contrast, parses directly from the
-   message — an asymmetry that's a known wart (see "Aspirational
-   direction" below and the per-module premises).
+2. `LevelLoadRequestSystem` subscribes to the message. On the import path
+   (`enableLegacyLdtkFallback: true`) it loads the LDtk file and **adds
+   `CurrentLevelComponent` to the world**.
+3. The LDtk parsers (`LDtkEntityParserSystem`, `LDtkTileParserSystem`)
+   **subscribe to `CurrentLevelComponent` being added** and parse on add.
 4. Parsers emit `EntitySpawnRequest`s.
 5. `EntitySpawnSystem` consumes each spawn request and dispatches to an
    `IEntityFactory` registered for the request's string identifier.
 
 **Key invariant — the LDtk parsers react to component lifecycle, not
 to push messages.** Their pattern (subscribe to `CurrentLevelComponent`
-added) is the engine-wide *intended* default. A test or tool that adds
+added) is the engine-wide default. A test or tool that adds
 `CurrentLevelComponent` manually triggers them just as well as the
-regular `LoadLevelRequest` path. The Blender parser predates the
-pattern and remains message-driven; harmonizing it is on the backlog
-(§9). For new parsers, follow the LDtk pattern — resist the urge to
-make a system "only respond when the right message arrived" — that's
-coupling the system to an upstream sequence that should be the
-assembler's choice.
+regular `LoadLevelRequest` path. For new parsers, follow this pattern —
+resist the urge to make a system "only respond when the right message
+arrived"; that couples the system to an upstream sequence that should be
+the assembler's choice.
 
 **Factory registration.** `EntitySpawnSystem` keeps a dictionary of
 `string → IEntityFactory`. Game code registers factories at screen
 setup time. Currently, an unregistered identifier produces a logged
 warning and the spawn is silently dropped. **Intended behavior is to
-throw** — this is on the backlog (§9). For now, treat the warning as a
+throw** — this is on the backlog (§10). For now, treat the warning as a
 high-severity signal during development.
 
-**`Blender_` identifier prefix.** Both `LevelLoadRequestSystem` (LDtk)
-and `BlenderLevelParserSystem` (Blender) subscribe to `LoadLevelRequest`
-independently. The Blender parser filters by the `Blender_` prefix and
-handles the load when matched; `LevelLoadRequestSystem` unconditionally
-attempts the LDtk path, fails for Blender-prefixed names, and removes
-`CurrentLevelComponent` to clean up. **This dual-subscribe dispatch by
-name prefix is a quick hack** (§9); a content-driven dispatch (a format
-field in the level data) is the eventual replacement.
+**Native-only load — the content-driven unification (PS5, asymmetry
+resolved).** `LevelLoadRequestSystem` is now a **native-only** dispatcher:
+each `LoadLevelRequest` probes for a bundled native scene
+`Content/Levels/<id>.mdscene` via `TitleContainer` (the console-portable
+read) and, on a hit, loads it through the generalized `SceneReaderSystem`
+(the same native reader the editor's `LoadSceneRequest` uses —
+reconstructing entities from serialized components, not factories). An id
+with **no** native scene **fails loud** — there is no silent LDtk attempt.
+Native `.mdscene` is the game's real level format: versioned in
+`Content/Levels/`, MGCB-`/copy:`-bundled, read read-only via `TitleContainer`
+on every platform (only the desktop editor writes, PS3). **The LDtk parser
+is now IMPORT-ONLY machinery:** it runs once — via the import op (a headless
+`--export-scene <id>` / `MONODREAMS_EXPORT_SCENE` dev op, or a future editor
+toolbar action) — to re-parse a legacy level and serialize the resulting
+world to a native `.mdscene` the game then owns; it is **not wired to live
+game boot** (composed only in the reference screen's `importMode`). This
+closes the parser-asymmetry backlog (§10): one content-driven load path.
+(The Blender importer that once shared this path was retired in wave BR —
+see §10.) Migration status: the committed
+`Content/Levels/Blender_Level.mdscene` (a native scene originally migrated
+from Blender) boots native; the LDtk `Level_0` is not yet migrated (its
+~21k per-tile entities need a native tile-layer batching primitive — a
+follow-up, §10).
 
 ## 7. The reference pipeline
 
@@ -397,14 +415,213 @@ debug directory, writes an `InputReplayPlan`, waits for exit, and
 exposes log-assertion helpers (`AssertLogContains`,
 `AssertLogContainsInOrder`, `GetLogLines`). The gold-standard tests
 today are `SATCollisionTests` (pure-logic), `BlenderLevelTests`
-(parsing), and `InfiniteRunnerTests` (integration).
+(native scene boot), and `InfiniteRunnerTests` (integration).
 
 **No architectural tests today.** ArchUnit-style assertions
 ("`MonoDreams/Component/*.cs` must contain only data") do not exist
 yet. Most premises in `docs/{domain}/premises.md` start their `Tests:`
 field as `none yet`; introducing architectural tests is on the backlog.
 
-## 9. Refactor backlog (named cruft)
+## 9. The editor is part of the game
+
+The level editor is **not a separate application** and **not a separate
+renderer** — it is the running game under an editor run configuration.
+There is one world, one `Camera`, and one draw stack
+(`CullingSystem → SpritePrepSystem → YSortSystem → MeshPrepSystem →
+TextPrepSystem → MasterRenderSystem`); the editor previews exactly what
+the player sees because it runs that same pipeline. What changes between
+playing and editing is not *which* pipeline runs but *which systems in
+it are allowed to run* — a **run-state contract** the engine codifies in
+`foundation` — and the run state is driven by a **transport**, not a
+mode-toggle key.
+
+**The transport model.** Under the editor run flag (`--editor` /
+`MONODREAMS_EDITOR=1` — the ONLY way into the editor) the shell, chrome,
+and editor systems are **always composed and visible**; no key toggles
+the editor away. The designer drives the game like a media player through
+the toolbar's left-most transport buttons (or the headless
+`Play`/`Pause`/`Restart` editor ops), owned by `EditorTransport`:
+**Paused** = `RunMode.Edit` (game logic Freeze-gated, editing tools
+live — the boot state under the flag), **Playing** = `RunMode.Play`
+(the game runs inside the inset viewport; the shell stays up and the
+transport buttons + systems panel stay interactive, but the editing
+tools are inert — a click in the viewport belongs to the game), and
+**Restart** = return the world to the state of the original load:
+clear the undo history, remove the world-level level components
+(`CurrentLevelComponent` — the LDtk parsers react to its *added* event),
+dispose every scene entity (editor infrastructure — entities tagged
+`EditorInfrastructureComponent` — the cursor pipeline, and
+screen-`KeepAlive`-named infrastructure survive), re-run the screen's
+recorded `Reload`, and land Paused. **Unsaved live edits are discarded
+by Restart** — the standard play-mode trade-off; Save first to keep
+them.
+
+**The run-state contract.** `GameState.RunMode` is one of `Play`
+(default) or `Edit`. A system opts into run-state awareness by being
+wrapped in a `GatedSystem` carrying an `EditTimeBehavior` policy
+(`RunNormally` / `Freeze` / `RunPartial` / `RuntimeEditable`). Each
+frame the gate reads `RunMode` and decides whether to forward to its
+child: `RunNormally` runs in both modes; `Freeze` runs in `Play` only;
+`RunPartial` and `RuntimeEditable` are reserved (today they run in both,
+finer semantics deferred). Editor tooling is **ECS systems over this
+gated game pipeline** — selection, gizmo, undo-apply, scene save/load,
+and the toolbar are ordinary systems registered alongside the game's,
+made inert while Playing by an Edit guard (the transport chrome —
+toolbar transport buttons + systems panel — deliberately stays live in
+both states). There is no parallel editor data model: a scene
+round-trips by serializing the entities' components, not by re-running
+factories.
+
+**Key invariant — default `Play` + opt-in gating leaves every existing
+screen byte-identical.** `RunMode` defaults to `Play`, and only a system
+explicitly wrapped in a `GatedSystem` changes behavior with the mode. A
+screen that never wraps a system and never sets `Edit` behaves exactly
+as it did before the model existed. This is what makes the run-state
+model safe to add across all modules at once.
+
+**Key rule — the gating policy per system group is fixed by what editing
+needs to see and not disturb.** Render, input, cursor, and
+`HierarchySystem` stay live in `Edit` (`RunNormally`) — the preview must
+keep drawing, the designer must keep clicking, and an editor's transform
+edit must still propagate to world space the same frame. Game logic,
+physics, collision, AI/dialogue, and `CameraFollowSystem` `Freeze` in
+`Edit` — they would otherwise move entities out from under the designer
+or fight the editor for the camera; in `Edit` the editor drives
+`Camera.Position`/`Zoom` directly. Get a policy wrong and the failure is
+silent: a frozen render module is a black screen the instant you enter
+`Edit`; a live physics module rains gravity on entities you are trying
+to place; a frozen `HierarchySystem` shows edits at last frame's world
+position. The authoritative system-by-mode table is the interaction
+matrix in the level-editor plan-contract and
+[`docs/flows/level-editor.md`](flows/level-editor.md); the run-state
+premises live in
+[`MonoDreams/foundation/docs/premises.md`](../MonoDreams/foundation/docs/premises.md).
+
+**Editor-overlay entities are standalone.** Gizmo handles, the selection
+highlight, and the toolbar are never `ChildOfComponent`-parented to game
+entities, because `HierarchySystem.DisposeOrphans` runs in `Edit` and
+would cascade-dispose them when their host entity is deleted. Deletion is
+modeled as an undo command that snapshots the disposed sub-graph, not a
+bare `entity.Dispose()`.
+
+**The editor shell is a compositing concern, not a pipeline fork.** With
+the editor composed, the game composite renders into a smaller centered
+viewport (`ViewportManager.SetViewportInset` — deliberately the same
+object that inverts the mouse mapping, so picking follows for free) and
+the editor chrome renders around it at native window resolution
+(`RenderTargetID.Editor` + `RenderLayer.Native`). The shell is
+**constant across transport states** — it never collapses while Playing.
+The game pipeline itself is untouched — same passes, same targets — and
+without the run flag nothing editor-related is constructed: zero inset,
+no chrome layer, byte-identical to a screen without the editor. Details:
+the `rendering` and `level-editor` premises.
+
+**The editor is host- and screen-agnostic, and the pipeline is
+inspectable.** The editor does not care which host or screen is running —
+under the editor run flag every screen of every host (a menu or a module
+demo as much as a level) builds its pipelines through the
+`EditorPipelineRegistrar` and composes the `EditorOverlay` over its own
+world, declaring its own per-system edit policies at the registration
+site (e.g. a menu freezes its button interaction in `Edit` so clicks
+belong to the editor; a runner freezes its whole simulation block). Where
+a screen lacks a prerequisite, the overlay supplies it (its own cursor
+pipeline for a cursor-less screen; the `DefaultEditorKeys` key surface
+for a host with no action mapping) or degrades gracefully (no Y-sorted
+layer ⇒ selection picks on the final source-derived depth). The recipe
+for wiring a new host/screen is the level-editor overview's "Adding the
+editor to a screen/host" section. The registrar
+is also the live inspection surface — and it owns the hierarchy: composite
+blocks are registrar groups (`AddGroup`) with named children, built and
+gate-wrapped by the registrar itself (DefaultEcs composites hide their
+children, so a screen must never pre-build an opaque composite for
+anything it wants inspectable). The editor's systems panel renders that
+tree — every entry of both pipelines, groups indented above their
+children, name, policy, enabled state (tri-state on groups: all/none/
+mixed) — and toggles any of them at runtime through `SetEnabled` (leaf =
+both-modes master switch; group = cascade over its descendant leaves), so
+the per-system edit-mode declaration is visible and adjustable while the
+game runs.
+
+**Editing produces versioned, portable, diffable levels — the persistence
+story.** A level the editor authors is saved as a native `.mdscene` **into
+the game's SOURCE content tree** (`Content/Levels/<id>.mdscene`), versioned
+in git — not into the ephemeral build output. Writing is a **desktop-dev-only**
+capability (guarded by the editor run flag + an OS check + a resolved project
+root, resolved via `MONODREAMS_PROJECT_ROOT` or a walk-up to the `game.mdproj`
+manifest; unresolved disables Save loudly, never crashes); **reading is
+console-portable** — the shipped game boots a level read-only through
+`TitleContainer` over MGCB-`/copy:`-bundled files on every platform (desktop,
+web, consoles), native-first via `LoadLevelRequest` (§6), so straying from
+MGCB never costs console support. The serializer is **canonical and
+byte-stable** (deterministic bytes, stable per-entity ids ordering
+`entities[]`), so `load → edit → save` is a fixed point and a git diff of a
+level is meaningful. A **`game.mdproj` manifest** makes "a MonoDreams project"
+a versionable unit (entry scene, levels dir, asset roots). A new level bundles
+**zero-touch** — the editor appends the MGCB `/copy:` entry on first save
+(MGCB has no glob; a build-time regen would sweep gitignored placeholder art),
+so it boots after a normal build with no manual `.mgcb` editing. And a scene is
+**ship-ready** (fully portable) exactly when it has **zero `file:` AssetKeys** —
+a checkable lint (all drop-folder art graduated to MGCB content keys); the
+committed reference levels are asserted ship-clean. The invariants live in the
+`level-editor` and `level-loading` premises.
+
+**One data model — anything authored is component state on an entity,
+singletons included; special file blocks are debt.** A scene is a set of
+entities carrying components, and *everything the designer authors lives that
+way* — including the singletons it is tempting to model as a special
+top-level file block (the scene camera, and later the layer map). A `camera`
+block, a materialized editor rig for it, bespoke edit commands, and per-mode
+re-sync seams are **four parallel representations of one value**, and every
+one is a place the value can silently disagree with the others. The camera is
+the case study: three camera defects in three days (zoom edits not reaching
+the rig or the file) all lived in that camera-only plumbing; the day the
+camera became an ordinary `core.Camera` entity — `EntityInfoComponent("Camera")`
++ `TransformComponent` (one rotation, on the Transform) + `CameraComponent`
+zoom, serialized in `entities[]` like everything else — the block, the rig,
+the commands, and the re-sync seams all deleted, exactly as colliders stopped
+breaking the day they became child entities (§5).
+
+**Corollary — Inspector-visible ⇒ Save-persisted ⇒ round-trip-owned.** If a
+value shows up in the Inspector, Save must persist it; if Save persists it,
+`load → save` must own it as a byte fixed point. A value that is editable but
+not serialized (or serialized but not round-trip-stable) is a bug waiting to
+surface as "my edit vanished on reload". The one data model is what makes this
+hold for free: an authored value is a component, and components already
+round-trip.
+
+**The extension recipe (how to add a new authored thing).** Do NOT add a file
+block or a bespoke editor subsystem. Instead:
+
+1. **Define a component** with clearly named authored vs derived fields (author
+   the source; recompute the derived — e.g. `CameraComponent.Zoom` is authored,
+   the view matrix is derived; a collider's `Size` is authored, its world AABB
+   derived).
+2. **Register its serializer** (`ComponentSerializerRegistry` — engine types in
+   `EngineComponentSerializers`, game types in the game's own registration),
+   so it round-trips through the canonical serializer.
+3. **Optionally add an Inspector default-initializer** so "Add ⟨component⟩"
+   births a sane instance.
+
+Those three steps buy the whole authoring stack — file authoring, Inspector
+editing, undo, dirty-tracking, prefab overrides, byte-stable diffs, and
+Game-mode sandbox protection — **by composition, not configuration**. There is
+no fourth step and no special case. When a value seems to *need* a file block,
+that is the signal it wants to be a component on an entity instead. (A legacy
+block that predates this tenet is migrated forward by the CLI umbrella
+`monodreams migrate` — the camera block's v2→v3 lift is the reference; see the
+`level-editor` migrator premises.)
+
+### Aspirational direction
+
+The reserved `RunPartial` / `RuntimeEditable` policies are placeholders
+for finer edit-time behavior (a system that does reduced work, or stays
+interactive, while editing) — they run-as-`RunNormally` today and gain
+distinct semantics when a later wave needs them. The interaction matrix
+is enforced by review and by the editor screen's own tests until a
+declarative system-dependency API (§2, §7) can validate it at
+registration time.
+
+## 10. Refactor backlog (named cruft)
 
 Carried forward from the bootstrap interview so they are not forgotten.
 Each is either implementation debt or an aspirational direction that
@@ -417,9 +634,21 @@ code".
 - **`Visible` as a tag** (§4). Could become `DrawComponent.Visible`.
   Open question: would moving it complicate the bulk add/remove
   pattern `CullingSystem` uses today?
-- **`Blender_` identifier prefix** (§6). Dispatch by name prefix is a
-  hack; a content-driven dispatch (format field in level data) is the
-  eventual replacement.
+- **`Blender_` identifier prefix / parser-asymmetry** (§6). **RESOLVED
+  (PS5); Blender importer DELETED (wave BR).** The game boot is a single
+  native-only dispatcher (`LevelLoadRequestSystem`): `LoadLevelRequest` →
+  native `.mdscene` via `SceneReaderSystem`, or fail loud. The LDtk parser
+  is import-only machinery (composed only in the reference screen's
+  `importMode`, run by the export op), so nothing legacy runs at boot. The
+  Blender importer that once shared the `Blender_` name-prefix dispatch was
+  retired wholesale in wave BR (parser + data types + exporter plugin + CLI
+  registry entry + module-count docs), so the name-prefix hack is gone
+  end-to-end — no parser asymmetry remains. Residual: the LDtk `Level_0` is
+  not yet migrated to native (it needs a **native tile-layer batching
+  primitive** — a compact representation for ~21k per-tile entities, so its
+  `.mdscene` isn't a multi-MB per-entity dump); until then it is import-only
+  and not offered by the reference menu. When the LDtk parser too is
+  eventually deleted, the import op moves to a standalone tool.
 - **`EntitySpawnSystem` silent-drops unregistered factories** (§6).
   Intended behaviour is to throw.
 - **`Transform.Delta` consistency not enforced** (§3). No API today

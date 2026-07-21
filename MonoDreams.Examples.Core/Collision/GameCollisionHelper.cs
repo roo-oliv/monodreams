@@ -12,22 +12,32 @@ namespace MonoDreams.Examples.Collision;
 public static class GameCollisionHelper
 {
     public static CollisionMessage Create(
-        Entity entity,
-        Entity target,
+        Entity colliderA,
+        Entity colliderB,
+        Entity bodyA,
+        Entity bodyB,
         Vector2 contactPoint,
         Vector2 contactNormal,
         float contactTime,
         float penetrationDepth,
         int layer)
     {
-        var collisionType = DetermineCollisionType(entity, target);
-        return new CollisionMessage(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, collisionType);
+        var collisionType = DetermineCollisionType(IdentityType(colliderA, bodyA), IdentityType(colliderB, bodyB));
+        return new CollisionMessage(colliderA, colliderB, bodyA, bodyB, contactPoint, contactNormal, contactTime, penetrationDepth, layer, collisionType);
     }
 
-    private static CollisionType DetermineCollisionType(Entity entity, Entity target)
+    // The game-object identity a collider represents: it lives ON the collider entity for standalone
+    // identity colliders (dialogue/NPC zones), and on the BODY for a physics entity whose collider is
+    // a child (player). Read the collider first, then fall back to the body.
+    private static string IdentityType(Entity collider, Entity body)
     {
-        var entityType = entity.Get<EntityInfoComponent>().Type;
-        var targetType = target.Get<EntityInfoComponent>().Type;
+        if (collider.IsAlive && collider.Has<EntityInfoComponent>()) return collider.Get<EntityInfoComponent>().Type;
+        if (body.IsAlive && body.Has<EntityInfoComponent>()) return body.Get<EntityInfoComponent>().Type;
+        return null;
+    }
+
+    private static CollisionType DetermineCollisionType(string entityType, string targetType)
+    {
         return entityType switch
         {
             "Player" when targetType == "Collectible" => CollisionType.Collectible,

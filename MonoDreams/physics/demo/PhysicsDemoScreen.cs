@@ -12,9 +12,11 @@ using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Component.Physics;
+using MonoDreams.Demos;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
 using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Composition;
 using MonoDreams.Message;
 using MonoDreams.Renderer;
 using MonoDreams.Screen;
@@ -68,6 +70,10 @@ public class PhysicsDemoScreen : IGameScreen
     // normal bounces are untouched but runaway energy is capped.
     private const float MaxBallSpeed  = 1050f;
 
+    /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
+    /// <c>physics-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
+    public const string BoundSceneId = "physics-demo";
+
     private const int DefaultRedCount  = 7;
     private const int DefaultBlueCount = 3;
     private const int MaxBallsPerColor = 999999; // clamp on the editable counts
@@ -105,13 +111,24 @@ public class PhysicsDemoScreen : IGameScreen
     private bool _floorBoostOn = true;
     private bool _paused;
 
+    // The universal editor overlay (null when editorEnabled is false) and the retained pipeline
+    // registries the editor's systems panel binds to (see DemoEditor).
+    private readonly bool _editorEnabled;
+    private readonly EditorSession _session;
+    private readonly EditorProjectContext? _projectContext;
+    private readonly DrawLayerMap _layers = DemoEditor.CreateLayers();
+    private readonly EditorPipelineRegistrar _updatePipeline = new();
+    private readonly EditorPipelineRegistrar _drawPipeline = new();
+    private DemoEditor? _editor;
+
     public ISystem<GameState> UpdateSystem { get; }
     public ISystem<GameState> DrawSystem { get; }
     public World World => _world;
 
     public PhysicsDemoScreen(GraphicsDevice graphicsDevice, ContentManager content,
         MonoDreams.Component.Camera camera, ViewportManager viewportManager, SpriteBatch spriteBatch,
-        IParallelRunner runner)
+        IParallelRunner runner, bool editorEnabled = false, EditorSession session = null,
+        EditorProjectContext projectContext = null)
     {
         _graphicsDevice = graphicsDevice;
         _content = content;
@@ -119,6 +136,9 @@ public class PhysicsDemoScreen : IGameScreen
         _viewportManager = viewportManager;
         _spriteBatch = spriteBatch;
         _runner = runner;
+        _editorEnabled = editorEnabled;
+        _session = session;
+        _projectContext = projectContext;
         _renderTargets = new Dictionary<RenderTargetID, RenderTarget2D>
         {
             { RenderTargetID.Main, new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight) },
@@ -132,6 +152,14 @@ public class PhysicsDemoScreen : IGameScreen
         _world = new World();
         UpdateSystem = CreateUpdateSystem();
         DrawSystem = CreateDrawSystem();
+
+        // Bind the retained pipeline registries onto the overlay — the seam the editor's systems
+        // panel enumerates/toggles at runtime.
+        if (_editor != null)
+        {
+            _editor.Overlay.BindPipelines(_updatePipeline, _drawPipeline);
+            EditorOverlay.LogComposition(nameof(PhysicsDemoScreen), _updatePipeline, _drawPipeline);
+        }
     }
 
     public void Load(ScreenController screenController, ContentManager content)
@@ -148,6 +176,22 @@ public class PhysicsDemoScreen : IGameScreen
         CreateWalls();
         RebuildBalls();
         BuildHud(content);
+
+        if (_editor != null)
+        {
+            // TD split seam: the code-content rebuild re-creates the boundary, floor, walls, balls (a
+            // fresh random layout — the authored initial state) and HUD, all disposed by the sweep. So
+            // closing the Game tab resets the balls to their initial positions instead of a blank screen.
+            _editor.Overlay.Transport.RebuildCodeContent = () =>
+            {
+                CreateBoundary();
+                CreateFloorVisual();
+                CreateWalls();
+                RebuildBalls();
+                BuildHud(_content);
+            };
+            _editor.BindScene(screenController, _world, _content.RootDirectory, DemoScreens.Physics, BoundSceneId);
+        }
     }
 
     // ─── public bridges for the keyboard system ───────────────────────────────
@@ -375,8 +419,14 @@ public class PhysicsDemoScreen : IGameScreen
     private Entity CreateWall(Rectangle bounds, HashSet<int> activeLayers)
     {
         var wall = _world.CreateEntity();
-        wall.Set(new TransformComponent(Vector2.Zero));
-        wall.Set(new BoxColliderComponent(bounds, activeLayers));
+        // Colliders-as-entities: the box is a centered Size on the collider entity's transform.
+        // These walls are invisible, static, collision-only, and their OWN body (no physics), so we
+        // position the entity at the box CENTER and give the box the Size — the world rect is
+        // byte-identical to the former top-left Bounds, the position is still constant (zero Delta,
+        // so the swept test self-skips), and FloorTag stays on the body the resolver reads.
+        var center = new Vector2(bounds.X + bounds.Width / 2f, bounds.Y + bounds.Height / 2f);
+        wall.Set(new TransformComponent(center));
+        wall.Set(new BoxColliderComponent(new Vector2(bounds.Width, bounds.Height), activeLayers));
         return wall;
     }
 
@@ -576,58 +626,147 @@ public class PhysicsDemoScreen : IGameScreen
     // ─── pipeline ────────────────────────────────────────────────────────────
 
     /// Adapter to the `CreateCollisionMessageDelegate<CollisionMessage>` shape that
-    /// `TransformCollisionDetectionSystem` expects. Always emits Physics-type messages.
+    /// `TransformCollisionDetectionSystem` expects. Always emits Physics-type messages. Every demo
+    /// entity is its own body (collider == body), so the collider and body entities coincide.
     private static CollisionMessage CreateCollisionMessage(
-        Entity entity, Entity target,
+        Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB,
         Vector2 contactPoint, Vector2 contactNormal,
         float contactTime, float penetrationDepth, int layer)
-        => new(entity, target, contactPoint, contactNormal, contactTime, penetrationDepth, layer, CollisionType.Physics);
+        => new(colliderA, colliderB, bodyA, bodyB, contactPoint, contactNormal, contactTime, penetrationDepth, layer, CollisionType.Physics);
 
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
+        var cursorInputSystem = new CursorInputSystem(_world, _viewportManager);
+
+        // The editor overlay (see DemoEditor): built over THIS screen's world/camera/layers.
+        _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
+            _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
+            session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
+        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+
+        // ---- Weave the update pipeline through the registrar. With the editor off every gate
+        // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
+        var p = _updatePipeline;
+        p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.keys", _editor.Keys, EditTimeBehavior.RunNormally);
+            p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
+            p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
+            p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
+            // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
+            p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
+            p.Add("editor.modal", _editor.Overlay.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
+        }
+        p.AddGroup("layout", EditTimeBehavior.RunNormally, g =>
+        {
+            g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
+            g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+        });
+        // Demo UI interaction FREEZES in Edit: a click belongs to the editor, never to a
+        // toggle / text field / back / exit (which would tear the screen down mid-editing).
+        p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("buttons", new DemoButtonInteractionSystem(_world));
+            g.Add("textInput", new TextInputSystem(_world));
+            g.Add("toggles", new ToggleSwitchSystem(_world));
+        });
         // Reference physics pipeline order (per docs/CORE_TENETS.md §5):
         //   Movement → Velocity → Detection → Resolution → Commit
         // Movement here is gravity-only; ball↔ball/ball↔wall bouncing is the
         // custom resolution stage that subscribes to CollisionMessage.
-        return new SequentialSystem<GameState>(
-            new CursorInputSystem(_world),
-            new IntrinsicSizingSystem(_world),
-            new AutoLayoutSystem(_world, _viewportManager),
-            new DemoButtonInteractionSystem(_world),
-            new TextInputSystem(_world),
-            new ToggleSwitchSystem(_world),
-            new PhysicsDemoInputSystem(this),
-            new GatedGravitySystem(_world, _runner, this),
-            new BallRestSystem(_world, this),
-            new GatedVelocitySystem(_world, _runner, this),
-            new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateCollisionMessage),
-            new BallBounceSystem(_world, this),
-            new BallSpeedClampSystem(_world, MaxBallSpeed),
-            new FlashSystem(_world),
-            new TransformCommitSystem(_world, _runner),
-            new HierarchySystem(_world),
-            new CursorPositionSystem(_world, _camera, _viewportManager));
+        // The WHOLE simulation freezes in Edit — it would bounce the balls out from under the
+        // designer (and the gizmo) every frame. One Freeze gate on the group.
+        p.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("demoInput", new PhysicsDemoInputSystem(this));
+            g.Add("gravity", new GatedGravitySystem(_world, _runner, this));
+            g.Add("rest", new BallRestSystem(_world, this));
+            g.Add("velocity", new GatedVelocitySystem(_world, _runner, this));
+            g.Add("collisionDetect",
+                new TransformCollisionDetectionSystem<CollisionMessage>(_world, CreateCollisionMessage));
+            g.Add("bounce", new BallBounceSystem(_world, this));
+            g.Add("speedClamp", new BallSpeedClampSystem(_world, MaxBallSpeed));
+            g.Add("flash", new FlashSystem(_world));
+            g.Add("transformCommit", new TransformCommitSystem(_world, _runner));
+        });
+        if (_editor != null)
+        {
+            p.Add("editor.commands", _editor.Overlay.EditorCommands, EditTimeBehavior.RunNormally);
+            p.Add("editor.gizmo", _editor.Overlay.Gizmo, EditTimeBehavior.RunNormally);
+            p.Add("editor.proxySync", _editor.Overlay.ProxySync, EditTimeBehavior.RunNormally);
+        }
+        p.Add("hierarchy", new HierarchySystem(_world), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
+            {
+                g.Add("meshPrep", _editor.Overlay.ToolbarMeshPrep);
+                g.Add("clicks", _editor.Overlay.ToolbarClicks);
+                g.Add("viewportTabs", _editor.Overlay.ViewportTabs); // PF-B: the viewport tab strip
+            });
+            p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
+            p.Add("editor.cameraNav", _editor.Overlay.CameraNav, EditTimeBehavior.RunNormally);
+            // TD/PF-F universal palette (composes with a resolved project; empty assetRoots is legal).
+            if (_editor.Overlay.Palette != null)
+                p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
+        }
+        p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
+            EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
+            p.Add("editor.shell", _editor.Overlay.Shell, EditTimeBehavior.RunNormally);
+            p.Add("editor.statusBar", _editor.Overlay.StatusBar, EditTimeBehavior.RunNormally); // UX3-F: window status bar
+            if (_editor.Overlay.EditorOpDriver != null)
+                p.Add("editor.opDriver", _editor.Overlay.EditorOpDriver, EditTimeBehavior.RunNormally);
+        }
+
+        return p.Build();
     }
 
     private SequentialSystem<GameState> CreateDrawSystem()
     {
-        return new SequentialSystem<GameState>(
-            new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false),
-            new TextPrepSystem(_world, pixelPerfectRendering: false),
-            new MeshPrepSystem(_world),
-            new ButtonMeshPrepSystem(_world),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.UI, _renderTargets[RenderTargetID.UI]),
-            new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-                RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]),
-            new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, new[]
-            {
-                RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
-                RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
-                RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-            }));
+        var renderLayers = new List<RenderLayer>
+        {
+            RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
+            RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
+            RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
+        };
+        if (_editor != null)
+            renderLayers.Add(_editor.Overlay.ChromeLayer);
+
+        // ---- Weave the draw pipeline through the registrar (retained for the systems panel). ----
+        var p = _drawPipeline;
+        // With the editor composed, the sprite prep chain (cull → sprite prep → Y-sort) is added
+        // so a native scene loaded while editing actually previews; the demo DrawLayerMap has no
+        // Y-sorted layer, so YSortSystem passes depths through — documented graceful degradation.
+        p.AddGroup("drawPrep", EditTimeBehavior.RunNormally, g =>
+        {
+            if (_editorEnabled) g.Add("culling", new CullingSystem(_world, _camera));
+            g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering: false));
+            if (_editorEnabled) g.Add("ySort", new YSortSystem(_world, _camera, _layers));
+            g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+        });
+        if (_editor != null)
+        {
+            p.Add("editor.selection", _editor.Overlay.Selection, EditTimeBehavior.RunNormally);
+            p.Add("editor.overlayPrep", _editor.Overlay.OverlayPrep, EditTimeBehavior.RunNormally);
+        }
+        p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
+        p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+        p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
+        p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),
+            EditTimeBehavior.RunNormally);
+
+        return p.Build();
     }
 
     public void Dispose()
@@ -838,8 +977,9 @@ public class BallBounceSystem : ISystem<GameState>
 
     private void Resolve(CollisionMessage msg)
     {
-        var entity = msg.BaseEntity;
-        var other  = msg.CollidingEntity;
+        // Physics consumers read the BODY side; every demo entity is its own body (collider == body).
+        var entity = msg.BodyA;
+        var other  = msg.BodyB;
         if (!entity.IsAlive || !other.IsAlive) return;
 
         // Walls have no velocity component (and shouldn't move); guard.

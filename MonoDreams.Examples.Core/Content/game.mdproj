@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "startScene": "island",
+  "levelsDir": "Levels",
+  "assetRoots": [
+    "Island",
+    "Atlas",
+    "Objects"
+  ]
+}

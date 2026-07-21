@@ -48,10 +48,10 @@ public static class DemoUI
         return new Vector2(measured.Width * text.Scale, measured.Height * text.Scale);
     }
 
-    /// Creates a clickable menu button with a text label. Returns
-    /// (container, outline, size) so the caller can attach the container to an
-    /// AutoLayout slot and flip the active flag on the outline entity when the
-    /// underlying selection changes.
+    /// Creates a clickable menu button with a text label as ONE root entity (transform +
+    /// SimpleButtonComponent + DemoButtonComponent) with the label as a ChildOf child (TB-B). Returns
+    /// (container, outline, size) where container == outline == that root — the caller attaches it to
+    /// an AutoLayout slot and flips the active flag on the same entity when the selection changes.
     ///
     /// Visual = the greyscale ramp: grey outline + dark label, white fill that darkens
     /// to light/medium grey on hover/press, and a muted darker-grey fill when
@@ -73,13 +73,18 @@ public static class DemoUI
             textSize.Width + style.Padding * 2,
             textSize.Height + style.Padding * 2);
 
-        var container = world.CreateEntity();
-        var containerTransform = new TransformComponent(Vector2.Zero);
-        container.Set(containerTransform);
+        // TB-B button hierarchy: ONE root entity carries the transform (the move/select/gizmo handle),
+        // the pickable + interaction surface (SimpleButtonComponent, whose outline mesh
+        // ButtonMeshPrepSystem draws), and the DemoButtonComponent behavior. The label is a ChildOf
+        // CHILD, so select / move / G / S operate on the root and the label follows through the
+        // ordinary hierarchy — the single button shape shared with Examples' level-selection buttons
+        // (the no-duplicate-ways tenet). container == outline == this root now.
+        var button = world.CreateEntity();
+        button.Set(new TransformComponent(Vector2.Zero));
 
         var textEntity = world.CreateEntity();
         textEntity.Set(new TransformComponent(new Vector2(style.Padding, style.Padding)));
-        textEntity.SetParent(container);
+        textEntity.SetParent(button);
         textEntity.Set(new DynamicTextComponent
         {
             Target = target,
@@ -93,9 +98,7 @@ public static class DemoUI
         });
         textEntity.Set<VisibleComponent>();
 
-        var outline = world.CreateEntity();
-        outline.Set(containerTransform);
-        outline.Set(new SimpleButtonComponent
+        button.Set(new SimpleButtonComponent
         {
             Size = buttonSize,
             LineThickness = style.BorderThickness,
@@ -104,7 +107,7 @@ public static class DemoUI
             TextEntity = textEntity,
             Target = target,
         });
-        outline.Set(new DemoButtonComponent
+        button.Set(new DemoButtonComponent
         {
             Id = id,
             // Outline stays a constant grey across states; the label is a constant dark
@@ -120,9 +123,9 @@ public static class DemoUI
             DisabledColor = DemoPalette.ButtonTextDisabled,
             DisabledFillColor = DemoPalette.ButtonFillDisabled,
         });
-        outline.Set<VisibleComponent>();
+        button.Set<VisibleComponent>();
 
-        return (container, outline, buttonSize);
+        return (button, button, buttonSize);
     }
 }
 

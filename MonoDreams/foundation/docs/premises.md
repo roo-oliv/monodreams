@@ -3,8 +3,9 @@
 > Technical invariants the engine assumes about the foundation module:
 > `TransformComponent`, `ChildOfComponent`, `HierarchySystem`,
 > `TransformCommitSystem`, the `EntityHierarchy` resource, the input/replay
-> scaffold, and the `Logger`. Read this before changing any of those pieces
-> or any system that depends on them.
+> scaffold, the `Logger`, and the run-state model (`GameState.RunMode`,
+> `EditTimeBehavior`, `GatedSystem`). Read this before changing any of those
+> pieces or any system that depends on them.
 
 ## Don't mix two Transform-shaped components in one project
 
@@ -52,14 +53,41 @@ dirty. `WorldMatrix` is a cached property whose getter re-walks the chain
 when next read. `HierarchySystem.PropagateDirtyFlags()` is the system that
 propagates the flag through the descendant tree each frame.
 
+The propagation uses a signal SEPARATE from `IsDirty`: `NeedsHierarchyUpdate`.
+`IsDirty` is the world-matrix **cache-validity** bit — the `WorldMatrix` getter
+clears it as a side effect of *recomputing on read*. `NeedsHierarchyUpdate` is the
+**"my descendants are stale" propagation** signal — set by every mutator (via
+`SetDirty`) and cleared ONLY by `HierarchySystem` (via `ClearHierarchyDirty`) after
+it has re-dirtied the subtree. `PropagateDirtyFlags` keys off `NeedsHierarchyUpdate`,
+never `IsDirty`, so a `WorldMatrix` read that lands between a parent's edit and the
+`HierarchySystem` pass cannot silently drop the child update. The child invalidation
+itself still goes through the matrix-cache bit (the recursion calls `SetDirty` on
+descendants).
+
 **Why:** caching the world matrix avoids recomputing it on every read,
 which would dominate hot paths in deep hierarchies (UI layouts, nested
-entities).
+entities). But a single flag doing both jobs is order-fragile: the level editor's
+modal transform (`G`) edits a transform EARLY in the update pipeline, before
+`ButtonMeshPrepSystem` reads the same transform's `WorldPosition` (which cleared the
+one flag), so `HierarchySystem` saw a clean parent and never moved the button's label
+child — while a gizmo drag (edits AFTER that reader) moved both. Splitting the
+cache-validity bit from the propagation signal is what makes gizmo and modal edits
+behave identically for any changed parent, and fixes the same latent staleness for
+every consumer.
 **Breaks:** if a system bypasses the dirty flag (e.g., mutates internal
 fields directly via reflection), descendants render and collide at stale
-world positions while their parents have moved.
-**Tests:** none yet.
-**Depends on:** —
+world positions while their parents have moved. If propagation were keyed off
+`IsDirty` again, any read between an edit and `HierarchySystem` re-opens the
+gizmo-vs-modal divergence: the parent moves but its children lag one frame or freeze
+in place.
+**Tests:** `MonoDreams.Tests/Foundation/HierarchyDirtyPropagationTests.cs`
+(`ChildFollowsParentMove_EvenWhenWorldPositionIsReadBeforeHierarchySystem`,
+`ChildFollow_IsIdentical_ForGizmoOrderAndModalOrder`,
+`GrandchildFollowsRootMove_WithInterveningRead`,
+`PropagationSignal_IsClearedAfterEachHierarchyPass`).
+**Depends on:** level-editor — "The modal transform (G/S/R) owns the pointer +
+keyboard …" (the modal edit path this parity protects) and "The gizmo applies a
+quantized … transform edit" (the gizmo path it matches).
 
 ## `ChildOfComponent` and `TransformComponent.Parent` are two intentional links
 
@@ -72,7 +100,11 @@ must read the link relevant to its concern.
 **Why:** the split came from hierarchical UI like a dialogue panel, where
 a banner, avatars, text, and a waiting-indicator move and dispose together
 but may not share matrix scaling. The split is a known wart and is on the
-refactor backlog (consolidation desired).
+refactor backlog (consolidation desired). Under colliders-as-entities the
+structural link carries new weight: `ColliderBody.Resolve` walks the
+`ChildOfComponent` chain to find a collider's physics body (a collider child of a
+body), and lifecycle cascade disposes a body's collider children with it — so a
+collider child must be `ChildOf`-parented to its body, not only matrix-linked.
 **Breaks:** code that reads only `TransformComponent.Parent` misses the
 disposal cascade; code that reads only `ChildOfComponent` misses the
 matrix behavior. A future consolidation will collapse both into one
@@ -176,13 +208,13 @@ browser — e.g. `GameSettings` reading a save file off a disk that doesn't
 exist, or `Logger` writing to a `StreamWriter` that can't open. (Read-only
 *game content* is the exception: it is not a host-filesystem concern — it
 goes through `ContentManager`/`TitleContainer`, which serves it over HTTP on
-web. See level-blender — "Blender level JSON is read as content, not host
-filesystem".)
+web. See level-loading — "Native `.mdscene` levels are bundled by an MGCB
+`/copy:` entry and read via `TitleContainer`".)
 **Tests:** `MonoDreams.Tests/Platform/PlatformServicesTests.cs` (asserts
 `Logger` and `InputReplayPlan.TryLoad` route through a fake
 `IPlatformServices` with no real disk, and that `DesktopPlatformServices`
 round-trips the real filesystem); the routed runtime sites are exercised
-end-to-end on the desktop FS by `BlenderLevelTests` and `HeadlessDemoTests`.
+end-to-end on the desktop FS by the native `Blender_Level` boot (`BlenderLevelTests`) and `HeadlessDemoTests`.
 **Depends on:** —
 
 ## The platform (backend + OS services) is selected by the head project, never by engine source
@@ -233,6 +265,148 @@ an external property).
 **Depends on:** "Engine source is backend/OS-agnostic — non-portable calls
 go through `IPlatformServices`".
 
+## Default `RunMode = Play` preserves all existing pipelines
+
+`GameState.RunMode` defaults to `RunMode.Play`. The run state changes behaviour
+**only** for systems explicitly wrapped in a `GatedSystem`; an ungated system is
+run by the pipeline regardless of the mode, exactly as before the run-state model
+existed. A screen that never wraps a system in a `GatedSystem`, or never sets
+`RunMode = Edit`, is byte-identical to its pre-run-state behaviour. The editor run
+flag (`--editor` / `MONODREAMS_EDITOR=1`) does **not** change this default: the
+host applies its boot-Paused (`RunMode = Edit`) as an explicit opt-in mutation of
+`ScreenController.State.RunMode` **after** construction (the property exists for
+exactly this seam), and the flag itself defaults off. After boot, ONLY the editor
+transport (`EditorTransport` — the toolbar's Play/Pause + Restart buttons and the
+headless transport ops) flips `RunMode`; there is no in-game toggle key, so with
+the flag off nothing ever leaves `Play` (see level-editor — "The editor run flag
+composes the always-on editor and the transport owns RunMode").
+
+**Why:** the run-state model was added to `foundation` (a sensitive domain) so the
+in-game level editor can freeze the game pipeline without forking it (see
+`docs/CORE_TENETS.md` — "The editor is part of the game"). Adding a property to
+`GameState` that every screen across all 13 modules carries is only safe if the
+default leaves every existing screen untouched. Opt-in-only gating is what makes
+that true.
+**Breaks:** if `RunMode` defaulted to `Edit`, or if a system consulted `RunMode`
+without being opted in, an existing screen would silently freeze part of its
+pipeline (a black screen, or physics that no longer runs) with no code change at
+the call site.
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs::GameState_RunMode_DefaultsToPlay`
+(asserts the default; the same file's gating tests assert ungated behaviour is
+unchanged); `MonoDreams.Tests/LevelEditor/EditorRunFlagTests.cs` (the boot-in-Edit
+flag defaults off and mutates only after a Play-constructed `GameState`).
+**Depends on:** —
+
+## Edit-time behaviour is a per-system policy honoured by `GatedSystem`
+
+`GatedSystem` is the one mechanism by which the run mode gates a system. It wraps a
+child `ISystem<GameState>` plus an `EditTimeBehavior` policy and, each `Update`,
+reads `GameState.RunMode` to decide whether to forward to the child:
+`RunNormally` runs in both modes; `Freeze` runs in `Play` only (skipped in `Edit`);
+`RunPartial` and `RuntimeEditable` are reserved and, for now, run in both modes. The
+gate also honours its own `IsEnabled` and forwards `Dispose` to the child. The
+fixed policy assignment the level editor relies on: render / input / cursor and
+`HierarchySystem` are `RunNormally` (live while editing); movement / velocity /
+physics / collision / AI / dialogue and `CameraFollowSystem` are `Freeze`; editor
+systems are `RunNormally` and Edit-guarded. Under the transport model the mode is
+flipped exclusively by the editor transport (Paused = `Edit`, Playing = `Play`);
+the gate semantics are unchanged — only WHO flips `RunMode` changed when the F1
+mode-toggle was retired.
+
+**Why:** cornerstone of the editor design (cornerstone C2) — editor tooling is ECS
+systems over a run-state-gated game pipeline, not a separate renderer. The policy
+must be data on the gate (not baked into each system) so the same engine system can
+be live in one screen and frozen in another purely by how the screen wraps it (ECS
+purity — behaviour lives in the system, the *decision to run* lives in the
+assembler's gate).
+**Breaks:** a render system wrapped in `Freeze` is a black screen the instant the
+designer enters `Edit`; a physics system left ungated keeps moving entities while
+they are being placed; a `Freeze`-gated `HierarchySystem` shows editor transform
+edits at last frame's world position. All three fail silently.
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs` (a `Freeze`-wrapped
+fake runs in `Play` and is skipped in `Edit`; a `RunNormally`-wrapped fake runs in
+both; the gate honours its own `IsEnabled`).
+**Depends on:** rendering — "Rendering systems run last in the pipeline".
+
+## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) are the survivors of a screen switch
+
+`ScreenController.RegisterScreen` has two overloads: the historical `(name, creator)` (which records a
+default `ScreenInfo(name)` — display name = the screen name, no bound scene, not a scene host) and an
+additive `(name, creator, ScreenInfo)`. `ScreenInfo(DisplayName, BoundSceneId, HostsSceneFiles)` is pure
+foundation data: the human label, the scene id the screen loads from (null when it is not tied to one
+file), and whether the screen is the level-parameterized host that loads whatever scene is requested.
+`RegisteredScreens` enumerates the `(Name, Info)` pairs in **registration order** (a list, not the
+creators `Dictionary`, whose enumeration order is not contractual). Duplicate-name registration throws,
+unchanged. A screen switch (`LoadScreen` → the deferred swap in `Update`) disposes the outgoing screen's
+**entire world**; the state that survives on the controller is the shared `GameState` — including its
+`RunMode`, so the editor stays in `Edit` across a switch (the transport never has to re-assert it). **Under
+the editor run flag there is now a SECOND host-scoped survivor beside `GameState`: the level-editor's
+`EditorSession`** — created in the host's `Game1` and passed to every screen exactly like the shared
+`GameState`, it owns the `ViewportContextStack` (the open scene/Game tabs + their `SceneData` snapshots). A
+screen switch disposes the world, but the session (like `GameState`) survives, so the open tabs + the Game
+sandbox ride cross-screen transitions. The editor module owns the session; `foundation` stays editor-free —
+the host wires it, as it wires the overlay.
+
+**Why:** the editor's Scenes panel (level-editor UX-C) needs code to declare which configuration file a
+screen loads from, and needs the list in a stable order. Keeping `ScreenInfo` a pure foundation record
+(no editor dependency) means a plain game registering info never pulls the editor in; keeping the
+enumeration a registration-order list makes the panel deterministic. `RunMode` surviving the switch is
+why clicking a Scenes-panel row lands the new screen still in `Edit` with a fresh overlay.
+**Breaks:** enumerating the creators `Dictionary` would make the panel order implementation-defined;
+resetting `RunMode` on a switch (or storing it per-screen) would drop the editor back to `Play` every
+time the designer opened another scene; a default overload that recorded no info would make every
+pre-UX-C screen invisible to the panel.
+**Tests:** `MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs`
+(`DefaultOverload_RecordsDefaultInfo`, `ExplicitInfo_IsEnumeratedInRegistrationOrder`,
+`DuplicateName_Throws_ForEitherOverload`, `RegisteredScreens_IsEmptyBeforeAnyRegistration`);
+`MonoDreams.Tests/LevelEditor/EditorSessionTests.cs` (`TabList_SurvivesAScreenSwitch_ViaRebind`,
+`Session_HoldsTheStack_SeedsTheBootSceneTab_PendingDefaultsOff` — the host-scoped editor session that
+survives the switch beside `GameState`).
+**Depends on:** this file — "Default `RunMode = Play` preserves all existing pipelines" (the `RunMode`
+that survives the switch); level-editor — "The viewport context stack is the ONE tab-switching mechanism …
+(PF-B/TB-A)" (the host-scoped `EditorSession`/`ViewportContextStack` that is the second survivor), "Game
+screens declare their bound scene; the Scenes panel lists screens + scene files and selecting opens (or activates) its tab (TB-A)"
+(the consumer).
+
+## Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is injected, never `#if`'d
+
+`KeyChord` (a `Keys` trigger + a `KeyModifiers` set) is a pure, platform-blind value type; `KeyChordTracker`
+fires a chord on the **press edge** of its key — down this frame, up last frame — while **exactly** the
+required modifiers are held. "Exactly" is load-bearing: extra held *non-modifier* keys do NOT block a match,
+but extra held *modifiers* DO (`Ctrl+Shift+Z` must not also fire `Ctrl+Z`). Left/right variants of a modifier
+both count. The virtual `KeyModifiers.PlatformCommand` resolves to `Meta` (⌘) on macOS and `Ctrl` elsewhere
+**at match time** from an injected `commandIsMeta` flag — the chord layer never reads the OS (no `#if`, no
+`OperatingSystem` call inside `foundation`); the composing layer injects the flag. Keyboard state arrives
+through the same injectable `Func<KeyboardState>` seam the editor dialog uses (default
+`Keyboard.GetState`), and the pure static `KeyChordTracker.Matches` is testable with hand-built
+`KeyboardState`s. The layer is game-agnostic: any feature can bind combo inputs, not only the editor.
+
+**Replay caveat.** The input-replay channel (`InputReplayPlan` / `InputReplaySystem`) synthesizes
+`AInputState` *actions*, not raw keyboard chords, so chord-driven features are **not** exercised through
+replay — they are tested through their own op channels (the editor's `menu:*` / `view:frame` / toolbar ops)
+and, for the matching itself, through `KeyChordTracker.Matches` with hand-built states. A future replay-v2
+that records the raw keyboard is the named terrain that would make chords replayable.
+
+**Why:** the user's requirement that combo inputs be an ENGINE feature (any future game can use them), plus
+the macOS-vs-Windows/Linux accelerator split. Baking the OS choice into the struct (or a `#if`) would break
+the source's platform-neutrality (a head-level choice, never a module one — see "The platform … is selected
+by the head project"); resolving at match time from an injected flag keeps one table correct on both. The
+exact-modifier rule is what stops `Ctrl+Shift+Z` (Redo) from also firing `Ctrl+Z` (Undo).
+**Breaks:** a superset-tolerant match makes every modified chord also fire its unmodified prefix (Redo also
+undoes); a `#if MONODREAMS_WEB`/OS query inside the module re-bakes the platform into the source; reading the
+level (not the edge) fires every frame a chord is held; assuming replay drives chords leaves chord features
+untested (replay carries actions, not keys).
+**Tests:** `MonoDreams.Tests/Foundation/KeyChordTests.cs` (`ResolveModifiers_*` — the PlatformCommand
+injection; `Matches_FiresOnlyOnThePressEdge_NotWhileHeld`; `Matches_ExtraHeldModifier_Blocks_SoCtrlShiftZ_DoesNotFireCtrlZ`
++ `Matches_MissingRequiredModifier_Blocks_*` + `Matches_ExtraHeldNonModifierKey_DoesNotBlock` — the exact-modifier
+matrix; `Matches_LeftAndRightModifierVariants_BothCount`; `Matches_PlatformCommand_ResolvesToMeta_OnMac` +
+`_ResolvesToCtrl_Elsewhere` — pre-mortem #7 both resolutions; `Tracker_PrimesOnFirstUpdate_*` +
+`Tracker_FiresOnTheFrameTheChordIsPressed_*` — the seam + priming). The editor consumer + the replay caveat's
+op channels are protected by `MonoDreams.Tests/LevelEditor/EditorShortcutTests.cs`.
+**Depends on:** this file — "The platform (backend + OS services) is selected by the head project, never by
+engine source" (why the OS fact is injected); level-editor — "The editor's keyboard shortcuts are ONE chord
+table, gated by a single viewport context" (the first consumer).
+
 ## Open questions
 
 - **Entity disposed mid-frame:** convention not yet established —
@@ -261,7 +435,6 @@ documented but not programmatically protected:
 
 - Don't mix two Transform-shaped components in one project
 - `TransformComponent.Delta` is meaningful only after `TransformCommitSystem` ran
-- `TransformComponent.IsDirty` cascades through the parent chain
 - `ChildOfComponent` and `TransformComponent.Parent` are two intentional links
 - `HierarchySystem` must run ahead of any system reading WorldPosition
 - Children are disposed with their parents

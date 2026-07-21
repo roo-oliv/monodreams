@@ -10,6 +10,7 @@ using MonoDreams.Examples.Component;
 using MonoDreams.Examples.Draw;
 using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
+using MonoDreams.Extension;
 using MonoDreams.Message;
 
 namespace MonoDreams.Examples.EntityFactory;
@@ -43,6 +44,7 @@ public class WallEntityFactory : IEntityFactory
         // Extract custom fields
         var layerDepth = request.CustomFields.TryGetValue("layerDepth", out var depth) ? (float)depth : _layers.GetDepth(GameDrawLayer.Environment);
         var tilesetTexture = request.CustomFields.TryGetValue("tilesetTexture", out var texture) ? (Texture2D)texture : null;
+        var tilesetKey = request.CustomFields.TryGetValue("tilesetKey", out var key) ? key as string : null;
 
         // if (tilesetTexture != null)
         // {
@@ -67,6 +69,7 @@ public class WallEntityFactory : IEntityFactory
             entity.Set(new SpriteInfoComponent
             {
                 SpriteSheet = tilesetTexture,
+                AssetKey = tilesetKey, // content key so an imported native scene re-loads this tileset
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                     (int)request.Size.X, (int)request.Size.Y),
                 Size = request.Size,
@@ -81,14 +84,15 @@ public class WallEntityFactory : IEntityFactory
             Target = RenderTargetID.Main,
         });
 
-        // Add collision components for walls
-        var colliderBounds = new Rectangle(
-            Point.Zero, // Relative to entity position
-            new Point((int)request.Size.X, (int)request.Size.Y)
-        );
-        
-        entity.Set(new BoxColliderComponent(colliderBounds, passive: true));
+        // Add collision components for walls. Colliders-as-entities: the collider is a child entity;
+        // the wall is the body (RigidBody). The former top-left footprint's centre (Size/2) keeps the
+        // world rect unchanged (box now centered on the child's transform).
         entity.Set(new RigidBodyComponent());
+
+        var wallCollider = world.CreateEntity();
+        wallCollider.Set(new TransformComponent(new Vector2(request.Size.X / 2f, request.Size.Y / 2f)));
+        wallCollider.Set(new BoxColliderComponent(new Vector2(request.Size.X, request.Size.Y), passive: true));
+        wallCollider.SetParent(entity);
 
         // Process any additional custom fields
         ProcessCustomFields(entity, request.CustomFields);

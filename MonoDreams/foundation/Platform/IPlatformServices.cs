@@ -47,6 +47,24 @@ public interface IPlatformServices
     /// <summary>Writes bytes to a file, overwriting any existing content.</summary>
     void WriteAllBytes(string path, byte[] bytes);
 
+    /// <summary>
+    /// The <i>output-to-the-user</i> out-of-band export seam, using whatever delivery the host
+    /// supports: a web head triggers a browser download / clipboard copy (or, until that is wired,
+    /// logs a warning and returns the contents so the caller can surface them). The returned string is
+    /// a host-meaningful locator (a file path on desktop) or <c>null</c> when delivered out-of-band
+    /// (e.g. a browser download).
+    ///
+    /// <para><b>No longer the editor's scene-save path (PS3).</b> The desktop editor now writes scenes
+    /// straight into the versioned project source tree via <see cref="WriteAllText"/>
+    /// (<c>ProjectRoot/LevelsDir/&lt;id&gt;.mdscene</c>) — git-visible, not the ephemeral
+    /// <see cref="BaseDirectory"/>. This member is reserved for the deferred web browser-download of a
+    /// scene (web has no source tree to write into); on desktop it currently has no caller.</para>
+    /// </summary>
+    /// <param name="suggestedFileName">A file name the host may use (e.g. <c>"scene.json"</c>).</param>
+    /// <param name="contents">The text to export.</param>
+    /// <returns>A host-meaningful locator (desktop file path), or <c>null</c> if delivered out-of-band.</returns>
+    string ExportScene(string suggestedFileName, string contents);
+
     /// <summary>Creates a directory (and any missing parents); a no-op if it exists.</summary>
     void CreateDirectory(string path);
 

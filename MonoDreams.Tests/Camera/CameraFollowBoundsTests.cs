@@ -8,13 +8,26 @@ using Xunit;
 
 namespace MonoDreams.Tests.Camera;
 
-/// Protects the camera premise "Follow bounds clamp the resolved camera position".
+/// Protects the camera premises "Follow bounds clamp the target before smoothing" and
+/// "CameraFollowSystem eases the camera ENTITY; CameraSyncSystem copies it into the adapter" (CM).
+/// The follow system now writes the camera ENTITY's Transform; the sync system copies that pose into the
+/// shared <see cref="MonoDreams.Component.Camera"/> adapter, so each test runs follow → sync and asserts
+/// the resolved adapter position.
 public class CameraFollowBoundsTests
 {
     // A one-second tick with high damping makes the exponential smoothing resolve
     // essentially onto the target this frame, isolating the bounds clamp.
     private static GameState OneSecondTick() =>
         new(new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+
+    /// <summary>Creates the scene camera ENTITY at <paramref name="position"/> (CM) — the thing
+    /// <see cref="CameraFollowSystem"/> eases and <see cref="CameraSyncSystem"/> copies into the adapter.</summary>
+    private static void CameraEntity(World world, Vector2 position)
+    {
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(position));
+        e.Set(new CameraComponent());
+    }
 
     private static Entity Target(World world, Vector2 position, Rectangle? bounds)
     {
@@ -31,16 +44,25 @@ public class CameraFollowBoundsTests
         return e;
     }
 
+    /// <summary>Runs one follow tick then one sync tick, so the adapter reflects the eased camera entity.</summary>
+    private static void FollowThenSync(World world, MonoDreams.Component.Camera camera)
+    {
+        using var follow = new CameraFollowSystem(world);
+        using var sync = new CameraSyncSystem(world, camera);
+        follow.Update(OneSecondTick());
+        sync.Update(OneSecondTick());
+    }
+
     [Fact]
     public void TargetOutsideBounds_ClampsCameraToBoundsEdge()
     {
         using var world = new World();
-        var camera = new MonoDreams.Component.Camera(800, 600) { Position = Vector2.Zero };
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        CameraEntity(world, Vector2.Zero);
         var bounds = new Rectangle(-200, -100, 400, 200); // edges at ±200, ±100
         Target(world, new Vector2(5000, 5000), bounds);
 
-        using var system = new CameraFollowSystem(world, camera);
-        system.Update(OneSecondTick());
+        FollowThenSync(world, camera);
 
         Assert.Equal(200f, camera.Position.X, 3);
         Assert.Equal(100f, camera.Position.Y, 3);
@@ -50,12 +72,12 @@ public class CameraFollowBoundsTests
     public void TargetInsideBounds_FollowsTargetUnclamped()
     {
         using var world = new World();
-        var camera = new MonoDreams.Component.Camera(800, 600) { Position = Vector2.Zero };
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        CameraEntity(world, Vector2.Zero);
         var bounds = new Rectangle(-200, -100, 400, 200);
         Target(world, new Vector2(50, 25), bounds);
 
-        using var system = new CameraFollowSystem(world, camera);
-        system.Update(OneSecondTick());
+        FollowThenSync(world, camera);
 
         Assert.Equal(50f, camera.Position.X, 3);
         Assert.Equal(25f, camera.Position.Y, 3);
@@ -65,7 +87,8 @@ public class CameraFollowBoundsTests
     public void CameraOutsideBounds_EasesBackInsteadOfSnappingToEdge()
     {
         using var world = new World();
-        var camera = new MonoDreams.Component.Camera(800, 600) { Position = new Vector2(1000, 0) };
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        CameraEntity(world, new Vector2(1000, 0)); // the camera entity starts outside the bounds
         var bounds = new Rectangle(-200, -100, 400, 200); // edge at +200
         var target = world.CreateEntity();
         target.Set(new TransformComponent(Vector2.Zero)); // target sits inside bounds
@@ -79,8 +102,7 @@ public class CameraFollowBoundsTests
             Bounds = bounds,
         });
 
-        using var system = new CameraFollowSystem(world, camera);
-        system.Update(OneSecondTick());
+        FollowThenSync(world, camera);
 
         // Clamping the target (not the resolved position) means the camera eases from
         // 1000 toward 0 and lands partway (~500) — still outside the +200 edge this
@@ -95,11 +117,11 @@ public class CameraFollowBoundsTests
     public void NoBounds_FollowsTargetFreely()
     {
         using var world = new World();
-        var camera = new MonoDreams.Component.Camera(800, 600) { Position = Vector2.Zero };
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        CameraEntity(world, Vector2.Zero);
         Target(world, new Vector2(5000, 5000), bounds: null);
 
-        using var system = new CameraFollowSystem(world, camera);
-        system.Update(OneSecondTick());
+        FollowThenSync(world, camera);
 
         Assert.Equal(5000f, camera.Position.X, 1);
         Assert.Equal(5000f, camera.Position.Y, 1);

@@ -18,17 +18,16 @@ modules into real game screens — start at
 # Project structure
 - `MonoDreams/` — engine source organized into 13 modules (`foundation`,
   `rendering`, `rendering-text`, `camera`, `physics`, `collision`,
-  `level-loading`, `level-ldtk`, `level-blender`, `ui`, `cursor`,
-  `dialogue`, `debug`). Each module has
+  `level-loading`, `level-ldtk`, `ui`, `cursor`,
+  `dialogue`, `debug`, `level-editor`). Each module has
   `module.json`, `docs/`, and its components/systems/messages.
-- `MonoDreams.Examples/` — three reference games proving the module
-  boundaries: LDtk platformer, Blender platformer, infinite runner.
+- `MonoDreams.Examples/` — two reference games proving the module
+  boundaries: LDtk platformer and infinite runner (plus the committed
+  native scene `Blender_Level`, which boots the native pipeline).
   Game-specific logic only (screens, input mapping, entity factories,
   settings, `ButtonInteractionSystem`).
 - `MonoDreams.Cli/` — the `monodreams` global tool (init / add / list).
 - `MonoDreams.Tests/` — unit + integration tests via `GameTestRunner`.
-- `Tools/` — Blender exporter plugin (shipped by the `level-blender`
-  module).
 
 # Key conventions
 
@@ -60,8 +59,8 @@ modules into real game screens — start at
   to avoid shadowing `DefaultEcs.Entity`), register it with `EntitySpawnSystem`
   by string identifier. The system listens for `EntitySpawnRequest` messages
   and dispatches to the right factory.
-- Direct creation: `BlenderLevelParserSystem` and `LDtkEntityParserSystem`
-  create entities from exported level data.
+- Direct creation: `LDtkEntityParserSystem` creates entities from
+  exported level data.
 - Standard component stack for a renderable entity: `EntityInfoComponent`,
   `TransformComponent`, physics components as needed, `SpriteInfoComponent`,
   `DrawComponent`, `VisibleComponent`.
@@ -90,13 +89,12 @@ modules into real game screens — start at
 - `GravitySystem` and `VelocitySystem` in `MonoDreams/physics/System/`.
 
 ## Level loading
-- LDtk parser in `level-ldtk`, Blender parser in `level-blender`. Shared
-  spawn plumbing in `level-loading`.
+- LDtk parser in `level-ldtk`. Shared spawn plumbing in `level-loading`.
 - `LoadLevelRequest` message triggers the pipeline.
 - LDtk parsers are component-driven (subscribe to `CurrentLevelComponent`
-  added). The Blender parser is message-driven (subscribes to
-  `LoadLevelRequest` directly). This asymmetry is documented in both
-  modules' premises — a future cleanup will unify them.
+  added). At game boot the pipeline is native-only (`LoadLevelRequest` →
+  native `.mdscene` via the native reader, else fail loud); the LDtk parser
+  is import-only machinery, composed only in the import op.
 
 ## Debug infrastructure
 - **Logger** — `MonoDreams.State.Logger` (`foundation` module). Replaces
@@ -181,16 +179,16 @@ the broader picture).
 | [`collision`](../MonoDreams/collision/docs/premises.md) | `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`, detection + resolution systems, `CollisionMessage` |
 | [`level-loading`](../MonoDreams/level-loading/docs/premises.md) | `LoadLevelRequest`, `EntitySpawnRequest`, `IEntityFactory`, `EntitySpawnSystem`, `LevelLoadRequestSystem` |
 | [`level-ldtk`](../MonoDreams/level-ldtk/docs/premises.md) | `LDtkTileParserSystem`, `LDtkEntityParserSystem` |
-| [`level-blender`](../MonoDreams/level-blender/docs/premises.md) | `BlenderLevelParserSystem`, `BlenderLevelData`, `Tools/blender_level_export.py` |
 | [`ui`](../MonoDreams/ui/docs/premises.md) | `LayoutNodeComponent`, `LayoutSlotComponent`, `AutoLayoutBuilder`, `IntrinsicSizingSystem`, `AutoLayoutSystem`, button visuals |
 | [`cursor`](../MonoDreams/cursor/docs/premises.md) | `CursorControllerComponent`, `CursorInputComponent`, `CursorTexturesComponent`, cursor pipeline systems |
 | [`dialogue`](../MonoDreams/dialogue/docs/premises.md) | `DialogueRunner`, `DialogueStateComponent`, `DialogueSystem`, YarnSpinner integration |
 | [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem` |
+| [`level-editor`](../MonoDreams/level-editor/docs/premises.md) | in-game editor `Edit` run mode over the real pipeline (scaffold; the run-state model `RunMode`/`EditTimeBehavior`/`GatedSystem` lives in `foundation`) |
 
 For files under `MonoDreams.Examples/`, identify which module(s) the
 change exercises and load the relevant per-module premises — Examples
 exercises every module, so pick what's load-bearing for your change
-rather than loading all 15.
+rather than loading all 14.
 
 ## Other workflow rules
 
@@ -222,7 +220,7 @@ Before making changes, ensure the project builds successfully.
 # "Failed to create importer 'YarnSpinnerImporter'".
 dotnet build MonoDreams/MonoDreams.csproj
 
-# Build the desktop reference game (the LDtk + Blender platformer).
+# Build the desktop reference game (the LDtk platformer).
 # Examples is now a shared lib + per-platform heads (see "Platform targeting").
 dotnet build MonoDreams.Examples.Desktop/MonoDreams.Examples.Desktop.csproj
 

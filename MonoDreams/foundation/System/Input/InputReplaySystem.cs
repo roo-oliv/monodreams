@@ -20,6 +20,15 @@ public sealed class InputReplaySystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// When set, the system does <b>not</b> auto-exit the game when its command queue drains — another
+    /// driver owns the session lifetime. The editor-op channel sets this (via the editor screen) so the
+    /// keyboard replay running out does not kill an editor-op run before its ops + assertions complete;
+    /// the editor-op driver then requests exit once its own queue drains. Default <c>null</c> →
+    /// historical behaviour (auto-exit on drain) is unchanged.
+    /// </summary>
+    public Func<bool> SuppressAutoExit { get; set; }
+
     private InputReplaySystem(Game game, Dictionary<string, AInputState> actionMap, InputReplayPlan plan)
     {
         _game = game;
@@ -90,9 +99,11 @@ public sealed class InputReplaySystem : ISystem<GameState>
             inputState.Update(_pressedActions.Contains(name), state);
         }
 
-        // When all commands consumed and no actions pressed, exit
+        // When all commands consumed and no actions pressed, exit — unless another driver (e.g. the
+        // editor-op channel) is holding the session open and owns the exit.
         if (_cursor >= _commands.Count && _pressedActions.Count == 0)
         {
+            if (SuppressAutoExit?.Invoke() == true) return;
             Logger.Info("Replay complete. Exiting game.");
             _game.Exit();
         }

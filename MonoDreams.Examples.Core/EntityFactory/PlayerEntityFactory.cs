@@ -20,7 +20,8 @@ namespace MonoDreams.Examples.EntityFactory;
 /// </summary>
 public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : IEntityFactory
 {
-    private readonly Texture2D _charactersTileset = content.Load<Texture2D>("Atlas/TX Player");
+    private const string CharactersTilesetKey = "Atlas/TX Player";
+    private readonly Texture2D _charactersTileset = content.Load<Texture2D>(CharactersTilesetKey);
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -30,10 +31,17 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         entity.Set(new EntityInfoComponent(nameof(EntityType.Player)));
         entity.Set(new PlayerState());
         entity.Set(new TransformComponent(request.Position));
-        // entity.Set(new BoxColliderComponent(new Rectangle(Constants.PlayerOffset.ToPoint(), Constants.PlayerSize)));
-        entity.Set(new BoxColliderComponent(new Rectangle(Point.Zero, Constants.PlayerSize)));
         entity.Set(new RigidBodyComponent());
         entity.Set(new VelocityComponent());
+
+        // Colliders-as-entities: the collider is its OWN child entity; the player is the body
+        // (RigidBody+Velocity), so ColliderBody.Resolve routes contacts to it and resolution
+        // corrects the player, not the collider child. The box is centered on the child's transform,
+        // placed at the former top-left footprint's centre (Size/2) so the world rect is unchanged.
+        var playerCollider = world.CreateEntity();
+        playerCollider.Set(new TransformComponent(new Vector2(Constants.PlayerSize.X / 2f, Constants.PlayerSize.Y / 2f)));
+        playerCollider.Set(new BoxColliderComponent(new Vector2(Constants.PlayerSize.X, Constants.PlayerSize.Y)));
+        playerCollider.SetParent(entity);
 
         // Add camera follow target component
         entity.Set(new CameraFollowTargetComponent
@@ -49,7 +57,8 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
         entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = _charactersTileset,
-            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y, 
+            AssetKey = CharactersTilesetKey, // so the editor can re-load this texture on scene load
+            Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                                  (int)request.Size.X, (int)request.Size.Y),
             Size = request.Size,
             Color = Color.White * request.Layer._Opacity,

@@ -7,8 +7,10 @@ next to each module's source.
 
 | Doc | What's in it |
 |---|---|
-| [`CORE_TENETS.md`](CORE_TENETS.md) | Engine-wide invariants: framework-not-library, ECS purity, hierarchy, rendering, physics, level loading, reference pipeline, debug, refactor backlog. **Load this first** for any non-trivial task. |
+| [`CORE_TENETS.md`](CORE_TENETS.md) | Engine-wide invariants: framework-not-library, ECS purity, hierarchy, rendering, physics, level loading, reference pipeline, debug, the editor-is-part-of-the-game run-state contract, refactor backlog. **Load this first** for any non-trivial task. |
 | [`web-targeting.md`](web-targeting.md) | Targeting the web browser via KNI/BlazorGL: the shared `.Core` + per-platform heads model, `$(MonoDreamsPlatform)` backend selection, the CLI `--platform` flag, per-platform content build (incl. the macOS/Linux MGCB native-lib shim), and the open Reach 32-bit-index render limit. |
+| [`level-editor/roadmap.md`](level-editor/roadmap.md) | The in-game level editor's Wave A–F map: each wave's seam, dependencies, decisions made-vs-deferred (incl. the deferred render forks for E/F), and the three foundation seams (run-state model, native scene format, serializer registry) every wave plugs into. The cross-session continuity artifact. |
+| [`../MonoDreams/level-editor/docs/scene-format.md`](../MonoDreams/level-editor/docs/scene-format.md) | The native MonoDreams scene format: `version` / `camera` / `layers[]` / reserved `sources[]` / `entities[]` with `components{}` + `parent`, the engine component-type keys, and a concrete JSON example. |
 
 ## Per-module docs
 
@@ -26,11 +28,11 @@ systems, wiring), `premises.md` for the load-bearing invariants.
 | `collision` | [overview](../MonoDreams/collision/docs/overview.md) | [premises](../MonoDreams/collision/docs/premises.md) |
 | `level-loading` | [overview](../MonoDreams/level-loading/docs/overview.md) | [premises](../MonoDreams/level-loading/docs/premises.md) |
 | `level-ldtk` | [overview](../MonoDreams/level-ldtk/docs/overview.md) | [premises](../MonoDreams/level-ldtk/docs/premises.md) |
-| `level-blender` | [overview](../MonoDreams/level-blender/docs/overview.md) | [premises](../MonoDreams/level-blender/docs/premises.md) |
 | `ui` | [overview](../MonoDreams/ui/docs/overview.md) | [premises](../MonoDreams/ui/docs/premises.md) |
 | `cursor` | [overview](../MonoDreams/cursor/docs/overview.md) | [premises](../MonoDreams/cursor/docs/premises.md) |
 | `dialogue` | [overview](../MonoDreams/dialogue/docs/overview.md) | [premises](../MonoDreams/dialogue/docs/premises.md) |
 | `debug` | [overview](../MonoDreams/debug/docs/overview.md) | [premises](../MonoDreams/debug/docs/premises.md) |
+| `level-editor` | [overview](../MonoDreams/level-editor/docs/overview.md) | [premises](../MonoDreams/level-editor/docs/premises.md) |
 
 Premises follow the format **Why / Breaks / Tests / Depends on**, with
 optional `Open questions`, `Aspirational direction`, and `Follow-up debt`
@@ -60,11 +62,11 @@ with the change's module footprint (see
 | [`collision`](flows/collision.md) | | Detection (AABB + SAT, swept via Delta) → `CollisionMessage` → resolution. |
 | [`level-loading`](flows/level-loading.md) | | `LoadLevelRequest` → `CurrentLevelComponent` / `EntitySpawnRequest` → factory-by-id dispatch. |
 | [`level-ldtk`](flows/level-ldtk.md) | | Component-driven LDtk parse (tiles + entities) on `CurrentLevelComponent` add. |
-| [`level-blender`](flows/level-blender.md) | | Message-driven Blender parse; the exporter↔parser JSON contract. |
 | [`ui`](flows/ui.md) | | Auto-layout: build tree → intrinsic sizing (bottom-up) → flexbox placement (top-down). |
 | [`cursor`](flows/cursor.md) | | Poll input → project across coordinate spaces → paint cursor on top (HUD). |
 | [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |
 | [`debug`](flows/debug.md) | | Opt-in, read-only collider/sprite overlays + periodic screenshot capture. |
+| [`level-editor`](flows/level-editor.md) | ✅ | In-game `Edit` run mode over the real pipeline; `GatedSystem` freezes game logic while render/input/cursor/hierarchy stay live (scaffold). |
 
 ## Contributor docs
 

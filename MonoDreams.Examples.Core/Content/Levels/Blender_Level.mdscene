@@ -1,0 +1,1154 @@
+{
+  "version": 3,
+  "layers": [
+    {
+      "name": "Debug",
+      "depth": [
+        1,
+        1
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Cursor",
+      "depth": [
+        0.9,
+        0.9
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "UI",
+      "depth": [
+        0.8,
+        0.8
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Effects",
+      "depth": [
+        0.7,
+        0.7
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Characters",
+      "depth": [
+        0.6,
+        0.6
+      ],
+      "ySorted": true
+    },
+    {
+      "name": "Foreground",
+      "depth": [
+        0.5,
+        0.5
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Environment",
+      "depth": [
+        0.4,
+        0.4
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Tiles",
+      "depth": [
+        0.3,
+        0.3
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "DialogueUI",
+      "depth": [
+        0.2,
+        0.2
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Background",
+      "depth": [
+        0.1,
+        0.1
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "FarBackground",
+      "depth": [
+        0,
+        0
+      ],
+      "ySorted": false
+    }
+  ],
+  "sources": [],
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "components": {
+        "core.EntityInfo": {
+          "type": "NPC",
+          "name": "Boldo"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "GreasePencil/Boldo",
+          "source": [
+            0,
+            0,
+            185,
+            351
+          ],
+          "size": [
+            18.5039,
+            35.1947
+          ],
+          "color": "/////w==",
+          "origin": [
+            86.4875,
+            160.30171
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 19.14,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            79.6936,
+            -33.1469
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": 0.034906585,
+          "cycleDuration": 0.5
+        }
+      }
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "InteractionIcon",
+          "name": "BoldoIcon"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            -22.07342
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 1
+    },
+    {
+      "components": {
+        "core.BoxCollider": {
+          "size": [
+            46,
+            52
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": true,
+          "enabled": true
+        },
+        "core.EntityInfo": {
+          "type": "NPCZone"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.DialogueZone": {
+          "yarnNodeName": "Boldo",
+          "npcName": "Boldo",
+          "oneTimeOnly": false,
+          "autoStart": false,
+          "hasBeenTriggered": false
+        }
+      },
+      "parent": 1
+    },
+    {
+      "components": {
+        "core.ConvexCollider": {
+          "modelVertices": [
+            [
+              -6.32,
+              16.59
+            ],
+            [
+              -5.92,
+              16.19
+            ],
+            [
+              -5.28,
+              15.82
+            ],
+            [
+              -4.41,
+              15.49
+            ],
+            [
+              -3.34,
+              15.23
+            ],
+            [
+              -2.13,
+              15.03
+            ],
+            [
+              -0.82,
+              14.91
+            ],
+            [
+              0.55,
+              14.87
+            ],
+            [
+              1.92,
+              14.91
+            ],
+            [
+              3.23,
+              15.03
+            ],
+            [
+              4.44,
+              15.23
+            ],
+            [
+              5.51,
+              15.49
+            ],
+            [
+              6.38,
+              15.82
+            ],
+            [
+              7.03,
+              16.19
+            ],
+            [
+              7.42,
+              16.59
+            ],
+            [
+              7.56,
+              17.01
+            ],
+            [
+              7.42,
+              17.42
+            ],
+            [
+              7.03,
+              17.82
+            ],
+            [
+              6.38,
+              18.19
+            ],
+            [
+              5.51,
+              18.52
+            ],
+            [
+              4.44,
+              18.78
+            ],
+            [
+              3.23,
+              18.98
+            ],
+            [
+              1.92,
+              19.1
+            ],
+            [
+              0.55,
+              19.14
+            ],
+            [
+              -0.82,
+              19.1
+            ],
+            [
+              -2.13,
+              18.98
+            ],
+            [
+              -3.34,
+              18.78
+            ],
+            [
+              -4.41,
+              18.52
+            ],
+            [
+              -5.28,
+              18.19
+            ],
+            [
+              -5.92,
+              17.82
+            ],
+            [
+              -6.32,
+              17.42
+            ],
+            [
+              -6.46,
+              17.01
+            ]
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": false,
+          "enabled": true,
+          "ignoreTransformRotation": true
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 1
+    },
+    {
+      "id": 2,
+      "components": {
+        "core.CameraFollowTarget": {
+          "dampingX": 5,
+          "dampingY": 5,
+          "maxDistanceX": 150,
+          "maxDistanceY": 100,
+          "isActive": true
+        },
+        "core.EntityInfo": {
+          "type": "Player",
+          "name": "Pete"
+        },
+        "core.RigidBody": {
+          "mass": 1,
+          "gravityActive": true,
+          "gravityFactor": 1,
+          "isKinematic": false,
+          "freezeRotation": false,
+          "freezePositionX": false,
+          "freezePositionY": false
+        },
+        "core.SpriteInfo": {
+          "assetKey": "GreasePencil/Pete",
+          "source": [
+            0,
+            0,
+            147,
+            214
+          ],
+          "size": [
+            14.7677,
+            21.4973
+          ],
+          "color": "/////w==",
+          "origin": [
+            70.1778,
+            106.2938
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 10.01,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            0.309,
+            -7.8609
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "core.Velocity": {
+          "current": [
+            0,
+            0
+          ],
+          "last": [
+            0,
+            0
+          ]
+        },
+        "game.PlayerState": {},
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": 0.034906585,
+          "cycleDuration": 0.5
+        }
+      }
+    },
+    {
+      "components": {
+        "core.ConvexCollider": {
+          "modelVertices": [
+            [
+              -5.55,
+              6.99
+            ],
+            [
+              -5.01,
+              6.45
+            ],
+            [
+              -4.26,
+              5.94
+            ],
+            [
+              -3.32,
+              5.48
+            ],
+            [
+              -2.23,
+              5.09
+            ],
+            [
+              -1.03,
+              4.78
+            ],
+            [
+              0.23,
+              4.57
+            ],
+            [
+              1.5,
+              4.46
+            ],
+            [
+              2.74,
+              4.45
+            ],
+            [
+              3.89,
+              4.55
+            ],
+            [
+              4.92,
+              4.75
+            ],
+            [
+              5.78,
+              5.05
+            ],
+            [
+              6.43,
+              5.44
+            ],
+            [
+              6.87,
+              5.89
+            ],
+            [
+              7.06,
+              6.39
+            ],
+            [
+              7,
+              6.93
+            ],
+            [
+              6.7,
+              7.47
+            ],
+            [
+              6.16,
+              8.01
+            ],
+            [
+              5.4,
+              8.52
+            ],
+            [
+              4.46,
+              8.98
+            ],
+            [
+              3.38,
+              9.37
+            ],
+            [
+              2.18,
+              9.68
+            ],
+            [
+              0.92,
+              9.89
+            ],
+            [
+              -0.35,
+              10
+            ],
+            [
+              -1.59,
+              10.01
+            ],
+            [
+              -2.74,
+              9.91
+            ],
+            [
+              -3.77,
+              9.71
+            ],
+            [
+              -4.63,
+              9.41
+            ],
+            [
+              -5.29,
+              9.02
+            ],
+            [
+              -5.72,
+              8.57
+            ],
+            [
+              -5.91,
+              8.07
+            ],
+            [
+              -5.85,
+              7.54
+            ]
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": false,
+          "enabled": true,
+          "ignoreTransformRotation": true
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 5
+    },
+    {
+      "id": 3,
+      "components": {
+        "core.EntityInfo": {
+          "type": "NPC",
+          "name": "elephant-kid"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "elephant-kid",
+          "source": [
+            0,
+            0,
+            1920,
+            1920
+          ],
+          "size": [
+            23.3796,
+            23.3796
+          ],
+          "color": "/////w==",
+          "origin": [
+            960,
+            960
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 8.095048,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            43.2,
+            -0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": 0.034906585,
+          "cycleDuration": 0.5
+        }
+      }
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "NPC",
+          "name": "elephant-kid-shilhouette"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "elephant-kid-shilhouette",
+          "source": [
+            0,
+            0,
+            1920,
+            1920
+          ],
+          "size": [
+            23.3796,
+            23.3796
+          ],
+          "color": "/////w==",
+          "origin": [
+            960,
+            960
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 8.095048,
+          "ySortDepthBias": -0.0005
+        },
+        "core.Transform": {
+          "position": [
+            -0,
+            0.0021
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": -0.06981317,
+          "cycleDuration": 0.5
+        }
+      },
+      "parent": 7
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "InteractionIcon",
+          "name": "elephant-kid-shilhouetteIcon"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            -17.6898
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 8
+    },
+    {
+      "components": {
+        "core.BoxCollider": {
+          "size": [
+            58,
+            35
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": true,
+          "enabled": true
+        },
+        "core.EntityInfo": {
+          "type": "NPCZone"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0.5
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.DialogueZone": {
+          "yarnNodeName": "elephant-kid-shilhouette",
+          "npcName": "elephant-kid-shilhouette",
+          "oneTimeOnly": false,
+          "autoStart": false,
+          "hasBeenTriggered": false
+        }
+      },
+      "parent": 8
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "InteractionIcon",
+          "name": "elephant-kidIcon"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            -17.6898
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 7
+    },
+    {
+      "components": {
+        "core.BoxCollider": {
+          "size": [
+            58,
+            35
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": true,
+          "enabled": true
+        },
+        "core.EntityInfo": {
+          "type": "NPCZone"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0.5
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.DialogueZone": {
+          "yarnNodeName": "elephant-kid",
+          "npcName": "elephant-kid",
+          "oneTimeOnly": false,
+          "autoStart": false,
+          "hasBeenTriggered": false
+        }
+      },
+      "parent": 7
+    },
+    {
+      "components": {
+        "core.ConvexCollider": {
+          "modelVertices": [
+            [
+              -7.7735844,
+              3.2877
+            ],
+            [
+              -7.408284,
+              2.513264
+            ],
+            [
+              -6.79458,
+              1.7826641
+            ],
+            [
+              -5.9470844,
+              1.1397359
+            ],
+            [
+              -4.924244,
+              0.61370397
+            ],
+            [
+              -3.7552838,
+              0.204568
+            ],
+            [
+              -2.469428,
+              -0.058447998
+            ],
+            [
+              -1.1397359,
+              -0.160732
+            ],
+            [
+              0.189956,
+              -0.102284
+            ],
+            [
+              1.475812,
+              0.102284
+            ],
+            [
+              2.659384,
+              0.46758398
+            ],
+            [
+              3.711448,
+              0.96439207
+            ],
+            [
+              4.5589437,
+              1.5634841
+            ],
+            [
+              5.216484,
+              2.26486
+            ],
+            [
+              5.6110077,
+              3.039296
+            ],
+            [
+              5.7571282,
+              3.842956
+            ],
+            [
+              5.6402316,
+              4.646616
+            ],
+            [
+              5.274932,
+              5.435664
+            ],
+            [
+              4.646616,
+              6.1662636
+            ],
+            [
+              3.813732,
+              6.79458
+            ],
+            [
+              2.790892,
+              7.335224
+            ],
+            [
+              1.621932,
+              7.7443604
+            ],
+            [
+              0.336076,
+              7.9927635
+            ],
+            [
+              -0.993616,
+              8.095048
+            ],
+            [
+              -2.323308,
+              8.051212
+            ],
+            [
+              -3.609164,
+              7.832032
+            ],
+            [
+              -4.792736,
+              7.4813437
+            ],
+            [
+              -5.8448,
+              6.984536
+            ],
+            [
+              -6.706908,
+              6.370832
+            ],
+            [
+              -7.3498363,
+              5.669456
+            ],
+            [
+              -7.7443604,
+              4.89502
+            ],
+            [
+              -7.89048,
+              4.09136
+            ]
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": false,
+          "enabled": true,
+          "ignoreTransformRotation": true
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 7
+    },
+    {
+      "id": 4,
+      "components": {
+        "core.EntityInfo": {
+          "type": "Collision",
+          "name": "store"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "GreasePencil/store",
+          "source": [
+            0,
+            0,
+            442,
+            517
+          ],
+          "size": [
+            44.2664,
+            51.7073
+          ],
+          "color": "/////w==",
+          "origin": [
+            509.44922,
+            -51.234695
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.5,
+          "ySortOffset": 55.892353,
+          "ySortDepthBias": 0
+        },
+        "core.Transform": {
+          "position": [
+            -53.2974,
+            -6.4989
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "core.ConvexCollider": {
+          "modelVertices": [
+            [
+              -49.9662,
+              22.020023
+            ],
+            [
+              -8.964436,
+              20.094774
+            ],
+            [
+              -7.37009,
+              53.96711
+            ],
+            [
+              -48.371853,
+              55.892353
+            ]
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": false,
+          "enabled": true,
+          "ignoreTransformRotation": true
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 14
+    },
+    {
+      "id": 5,
+      "components": {
+        "core.Camera": {
+          "zoom": 4
+        },
+        "core.EntityInfo": {
+          "type": "Camera"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

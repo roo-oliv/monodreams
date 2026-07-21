@@ -136,7 +136,11 @@ public class ScaffolderBuildTests
         // test host keeps a build server alive whose Razor source-generator state is bound to its own build
         // context; a child build reusing it fails to compile the .razor component base (Index.OnAfterRender
         // override error) even though a standalone build succeeds. A private compilation avoids that.
-        var args = $"build \"{projectOrSln}\" -c Debug --nologo -m:1 /nodeReuse:false -p:UseSharedCompilation=false";
+        // RestoreDisableParallel: the .sln restores Core once as a member and once as the Desktop head's
+        // ProjectReference; NuGet's parallel restore then races both writes of Core/obj/project.nuget.cache
+        // ("the file … already exists" → build exit 1), a flaky gate independent of -m:1 (which only serialises
+        // the build, not restore's own parallelism). Serialising the restore removes the race.
+        var args = $"build \"{projectOrSln}\" -c Debug --nologo -m:1 /nodeReuse:false -p:UseSharedCompilation=false -p:RestoreDisableParallel=true";
         if (platformArg is not null) args += $" -p:MonoDreamsPlatform={platformArg}";
 
         var workDir = Path.GetDirectoryName(Path.GetFullPath(projectOrSln))!;

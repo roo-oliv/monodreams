@@ -26,6 +26,17 @@ public sealed class DesktopPlatformServices : IPlatformServices
 
     public void WriteAllBytes(string path, byte[] bytes) => File.WriteAllBytes(path, bytes);
 
+    public string ExportScene(string suggestedFileName, string contents)
+    {
+        // The generic out-of-band export. NOTE (PS3): this is NO LONGER the editor's scene-save
+        // path — the editor writes scenes into the versioned project source tree via WriteAllText
+        // (ProjectRoot/LevelsDir/<id>.mdscene), so nothing lands under BaseDirectory (bin/…) on
+        // desktop any more. Kept as the generic export seam (the web head's browser-download hook).
+        var path = Path.Combine(BaseDirectory, suggestedFileName);
+        File.WriteAllText(path, contents);
+        return path;
+    }
+
     public void CreateDirectory(string path) => Directory.CreateDirectory(path);
 
     public TextWriter OpenLogWriter(string directory, string fileName)

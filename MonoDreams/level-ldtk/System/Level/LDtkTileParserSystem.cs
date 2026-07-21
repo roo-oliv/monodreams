@@ -78,13 +78,17 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
                 continue;
             }
 
+            // The tileset content key (the path MGCB compiled the texture under) — carried on each
+            // tile's SpriteInfoComponent.AssetKey so an imported native scene can re-load the texture
+            // by key (native-first / import-only, PS5). Without it a migrated tile is invisible.
+            var tilesetKey = layer._TilesetRelPath.Replace(".png", "").Replace(".aseprite", "");
+
             // Load tileset texture
             if (!_loadedTextures.TryGetValue(layer._TilesetRelPath, out var tilesetTexture))
             {
                 try
                 {
-                    string assetPath = layer._TilesetRelPath.Replace(".png", "").Replace(".aseprite", "");
-                    tilesetTexture = _content.Load<Texture2D>(assetPath);
+                    tilesetTexture = _content.Load<Texture2D>(tilesetKey);
                     _loadedTextures.Add(layer._TilesetRelPath, tilesetTexture);
                 }
                 catch (Exception ex)
@@ -113,6 +117,7 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
                     {
                         ["layerDepth"] = currentLayerDepth,
                         ["tilesetTexture"] = tilesetTexture,
+                        ["tilesetKey"] = tilesetKey,
                         ["tileId"] = tile.T
                     }
                 );

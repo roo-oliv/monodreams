@@ -35,15 +35,18 @@ foundation              (required base — installed by `monodreams init`)
 │   ├── cursor
 │   ├── debug              (+ collision)
 │   ├── level-ldtk         (+ level-loading)
-│   ├── level-blender      (+ level-loading)
 │   └── ui
 │       └── dialogue       (+ rendering-text)
 ├── physics
 ├── collision              (+ physics, soft)
-└── level-loading
-    ├── level-ldtk
-    └── level-blender
+├── level-loading
+│   └── level-ldtk
+└── level-editor           (+ rendering, ui, cursor, level-loading)
 ```
+
+`level-editor` is the in-game level editor — an `Edit` run mode layered over the
+real game pipeline (it ships only the `foundation` run-state model + docs today;
+its own editor systems land in later waves).
 
 ## module.json
 

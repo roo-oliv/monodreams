@@ -1,0 +1,740 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using DefaultEcs;
+using DefaultEcs.System;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using MonoDreams.Component;
+using MonoDreams.Component.Cursor;
+using MonoDreams.Component.Draw;
+using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Component;
+using MonoDreams.LevelEditor.UI;
+using MonoDreams.Renderer;
+using MonoDreams.State;
+using MonoDreams.UI;
+using MonoGame.Extended.BitmapFonts;
+
+namespace MonoDreams.LevelEditor.System;
+
+/// <summary>
+/// The editor's context-menu primitive (UX2-D §4): a popup list on the native-resolution
+/// <c>RenderTargetID.Editor</c> target — items (label, enabled, danger), separators, and ONE level of
+/// submenus ("Order ▸" opens beside) — built from a pure <see cref="EditorContextMenuModel"/> item list
+/// and laid out by the pure <see cref="EditorContextMenuLayout"/>. The SAME model renders as a
+/// right-click context menu (<see cref="OpenAt"/>, at the cursor) or a header dropdown
+/// (<see cref="OpenBelow"/>, anchored under a button) — one model, two anchors. Closed by an item click,
+/// a click-away, or Escape.
+///
+/// <para><b>Modality (owns the pointer while open, like the dialog).</b> Each open frame it hit-tests
+/// its own items FIRST, then <b>consumes the cursor's pointer edges</b> (clears press/release/scroll on
+/// the single cursor entity), so no mouse-driven editor system downstream that frame acts on the same
+/// click — the mouse half of the modal capture, exactly the <see cref="EditorDialogSystem"/> pattern.
+/// The screen weaves this entry immediately AFTER <c>editor.dialog</c> so that, in the rare case both
+/// could open, the dialog consumes first and wins (and the overlay's open paths refuse to open a menu
+/// while the dialog is open). The keyboard half is the screen wiring the host keyboard system's
+/// <c>ShouldSuppressInput</c> to <c>Dialog.IsOpen || Menu.IsOpen</c>, so Escape closes the menu instead
+/// of quitting the game.</para>
+///
+/// <para><b>Chrome rules.</b> The menu box / item hover fills / separators are
+/// <see cref="SimpleButtonComponent"/> meshes (prepped by the woven <c>ButtonMeshPrepSystem</c>), labels
+/// are <see cref="DynamicTextComponent"/>, and a submenu ▸ caret is a screen-baked triangle mesh — all
+/// on the Editor target, identity <c>WorldMatrix</c>, tagged <see cref="EditorInfrastructureComponent"/>,
+/// carrying NO <c>VisibleComponent</c>, shown/hidden by parking off-screen (the SystemsPanel idiom).
+/// Colours/depths come from <see cref="EditorTheme"/> (items use the UX-A state model: hover fill,
+/// <c>Danger</c> label for destructive items, <c>TextDisabled</c> when disabled); the menu occupies the
+/// dedicated <c>EditorTheme.Depths.Menu*</c> band above the tooltip so it is never occluded.</para>
+///
+/// <para><b>Headless-drivable.</b> <see cref="OpenAt"/> / <see cref="OpenBelow"/> / <see cref="Pick"/> /
+/// <see cref="Close"/> drive the full flow with no real mouse (the <c>menu:*</c> op grammar). The menu
+/// itself is game-agnostic: a clicked/picked item fires its action-id <see cref="EditorMenuItem.Path"/>
+/// through the <c>dispatch</c> callback the overlay supplies.</para>
+/// </summary>
+public sealed class EditorContextMenuSystem : ISystem<GameState>
+{
+    private static readonly Vector2 ParkPosition = new(-100000f, -100000f);
+
+    private readonly World _world;
+    private readonly ViewportManager _viewportManager;
+    private readonly BitmapFont? _font;
+    private readonly Action<string, GameState> _dispatch;
+    private readonly Func<KeyboardState> _getKeyboardState;
+    private readonly Func<bool>? _isBlocked;
+    private readonly EntitySet _cursorSet;
+
+    private bool _open;
+    private IReadOnlyList<EditorMenuItem> _items = Array.Empty<EditorMenuItem>();
+    // Optional re-derivation of the model (UX3-D): a Toggle click flips a setting then refreshes the
+    // items in place (so its check flips) WITHOUT closing. Null for menus with no toggles.
+    private Func<IReadOnlyList<EditorMenuItem>>? _rebuild;
+    private Point _anchor;
+    private int _openSubmenuIndex = -1; // the expanded submenu-parent item index, or -1
+    private int _hoverMain = -1;
+    private int _hoverSub = -1;
+    private bool _leftDown;
+    private KeyboardState _prevKeys;
+
+    // PF-A: filterable "command palette" mode (the "+ Add component" popup) — a filter field row at the
+    // top narrows the items live as you type. Off for every existing menu (OpenAt / OpenBelow).
+    private bool _filterable;
+    private readonly EditorTextField _filter = new();
+    private IReadOnlyList<EditorMenuItem> _allItems = Array.Empty<EditorMenuItem>();
+    private bool _caretVisible;
+
+    private bool _built;
+    private Entity _menuBox, _subBox;
+    private Entity _filterBox, _filterText;
+    private readonly List<MenuRowVisual> _mainPool = new();
+    private readonly List<MenuRowVisual> _subPool = new();
+
+    public bool IsEnabled { get; set; } = true;
+
+    /// <summary>True while the menu (or a submenu) is showing — the screen ORs this into the host
+    /// keyboard system's <c>ShouldSuppressInput</c> (with <c>Dialog.IsOpen</c>) so Escape closes the
+    /// menu.</summary>
+    public bool IsOpen => _open;
+
+    /// <summary>The open menu's top-level item list (empty when closed). Exposed for tests.</summary>
+    public IReadOnlyList<EditorMenuItem> Items => _open ? _items : Array.Empty<EditorMenuItem>();
+
+    /// <summary>The expanded submenu-parent item index, or -1. Exposed for tests.</summary>
+    public int OpenSubmenuIndex => _openSubmenuIndex;
+
+    /// <param name="isBlocked">Optional gate: while it returns <c>true</c> (the Save/confirm dialog is
+    /// open, or a shell splitter/scrollbar drag owns the pointer) an <see cref="OpenAt"/> is refused —
+    /// "if the dialog is open, menus never open". Null (the default) never blocks.</param>
+    public EditorContextMenuSystem(
+        World world,
+        ViewportManager viewportManager,
+        BitmapFont? font,
+        Action<string, GameState> dispatch,
+        Func<KeyboardState>? getKeyboardState = null,
+        Func<bool>? isBlocked = null)
+    {
+        _world = world ?? throw new ArgumentNullException(nameof(world));
+        _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
+        _font = font; // null = layout-only (tests run no text prep, mirroring EditorChromeBuilder's seam)
+        _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
+        _getKeyboardState = getKeyboardState ?? Keyboard.GetState;
+        _isBlocked = isBlocked;
+        _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
+    }
+
+    // ─── public API (openers, headless ops, tests) ───────────────────────────────────────────────
+
+    /// <summary>Opens the menu <paramref name="items"/> at <paramref name="anchorScreen"/> (device
+    /// pixels — a cursor position); the layout clamps it to the window. <paramref name="rebuild"/>
+    /// (UX3-D) re-derives the model after a <see cref="EditorMenuItemKind.Toggle"/> click so its check
+    /// flips in place while the menu stays open — pass it for a menu with toggles (the Overlays
+    /// dropdown), omit it for the action-only menus.</summary>
+    public void OpenAt(IReadOnlyList<EditorMenuItem> items, Point anchorScreen,
+        Func<IReadOnlyList<EditorMenuItem>>? rebuild = null)
+    {
+        if (items == null || items.Count == 0) return;
+        if (_isBlocked?.Invoke() == true) return; // dialog open / drag owns the pointer → menus never open
+        EnsureBuilt();
+        _items = items;
+        _rebuild = rebuild;
+        _anchor = anchorScreen;
+        _openSubmenuIndex = -1;
+        _hoverMain = _hoverSub = -1;
+        _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
+        _open = true;
+    }
+
+    /// <summary>Opens the menu <paramref name="items"/> anchored just BELOW a header button
+    /// <paramref name="buttonBounds"/> (its bottom-left) — the <c>Entity ▾</c> / <c>Overlays</c>
+    /// dropdown. <paramref name="rebuild"/> is the toggle-refresh hook (see
+    /// <see cref="OpenAt(IReadOnlyList{EditorMenuItem}, Point, Func{IReadOnlyList{EditorMenuItem}})"/>).</summary>
+    public void OpenBelow(IReadOnlyList<EditorMenuItem> items, Rectangle buttonBounds,
+        Func<IReadOnlyList<EditorMenuItem>>? rebuild = null) =>
+        OpenAt(items, new Point(buttonBounds.Left, buttonBounds.Bottom), rebuild);
+
+    /// <summary>Opens a FILTERABLE popup (PF-A §3, the "+ Add component" command palette): a filter field
+    /// row sits at the top of the menu box and narrows <paramref name="items"/> live as the user types
+    /// (case-insensitive substring on the label); Enter picks the first match; Escape clears the filter,
+    /// then (empty) closes. The menu owns the keyboard while open (the screen already ORs
+    /// <see cref="IsOpen"/> into the host keyboard's suppression), so typing never fires a game/editor
+    /// key. Anchored like <see cref="OpenAt"/> (clamped to the window).</summary>
+    public void OpenFiltered(IReadOnlyList<EditorMenuItem> items, Point anchorScreen)
+    {
+        if (items == null || items.Count == 0) return;
+        if (_isBlocked?.Invoke() == true) return; // dialog open / drag owns the pointer → never open
+        EnsureBuilt();
+        _allItems = items;
+        _items = items;
+        _rebuild = null;
+        _filter.Clear();
+        _filterable = true;
+        _anchor = anchorScreen;
+        _openSubmenuIndex = -1;
+        _hoverMain = _hoverSub = -1;
+        _prevKeys = _getKeyboardState(); // swallow the current key state so no stale edge fires
+        _open = true;
+    }
+
+    /// <summary>Sets the filter text and re-narrows the visible items — the headless twin of typing in
+    /// the palette (and a test seam). No-op when the open menu is not filterable.</summary>
+    public void SetFilter(string? text)
+    {
+        _filter.Set(text);
+        Narrow();
+    }
+
+    /// <summary>The current filter text of an open filterable popup (empty otherwise). Exposed for tests.</summary>
+    public string FilterValue => _filterable ? _filter.Value : string.Empty;
+
+    /// <summary>Picks the leaf item with action-id <paramref name="path"/> from the OPEN menu (searching
+    /// submenus) and dispatches it — the headless <c>menu:pick &lt;path&gt;</c> op. A disabled or missing
+    /// item logs and leaves the menu open.</summary>
+    public void Pick(string path, GameState state)
+    {
+        if (!_open)
+        {
+            Logger.Warning($"[level-editor] menu:pick '{path}': no menu is open.");
+            return;
+        }
+        var item = EditorContextMenuModel.FindByPath(_items, path);
+        if (item == null)
+        {
+            Logger.Warning($"[level-editor] menu:pick '{path}': the open menu has no such item.");
+            return;
+        }
+        DispatchItem(item, state);
+    }
+
+    /// <summary>Closes the menu (item click / click-away / Escape / the <c>menu:close</c> op).</summary>
+    public void Close()
+    {
+        _open = false;
+        _openSubmenuIndex = -1;
+        _rebuild = null;
+        _filterable = false;
+    }
+
+    /// <summary>Narrows <see cref="_items"/> to those whose label contains the filter text (case-
+    /// insensitive) — the live command-palette narrowing. A no-op when not filterable.</summary>
+    private void Narrow()
+    {
+        if (!_filterable) return;
+        var f = _filter.Value;
+        if (string.IsNullOrEmpty(f)) { _items = _allItems; return; }
+        var list = new List<EditorMenuItem>();
+        foreach (var item in _allItems)
+            if (item.Label.Contains(f, StringComparison.OrdinalIgnoreCase))
+                list.Add(item);
+        _items = list;
+    }
+
+    /// <summary>The item-box anchor: the raw anchor, shifted down by the filter row when filterable (so
+    /// the filter field sits at the raw anchor and the items below it). Both <c>Layout</c> and the mouse
+    /// hit-test read this, so they always agree.</summary>
+    private Point ItemAnchor(float scale) => _filterable
+        ? new Point(_anchor.X, _anchor.Y + EditorContextMenuLayout.Px(EditorContextMenuLayout.ItemHeight, scale))
+        : _anchor;
+
+    /// <summary>The filter field row rectangle just ABOVE the (clamped) item box.</summary>
+    private static Rectangle FilterRect(Rectangle itemMenu, float scale)
+    {
+        var h = EditorContextMenuLayout.Px(EditorContextMenuLayout.ItemHeight, scale);
+        return new Rectangle(itemMenu.X, itemMenu.Y - h, itemMenu.Width, h);
+    }
+
+    // ─── per-frame ────────────────────────────────────────────────────────────────────────────────
+
+    public void Update(GameState state)
+    {
+        if (!IsEnabled) return;
+
+        if (!_open)
+        {
+            if (_built) ParkAll();
+            return;
+        }
+
+        var scale = _viewportManager.DevicePixelRatio;
+        ReadKeyboard(state);
+        if (!_open) { ParkAll(); return; }
+        HandleMouseAndConsume(state, scale);
+        if (!_open) { ParkAll(); return; }
+        Layout(scale);
+    }
+
+    /// <summary>Escape closes the menu (the keyboard half — the screen suppresses editor/game keys while
+    /// the menu owns input). In FILTERABLE mode the keyboard drives the filter field: typed chars narrow
+    /// the list live, Backspace deletes, Enter picks the first match, and Escape clears the filter first
+    /// (then, when empty, closes).</summary>
+    private void ReadKeyboard(GameState state)
+    {
+        var keys = _getKeyboardState();
+        if (_filterable)
+        {
+            _caretVisible = (state.TotalTime % 1.0) < 0.5;
+            foreach (var key in keys.GetPressedKeys())
+            {
+                if (_prevKeys.IsKeyDown(key)) continue; // only newly-pressed this frame
+                switch (key)
+                {
+                    case Keys.Enter: _prevKeys = keys; PickFirst(state); return;
+                    case Keys.Escape:
+                        _prevKeys = keys;
+                        if (_filter.Value.Length > 0) { _filter.Clear(); Narrow(); }
+                        else Close();
+                        return;
+                    case Keys.Back: _filter.Backspace(); Narrow(); continue;
+                }
+                var c = MenuKeyToChar(key);
+                if (c != '\0') { _filter.Append(c); Narrow(); }
+            }
+            _prevKeys = keys;
+            return;
+        }
+
+        var escape = keys.IsKeyDown(Keys.Escape) && !_prevKeys.IsKeyDown(Keys.Escape);
+        _prevKeys = keys;
+        if (escape) Close();
+    }
+
+    /// <summary>Dispatches the first enabled leaf of the (narrowed) item list — Enter in the palette.</summary>
+    private void PickFirst(GameState state)
+    {
+        foreach (var item in _items)
+            if (item.Kind is EditorMenuItemKind.Action or EditorMenuItemKind.Toggle && item.Enabled)
+            {
+                DispatchItem(item, state);
+                return;
+            }
+    }
+
+    /// <summary>The constrained lowercase char set for the palette filter (letters/digits/<c>.</c>/<c>-</c>/
+    /// <c>,</c>/space) — enough to type a component name; mirrors the dialog/inspector fields.</summary>
+    private static char MenuKeyToChar(Keys key) => key switch
+    {
+        >= Keys.D0 and <= Keys.D9 => (char)('0' + (key - Keys.D0)),
+        >= Keys.NumPad0 and <= Keys.NumPad9 => (char)('0' + (key - Keys.NumPad0)),
+        >= Keys.A and <= Keys.Z => (char)('a' + (key - Keys.A)),
+        Keys.OemPeriod or Keys.Decimal => '.',
+        Keys.OemMinus or Keys.Subtract => '-',
+        Keys.OemComma => ',',
+        Keys.Space => ' ',
+        _ => '\0',
+    };
+
+    private void HandleMouseAndConsume(GameState state, float scale)
+    {
+        _hoverMain = _hoverSub = -1;
+        _leftDown = false;
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+
+        foreach (var cursor in _cursorSet.GetEntities())
+        {
+            ref var input = ref cursor.Get<CursorInputComponent>();
+            var point = new Point((int)input.ScreenPosition.X, (int)input.ScreenPosition.Y);
+            _leftDown = input.LeftButton;
+
+            var menu = EditorContextMenuLayout.MenuRect(ItemAnchor(scale), _items, w, h, scale);
+            var overMain = HitItem(menu, _items, point, scale);
+
+            // A submenu opens on hover of its parent; it stays open while the cursor is over it or its
+            // parent, and closes when a DIFFERENT main item is hovered.
+            if (overMain >= 0 && _items[overMain].Kind == EditorMenuItemKind.Submenu && _items[overMain].Enabled)
+                _openSubmenuIndex = overMain;
+
+            var overSub = -1;
+            if (_openSubmenuIndex >= 0 && _items[_openSubmenuIndex].Submenu is { } subItems)
+            {
+                var parentRect = EditorContextMenuLayout.ItemRect(menu, _items, _openSubmenuIndex, scale);
+                var subRect = EditorContextMenuLayout.SubmenuRect(menu, parentRect, subItems, w, h, scale);
+                overSub = HitItem(subRect, subItems, point, scale);
+                if (overSub < 0 && overMain >= 0 && overMain != _openSubmenuIndex)
+                    _openSubmenuIndex = -1;
+            }
+
+            _hoverMain = overMain;
+            _hoverSub = overSub;
+
+            if (input.LeftButtonReleased)
+            {
+                if (overSub >= 0 && _items[_openSubmenuIndex].Submenu is { } sub)
+                    DispatchItem(sub[overSub], state);
+                else if (overMain >= 0)
+                {
+                    var item = _items[overMain];
+                    if (item.Kind is EditorMenuItemKind.Action or EditorMenuItemKind.Toggle)
+                        DispatchItem(item, state);
+                    // submenu parent / separator click: no dispatch (submenu stays open on its parent)
+                }
+                else if (_filterable && FilterRect(menu, scale).Contains(point))
+                {
+                    // A click in the filter field keeps the palette open (it is not click-away).
+                }
+                else
+                {
+                    Close(); // click-away closes WITHOUT acting
+                }
+            }
+
+            ConsumeCursor(ref input);
+            cursor.NotifyChanged<CursorInputComponent>();
+            return; // single cursor
+        }
+    }
+
+    /// <summary>The index of the item under <paramref name="point"/> inside a menu box, or -1.
+    /// Separators are never "hit" (they are non-interactive dividers).</summary>
+    private static int HitItem(Rectangle box, IReadOnlyList<EditorMenuItem> items, Point point, float scale)
+    {
+        if (!box.Contains(point)) return -1;
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (items[i].Kind == EditorMenuItemKind.Separator) continue;
+            if (EditorContextMenuLayout.ItemRect(box, items, i, scale).Contains(point)) return i;
+        }
+        return -1;
+    }
+
+    /// <summary>Dispatches a leaf item (enabled). An <see cref="EditorMenuItemKind.Action"/> closes the
+    /// menu BEFORE dispatching so an action that opens another modal (Create Empty Scene → the dialog)
+    /// lands cleanly. A <see cref="EditorMenuItemKind.Toggle"/> (UX3-D) dispatches WITHOUT closing, then
+    /// re-derives the model (<see cref="_rebuild"/>) so its check flips in place — Blender's flip-several
+    /// -overlays-in-one-open. A disabled item or a non-leaf is a no-op that keeps the menu open.</summary>
+    private void DispatchItem(EditorMenuItem item, GameState state)
+    {
+        if (!item.Enabled) return;
+        switch (item.Kind)
+        {
+            case EditorMenuItemKind.Action:
+                var path = item.Path;
+                Close();
+                _dispatch(path, state);
+                break;
+            case EditorMenuItemKind.Toggle:
+                _dispatch(item.Path, state);            // flip the setting…
+                if (_rebuild != null) _items = _rebuild(); // …then refresh the check in place (stay open)
+                break;
+        }
+    }
+
+    /// <summary>Clears the cursor's pointer edges + button level fields for this frame (the modal
+    /// consume) — the same recipe as the dialog. The menu acts on the release edge BEFORE this clears it;
+    /// the edge survives here because <c>CursorInputSystem</c> derives edges from its own previous state,
+    /// not these fields.</summary>
+    private static void ConsumeCursor(ref CursorInputComponent input)
+    {
+        input.LeftButtonPressed = input.RightButtonPressed = input.MiddleButtonPressed = false;
+        input.LeftButtonReleased = input.RightButtonReleased = input.MiddleButtonReleased = false;
+        input.LeftButton = input.RightButton = input.MiddleButton = false;
+        input.ScrollWheelDelta = 0;
+    }
+
+    // ─── layout + render ───────────────────────────────────────────────────────────────────────────
+
+    private void Layout(float scale)
+    {
+        var w = _viewportManager.ScreenWidth;
+        var h = _viewportManager.ScreenHeight;
+        var menu = EditorContextMenuLayout.MenuRect(ItemAnchor(scale), _items, w, h, scale);
+
+        PlaceBox(_menuBox, menu);
+        EnsurePool(_mainPool, _items.Count);
+        LayoutItems(_mainPool, _menuBox, menu, _items, _hoverMain, scale);
+
+        // PF-A: the filter field row above the item box (palette mode) — a Bg2 field + the filter text
+        // (or a placeholder) + a blinking caret.
+        if (_filterable)
+        {
+            var filter = FilterRect(menu, scale);
+            PlaceBox(_filterBox, filter);
+            SetBoxFill(_filterBox, EditorTheme.Bg2);
+            var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
+            var hasText = _filter.Value.Length > 0;
+            var shown = hasText ? _filter.Value : "Filter…";
+            if (_caretVisible) shown = (hasText ? _filter.Value : string.Empty) + "|";
+            PlaceLabel(_filterText,
+                new Vector2(filter.X + EditorContextMenuLayout.Px(EditorContextMenuLayout.TextInsetX, scale),
+                    filter.Y + (filter.Height - labelHeight) / 2f),
+                shown, hasText ? EditorTheme.Text0 : EditorTheme.TextMuted, scale);
+        }
+        else
+        {
+            ParkBox(_filterBox);
+            Park(_filterText);
+        }
+
+        // The open submenu (or park the sub chrome).
+        if (_openSubmenuIndex >= 0 && _items[_openSubmenuIndex].Submenu is { } subItems)
+        {
+            var parentRect = EditorContextMenuLayout.ItemRect(menu, _items, _openSubmenuIndex, scale);
+            var subRect = EditorContextMenuLayout.SubmenuRect(menu, parentRect, subItems, w, h, scale);
+            PlaceBox(_subBox, subRect);
+            EnsurePool(_subPool, subItems.Count);
+            LayoutItems(_subPool, _subBox, subRect, subItems, _hoverSub, scale);
+        }
+        else
+        {
+            ParkBox(_subBox);
+            foreach (var v in _subPool) ParkRow(v);
+        }
+    }
+
+    private void LayoutItems(List<MenuRowVisual> pool, Entity box, Rectangle boxRect,
+        IReadOnlyList<EditorMenuItem> items, int hovered, float scale)
+    {
+        var labelHeight = (_font?.LineHeight ?? 48f) * EditorChromeBuilder.LabelScale * scale;
+        for (var i = 0; i < pool.Count; i++)
+        {
+            var v = pool[i];
+            if (i >= items.Count) { ParkRow(v); continue; }
+
+            var item = items[i];
+            var rect = EditorContextMenuLayout.ItemRect(boxRect, items, i, scale);
+
+            if (item.Kind == EditorMenuItemKind.Separator)
+            {
+                ParkBox(v.Fill); Park(v.Label); ClearMesh(v.Caret); ClearMesh(v.Check);
+                var line = EditorContextMenuLayout.SeparatorLine(rect, scale);
+                PlaceBox(v.Sep, line);
+                SetBoxFill(v.Sep, EditorTheme.Border);
+                continue;
+            }
+
+            ParkBox(v.Sep);
+
+            // Hover fill (INSTANT — pooled rows never fade, pre-mortem #6): hovered enabled row = Bg3,
+            // or Bg4 while the button is held over it (the pressed feedback, matching ControlFill).
+            if (i == hovered && item.Enabled)
+            {
+                PlaceBox(v.Fill, rect);
+                SetBoxFill(v.Fill, _leftDown ? EditorTheme.Bg4 : EditorTheme.Bg3);
+            }
+            else
+            {
+                ParkBox(v.Fill);
+            }
+
+            var color = !item.Enabled ? EditorTheme.TextDisabled
+                : item.Danger ? EditorTheme.Danger
+                : EditorTheme.Text0;
+            PlaceLabel(v.Label, EditorContextMenuLayout.ItemText(rect, labelHeight, scale), item.Label, color, scale);
+
+            if (item.Kind == EditorMenuItemKind.Submenu)
+            {
+                var caretRect = EditorContextMenuLayout.CaretRect(rect, scale);
+                var tri = SystemsPanelLayout.ArrowTriangle(caretRect, expanded: false); // ▸
+                SetMesh(v.Caret, new FilledTriangleMeshGenerator(tri[0], tri[1], tri[2], color).Generate());
+            }
+            else
+            {
+                ClearMesh(v.Caret);
+            }
+
+            LayoutCheck(v.Check, item, rect, scale);
+        }
+    }
+
+    /// <summary>Bakes the check-box mesh for a checkable row (UX3-D): a Toggle always shows a box (its
+    /// outline), filled when on; a radio-style checked Action shows a filled box (the current spacing
+    /// preset); every other row clears it. The box sits in the left gutter before the label.</summary>
+    private static void LayoutCheck(Entity check, EditorMenuItem item, Rectangle row, float scale)
+    {
+        var showBox = item.Kind == EditorMenuItemKind.Toggle || item.Checked;
+        if (!showBox) { ClearMesh(check); return; }
+
+        var box = EditorContextMenuLayout.CheckRect(row, scale);
+        var outline = item.Enabled ? EditorTheme.Text1 : EditorTheme.TextDisabled;
+        var thickness = MathF.Max(1f, scale);
+        var mesh = new CompositeMeshGenerator()
+            .Add(new RectangleOutlineMeshGenerator(box, thickness, outline));
+        if (item.Checked)
+        {
+            var inset = Math.Max(1, EditorContextMenuLayout.Px(2, scale));
+            var inner = new Rectangle(box.X + inset, box.Y + inset,
+                Math.Max(1, box.Width - inset * 2), Math.Max(1, box.Height - inset * 2));
+            var fill = item.Enabled ? EditorTheme.Success : EditorTheme.TextDisabled;
+            mesh.Add(new FilledRectangleMeshGenerator(inner, fill));
+        }
+        SetMesh(check, mesh.Generate());
+    }
+
+    // ─── entity construction (chrome: Editor target, no VisibleComponent) ────────────────────────────
+
+    private void EnsureBuilt()
+    {
+        if (_built) return;
+        _menuBox = CreateBox(EditorTheme.Bg1, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.MenuPanel);
+        _subBox = CreateBox(EditorTheme.Bg1, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.MenuPanel);
+        // PF-A: the palette filter field (a Bg2 box + a label), on the menu band.
+        _filterBox = CreateBox(EditorTheme.Bg2, EditorTheme.BorderStrong, 1.5f, EditorTheme.Depths.MenuPanel);
+        _filterText = CreateLabel(EditorTheme.Depths.MenuLabel);
+        _built = true;
+        ParkAll();
+    }
+
+    private void EnsurePool(List<MenuRowVisual> pool, int count)
+    {
+        while (pool.Count < count)
+            pool.Add(new MenuRowVisual
+            {
+                Fill = CreateBox(EditorTheme.Bg3, Color.Transparent, 0f, EditorTheme.Depths.MenuControl),
+                Sep = CreateBox(EditorTheme.Border, Color.Transparent, 0f, EditorTheme.Depths.MenuControl),
+                Label = CreateLabel(EditorTheme.Depths.MenuLabel),
+                Caret = CreateMesh(EditorTheme.Depths.MenuLabel),
+                Check = CreateMesh(EditorTheme.Depths.MenuLabel),
+            });
+    }
+
+    private Entity CreateBox(Color fill, Color outline, float thickness, float depth)
+    {
+        var e = _world.CreateEntity();
+        e.Set(new EditorInfrastructureComponent()); // survives a transport Restart
+        e.Set(new TransformComponent(ParkPosition));
+        e.Set(new SimpleButtonComponent
+        {
+            Size = Vector2.One,
+            LineThickness = thickness,
+            Color = outline,
+            FillColor = fill,
+            Target = RenderTargetID.Editor,
+            LayerDepth = depth,
+        });
+        // NOTE: no VisibleComponent and no ToolbarButtonComponent (chrome rule; the menu owns its own
+        // hit-test — ToolbarSystem must not see these).
+        return e;
+    }
+
+    private Entity CreateLabel(float depth)
+    {
+        var e = _world.CreateEntity();
+        e.Set(new EditorInfrastructureComponent());
+        e.Set(new TransformComponent(ParkPosition));
+        e.Set(new DynamicTextComponent
+        {
+            Target = RenderTargetID.Editor,
+            LayerDepth = depth,
+            TextContent = string.Empty,
+            Font = _font!,
+            Color = EditorTheme.Text0,
+            Scale = EditorChromeBuilder.LabelScale,
+            IsRevealed = true,
+            VisibleCharacterCount = int.MaxValue,
+        });
+        return e;
+    }
+
+    private Entity CreateMesh(float depth)
+    {
+        var e = _world.CreateEntity();
+        e.Set(new EditorInfrastructureComponent());
+        e.Set(new TransformComponent(ParkPosition));
+        e.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.Editor,
+            LayerDepth = depth,
+            WorldMatrix = Matrix.Identity,
+            Vertices = Array.Empty<VertexPositionColor>(),
+            Indices = Array.Empty<int>(),
+        });
+        return e;
+    }
+
+    // ─── placement helpers ───────────────────────────────────────────────────────────────────────
+
+    private static void PlaceBox(Entity e, Rectangle rect)
+    {
+        Place(e, new Vector2(rect.X, rect.Y));
+        ref var visual = ref e.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(rect.Width, rect.Height);
+    }
+
+    private static void SetBoxFill(Entity e, Color fill)
+    {
+        if (e.IsAlive) e.Get<SimpleButtonComponent>().FillColor = fill;
+    }
+
+    private void PlaceLabel(Entity e, Vector2 position, string text, Color color, float scale)
+    {
+        Place(e, position);
+        ref var display = ref e.Get<DynamicTextComponent>();
+        display.TextContent = text;
+        display.Color = color;
+        display.Scale = EditorChromeBuilder.LabelScale * scale;
+    }
+
+    private static void SetMesh(Entity e, MeshData mesh)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Type = DrawElementType.Mesh;
+        dc.Vertices = mesh.Vertices;
+        dc.Indices = mesh.Indices;
+        dc.PrimitiveType = mesh.PrimitiveType;
+        dc.WorldMatrix = Matrix.Identity;
+        dc.Target = RenderTargetID.Editor;
+    }
+
+    private static void ClearMesh(Entity e)
+    {
+        ref var dc = ref e.Get<DrawComponent>();
+        dc.Vertices = Array.Empty<VertexPositionColor>();
+        dc.Indices = Array.Empty<int>();
+    }
+
+    private static void Place(Entity e, Vector2 position)
+    {
+        ref var transform = ref e.Get<TransformComponent>();
+        transform.Position = position;
+        e.NotifyChanged<TransformComponent>();
+    }
+
+    private void ParkAll()
+    {
+        ParkBox(_menuBox);
+        ParkBox(_subBox);
+        ParkBox(_filterBox);
+        Park(_filterText);
+        foreach (var v in _mainPool) ParkRow(v);
+        foreach (var v in _subPool) ParkRow(v);
+    }
+
+    private static void ParkRow(MenuRowVisual v)
+    {
+        ParkBox(v.Fill);
+        ParkBox(v.Sep);
+        Park(v.Label);
+        ClearMesh(v.Caret);
+        ClearMesh(v.Check);
+    }
+
+    private static void ParkBox(Entity e)
+    {
+        if (!e.IsAlive) return;
+        Place(e, ParkPosition);
+        e.Get<SimpleButtonComponent>().Size = Vector2.Zero;
+    }
+
+    private static void Park(Entity e)
+    {
+        if (e.IsAlive) Place(e, ParkPosition);
+    }
+
+    public void Dispose()
+    {
+        _cursorSet.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>One pooled item row's visuals (repurposed per open): a hover-fill box, a separator line
+    /// box, a label, a submenu ▸ caret mesh, and a check-box mesh (UX3-D — Toggle/radio rows). Parked
+    /// (off-screen / emptied) when unused.</summary>
+    private sealed class MenuRowVisual
+    {
+        public Entity Fill;
+        public Entity Sep;
+        public Entity Label;
+        public Entity Caret;
+        public Entity Check;
+    }
+}

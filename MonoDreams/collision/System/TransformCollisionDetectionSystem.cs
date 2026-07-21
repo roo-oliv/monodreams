@@ -44,17 +44,21 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
     private int _cellsUsed;
     private float _cellSize;
 
-    /// Per-frame snapshot of one collider: its world AABB (expanded by the frame's
-    /// movement) plus the flags the pair loop needs, captured once so the hot loop
-    /// never re-fetches components.
+    /// Per-frame snapshot of one collider ENTITY: its world AABB (expanded by its BODY's frame
+    /// movement) plus the flags the pair loop needs, captured once so the hot loop never re-fetches
+    /// components. <see cref="Body"/> is the resolved owning body (<see cref="ColliderBody"/>) — the
+    /// message carries it and its <see cref="Delta"/> drives the swept test (a collider child's own
+    /// local transform does not move; the body carries the world movement).
     private struct ColliderEntry
     {
-        public Entity Entity;
+        public Entity Entity;   // the collider entity
+        public Entity Body;     // resolved owning body (message + swept delta)
         public IColliderComponent Collider;
         public bool HasBox;
         public bool Active;     // non-passive; only enabled colliders are recorded
         public Vector2 Min;
         public Vector2 Max;
+        public Vector2 Delta;   // the body's movement this frame (swept + grid expansion)
     }
 
     public bool IsEnabled { get; set; } = true;
@@ -123,14 +127,19 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
             var hasBox = entity.Has<BoxColliderComponent>();
             var aabb = hasBox
-                ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, transform.Position)
+                ? SATCollision.BoxWorldRect(entity.Get<BoxColliderComponent>(), transform)
                 : entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
+
+            // Movement for the swept path + grid expansion is the BODY's delta, not the collider's:
+            // a collider child rides its parent, so its own local Delta is ~0 while the body carries
+            // the frame's world movement. A standalone collider is its own body (delta == its own).
+            var body = ColliderBody.Resolve(entity);
+            var delta = body.Has<TransformComponent>() ? body.Get<TransformComponent>().Delta : Vector2.Zero;
 
             // Expand by this frame's movement so a fast mover shares a cell with
             // anything along its swept path (the box-vs-box narrowphase is swept).
             var min = aabb.Position;
             var max = aabb.Position + aabb.Size;
-            var delta = transform.Delta;
             if (delta.X >= 0f) max.X += delta.X; else min.X += delta.X;
             if (delta.Y >= 0f) max.Y += delta.Y; else min.Y += delta.Y;
 
@@ -138,11 +147,13 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
             _entries.Add(new ColliderEntry
             {
                 Entity = entity,
+                Body = body,
                 Collider = collider,
                 HasBox = hasBox,
                 Active = !collider.Passive,
                 Min = min,
                 Max = max,
+                Delta = delta,
             });
         }
 
@@ -210,9 +221,9 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
                 if (!_testedPairs.Add(key)) continue;
 
                 if (ea.HasBox && eb.HasBox)
-                    TestBoxVsBox(ea.Entity, eb.Entity, ea.Collider, eb.Collider);
+                    TestBoxVsBox(ea, eb);
                 else
-                    TestSAT(ea.Entity, eb.Entity, ea.Collider, eb.Collider, ea.HasBox, eb.HasBox);
+                    TestSAT(ea, eb);
             }
         }
     }
@@ -226,16 +237,16 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
         return cell;
     }
 
-    private void TestBoxVsBox(Entity entity, Entity target, IColliderComponent colliderA, IColliderComponent colliderB)
+    private void TestBoxVsBox(in ColliderEntry a, in ColliderEntry b)
     {
-        var boxA = entity.Get<BoxColliderComponent>();
-        var transformA = entity.Get<TransformComponent>();
-        var dynamicRect = CollisionRect.FromBounds(boxA.Bounds, transformA.Position);
-        var displacement = transformA.Delta;
+        var boxA = a.Entity.Get<BoxColliderComponent>();
+        var transformA = a.Entity.Get<TransformComponent>();
+        var dynamicRect = SATCollision.BoxWorldRect(boxA, transformA);
+        var displacement = a.Delta; // the body's movement (a collider child rides its parent)
 
-        var boxB = target.Get<BoxColliderComponent>();
-        var transformB = target.Get<TransformComponent>();
-        var targetRect = CollisionRect.FromBounds(boxB.Bounds, transformB.Position);
+        var boxB = b.Entity.Get<BoxColliderComponent>();
+        var transformB = b.Entity.Get<TransformComponent>();
+        var targetRect = SATCollision.BoxWorldRect(boxB, transformB);
 
         var collides = DynamicRectVsRect(
             dynamicRect, displacement, targetRect,
@@ -243,9 +254,9 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
 
         if (!collides || contactNormal == Vector2.Zero) return;
 
-        foreach (var layer in colliderB.SharedLayers(colliderA))
+        foreach (var layer in b.Collider.SharedLayers(a.Collider))
         {
-            _world.Publish(_createCollisionMessage(entity, target, contactPoint, contactNormal, contactTime, 0f, layer));
+            _world.Publish(_createCollisionMessage(a.Entity, b.Entity, a.Body, b.Body, contactPoint, contactNormal, contactTime, 0f, layer));
         }
     }
 
@@ -253,40 +264,43 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
     private readonly Vector2[] _boxPolyBufA = new Vector2[4];
     private readonly Vector2[] _boxPolyBufB = new Vector2[4];
 
-    private void TestSAT(Entity entity, Entity target, IColliderComponent colliderA, IColliderComponent colliderB, bool hasBoxA, bool hasBoxB)
+    private void TestSAT(in ColliderEntry a, in ColliderEntry b)
     {
+        var hasBoxA = a.HasBox;
+        var hasBoxB = b.HasBox;
+
         // Broad-phase AABB rejection first (cheap)
         var aabbA = hasBoxA
-            ? CollisionRect.FromBounds(entity.Get<BoxColliderComponent>().Bounds, entity.Get<TransformComponent>().Position)
-            : entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
+            ? SATCollision.BoxWorldRect(a.Entity.Get<BoxColliderComponent>(), a.Entity.Get<TransformComponent>())
+            : a.Entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
         var aabbB = hasBoxB
-            ? CollisionRect.FromBounds(target.Get<BoxColliderComponent>().Bounds, target.Get<TransformComponent>().Position)
-            : target.Get<ConvexColliderComponent>().BroadPhaseAABB;
+            ? SATCollision.BoxWorldRect(b.Entity.Get<BoxColliderComponent>(), b.Entity.Get<TransformComponent>())
+            : b.Entity.Get<ConvexColliderComponent>().BroadPhaseAABB;
 
         if (!aabbA.Intersects(aabbB)) return;
 
-        // Get world-space polygons for both entities
+        // Get world-space polygons for both collider entities
         Vector2[] polyA;
         Vector2[] polyB;
 
         if (hasBoxA)
         {
-            SATCollision.BoxToPolygon(entity.Get<BoxColliderComponent>(), entity.Get<TransformComponent>(), _boxPolyBufA);
+            SATCollision.BoxToPolygon(a.Entity.Get<BoxColliderComponent>(), a.Entity.Get<TransformComponent>(), _boxPolyBufA);
             polyA = _boxPolyBufA;
         }
         else
         {
-            polyA = entity.Get<ConvexColliderComponent>().WorldVertices;
+            polyA = a.Entity.Get<ConvexColliderComponent>().WorldVertices;
         }
 
         if (hasBoxB)
         {
-            SATCollision.BoxToPolygon(target.Get<BoxColliderComponent>(), target.Get<TransformComponent>(), _boxPolyBufB);
+            SATCollision.BoxToPolygon(b.Entity.Get<BoxColliderComponent>(), b.Entity.Get<TransformComponent>(), _boxPolyBufB);
             polyB = _boxPolyBufB;
         }
         else
         {
-            polyB = target.Get<ConvexColliderComponent>().WorldVertices;
+            polyB = b.Entity.Get<ConvexColliderComponent>().WorldVertices;
         }
 
         if (!SATCollision.PolygonVsPolygon(polyA, polyB, out var contactNormal, out var penetrationDepth)) return;
@@ -294,9 +308,9 @@ public class TransformCollisionDetectionSystem<TCollisionMessage> : ISystem<Game
         // Contact point: centroid-midpoint approximation (not an exact contact point for SAT)
         var contactPoint = (SATCollision.PolygonCenter(polyA) + SATCollision.PolygonCenter(polyB)) / 2f;
 
-        foreach (var layer in colliderB.SharedLayers(colliderA))
+        foreach (var layer in b.Collider.SharedLayers(a.Collider))
         {
-            _world.Publish(_createCollisionMessage(entity, target, contactPoint, contactNormal, 0f, penetrationDepth, layer));
+            _world.Publish(_createCollisionMessage(a.Entity, b.Entity, a.Body, b.Body, contactPoint, contactNormal, 0f, penetrationDepth, layer));
         }
     }
 

@@ -1,0 +1,132 @@
+using DefaultEcs;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Content;
+using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Composition;
+using MonoDreams.Platform;
+using MonoDreams.Renderer;
+using MonoDreams.Screen;
+using MonoDreams.State;
+using MonoGame.Extended.BitmapFonts;
+
+namespace MonoDreams.Demos;
+
+/// Draw layers for the demo screens' editor composition. The demos set literal LayerDepths and
+/// run no Y-sort of their own, so this map exists for the editor seam only (SceneWriter layer
+/// banding + the flag-on YSortSystem, which passes depths through since no layer is Y-sorted —
+/// the documented graceful degradation from Wave 8a).
+public enum DemoDrawLayer
+{
+    Front,
+    Back,
+}
+
+/// One-call editor composition for the Demos host: under the editor run flag every demo screen
+/// builds an <see cref="EditorOverlay"/> over its OWN world/camera/layers through this helper —
+/// the editor is host-agnostic and screen-agnostic (docs/CORE_TENETS.md section 9; the recipe in
+/// MonoDreams/level-editor/docs/overview.md "Adding the editor to a screen/host").
+///
+/// The Demos host has no keyboard-action mapping layer of its own, so the helper pairs the
+/// overlay with the engine's <see cref="DefaultEditorKeys"/> (the tool-contextual keys: PageUp/PageDown
+/// order, Enter commit, Q/E ghost-rotate — the global Delete/Home/undo/redo are the EditorShortcuts
+/// chord table now, UX3-E) — weave it as the `editor.keys` registrar entry before the editor systems
+/// that read it. The chrome uses
+/// the same PPMondwest font as the Examples shells, so the editor reads identically across hosts.
+public sealed class DemoEditor
+{
+    private DemoEditor(DefaultEditorKeys keys, EditorOverlay overlay, EditorProjectContext? projectContext)
+    {
+        Keys = keys;
+        Overlay = overlay;
+        ProjectContext = projectContext;
+    }
+
+    /// The default editor keyboard surface (registrar entry `editor.keys`).
+    public DefaultEditorKeys Keys { get; }
+
+    /// The universal editor overlay, built over the calling screen's world/camera/layers.
+    public EditorOverlay Overlay { get; }
+
+    /// The resolved editor project context (TD): handed to the overlay so Save/the Scenes panel/the
+    /// palette have a project root, and reused by <see cref="BindScene"/>'s optional-scene-load. Null off
+    /// the flag or when unresolved.
+    public EditorProjectContext? ProjectContext { get; }
+
+    /// The minimal <see cref="DrawLayerMap"/> a demo screen hands the editor seam
+    /// (see <see cref="DemoDrawLayer"/>).
+    public static DrawLayerMap CreateLayers() => DrawLayerMap.FromEnum<DemoDrawLayer>();
+
+    /// Builds the overlay + default keys for a demo screen, or returns null when the editor run
+    /// flag is off (nothing editor-related is constructed — the flag-off screen stays
+    /// byte-identical). <paramref name="game"/> resolves the host <see cref="Game"/> lazily
+    /// (demo screens only receive their <c>ScreenController</c> in <c>Load</c>, after this runs):
+    /// it wires the OS-cursor swap and the headless op channel's exit request.
+    public static DemoEditor? TryCreate(
+        bool editorEnabled,
+        World world,
+        MonoDreams.Component.Camera camera,
+        DrawLayerMap layers,
+        ContentManager content,
+        GraphicsDevice graphicsDevice,
+        SpriteBatch spriteBatch,
+        ViewportManager viewportManager,
+        Func<Game?> game,
+        EditorSession? session = null,
+        EditorProjectContext? projectContext = null,
+        string? sceneId = null)
+    {
+        if (!editorEnabled) return null;
+
+        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
+        var chromeFont = content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt");
+        var keys = new DefaultEditorKeys();
+        var overlay = new EditorOverlay(
+            world, camera, layers, content, chromeFont, graphicsDevice, spriteBatch, viewportManager,
+            keys.Bindings, debugDir,
+            requestExit: () => game()?.Exit(),
+            setOsCursorVisible: visible =>
+            {
+                var host = game();
+                if (host != null) host.IsMouseVisible = visible;
+            },
+            // TD: this screen's bound scene id (Save target + the active tab's name) and the resolved
+            // project context (so the Scenes panel lists scenes, Save has a root, and the universal palette
+            // composes — empty assetRoots is legal, the Prefabs tab still works).
+            sceneId: sceneId,
+            projectContext: projectContext,
+            // TB-A: the host-scoped session — its viewport tab stack survives a screen switch (the launcher
+            // Play → Game tab following a transition to a demo screen, "fix them all" — Demos included).
+            session: session);
+        // Modal capture (keyboard half): while a Save/Load dialog is open the editor keyboard stands
+        // down so the dialog owns the keys (the mouse half is the dialog consuming the cursor edges).
+        keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen || overlay.Menu.IsOpen || overlay.Modal.IsActive || overlay.InspectorOwnsKeyboard;
+        return new DemoEditor(keys, overlay, projectContext);
+    }
+
+    /// <summary>
+    /// The common Load-time editor wiring for a bound Demos screen (TD/UX-C), mirroring the Examples
+    /// screens: name the active tab from the screen's bound scene id; register the <b>scene-content
+    /// reload</b> (the optional bound-scene load, source-first) that <see cref="EditorTransport.Restart"/>
+    /// re-runs; publish that optional load now (so a saved <c>&lt;sceneId&gt;.mdscene</c> comes up under the
+    /// code-built demo) UNLESS a cross-screen tab activation is restoring this tab's snapshot instead; and
+    /// bind the Scenes catalog + the plain-<see cref="ScreenController.LoadScreen"/> switch hand-off (Demos
+    /// needs no requested-level concept — every Demos screen has a fixed binding). The caller sets
+    /// <see cref="EditorTransport.RebuildCodeContent"/> (its own create-methods) separately.
+    /// </summary>
+    public void BindScene(ScreenController screenController, World world, string contentRoot,
+        string screenName, string boundSceneId)
+    {
+        Overlay.SetSceneId(boundSceneId);
+        Overlay.Transport.ReloadSceneContent = () =>
+            NativeLevelLoader.TryPublishSceneLoad(world, contentRoot, boundSceneId, ProjectContext);
+        if (!Overlay.RestorePendingActivation(screenController.State))
+            NativeLevelLoader.TryPublishSceneLoad(world, contentRoot, boundSceneId, ProjectContext);
+        Overlay.BindSceneCatalog(screenName,
+            () => screenController.RegisteredScreens,
+            // Demos: a plain LoadScreen hand-off — every Demos screen has a fixed scene binding, so there
+            // is no requested-level concept (the Examples level host's EditorSceneSwitch equivalent).
+            entry => screenController.LoadScreen(entry.ScreenName));
+    }
+}
