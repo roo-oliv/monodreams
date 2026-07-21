@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "31e67846f903",
+  "session_id": "99588020-158e-40d6-aa8e-de0c7ddae9dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-21T19:47:30.747315Z",
+  "branch": "feat/level-editor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".claude/deep-plan/feat-level-editor-6fbd191.md",
+    "MonoDreams.Cli.Tests/ScaffolderBuildTests.cs",
+    "MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs",
+    "MonoDreams.Tests/IntegrationTests/KniBackendBuildTests.cs",
+    "MonoDreams.Tests/LevelEditor/MgcbLevelBundleTests.cs",
+    "MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs",
+    "MonoDreams.Tests/LevelEditor/SceneLintTests.cs",
+    "MonoDreams/level-blender/docs/premises.md",
+    "docs/level-editor/camera-as-entity.md",
+    "docs/level-editor/colliders-as-entities.md",
+    "docs/level-editor/editor-shell-ui-ux-2.md",
+    "docs/level-editor/editor-shell-ui-ux-3.md",
+    "docs/level-editor/editor-shell-ui-ux.md",
+    "docs/level-editor/island-authoring-plan.md",
+    "docs/level-editor/prefab-workflow.md",
+    "docs/level-editor/project-persistence-plan.md",
+    "docs/level-editor/viewport-tabs-2.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "22ca68cb-f3fe-42f8-afeb-ac2022e3bc06",
+  "checkpoint_transcript_start": 5950,
+  "transcript_lines_at_start": 5950,
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 22728,
+    "cache_read_tokens": 7708285,
+    "output_tokens": 8649,
+    "api_call_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-21T19:47:27.8789Z",
+    "agent_lines": 16,
+    "human_added": 1398,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1414,
+    "agent_percentage": 1.1315417256011315
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-level-editor/99588020-158e-40d6-aa8e-de0c7ddae9dd.jsonl"
+}
