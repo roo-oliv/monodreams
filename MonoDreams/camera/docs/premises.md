@@ -94,31 +94,52 @@ Play"; "Follow runs after movement, before the sync, before rendering".
 
 ## Exactly one camera entity per scene
 
-A scene has exactly ONE `core.Camera` entity. `SceneWriter.BuildScene` REFUSES a
-world with two or more (loud, naming them — the sibling of the prefab one-root
-rule); `PrefabWriter` and the `PrefabExpander` REFUSE a prefab carrying ANY
-camera (a camera inside a prefab is multi-camera terrain); and the reader ENSURES
-one exists — a camera-less scene gets a default `Camera` root created post-load,
-positioned by the auto-frame math (origin for a content-less scene),
-`SceneObjectComponent`-tagged so it saves. The reader-ensure is idempotent (a
-scene that already has one is left alone) and skipped for a prefab context.
+Every scene **context** has exactly ONE `core.Camera` entity — not just every file
+that is loaded (CM-D). `SceneWriter.BuildScene` REFUSES a world with two or more
+(loud, naming them — the sibling of the prefab one-root rule); `PrefabWriter` and
+the `PrefabExpander` REFUSE a prefab carrying ANY camera (a camera inside a prefab
+is multi-camera terrain); and the ENSURE creates one when a scene context has none
+— a default `Camera` root, positioned by the auto-frame math (origin for a
+content-less scene), `SceneObjectComponent`-tagged so it saves. That ensure is ONE
+shared implementation (`SceneCameraEnsure.EnsureCameraEntity`) reused by BOTH the
+reader (post file / in-memory load, over the loaded content) AND the
+optional-scene-load **file-absent branch** (`NativeLevelLoader.TryPublishSceneLoad`).
+The absent branch is what covers a **code-built screen bound to an absent scene
+id** (LevelSelection's `level_selection`, every Demos screen) that never runs the
+reader: it too gets exactly one camera (at the origin — its content is code-built,
+not scene data), so the "Camera" tree row and the round-trip are uniform across
+every editor-visible scene context. The ensure is idempotent (a world that already
+has a `CameraComponent` is left alone), so a later real load, a `Restart` (sweep +
+re-run), a Game-tab round-trip and a cross-screen pending-activation restore all
+converge on exactly one; it is excluded for a prefab context (the reader's
+`SuppressCameraEnsure`; `TryPublishSceneLoad` is never the prefab path).
 
 **Why:** a single-camera invariant keeps the follow/sync systems simple (they
 take the first camera entity), and matches the v1 scope decision (multi-camera +
-a Primary flag is named terrain). The writer refusal + reader ensure converge on
-exactly one from any direction (a file with none, a file with one, a corrupt file
-with two).
+a Primary flag is named terrain). The writer refusal + the shared ensure converge
+on exactly one from any direction (a file with none, a file with one, a corrupt
+file with two, and a scene context that never loads a file at all).
 **Breaks:** two camera entities make `CameraSyncSystem`/`CameraFollowSystem` pick
 a non-deterministic one (whichever enumerates first); the writer refusal stops
 that reaching a file. A camera inside a prefab would multiply cameras on every
-instance. A reader that did not ensure one leaves a shipped scene with a frozen
-adapter (nothing drives it in Play).
+instance. An ensure that ran only on file loads (not the absent branch) leaves a
+code-built menu/demo context camera-less — no "Camera" tree row, a non-uniform
+context, and (in Play) a frozen adapter with nothing to drive it. A SECOND copy of
+the ensure would let the two paths drift.
 **Tests:** `MonoDreams.Tests/LevelEditor/CameraEntityTests.cs`
 (`Writer_RefusesTwoCameraEntities_NamingThem`, `PrefabWriter_RefusesACameraEntity`,
 `PrefabExpander_RefusesALegacyPrefabCarryingACamera`,
 `Reader_EnsuresOneCamera_WhenSceneHasNone_PositionedOnContent_Tagged`,
 `Reader_EnsureIsIdempotent_WhenSceneAlreadyHasACamera`,
-`Reader_EnsureContentlessScene_PlacesCameraAtOrigin`).
+`Reader_EnsureContentlessScene_PlacesCameraAtOrigin`);
+`MonoDreams.Tests/LevelEditor/OptionalSceneLoadTests.cs`
+(`Absent_PublishesNoLoad_ButEnsuresExactlyOneCameraEntity`,
+`AbsentEnsure_IsIdempotent_WhenTheAbsentBranchRunsAgain`,
+`AbsentEnsure_ThenARealLoadThroughTheReader_DoesNotDoubleTheCamera`,
+`AbsentEnsuredCamera_FirstSavePersistsIt_AsV3` — the CM-D scene-context coverage);
+`MonoDreams.Tests/LevelEditor/PrefabUxTests.cs`
+(`SceneReader_SuppressCameraEnsure_NeverCreatesACamera_UnsuppressedDoes` — prefab
+contexts stay camera-free).
 **Depends on:** level-editor — "A loaded sprite entity carries a `DrawComponent`
 (reader-restored); the reader frames the view on content and ensures one camera
 entity"; level-editor — "The scene format is version 3; a legacy file with an

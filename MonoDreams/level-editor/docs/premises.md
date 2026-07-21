@@ -219,9 +219,12 @@ Play — the reader must not fight it); a null view `Camera` (the pure round-tri
 shipped-game readers set it; the pure round-trip path leaves it off so serialization-fidelity tests are
 untouched): a scene with no `core.Camera` entity gets a default `Camera` root created post-load, positioned
 by the SAME auto-frame math (origin for a content-less scene), `SceneObjectComponent`-tagged so it saves.
-Idempotent (a scene that already has one is left alone) and skipped for a prefab context (a prefab has no
-camera). See "The scene reader ensures exactly one camera entity" / camera — "Exactly one camera entity per
-scene".
+The reader delegates this to `SceneCameraEnsure.EnsureCameraEntity` — the **ONE** ensure implementation
+(never a second copy), also called by the optional-scene-load **file-absent branch**
+(`NativeLevelLoader.TryPublishSceneLoad`, CM-D) so a code-built screen bound to an absent scene id
+(LevelSelection, every Demos screen) that never runs the reader still gets exactly one camera (at the
+origin). Idempotent (a world that already has one is left alone) and skipped for a prefab context (a prefab
+has no camera — the reader's `SuppressCameraEnsure`). See camera — "Exactly one camera entity per scene".
 
 The pre-CM `scene.camera` file block is gone: the authored camera is the camera ENTITY now. There is no
 `applyCameraToRig` seam — the reader just frames the view and ensures the camera entity (the editor rig,
