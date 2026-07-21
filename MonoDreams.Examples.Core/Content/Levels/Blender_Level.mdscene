@@ -1,6 +1,95 @@
 {
-  "version": 2,
-  "layers": [],
+  "version": 3,
+  "layers": [
+    {
+      "name": "Debug",
+      "depth": [
+        1,
+        1
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Cursor",
+      "depth": [
+        0.9,
+        0.9
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "UI",
+      "depth": [
+        0.8,
+        0.8
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Effects",
+      "depth": [
+        0.7,
+        0.7
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Characters",
+      "depth": [
+        0.6,
+        0.6
+      ],
+      "ySorted": true
+    },
+    {
+      "name": "Foreground",
+      "depth": [
+        0.5,
+        0.5
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Environment",
+      "depth": [
+        0.4,
+        0.4
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Tiles",
+      "depth": [
+        0.3,
+        0.3
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "DialogueUI",
+      "depth": [
+        0.2,
+        0.2
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "Background",
+      "depth": [
+        0.1,
+        0.1
+      ],
+      "ySorted": false
+    },
+    {
+      "name": "FarBackground",
+      "depth": [
+        0,
+        0
+      ],
+      "ySorted": false
+    }
+  ],
   "sources": [],
   "entities": [
     {
@@ -77,6 +166,71 @@
           "cycleDuration": 0.5
         }
       }
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "InteractionIcon",
+          "name": "BoldoIcon"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            -22.07342
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 1
+    },
+    {
+      "components": {
+        "core.BoxCollider": {
+          "size": [
+            46,
+            52
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": true,
+          "enabled": true
+        },
+        "core.EntityInfo": {
+          "type": "NPCZone"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.DialogueZone": {
+          "yarnNodeName": "Boldo",
+          "npcName": "Boldo",
+          "oneTimeOnly": false,
+          "autoStart": false,
+          "hasBeenTriggered": false
+        }
+      },
+      "parent": 1
     },
     {
       "components": {
@@ -222,71 +376,6 @@
           "position": [
             0,
             0
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        }
-      },
-      "parent": 1
-    },
-    {
-      "components": {
-        "core.BoxCollider": {
-          "size": [
-            46,
-            52
-          ],
-          "activeLayers": [
-            -1
-          ],
-          "passive": true,
-          "enabled": true
-        },
-        "core.EntityInfo": {
-          "type": "NPCZone"
-        },
-        "core.Transform": {
-          "position": [
-            0,
-            0
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        },
-        "game.DialogueZone": {
-          "yarnNodeName": "Boldo",
-          "npcName": "Boldo",
-          "oneTimeOnly": false,
-          "autoStart": false,
-          "hasBeenTriggered": false
-        }
-      },
-      "parent": 1
-    },
-    {
-      "components": {
-        "core.EntityInfo": {
-          "type": "InteractionIcon",
-          "name": "BoldoIcon"
-        },
-        "core.Transform": {
-          "position": [
-            0,
-            -22.07342
           ],
           "rotation": 0,
           "scale": [
@@ -598,6 +687,191 @@
     },
     {
       "components": {
+        "core.EntityInfo": {
+          "type": "NPC",
+          "name": "elephant-kid-shilhouette"
+        },
+        "core.SpriteInfo": {
+          "assetKey": "elephant-kid-shilhouette",
+          "source": [
+            0,
+            0,
+            1920,
+            1920
+          ],
+          "size": [
+            23.3796,
+            23.3796
+          ],
+          "color": "/////w==",
+          "origin": [
+            960,
+            960
+          ],
+          "offset": [
+            0,
+            0
+          ],
+          "target": 0,
+          "layerDepth": 0.6,
+          "ySortOffset": 8.095048,
+          "ySortDepthBias": -0.0005
+        },
+        "core.Transform": {
+          "position": [
+            -0,
+            0.0021
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.StopMotionEffect": {
+          "baseRotation": 0,
+          "offsetRadians": -0.06981317,
+          "cycleDuration": 0.5
+        }
+      },
+      "parent": 7
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "InteractionIcon",
+          "name": "elephant-kid-shilhouetteIcon"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            -17.6898
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 8
+    },
+    {
+      "components": {
+        "core.BoxCollider": {
+          "size": [
+            58,
+            35
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": true,
+          "enabled": true
+        },
+        "core.EntityInfo": {
+          "type": "NPCZone"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0.5
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.DialogueZone": {
+          "yarnNodeName": "elephant-kid-shilhouette",
+          "npcName": "elephant-kid-shilhouette",
+          "oneTimeOnly": false,
+          "autoStart": false,
+          "hasBeenTriggered": false
+        }
+      },
+      "parent": 8
+    },
+    {
+      "components": {
+        "core.EntityInfo": {
+          "type": "InteractionIcon",
+          "name": "elephant-kidIcon"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            -17.6898
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      },
+      "parent": 7
+    },
+    {
+      "components": {
+        "core.BoxCollider": {
+          "size": [
+            58,
+            35
+          ],
+          "activeLayers": [
+            -1
+          ],
+          "passive": true,
+          "enabled": true
+        },
+        "core.EntityInfo": {
+          "type": "NPCZone"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0.5
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        },
+        "game.DialogueZone": {
+          "yarnNodeName": "elephant-kid",
+          "npcName": "elephant-kid",
+          "oneTimeOnly": false,
+          "autoStart": false,
+          "hasBeenTriggered": false
+        }
+      },
+      "parent": 7
+    },
+    {
+      "components": {
         "core.ConvexCollider": {
           "modelVertices": [
             [
@@ -755,191 +1029,6 @@
       "parent": 7
     },
     {
-      "components": {
-        "core.BoxCollider": {
-          "size": [
-            58,
-            35
-          ],
-          "activeLayers": [
-            -1
-          ],
-          "passive": true,
-          "enabled": true
-        },
-        "core.EntityInfo": {
-          "type": "NPCZone"
-        },
-        "core.Transform": {
-          "position": [
-            0,
-            0.5
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        },
-        "game.DialogueZone": {
-          "yarnNodeName": "elephant-kid",
-          "npcName": "elephant-kid",
-          "oneTimeOnly": false,
-          "autoStart": false,
-          "hasBeenTriggered": false
-        }
-      },
-      "parent": 7
-    },
-    {
-      "components": {
-        "core.EntityInfo": {
-          "type": "InteractionIcon",
-          "name": "elephant-kidIcon"
-        },
-        "core.Transform": {
-          "position": [
-            0,
-            -17.6898
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        }
-      },
-      "parent": 7
-    },
-    {
-      "components": {
-        "core.EntityInfo": {
-          "type": "NPC",
-          "name": "elephant-kid-shilhouette"
-        },
-        "core.SpriteInfo": {
-          "assetKey": "elephant-kid-shilhouette",
-          "source": [
-            0,
-            0,
-            1920,
-            1920
-          ],
-          "size": [
-            23.3796,
-            23.3796
-          ],
-          "color": "/////w==",
-          "origin": [
-            960,
-            960
-          ],
-          "offset": [
-            0,
-            0
-          ],
-          "target": 0,
-          "layerDepth": 0.6,
-          "ySortOffset": 8.095048,
-          "ySortDepthBias": -0.0005
-        },
-        "core.Transform": {
-          "position": [
-            -0,
-            0.0021
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        },
-        "game.StopMotionEffect": {
-          "baseRotation": 0,
-          "offsetRadians": -0.06981317,
-          "cycleDuration": 0.5
-        }
-      },
-      "parent": 7
-    },
-    {
-      "components": {
-        "core.BoxCollider": {
-          "size": [
-            58,
-            35
-          ],
-          "activeLayers": [
-            -1
-          ],
-          "passive": true,
-          "enabled": true
-        },
-        "core.EntityInfo": {
-          "type": "NPCZone"
-        },
-        "core.Transform": {
-          "position": [
-            0,
-            0.5
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        },
-        "game.DialogueZone": {
-          "yarnNodeName": "elephant-kid-shilhouette",
-          "npcName": "elephant-kid-shilhouette",
-          "oneTimeOnly": false,
-          "autoStart": false,
-          "hasBeenTriggered": false
-        }
-      },
-      "parent": 11
-    },
-    {
-      "components": {
-        "core.EntityInfo": {
-          "type": "InteractionIcon",
-          "name": "elephant-kid-shilhouetteIcon"
-        },
-        "core.Transform": {
-          "position": [
-            0,
-            -17.6898
-          ],
-          "rotation": 0,
-          "scale": [
-            1,
-            1
-          ],
-          "origin": [
-            0,
-            0
-          ]
-        }
-      },
-      "parent": 11
-    },
-    {
       "id": 4,
       "components": {
         "core.EntityInfo": {
@@ -1034,6 +1123,32 @@
         }
       },
       "parent": 14
+    },
+    {
+      "id": 5,
+      "components": {
+        "core.Camera": {
+          "zoom": 4
+        },
+        "core.EntityInfo": {
+          "type": "Camera"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
     }
   ]
 }

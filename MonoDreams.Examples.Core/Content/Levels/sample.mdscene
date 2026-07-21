@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "layers": [],
   "sources": [],
   "entities": [
@@ -90,6 +90,32 @@
           "position": [
             96,
             32
+          ],
+          "rotation": 0,
+          "scale": [
+            1,
+            1
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "core.Camera": {
+          "zoom": 1
+        },
+        "core.EntityInfo": {
+          "type": "Camera"
+        },
+        "core.Transform": {
+          "position": [
+            0,
+            0
           ],
           "rotation": 0,
           "scale": [
