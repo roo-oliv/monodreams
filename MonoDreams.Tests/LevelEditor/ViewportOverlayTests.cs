@@ -322,24 +322,29 @@ public class ViewportOverlayTests
         Assert.Equal(0, OverlayEntityCount(world)); // handle AND outline gone
     }
 
-    // ═══ Gate: camera-rig glyph (ShowCameraGlyph / Game mode) ════════════════════════════════════════
+    // ═══ Gate: camera-entity glyph (ShowCameraGlyph / Game mode) ═════════════════════════════════════
 
     [Fact]
-    public void CameraGlyphGate_Off_HidesTheFrustum_EvenWhenTheViewDiffersFromTheRig()
+    public void CameraGlyphGate_Off_HidesTheFrustum_EvenWhenTheViewDiffersFromTheCamera()
     {
         using var world = new World();
         var view = new GameCamera(800, 600);
         var visible = true;
-        var rig = new EditorCameraRig(world, view, viewportManager: null, glyphVisible: () => visible);
+        // The scene camera entity (CM: an ordinary entity the overlay visualizes).
+        var camera = world.CreateEntity();
+        camera.Set(new EntityInfoComponent("Camera"));
+        camera.Set(new TransformComponent(Vector2.Zero));
+        camera.Set(new CameraComponent { Zoom = 1f });
+        var overlay = new CameraEntityOverlay(world, view, viewportManager: null, glyphVisible: () => visible);
 
-        // View navigated off the rig → the glyph normally shows in Edit.
+        // View navigated off the camera → the glyph normally shows in Edit.
         view.Position = new Vector2(50f, 0f);
-        rig.EmitGlyph(Edit());
-        Assert.NotEmpty(rig.Entity.Get<DrawComponent>().Vertices);
+        overlay.EmitGlyph(Edit());
+        Assert.NotEmpty(overlay.GlyphEntity.Get<DrawComponent>().Vertices);
 
         // "Camera" overlay off (or the Game-mode sandbox — the same gate) → hidden entirely.
         visible = false;
-        rig.EmitGlyph(Edit());
-        Assert.Empty(rig.Entity.Get<DrawComponent>().Vertices);
+        overlay.EmitGlyph(Edit());
+        Assert.Empty(overlay.GlyphEntity.Get<DrawComponent>().Vertices);
     }
 }

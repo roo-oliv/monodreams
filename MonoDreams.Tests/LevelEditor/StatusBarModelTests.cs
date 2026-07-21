@@ -14,7 +14,7 @@ namespace MonoDreams.Tests.LevelEditor;
 public class StatusBarModelTests
 {
     private static ModalReadout GrabReadout(ModalAxis axis, string buffer, float dx, float dy) =>
-        new(EditorModalMode.Grab, isRig: false, axis, buffer, dx, dy, 1f, 1f, 0f);
+        new(EditorModalMode.Grab, isCameraZoom: false, axis, buffer, dx, dy, 1f, 1f, 0f);
 
     // ── Left: modal readout ────────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ public class StatusBarModelTests
     }
 
     [Fact]
-    public void LeftModal_Scale_FreeIsUniform_ConstrainedIsPerAxis_RigIsZoom()
+    public void LeftModal_Scale_FreeIsUniform_ConstrainedIsPerAxis_CameraIsZoom()
     {
         var free = StatusBarModel.LeftModal(new ModalReadout(
             EditorModalMode.Scale, false, ModalAxis.None, "", 0, 0, 2f, 2f, 0));
@@ -57,9 +57,9 @@ public class StatusBarModelTests
         Assert.Contains("X x2.0", perAxis);
         Assert.Contains("Y x1.0", perAxis);
 
-        var rig = StatusBarModel.LeftModal(new ModalReadout(
-            EditorModalMode.Scale, isRig: true, ModalAxis.None, "", 0, 0, 1.5f, 1.5f, 0));
-        Assert.Contains("Zoom  x1.5", rig);
+        var camera = StatusBarModel.LeftModal(new ModalReadout(
+            EditorModalMode.Scale, isCameraZoom: true, ModalAxis.None, "", 0, 0, 1.5f, 1.5f, 0));
+        Assert.Contains("Zoom  x1.5", camera);
     }
 
     [Fact]

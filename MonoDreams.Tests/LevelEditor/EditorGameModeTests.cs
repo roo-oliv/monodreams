@@ -59,7 +59,7 @@ public class EditorGameModeTests
     {
         public readonly World World;
         public readonly GameCamera Camera;
-        public readonly EditorCameraRig Rig;
+        public readonly CameraEntityOverlay CameraOverlay;
         public readonly EditorHistory History;
         public readonly EditorTransport Transport;
         public readonly SceneReaderSystem Reader;
@@ -74,11 +74,11 @@ public class EditorGameModeTests
             var serializer = new SceneSerializer(registry);
 
             Camera = new GameCamera(800, 600);
-            Rig = new EditorCameraRig(World, Camera);
+            CameraOverlay = new CameraEntityOverlay(World, Camera);
             Reader = new SceneReaderSystem(World, serializer, content: null,
                 loadTexture: _ => null,
                 fileTextureLoader: key => { RehydratedKeys.Add(key); return null; },
-                camera: Camera, applyCameraToRig: Rig.SyncFromScene);
+                camera: Camera);
             History = new EditorHistory(World);
             Transport = new EditorTransport(World, History) { Reload = () => { } };
 
@@ -96,7 +96,7 @@ public class EditorGameModeTests
                 Camera.Zoom = view.Zoom;
                 Camera.Rotation = view.Rotation;
             };
-            Transport.SnapViewToRig = Rig.SnapViewToRig;
+            Transport.SnapViewToCameraEntity = CameraOverlay.SnapViewToCameraEntity;
         }
 
         /// <summary>Creates one tagged sprite scene root at <paramref name="pos"/> (with an asset key so
@@ -356,27 +356,25 @@ public class EditorGameModeTests
         Assert.Equal(1, s.SnapshotCaptures);
     }
 
-    // ─────────────── Camera view: enter adopts the rig; exit restores the captured Scene view ──────────
-    // NOTE (CM-A): the "rig untouched across the Game round-trip" assertion was DROPPED — the rig no longer
-    // round-trips through the snapshot (the snapshot carries no camera block; the camera is a scene ENTITY
-    // now), so on exit-restore the vestigial rig adopts the reader's auto-framed view. The enter-adopts-rig
-    // + exit-restores-view VIEW behaviors below still hold this wave; the camera-entity's own Game-tab
-    // round-trip (it does NOT leak Play movement into the scene tab) is covered by CameraEntityTests.
+    // ─────────────── Camera view: enter adopts the camera entity; exit restores the captured Scene view ──
 
     [Fact]
-    public void Camera_Enter_AdoptsRigView_Exit_RestoresCapturedSceneView()
+    public void Camera_Enter_AdoptsCameraEntityView_Exit_RestoresCapturedSceneView()
     {
         using var s = new Stack();
         s.AddSpriteRoot(new Vector2(200, 100));
 
-        // The authored rig differs from the free view.
-        s.Rig.Entity.Get<TransformComponent>().Position = new Vector2(100, 50);
-        s.Rig.Entity.Get<CameraRigComponent>() = new CameraRigComponent(2f, 0f);
+        // The scene camera ENTITY differs from the free view (SceneObjectComponent so it rides the snapshot).
+        var cam = s.World.CreateEntity();
+        cam.Set(new SceneObjectComponent());
+        cam.Set(new EntityInfoComponent("Camera"));
+        cam.Set(new TransformComponent(new Vector2(100, 50)));
+        cam.Set(new CameraComponent { Zoom = 2f });
         s.Camera.Position = new Vector2(5, 5);
         s.Camera.Zoom = 1f;
 
         s.Transport.EnterGameMode(Paused());
-        // Entry adopts the game-camera view (Camera := rig).
+        // Entry adopts the game-camera view (Camera := the camera entity's state).
         Assert.Equal(new Vector2(100, 50), s.Camera.Position);
         Assert.Equal(2f, s.Camera.Zoom);
 

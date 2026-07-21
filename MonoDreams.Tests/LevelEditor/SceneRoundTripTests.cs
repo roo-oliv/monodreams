@@ -241,25 +241,26 @@ public class SceneRoundTripTests
         blender.Set(new EntityInfoComponent("Mesh", "untagged_floor"));
         blender.Set(new TransformComponent(Vector2.Zero));
 
-        // The camera RIG (UX2-E, pre-mortem #4): a standalone editor-materialized entity carrying the
-        // authored camera state. It is NEVER SceneObjectComponent-tagged, so it must never enter
-        // entities[] (the writer reads scene.camera FROM it explicitly, it is not scene membership).
-        var cameraRig = world.CreateEntity();
-        cameraRig.Set(new EditorInfrastructureComponent());
-        cameraRig.Set(new TransformComponent(new Vector2(300, -200)));
-        cameraRig.Set(new CameraRigComponent(2f, 0f));
+        // The camera ENTITY (CM): an ordinary scene-owned root — EntityInfoComponent("Camera") + Transform
+        // + CameraComponent, SceneObjectComponent-tagged. Unlike the old editor rig it IS scene membership,
+        // riding entities[] like everything else.
+        var camera = world.CreateEntity();
+        camera.Set(new SceneObjectComponent());
+        camera.Set(new EntityInfoComponent("Camera"));
+        camera.Set(new TransformComponent(new Vector2(300, -200)));
+        camera.Set(new CameraComponent { Zoom = 2f });
 
         var members = SceneWriter.CollectMembership(world);
 
-        Assert.Equal(3, members.Count); // root + child + grandchild
+        Assert.Equal(4, members.Count); // root + child + grandchild + camera
         Assert.Contains(root, members);
         Assert.Contains(child, members);
         Assert.Contains(grandchild, members);
+        Assert.Contains(camera, members); // the camera is scene membership now (CM)
         Assert.DoesNotContain(cursor, members);
         Assert.DoesNotContain(uiWidget, members);
         Assert.DoesNotContain(gizmo, members);
         Assert.DoesNotContain(blender, members);
-        Assert.DoesNotContain(cameraRig, members); // the rig is never scene membership (pre-mortem #4)
     }
 
     // ---- DerivedDepthReproductionTest: after reload, a prep+YSort frame recomputes the SAME derived depth ----

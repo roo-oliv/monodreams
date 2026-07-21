@@ -309,25 +309,35 @@ public class PrefabUxTests
         }
     }
 
-    // ─── Reader camera-rig suppression for a prefab context (pre-mortem #8) ───────────────────────
+    // ─── Reader ensure-one-camera suppression for a prefab context (pre-mortem #8) ─────────────────
 
     [Fact]
-    public void SceneReader_SuppressCameraRig_NeverSyncsTheRig_UnsuppressedDoes()
+    public void SceneReader_SuppressCameraEnsure_NeverCreatesACamera_UnsuppressedDoes()
     {
         var serializer = new SceneSerializer(NewRegistry());
-        using var world = new World();
         var camera = new GameCamera(800, 600) { Zoom = 1f };
-        var rigSyncs = 0;
-        using var reader = new SceneReaderSystem(world, serializer, content: null, loadTexture: _ => null,
-            camera: camera, applyCameraToRig: _ => rigSyncs++);
+        var scene = OneSpriteScene(serializer); // a camera-less scene
 
-        var scene = OneSpriteScene(serializer);
+        // Prefab-context load (suppress=true): the reader auto-frames the view but NEVER ensures a camera
+        // (a prefab is a class — it has none, pre-mortem #8).
+        using (var world = new World())
+        {
+            using var reader = new SceneReaderSystem(world, serializer, content: null, loadTexture: _ => null,
+                camera: camera, ensureSingleCamera: true);
+            world.Publish(new LoadSceneRequest(scene, suppressCameraEnsure: true));
+            using var cams = world.GetEntities().With<CameraComponent>().AsSet();
+            Assert.Empty(cams.GetEntities().ToArray());
+        }
 
-        world.Publish(new LoadSceneRequest(scene, suppressCameraRig: true));  // a prefab-context load
-        Assert.Equal(0, rigSyncs);                                            // the rig is NEVER synced
-
-        world.Publish(new LoadSceneRequest(scene, suppressCameraRig: false)); // a scene load
-        Assert.Equal(1, rigSyncs);                                            // the rig IS synced
+        // Scene load (suppress=false): the reader ensures exactly one camera entity.
+        using (var world = new World())
+        {
+            using var reader = new SceneReaderSystem(world, serializer, content: null, loadTexture: _ => null,
+                camera: camera, ensureSingleCamera: true);
+            world.Publish(new LoadSceneRequest(scene, suppressCameraEnsure: false));
+            using var cams = world.GetEntities().With<CameraComponent>().AsSet();
+            Assert.Single(cams.GetEntities().ToArray());
+        }
     }
 
     private static SceneData OneSpriteScene(SceneSerializer serializer)
@@ -341,7 +351,7 @@ public class PrefabUxTests
             AssetKey = "Atlas/x", Source = new Rectangle(0, 0, 16, 16), Size = new Vector2(16, 16),
             Color = Color.White, Target = RenderTargetID.Main, LayerDepth = 0.5f,
         });
-        return new SceneWriter(serializer).BuildScene(w); // camera null → the rig would adopt the framed view
+        return new SceneWriter(serializer).BuildScene(w); // no camera entity → the reader ensures one on a scene load
     }
 
     // ─── Status bar ───────────────────────────────────────────────────────────────────────────────

@@ -118,24 +118,22 @@ public class EntitySceneTreeTests
     }
 
     [Fact]
-    public void Build_IncludesTheCameraRig_EvenThoughItIsInfrastructure()
+    public void Build_IncludesTheCameraEntity_AndHidesInfrastructure()
     {
-        // UX2-G Part 2: the camera rig carries EditorInfrastructureComponent (so the default hide-infra
-        // filter would exclude it) but is an EXPLICIT include — the designer must see + select the
-        // authored camera. The panel folds it back in while keeping ALL OTHER infra hidden.
+        // CM: the camera is an ordinary scene entity now (NOT infra), so the default hide-infra filter
+        // includes it naturally alongside the content, while editor infrastructure stays hidden.
         using var world = new World();
         var root = Scene(world);
-        var rig = Scene(world);
-        rig.Set(new EditorInfrastructureComponent());
-        rig.Set(new CameraRigComponent(1f));
+        var camera = Scene(world);
+        camera.Set(new CameraComponent { Zoom = 1f }); // an ordinary scene entity carrying a camera
         var otherInfra = Scene(world);
         otherInfra.Set(new EditorInfrastructureComponent());
 
-        bool Include(Entity e) => !e.Has<EditorInfrastructureComponent>() || e.Has<CameraRigComponent>();
-        var nodes = EntitySceneTree.Build(new[] { root, rig, otherInfra }, Include);
+        bool Include(Entity e) => !e.Has<EditorInfrastructureComponent>();
+        var nodes = EntitySceneTree.Build(new[] { root, camera, otherInfra }, Include);
 
         Assert.Contains(nodes, n => n.Entity == root);
-        Assert.Contains(nodes, n => n.Entity == rig);            // the rig is folded in
-        Assert.DoesNotContain(nodes, n => n.Entity == otherInfra); // every OTHER infra entity stays hidden
+        Assert.Contains(nodes, n => n.Entity == camera);           // the camera entity is ordinary content
+        Assert.DoesNotContain(nodes, n => n.Entity == otherInfra); // infra stays hidden
     }
 }

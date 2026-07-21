@@ -42,7 +42,7 @@ public class EditorSessionTests
             stack.CaptureView = () => new CameraViewSnapshot(new Vector2(5, 5), 1f, 0f);
             stack.RestoreView = _ => { };
             stack.SweepSceneEntities = () => Sweeps++;
-            stack.SnapViewToRig = () => { };
+            stack.SnapViewToCameraEntity = () => { };
         }
 
         // A host screen switch: tear down the world + shell, bind a new one (the new screen's overlay).

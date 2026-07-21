@@ -35,7 +35,7 @@ public class ViewportContextStackTests
         public int Sweeps;
         public int Rebuilds;         // TD: RebuildCodeContent invocations
         public int ViewSnaps;
-        public bool LastRestoreSuppressedRig; // PF-D: RestoringPrefabContext observed during the last restore
+        public bool LastRestoreSuppressedCameraEnsure; // PF-D: RestoringPrefabContext observed during the last restore
 
         public Harness()
         {
@@ -43,10 +43,10 @@ public class ViewportContextStackTests
             Stack = new ViewportContextStack(History, Shell, "island")
             {
                 CaptureSnapshot = () => { Captures++; Log.Add("snapshot"); return new SceneData { Version = WorldState }; },
-                RestoreSnapshot = data => { LastRestoreSuppressedRig = Stack.RestoringPrefabContext; Log.Add("restore"); WorldState = data.Version; },
+                RestoreSnapshot = data => { LastRestoreSuppressedCameraEnsure = Stack.RestoringPrefabContext; Log.Add("restore"); WorldState = data.Version; },
                 CaptureView = () => new CameraViewSnapshot(new Microsoft.Xna.Framework.Vector2(5, 5), 1f, 0f),
                 RestoreView = _ => { },
-                SnapViewToRig = () => ViewSnaps++,
+                SnapViewToCameraEntity = () => ViewSnaps++,
                 SweepSceneEntities = () => { Sweeps++; Log.Add("sweep"); },
             };
         }
@@ -87,7 +87,7 @@ public class ViewportContextStackTests
 
         Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
         Assert.Equal(0, h.Rebuilds);
-        Assert.True(h.LastRestoreSuppressedRig); // the prefab restore ran with the rig suppressed
+        Assert.True(h.LastRestoreSuppressedCameraEnsure); // the prefab restore ran with ensure-one-camera suppressed
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class ViewportContextStackTests
     }
 
     [Fact]
-    public void EnterGame_SnapshotsSceneAndAdoptsRig_NoSweep_KeepsLiveWorld_ThenTabAppears()
+    public void EnterGame_SnapshotsSceneAndAdoptsCameraView_NoSweep_KeepsLiveWorld_ThenTabAppears()
     {
         var h = new Harness();
         h.WorldState = 42;
@@ -231,7 +231,7 @@ public class ViewportContextStackTests
     // ─── PF-D: prefab-context tabs ────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void OpenPrefab_SnapshotsActive_PushesPrefabTab_RestoresRigSuppressed()
+    public void OpenPrefab_SnapshotsActive_PushesPrefabTab_RestoresCameraEnsureSuppressed()
     {
         var h = new Harness();
         h.WorldState = 3;
@@ -240,7 +240,7 @@ public class ViewportContextStackTests
 
         Assert.Equal(1, h.Captures);              // the Scene context was snapshotted (preserved, not discarded)
         Assert.Equal(1, h.Sweeps);
-        Assert.True(h.LastRestoreSuppressedRig);  // pre-mortem #8: the prefab restore suppressed the camera rig
+        Assert.True(h.LastRestoreSuppressedCameraEnsure);  // pre-mortem #8: the prefab restore suppressed ensure-one-camera
         Assert.Equal(77, h.WorldState);           // the prefab's content was loaded
         Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
         Assert.Equal(2, h.Stack.Contexts.Count);
@@ -263,14 +263,14 @@ public class ViewportContextStackTests
     }
 
     [Fact]
-    public void SwitchToBackgroundedPrefab_RestoresRigSuppressed()
+    public void SwitchToBackgroundedPrefab_RestoresCameraEnsureSuppressed()
     {
         var h = new Harness();
         h.Stack.OpenPrefab("npc", "npc", new SceneData { Version = 77 });
         h.Stack.SwitchTo(0);                      // to the Scene (a Scene restore → rig NOT suppressed)
-        Assert.False(h.LastRestoreSuppressedRig);
-        h.Stack.SwitchTo(1);                      // back to the prefab (rig suppressed again)
-        Assert.True(h.LastRestoreSuppressedRig);
+        Assert.False(h.LastRestoreSuppressedCameraEnsure);
+        h.Stack.SwitchTo(1);                      // back to the prefab (ensure-one-camera suppressed again)
+        Assert.True(h.LastRestoreSuppressedCameraEnsure);
         Assert.Equal(ViewportContextKind.Prefab, h.Stack.ActiveKind);
     }
 

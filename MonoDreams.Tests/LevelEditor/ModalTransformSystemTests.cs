@@ -20,8 +20,9 @@ namespace MonoDreams.Tests.LevelEditor;
 /// no-ops without; mouse motion edits live; axis lock + typed value apply through the system; LMB/Enter
 /// commit = ONE undo step that undo fully reverts; RMB/Esc cancel restores the start; the confirm-click
 /// over another entity does NOT re-pick (pre-mortem #4); selection is inert while the modal owns the
-/// pointer; Escape cancels the modal; and the camera-rig composition (Grab moves the rig, Scale edits
-/// zoom, Rotate refused). Systems built headless (an injected empty keyboard seam; a real in-memory world).
+/// pointer; Escape cancels the modal; and the camera-entity composition (Grab moves it, Scale edits
+/// CameraComponent.Zoom, Rotate legal). Systems built headless (an injected empty keyboard seam; a real
+/// in-memory world).
 /// </summary>
 public class ModalTransformSystemTests
 {
@@ -267,23 +268,24 @@ public class ModalTransformSystemTests
         Assert.False(cursor.Get<CursorInputComponent>().LeftButtonPressed); // the press was consumed
     }
 
-    // ── The camera rig composes (UX2-G mapping) ────────────────────────────────────────────────────
+    // ── The camera entity composes (CM mapping) ─────────────────────────────────────────────────────
 
-    private static Entity MakeRig(World world, Vector2 pos, float zoom)
+    private static Entity MakeCamera(World world, Vector2 pos, float zoom)
     {
         var e = world.CreateEntity();
+        e.Set(new EntityInfoComponent("Camera"));
         e.Set(new TransformComponent(pos));
-        e.Set(new CameraRigComponent(zoom, 0f));
+        e.Set(new CameraComponent { Zoom = zoom });
         e.Set(new SelectedComponent());
         return e;
     }
 
     [Fact]
-    public void Rig_Grab_MovesTheRigTransform_OneUndoStep()
+    public void Camera_Grab_MovesTheCameraTransform_OneUndoStep()
     {
         using var world = new World();
         var history = new EditorHistory(world);
-        var rig = MakeRig(world, Vector2.Zero, zoom: 1f);
+        var camera = MakeCamera(world, Vector2.Zero, zoom: 1f);
         var cursor = MakeCursor(world, new Vector2(50, 50));
         var modal = NewModal(world, history);
 
@@ -292,44 +294,53 @@ public class ModalTransformSystemTests
         PressLeft(cursor);
         modal.Update(Edit());
 
-        Assert.Equal(new Vector2(12f, -3.5f), rig.Get<TransformComponent>().Position);
-        Assert.Equal(1f, rig.Get<CameraRigComponent>().Zoom); // zoom untouched by Grab
+        Assert.Equal(new Vector2(12f, -3.5f), camera.Get<TransformComponent>().Position);
+        Assert.Equal(1f, camera.Get<CameraComponent>().Zoom); // zoom untouched by Grab
         Assert.Equal(1, history.Count);
     }
 
     [Fact]
-    public void Rig_Scale_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores()
+    public void Camera_Scale_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores()
     {
         using var world = new World();
         var history = new EditorHistory(world);
-        var rig = MakeRig(world, Vector2.Zero, zoom: 1f);
+        var camera = MakeCamera(world, Vector2.Zero, zoom: 1f);
         var cursor = MakeCursor(world, new Vector2(10, 0)); // 10 units from the pivot
         var modal = NewModal(world, history);
 
         modal.Enter(EditorModalMode.Scale, Edit());
         MoveCursor(cursor, new Vector2(20, 0)); // 20 units out → factor 2 → zoom 1/2 = 0.5
         modal.Update(Edit());
-        Assert.Equal(0.5f, rig.Get<CameraRigComponent>().Zoom, 3);
-        Assert.Equal(Vector2.One, rig.Get<TransformComponent>().Scale); // Transform.Scale untouched
+        Assert.Equal(0.5f, camera.Get<CameraComponent>().Zoom, 3);
+        Assert.Equal(Vector2.One, camera.Get<TransformComponent>().Scale); // Transform.Scale untouched
 
         PressLeft(cursor);
         modal.Update(Edit());
         Assert.Equal(1, history.Count);
         history.Undo();
-        Assert.Equal(1f, rig.Get<CameraRigComponent>().Zoom, 3);
+        Assert.Equal(1f, camera.Get<CameraComponent>().Zoom, 3);
     }
 
     [Fact]
-    public void Rig_Rotate_IsRefused()
+    public void Camera_Rotate_IsLegal_RotatesTheTransform_OneUndoStep()
     {
         using var world = new World();
         var history = new EditorHistory(world);
-        MakeRig(world, Vector2.Zero, zoom: 1f);
-        MakeCursor(world, new Vector2(10, 0));
+        var camera = MakeCamera(world, Vector2.Zero, zoom: 1f);
+        var cursor = MakeCursor(world, new Vector2(10, 0));
         var modal = NewModal(world, history);
 
-        Assert.False(modal.Enter(EditorModalMode.Rotate, Edit()));
-        Assert.False(modal.IsActive);
-        Assert.False(history.InTransaction);
+        // R is LEGAL on the camera entity now (CM, pre-mortem #1) — it rotates the Transform.
+        Assert.True(modal.Enter(EditorModalMode.Rotate, Edit()));
+        Assert.True(modal.IsActive);
+
+        MoveCursor(cursor, new Vector2(0, 10)); // sweep a quarter-turn about the pivot
+        PressLeft(cursor);
+        modal.Update(Edit());
+
+        Assert.NotEqual(0f, camera.Get<TransformComponent>().Rotation);
+        Assert.Equal(1, history.Count);
+        history.Undo();
+        Assert.Equal(0f, camera.Get<TransformComponent>().Rotation, 4);
     }
 }
