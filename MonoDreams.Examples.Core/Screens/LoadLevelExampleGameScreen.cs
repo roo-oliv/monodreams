@@ -384,7 +384,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // but BEFORE any systems read world transforms (camera, rendering, etc.)
         var hierarchySystem = new HierarchySystem(_world);
 
-        var cameraFollowSystem = new CameraFollowSystem(_world, _camera);
+        // CM: follow eases the camera ENTITY (the reader ensures one exists); sync copies it into the
+        // shared Camera adapter each frame. Both Freeze in Edit (the editor owns the free view there).
+        var cameraFollowSystem = new CameraFollowSystem(_world);
+        var cameraSyncSystem = new CameraSyncSystem(_world, _camera);
 
         // Cursor position must update AFTER camera has moved to avoid 1-frame lag
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
@@ -427,7 +430,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 loadTexture: key => _content.Load<Texture2D>(key),
                 fileTextureLoader: nativeAssetTextures.Load);
             nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
-                fileTextureLoader: nativeAssetTextures.Load, prefabExpander: nativePrefabExpander);
+                fileTextureLoader: nativeAssetTextures.Load, prefabExpander: nativePrefabExpander,
+                ensureSingleCamera: true); // CM: the shipped game's booted scene always has one camera entity
         }
         // Source-first when the editor's project is resolved (UX-D pre-mortem #5): a Restart-after-Save
         // re-publishes LoadLevelRequest through this probe, and the source tree — not the stale bundle —
@@ -532,8 +536,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }
         // HierarchySystem stays LIVE in Edit (RunNormally) — editor edits propagate this frame.
         p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
-        // Camera-follow FREEZES in Edit (the editor owns the camera there).
+        // Camera-follow FREEZES in Edit (the editor owns the camera there). CameraSyncSystem copies the
+        // camera entity's pose into the adapter right after — also Freeze (in Edit the live camera is the
+        // editor's free view; syncing would clobber it — CM pre-mortem #2).
         p.Add("cameraFollow", cameraFollowSystem, EditTimeBehavior.Freeze);
+        p.Add("cameraSync", cameraSyncSystem, EditTimeBehavior.Freeze);
         if (_editor != null)
         {
             // Toolbar mesh prep + clicks (hidden in Play), the systems panel (after the toolbar,

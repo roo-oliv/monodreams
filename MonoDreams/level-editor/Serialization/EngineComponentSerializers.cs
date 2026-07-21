@@ -37,6 +37,9 @@ namespace MonoDreams.LevelEditor.Serialization;
 ///   active) plus the optional world-space clamp <c>Bounds</c> (omitted when the camera follows
 ///   freely). A player/NPC entity set by the reference factories carries it, so a migrated native
 ///   scene reconstructs its camera-follow behaviour without re-running the factory.</item>
+///   <item><c>CameraComponent</c> — the scene camera marker + zoom (CM). Position/rotation come from the
+///   entity's Transform; the camera entity is an ordinary <c>SceneObjectComponent</c> root, so it saves
+///   in <c>entities[]</c> like everything else. Exactly one per scene.</item>
 ///   <item><c>ChildOfComponent</c> — registered as the structural parent link (captured as
 ///   <see cref="SceneEntityData.Parent"/>, not a component body).</item>
 /// </list>
@@ -57,6 +60,7 @@ public static class EngineComponentSerializers
     public const string RigidBodyKey = "core.RigidBody";
     public const string VelocityKey = "core.Velocity";
     public const string CameraFollowTargetKey = "core.CameraFollowTarget";
+    public const string CameraKey = "core.Camera";
     public const string ChildOfKey = "core.ChildOf";
     public const string BoundaryKey = "core.Boundary";
 
@@ -73,6 +77,7 @@ public static class EngineComponentSerializers
         registry.Register(RigidBodyKey, typeof(RigidBodyComponent), WriteRigidBody, ReadRigidBody);
         registry.Register(VelocityKey, typeof(VelocityComponent), WriteVelocity, ReadVelocity);
         registry.Register(CameraFollowTargetKey, typeof(CameraFollowTargetComponent), WriteCameraFollowTarget, ReadCameraFollowTarget);
+        registry.Register(CameraKey, typeof(CameraComponent), WriteCamera, ReadCamera);
         registry.Register(BoundaryKey, typeof(LevelEditor.Component.BoundaryComponent), WriteBoundary, ReadBoundary);
 
         // The structural parent link is captured as SceneEntityData.Parent, not a component body —
@@ -358,6 +363,26 @@ public static class EngineComponentSerializers
             IsActive = dto.IsActive,
             Bounds = dto.Bounds is { Length: 4 } b ? new Rectangle(b[0], b[1], b[2], b[3]) : null,
         });
+    }
+
+    // ---- CameraComponent (the scene camera marker + zoom; position/rotation are on the Transform) ----
+    // The camera is an ordinary scene root: EntityInfo("Camera") + Transform + this. Only the zoom lives
+    // here — the CM one-rotation rule keeps rotation on the Transform, and the virtual resolution stays
+    // render config on the Camera adapter, never scene data. Exactly one camera entity per scene (the
+    // SceneWriter refuses a second; the SceneReaderSystem ensures one exists on load).
+
+    private sealed class CameraDto
+    {
+        [JsonPropertyName("zoom")] public float Zoom { get; set; } = 1f;
+    }
+
+    private static JsonElement WriteCamera(Entity e) =>
+        CanonicalJson.SerializeToElement(new CameraDto { Zoom = e.Get<CameraComponent>().Zoom });
+
+    private static void ReadCamera(Entity e, JsonElement json)
+    {
+        var dto = json.Deserialize<CameraDto>()!;
+        e.Set(new CameraComponent { Zoom = dto.Zoom });
     }
 
     // ---- BoundaryComponent (freeform boundary polyline; the segment colliders are baked, never serialized) ----

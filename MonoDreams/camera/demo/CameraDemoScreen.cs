@@ -123,6 +123,10 @@ public class CameraDemoScreen : IGameScreen
 
     private ScreenController? _screenController;
     private Entity _ball;
+    // The scene camera ENTITY (CM): CameraFollowSystem eases it, CameraSyncSystem copies it into the
+    // shared Camera adapter each frame. The demo builds its world in code (no scene load), so it creates
+    // this itself instead of relying on the reader's ensure.
+    private Entity _cameraEntity;
     private Entity _cameraAnchor;
     private Entity _lerpToggle;
     private Entity _targetCross;
@@ -223,6 +227,8 @@ public class CameraDemoScreen : IGameScreen
     /// re-key their entries in place, so a rebuild leaves no stale handles.</summary>
     private void BuildContent()
     {
+        EnsureDemoCamera();
+
         _cameraAnchor = _world.CreateEntity();
         _cameraAnchor.Set(new TransformComponent(Vector2.Zero));
 
@@ -238,6 +244,20 @@ public class CameraDemoScreen : IGameScreen
         BuildHud(_content);
 
         SetMode(_mode);
+    }
+
+    /// <summary>Ensures the demo has exactly one camera ENTITY (CM), created from the current adapter
+    /// pose. Idempotent — a rebuild re-keys the field to the surviving camera rather than duplicating it.
+    /// <c>CameraFollowSystem</c> eases this entity; <c>CameraSyncSystem</c> copies it into the adapter.</summary>
+    private void EnsureDemoCamera()
+    {
+        using (var set = _world.GetEntities().With<CameraComponent>().AsSet())
+            foreach (var e in set.GetEntities()) { _cameraEntity = e; return; }
+
+        _cameraEntity = _world.CreateEntity();
+        _cameraEntity.Set(new EntityInfoComponent("Camera"));
+        _cameraEntity.Set(new TransformComponent(_camera.Position));
+        _cameraEntity.Set(new CameraComponent { Zoom = _camera.Zoom });
     }
 
     // ─── public bridges for the keyboard system ───────────────────────────────
@@ -276,7 +296,10 @@ public class CameraDemoScreen : IGameScreen
             ApplyDampingTo(_cameraAnchor);
             ReparentTargetCross(_cameraAnchor);
 
-            if (!_lerpSmooth) _camera.Position = anchorTransform.Position;
+            // Instant mode: snap the camera ENTITY (CameraSyncSystem then pushes it to the adapter) —
+            // CameraFollowSystem with instant damping keeps it there each frame (CM).
+            if (!_lerpSmooth && _cameraEntity.IsAlive)
+                _cameraEntity.Get<TransformComponent>().Position = anchorTransform.Position;
         }
     }
 
@@ -306,7 +329,8 @@ public class CameraDemoScreen : IGameScreen
         if (_cameraAnchor.Has<CameraFollowTargetComponent>())
         {
             ApplyDampingTo(_cameraAnchor);
-            if (!_lerpSmooth) _camera.Position = _cameraAnchor.Get<TransformComponent>().Position;
+            if (!_lerpSmooth && _cameraEntity.IsAlive)
+                _cameraEntity.Get<TransformComponent>().Position = _cameraAnchor.Get<TransformComponent>().Position;
         }
     }
 
@@ -943,9 +967,11 @@ public class CameraDemoScreen : IGameScreen
         // they would fight the editor's pan/zoom every frame.
         p.AddGroup("cameraFollow", EditTimeBehavior.Freeze, g =>
         {
-            g.Add("follow", new CameraFollowSystem(_world, _camera));
-            // Runs after the follow system so it reads this frame's resolved
-            // camera position when measuring the lag behind the red dot.
+            // CM: follow eases the camera ENTITY, then sync copies it into the shared Camera adapter.
+            g.Add("follow", new CameraFollowSystem(_world));
+            g.Add("sync", new CameraSyncSystem(_world, _camera));
+            // Runs after the sync so it reads this frame's resolved camera position (the synced adapter)
+            // when measuring the lag behind the red dot, and its zoom write survives the sync.
             g.Add("lagZoom", new CameraLagZoomSystem(_world, _camera, this));
         });
         if (_editor != null)
@@ -1251,11 +1277,12 @@ public class CameraLagZoomSystem : ISystem<GameState>
 /// nothing fires on load.
 ///
 /// It runs last in the update pipeline and writes <c>Camera.Position</c> / <c>Camera.Rotation</c>
-/// after <see cref="CameraFollowSystem"/> — the documented composable pattern (the camera
-/// overview's extension points: "write to the same Camera … last-write-wins per frame").
-/// To keep the jolt from bleeding into the smoothed follow path (the follow system lerps
-/// from <c>Camera.Position</c>), each frame it subtracts the offset and rotation it layered
-/// on last frame to recover the clean base, then re-applies fresh ones on top.
+/// after <c>CameraSyncSystem</c> — the documented composable pattern (the camera overview's extension
+/// points: "write to the same Camera … last-write-wins per frame"). Under the camera-as-entity model
+/// (CM) it simply ADDS its transient shake offset onto the synced clean base each frame: the sync
+/// re-copies the camera ENTITY's clean pose into the adapter every frame (removing last frame's shake),
+/// and <see cref="CameraFollowSystem"/> smooths from the ENTITY (never the shaken adapter), so the jolt
+/// can never bleed into the follow path — no peel-off needed.
 public class CameraHitSystem : ISystem<GameState>
 {
     // Peak positional offset in world units — kept small so the shake reads as a jolt.
@@ -1272,8 +1299,6 @@ public class CameraHitSystem : ISystem<GameState>
     private readonly CameraDemoScreen _screen;
     private readonly Random _rng = new();
 
-    private Vector2 _appliedOffset = Vector2.Zero;
-    private float _appliedRotation;
     private float _shakeTrauma;     // right square
     private float _rotateTrauma;    // left square
     private float _rotatePhase;     // seconds since the last left hit, for the cosine
@@ -1319,12 +1344,11 @@ public class CameraHitSystem : ISystem<GameState>
             ? 0f
             : MaxRotation * _rotateTrauma * _rotateTrauma * MathF.Cos(RotateAngularFreq * _rotatePhase);
 
-        // Peel off last frame's own contribution before re-applying, so neither the shake
-        // nor the rotation accumulates into the transform CameraFollowSystem smooths from.
-        _camera.Position = (_camera.Position - _appliedOffset) + offset;
-        _appliedOffset = offset;
-        _camera.Rotation = (_camera.Rotation - _appliedRotation) + angle;
-        _appliedRotation = angle;
+        // Add the transient jolt onto the synced clean base (CM): CameraSyncSystem re-copies the camera
+        // entity's clean pose into the adapter each frame, so there is nothing to peel off, and the follow
+        // (which smooths from the ENTITY) never sees the shake.
+        _camera.Position += offset;
+        _camera.Rotation += angle;
 
         _screen.UpdateHitSquareBlinks(state.Time);
     }

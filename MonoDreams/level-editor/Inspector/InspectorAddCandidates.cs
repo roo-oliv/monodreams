@@ -30,6 +30,9 @@ public static class InspectorAddCandidates
     ///   collider ENTITY now (colliders-as-entities); a collider is authored via <b>Add Collider ▸ Box /
     ///   Polygon</b> (the entity/Entity-header menu + the toolbar), which creates a footprint-shaped CHILD
     ///   collider entity — not a component the Inspector force-adds to an arbitrary entity.</item>
+    ///   <item><c>CameraComponent</c> — a scene has exactly ONE camera entity (CM one-camera rule); the
+    ///   reader ensures it exists, so it is never force-added to an arbitrary entity (a second camera would
+    ///   be refused by the writer anyway).</item>
     /// </list>
     /// </summary>
     public static readonly IReadOnlySet<Type> NeverAddable = new HashSet<Type>
@@ -38,6 +41,7 @@ public static class InspectorAddCandidates
         typeof(BoundaryComponent),
         typeof(MonoDreams.Component.Collision.BoxColliderComponent),
         typeof(MonoDreams.Component.Collision.ConvexColliderComponent),
+        typeof(MonoDreams.Component.CameraComponent),
     };
 
     /// <summary>One addable component: the registry <see cref="Key"/> (the id an add op / menu path
