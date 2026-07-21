@@ -103,10 +103,10 @@ public static class EditorTheme
     public static readonly Color OverlayBoundary = Color.Aqua;
     /// <summary>The in-progress boundary lay preview line.</summary>
     public static readonly Color OverlayBoundaryPreview = Color.Orange;
-    /// <summary>The authored game-camera rig's frustum glyph (bounds + X) — UX2-E. A cool
-    /// light-steel-blue, distinct from the warm props and the other overlay accents (cyan proxy /
-    /// yellow selection / aqua boundary), so "the camera is over there" reads at a glance. A NEW role
-    /// (no pre-theme value to preserve), authored here like every other overlay color.</summary>
+    /// <summary>The scene camera entity's frustum glyph (bounds + X) — CM. A cool light-steel-blue,
+    /// distinct from the warm props and the other overlay accents (cyan proxy / yellow selection / aqua
+    /// boundary), so "the camera is over there" reads at a glance. A NEW role (no pre-theme value to
+    /// preserve), authored here like every other overlay color.</summary>
     public static readonly Color CameraGlyph = new(158, 190, 228);
     /// <summary>The world-space reference grid's MINOR lines (UX3-D §3) — a subtle warm dark that
     /// reads under content (drawn beneath everything at <see cref="Depths.Grid"/>). Between
@@ -165,8 +165,8 @@ public static class EditorTheme
         public const float Grid = 0.01f;
         /// <summary>Collider-proxy outlines — beneath the gizmo and the opaque panels.</summary>
         public const float ProxyOverlay = 0.02f;
-        /// <summary>The camera-rig frustum glyph (UX2-E) — above the proxy outlines, below the gizmo
-        /// handles so the rig's move handle draws over its own frustum when the rig is selected.</summary>
+        /// <summary>The camera-entity frustum glyph (CM) — above the proxy outlines, below the gizmo
+        /// handles so the camera's move handle draws over its own frustum when it is selected.</summary>
         public const float CameraGlyph = 0.03f;
         /// <summary>Gizmo handles + selection outline — just above the proxy band.</summary>
         public const float GizmoOverlay = 0.04f;

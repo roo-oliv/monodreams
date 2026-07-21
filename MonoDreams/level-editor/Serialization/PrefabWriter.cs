@@ -19,9 +19,9 @@ namespace MonoDreams.LevelEditor.Serialization;
 ///   <c>[0,0]</c> (children keep their LOCAL offsets, since <c>TransformComponent.Position</c> is
 ///   parent-relative), so the prefab is placement-agnostic and an instance's own Transform is the only
 ///   thing that positions it.</item>
-///   <item><b>No <c>camera</c></b> — a prefab is a class, not a scene; any camera state is dropped
-///   (pre-mortem #8: the rig is scene-context-only, so a well-formed prefab world has none, but this
-///   is belt-and-suspenders).</item>
+///   <item><b>No camera</b> — a prefab is a class, not a scene; a camera entity inside one is refused
+///   (pre-mortem #8: a camera in a prefab is multi-camera terrain — see camera "Exactly one camera
+///   entity per scene").</item>
 ///   <item><b>No cycles</b> — a prefab that (directly or transitively) contains an instance of itself
 ///   is refused at save (pre-mortem #7); expansion additionally caps depth at load.</item>
 /// </list>

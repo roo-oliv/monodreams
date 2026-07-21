@@ -34,7 +34,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     private readonly ProxySyncSystem _proxySync;
     private readonly BoundaryToolSystem? _boundary;
     private readonly TriggerOverlaySystem? _triggers;
-    private readonly EditorCameraRig? _cameraRig;
+    private readonly CameraEntityOverlay? _cameraOverlay;
     private readonly EditorGrid? _grid;
 
     public bool IsEnabled { get; set; } = true;
@@ -45,20 +45,20 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     /// <param name="triggers">Optional trigger overlay (Slice 3): its
     /// <see cref="TriggerOverlaySystem.EmitOverlays"/> bakes trigger-zone outlines + the placement
     /// ghost.</param>
-    /// <param name="cameraRig">Optional camera rig (UX2-E): its <see cref="EditorCameraRig.EmitGlyph"/>
-    /// bakes the authored-camera frustum glyph (bounds + X) into this same pass when the view differs
-    /// from the rig.</param>
+    /// <param name="cameraOverlay">Optional camera-entity overlay (CM): its
+    /// <see cref="CameraEntityOverlay.EmitGlyph"/> bakes the scene camera's frustum glyph (bounds + X)
+    /// into this same pass when the view differs from the camera entity.</param>
     /// <param name="grid">Optional world-space grid (UX3-D): its <see cref="EditorGrid.EmitGrid"/> bakes
     /// the reference grid into this same pass, BENEATH the other overlays (lowest overlay depth).</param>
     public EditorOverlayPrepSystem(GizmoSystem gizmo, ProxySyncSystem proxySync,
         BoundaryToolSystem? boundary = null, TriggerOverlaySystem? triggers = null,
-        EditorCameraRig? cameraRig = null, EditorGrid? grid = null)
+        CameraEntityOverlay? cameraOverlay = null, EditorGrid? grid = null)
     {
         _gizmo = gizmo ?? throw new ArgumentNullException(nameof(gizmo));
         _proxySync = proxySync ?? throw new ArgumentNullException(nameof(proxySync));
         _boundary = boundary;
         _triggers = triggers;
-        _cameraRig = cameraRig;
+        _cameraOverlay = cameraOverlay;
         _grid = grid;
     }
 
@@ -71,7 +71,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
         _proxySync.EmitOverlays(state);
         _boundary?.EmitOverlays(state);
         _triggers?.EmitOverlays(state);
-        _cameraRig?.EmitGlyph(state);
+        _cameraOverlay?.EmitGlyph(state);
     }
 
     public void Dispose()

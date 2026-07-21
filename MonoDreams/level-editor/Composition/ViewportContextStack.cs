@@ -33,7 +33,7 @@ namespace MonoDreams.LevelEditor.Composition;
 ///
 /// <para><b>The Game tab (the discard consumer).</b> <see cref="EnterGame"/> snapshots the active scene
 /// context (the restore point), records its <see cref="GameOriginIndex"/>, adopts the game-camera view
-/// (<see cref="SnapViewToRig"/>), and pushes a discard Game context <b>keeping the live world as the
+/// (<see cref="SnapViewToCameraEntity"/>), and pushes a discard Game context <b>keeping the live world as the
 /// sandbox</b> (NO sweep on enter). Leaving the Game tab is an ordinary <see cref="SwitchTo"/> back to its
 /// origin scene context: because the Game context <see cref="ViewportContext.IsDiscard"/>, it is NEVER
 /// re-snapshotted and is dropped from the strip afterward. Discard semantics survive VERBATIM.</para>
@@ -102,11 +102,12 @@ public sealed class ViewportContextStack
     // ─── Seams (wired by the overlay, or the transport's forwarding facade) ─────────────────────────
 
     /// <summary>Builds the in-memory snapshot of the active context (<c>SceneWriter.BuildScene(world,
-    /// rig.AsCamera(), layers)</c> — a <see cref="SceneData"/>, no file I/O). Null disables snapshotting.</summary>
+    /// layers)</c> — a <see cref="SceneData"/>, no file I/O; the camera rides the snapshot like any
+    /// entity). Null disables snapshotting.</summary>
     public Func<SceneData>? CaptureSnapshot { get; set; }
 
     /// <summary>Restores a snapshot THROUGH THE READER (an in-memory <c>LoadSceneRequest(SceneData)</c>),
-    /// so re-tag / texture rehydration / <c>DrawComponent</c> restore / camera-rig re-sync are shared
+    /// so re-tag / texture rehydration / <c>DrawComponent</c> restore / ensure-one-camera are shared
     /// with the file load path (pre-mortem #2 — the reader is the ONE restore implementation).</summary>
     public Action<SceneData>? RestoreSnapshot { get; set; }
 
@@ -117,9 +118,9 @@ public sealed class ViewportContextStack
     /// auto-frame, so the captured view wins — but only when it is <see cref="CameraViewSnapshot.IsValid"/>).</summary>
     public Action<CameraViewSnapshot>? RestoreView { get; set; }
 
-    /// <summary>Snaps the free VIEW onto the camera rig (<c>Camera := rig state</c>) — the game-camera
-    /// view adopted on Game-tab entry.</summary>
-    public Action? SnapViewToRig { get; set; }
+    /// <summary>Snaps the free VIEW onto the scene camera entity (<c>Camera := camera-entity state</c>) —
+    /// the game-camera view adopted on Game-tab entry.</summary>
+    public Action? SnapViewToCameraEntity { get; set; }
 
     /// <summary>Disposes the scene entities (the transport's survivor-sparing sweep — editor
     /// infrastructure / cursor / <c>KeepAlive</c> survive). Injected by the transport.</summary>
@@ -142,8 +143,8 @@ public sealed class ViewportContextStack
     /// <summary>
     /// True for the exact duration of a <b>prefab-context</b> reader restore (PF-D, pre-mortem #8): the
     /// overlay's <see cref="RestoreSnapshot"/> reads it to publish the in-memory
-    /// <c>LoadSceneRequest</c> with <c>SuppressCameraRig</c> set, so a prefab tab's content-load never
-    /// syncs the camera rig (a prefab has none — a rig sync would corrupt the scene's authored camera).
+    /// <c>LoadSceneRequest</c> with <c>SuppressCameraEnsure</c> set, so a prefab tab's content-load never
+    /// creates a default camera (a prefab has none — a camera inside a prefab is multi-camera terrain).
     /// </summary>
     public bool RestoringPrefabContext { get; private set; }
 
@@ -272,7 +273,7 @@ public sealed class ViewportContextStack
         if (ActiveKind == ViewportContextKind.Game) return; // one snapshot per Game-mode session
         _gameOrigin = _activeIndex;                          // the scene tab to restore on exit
         SnapshotActive();                                    // snapshot the origin scene — the restore point
-        SnapViewToRig?.Invoke();                             // Camera := rig (the authored game-camera view)
+        SnapViewToCameraEntity?.Invoke();                    // Camera := camera entity (the game-camera view)
         _contexts.Add(new ViewportContext(ViewportContextKind.Game, Active.Id, "Game",
             closable: true, isDiscard: true));
         _activeIndex = _contexts.Count - 1;
@@ -300,7 +301,7 @@ public sealed class ViewportContextStack
         // instead of a blank screen. A Prefab target is isolated (only the prefab shows), so skip it.
         if (target.Kind != ViewportContextKind.Prefab) RebuildCodeContent?.Invoke();
 
-        // A prefab target restores WITHOUT the camera rig (PF-D, pre-mortem #8 — it has none).
+        // A prefab target restores WITHOUT ensuring a camera (PF-D, pre-mortem #8 — a prefab has none).
         RestoringPrefabContext = target.Kind == ViewportContextKind.Prefab;
         if (target.Snapshot != null) RestoreSnapshot?.Invoke(target.Snapshot); // through the reader (shared path)
         RestoringPrefabContext = false;
@@ -372,7 +373,7 @@ public sealed class ViewportContextStack
             closable: true, isDiscard: false);
         _contexts.Add(ctx);
 
-        // Load the prefab's entities through the reader with the rig suppressed + view auto-framed.
+        // Load the prefab's entities through the reader with ensure-one-camera suppressed + view auto-framed.
         RestoringPrefabContext = true;
         RestoreSnapshot?.Invoke(prefabScene);
         RestoringPrefabContext = false;

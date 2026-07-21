@@ -8,7 +8,7 @@ namespace MonoDreams.LevelEditor.Transform;
 /// The pure, GraphicsDevice-free planning behind the editor's world-space reference grid (UX3-D §3) —
 /// separated from <c>EditorGrid</c> (which owns the mesh entity + the world/projection emission) so the
 /// line placement and the <b>bounded vertex count</b> (pre-mortem #5) are directly unit-testable.
-/// Mirrors the <c>CameraNav</c> / <c>GizmoTransform</c> / <c>CameraRigGlyph</c> split.
+/// Mirrors the <c>CameraNav</c> / <c>GizmoTransform</c> / <c>CameraEntityGlyph</c> split.
 ///
 /// <para><b>Anchoring + cadence.</b> A grid line sits at every integer multiple <c>k · spacing</c> of
 /// the spacing that falls inside the visible world AABB. A line is <b>major</b> (drawn stronger) iff its

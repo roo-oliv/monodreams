@@ -73,7 +73,7 @@ namespace MonoDreams.LevelEditor.System;
 /// later-seen entity, which an undisturbed scene renders last. See <see cref="PickTopmost(int,float,int,bool,int,float,int)"/>.</para>
 ///
 /// <para><b>Spriteless entities join the SAME pick, as border-only candidates.</b> A collider
-/// ENTITY (colliders-as-entities), a boundary, the camera rig, and the surviving sub-element
+/// ENTITY (colliders-as-entities), a boundary, the camera entity, and the surviving sub-element
 /// proxies (vertex/thickness handles) carry no pickable <c>SpriteInfoComponent</c>, so each is
 /// folded into the pick as a second candidate source with the SAME rank + depth + id ordering
 /// (never a second pick path): rank = Main (world-space outlines), depth =
@@ -128,7 +128,7 @@ public sealed class SelectionSystem : ISystem<GameState>
     private readonly EntitySet _boxColliderSet;
     private readonly EntitySet _convexColliderSet;
     private readonly EntitySet _boundarySet;
-    private readonly EntitySet _cameraRigSet;
+    private readonly EntitySet _cameraSet;
     private readonly EntitySet _buttonSet;
     private readonly EntitySet _gizmoStateSet;
     private int _nextEditorId;
@@ -166,7 +166,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
         _proxySet = world.GetEntities()
             .With<GizmoProxyComponent>().With<TransformComponent>().With<DrawComponent>().AsSet();
-        // Collider ENTITIES are spriteless — they border-pick on their world shape (the camera-rig
+        // Collider ENTITIES are spriteless — they border-pick on their world shape (the camera-entity
         // precedent). Queried by the SHAPE component (not ColliderTagComponent, which is only
         // auto-applied when a detection system is composed — absent in a selection-only editor / a
         // bare unit test), so a collider entity is always pickable.
@@ -176,10 +176,12 @@ public sealed class SelectionSystem : ISystem<GameState>
             .With<ConvexColliderComponent>().With<TransformComponent>().AsSet();
         _boundarySet = world.GetEntities()
             .With<BoundaryComponent>().With<TransformComponent>().AsSet();
-        _cameraRigSet = world.GetEntities()
-            .With<CameraRigComponent>().With<TransformComponent>().AsSet();
+        // The camera ENTITY is spriteless — it border-picks on its frustum world-rect (CM: an ordinary
+        // scene entity now, not an editor rig; queried by CameraComponent).
+        _cameraSet = world.GetEntities()
+            .With<CameraComponent>().With<TransformComponent>().AsSet();
         // Menu buttons are SimpleButtonComponent meshes with NO SpriteInfoComponent, so they join the
-        // pick as their own candidate source (like colliders / the rig). Queried by the component; the
+        // pick as their own candidate source (like colliders / the camera). Queried by the component; the
         // Editor-target + EditorInfrastructureComponent gate in EvaluateButtonCandidates keeps the
         // editor's own chrome buttons out.
         _buttonSet = world.GetEntities()
@@ -272,7 +274,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         EvaluateProxyCandidates();
         EvaluateColliderCandidates();
         EvaluateBoundaryCandidates();
-        EvaluateCameraRigCandidate();
+        EvaluateCameraCandidate();
         EvaluateButtonCandidates();
 
         hit = _best;
@@ -303,7 +305,7 @@ public sealed class SelectionSystem : ISystem<GameState>
     /// the whole instance's editable <b>ROOT</b> (<see cref="PrefabGuards.InstanceRootOf"/>), so clicking
     /// anywhere on a placed instance selects — and thus moves / rotates / scales — the instance rather than
     /// its prefab-owned child (whose edits the PF-D guardrail refuses). A pick on a plain entity, an
-    /// instance root itself, or a non-child candidate (a collider proxy, a boundary, the camera rig) is
+    /// instance root itself, or a non-child candidate (a collider proxy, a boundary, the camera entity) is
     /// returned unchanged. The <b>Entities tree</b> deliberately does NOT route through here: it selects a
     /// child directly for inspection (edits still refused with the status hint). Shared by this system's
     /// left/right viewport press and the overlay's <c>menu:open viewport</c> op — the two viewport picks.
@@ -384,7 +386,7 @@ public sealed class SelectionSystem : ISystem<GameState>
     /// <summary>
     /// Folds collider ENTITIES (colliders-as-entities) into the pick: a click within the border
     /// tolerance of a collider's world shape (box corners or convex world vertices) selects the
-    /// collider entity itself — the camera-rig precedent for a spriteless first-class entity (rank
+    /// collider entity itself — like the camera entity, a spriteless first-class entity (rank
     /// Main; depth <see cref="ProxyBorderPickDepth"/> — the same on-top rank the old collider proxy
     /// had; id the shared tiebreak). It is a <b>border-only</b> candidate — a collider covering a
     /// sprite never shadows the sprite (click the outline to grab the collider, click inside to pick
@@ -467,33 +469,33 @@ public sealed class SelectionSystem : ISystem<GameState>
     }
 
     /// <summary>
-    /// Folds the camera RIG (UX2-E) into the pick: a click within the border tolerance of the authored
-    /// camera's frustum world-rect selects the rig entity (rank Main; depth
+    /// Folds the camera ENTITY (CM) into the pick: a click within the border tolerance of the scene
+    /// camera's frustum world-rect selects the camera entity (rank Main; depth
     /// <see cref="ProxyBorderPickDepth"/> — the same on-top rank a proxy/boundary border has; id the
-    /// shared tiebreak). Like a collider proxy it is a <b>border-only</b> candidate — the frustum's fill
-    /// never shadows a sprite under it. Skipped when no camera is available (the frustum world-rect needs
-    /// the camera's virtual resolution). The rig is then moved by the ordinary gizmo (a
-    /// <c>TransformEditCommand</c> on its own transform) — it is a first-class selectable entity, not a
-    /// collider proxy, so it needs no <c>ProxyBindingKind</c>.
+    /// shared tiebreak). The camera is an ordinary spriteless scene entity now, so it border-picks on its
+    /// frustum exactly like a collider entity — a <b>border-only</b> candidate (the frustum's fill never
+    /// shadows a sprite under it). Skipped when no camera is available (the frustum world-rect needs the
+    /// view's virtual resolution). The camera is then moved/rotated by the ordinary gizmo (a
+    /// <c>TransformEditCommand</c>) and Scale→Zoom, so it needs no <c>ProxyBindingKind</c>.
     /// </summary>
-    private void EvaluateCameraRigCandidate()
+    private void EvaluateCameraCandidate()
     {
         if (_camera == null) return;
         var invZoom = _camera.Zoom > 0f ? 1f / _camera.Zoom : 1f;
         var tolerance = ProxyBorderPickTolerancePixels * invZoom;
         var rank = TargetRank(RenderTargetID.Main); // the frustum is a world-space outline on Main
 
-        foreach (var rig in _cameraRigSet.GetEntities())
+        foreach (var camera in _cameraSet.GetEntities())
         {
-            if (!rig.IsAlive) continue;
-            var corners = CameraRigGlyph.FrustumWorldCorners(
-                rig.Get<TransformComponent>().Position, rig.Get<CameraRigComponent>().Zoom,
+            if (!camera.IsAlive) continue;
+            var corners = CameraEntityGlyph.FrustumWorldCorners(
+                camera.Get<TransformComponent>().WorldPosition, camera.Get<CameraComponent>().Zoom,
                 _camera.VirtualWidth, _camera.VirtualHeight);
             if (!ProxyGeometry.BorderContains(corners, _worldPoint, tolerance)) continue;
 
-            if (!rig.Has<EditorIdComponent>())
-                rig.Set(new EditorIdComponent(_nextEditorId++));
-            var id = rig.Get<EditorIdComponent>().Id;
+            if (!camera.Has<EditorIdComponent>())
+                camera.Set(new EditorIdComponent(_nextEditorId++));
+            var id = camera.Get<EditorIdComponent>().Id;
 
             if (Beats(rank, ProxyBorderPickDepth, id, _hasBest, _bestRank, _bestDepth, _bestId))
             {
@@ -501,7 +503,7 @@ public sealed class SelectionSystem : ISystem<GameState>
                 _bestRank = rank;
                 _bestDepth = ProxyBorderPickDepth;
                 _bestId = id;
-                _best = rig;
+                _best = camera;
             }
         }
     }
@@ -642,7 +644,7 @@ public sealed class SelectionSystem : ISystem<GameState>
         _boxColliderSet.Dispose();
         _convexColliderSet.Dispose();
         _boundarySet.Dispose();
-        _cameraRigSet.Dispose();
+        _cameraSet.Dispose();
         _buttonSet.Dispose();
         _gizmoStateSet.Dispose();
     }

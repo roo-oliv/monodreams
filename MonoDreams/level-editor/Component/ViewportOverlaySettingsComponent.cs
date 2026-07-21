@@ -5,7 +5,7 @@ namespace MonoDreams.LevelEditor.Component;
 /// The editor's per-session <b>viewport-overlay settings</b> (UX3-D §3) — pure data on a standalone
 /// editor-state entity (tagged <c>EditorInfrastructureComponent</c> so it survives a transport
 /// Restart). Drives the Overlays dropdown menu and the overlay emit passes: whether the world grid,
-/// the selection outline, and the camera-rig glyph are shown.
+/// the selection outline, and the camera-entity glyph are shown.
 ///
 /// <para><b>Grid spacing is deliberately NOT here.</b> The engine has ONE grid quantum — the gizmo's
 /// snap step, <see cref="GizmoStateComponent.GridStep"/>. The displayed grid MUST be the grid things
@@ -26,9 +26,9 @@ public struct ViewportOverlaySettingsComponent
     /// Gating this off suppresses only the outline VISUAL — selection itself is unaffected.</summary>
     public bool OutlineSelected;
 
-    /// <summary>Whether the authored camera-rig frustum glyph is shown (default <b>on</b>). Off hides
-    /// the glyph entirely; the view/rig divergence rule (glyph shows only while they differ) applies
-    /// only while this is on.</summary>
+    /// <summary>Whether the scene camera's frustum glyph is shown (default <b>on</b>). Off hides the glyph
+    /// entirely; the view/camera divergence rule (glyph shows only while they differ) applies only while
+    /// this is on.</summary>
     public bool ShowCameraGlyph;
 
     /// <summary>The session defaults: grid OFF (current look), outline ON, camera glyph ON.</summary>

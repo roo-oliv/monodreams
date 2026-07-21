@@ -67,7 +67,6 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     private readonly Func<string, Texture2D> _loadTexture;
     private readonly Func<string, Texture2D?>? _fileTextureLoader;
     private readonly Camera? _camera;
-    private readonly Action<SceneCameraData?>? _applyCameraToRig;
     private readonly PrefabExpander? _prefabExpander;
     private readonly bool _ensureSingleCamera;
 
@@ -88,21 +87,19 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// <c>FileAssetTextureLoader.Load</c>, which returns a visible magenta placeholder (with a loud
     /// warning) for a missing file so the entity is never silently invisible.
     /// <paramref name="camera"/> (optional; the overlay supplies the screen's live camera / VIEW)
-    /// positions that VIEW on load; null (the pure round-trip tests) skips all camera positioning.
-    /// <paramref name="applyCameraToRig"/> (optional; the editor overlay wires it to
-    /// <c>EditorCameraRig.SyncFromScene</c>) is the <b>editor rig seam</b>: when present it hands the
-    /// loaded <c>scene.camera</c> to the rig (the authored game-camera state lives on the rig), and the
-    /// live VIEW is auto-framed on the content so the designer sees the scene regardless of where the
-    /// authored camera sits (UX2-E). When ABSENT (a shipped game — no editor overlay), there is no rig
-    /// and the live camera IS the authored camera: <c>scene.camera</c> is applied to it directly (or, for
-    /// a legacy camera-less scene, the camera auto-frames on content, byte-identical to pre-UX2-E).
+    /// auto-frames that VIEW on the loaded content so it is visible on load; null (the pure round-trip
+    /// tests) skips all camera positioning. The authored camera is a scene ENTITY now (CM): it rides the
+    /// serialized <c>entities[]</c> like everything else, so there is no camera-block seam — in Play
+    /// <c>CameraSyncSystem</c> drives the VIEW from that entity, and in Edit the VIEW stays the editor's
+    /// free camera (this framing just centres it on load).
     /// </summary>
     /// <param name="ensureSingleCamera">When true (the editor + shipped game readers — CM), a loaded scene
     /// with NO <c>core.Camera</c> entity gets a default one created post-load
     /// (<c>EntityInfo("Camera")</c> + Transform positioned by the auto-frame math + <c>core.Camera</c>,
     /// <c>SceneObjectComponent</c>-tagged so it saves). Idempotent (a scene that already has one is left
-    /// alone), and never applied to a prefab context (a prefab has no camera). Left <c>false</c> on the
-    /// pure round-trip test path so serialization-fidelity tests round-trip exactly what they wrote.</param>
+    /// alone), and never applied to a prefab context (a prefab has no camera — see
+    /// <see cref="LoadSceneRequest.SuppressCameraEnsure"/>). Left <c>false</c> on the pure round-trip test
+    /// path so serialization-fidelity tests round-trip exactly what they wrote.</param>
     public SceneReaderSystem(
         World world,
         SceneSerializer serializer,
@@ -110,7 +107,6 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         Func<string, Texture2D>? loadTexture = null,
         Func<string, Texture2D?>? fileTextureLoader = null,
         Camera? camera = null,
-        Action<SceneCameraData?>? applyCameraToRig = null,
         PrefabExpander? prefabExpander = null,
         bool ensureSingleCamera = false)
     {
@@ -120,7 +116,6 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         _loadTexture = loadTexture ?? (key => _content.Load<Texture2D>(key));
         _fileTextureLoader = fileTextureLoader;
         _camera = camera;
-        _applyCameraToRig = applyCameraToRig;
         _prefabExpander = prefabExpander;
         _ensureSingleCamera = ensureSingleCamera;
         _world.Subscribe<LoadSceneRequest>(On);
@@ -137,7 +132,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         if (message.Scene is { } inMemory)
         {
             Logger.Info("[level-editor] Restoring scene from an in-memory snapshot (no file read).");
-            Load(inMemory, "<in-memory>", message.SuppressCameraRig);
+            Load(inMemory, "<in-memory>", message.SuppressCameraEnsure);
             return;
         }
 
@@ -177,7 +172,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             throw;
         }
 
-        Load(scene, path, message.SuppressCameraRig);
+        Load(scene, path, message.SuppressCameraEnsure);
     }
 
     /// <summary>
@@ -185,11 +180,11 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// implementation shared by the file path and the UX2-F in-memory snapshot restore
     /// (<see cref="LoadSceneRequest(SceneData)"/>): two-pass create + deserialize + wire-parents
     /// (from components, not factories), re-tag roots, rehydrate textures (content AND <c>file:</c>
-    /// keys), restore the transient <c>DrawComponent</c>, then route <c>scene.camera</c> to the rig /
-    /// view. Throws loud on an unregistered component key. <paramref name="pathForLogging"/> only names
-    /// the source in the log line.
+    /// keys), restore the transient <c>DrawComponent</c>, auto-frame the VIEW on the content, then ensure
+    /// exactly one camera ENTITY. Throws loud on an unregistered component key.
+    /// <paramref name="pathForLogging"/> only names the source in the log line.
     /// </summary>
-    private void Load(SceneData scene, string pathForLogging, bool suppressCameraRig = false)
+    private void Load(SceneData scene, string pathForLogging, bool suppressCameraEnsure = false)
     {
         try
         {
@@ -209,12 +204,12 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
             RestoreDrawComponents(created);
 
-            ApplyCamera(scene, created, suppressCameraRig);
+            FrameViewOnLoad(created);
 
             // CM one-camera rule: a real scene load ensures exactly one camera ENTITY exists (idempotent).
             // Skipped for a prefab context (a prefab is a class, has no camera — pre-mortem #8) and on the
             // pure round-trip path (ensureSingleCamera false → serialization-fidelity tests are untouched).
-            if (_ensureSingleCamera && !suppressCameraRig)
+            if (_ensureSingleCamera && !suppressCameraEnsure)
                 EnsureCameraEntity(created);
 
             SceneWasLoaded = true; // a real load happened → the empty-save guard now permits an empty save
@@ -341,95 +336,18 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         SceneRehydration.RestoreDrawComponents(entities);
 
     /// <summary>
-    /// Routes the loaded <c>scene.camera</c> and positions the camera on load — the view/camera split
-    /// (UX2-E). The persisted form stays <c>scene.camera</c>; who consumes it depends on whether the
-    /// editor is composed:
-    /// <list type="bullet">
-    ///   <item><b>Editor present</b> (<see cref="_applyCameraToRig"/> wired): the authored camera goes
-    ///   to the <b>rig</b> (the seam), and the free <b>VIEW</b> (the live <see cref="Camera"/>)
-    ///   auto-frames on the content so the designer sees the scene regardless of where the authored
-    ///   camera sits. The rig holds the authored state; the glyph shows it when the view differs.</item>
-    ///   <item><b>Shipped</b> (no rig seam): the live camera IS the authored camera. When
-    ///   <c>scene.camera</c> is present it is applied to the camera directly (respecting the authored
-    ///   view); a legacy camera-less scene auto-frames on content — byte-identical to pre-UX2-E.</item>
-    /// </list>
-    /// In BOTH cases the camera is left untouched when a null camera was supplied (a pure round-trip
-    /// test, or the reference shipped reader that relies on <c>CameraFollowSystem</c>) or an <b>active</b>
-    /// <see cref="CameraFollowTargetComponent"/> is present (<c>CameraFollowSystem</c> owns the camera in
-    /// Play — the reader must not fight it).
-    ///
-    /// <para><b>Null-camera rig default (UX3-A).</b> The rig sync is deliberately sequenced <b>after</b>
-    /// the view is framed on content, so a scene that persists <c>camera: null</c> (every pre-UX2-E
-    /// scene — the UX2-E audit) makes the rig adopt the just-framed <b>post-load view</b> ("the authored
-    /// camera starts on the content") instead of the rig's pre-load ctor default at the origin. Without
-    /// this, entering Game mode (which snaps the view onto the rig) lands on empty world and the scene
-    /// "disappears"; and because the Game-mode snapshot re-persists that origin rig, returning to Scene
-    /// mode never cures it. A scene that HAS a camera still round-trips to the rig verbatim (exact).</para>
+    /// Auto-frames the free VIEW on the loaded content so it is visible on load (CM). The authored camera
+    /// is a scene ENTITY now — it rides <c>entities[]</c> like everything else and needs no camera-block
+    /// seam. In Play <c>CameraSyncSystem</c> drives the VIEW from the camera entity; in Edit the VIEW is
+    /// the editor's free camera and this framing centres it on the content on load. Left untouched when no
+    /// live view was supplied (a pure round-trip test) or an <b>active</b>
+    /// <see cref="CameraFollowTargetComponent"/> owns the camera (<c>CameraFollowSystem</c> in Play — the
+    /// reader must not fight it). Safe for a prefab context too (a prefab has no follow target).
     /// </summary>
-    private void ApplyCamera(SceneData scene, List<Entity> created, bool suppressCameraRig = false)
+    private void FrameViewOnLoad(List<Entity> created)
     {
-        // Prefab context (PF-D, pre-mortem #8): a prefab has NO camera rig. Auto-frame the free VIEW on
-        // the prefab's content so the designer sees it (a prefab tab is Edit-only + Play-disabled, so no
-        // follow target drives the camera and framing is always safe), and NEVER sync the rig — a rig
-        // sync would corrupt the SCENE's authored camera, and the prefab writer emits no camera anyway.
-        if (suppressCameraRig)
-        {
-            if (_camera != null) FrameViewOnContent(created);
-            return;
-        }
-
-        var editorPath = _applyCameraToRig != null;
-
-        // Position the VIEW first, THEN sync the rig — so a null-camera scene's rig can adopt the
-        // just-framed view (UX3-A) rather than the pre-load origin. The editor's free view always
-        // auto-frames on content; the shipped path applies the authored camera (or auto-frames a
-        // camera-less scene). Skipped when there is no live view, or an active follow target owns it.
-        var viewFramedOnContent = false;
         if (_camera != null && !HasActiveFollowTarget())
-        {
-            if (editorPath || scene.Camera == null)
-            {
-                FrameViewOnContent(created);
-                viewFramedOnContent = true;
-            }
-            else
-            {
-                // Shipped: no rig — the live camera IS the authored camera, so respect the persisted view.
-                ApplySceneCameraToView(scene.Camera);
-            }
-        }
-
-        // The rig (editor only) always receives the AUTHORED game-camera state — even when the VIEW is
-        // left alone (a follow target present, or a null view camera): the rig owns the authored state,
-        // the view is just what the viewport looks through. A persisted camera syncs verbatim; a
-        // null-camera scene whose view we just framed adopts that framed view (the UX3-A default);
-        // otherwise the authored (possibly null) camera passes through (SyncFromScene leaves a null as-is).
-        if (editorPath)
-            _applyCameraToRig!.Invoke(scene.Camera ?? (viewFramedOnContent ? CameraDataFromView() : null));
-    }
-
-    /// <summary>A <see cref="SceneCameraData"/> built from the current live VIEW (position / zoom /
-    /// rotation) — the authored state the editor rig adopts for a <c>camera: null</c> scene, so the rig
-    /// starts on the just-framed content (UX3-A) rather than the pre-load origin. Mirrors
-    /// <see cref="SceneWriter"/>'s camera serialization so a subsequent Save round-trips it byte-identically.</summary>
-    private SceneCameraData CameraDataFromView() => new()
-    {
-        Position = new[] { _camera!.Position.X, _camera.Position.Y },
-        Zoom = _camera.Zoom,
-        Rotation = _camera.Rotation,
-    };
-
-    /// <summary>Applies a persisted <see cref="SceneCameraData"/> to the live VIEW — the shipped path's
-    /// "the authored camera is the game camera" (the rig only exists under the editor).</summary>
-    private void ApplySceneCameraToView(SceneCameraData camera)
-    {
-        _camera!.Position = new Vector2(
-            camera.Position.Length > 0 ? camera.Position[0] : 0f,
-            camera.Position.Length > 1 ? camera.Position[1] : 0f);
-        _camera.Zoom = camera.Zoom;
-        _camera.Rotation = camera.Rotation;
-        Logger.Info(
-            $"[level-editor] Applied scene.camera to the view: center={_camera.Position}, zoom={_camera.Zoom:F3}.");
+            FrameViewOnContent(created);
     }
 
     /// <summary>

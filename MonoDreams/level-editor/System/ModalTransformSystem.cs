@@ -29,12 +29,13 @@ namespace MonoDreams.LevelEditor.System;
 /// keyboard's <c>ShouldSuppressInput</c> and the shortcut system's gate, so no game key or editor chord
 /// (incl. a re-triggered G/S/R) fires mid-modal — <b>Escape cancels the modal, not the game or a tool</b>.</para>
 ///
-/// <para><b>The rig composes (UX2-G mapping).</b> <c>G</c> moves the camera rig via a
-/// <see cref="TransformEditCommand"/> (its <c>Position</c> is the camera centre); <c>S</c> edits its
-/// authored zoom via <see cref="CameraZoomEditCommand"/> (a bigger frustum ⇒ a lower zoom —
-/// <c>newZoom = beforeZoom / factor</c>, clamped to the camera-nav range); <c>R</c> is refused for the
-/// rig with a status note. A <b>box collider entity</b> likewise refuses <c>R</c> (axis-aligned by the
-/// CE model), and a <b>baked product</b> refuses modal entry entirely (it regenerates from its source).</para>
+/// <para><b>The camera entity composes (CM mapping).</b> <c>G</c> moves the camera entity via a
+/// <see cref="TransformEditCommand"/> (its ordinary <c>Position</c>); <c>S</c> edits its authored zoom
+/// via the standard <see cref="MemberEditCommand"/> on <see cref="CameraComponent.Zoom"/> (a bigger
+/// frustum ⇒ a lower zoom — <c>newZoom = beforeZoom / factor</c>, clamped to the camera-nav range);
+/// <c>R</c> rotates its Transform normally (legal now — one rotation, CM pre-mortem #1). A <b>box
+/// collider entity</b> refuses <c>R</c> (axis-aligned by the CE model), and a <b>baked product</b>
+/// refuses modal entry entirely (it regenerates from its source).</para>
 ///
 /// <para><b>Weave.</b> Register it with the input-owner block, immediately AFTER
 /// <c>editor.shortcuts</c> (which ENTERS it) and BEFORE the tools (<c>editor.gizmo</c>) + the draw
@@ -58,8 +59,8 @@ public sealed class ModalTransformSystem : ISystem<GameState>
 
     private ModalTransform _modal;   // the pure state machine
     private Entity _target;
-    private bool _targetIsRig;       // the target is the camera rig (Scale → zoom, Rotate refused)
-    private float _beforeRigZoom;    // the rig's authored zoom at entry (its Scale → zoom edit)
+    private bool _targetIsCamera;    // the target is the camera entity (Scale → zoom; Move/Rotate ordinary)
+    private float _beforeCameraZoom; // the camera entity's authored zoom at entry (its Scale → zoom edit)
     private KeyboardState _prevKeys;
     private ModalReadout _readout;   // the last computed readout, for the status bar
 
@@ -152,7 +153,8 @@ public sealed class ModalTransformSystem : ISystem<GameState>
 
     /// <summary>Enters a modal session in <paramref name="mode"/> over the current selection. No-op
     /// (returns false, logs the reason) outside Edit, with no selection, while another session/transaction
-    /// is open, or Rotate on the camera rig (refused — rig rotation editing is a future wave).</summary>
+    /// is open, or Rotate on a box collider (axis-aligned by the CE model). Rotate on the camera entity is
+    /// legal now (it rotates the Transform).</summary>
     public bool Enter(EditorModalMode mode, GameState state)
     {
         if (state.RunMode != RunMode.Edit) return false;
@@ -183,15 +185,11 @@ public sealed class ModalTransformSystem : ISystem<GameState>
             return false;
         }
 
-        _targetIsRig = target.Has<CameraRigComponent>();
-        if (mode == EditorModalMode.Rotate && _targetIsRig)
-        {
-            Logger.Warning("[level-editor] Rotate is disabled for the camera rig.");
-            return false;
-        }
+        _targetIsCamera = target.Has<CameraComponent>();
 
-        // Box colliders are axis-aligned (colliders-as-entities): refuse Rotate like the rig — a box
-        // can't rotate (use a polygon collider for a rotated hitbox). Move + Scale work.
+        // Box colliders are axis-aligned (colliders-as-entities): refuse Rotate — a box can't rotate
+        // (use a polygon collider for a rotated hitbox). Move + Scale work. (The camera entity rotates
+        // normally — R edits its Transform, one rotation.)
         if (mode == EditorModalMode.Rotate && target.Has<BoxColliderComponent>())
         {
             Logger.Warning(
@@ -205,12 +203,12 @@ public sealed class ModalTransformSystem : ISystem<GameState>
         var entry = TryGetCursorWorld(out var cursorWorld) ? cursorWorld : pivot;
 
         _target = target;
-        _beforeRigZoom = _targetIsRig ? target.Get<CameraRigComponent>().Zoom : 0f;
+        _beforeCameraZoom = _targetIsCamera ? target.Get<CameraComponent>().Zoom : 0f;
         _modal = ModalTransform.Enter(mode, entry, pivot,
             transform.Position, transform.Rotation, transform.Scale, transform.Origin);
         _prevKeys = _getKeyboardState(); // swallow the entry keystroke so no stale edge leaks
         _history.BeginTransaction();
-        _readout = _modal.Readout(entry, SnapStep(), RotationSnapStep(), IsRigZoom);
+        _readout = _modal.Readout(entry, SnapStep(), RotationSnapStep(), IsCameraZoom);
         return true;
     }
 
@@ -269,8 +267,9 @@ public sealed class ModalTransformSystem : ISystem<GameState>
 
     // ─── internals ───────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Whether the active session is the rig's Scale → zoom edit (drives the "Zoom" readout).</summary>
-    private bool IsRigZoom => _targetIsRig && _modal.Mode == EditorModalMode.Scale;
+    /// <summary>Whether the active session is the camera entity's Scale → zoom edit (drives the "Zoom"
+    /// readout).</summary>
+    private bool IsCameraZoom => _targetIsCamera && _modal.Mode == EditorModalMode.Scale;
 
     private (bool confirm, bool cancel) HandleKeyboard(KeyboardState keys)
     {
@@ -295,36 +294,38 @@ public sealed class ModalTransformSystem : ISystem<GameState>
     private bool Pressed(KeyboardState keys, Keys key) => keys.IsKeyDown(key) && !_prevKeys.IsKeyDown(key);
 
     /// <summary>Applies the current live edit through the coalescing transaction — a
-    /// <see cref="TransformEditCommand"/> for an ordinary entity (or the rig's Grab), or a
-    /// <see cref="CameraZoomEditCommand"/> for the rig's Scale (zoom, clamped to the camera-nav range).
-    /// Recomputes from the immutable drag-start state each frame, so undo walks back to the pre-modal
-    /// transform in one step.</summary>
+    /// <see cref="TransformEditCommand"/> for an ordinary entity (incl. the camera entity's Grab/Rotate),
+    /// or a <see cref="MemberEditCommand"/> on <see cref="CameraComponent.Zoom"/> for the camera entity's
+    /// Scale (zoom, clamped to the camera-nav range). Recomputes from the immutable drag-start state each
+    /// frame, so undo walks back to the pre-modal transform in one step.</summary>
     private void ApplyLiveEdit(Vector2 cursorWorld)
     {
         if (!_target.IsAlive) return;
 
-        if (IsRigZoom)
+        if (IsCameraZoom)
         {
             var factor = _modal.UniformScaleFactor(cursorWorld);
-            var zoom = MathHelper.Clamp(_beforeRigZoom / factor,
+            var zoom = MathHelper.Clamp(_beforeCameraZoom / factor,
                 CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
-            _history.Push(CameraZoomEditCommand.FromCurrent(_target, zoom));
-            _readout = _modal.Readout(cursorWorld, SnapStep(), RotationSnapStep(), isRig: true);
+            var cmd = MemberEditCommand.FromCurrent(
+                _target, typeof(CameraComponent), nameof(CameraComponent.Zoom), zoom);
+            if (cmd != null) _history.Push(cmd);
+            _readout = _modal.Readout(cursorWorld, SnapStep(), RotationSnapStep(), isCameraZoom: true);
             return;
         }
 
         if (!_target.Has<TransformComponent>()) return;
         var (position, rotation, scale, origin) = _modal.Result(cursorWorld, SnapStep(), RotationSnapStep());
         _history.Push(TransformEditCommand.FromCurrent(_target, position, rotation, scale, origin));
-        _readout = _modal.Readout(cursorWorld, SnapStep(), RotationSnapStep(), isRig: false);
+        _readout = _modal.Readout(cursorWorld, SnapStep(), RotationSnapStep(), isCameraZoom: false);
     }
 
     private void Reset()
     {
         _modal = default;
         _target = default;
-        _targetIsRig = false;
-        _beforeRigZoom = 0f;
+        _targetIsCamera = false;
+        _beforeCameraZoom = 0f;
     }
 
     /// <summary>Clears the cursor's pointer edges + button levels for this frame — the modal owns the

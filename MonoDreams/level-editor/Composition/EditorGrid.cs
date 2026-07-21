@@ -17,7 +17,7 @@ namespace MonoDreams.LevelEditor.Composition;
 
 /// <summary>
 /// The editor's world-space reference <b>grid</b> (UX3-D §3): composition infrastructure the
-/// <see cref="EditorOverlay"/> owns (like <see cref="EditorCameraRig"/>), not a per-frame pipeline
+/// <see cref="EditorOverlay"/> owns (like <see cref="CameraEntityOverlay"/>), not a per-frame pipeline
 /// system — it owns ONE mesh entity and bakes the frame's grid into it from the draw-phase overlay
 /// pass (<c>EditorOverlayPrepSystem</c>), through the SAME <see cref="OverlayProjection"/> path the
 /// gizmo/proxy/glyph overlays use (screen-baked on the native <c>RenderTargetID.Editor</c> target,

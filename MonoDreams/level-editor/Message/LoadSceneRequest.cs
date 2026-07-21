@@ -19,7 +19,7 @@ namespace MonoDreams.LevelEditor.Message;
 /// <para><b>In-memory restore (UX2-F).</b> The <see cref="Scene"/> overload carries an already-built
 /// <see cref="SceneData"/> so a restore skips the file read but runs the <b>identical</b> reader
 /// pipeline (re-tag roots, texture rehydration incl. <c>file:</c> keys, <c>DrawComponent</c> restore,
-/// camera-rig re-sync + view framing). This is the ONE in-memory entry point the Game-mode sandbox
+/// view framing, ensure-one-camera). This is the ONE in-memory entry point the Game-mode sandbox
 /// exit reuses — so the reader stays the single restore implementation (pre-mortem #2), and every load
 /// still flows through this ONE message + subscriber (the message-driven premise holds).</para>
 /// </summary>
@@ -39,14 +39,14 @@ public readonly struct LoadSceneRequest
     public readonly SceneData? Scene;
 
     /// <summary>
-    /// Suppresses the editor camera rig on this load (PF-D, pre-mortem #8): a <b>prefab context</b> has
-    /// no camera rig, so its content-load must NOT sync <c>scene.camera</c> to the rig (a rig sync here
-    /// would corrupt the SCENE's authored camera, and a prefab save must emit no camera). When set, the
-    /// reader still auto-frames the free VIEW on the loaded content (Edit-only, Play-disabled), but never
-    /// touches the rig. Only ever true on the in-memory prefab-context path (open / tab-switch restore);
-    /// a scene / Game-tab load leaves it false so the rig re-syncs exactly as before.
+    /// Suppresses the reader's <b>ensure-one-camera</b> step on this load (PF-D, pre-mortem #8): a
+    /// <b>prefab context</b> has no camera entity (a prefab is a class — the writer/expander refuse a
+    /// camera inside one), so its content-load must NOT create a default camera. When set, the reader
+    /// still auto-frames the free VIEW on the loaded content (Edit-only, Play-disabled) but never ensures
+    /// a camera. Only ever true on the in-memory prefab-context path (open / tab-switch restore); a
+    /// scene / Game-tab load leaves it false so the scene always has exactly one camera entity.
     /// </summary>
-    public readonly bool SuppressCameraRig;
+    public readonly bool SuppressCameraEnsure;
 
     /// <param name="path">Path to the scene JSON (see <see cref="Path"/>).</param>
     /// <param name="fromContent"><c>true</c> to resolve as a content asset (works on web via
@@ -57,18 +57,18 @@ public readonly struct LoadSceneRequest
         Path = path;
         FromContent = fromContent;
         Scene = null;
-        SuppressCameraRig = false;
+        SuppressCameraEnsure = false;
     }
 
     /// <summary>The in-memory restore overload (UX2-F): reconstruct from an already-built
     /// <paramref name="scene"/> through the same reader pipeline, no file I/O.
-    /// <paramref name="suppressCameraRig"/> (PF-D) is set for a prefab-context load so the reader never
-    /// syncs the camera rig (a prefab has none — pre-mortem #8).</summary>
-    public LoadSceneRequest(SceneData scene, bool suppressCameraRig = false)
+    /// <paramref name="suppressCameraEnsure"/> (PF-D) is set for a prefab-context load so the reader never
+    /// creates a default camera (a prefab has none — pre-mortem #8).</summary>
+    public LoadSceneRequest(SceneData scene, bool suppressCameraEnsure = false)
     {
         Path = "<in-memory>";
         FromContent = false;
         Scene = scene;
-        SuppressCameraRig = suppressCameraRig;
+        SuppressCameraEnsure = suppressCameraEnsure;
     }
 }

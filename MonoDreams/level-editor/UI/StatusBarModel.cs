@@ -37,7 +37,7 @@ public static class StatusBarModel
     /// The left readout while a modal transform is active. Format:
     /// <c>&lt;mode&gt;  &lt;values&gt;  [axis]  type = &lt;buffer|exact&gt;  |  LMB/Enter confirm | RMB/Esc cancel</c>.
     /// A typed-but-unconstrained grab appends "(press X or Y)" — the SIMPLIFY-v1 rule that a typed grab
-    /// requires an axis. The scale word is "Zoom" for the camera rig.
+    /// requires an axis. The scale word is "Zoom" for the camera entity.
     /// </summary>
     public static string LeftModal(in ModalReadout r)
     {
@@ -67,7 +67,7 @@ public static class StatusBarModel
 
     private static string ScaleBody(in ModalReadout r)
     {
-        var word = r.IsRig ? "Zoom" : "Scale";
+        var word = r.IsCameraZoom ? "Zoom" : "Scale";
         return r.Axis == ModalAxis.None
             ? $"{word}  x{F(r.FactorX)}"
             : $"{word}  X x{F(r.FactorX)}  Y x{F(r.FactorY)}";

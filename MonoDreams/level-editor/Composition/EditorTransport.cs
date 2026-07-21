@@ -177,14 +177,15 @@ public sealed class EditorTransport
     /// <see cref="ViewportContextKind.Game"/>.</summary>
     public bool SnapshotWasDirty => _stack.SnapshotWasDirty;
 
-    /// <summary>Builds the in-memory scene snapshot (<c>SceneWriter.BuildScene(world, rig.AsCamera(),
-    /// layers)</c> — a <see cref="SceneData"/>, no file I/O). Forwards to the stack; null disables the
-    /// Game tab. Wired by the overlay after construction (like <see cref="Reload"/>).</summary>
+    /// <summary>Builds the in-memory scene snapshot (<c>SceneWriter.BuildScene(world, layers)</c> — a
+    /// <see cref="SceneData"/>, no file I/O; the camera rides the snapshot like any entity). Forwards to
+    /// the stack; null disables the Game tab. Wired by the overlay after construction (like
+    /// <see cref="Reload"/>).</summary>
     public Func<SceneData>? CaptureSnapshot { get => _stack.CaptureSnapshot; set => _stack.CaptureSnapshot = value; }
 
     /// <summary>Restores a snapshot THROUGH THE READER (an in-memory <c>LoadSceneRequest</c>) — the
-    /// shared re-tag / rehydration / <c>DrawComponent</c> / rig-sync path (pre-mortem #2). Forwards to
-    /// the stack.</summary>
+    /// shared re-tag / rehydration / <c>DrawComponent</c> / ensure-one-camera path (pre-mortem #2).
+    /// Forwards to the stack.</summary>
     public Action<SceneData>? RestoreSnapshot { get => _stack.RestoreSnapshot; set => _stack.RestoreSnapshot = value; }
 
     /// <summary>Captures the free editor VIEW (the live <c>Camera</c>) so a switch can restore where the
@@ -195,10 +196,10 @@ public sealed class EditorTransport
     /// auto-frame, so the captured view wins — only when valid). Forwards to the stack.</summary>
     public Action<CameraViewSnapshot>? RestoreView { get => _stack.RestoreView; set => _stack.RestoreView = value; }
 
-    /// <summary>Snaps the free VIEW onto the camera rig (<c>Camera := rig state</c>) — the game-camera
-    /// view adopted on Game-tab entry. Forwards to the stack (the overlay wires
-    /// <c>EditorCameraRig.SnapViewToRig</c>).</summary>
-    public Action? SnapViewToRig { get => _stack.SnapViewToRig; set => _stack.SnapViewToRig = value; }
+    /// <summary>Snaps the free VIEW onto the scene camera entity (<c>Camera := camera-entity state</c>) —
+    /// the game-camera view adopted on Game-tab entry. Forwards to the stack (the overlay wires
+    /// <c>CameraEntityOverlay.SnapViewToCameraEntity</c>).</summary>
+    public Action? SnapViewToCameraEntity { get => _stack.SnapViewToCameraEntity; set => _stack.SnapViewToCameraEntity = value; }
 
     /// <summary>Updates the ACTIVE context's scene id + label (the overlay's <c>SetSceneId</c> in
     /// <c>Load</c>), so the status bar / active tab track the scene the live screen loaded (TB-A — the
@@ -272,7 +273,7 @@ public sealed class EditorTransport
     /// (<see cref="RunMode.Edit"/>), then drives <see cref="ViewportContextStack.ExitToScene"/> — which
     /// disposes the sandbox scene entities (the SAME survivor-sparing sweep Restart uses), restores the
     /// Scene snapshot <b>through the reader</b> (shared re-tag / rehydration / <c>DrawComponent</c> /
-    /// rig-sync path), clears the undo history (undo after leave is a no-op — pre-mortem #3), restores the
+    /// ensure-one-camera path), clears the undo history (undo after leave is a no-op — pre-mortem #3), restores the
     /// captured dirty state + Scene VIEW (only when valid), and drops the Game tab from the strip (it
     /// never persists in the background). Sandbox edits vanish: <b>Scene shows exactly what Save would
     /// write.</b> No-op when already on the Scene tab.
@@ -290,8 +291,8 @@ public sealed class EditorTransport
     /// Opens (or re-activates) a prefab-context tab (PF-D): lands Paused (a prefab tab never plays — Play
     /// is disabled in a prefab context, v1) and drives <see cref="ViewportContextStack.OpenPrefab"/>, which
     /// snapshots the current context, sweeps, pushes a closable <see cref="ViewportContextKind.Prefab"/>
-    /// tab, and reader-restores the prefab's content from <paramref name="prefabScene"/> with the camera
-    /// rig suppressed (pre-mortem #8). The tab's label is the prefab id.
+    /// tab, and reader-restores the prefab's content from <paramref name="prefabScene"/> with the
+    /// ensure-one-camera step suppressed (pre-mortem #8 — a prefab has no camera). The tab's label is the prefab id.
     /// </summary>
     public void OpenPrefab(string prefabId, SceneData prefabScene, GameState state)
     {

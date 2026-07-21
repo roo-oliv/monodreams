@@ -151,7 +151,7 @@ public sealed class GizmoSystem : ISystem<GameState>
     private Vector2 _dragStartPivot; // the world pivot at drag-start; stable rotate/scale centre
     private Vector2 _beforePosition, _beforeScale, _beforeOrigin;
     private float _beforeRotation;
-    private float _beforeRigZoom; // the camera rig's authored zoom at drag-start (its Scale tool → zoom)
+    private float _beforeCameraZoom; // the camera entity's authored zoom at drag-start (its Scale tool → zoom)
 
     // Proxy drag state: the write-back target is the proxy's BOUND entity and its sub-element
     // (a convex vertex / a boundary point / the boundary thickness), snapshotted immutably at
@@ -389,19 +389,18 @@ public sealed class GizmoSystem : ISystem<GameState>
     /// Resolves the effective gizmo tool for <paramref name="target"/> from the toolbar's
     /// <paramref name="selected"/> tool. A sub-element <see cref="GizmoProxyComponent"/> proxy (a
     /// vertex / thickness handle) is forced to <see cref="GizmoTool.Move"/> — its write-back only
-    /// expresses translation. The UX2-E camera rig (<see cref="CameraRigComponent"/>) accepts BOTH
-    /// <see cref="GizmoTool.Move"/> (its own transform) and <see cref="GizmoTool.Scale"/> (routed to
-    /// its authored <c>Zoom</c> — see <see cref="ApplyDragEdit"/>); Rotate falls back to Move.
-    /// A <b>box collider ENTITY</b> also refuses Rotate (falls back to Move) — a box is axis-aligned
-    /// by the CE model, so it cannot rotate (use a polygon collider for a rotated hitbox); Move + Scale
-    /// work (Scale grows the box via <c>Transform.Scale</c>, which <c>BoxWorldRect</c> composes). Every
-    /// other entity — including a convex collider entity, which CAN rotate — uses the toolbar selection.
+    /// expresses translation. The camera ENTITY (<see cref="CameraComponent"/>) accepts all three tools:
+    /// Move + Rotate edit its ordinary <c>TransformComponent</c> (rotation is legal now — one rotation,
+    /// CM pre-mortem #1), and Scale is routed to its authored <see cref="CameraComponent.Zoom"/> (see
+    /// <see cref="ApplyDragEdit"/>). A <b>box collider ENTITY</b> refuses Rotate (falls back to Move) —
+    /// a box is axis-aligned by the CE model, so it cannot rotate (use a polygon collider for a rotated
+    /// hitbox); Move + Scale work (Scale grows the box via <c>Transform.Scale</c>, which
+    /// <c>BoxWorldRect</c> composes). Every other entity — including a convex collider entity, which CAN
+    /// rotate — uses the toolbar selection.
     /// </summary>
     private static GizmoTool ResolveTool(Entity target, GizmoTool selected)
     {
         if (target.Has<GizmoProxyComponent>()) return GizmoTool.Move;
-        if (target.Has<CameraRigComponent>())
-            return selected == GizmoTool.Scale ? GizmoTool.Scale : GizmoTool.Move;
         if (target.Has<BoxColliderComponent>() && selected == GizmoTool.Rotate)
             return GizmoTool.Move;
         return selected;
@@ -430,9 +429,9 @@ public sealed class GizmoSystem : ISystem<GameState>
         _beforeRotation = t.Rotation;
         _beforeScale = t.Scale;
         _beforeOrigin = t.Origin;
-        // The camera rig's Scale tool edits its authored zoom (not Transform.Scale) — snapshot it so the
-        // per-frame edit recomputes from the immutable drag-start value (like the transform before-state).
-        _beforeRigZoom = target.Has<CameraRigComponent>() ? target.Get<CameraRigComponent>().Zoom : 0f;
+        // The camera entity's Scale tool edits its authored zoom (not Transform.Scale) — snapshot it so
+        // the per-frame edit recomputes from the immutable drag-start value (like the transform before-state).
+        _beforeCameraZoom = target.Has<CameraComponent>() ? target.Get<CameraComponent>().Zoom : 0f;
         _history.BeginTransaction();
     }
 
@@ -501,17 +500,20 @@ public sealed class GizmoSystem : ISystem<GameState>
 
         if (!target.IsAlive || !target.Has<TransformComponent>()) return;
 
-        // The camera rig's Scale tool edits its authored ZOOM, not Transform.Scale: a bigger frustum
+        // The camera entity's Scale tool edits its authored ZOOM, not Transform.Scale: a bigger frustum
         // means a LOWER zoom, so newZoom = beforeZoom / dragFactor (the SAME drag→factor mapping a
-        // sprite scale-drag uses), clamped to the camera-nav zoom range. One CameraZoomEditCommand per
-        // frame, coalesced into one undo step on release; the frustum glyph + the selection border-pick
-        // both re-read the live rig zoom, so they track the drag frame-by-frame.
-        if (_dragTool == GizmoTool.Scale && target.Has<CameraRigComponent>())
+        // sprite scale-drag uses), clamped to the camera-nav zoom range. Routed through the standard
+        // MemberEditCommand (CameraComponent.Zoom) — one per frame, coalesced into one undo step on
+        // release; the frustum glyph + the selection border-pick both re-read the live zoom, so they
+        // track the drag frame-by-frame.
+        if (_dragTool == GizmoTool.Scale && target.Has<CameraComponent>())
         {
             var factor = GizmoTransform.ScaleFactor(currentCursorWorld - _dragStartCursorWorld);
             var afterZoom = MathHelper.Clamp(
-                _beforeRigZoom / factor, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
-            _history.Push(CameraZoomEditCommand.FromCurrent(target, afterZoom));
+                _beforeCameraZoom / factor, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
+            var cmd = MemberEditCommand.FromCurrent(
+                target, typeof(CameraComponent), nameof(CameraComponent.Zoom), afterZoom);
+            if (cmd != null) _history.Push(cmd);
             return;
         }
 

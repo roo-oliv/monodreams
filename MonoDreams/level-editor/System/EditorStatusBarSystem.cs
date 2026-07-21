@@ -155,7 +155,8 @@ public sealed class EditorStatusBarSystem : ISystem<GameState>
         foreach (var e in _selectedSet.GetEntities())
         {
             if (!e.IsAlive) continue;
-            if (e.Has<CameraRigComponent>()) return "Camera";
+            // The camera is an ordinary scene entity now (CM) — its EntityInfoComponent("Camera") names it
+            // through the normal path below (no special case).
             if (e.Has<EntityInfoComponent>())
             {
                 var info = e.Get<EntityInfoComponent>();

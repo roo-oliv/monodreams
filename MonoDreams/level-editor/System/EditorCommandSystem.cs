@@ -155,13 +155,16 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         if (!GuardEdit(state, "Delete")) return;
         if (!TryGetSelected(out var selected)) return;
 
-        // The camera rig (UX2-E) is not deletable — it is editor-materialized from scene.camera on every
-        // load, never scene content. Refuse loudly rather than tearing down the authored-camera entity.
-        if (selected.Has<CameraRigComponent>())
+        // The LAST camera entity is not deletable (CM one-camera rule): a scene needs a camera (the reader
+        // ensures one, the writer refuses a second). Refuse loudly rather than stranding the scene
+        // camera-less. Deleting a camera while another exists is fine — but the writer rule keeps that from
+        // ever persisting, so in practice this refuses deleting the scene's only camera.
+        if (selected.Has<CameraComponent>() && IsLastCamera(selected))
         {
             Logger.Warning(
-                "[level-editor] Delete refused: the camera rig is not deletable — it is materialized " +
-                "from scene.camera on every load. Move it, or edit the camera through the Inspector.");
+                "[level-editor] Delete refused: scenes need a camera — this is the only camera entity. " +
+                "Move it, or edit the camera through the Inspector.");
+            _notifications?.Notify("scenes need a camera", EditorNotifySeverity.Danger);
             return;
         }
 
@@ -178,7 +181,7 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         // Screen-infrastructure guard (PF-F, THE CRASH FIX): a KeepAlive entity the screen holds by
         // reference (e.g. the dialogue-UI root a live system points at) is NOT deletable — disposing it
         // strands that system on a dead handle (an NRE). Refuse loud + status everywhere delete routes
-        // (command / menu / Delete key). The camera rig (checked above) has its own tailored refusal.
+        // (command / menu / Delete key). The last camera entity (checked above) has its own tailored refusal.
         if (_isScreenInfrastructure?.Invoke(deleteTarget) == true)
         {
             Logger.Warning(
@@ -552,6 +555,16 @@ public sealed class EditorCommandSystem : ISystem<GameState>
         }
         selected = default;
         return false;
+    }
+
+    /// <summary>Whether <paramref name="candidate"/> is the ONLY live camera entity in the world — the
+    /// delete guard refuses deleting it (CM: a scene needs a camera).</summary>
+    private bool IsLastCamera(Entity candidate)
+    {
+        using var cameras = _world.GetEntities().With<CameraComponent>().AsSet();
+        foreach (var e in cameras.GetEntities())
+            if (e.IsAlive && !e.Equals(candidate)) return false; // another camera exists
+        return true;
     }
 
     /// <summary>The selection resolved to the GAME entity the action targets: the selected

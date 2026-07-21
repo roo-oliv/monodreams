@@ -12,10 +12,10 @@ public enum EditorModalMode
     /// <summary><c>G</c> — grab: translate by the world-space delta from the entry cursor.</summary>
     Grab,
 
-    /// <summary><c>S</c> — scale: a distance-ratio factor about the pivot (rig ⇒ zoom).</summary>
+    /// <summary><c>S</c> — scale: a distance-ratio factor about the pivot (camera entity ⇒ zoom).</summary>
     Scale,
 
-    /// <summary><c>R</c> — rotate: the swept angle about the pivot (rig ⇒ refused).</summary>
+    /// <summary><c>R</c> — rotate: the swept angle about the pivot.</summary>
     Rotate,
 }
 
@@ -146,7 +146,7 @@ public struct ModalTransform
     /// <summary>
     /// The uniform scale factor a scale session produces at <paramref name="currentCursorWorld"/>: the
     /// typed value when the buffer parses, else the distance ratio |cursor − pivot| / |entry − pivot|
-    /// (1 when the entry cursor sat on the pivot). Exposed so the camera-rig zoom path can divide by the
+    /// (1 when the entry cursor sat on the pivot). Exposed so the camera-entity zoom path can divide by the
     /// SAME factor (a bigger frustum ⇒ a lower zoom) without duplicating the mapping.
     /// </summary>
     public readonly float UniformScaleFactor(Vector2 currentCursorWorld)
@@ -216,9 +216,10 @@ public struct ModalTransform
     }
 
     /// <summary>The status-bar readout for the current cursor: the applied ΔX/ΔY (grab), per-axis
-    /// factors (scale), or degrees (rotate), plus the axis tag + buffer. <paramref name="isRig"/> flips
-    /// the scale label to "Zoom" (the rig's Scale edits zoom, not <c>Transform.Scale</c>).</summary>
-    public readonly ModalReadout Readout(Vector2 currentCursorWorld, float snapStep, float rotationSnapStep, bool isRig)
+    /// factors (scale), or degrees (rotate), plus the axis tag + buffer. <paramref name="isCameraZoom"/>
+    /// flips the scale label to "Zoom" (the camera entity's Scale edits <c>CameraComponent.Zoom</c>, not
+    /// <c>Transform.Scale</c>).</summary>
+    public readonly ModalReadout Readout(Vector2 currentCursorWorld, float snapStep, float rotationSnapStep, bool isCameraZoom)
     {
         var (position, rotation, scale, _) = Result(currentCursorWorld, snapStep, rotationSnapStep);
         var dx = position.X - StartPosition.X;
@@ -226,7 +227,7 @@ public struct ModalTransform
         var fx = MathF.Abs(StartScale.X) > 1e-6f ? scale.X / StartScale.X : 1f;
         var fy = MathF.Abs(StartScale.Y) > 1e-6f ? scale.Y / StartScale.Y : 1f;
         var degrees = MathHelper.ToDegrees(GizmoTransform.WrapAngle(rotation - StartRotation));
-        return new ModalReadout(Mode, isRig, Axis, NumericBuffer ?? string.Empty, dx, dy, fx, fy, degrees);
+        return new ModalReadout(Mode, isCameraZoom, Axis, NumericBuffer ?? string.Empty, dx, dy, fx, fy, degrees);
     }
 }
 
@@ -238,11 +239,11 @@ public struct ModalTransform
 /// </summary>
 public readonly struct ModalReadout
 {
-    public ModalReadout(EditorModalMode mode, bool isRig, ModalAxis axis, string buffer,
+    public ModalReadout(EditorModalMode mode, bool isCameraZoom, ModalAxis axis, string buffer,
         float dx, float dy, float factorX, float factorY, float degrees)
     {
         Mode = mode;
-        IsRig = isRig;
+        IsCameraZoom = isCameraZoom;
         Axis = axis;
         Buffer = buffer;
         DX = dx;
@@ -255,8 +256,8 @@ public readonly struct ModalReadout
     /// <summary>The session mode.</summary>
     public EditorModalMode Mode { get; }
 
-    /// <summary>Whether the target is the camera rig (scale ⇒ "Zoom" rather than "Scale").</summary>
-    public bool IsRig { get; }
+    /// <summary>Whether the target is the camera entity (scale ⇒ "Zoom" rather than "Scale").</summary>
+    public bool IsCameraZoom { get; }
 
     /// <summary>The current axis constraint.</summary>
     public ModalAxis Axis { get; }

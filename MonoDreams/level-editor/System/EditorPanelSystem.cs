@@ -100,7 +100,6 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _sceneSet;
-    private readonly EntitySet _cameraRigSet; // the UX2-E rig: infra-tagged, but an explicit tree include
     private readonly EntitySet _selectedSet;
     private readonly Entity _stateEntity; // default = not created (the state was injected)
     private readonly EditorPanelStateComponent _state;
@@ -245,11 +244,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         // gizmo overlays, proxies, ghost, cursor, the gizmo/panel state entities) — hidden by default.
         _sceneSet = world.GetEntities()
             .With<TransformComponent>().Without<EditorInfrastructureComponent>().AsSet();
-        // The camera rig (UX2-E) carries EditorInfrastructureComponent (so _sceneSet excludes it) but is
-        // an EXPLICIT tree include — the designer must see + select the authored camera. Only the rig is
-        // folded back in; all OTHER infra stays hidden (see MaterializeScene).
-        _cameraRigSet = world.GetEntities()
-            .With<CameraRigComponent>().With<TransformComponent>().AsSet();
+        // The camera is an ordinary scene entity now (CM: EntityInfoComponent("Camera") + Transform +
+        // CameraComponent, SceneObjectComponent-tagged, NOT infra) — so it appears in _sceneSet naturally
+        // and needs no special fold or label. (Pre-CM it was an infra-tagged rig folded in explicitly.)
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
 
         // The collapse/expand state is shared by both panels: the overlay creates it once and injects
@@ -420,20 +417,14 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (hideScreenInfra && _isScreenInfrastructure!(e)) continue;
             list.Add(e);
         }
-        // Fold the camera rig back in (it is infra-tagged, so _sceneSet excluded it) — the ONE editor
-        // infrastructure entity the tree shows, so the designer can select + inspect the authored camera.
-        // SCENE-CONTEXT-ONLY (PF-D, pre-mortem #8): a prefab tab has no rig, so its "Camera" row must not
-        // appear there — skip the fold when the active viewport context is a prefab.
-        if (ActiveViewportKind() != ViewportContextKind.Prefab)
-            foreach (var e in _cameraRigSet.GetEntities())
-                if (e.IsAlive && !list.Contains(e))
-                    list.Add(e);
+        // The camera entity is an ordinary scene entity (CM), so _sceneSet already includes it — no fold.
+        // A prefab context has no camera entity (prefabs refuse cameras), so nothing camera-shaped appears.
         return list;
     }
 
     /// <summary>The active viewport tab's kind (from the shell-state descriptors the context stack
-    /// writes), or <see cref="ViewportContextKind.Scene"/> when unset — used to gate the scene-only
-    /// camera-rig tree row off prefab contexts (PF-D).</summary>
+    /// writes), or <see cref="ViewportContextKind.Scene"/> when unset — used to hide screen-held KeepAlive
+    /// infrastructure from the Entities tree in a prefab context (PF-F).</summary>
     private ViewportContextKind ActiveViewportKind()
     {
         var tabs = _shellState.ViewportTabs;
@@ -458,9 +449,6 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (!string.IsNullOrWhiteSpace(info.Name)) return info.Name;
             if (!string.IsNullOrWhiteSpace(info.Type)) return info.Type;
         }
-        // The UX2-E camera rig has no EntityInfoComponent but is folded into the tree (MaterializeScene):
-        // name it "Camera" so the designer recognizes the authored-camera row (and the Inspector title).
-        if (e.Has<CameraRigComponent>()) return "Camera";
         if (!_displayIds.TryGetValue(e, out var id))
         {
             id = _nextDisplayId++;
@@ -1583,7 +1571,6 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         if (_stateEntity.IsAlive) _stateEntity.Dispose();
         _cursorSet.Dispose();
         _sceneSet.Dispose();
-        _cameraRigSet.Dispose();
         _selectedSet.Dispose();
     }
 }

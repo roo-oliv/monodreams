@@ -28,10 +28,10 @@ public enum EditorShortcutAction
     /// <summary>Enter the Blender-style <b>grab</b> modal transform over the selection (UX3-F).</summary>
     ModalGrab,
 
-    /// <summary>Enter the <b>scale</b> modal transform (UX3-F; rig ⇒ zoom).</summary>
+    /// <summary>Enter the <b>scale</b> modal transform (UX3-F; camera entity ⇒ zoom).</summary>
     ModalScale,
 
-    /// <summary>Enter the <b>rotate</b> modal transform (UX3-F; refused for the rig).</summary>
+    /// <summary>Enter the <b>rotate</b> modal transform (UX3-F).</summary>
     ModalRotate,
 }
 

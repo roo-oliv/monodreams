@@ -90,7 +90,7 @@ public static class ProxyGeometry
     /// The world-space outline polygon of a collider ENTITY's shape — box corners (TL→TR→BR→BL)
     /// or the convex world vertices — derived from the entity's own <c>TransformComponent</c>
     /// (colliders-as-entities). This is the pick surface + selection outline for a spriteless
-    /// collider entity (the camera-rig border-pick precedent): the collider is selected by a
+    /// collider entity (like the camera entity's frustum border-pick): the collider is selected by a
     /// border click on this outline and moved/scaled by the ordinary gizmo. False when the entity
     /// is dead, has no transform, or carries no (usable) shape component.
     /// </summary>

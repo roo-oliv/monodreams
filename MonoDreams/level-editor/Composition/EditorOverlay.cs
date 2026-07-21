@@ -98,7 +98,7 @@ public sealed class EditorOverlay
     private readonly EditorProjectContext? _projectContext;
     private readonly Entity _gizmoState;
     private readonly Entity _overlaySettings; // UX3-D: ShowGrid / OutlineSelected / ShowCameraGlyph
-    private readonly EditorCameraRig _cameraRig;
+    private readonly CameraEntityOverlay _cameraOverlay;
     private readonly EditorShellStateComponent _shellState = new();
     // The concrete reader (SceneReader is the ISystem view of it) — read SceneWasLoaded for the
     // empty-save guard.
@@ -209,17 +209,15 @@ public sealed class EditorOverlay
         // single-screen stack seeded with the current scene id.
         Transport = new EditorTransport(world, History, _shellState, _sceneId, _session?.Stack);
 
-        // The camera rig (UX2-E): the authored game-camera state as a standalone entity, split from the
-        // free editor VIEW (the shared Camera CameraNavSystem drives). It re-syncs from scene.camera on
-        // every load (the reader's rig seam below), Save reads scene.camera FROM it (not the view), and
-        // it emits its frustum glyph in the overlay-prep pass. Constructed before the reader so the seam
-        // is ready for the first load.
-        // UX3-D: the "Camera" overlay toggle + the Game-mode sandbox gate the frustum glyph. Transport
-        // is already constructed above; the lambda reads both at emit time.
-        // PF-B: the rig glyph is SCENE-CONTEXT-ONLY (the obvious PF-D seam — a prefab context has no rig,
-        // so its glyph must not show either). For PF-B (Scene / Game only) this equals "hidden while the
-        // Game tab is active".
-        _cameraRig = new EditorCameraRig(world, camera, viewportManager,
+        // The camera-entity overlay (CM): the authored camera is an ordinary scene entity now (moved /
+        // edited / deleted like anything else) — this overlay owns NO camera state; it only draws the
+        // scene camera's frustum glyph in the overlay-prep pass (while the free VIEW differs from it) and
+        // snaps the VIEW back onto it (view:camera). Constructed after the transport (the glyph gate reads
+        // it at emit time).
+        // UX3-D: the "Camera" overlay toggle + the Game-mode sandbox gate the frustum glyph.
+        // PF-B: the glyph is SCENE-CONTEXT-ONLY (a prefab context has no camera entity, so the emitter
+        // finds none anyway; the gate keeps it hidden while the Game tab is active too).
+        _cameraOverlay = new CameraEntityOverlay(world, camera, viewportManager,
             glyphVisible: () => Settings.ShowCameraGlyph && Transport.ActiveContextKind == ViewportContextKind.Scene);
 
         // The file-asset texture loader is always composed (a loaded scene can carry file: keys
@@ -239,32 +237,31 @@ public sealed class EditorOverlay
             fileTextureLoader: AssetTextures.Load);
         PrefabFactory = new PrefabFactory(PrefabExpander);
 
-        // The rig seam (applyCameraToRig) makes THIS reader the editor path: scene.camera → the rig, and
-        // the live VIEW auto-frames the content. (A shipped reader with no seam applies scene.camera to
-        // the live camera directly — see SceneReaderSystem.) The prefab expander expands linked instances.
+        // The reader auto-frames the live VIEW on the loaded content and ensures exactly one camera ENTITY
+        // (CM — the camera is a scene entity, no camera-block seam). The prefab expander expands linked
+        // instances.
         _sceneReaderSystem = new SceneReaderSystem(world, Serializer, content,
             fileTextureLoader: AssetTextures.Load, camera: camera,
-            applyCameraToRig: _cameraRig.SyncFromScene, prefabExpander: PrefabExpander,
+            prefabExpander: PrefabExpander,
             ensureSingleCamera: true); // CM: a loaded scene always has exactly one camera entity
         SceneReader = _sceneReaderSystem;
 
-        // UX2-F: wire the transport's Game-mode sandbox seams to the SHARED instances (Transport was
-        // constructed above; the rig + reader now exist). The snapshot is a SceneData built from the rig
-        // camera + layers (no file I/O); the restore publishes an in-memory LoadSceneRequest so it runs
-        // the SAME reader pipeline as a file load (re-tag / rehydrate / DrawComponent / rig re-sync —
-        // pre-mortem #2, the reader is the ONE restore path); the view capture/restore is the live VIEW
-        // (Camera) state; and Game-mode entry adopts the game-camera view (the rig).
-        // PF-D (pre-mortem #8): a PREFAB context snapshots a CAMERA-LESS scene (no rig, no layers — a
-        // prefab is a class, not a scene) and restores with the camera rig SUPPRESSED (the stack sets
-        // RestoringPrefabContext for the duration of a prefab-context restore). A Scene/Game context is
-        // unchanged (rig camera + layers, rig re-synced).
+        // UX2-F: wire the transport's Game-mode sandbox seams to the SHARED instances (Transport + reader
+        // now exist). The snapshot is a SceneData built from the world + layers (no file I/O); the restore
+        // publishes an in-memory LoadSceneRequest so it runs the SAME reader pipeline as a file load
+        // (re-tag / rehydrate / DrawComponent / ensure-one-camera — pre-mortem #2, the reader is the ONE
+        // restore path); the view capture/restore is the live VIEW (Camera) state; and Game-mode entry
+        // adopts the game-camera view (the scene camera entity's state).
         // CM: the camera is a scene entity captured in the snapshot like everything else — no camera
-        // side-channel. A prefab snapshot carries no layers (a class, not a scene); a scene carries them.
+        // side-channel. PF-D (pre-mortem #8): a PREFAB context snapshots a CAMERA-LESS scene (no layers —
+        // a prefab is a class, not a scene) and restores with ensure-one-camera SUPPRESSED (the stack sets
+        // RestoringPrefabContext for the duration of a prefab-context restore). A Scene/Game context is
+        // unchanged (the camera rides the snapshot; layers carried).
         Transport.CaptureSnapshot = () => Transport.ActiveContextKind == ViewportContextKind.Prefab
             ? new SceneWriter(Serializer, PrefabSource).BuildScene(world)
             : new SceneWriter(Serializer, PrefabSource).BuildScene(world, layers);
         Transport.RestoreSnapshot = snapshot => world.Publish(
-            new LoadSceneRequest(snapshot, suppressCameraRig: Transport.ContextStack.RestoringPrefabContext));
+            new LoadSceneRequest(snapshot, suppressCameraEnsure: Transport.ContextStack.RestoringPrefabContext));
         Transport.CaptureView = () => new CameraViewSnapshot(camera.Position, camera.Zoom, camera.Rotation);
         Transport.RestoreView = view =>
         {
@@ -272,7 +269,7 @@ public sealed class EditorOverlay
             camera.Zoom = view.Zoom;
             camera.Rotation = view.Rotation;
         };
-        Transport.SnapViewToRig = _cameraRig.SnapViewToRig;
+        Transport.SnapViewToCameraEntity = _cameraOverlay.SnapViewToCameraEntity;
         _editorCommands = new EditorCommandSystem(
             world, History, Serializer,
             layers, input.OrderForwardRequested, input.OrderBackRequested, camera,
@@ -311,7 +308,7 @@ public sealed class EditorOverlay
         var grid = new EditorGrid(world, camera, viewportManager,
             spacing: () => GridSpacing,
             visible: () => Settings.ShowGrid && Transport.ActiveContextKind != ViewportContextKind.Game);
-        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraRig, grid);
+        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraOverlay, grid);
         _cameraNav = new CameraNavSystem(world, camera);
         CameraNav = _cameraNav;
         _selection = new SelectionSystem(world, camera);
@@ -625,11 +622,11 @@ public sealed class EditorOverlay
     /// <c>Load</c>, once it knows what it loaded.</summary>
     public EditorTransport Transport { get; }
 
-    /// <summary>The camera rig (UX2-E): the authored game-camera state as a standalone entity, split
-    /// from the free editor VIEW. Save reads <c>scene.camera</c> from it; every load re-syncs it; the
-    /// <c>view:camera</c> op / header button snaps the view onto it; its frustum glyph draws in the
-    /// overlay-prep pass. Exposed so tests + a future Game-mode transport (UX2-F) can read it.</summary>
-    public EditorCameraRig CameraRig => _cameraRig;
+    /// <summary>The camera-entity overlay (CM): draws the scene camera's frustum glyph in the overlay-prep
+    /// pass (while the view differs from the camera entity) and snaps the view onto the camera entity
+    /// (<c>view:camera</c> / the header button). It owns no camera state — the camera is an ordinary scene
+    /// entity now. Exposed so tests can read the glyph entity + drive the snap.</summary>
+    public CameraEntityOverlay CameraOverlay => _cameraOverlay;
 
     /// <summary>Native-scene loading (<c>LoadSceneRequest</c>). Weave with the level-load group.</summary>
     public ISystem<GameState> SceneReader { get; }
@@ -1347,10 +1344,16 @@ public sealed class EditorOverlay
         var target = SceneFilePath(_projectContext, id);
         if (string.IsNullOrEmpty(target)) return;
 
-        // Build the empty scene from a throwaway empty world (zero SceneObjectComponent roots ⇒ empty
-        // entities[]) with the current camera + the screen's layers — the canonical bytes for an empty
-        // world — and write them through the shared serializer/writer.
+        // Build the new scene from a throwaway world seeded with a default CAMERA entity (CM: every scene
+        // has exactly one camera — consistent with the reader-ensure, so loading this file is idempotent).
+        // The camera sits at the origin with zoom 1, EntityInfo "Camera", SceneObjectComponent-tagged so it
+        // serializes as a scene root. Plus the screen's layers — the canonical bytes for a fresh scene.
         using var emptyWorld = new World();
+        var camera = emptyWorld.CreateEntity();
+        camera.Set(new EntityInfoComponent("Camera"));
+        camera.Set(new TransformComponent(Vector2.Zero));
+        camera.Set(new CameraComponent { Zoom = 1f });
+        camera.Set(new SceneObjectComponent());
         var writer = new SceneWriter(Serializer, PrefabSource);
         var scene = writer.BuildScene(emptyWorld, _layers);
         var savedPath = writer.Save(scene, target);
@@ -2062,9 +2065,9 @@ public sealed class EditorOverlay
             case EditorToolbarAction.EntityMenu: OpenContextMenu(EditorMenuContext.EntityHeader, state); break;
             // The Scene-header "Overlays" dropdown (UX3-D): open the viewport-overlays menu below it.
             case EditorToolbarAction.Overlays: OpenContextMenu(EditorMenuContext.OverlaysHeader, state); break;
-            // The Scene-header nav-corner button (UX2-E): snap the free VIEW onto the authored camera rig
-            // (Camera := rig). An editing action — the toolbar dims/suppresses it while Playing.
-            case EditorToolbarAction.CameraView: _cameraRig.SnapViewToRig(); break;
+            // The Scene-header nav-corner button (CM): snap the free VIEW onto the scene camera entity
+            // (Camera := camera entity). An editing action — the toolbar dims/suppresses it while Playing.
+            case EditorToolbarAction.CameraView: _cameraOverlay.SnapViewToCameraEntity(); break;
             // (PF-B: the [Scene | Game] mode toggle retired — the viewport tab strip + the Play transport
             // button drive Scene/Game now; see the viewport-tab ops mode:/tab: in DispatchNamedAction.)
         }
@@ -2422,7 +2425,7 @@ public sealed class EditorOverlay
 
         if (name.StartsWith(viewPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            // view:camera — snap the free editor VIEW onto the authored camera rig (UX2-E), the headless
+            // view:camera — snap the free editor VIEW onto the scene camera entity (CM), the headless
             // twin of the Scene-header nav-corner button. view:frame — centre + zoom-fit the VIEW on all
             // content (UX3-E), the headless twin of the Home shortcut (both call the shared CameraNav).
             var verb = name.Substring(viewPrefix.Length).Trim();
