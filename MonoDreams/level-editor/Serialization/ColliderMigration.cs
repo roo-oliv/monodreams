@@ -46,9 +46,13 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// </summary>
 public static class ColliderMigration
 {
-    /// <summary>The version the migrator stamps (see <see cref="SceneData.CurrentVersion"/>). Referenced off
-    /// the dependency-free format type so this file can be source-linked into the CLI.</summary>
-    public const int TargetVersion = SceneData.CurrentVersion;
+    /// <summary>The version this lift stamps. The COLLIDER lift targets <b>version 2</b> — NOT the current
+    /// scene version (now 3, which the separate CM camera lift reaches). A v1 file this migrator rewrites
+    /// becomes a v2 file, which the version guard then loads (a v2 file with no camera block re-saves as v3)
+    /// or, if it carries a camera block, refuses until the umbrella <c>monodreams migrate</c> runs the camera
+    /// lift too. A literal (not <see cref="SceneData.CurrentVersion"/>) so this source-linked CLI file stays
+    /// pinned to the collider lift's target across future version bumps.</summary>
+    public const int TargetVersion = 2;
 
     // The stable component keys the migrator reads/writes. Kept in sync with EngineComponentSerializers
     // (a unit test asserts equality); duplicated here so this file stays dependency-free (System.Text.Json

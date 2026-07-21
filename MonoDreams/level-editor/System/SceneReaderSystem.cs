@@ -69,6 +69,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     private readonly Camera? _camera;
     private readonly Action<SceneCameraData?>? _applyCameraToRig;
     private readonly PrefabExpander? _prefabExpander;
+    private readonly bool _ensureSingleCamera;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -96,6 +97,12 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     /// and the live camera IS the authored camera: <c>scene.camera</c> is applied to it directly (or, for
     /// a legacy camera-less scene, the camera auto-frames on content, byte-identical to pre-UX2-E).
     /// </summary>
+    /// <param name="ensureSingleCamera">When true (the editor + shipped game readers — CM), a loaded scene
+    /// with NO <c>core.Camera</c> entity gets a default one created post-load
+    /// (<c>EntityInfo("Camera")</c> + Transform positioned by the auto-frame math + <c>core.Camera</c>,
+    /// <c>SceneObjectComponent</c>-tagged so it saves). Idempotent (a scene that already has one is left
+    /// alone), and never applied to a prefab context (a prefab has no camera). Left <c>false</c> on the
+    /// pure round-trip test path so serialization-fidelity tests round-trip exactly what they wrote.</param>
     public SceneReaderSystem(
         World world,
         SceneSerializer serializer,
@@ -104,7 +111,8 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         Func<string, Texture2D?>? fileTextureLoader = null,
         Camera? camera = null,
         Action<SceneCameraData?>? applyCameraToRig = null,
-        PrefabExpander? prefabExpander = null)
+        PrefabExpander? prefabExpander = null,
+        bool ensureSingleCamera = false)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -114,6 +122,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
         _camera = camera;
         _applyCameraToRig = applyCameraToRig;
         _prefabExpander = prefabExpander;
+        _ensureSingleCamera = ensureSingleCamera;
         _world.Subscribe<LoadSceneRequest>(On);
     }
 
@@ -153,10 +162,20 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             return;
         }
 
-        // Fail-loud version gate (CE-B, pre-mortem #2): a version-1 file carrying embedded colliders would
-        // deserialize to silently-wrong shapes (the old box 'bounds' maps to no field), so refuse it with the
-        // migrator hint. Only FILE reads guard — the in-memory snapshot path above is version-agnostic.
-        SceneVersionGuard.CheckFileLoad(scene, path);
+        // Fail-loud version gate (CE-B colliders, CM camera; pre-mortem #2): a legacy file that would
+        // deserialize to silently-wrong shapes (a v1 embedded collider) or silently drop its authored camera
+        // (a legacy 'camera' block) is refused with the migrator hint. Only FILE reads guard — the in-memory
+        // snapshot path above is version-agnostic. Log the refusal so the fail-loud is observable in the log,
+        // then re-throw (the load aborts before any entity is created).
+        try
+        {
+            SceneVersionGuard.CheckFileLoad(scene, path);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.Error(ex.Message);
+            throw;
+        }
 
         Load(scene, path, message.SuppressCameraRig);
     }
@@ -191,6 +210,12 @@ public sealed class SceneReaderSystem : ISystem<GameState>
             RestoreDrawComponents(created);
 
             ApplyCamera(scene, created, suppressCameraRig);
+
+            // CM one-camera rule: a real scene load ensures exactly one camera ENTITY exists (idempotent).
+            // Skipped for a prefab context (a prefab is a class, has no camera — pre-mortem #8) and on the
+            // pure round-trip path (ensureSingleCamera false → serialization-fidelity tests are untouched).
+            if (_ensureSingleCamera && !suppressCameraRig)
+                EnsureCameraEntity(created);
 
             SceneWasLoaded = true; // a real load happened → the empty-save guard now permits an empty save
 
@@ -432,6 +457,52 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
         Logger.Info(
             $"[level-editor] Auto-framed the view on loaded content: center={_camera.Position}, zoom={_camera.Zoom:F3}.");
+    }
+
+    /// <summary>
+    /// CM one-camera rule: ensures the loaded scene has exactly ONE camera ENTITY. If any live entity
+    /// already carries a <see cref="CameraComponent"/> (loaded from the file, or a prior ensure) this is a
+    /// no-op — idempotent (pre-mortem #3). Otherwise it creates a default camera root:
+    /// <c>EntityInfoComponent("Camera")</c> + a <see cref="TransformComponent"/> positioned by the SAME
+    /// auto-frame math the view uses (content AABB centre; origin for a content-less scene) + a
+    /// <see cref="CameraComponent"/> (zoom = the fit-zoom when a live view supplies the virtual size, else
+    /// 1) + <see cref="SceneObjectComponent"/> so it saves in <c>entities[]</c> like any scene root. Runs
+    /// on BOTH the editor and shipped paths (the caller gates it via <c>ensureSingleCamera</c>).
+    /// </summary>
+    private void EnsureCameraEntity(List<Entity> created)
+    {
+        using (var existing = _world.GetEntities().With<CameraComponent>().AsSet())
+            if (existing.Count > 0) return; // already exactly one (or restored from the file) — idempotent
+
+        // Reuse the auto-frame math: centre on the loaded content's AABB (origin when there is none), and
+        // fit-zoom when a live view supplies the immutable virtual size (else the CameraComponent default).
+        var quads = new List<Vector2[]>();
+        foreach (var entity in created)
+        {
+            if (!entity.Has<SpriteInfoComponent>() || !entity.Has<TransformComponent>()) continue;
+            quads.Add(GizmoTransform.SpriteWorldQuad(
+                entity.Get<TransformComponent>(), entity.Get<SpriteInfoComponent>()));
+        }
+
+        var position = Vector2.Zero;
+        var zoom = 1f;
+        if (CameraNav.ContentBounds(quads) is { } aabb)
+        {
+            position = CameraNav.Center(aabb);
+            if (_camera != null && aabb.Width > 0 && aabb.Height > 0)
+                zoom = CameraNav.FitZoom(aabb, _camera.VirtualWidth, _camera.VirtualHeight,
+                    FrameMargin, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
+        }
+
+        var camera = _world.CreateEntity();
+        camera.Set(new EntityInfoComponent("Camera"));
+        camera.Set(new TransformComponent(position));
+        camera.Set(new CameraComponent { Zoom = zoom });
+        camera.Set(new SceneObjectComponent()); // a scene root — saved in entities[] like everything else
+
+        Logger.Info(
+            $"[level-editor] Scene had no camera entity — created a default 'Camera' at {position} " +
+            $"(zoom {zoom:F3}). It saves with the scene (CM one-camera rule).");
     }
 
     /// <summary>Whether any live entity carries an <b>active</b> <see cref="CameraFollowTargetComponent"/>

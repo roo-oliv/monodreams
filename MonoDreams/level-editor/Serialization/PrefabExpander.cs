@@ -121,6 +121,15 @@ public sealed class PrefabExpander
                 "prefab references a prefab that does not exist; aborting expansion (the missing-prefab " +
                 "fail-loud stance, sibling of the unknown-component policy).");
 
+        // CM one-camera rule: a prefab is a class, not a scene — it must carry NO camera entity. A legacy
+        // prefab file that (illegally) contains one is refused loud on expansion (the prefab writer refuses
+        // it at author time; this guards a file that predates that rule).
+        foreach (var entry in prefab.Scene.Entities)
+            if (entry.Components != null && entry.Components.ContainsKey(EngineComponentSerializers.CameraKey))
+                throw new InvalidOperationException(
+                    $"[level-editor] Prefab '{prefabId}' contains a camera entity ('{EngineComponentSerializers.CameraKey}') — " +
+                    "a camera belongs to a scene, not a prefab (multi-camera terrain). Refused on expansion.");
+
         _stack.Add(prefabId);
         List<Entity> created;
         try

@@ -21,27 +21,43 @@ namespace MonoDreams.LevelEditor.Serialization;
 public class SceneData
 {
     /// <summary>The current native scene/prefab format version (see <see cref="Version"/>). Lives here —
-    /// on the dependency-free format type — so both the engine's <see cref="SceneVersionGuard"/> and the
-    /// source-linked CLI migrator (<see cref="ColliderMigration"/>) reference ONE constant without either
-    /// pulling in the component-serializer registry.</summary>
-    public const int CurrentVersion = 2;
+    /// on the dependency-free format type — so the engine's <see cref="SceneVersionGuard"/> references ONE
+    /// constant without pulling in the component-serializer registry. (The CLI collider migrator's own
+    /// target version is a separate constant — the collider lift targets v2, the camera lift v3.)</summary>
+    public const int CurrentVersion = 3;
 
     /// <summary>
     /// Scene format version. Bump on any breaking change to the schema.
     ///
-    /// <para><b>Version 2 (colliders-as-entities, CE-B).</b> The default is <c>2</c>: everything the writer
-    /// emits (scenes AND prefabs) is version 2. A version-2 collider is a shape on its own collider ENTITY
-    /// (box <c>size</c> centered on the entity's Transform; convex <c>modelVertices</c> entity-local) — the
-    /// former embedded box <c>bounds</c> offset is gone. A version-1 file that carries an embedded collider
-    /// (a <c>core.BoxCollider</c>/<c>core.ConvexCollider</c> body) is <b>refused on file read</b> by
-    /// <see cref="SceneVersionGuard"/> (run <c>monodreams migrate-colliders</c>); a version-1 file WITHOUT
-    /// colliders still loads and re-saves as version 2. In-memory <see cref="SceneData"/> (Game-mode
-    /// snapshots) is version-agnostic — only file reads guard.</para>
+    /// <para><b>Version 3 (camera-as-entity, CM).</b> The default is <c>3</c>: everything the writer emits
+    /// (scenes AND prefabs) is version 3. The camera is no longer a special <c>camera</c> file block — it
+    /// is an ordinary scene entity (<c>EntityInfo("Camera")</c> + <c>Transform</c> + <c>core.Camera</c>
+    /// zoom), serialized in <c>entities[]</c> like everything else. The <see cref="Camera"/> block LEFT the
+    /// writer; it survives only as a deserialization target so <see cref="SceneVersionGuard"/> can DETECT a
+    /// legacy block and the CLI camera migrator can lift it into an entity.</para>
+    ///
+    /// <para><b>Version 2 (colliders-as-entities, CE-B).</b> A version-2 collider is a shape on its own
+    /// collider ENTITY (box <c>size</c> centered on the entity's Transform; convex <c>modelVertices</c>
+    /// entity-local). A version-2 file WITHOUT a camera block loads and re-saves as version 3; a version-2
+    /// file WITH one is refused on file read by <see cref="SceneVersionGuard"/> (run <c>monodreams
+    /// migrate</c>).</para>
+    ///
+    /// <para><b>Version 1 (legacy).</b> A version-1 file that carries an embedded collider
+    /// (a <c>core.BoxCollider</c>/<c>core.ConvexCollider</c> body) is refused on file read (run
+    /// <c>monodreams migrate-colliders</c>); a version-1 file WITHOUT colliders or a camera block loads and
+    /// re-saves at the current version. In-memory <see cref="SceneData"/> (Game-mode snapshots) is
+    /// version-agnostic — only file reads guard.</para>
     /// </summary>
     [JsonPropertyName("version")]
     public int Version { get; set; } = CurrentVersion;
 
-    /// <summary>Camera state (position / zoom / rotation) captured at save time.</summary>
+    /// <summary>
+    /// <b>Legacy camera block — deserialization-only (CM).</b> The writer no longer emits it (the camera is
+    /// a scene entity now); it survives on this type so <see cref="SceneVersionGuard.CheckFileLoad"/> can
+    /// DETECT a pre-CM camera block (a version-2 file carrying one is refused → run <c>monodreams
+    /// migrate</c>) and so the CLI camera migrator can read the block it lifts into a camera entity. A
+    /// version-3 file never carries it (<see cref="CanonicalJson"/> null-omits it, and nothing sets it).
+    /// </summary>
     [JsonPropertyName("camera")]
     public SceneCameraData? Camera { get; set; }
 
@@ -65,7 +81,9 @@ public class SceneData
     public List<SceneEntityData> Entities { get; set; } = new();
 }
 
-/// <summary>Camera state persisted with the scene.</summary>
+/// <summary>Legacy camera state (position / zoom / rotation) — a pre-CM <c>camera</c> file block. The
+/// writer no longer produces it; it survives only as the shape <see cref="SceneVersionGuard"/> detects on
+/// a legacy file read and the CLI camera migrator lifts into a camera entity.</summary>
 public class SceneCameraData
 {
     [JsonPropertyName("position")]
