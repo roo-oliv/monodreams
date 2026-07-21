@@ -25,17 +25,20 @@
   </ItemGroup>
 
   <!--
-    The `migrate-colliders` command shares SOURCE with the engine rather than referencing it: the engine
-    assembly is `MonoDreams.dll` and this tool's is `monodreams.dll`, which collide on a case-insensitive
-    filesystem (see MonoDreams.Cli.Tests for the same rationale). Source-linking the three DEPENDENCY-FREE
-    serialization files (System.Text.Json only — no MonoGame/DefaultEcs) lets the migrator produce
-    byte-canonical output through the SAME CanonicalJson policy the engine writes scenes with, guaranteeing
-    parity without the DLL clash. These files must stay free of engine (MonoGame/DefaultEcs) types.
+    The `migrate` / `migrate-colliders` commands share SOURCE with the engine rather than referencing it: the
+    engine assembly is `MonoDreams.dll` and this tool's is `monodreams.dll`, which collide on a
+    case-insensitive filesystem (see MonoDreams.Cli.Tests for the same rationale). Source-linking the
+    DEPENDENCY-FREE serialization files (System.Text.Json only — no MonoGame/DefaultEcs) lets the migrators
+    produce byte-canonical output through the SAME CanonicalJson policy the engine writes scenes with,
+    guaranteeing parity without the DLL clash. These files must stay free of engine (MonoGame/DefaultEcs)
+    types. SceneMigration is the umbrella that chains ColliderMigration (v1→v2) then CameraMigration (v2→v3).
   -->
   <ItemGroup>
     <Compile Include="..\MonoDreams\level-editor\Serialization\SceneData.cs" Link="Shared\SceneData.cs" />
     <Compile Include="..\MonoDreams\level-editor\Serialization\CanonicalJson.cs" Link="Shared\CanonicalJson.cs" />
     <Compile Include="..\MonoDreams\level-editor\Serialization\ColliderMigration.cs" Link="Shared\ColliderMigration.cs" />
+    <Compile Include="..\MonoDreams\level-editor\Serialization\CameraMigration.cs" Link="Shared\CameraMigration.cs" />
+    <Compile Include="..\MonoDreams\level-editor\Serialization\SceneMigration.cs" Link="Shared\SceneMigration.cs" />
   </ItemGroup>
 
   <ItemGroup>
