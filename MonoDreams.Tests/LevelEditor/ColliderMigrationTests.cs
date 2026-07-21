@@ -321,10 +321,11 @@ public class ColliderMigrationTests
             var resaved = CanonicalJson.Serialize(new SceneWriter(serializer).BuildScene(world));
 
             // pre-mortem #3: migrate → load → save is a byte fixed point MODULO the version bump. The
-            // collider lift stamps v2; loading a clean v2 (no camera block) re-saves at the current version
-            // (v3, per the CM guard). Everything but the version line is a fixed point — the reshaped
-            // colliders + entity ordering round-trip. (TODO(CM-C): the umbrella `monodreams migrate`
-            // produces v3 directly, making this a strict byte fixed point again.)
+            // collider lift (this test's subject) stamps v2; loading a clean v2 (no camera block) re-saves at
+            // the current version (v3, per the CM guard). Everything but the version line is a fixed point —
+            // the reshaped colliders + entity ordering round-trip. The umbrella `monodreams migrate` (collider
+            // THEN camera lift) produces v3 directly and IS a strict byte fixed point — that is
+            // `SceneMigrationTests.Umbrella_MigrateLoadSave_IsAStrictByteFixedPoint`.
             var migratedAtCurrentVersion = CanonicalJson.Serialize(BumpVersion(migrated, SceneVersionGuard.CurrentVersion));
             Assert.Equal(migratedAtCurrentVersion, resaved);
         }

@@ -12,6 +12,7 @@ namespace MonoDreams.Cli.Tests;
 /// the command wiring + output + exit codes (the source-linked <see cref="ColliderMigration"/> guarantees
 /// byte-canonical parity with the engine writer).
 /// </summary>
+[Collection("Console (non-parallel: swaps Console.Out)")]
 public class MigrateCollidersCommandTests
 {
     private const string Box = "core.BoxCollider";

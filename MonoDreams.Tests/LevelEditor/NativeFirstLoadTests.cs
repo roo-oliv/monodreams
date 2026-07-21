@@ -304,10 +304,13 @@ public class NativeFirstLoadTests
     // ---- The committed Examples sample.mdscene is byte-locked to the canonical serializer output ----
 
     /// <summary>
-    /// Reconstructs the exact 2-entity world the committed
+    /// Reconstructs the exact world the committed
     /// <c>MonoDreams.Examples.Core/Content/Levels/sample.mdscene</c> is generated from and asserts the
     /// canonical bytes match it — so the committed sample stays a byte fixed point (drift would break the
-    /// game boot test). The committed file is generated FROM this serializer, so they are identical.
+    /// game boot test). The committed file is generated FROM this serializer, so they are identical. Under
+    /// CM the sample carries a third entity: the uniformly-explicit default camera (an ordinary
+    /// <c>core.Camera</c> root at the origin, id 2) that <c>monodreams migrate</c> added to the camera-less
+    /// v2 scene when it bumped it to v3.
     /// </summary>
     [Fact]
     public void CommittedSampleScene_MatchesTheCanonicalShape()
@@ -315,6 +318,14 @@ public class NativeFirstLoadTests
         using var world = new World();
         Make(world, "grass", new Vector2(0, 0));
         Make(world, "stone", new Vector2(96, 32));
+
+        // The default camera entity (created third → stable id 2), byte-identical to the migrator's default:
+        // EntityInfo("Camera") + Transform at the origin + core.Camera zoom 1.
+        var camera = world.CreateEntity();
+        camera.Set(new SceneObjectComponent());
+        camera.Set(new EntityInfoComponent("Camera"));
+        camera.Set(new TransformComponent(Vector2.Zero));
+        camera.Set(new CameraComponent { Zoom = 1f });
 
         var json = CanonicalJson.Serialize(
             new SceneWriter(new SceneSerializer(NewEngineRegistry())).BuildScene(world));
@@ -364,13 +375,12 @@ public class NativeFirstLoadTests
         });
     }
 
-    /// <summary>The exact canonical bytes the current serializer produces for the sample scene. Under CM
-    /// the writer stamps version 3.
-    /// <para><b>TODO(CM-C):</b> the committed <c>MonoDreams.Examples.Core/Content/Levels/sample.mdscene</c>
-    /// on disk is still version 2 (committed content stays v2 this wave; CM-C's <c>monodreams migrate</c>
-    /// bumps it to 3). A camera-less v2 file loads fine (the version guard re-saves it as v3), so booting
-    /// the committed sample is unaffected; only this canonical-bytes fixture leads the on-disk file by one
-    /// version until CM-C migrates it.</para></summary>
+    /// <summary>The exact canonical bytes the current serializer produces for the sample scene, and the
+    /// exact bytes committed on disk (<c>MonoDreams.Examples.Core/Content/Levels/sample.mdscene</c>) — the
+    /// two are byte-identical (the committed file was migrated to v3 by <c>monodreams migrate</c>, which
+    /// emits through the same canonical serializer). Under CM the writer stamps version 3 and the camera is
+    /// an ordinary <c>core.Camera</c> entity: this camera-less sample gets the uniformly-explicit default
+    /// camera at the origin (id 2), so the fixture carries grass (id 0) + stone (id 1) + Camera (id 2).</summary>
     private const string ExpectedSampleScene =
         "{\n" +
         "  \"version\": 3,\n" +
@@ -464,6 +474,32 @@ public class NativeFirstLoadTests
         "          \"position\": [\n" +
         "            96,\n" +
         "            32\n" +
+        "          ],\n" +
+        "          \"rotation\": 0,\n" +
+        "          \"scale\": [\n" +
+        "            1,\n" +
+        "            1\n" +
+        "          ],\n" +
+        "          \"origin\": [\n" +
+        "            0,\n" +
+        "            0\n" +
+        "          ]\n" +
+        "        }\n" +
+        "      }\n" +
+        "    },\n" +
+        "    {\n" +
+        "      \"id\": 2,\n" +
+        "      \"components\": {\n" +
+        "        \"core.Camera\": {\n" +
+        "          \"zoom\": 1\n" +
+        "        },\n" +
+        "        \"core.EntityInfo\": {\n" +
+        "          \"type\": \"Camera\"\n" +
+        "        },\n" +
+        "        \"core.Transform\": {\n" +
+        "          \"position\": [\n" +
+        "            0,\n" +
+        "            0\n" +
         "          ],\n" +
         "          \"rotation\": 0,\n" +
         "          \"scale\": [\n" +

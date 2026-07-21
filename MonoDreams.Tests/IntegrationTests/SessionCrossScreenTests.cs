@@ -101,13 +101,26 @@ public class SessionCrossScreenTests
             TailFrames = 40, // let the destination boot + settle before the (replayed) driver exits
         });
 
-        // TODO(CM-C): the destination "Level 1" is the committed Blender_Level, still a version-2 scene
-        // carrying a legacy 'camera' block — the CM version guard refuses it on boot and the load throws,
-        // crashing the destination boot (non-zero exit). Committed content stays v2 this wave; once CM-C's
-        // `monodreams migrate` lifts Blender_Level to a v3 camera entity in-repo, restore the original
-        // session-survival assertions (exit 0 + the "Game tab follows the transition" log order) from git
-        // history. The Game-tab-follows + session-rebind logic that this test protects is unchanged by CM;
-        // it is simply un-observable here until the destination boots (the crash truncates the buffered log).
-        Assert.NotEqual(0, result.ExitCode);
+        Assert.Equal(0, result.ExitCode);
+        // In order: menu overlay → Play spawns the Game tab → Playing → the gameplay transition boots the
+        // destination (the committed Blender_Level — a v3 camera-entity scene since CM-C migrated it in-repo,
+        // so the version guard accepts it and the boot completes), whose transport REBINDS the surviving
+        // session with the Game tab still active and the menu scene tab intact (2 tabs; the Game tab's id is
+        // its origin scene until the destination's SetSceneId renames it) → the destination screen's overlay
+        // composes over the same session.
+        result.AssertLogContainsInOrder(
+            "Editor overlay composed on LevelSelectionScreen",
+            "Transport: spawned the Game tab",
+            "Transport: Playing.",
+            "rebound the host session stack — active tab 'level_selection' (Game), 2 tab(s)",
+            "Editor overlay composed on LoadLevelExampleGameScreen");
+
+        var log = string.Join("\n", result.LogLines);
+        // NO restore rode the gameplay transition (pre-mortem #3: gameplay owns the world)...
+        Assert.DoesNotContain("TB-A: consumed pending activation", log);
+        // ...RunMode stayed Play across the switch (nothing re-asserted Edit; the transport never paused)...
+        Assert.DoesNotContain("Transport: Paused.", log);
+        // ...and the destination's replayed Play op was a no-op: ONE Game-tab snapshot per session.
+        Assert.Single(result.LogLines.Where(l => l.Contains("Transport: spawned the Game tab")));
     }
 }

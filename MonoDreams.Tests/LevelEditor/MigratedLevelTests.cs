@@ -20,8 +20,9 @@ namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
 /// Protects the PS5 <b>migrated Examples level</b>: the committed
-/// <c>MonoDreams.Examples.Core/Content/Levels/Blender_Level.mdscene</c> (a native v2 scene originally
-/// imported from the legacy Blender export, now owned by the game) is (a) <b>byte-locked</b> to the
+/// <c>MonoDreams.Examples.Core/Content/Levels/Blender_Level.mdscene</c> (a native v3 scene originally
+/// imported from the legacy Blender export, now owned by the game — migrated to v3 by
+/// <c>monodreams migrate</c>, its camera an ordinary <c>core.Camera</c> entity) is (a) <b>byte-locked</b> to the
 /// canonical serializer — a load→save is a
 /// fixed point, so a non-canonical hand-edit is caught — and (b) <b>boots through the shipped
 /// (no-editor) native reader</b>, reconstructing the player + NPCs + colliders, which proves the
@@ -144,16 +145,11 @@ public class MigratedLevelTests
         WithPlatform(fake, () =>
         {
             const string path = "Levels/Blender_Level.mdscene";
-            // TODO(CM-C): the committed Blender_Level.mdscene is still a version-2 scene carrying a legacy
-            // 'camera' block, which the CM version guard refuses on file read (run `monodreams migrate`).
-            // Committed content stays v2 this wave; CM-C's `monodreams migrate` lifts the block into a
-            // 'Camera' entity and bumps it to v3 in-repo, after which this test can load the committed bytes
-            // verbatim. Until then, apply the camera lift's essentials here (drop the block, stamp v3) so the
-            // shipped-reader reconstruction guard still runs.
-            var migrated = CanonicalJson.Deserialize<SceneData>(committed)!;
-            migrated.Camera = null;
-            migrated.Version = SceneVersionGuard.CurrentVersion;
-            fake.WriteAllText(path, CanonicalJson.Serialize(migrated));
+            // CM-C migrated the committed Blender_Level.mdscene to v3 in-repo (`monodreams migrate` lifted
+            // its legacy 'camera' block into a 'Camera' entity + stamped v3), so the shipped reader loads
+            // the committed bytes VERBATIM — no in-test lift. This is the boot-success guard on the real
+            // committed bytes the CM version guard now accepts.
+            fake.WriteAllText(path, committed);
 
             using var world = new World();
             // The SHIPPED reader registry: engine + game serializers. If a game component key were
