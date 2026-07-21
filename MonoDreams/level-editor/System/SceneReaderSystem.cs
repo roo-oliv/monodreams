@@ -378,50 +378,17 @@ public sealed class SceneReaderSystem : ISystem<GameState>
     }
 
     /// <summary>
-    /// CM one-camera rule: ensures the loaded scene has exactly ONE camera ENTITY. If any live entity
-    /// already carries a <see cref="CameraComponent"/> (loaded from the file, or a prior ensure) this is a
-    /// no-op — idempotent (pre-mortem #3). Otherwise it creates a default camera root:
-    /// <c>EntityInfoComponent("Camera")</c> + a <see cref="TransformComponent"/> positioned by the SAME
-    /// auto-frame math the view uses (content AABB centre; origin for a content-less scene) + a
-    /// <see cref="CameraComponent"/> (zoom = the fit-zoom when a live view supplies the virtual size, else
-    /// 1) + <see cref="SceneObjectComponent"/> so it saves in <c>entities[]</c> like any scene root. Runs
-    /// on BOTH the editor and shipped paths (the caller gates it via <c>ensureSingleCamera</c>).
+    /// CM one-camera rule: ensures the loaded scene has exactly ONE camera ENTITY — delegated to
+    /// <see cref="SceneCameraEnsure.EnsureCameraEntity"/>, the ONE ensure implementation shared with
+    /// <c>NativeLevelLoader.TryPublishSceneLoad</c>'s file-absent branch (CM-D — never a second copy). If
+    /// any live entity already carries a <see cref="CameraComponent"/> (loaded from the file, or a prior
+    /// ensure) it is a no-op — idempotent (pre-mortem #3). Otherwise it creates a default camera root
+    /// positioned by the SAME auto-frame math the view uses (content AABB centre; origin for a content-less
+    /// scene), <see cref="SceneObjectComponent"/>-tagged so it saves. Runs on BOTH the editor and shipped
+    /// paths (the caller gates it via <c>ensureSingleCamera</c>).
     /// </summary>
-    private void EnsureCameraEntity(List<Entity> created)
-    {
-        using (var existing = _world.GetEntities().With<CameraComponent>().AsSet())
-            if (existing.Count > 0) return; // already exactly one (or restored from the file) — idempotent
-
-        // Reuse the auto-frame math: centre on the loaded content's AABB (origin when there is none), and
-        // fit-zoom when a live view supplies the immutable virtual size (else the CameraComponent default).
-        var quads = new List<Vector2[]>();
-        foreach (var entity in created)
-        {
-            if (!entity.Has<SpriteInfoComponent>() || !entity.Has<TransformComponent>()) continue;
-            quads.Add(GizmoTransform.SpriteWorldQuad(
-                entity.Get<TransformComponent>(), entity.Get<SpriteInfoComponent>()));
-        }
-
-        var position = Vector2.Zero;
-        var zoom = 1f;
-        if (CameraNav.ContentBounds(quads) is { } aabb)
-        {
-            position = CameraNav.Center(aabb);
-            if (_camera != null && aabb.Width > 0 && aabb.Height > 0)
-                zoom = CameraNav.FitZoom(aabb, _camera.VirtualWidth, _camera.VirtualHeight,
-                    FrameMargin, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
-        }
-
-        var camera = _world.CreateEntity();
-        camera.Set(new EntityInfoComponent("Camera"));
-        camera.Set(new TransformComponent(position));
-        camera.Set(new CameraComponent { Zoom = zoom });
-        camera.Set(new SceneObjectComponent()); // a scene root — saved in entities[] like everything else
-
-        Logger.Info(
-            $"[level-editor] Scene had no camera entity — created a default 'Camera' at {position} " +
-            $"(zoom {zoom:F3}). It saves with the scene (CM one-camera rule).");
-    }
+    private void EnsureCameraEntity(List<Entity> created) =>
+        SceneCameraEnsure.EnsureCameraEntity(_world, _camera, created);
 
     /// <summary>Whether any live entity carries an <b>active</b> <see cref="CameraFollowTargetComponent"/>
     /// — the signal that <c>CameraFollowSystem</c> will drive the camera, so the reader must not.</summary>

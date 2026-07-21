@@ -5,6 +5,7 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
+using MonoDreams.LevelEditor.System;
 using MonoDreams.Platform;
 using MonoDreams.State;
 
@@ -114,7 +115,11 @@ public static class NativeLevelLoader
     ///   <c>true</c>;</item>
     ///   <item><b>bundled</b> — else, when the <c>TitleContainer</c> bundled copy exists, publish
     ///   <c>LoadSceneRequest(rel, fromContent:true)</c> (console-portable) and return <c>true</c>;</item>
-    ///   <item><b>absent</b> — else no-op (<c>false</c>): the screen keeps its code-built content.</item>
+    ///   <item><b>absent</b> — else the screen keeps its code-built content, and this <b>ensures the scene
+    ///   context still has exactly one camera entity</b> (CM-D — the shared <see cref="SceneCameraEnsure"/>,
+    ///   the SAME ensure the reader runs, so a never-loaded scene context is not left camera-less /
+    ///   non-uniform; the default camera lands at the origin as there is no scene content to frame), then
+    ///   returns <c>false</c>.</item>
     /// </list>
     /// A published request is a no-op when no <c>SceneReaderSystem</c> is composed (a plain non-editor
     /// menu run), so the call is always safe. Existence probes are injectable for tests.
@@ -139,7 +144,17 @@ public static class NativeLevelLoader
             return true;
         }
 
-        return false; // absent → silently skip
+        // File-absent (CM-D): the bound scene has NO source AND no bundled file — a code-built screen
+        // context (LevelSelection's level_selection, every Demos screen) that never runs the reader and
+        // would otherwise be left with ZERO camera entities (no "Camera" tree row, non-uniform contexts).
+        // Run the SAME ensure-one-camera the reader runs — the shared SceneCameraEnsure, never a second
+        // copy — so a never-loaded scene context still gets exactly one camera entity: a default 'Camera'
+        // at the origin (no scene content to frame on; the screen's content is code-built, not scene data).
+        // Idempotent (a no-op if a camera already exists — a Restart that re-ran this, a prior ensure, a
+        // later real load), so it converges on exactly one. Prefab contexts never reach here — a prefab
+        // tab's content-load is the SuppressCameraEnsure in-memory reader path, not this optional load.
+        SceneCameraEnsure.EnsureCameraEntity(world);
+        return false; // no scene file loaded → the screen keeps its code-built content (now with a camera)
     }
 
     /// <summary>
