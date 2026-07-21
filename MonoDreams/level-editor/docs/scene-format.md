@@ -29,20 +29,39 @@ so the bytes are deterministic — see [Canonical serialization](#canonical-seri
 
 | Field | Type | Meaning |
 |---|---|---|
-| `version` | int | Scene format version. Bump on a breaking schema change. Currently `1`. |
-| `camera` | object | Camera state at save time: `position` `[x,y]`, `zoom` float, `rotation` float. |
+| `version` | int | Scene format version. Bump on a breaking schema change. Currently `3` (camera-as-entity, CM). |
 | `layers` | array | Named draw-depth layers; each has `name`, `depth` `[min,max]`, `ySorted` bool. |
 | `sources` | array | **Reserved** for later parametric-source waves (ground splatmap / road / scatter — Waves D–F). Empty today; a reader ignores unknown entries, so adding source kinds later needs no version bump. |
-| `entities` | array | The serialized entities (see below). |
+| `entities` | array | The serialized entities (see below) — including the camera, which is an ordinary entity now (CM). |
 
-### `camera`
+> **There is no `camera` block (CM, v3).** The scene camera is an ordinary
+> `core.Camera` ENTITY in `entities[]`, not a special top-level block — the
+> "one data model" tenet (`CORE_TENETS` §9). A legacy `camera` block (a v2 or
+> earlier file) survives on `SceneData.Camera` only as a
+> **deserialization-only DETECTION target**: `SceneVersionGuard` refuses such a
+> file on read (*"run `monodreams migrate`"*) and the CLI camera migrator lifts
+> the block into a camera entity. The writer never emits it. See
+> [`camera-as-entity.md`](../../../docs/level-editor/camera-as-entity.md).
+
+### The camera entity (`core.Camera`)
+
+The camera is a scene root carrying `EntityInfoComponent("Camera")` +
+`TransformComponent` (position AND rotation — one rotation, on the Transform) +
+`CameraComponent` (the authored `zoom`; the virtual resolution stays render
+config on the `Camera` adapter, never scene data). Exactly ONE per scene: the
+writer refuses a second, the reader ensures one exists on load (a camera-less
+scene gets a default), and prefabs refuse a camera entirely. In `Play`,
+`CameraSyncSystem` copies the camera entity's `(WorldPosition, WorldRotation,
+Zoom)` into the shared `Camera` render adapter; in `Edit` the adapter is the
+editor's free view (the camera entity is just data). Serialized like any entity:
 
 ```json
-{ "position": [320.0, 180.0], "zoom": 2.0, "rotation": 0.0 }
+{ "id": 5, "components": {
+  "core.Camera": { "zoom": 4 },
+  "core.EntityInfo": { "type": "Camera" },
+  "core.Transform": { "position": [0, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+} }
 ```
-
-The editor drives `Camera.Position` / `Zoom` directly in `Edit` (camera-follow
-is `Freeze`-gated), so the saved camera is the editor's view, restored on load.
 
 ### `layers[]`
 
@@ -75,10 +94,12 @@ The `componentTypeKey` is the stable string the registry assigns a component
 | `core.Transform` | `TransformComponent` | `position`, `rotation`, `scale`, `origin` (the cached world matrix is derived, not stored) |
 | `core.SpriteInfo` | `SpriteInfoComponent` | `assetKey` (**never** the live `Texture2D`), `source`, `size`, `color`, `origin`, `offset`, `target`, and the SOURCE sort fields `layerDepth` / `ySortOffset` / `ySortDepthBias` (**never** the per-frame-derived `DrawComponent.LayerDepth`) |
 | `core.EntityInfo` | `EntityInfoComponent` | `type`, `name` |
-| `core.BoxCollider` | `BoxColliderComponent` | `bounds`, `activeLayers`, `passive`, `enabled` (broad-phase AABB is derived) |
-| `core.ConvexCollider` | `ConvexColliderComponent` | `modelVertices`, `activeLayers`, `passive`, `enabled`, `ignoreTransformRotation` (world vertices + AABB are derived) |
+| `core.Camera` | `CameraComponent` | `zoom` (position + rotation come from the entity's `Transform`; virtual resolution is render config, not scene data). The scene camera is an ENTITY (CM) — one per scene. |
+| `core.BoxCollider` | `BoxColliderComponent` | `size` (a **centered** `[w,h]` — the pose is the collider entity's `Transform`, no offset), `activeLayers`, `passive`, `enabled` (broad-phase AABB is derived). A collider is its own entity (colliders-as-entities, v2). |
+| `core.ConvexCollider` | `ConvexColliderComponent` | `modelVertices` (collider-entity-local), `activeLayers`, `passive`, `enabled`, `ignoreTransformRotation` (world vertices + AABB are derived) |
 | `core.RigidBody` | `RigidBodyComponent` | `mass`, `gravityActive`, `gravityFactor`, `isKinematic`, `freezeRotation`, `freezePositionX`, `freezePositionY` |
 | `core.Velocity` | `VelocityComponent` | `current`, `last` |
+| `core.CameraFollowTarget` | `CameraFollowTargetComponent` | `dampingX/Y`, `maxDistanceX/Y`, `isActive`, optional `bounds` — the follow tuning on the entity the camera tracks (in `Play` `CameraFollowSystem` lerps the camera entity toward it). |
 | `core.ChildOf` | `ChildOfComponent` | **none** — the parent link is the entity's `parent` index field, not a component body. Registered only so a parented entity does not trip the unregistered-component warning. |
 
 Game-specific components (e.g. `PlayerState`) are **not** shipped by the engine —
@@ -168,22 +189,23 @@ for versioning levels. The rules:
 - **Indented, LF newlines, trailing newline.** 2-space indent (net8.0's writer
   hardcodes `\n` for indentation, so it is platform-independent), one numeric
   array element per line, and a single trailing `\n`.
-- **Null fields omitted.** An absent `camera`, a root's null `parent`, a null
-  `assetKey`, a child's null `id` are dropped rather than emitted as `"…": null`.
+- **Null fields omitted.** A root's null `parent`, a null `assetKey`, a camera
+  entity's null `name`, a child's null `id` are dropped rather than emitted as
+  `"…": null`.
 
 ## Concrete example
 
-A scene with a player (Transform + SpriteInfo + BoxCollider + RigidBody) and one
-child orb parented to it. Shown **compactly** (arrays inlined, keys grouped) for
+A v3 scene with a player (Transform + SpriteInfo + RigidBody + Velocity) whose
+box collider is its own CHILD entity (colliders-as-entities), a child orb, and
+the scene camera entity. Shown **compactly** (arrays inlined, keys grouped) for
 readability; the real file is 2-space-indented with one array element per line,
 `components{}` keys ordinal-sorted, and whole-number floats in shortest form
-(e.g. `1.0` written `1`). Note the root's stable `id` and the omitted
-`parent`/`assetKey` nulls:
+(e.g. `1.0` written `1`). Note the roots' stable `id`s (the camera sorts last)
+and the omitted `parent`/`assetKey`/`name` nulls:
 
 ```json
 {
-  "version": 1,
-  "camera": { "position": [320, 180], "zoom": 2, "rotation": 0 },
+  "version": 3,
   "layers": [
     { "name": "Background", "depth": [0.9, 1], "ySorted": false },
     { "name": "Characters", "depth": [0.4, 0.5], "ySorted": true },
@@ -194,7 +216,6 @@ readability; the real file is 2-space-indented with one array element per line,
     {
       "id": 0,
       "components": {
-        "core.BoxCollider": { "bounds": [0, 0, 16, 32], "activeLayers": [-1], "passive": false, "enabled": true },
         "core.EntityInfo": { "type": "Player", "name": "Hero" },
         "core.RigidBody":   { "mass": 1, "gravityActive": true, "gravityFactor": 1, "isKinematic": false, "freezeRotation": false, "freezePositionX": false, "freezePositionY": false },
         "core.SpriteInfo": {
@@ -215,20 +236,36 @@ readability; the real file is 2-space-indented with one array element per line,
     },
     {
       "components": {
+        "core.BoxCollider": { "size": [16, 32], "activeLayers": [-1], "passive": false, "enabled": true },
+        "core.Transform":   { "position": [8, 16], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+      },
+      "parent": 0
+    },
+    {
+      "components": {
         "core.EntityInfo": { "type": "Orb", "name": "BlueOrb" },
         "core.Transform":  { "position": [50, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
       },
       "parent": 0
+    },
+    {
+      "id": 1,
+      "components": {
+        "core.Camera": { "zoom": 2 },
+        "core.EntityInfo": { "type": "Camera" },
+        "core.Transform":  { "position": [320, 180], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+      }
     }
   ]
 }
 ```
 
-On load: pass 1 creates both entities and deserializes their components (the
+On load: pass 1 creates every entity and deserializes its components (the
 player's `SpriteInfo.SpriteSheet` is `null`, to be rehydrated from `assetKey`);
-pass 2 wires the orb's parent link (`parent: 0`) via `SetParent`, which syncs both
-the structural `ChildOfComponent` and the `TransformComponent.Parent` matrix link.
-The reader then re-tags each root with `SceneObjectComponent` and restores its
+pass 2 wires the child parent links (the collider and the orb both `parent: 0`)
+via `SetParent`, which syncs both the structural `ChildOfComponent` and the
+`TransformComponent.Parent` matrix link. The reader then re-tags each root
+(player + camera) with `SceneObjectComponent` and restores its
 `SceneEntityIdComponent` from the entry's `id` (so the next save reuses the same
 ids and the array order stays byte-stable — `load → save` equals the source file).
 

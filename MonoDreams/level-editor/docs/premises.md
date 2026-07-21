@@ -327,7 +327,10 @@ A legacy file that hits NEITHER gate (a collider-free, camera-block-free v1/v2) 
 the current version (a one-time bump); a version-3 file loads regardless. The `SceneData.CurrentVersion`
 constant lives on the dependency-free format type so the engine guard references one value; the collider
 CLI migrator's own `TargetVersion` is a SEPARATE constant pinned to `2` (the collider lift targets v2; the
-camera lift reaches v3).
+camera lift reaches v3). The migrators that CLEAR these gates chain in version order: the umbrella
+`monodreams migrate` runs the collider lift (v1→v2) THEN the camera lift (v2→v3), so a v1 file reaches v3
+in one pass — see this file's "The camera migrator (`CameraMigration`) + the `monodreams migrate` umbrella"
+premise.
 
 **Why:** no-backwards-compat by directive — reading a v1 collider with the current deserializer is silent
 corruption, and re-saving a v2 camera block silently drops the authored camera; both boundaries must fail
@@ -345,7 +348,9 @@ the collider lift stamp v3 without doing the camera lift.
 `Reader_V1FileWithColliders_FailsLoud_WithMigratorHint`,
 `Reader_V2FileWithCameraBlock_FailsLoud_WithMigrateHint`,
 `Reader_V1CleanFile_Loads_AndReSavesAsCurrentVersion`, `Reader_InMemorySnapshot_IsVersionAgnostic_NotGuarded`);
-`MonoDreams.Tests/LevelEditor/CameraEntityTests.cs::CameraEntity_RoundTrips_ByteFixedPoint` (v3 stamp).
+`MonoDreams.Tests/LevelEditor/CameraEntityTests.cs::CameraEntity_RoundTrips_ByteFixedPoint` (v3 stamp);
+`MonoDreams.Tests/LevelEditor/SceneMigrationTests.cs` (the umbrella clears both gates v1→v3 in one pass and
+is a strict byte fixed point).
 **Depends on:** collision — "A collider IS an entity (colliders-as-entities)"; camera — "Exactly one camera
 entity per scene"; this file — "The collider migrator (`monodreams migrate-colliders`) rewrites v1 embedded
 colliders to v2 collider entities".
@@ -366,7 +371,12 @@ is a VISUAL or PHYSICS-BODY entity (sprite / `RigidBody` / `Velocity`) that the 
 `activeLayers`/`passive`/`enabled`/`ignoreTransformRotation` are always preserved. The migrator is
 idempotent (a version-2 input is a reported no-op), fails loud on unparseable JSON, recurses a directory,
 and supports `--dry-run`. The CLI command shares SOURCE with the engine (it cannot reference `MonoDreams.dll`
-— the `monodreams.dll` name clash), source-linking `SceneData`/`CanonicalJson`/`ColliderMigration`.
+— the `monodreams.dll` name clash), source-linking the dependency-free serialization files
+(`SceneData`/`CanonicalJson`/`ColliderMigration`, plus `CameraMigration`/`SceneMigration` for the umbrella).
+`migrate-colliders` runs ONLY the collider lift; the umbrella `monodreams migrate` runs it and then the
+camera lift, so `migrate` supersedes it (see this file's camera-migrator premise). Because `migrate-colliders`
+stamps only v2, a `migrate-colliders → load → save` is a byte fixed point MODULO the version line (a clean v2
+re-saves at v3); the umbrella IS a strict fixed point.
 
 **Why:** the zone identity MUST stay on the SAME entity as its collider — CE-A's `CollisionMessage` carries
 that entity as `ColliderA/B` and consumers (`ZoneDialogueTriggerSystem`) read the zone component off it
@@ -387,6 +397,55 @@ migrated in-repo, boots with its colliders as child entities);
 an embedded box on the root + a convex on a child migrates to collider CHILD entities that still satisfy
 one-root through `PrefabData.FromScene`, is a byte fixed point, and expands + places world-correct).
 **Depends on:** this file — "The scene format is version 2 …"; collision — "A collider IS an entity".
+
+## The camera migrator (`CameraMigration`) + the `monodreams migrate` umbrella
+
+`CameraMigration` (`Serialization/CameraMigration.cs`) is the **v2→v3 camera lift**: it rewrites a legacy
+version-2 scene — whose camera is a special top-level `camera` file block — into the version-3 shape where
+the camera is an ordinary `core.Camera` ENTITY (`EntityInfo("Camera")` + `Transform` + `core.Camera` zoom).
+The block's `position`/`rotation`/`zoom` are copied **verbatim** onto the entity (no arithmetic → no float
+drift, pre-mortem #3). The lifted camera is a new scene ROOT with id `max(root id) + 1`, so it sorts LAST
+in the id-ordered `entities[]` and the migrate → load → save fixed point holds. Three cases: a scene WITH a
+block lifts it; a scene that already has a camera entity DROPS a stray block in the entity's favour (no
+second camera — the one-camera rule); a **camera-less** scene gets the **uniformly-explicit default camera
+at the origin** (zoom 1), so every v3 file explicitly carries a camera. A **prefab** (`.mdprefab`) gets a
+version bump ONLY — never a camera (a camera inside a class is multi-camera terrain).
+
+`SceneMigration` (`Serialization/SceneMigration.cs`) is the **umbrella** behind `monodreams migrate
+<file|dir>`: it applies every lift **in version order** — the collider lift (v1→v2) THEN the camera lift
+(v2→v3) — per file. Each lift is idempotent, so a v1 file goes **straight to v3** in one pass, a v2 file
+gets only the camera lift, and a v3 file is a no-op. Prefab-ness is inferred from the extension. Because
+every lift emits through `CanonicalJson`, the umbrella's output is byte-canonical and a `migrate → load →
+save` is a **strict** byte fixed point (the single-lift `migrate-colliders` is a fixed point only modulo
+the version line). `migrate` **supersedes** `migrate-colliders` (which runs only the collider lift and
+stays for back-compat). Both migrators, and the shared serialization files, are **source-linked** into the
+CLI (the `monodreams.dll` name clash forbids referencing `MonoDreams.dll`), so they produce output
+byte-identical to the engine writer without the DLL collision — the files must stay dependency-free
+(System.Text.Json only). The committed `sample.mdscene` / `Blender_Level.mdscene` were migrated to v3
+in-repo via the real CLI.
+
+**Why:** the one-data-model tenet (`CORE_TENETS` §9) makes the camera an entity; a legacy block would be
+silently dropped on the first re-save, so it must be lifted, not degraded. Copying block values verbatim
+(not re-basing) is what keeps the migrate → load → save a fixed point. Chaining lifts in version order lets
+a single command carry any legacy file to the current format without the user reasoning about intermediate
+versions.
+**Breaks:** re-basing the camera position/rotation/zoom through non-canonical float text churns the file on
+the next save; adding a camera to a prefab makes it multi-camera terrain (the expander refuses it); running
+the camera lift before the collider lift would stamp v3 over an unmigrated v1 collider (silently-wrong
+shapes the version guard can no longer catch) — the umbrella orders them; a non-idempotent lift would
+corrupt an already-current file on a re-run.
+**Tests:** `MonoDreams.Tests/LevelEditor/CameraMigrationTests.cs` (block→entity verbatim, camera-less
+default at origin, block-dropped-when-entity-exists, prefab version-bump-only, idempotence,
+unparseable-throws, key parity with the engine serializer); `MonoDreams.Tests/LevelEditor/SceneMigrationTests.cs`
+(umbrella v1→v3 in one pass, idempotence, the strict migrate → load → save byte fixed point);
+`MonoDreams.Cli.Tests/MigrateCommandTests.cs` (the `migrate` command wiring, per-file lift summary, dry-run,
+dir recursion, prefab-gets-no-camera, idempotence, exit codes);
+`MonoDreams.Tests/LevelEditor/MigratedLevelTests.cs` + `MonoDreams.Tests/IntegrationTests/BlenderLevelTests.cs`
+(the committed `Blender_Level.mdscene`, migrated to v3 in-repo, loads verbatim + boots native);
+`MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::CommittedSampleScene_MatchesTheCanonicalShape` (the
+migrated `sample.mdscene` carries the default camera entity, byte-locked to the canonical serializer).
+**Depends on:** this file — "The scene format is version 3 …", "The collider migrator (`monodreams
+migrate-colliders`) …"; camera — "Exactly one camera entity per scene"; `CORE_TENETS` §9 — "one data model".
 
 ## Editor-overlay entities are standalone; delete snapshots the disposed sub-graph
 
@@ -3399,9 +3458,12 @@ resolves `LoadLevelRequest` native-only (fails loud otherwise)".
 
 The reference game's levels are committed native scenes under `Content/Levels/`. `Blender_Level.mdscene`
 (the migrated Blender level: player Pete, NPCs Boldo/elephant-kid + their zones, the store collider) was
-produced once by the import op and is byte-canonical (a load→save is a fixed point). It is bundled via an
-MGCB `/copy:` entry (mirroring `sample.mdscene`), boots through the shipped native reader, and is what
-the level-selection menu's "Level 1" resolves to. The LDtk `Level_0` is **not** migrated: its ~21k
+produced once by the import op and is byte-canonical (a load→save is a fixed point). Both committed
+scenes are **version 3** (camera-as-entity): `monodreams migrate` lifted `Blender_Level`'s legacy `camera`
+block (zoom 4) into an ordinary `core.Camera` entity in-repo, and added the uniformly-explicit default
+camera entity at the origin to the camera-less `sample.mdscene`. Each is bundled via an MGCB `/copy:`
+entry, boots through the shipped native reader (the CM version guard accepts v3), and `Blender_Level` is
+what the level-selection menu's "Level 1" resolves to. The LDtk `Level_0` is **not** migrated: its ~21k
 per-tile entities would make a per-entity native scene a multi-MB artifact — it needs a native tile-layer
 batching primitive first (a follow-up), so it stays import-only and is not offered by the menu.
 

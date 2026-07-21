@@ -651,6 +651,55 @@ The LDtk import path (parser + one-way `LevelImporter`) is untouched.
 - **Per-collider debug filtering.** `ColliderDebugSystem` draws all collider entities' outlines at once.
   *Trigger:* dense scenes need to filter the debug overlay by layer / identity / selection.
 
+## Camera-as-entity phase (CM-A–CM-C) — complete
+
+The user's directive (2026-07-10, five calls confirmed): the camera is one more thing the editor was
+modelling as a special case, and it kept breaking for it (three camera zoom-edit defects in three days,
+all in camera-only plumbing — the `scene.camera` block + a materialized `CameraRigComponent` rig + bespoke
+zoom commands + per-mode re-sync seams). The cure is the CE cure applied to the camera: make it an ordinary
+entity. This codified a new `CORE_TENETS` tenet — **one data model: anything authored is component state on
+an entity, singletons included; special file blocks are debt** — with the extension recipe (component →
+registered serializer → optional Inspector default). The authoritative design is
+[`camera-as-entity.md`](camera-as-entity.md); the invariants live in the `camera` / `rendering` /
+`level-editor` premises + `CORE_TENETS` §9.
+
+- **CM-A — engine core.** `CameraComponent { float Zoom }` (registered `core.Camera`); position + rotation
+  come from the entity's `TransformComponent` (one rotation, not two — pre-mortem #1). The live `Camera`
+  class demotes to a render adapter; `CameraSyncSystem` (Play-only / Freeze in Edit) copies the camera
+  entity's `(WorldPosition, WorldRotation, Zoom)` into it each frame (ZERO rendering-module changes).
+  `CameraFollowSystem` retargets to lerp the camera ENTITY (follow state is live-inspectable). Exactly one
+  camera per scene: the writer refuses a second, prefabs refuse `core.Camera` entirely, the reader ensures
+  one on load (camera-less scene → a default created post-load).
+- **CM-B — the editor rig dies.** Deleted `EditorCameraRig` / `CameraRigComponent` + the rig
+  materialization / `SyncFromScene` / `AsCamera` seams, `CameraZoomEditCommand`, the rig tree-row special
+  case, and the reader's `applyCameraToRig` seam. The frustum glyph + `view:camera` retarget to the camera
+  ENTITY (`CameraEntityOverlay`); Zoom is an ordinary Inspector float, `S` maps to it via the standard
+  `MemberEditCommand`, `G` moves the camera, `R` rotates its Transform (legal now — one rotation); deleting
+  the last camera is refused. The acceptance test is the user's bug: scale the camera → Zoom edits visibly,
+  persists through save → load → save byte-stably, survives tab switches.
+- **CM-C — migrate umbrella + committed content + docs.** `SceneData.Version = 3`; a legacy file carrying a
+  `camera` block is refused loud on a FILE read (the CE-B version-guard precedent, symmetric). The
+  **`monodreams migrate <path|dir>`** umbrella command applies every lift in version order (v1→v2 colliders,
+  then v2→v3 camera-block→camera-entity), so a v1 file goes straight to v3 in one pass; it is idempotent,
+  byte-canonical, `--dry-run`, dir-recursing, and a `migrate → load → save` is a **strict** byte fixed
+  point (`SceneMigration`; `CameraMigration` is the camera lift). `migrate-colliders` remains as the
+  single-lift command — `migrate` supersedes it. The camera lift copies the block's position/rotation/zoom
+  onto the camera entity verbatim (no drift); a camera-less v2 gets the uniformly-explicit default camera at
+  the origin; a prefab gets a version bump only (never a camera). Committed `sample` / `Blender_Level`
+  migrated to v3 in-repo via the real CLI; the boot tests load committed bytes verbatim again.
+
+**Named terrain (CM follow-ups, with triggers):**
+- **Multi-camera + a `Primary` flag.** Exactly one camera per scene today (the writer refuses a second).
+  *Trigger:* local multiplayer / CCTV-style views — grow to N cameras with a `Primary` flag choosing which
+  drives the adapter (and split-screen viewport rects, below).
+- **Cameras in prefabs.** A prefab refuses `core.Camera` (a camera inside a class is multi-camera terrain).
+  *Trigger:* the multi-camera model lands and a prefab legitimately wants to ship a view.
+- **Split-screen viewport rects.** The virtual resolution is render config on the adapter today (one full
+  view). *Trigger:* multi-camera needs per-camera screen rectangles.
+- **Layers as an entity.** The `layers` block is the remaining special top-level block (the tenet's next
+  debt). *Trigger:* the draw-layer map wants Inspector authoring / undo — lift it to component state the
+  same way the camera was.
+
 ## Cross-wave invariants (the things that must keep holding)
 
 - **C1/C2 never break.** No wave introduces a parallel renderer or a second scene model.

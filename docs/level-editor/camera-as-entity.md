@@ -1,5 +1,10 @@
 # Camera as entity (CM phase) — one data model, singletons included
 
+> **Status: LANDED (all three waves complete).** CM-A (engine core), CM-B (the editor
+> rig deleted), and CM-C (the `monodreams migrate` umbrella + committed content migrated
+> to v3 + docs) are all shipped. The tenet this phase motivated — *one data model: anything
+> authored is component state on an entity, singletons included* — is now `CORE_TENETS` §9.
+
 > User-approved design (2026-07-10), all five calls confirmed: explicit
 > `CameraComponent.Zoom` (not Transform.Scale-as-zoom); exactly ONE camera per scene
 > v1 (multi-camera + Primary flag = named terrain); the `layers` block STAYS for now;
@@ -20,7 +25,7 @@
 > authoring, Inspector editing, undo, dirty, prefab overrides, byte-stable diffs,
 > and sandbox protection — depth by composition, not configuration.
 
-## 1. The model (wave CM-A — engine core)
+## 1. The model (wave CM-A — engine core) — LANDED
 
 - **`CameraComponent { float Zoom = 1f }`** (camera module; registered as
   `core.Camera`). Position AND rotation come from the entity's `TransformComponent`
@@ -51,7 +56,7 @@
   in the world) — every capture/save/snapshot call site simplifies; the special
   captures die.
 
-## 2. The editor (wave CM-B — the rig dies)
+## 2. The editor (wave CM-B — the rig dies) — LANDED
 
 - DELETE: `EditorCameraRig`, `CameraRigComponent`, the rig materialization +
   `SyncFromScene`/`AsCamera` seams, `CameraZoomEditCommand`, the rig tree-row
@@ -74,7 +79,7 @@
   → Zoom edits visibly (Inspector), persists through save → load → save
   byte-stably, and survives tab switches. Written repro-first.
 
-## 3. Migration + docs (wave CM-C)
+## 3. Migration + docs (wave CM-C) — LANDED
 
 - **`monodreams migrate`** — the umbrella command: applies every known lift in
   order (v1→v2 colliders, v2→v3 camera-block→camera-entity) per file, idempotent,

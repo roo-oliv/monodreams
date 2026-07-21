@@ -565,6 +565,52 @@ a checkable lint (all drop-folder art graduated to MGCB content keys); the
 committed reference levels are asserted ship-clean. The invariants live in the
 `level-editor` and `level-loading` premises.
 
+**One data model — anything authored is component state on an entity,
+singletons included; special file blocks are debt.** A scene is a set of
+entities carrying components, and *everything the designer authors lives that
+way* — including the singletons it is tempting to model as a special
+top-level file block (the scene camera, and later the layer map). A `camera`
+block, a materialized editor rig for it, bespoke edit commands, and per-mode
+re-sync seams are **four parallel representations of one value**, and every
+one is a place the value can silently disagree with the others. The camera is
+the case study: three camera defects in three days (zoom edits not reaching
+the rig or the file) all lived in that camera-only plumbing; the day the
+camera became an ordinary `core.Camera` entity — `EntityInfoComponent("Camera")`
++ `TransformComponent` (one rotation, on the Transform) + `CameraComponent`
+zoom, serialized in `entities[]` like everything else — the block, the rig,
+the commands, and the re-sync seams all deleted, exactly as colliders stopped
+breaking the day they became child entities (§5).
+
+**Corollary — Inspector-visible ⇒ Save-persisted ⇒ round-trip-owned.** If a
+value shows up in the Inspector, Save must persist it; if Save persists it,
+`load → save` must own it as a byte fixed point. A value that is editable but
+not serialized (or serialized but not round-trip-stable) is a bug waiting to
+surface as "my edit vanished on reload". The one data model is what makes this
+hold for free: an authored value is a component, and components already
+round-trip.
+
+**The extension recipe (how to add a new authored thing).** Do NOT add a file
+block or a bespoke editor subsystem. Instead:
+
+1. **Define a component** with clearly named authored vs derived fields (author
+   the source; recompute the derived — e.g. `CameraComponent.Zoom` is authored,
+   the view matrix is derived; a collider's `Size` is authored, its world AABB
+   derived).
+2. **Register its serializer** (`ComponentSerializerRegistry` — engine types in
+   `EngineComponentSerializers`, game types in the game's own registration),
+   so it round-trips through the canonical serializer.
+3. **Optionally add an Inspector default-initializer** so "Add ⟨component⟩"
+   births a sane instance.
+
+Those three steps buy the whole authoring stack — file authoring, Inspector
+editing, undo, dirty-tracking, prefab overrides, byte-stable diffs, and
+Game-mode sandbox protection — **by composition, not configuration**. There is
+no fourth step and no special case. When a value seems to *need* a file block,
+that is the signal it wants to be a component on an entity instead. (A legacy
+block that predates this tenet is migrated forward by the CLI umbrella
+`monodreams migrate` — the camera block's v2→v3 lift is the reference; see the
+`level-editor` migrator premises.)
+
 ### Aspirational direction
 
 The reserved `RunPartial` / `RuntimeEditable` policies are placeholders
