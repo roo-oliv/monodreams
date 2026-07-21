@@ -193,7 +193,7 @@ persists — the second save is empty without the re-tag).
 around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
 frame); foundation — the `IPlatformServices` portability seam.
 
-## A loaded sprite entity carries a `DrawComponent` (reader-restored) and the reader auto-frames the camera on content
+## A loaded sprite entity carries a `DrawComponent` (reader-restored); the reader frames the view on content and ensures one camera entity
 
 `DrawComponent` is deliberately **not** serialized (its sprite fields are re-prepped every frame from
 `SpriteInfoComponent` and its `LayerDepth` is per-frame-derived), so the scene reader reconstructs
@@ -207,23 +207,23 @@ sprite's own `SpriteInfoComponent.Target`, mirroring `SpritePropFactory` (the au
 every reconstructed sprite that lacks one. Only sprites are restored: `DrawComponent`'s mesh/text
 payloads are not serializable today, so a sprite is the only serialized renderable.
 
-Additionally the reader **positions the camera on load** — a view/camera split (UX2-E). What consumes
-`scene.camera` depends on whether the editor is composed (the reader's optional `applyCameraToRig` seam):
-- **Editor present** (the overlay wires the seam to `EditorCameraRig.SyncFromScene`): the free **VIEW** (the
-  live `Camera`) **auto-frames on content** — centre + zoom-fit of the loaded content's world-space AABB via
-  the pure `CameraNav` frame-scene math — so an off-origin scene (e.g. `Blender_Level` at ~(1275,−530)) is
-  visible regardless of where the authored camera sits, and THEN (sequenced after the framing) `scene.camera`
-  goes to the **rig** (the authored game-camera state lives there). A **null** `scene.camera` (every pre-UX2-E
-  scene) makes the rig adopt the just-framed VIEW instead of the pre-load origin — the UX3-A default, "the
-  authored camera starts on the content" (see "The editor splits the free VIEW from the authored camera rig").
-- **Shipped** (no seam): the live camera IS the authored camera, so `scene.camera` is applied to it
-  directly when present (respecting the authored view); a legacy camera-less scene auto-frames on content
-  (byte-identical to pre-UX2-E — every prior scene saved `camera: null`).
-In BOTH cases the camera is left untouched when a null `Camera` was supplied (the pure round-trip tests,
-and the reference shipped reader that relies on `CameraFollowSystem`) or an **active**
-`CameraFollowTargetComponent` is present (`CameraFollowSystem` owns it in Play — the reader must not
-fight it). No content ⇒ auto-frame is a no-op. The `Camera` (the view) is an optional reader ctor param;
-the `applyCameraToRig` seam is the editor-only rig materialization hook.
+Additionally the reader does two camera things on load (CM). **(1) It frames the free VIEW on content:**
+when a live `Camera` (the view) is supplied and no active `CameraFollowTargetComponent` is present, it
+centres + zoom-fits the loaded content's world-space AABB via the pure `CameraNav` frame-scene math, so an
+off-origin scene (e.g. `Blender_Level` at ~(1275,−530)) is visible regardless of where the authored camera
+sits. No content ⇒ a no-op; an active follow target ⇒ left alone (`CameraFollowSystem` owns the camera in
+Play — the reader must not fight it); a null view `Camera` (the pure round-trip tests) ⇒ skipped entirely.
+**(2) It ensures exactly one camera ENTITY** (opt-in via the `ensureSingleCamera` ctor flag — the editor +
+shipped-game readers set it; the pure round-trip path leaves it off so serialization-fidelity tests are
+untouched): a scene with no `core.Camera` entity gets a default `Camera` root created post-load, positioned
+by the SAME auto-frame math (origin for a content-less scene), `SceneObjectComponent`-tagged so it saves.
+Idempotent (a scene that already has one is left alone) and skipped for a prefab context (a prefab has no
+camera). See "The scene reader ensures exactly one camera entity" / camera — "Exactly one camera entity per
+scene".
+
+The pre-CM `scene.camera` file block is gone: the authored camera is the camera ENTITY now. The reader's
+`applyCameraToRig` seam survives only as a **CM-B bridge** — a v3 scene passes it `null` (no block), so the
+vestigial editor rig adopts the just-framed view; CM-B deletes the rig and this seam.
 
 **Why:** the render pipeline's `SpriteInfoComponent ⇒ DrawComponent` pairing is what puts a sprite on
 screen; the reader reconstructs the transient `DrawComponent` rather than serializing it (which would
@@ -238,10 +238,10 @@ content would jump to a degenerate AABB.
 after load the camera sits on the off-origin content and the REAL `CullingSystem` tags the sprite
 `VisibleComponent`, i.e. it reaches the draw path at the content region; `ReloadedScene_WithActiveFollowTarget_LeavesCameraAlone`
 — an active follow target keeps the camera at its position, and the `DrawComponent` restore still runs).
-The UX2-E split is protected by `MonoDreams.Tests/LevelEditor/CameraRigTests.cs`
-(`RigMaterializesFromLoad_FileCameraBecomesRigState_ViewFramesContent` — editor path: file camera → rig,
-view frames content; `ShippedReader_NoRigSeam_AppliesSceneCameraToTheLiveCamera` — shipped path: no seam →
-scene.camera applied to the live camera).
+The CM reader-ensure is protected by `MonoDreams.Tests/LevelEditor/CameraEntityTests.cs`
+(`Reader_EnsuresOneCamera_WhenSceneHasNone_PositionedOnContent_Tagged`,
+`Reader_EnsureIsIdempotent_WhenSceneAlreadyHasACamera`, `Reader_EnsureContentlessScene_PlacesCameraAtOrigin`,
+`Reader_PureRoundTripPath_DoesNotEnsureACamera`).
 **Depends on:** rendering — `SpritePrepSystem`'s `[With(DrawComponent, …)]` query and `CullingSystem`'s
 `VisibleComponent` add (the draw-path gates); this file — "Editor camera navigation pans/zooms/frames
 the scene directly" (the `CameraNav` frame-scene math reused), "The editor splits the free VIEW from the
@@ -302,36 +302,50 @@ conflates the render tiebreak with scene identity and loses the id on reload; a 
 **Depends on:** this file — "Scene round-trip reconstructs from registered components, not factories"
 (the round-trip whose bytes this makes deterministic); foundation — the `IPlatformServices` write seam.
 
-## The scene format is version 2; a file read of a version-1 file with embedded colliders is refused loud
+## The scene format is version 3; a legacy file with an embedded collider (v1) or a camera block (v2) is refused loud
 
-`SceneData.Version` is `2` (`SceneData.CurrentVersion`) — the version everything the writer emits (scenes
-AND prefabs) carries. Version 2 is the colliders-as-entities shape: a `core.BoxCollider` body is
-`{ size }` (centered on the collider entity's own Transform), a `core.ConvexCollider` body is
-`{ modelVertices }` (collider-entity-local) — the former embedded box `bounds` offset is gone (see
+`SceneData.Version` is `3` (`SceneData.CurrentVersion`) — the version everything the writer emits (scenes
+AND prefabs) carries. Version 3 is the camera-as-entity shape (CM): the camera is a `core.Camera` scene
+entity, NOT a special `camera` file block; version 2 was the colliders-as-entities shape (box `{ size }`
+centered on the collider entity's Transform; convex `{ modelVertices }` collider-entity-local — see
 collision — "A collider IS an entity"). **On a FILE read** (`SceneReaderSystem`'s path branch, and the
-prefab file source), `SceneVersionGuard.CheckFileLoad` refuses **loud** a version-1 file that carries ANY
-collider component (`core.BoxCollider`/`core.ConvexCollider`) with the exact hint *"legacy embedded
-colliders — run `monodreams migrate-colliders <file|dir>`"*. A version-1 file **without** colliders loads
-fine and re-saves as version 2 (a one-time bump); a version-2 file loads regardless. The guard fires on
-ANY collider in a version-1 file (pre-mortem #2) because the reshaped deserializer reads only `size` — a
-legacy `bounds` maps to no field, so a v1 box would silently load as a zero-size (never-colliding) box.
-The version constant lives on the dependency-free `SceneData` type so both the engine guard and the
-source-linked CLI migrator reference one value.
+prefab file source) `SceneVersionGuard.CheckFileLoad` applies two migration gates in version order:
+- **v1 embedded-collider gate (CE-B):** a version-1 file carrying ANY collider component
+  (`core.BoxCollider`/`core.ConvexCollider`) is refused loud — *"legacy embedded colliders — run
+  `monodreams migrate-colliders <file|dir>`"*. It fires because the reshaped deserializer reads only
+  `size`; a legacy `bounds` maps to no field, so a v1 box would silently load as a zero-size box.
+- **v2→v3 camera-block gate (CM):** any legacy file still carrying a `camera` block is refused loud — *"a
+  legacy 'camera' block — run `monodreams migrate <file|dir>`"* — because the writer drops the block on
+  re-save, so loading it as-is would silently discard the authored camera. The block survives on
+  `SceneData` as a deserialization-only DETECTION target (nothing writes it); the umbrella migrator lifts
+  it into a `core.Camera` entity.
 
-**Why:** no-backwards-compat by directive — reading a v1 collider with the v2 deserializer is silent
-corruption, so the boundary must fail loud with the migration path, not load a plausible-but-wrong shape.
-**Breaks:** guarding by "version < 2" alone (ignoring collider presence) would refuse harmless
-collider-free v1 files; guarding the in-memory snapshot path (a Game-mode restore) would break the
-sandbox — an in-memory `SceneData` was produced by the live v2 writer this session, never read off disk,
-so it is version-agnostic by design and NOT guarded. A lenient reader that tolerated a legacy `bounds`
-would reintroduce the zero-size-box corruption.
+A legacy file that hits NEITHER gate (a collider-free, camera-block-free v1/v2) loads fine and re-saves at
+the current version (a one-time bump); a version-3 file loads regardless. The `SceneData.CurrentVersion`
+constant lives on the dependency-free format type so the engine guard references one value; the collider
+CLI migrator's own `TargetVersion` is a SEPARATE constant pinned to `2` (the collider lift targets v2; the
+camera lift reaches v3).
+
+**Why:** no-backwards-compat by directive — reading a v1 collider with the current deserializer is silent
+corruption, and re-saving a v2 camera block silently drops the authored camera; both boundaries must fail
+loud with the migration path, not degrade quietly.
+**Breaks:** guarding by "version <" alone (ignoring collider/camera presence) would refuse harmless clean
+legacy files; scoping the collider gate to all versions (not just v1) would refuse a valid v2 collider;
+guarding the in-memory snapshot path (a Game-mode restore) would break the sandbox — an in-memory
+`SceneData` was produced by the live writer this session, never read off disk, so it is version-agnostic by
+design and NOT guarded. Coupling the collider migrator's `TargetVersion` back to `CurrentVersion` would make
+the collider lift stamp v3 without doing the camera lift.
 **Tests:** `MonoDreams.Tests/LevelEditor/SceneVersionGuardTests.cs`
 (`Guard_V1WithBoxCollider_Refuses_WithMigratorHint`, `Guard_V1WithConvexCollider_Refuses`,
 `Guard_V1WithoutColliders_Passes`, `Guard_V2WithColliders_Passes`,
+`Guard_V2WithCameraBlock_Refuses_WithMigrateHint`, `Guard_V2WithoutCameraBlock_Passes`, `Guard_V3_Passes`,
 `Reader_V1FileWithColliders_FailsLoud_WithMigratorHint`,
-`Reader_V1CleanFile_Loads_AndReSavesAsVersion2`, `Reader_InMemorySnapshot_IsVersionAgnostic_NotGuarded`).
-**Depends on:** collision — "A collider IS an entity (colliders-as-entities)"; this file — "The collider
-migrator (`monodreams migrate-colliders`) rewrites v1 embedded colliders to v2 collider entities".
+`Reader_V2FileWithCameraBlock_FailsLoud_WithMigrateHint`,
+`Reader_V1CleanFile_Loads_AndReSavesAsCurrentVersion`, `Reader_InMemorySnapshot_IsVersionAgnostic_NotGuarded`);
+`MonoDreams.Tests/LevelEditor/CameraEntityTests.cs::CameraEntity_RoundTrips_ByteFixedPoint` (v3 stamp).
+**Depends on:** collision — "A collider IS an entity (colliders-as-entities)"; camera — "Exactly one camera
+entity per scene"; this file — "The collider migrator (`monodreams migrate-colliders`) rewrites v1 embedded
+colliders to v2 collider entities".
 
 ## The collider migrator (`monodreams migrate-colliders`) rewrites v1 embedded colliders to v2 collider entities
 
@@ -998,6 +1012,21 @@ distinct from), "The editor's keyboard shortcuts are ONE chord table, gated by a
 
 ## The editor splits the free VIEW from the authored camera rig; Save serializes the rig, not the view
 
+> **SUPERSEDED (CM-A) — the camera is a scene ENTITY now; this rig is a vestigial bridge CM-B deletes.**
+> The authored camera is no longer a `scene.camera` block routed through this rig — it is an ordinary
+> `core.Camera` scene entity (`EntityInfoComponent` + `TransformComponent` + `CameraComponent`), captured
+> in the membership closure and serialized in `entities[]` like everything else. `SceneWriter.BuildScene`
+> DROPPED its camera parameter (it no longer reads `EditorCameraRig.AsCamera()`); the reader's
+> `applyCameraToRig` seam receives `null` for a v3 scene (no block); Save/load own the camera ENTITY, not
+> the rig. `EditorCameraRig` still COMPILES and its glyph/`SnapViewToRig`/pick/move/scale-→-zoom ops still
+> run this wave (so the editor remains usable), but they read the vestigial rig entity — its state is no
+> longer persisted (the reader-ensured/loaded camera entity is the authored truth). The paragraphs below
+> describe the pre-CM rig behaviour, kept for the bridge; CM-B removes `EditorCameraRig`,
+> `CameraRigComponent`, `CameraZoomEditCommand`, the rig tree-row + labeler special-cases, and the
+> `applyCameraToRig` seam wholesale, and retargets the glyph to the camera entity. See camera — "The camera
+> is a scene entity", "`CameraSyncSystem` is the only writer of the `Camera` adapter in Play", "Exactly one
+> camera entity per scene".
+
 Under the editor the shared `Camera` is the free **VIEW** (`CameraNavSystem` pans/zooms/frames it — see
 above). The **authored game-camera state** — the position/zoom/rotation `scene.camera` persists — lives on
 a standalone **camera rig** entity the overlay materializes (`EditorCameraRig`): a `TransformComponent`
@@ -1081,16 +1110,21 @@ silently re-authors the game camera; a `ChildOf`-parented or non-infrastructure 
 live `DisposeOrphans` or the Restart sweep; a fill-based (not border) frustum pick shadows every sprite inside
 the frustum; a `VisibleComponent` on the glyph pulls it into `MeshPrepSystem`, which overwrites the identity
 `WorldMatrix` its screen-baked vertices require; a deletable rig strands the authored camera.
-**Tests:** `MonoDreams.Tests/LevelEditor/CameraRigTests.cs` (`FrustumWorldCorners_*` + `ViewMatchesRig_*` — the
-pure glyph math + epsilon; `RigMaterializesFromLoad_*` — file camera → rig state, view frames content;
-`NullCameraLoad_RigAdoptsPostLoadView_NotThePreLoadOrigin` — UX3-A: a `camera: null` scene's rig adopts the
-post-load framed view, not the pre-load origin; `SaveReadsRig_NotView` +
-`MovingTheView_DoesNotChangeWhatSaveWrites_NorDirtyTheHistory`;
-`CameraRig_IsNeverSceneMembership`; `Glyph_HiddenWhenViewMatchesRig_*` + `Glyph_DprAndInsetProjection_ClipsToTheGameViewport`;
-`SnapViewToRig_*`; `RigBorderPick_SelectsTheRig_*` + `RigMoveDrag_IsOneUndoStep_UndoRestores`;
+**Tests:** the CM camera-entity model is protected by
+`MonoDreams.Tests/LevelEditor/CameraEntityTests.cs` (writer one-camera refusal, reader-ensure, byte
+round-trip) + camera — "Exactly one camera entity per scene". The surviving (bridged) rig behaviour is
+`MonoDreams.Tests/LevelEditor/CameraRigTests.cs` (`FrustumWorldCorners_*` + `ViewMatchesRig_*` — the pure
+glyph math + epsilon; `CameraRig_IsNeverSceneMembership`; `Glyph_HiddenWhenViewMatchesRig_*` +
+`Glyph_DprAndInsetProjection_ClipsToTheGameViewport`; `SnapViewToRig_*`; `RigBorderPick_SelectsTheRig_*` +
+`RigMoveDrag_IsOneUndoStep_UndoRestores`;
 `RigScaleDrag_EditsZoom_NotTransformScale_OneUndoStep_UndoRestores_Dirties` +
-`RigScaleDrag_ClampsZoomToTheCameraNavRange` (UX2-G — Scale → zoom, one undo step, dirties, clamped);
-`RigDelete_IsRefused_*`; `RigSurvivesRestart_AndReSyncsFromTheFile`; `ShippedReader_NoRigSeam_AppliesSceneCameraToTheLiveCamera`);
+`RigScaleDrag_ClampsZoomToTheCameraNavRange`; `RigDelete_IsRefused_*`). The scene-tab VIEW enter/exit is
+`MonoDreams.Tests/LevelEditor/EditorGameModeTests.cs::Camera_Enter_AdoptsRigView_Exit_RestoresCapturedSceneView`,
+and the camera-entity Game-tab sandbox isolation is
+`…::CameraEntity_MovedInPlay_DoesNotLeakIntoTheSceneTab` (pre-mortem #4). (The pre-CM rig-persistence tests
+— `RigMaterializesFromLoad`, `NullCameraLoad`, `SaveReadsRig`, `MovingTheView`, `RigSurvivesRestart`,
+`ShippedReader_NoRigSeam` — were REMOVED: they tested the `scene.camera` block round-trip the camera entity
+replaced.)
 `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs` (`SceneTree_IncludesTheCameraRig_LabeledCamera_AndSelectsIt` —
 the rig appears as a "Camera" tree row, other infra hidden, clicking it selects it) +
 `MonoDreams.Tests/LevelEditor/EntitySceneTreeTests.cs` (`Build_IncludesTheCameraRig_EvenThoughItIsInfrastructure`) +

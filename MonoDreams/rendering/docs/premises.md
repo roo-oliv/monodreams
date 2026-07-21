@@ -483,7 +483,7 @@ possibly entity ID — but that's a framework change, not a workaround.
 **Tests:** none yet.
 **Depends on:** —
 
-## `Camera.VirtualResolution` is immutable
+## `Camera.VirtualResolution` is immutable; the `Camera` is a render adapter (CM)
 
 `Camera.VirtualWidth` and `Camera.VirtualHeight` are readonly properties
 set in the constructor (the `Camera` class lives at
@@ -492,14 +492,29 @@ draw stack — `MasterRenderSystem` reads its position, zoom, and view
 matrix every frame). Only zoom, position, and rotation are mutable on a
 live `Camera`.
 
+**Under CM the `Camera` is a render ADAPTER, and rendering is unchanged.** The
+authored camera is a scene ENTITY (`camera` module — `CameraComponent` + the
+entity's `TransformComponent`); `CameraSyncSystem` copies that entity's pose
+into this `Camera` each frame in Play. The draw stack still consumes a plain
+`Camera` exactly as before — the `Camera` class, its mutable
+position/zoom/rotation, and the immutable virtual resolution are all UNCHANGED.
+The camera-as-entity model added zero rendering-module code; it only changed
+*who writes* the adapter (a `camera`-module system, not game code or a
+`scene.camera` file block).
+
 **Why:** virtual resolution defines the world-units-per-pixel ratio.
 Changing it mid-frame would require recomputing every entity's on-screen
-size and re-running culling.
+size and re-running culling. Keeping the `Camera` a plain adapter is what let CM
+demote it without touching the render path.
 **Breaks:** a system that tries to change resolution at runtime either
 silently fails (readonly) or, if it bypasses, produces a fractional
-frame where culling, layout, and rendering disagree.
-**Tests:** none yet.
-**Depends on:** —
+frame where culling, layout, and rendering disagree. Moving the virtual
+resolution onto the camera *entity* (scene data) would couple the file to an
+immutable render setting.
+**Tests:** none yet (the adapter-write path is `camera` — "`CameraSyncSystem` is
+the only writer of the `Camera` adapter in Play").
+**Depends on:** camera — "`CameraSyncSystem` is the only writer of the `Camera`
+adapter in Play".
 
 ## `IMeshGenerator.Generate()` returns a triangle list
 
