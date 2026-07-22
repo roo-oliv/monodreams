@@ -136,14 +136,19 @@
           SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDirLinux)/libfreeimage.so')" />
 
     <!-- Audio shim (same borrow, different tool): KNI's WavImporter/SoundEffectProcessor shell out
-         to ffprobe/ffmpeg via ExternalTool, which probes the builder's per-OS subdir (osx/ or
-         linux-x64/, next to MGCB.dll) and then PATH — and the KNI builder package ships NO ffmpeg
-         for any OS. Borrow the binaries the desktop MonoGame MGCB tool bundles (dotnet-mgcb
-         tools/net8.0/any/<os>/) into the subdir KNI probes, or the demos' .wav content fails with
-         "Failed to open file ... not DRM protected". -->
+         to ffprobe/ffmpeg via ExternalTool, which probes the builder's per-OS subdir next to
+         MGCB.dll (osx/, linux-x64/, linux/, win-x64/, win-x86/ — binary strings in
+         Xna.Framework.Content.Pipeline.Audio.dll 4.2.9001) and then PATH — and the KNI builder
+         package ships NO ffmpeg for any OS. Borrow the binaries the desktop MonoGame MGCB tool
+         bundles (dotnet-mgcb tools/net8.0/any/<os>/) into the subdir KNI probes, or the demos'
+         .wav content fails with "Failed to open file ... not DRM protected". The Windows copy
+         (windows-x64 ffmpeg.exe/ffprobe.exe into win-x64/) follows the exact same pattern but is
+         untested on a real Windows host; if the borrow misses, ffmpeg/ffprobe on PATH is the
+         fallback KNI probes (docs/web-targeting.md, shim step 5). -->
     <PropertyGroup>
       <MonoGameMgcbFfDirOsx>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/osx</MonoGameMgcbFfDirOsx>
       <MonoGameMgcbFfDirLinux>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/linux-x64</MonoGameMgcbFfDirLinux>
+      <MonoGameMgcbFfDirWin>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/windows-x64</MonoGameMgcbFfDirWin>
     </PropertyGroup>
     <Copy SourceFiles="$(MonoGameMgcbFfDirOsx)/ffmpeg;$(MonoGameMgcbFfDirOsx)/ffprobe"
           DestinationFolder="$(KniBuilderToolsDir)/osx"
@@ -151,6 +156,9 @@
     <Copy SourceFiles="$(MonoGameMgcbFfDirLinux)/ffmpeg;$(MonoGameMgcbFfDirLinux)/ffprobe"
           DestinationFolder="$(KniBuilderToolsDir)/linux-x64"
           SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirLinux)/ffprobe')" />
+    <Copy SourceFiles="$(MonoGameMgcbFfDirWin)/ffmpeg.exe;$(MonoGameMgcbFfDirWin)/ffprobe.exe"
+          DestinationFolder="$(KniBuilderToolsDir)/win-x64"
+          SkipUnchangedFiles="true" Condition="'$(OS)' == 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirWin)/ffprobe.exe')" />
   </Target>
 
 </Project>

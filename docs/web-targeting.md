@@ -214,16 +214,20 @@ KNI's MGCB builder package ships **only Windows-native** `FreeImage` /
    desktop MGCB tool (`dotnet-mgcb` 3.8.4, `tools/net8.0/any/osx|linux-x64/`)
    into the KNI builder's `tools/osx/` / `tools/linux-x64/` subdir. KNI's
    `WavImporter`/`SoundEffectProcessor` shell out to them via `ExternalTool`
-   (which probes that per-OS subdir, then `PATH`) and the KNI builder package
+   (which probes the per-OS subdir next to `MGCB.dll` — `osx/`, `linux-x64/`,
+   `linux/`, `win-x64/`, `win-x86/` — then `PATH`) and the KNI builder package
    ships **no** ffmpeg for any OS — without the copy the content build fails
    with `Failed to open file <name> … not DRM protected`. (Implemented in
    `MonoDreams.Demos.Web.csproj`, target `PrepareKniContentNativeShim`.)
 
 On Windows the native-lib shim (steps 1–3) is not needed — the bundled
 `MGCB.exe` + native DLLs work as-is — but the ffmpeg gap (step 5) exists there
-too: KNI ships no `ffmpeg.exe`, so audio content on Windows needs the
-`dotnet-mgcb` `windows-x64` binaries or ffmpeg/ffprobe on `PATH` (unverified —
-no Windows host here).
+too: KNI ships no `ffmpeg.exe`. The same `Demos.Web.csproj` target stages the
+`dotnet-mgcb` `windows-x64` `ffmpeg.exe`/`ffprobe.exe` into the builder's
+`win-x64/` probe subdir when building on Windows; that leg follows the exact
+pattern verified on macOS/Linux but is itself unverified on a real Windows
+host — if the borrow misses, ffmpeg/ffprobe on `PATH` is the fallback KNI
+probes.
 
 ### Shaders (`.fx`) — status
 
@@ -320,8 +324,9 @@ So the shared host layer owns the unlock: `MonoDreams.Web.Hosting`'s
 suspended one on the first `pointerdown`/`keydown` (capture phase, window
 level). Engine and game code stay gesture-unaware; sources started while
 suspended (e.g. an ambient loop on screen load) begin sounding at the first
-interaction. In-browser behaviour ("first click unlocks audio") is verified
-manually in Chrome — it is not headlessly testable.
+interaction. In-browser behaviour ("first click unlocks audio") must be
+verified manually in Chrome — it is not headlessly testable; it is an
+explicit manual item in the introducing PR's test plan (#33).
 
 > **Scaffolded web heads:** `monodreams init --platform web|multi` generates a
 > *self-contained* head with its own copy of the host wiring (see the CLI note
