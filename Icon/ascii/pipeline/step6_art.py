@@ -139,7 +139,7 @@ doc = dict(
     generator="claude-code glyph extraction pipeline",
     rows=NROWS, cols=NCOLS,
     cell_aspect=AS,
-    background="#06070c",
+    background="#000000",
     chars=["".join(r).rstrip() for r in chars],
     styles=[("".join(r)).rstrip() for r in (stycodes)],
     style_key={"r": "regular", "b": "bold", "i": "italic", "x": "bold-italic", " ": "empty"},
@@ -251,7 +251,7 @@ html = f"""<!doctype html>
 <meta charset="utf-8">
 <title>MonoDreams — waves &amp; waning moon</title>
 <style>
-  html,body {{ margin:0; background:#06070c; min-height:100vh;
+  html,body {{ margin:0; background:#000000; min-height:100vh;
                display:flex; align-items:center; justify-content:center; }}
   pre {{ font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
         font-size: clamp(6px, 1.55vw, 15px);
@@ -267,7 +267,7 @@ open(f"{OUTDIR}/moon-waves.html", "w").write(html)
 # ---------- deliverable 5: final PNG (with soft glow) ----------
 PX, PY, X0 = 17.62, 23.347, 7.01
 W = H = 1024
-img = Image.new("RGB", (W, H), (6, 7, 12))
+img = Image.new("RGB", (W, H), (0, 0, 0))
 d = ImageDraw.Draw(img)
 fonts = {k: ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 19, index=i)
          for k, i in {"r": 0, "b": 1, "i": 2, "x": 3}.items()}

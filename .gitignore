@@ -118,3 +118,4 @@ scratchpad/kni-content-test/
 
 # MGCB stats file (build cruft)
 *.mgstats
+MonoDreams.Demos.Web/wwwroot/Content/

@@ -192,7 +192,7 @@ open(f"{OUTDIR}/monodreams-logo.html", "w").write(html)
 PX, PY, X0, YB0 = 17.62, 23.347, 7.01, 60.03
 Wpx = 1024
 Hpx = int(math.ceil(YB0 + (NROWS - 1) * PY + 66))
-img = Image.new("RGB", (Wpx, Hpx), (6, 7, 12))
+img = Image.new("RGB", (Wpx, Hpx), (0, 0, 0))
 d = ImageDraw.Draw(img)
 fonts = {k: ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 19, index=i)
          for k, i in {"r": 0, "b": 1, "i": 2, "x": 3}.items()}

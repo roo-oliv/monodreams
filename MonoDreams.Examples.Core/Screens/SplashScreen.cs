@@ -110,9 +110,10 @@ public class SplashScreen : IGameScreen
         backdrop.Set(new DrawComponent { Type = DrawElementType.Sprite, Target = RenderTargetID.UI });
         backdrop.Set<VisibleComponent>();
 
-        // The logo, centered, scaled to 85% of the virtual height (it is portrait: 1024x1177).
+        // The logo, centered, scaled to ~42% of the virtual height (it is portrait: 1024x1177) —
+        // a modest brand mark, not a poster.
         var logo = content.Load<Texture2D>(LogoContentKey);
-        var height = vh * 0.85f;
+        var height = vh * 0.425f;
         var width = height * logo.Width / logo.Height;
         var logoEntity = _world.CreateEntity();
         logoEntity.Set(new EntityInfoComponent("SplashLogo"));

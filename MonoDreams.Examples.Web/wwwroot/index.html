@@ -21,21 +21,21 @@
     -->
     <style>
         #loading {
-            position: fixed; inset: 0; background: #06070c;
+            position: fixed; inset: 0; background: #000;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             gap: 2.2vh;
         }
         #loading pre {
             margin: 0;
             font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
-            font-size: min(1.9vw, 1.8vh);
+            font-size: min(0.95vw, 0.9vh);
             line-height: 1.0;
             letter-spacing: 0.155em; /* matches the art's source cell aspect (~0.755) */
             text-shadow: 0 0 14px rgba(120, 140, 255, .18), 0 0 3px rgba(255, 220, 120, .10);
             animation: md-breathe 2.8s ease-in-out infinite;
         }
         #loading .md-progress {
-            width: min(42em, 72vw); height: 2px; background: #141a26; border-radius: 1px;
+            width: min(22em, 40vw); height: 2px; background: #141a26; border-radius: 1px;
             overflow: hidden;
         }
         #loading .md-progress-fill {
