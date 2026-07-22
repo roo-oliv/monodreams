@@ -96,6 +96,35 @@ first sound.
 `ContentAudioPlayerTests.MissingContentKey_StillFailsLoud`).
 **Depends on:** foundation — "`Logger` requires `Initialize` before any write".
 
+## Web playback unlocks on the first user gesture — the shared host layer owns the resume
+
+Browsers start an `AudioContext` created before any user interaction in the
+`suspended` state, and a suspended context renders nothing until `resume()`
+is called from a gesture handler. KNI's BlazorGL stack (4.2.9001) never
+does that: `ConcreteAudioService.Suspend()`/`Resume()` are empty method
+bodies, nothing in `Kni.Platform.dll` calls `AudioContext.ResumeAsync()`,
+and the `nkast.Wasm.Audio` JS shim is a bare 1:1 WebAudio interop with no
+gesture listener (binary inspection, 2026-07-22 — see
+`docs/web-targeting.md › Audio`). The shared host page
+(`MonoDreams.Web.Hosting/wwwroot/js/host.js`) therefore wraps the shim's
+AudioContext factories and resumes any suspended context on the first
+`pointerdown`/`keydown`. Engine and game code stay gesture-unaware: sounds
+started before the first interaction begin sounding at the gesture.
+
+**Why:** without the host-level resume, every sound on web is permanently
+and silently muted — no exception is thrown; the suspended context simply
+never renders, which reads as "audio module broken on web".
+**Breaks:** removing the hook from `host.js` — or shipping a standalone web
+head that copies the host wiring without it — mutes all web audio with no
+error to debug from.
+**Tests:** browser-only behaviour, not headlessly testable (per plan
+contract 12): the KNI-side evidence is binary inspection recorded in
+`docs/web-targeting.md`, and "first click unlocks audio in Chrome" is an
+explicit manual item in the PR test plan.
+**Depends on:** foundation — "The platform (backend + OS services) is
+selected by the head project, never by engine source" (the hook lives in
+web host infrastructure, not engine source).
+
 ## Known limitations (acknowledged gaps)
 
 - **Music lives in RAM** — no streaming path yet; `Song`/`MediaPlayer` was
