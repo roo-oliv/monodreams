@@ -2,7 +2,7 @@ namespace MonoDreams.Tests.IntegrationTests;
 
 /// <summary>
 /// Extends the Wave-8a premise "the editor overlay is universal" across hosts: under the editor
-/// run flag (<c>MONODREAMS_EDITOR=1</c>) EVERY Demos screen — the launcher menu and all four
+/// run flag (<c>MONODREAMS_EDITOR=1</c>) EVERY Demos screen — the launcher menu and all five
 /// module demos — composes the <c>EditorOverlay</c> through the pipeline registrar, observable as
 /// the per-screen composition log naming the <c>editor.*</c> entries. The Demos host honours the
 /// flag under <c>--headless</c> too (headless Demos renders every frame — it is the
@@ -28,6 +28,7 @@ public class DemosEditorOverlayTests
     [InlineData("physics", "PhysicsDemoScreen")]
     [InlineData("dialogue", "DialogueDemoScreen")]
     [InlineData("ui", "UiDemoScreen")]
+    [InlineData("audio", "AudioDemoScreen")]
     public async Task DemoScreen_UnderTheEditorFlag_ComposesTheOverlay(string screen, string screenName)
     {
         var result = await GameTestRunner.RunDemosAsync(

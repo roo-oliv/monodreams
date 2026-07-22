@@ -1356,7 +1356,7 @@ menu buttons live in Edit navigate away mid-editing, tearing the screen down und
 under `MONODREAMS_EDITOR=1` log their composed `editor.*` entries — the runner's including the
 overlay-provided `editor.cursorInput`/`editor.cursorPosition`; the menu run exits through the
 editor-op channel, the runner through replay auto-exit);
-`MonoDreams.Tests/IntegrationTests/DemosEditorOverlayTests.cs` (all five Demos screens under
+`MonoDreams.Tests/IntegrationTests/DemosEditorOverlayTests.cs` (all six Demos screens under
 `MONODREAMS_EDITOR=1` log their composed `editor.*` entries headless — TD also asserting the Demos host now
 **resolves a project** ("Project resolved"), composes the **universal palette** ("editor.palette", with
 zero asset roots — no crash), and seeds a **named** boot tab ("active tab 'launcher'", never "untitled") —
@@ -2780,7 +2780,7 @@ ownership policy — screen UI is code-owned, only loaded/placed/editor-created 
 
 **Demos adopts this pattern wholesale (TD).** Every Demos screen now declares a `BoundSceneId` — the
 launcher (`launcher` — the demo selector itself is a scene, per the user), `camera-demo`, `physics-demo`,
-`dialogue-demo`, `ui-demo` — so the Scenes panel lists the five demos as scenes (the "Project: (unresolved)
+`dialogue-demo`, `ui-demo`, `audio-demo` — so the Scenes panel lists the six demos as scenes (the "Project: (unresolved)
 … (no scenes)" state is gone once the Demos host resolves its project context). The common Load wiring is
 the `DemoEditor.BindScene` helper (name the active tab from the bound id; register `ReloadSceneContent` =
 the optional scene load; publish that load now unless a cross-screen activation is restoring the tab; bind
@@ -2848,7 +2848,7 @@ unresolved-skips-source); `MonoDreams.Tests/LevelEditor/EditorPanelModelTests.cs
 refusal + accept + empty-name, and the canonical empty-world write on a fake FS — UX2-D);
 `MonoDreams.Tests/Foundation/ScreenRegistrationTests.cs` (the `ScreenInfo` binding + enumeration);
 **TD — Demos adoption**: `MonoDreams.Tests/LevelEditor/DemosSceneWiringTests.cs`
-(`SceneCatalog_WithTheFiveDemoBindings_ResolvedProject_ListsFiveNamedScenes` — the five bound demos list as
+(`SceneCatalog_WithTheSixDemoBindings_ResolvedProject_ListsSixNamedScenes` — the six bound demos list as
 named scenes; `FirstSave_OfADemoScene_TargetsTheDemosProjectLevelsTree_NotExamples` — a demo Save targets
 the Demos tree) and `MonoDreams.Tests/IntegrationTests/DemosSessionCrossScreenTests.cs`
 (`TabOpen_ActivatesABoundDemoSceneCrossScreen_TheSessionSurvivesTheScreenSwitch` — launcher → physics-demo
