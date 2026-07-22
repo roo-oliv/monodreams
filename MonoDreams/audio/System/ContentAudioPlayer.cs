@@ -14,6 +14,9 @@ namespace MonoDreams.System.Audio;
 /// Without audio hardware (headless CI, deviceless machines) the XNA audio backend throws on
 /// first use; this player catches the backend failure, logs a single <c>Logger.Warning</c>, and
 /// degrades to a silent no-op for the rest of its lifetime — game and test logic keep running.
+/// A full voice pool (<see cref="InstancePlayLimitException"/> — the backend's cap on simultaneous
+/// instances) is transient, not backend absence: the new voice is dropped
+/// (<see cref="IAudioPlayer.InvalidHandle"/>) without disabling the player.
 /// A missing content key is a developer error and still fails loud (<see cref="ContentLoadException"/>).
 /// </summary>
 public class ContentAudioPlayer(ContentManager content) : IAudioPlayer
@@ -35,16 +38,19 @@ public class ContentAudioPlayer(ContentManager content) : IAudioPlayer
                 _sounds[soundKey] = sound;
             }
 
-            var instance = sound.CreateInstance();
-            instance.IsLooped = loop;
-            instance.Volume = Math.Clamp(volume, 0f, 1f);
-            instance.Pitch = Math.Clamp(pitch, -1f, 1f);
-            instance.Pan = Math.Clamp(pan, -1f, 1f);
-            instance.Play();
-
+            var instance = StartInstance(sound, volume, pitch, pan, loop);
             var handle = ++_nextHandle;
             _instances[handle] = instance;
             return handle;
+        }
+        catch (InstancePlayLimitException)
+        {
+            // The backend's cap on simultaneous voices (XNA's MAX_PLAYING_INSTANCES, 256 in
+            // MonoGame 3.8) is a transient mixing condition, not backend absence: drop THIS
+            // voice and keep the player alive for future calls. StartInstance already disposed
+            // the failed instance, so nothing leaks.
+            Logger.Debug($"Audio voice limit reached; dropping playback of '{soundKey}'.");
+            return IAudioPlayer.InvalidHandle;
         }
         catch (Exception e) when (IsAudioBackendFailure(e))
         {
@@ -94,6 +100,32 @@ public class ContentAudioPlayer(ContentManager content) : IAudioPlayer
     /// a real <see cref="ContentManager"/>.
     /// </summary>
     protected virtual SoundEffect LoadSoundEffect(string soundKey) => content.Load<SoundEffect>(soundKey);
+
+    /// <summary>
+    /// Creates, configures, and starts the backend instance for an already-loaded
+    /// <see cref="SoundEffect"/>. On any start failure (e.g. the voice cap's
+    /// <see cref="InstancePlayLimitException"/>) the just-created instance is disposed before the
+    /// exception propagates, so no instance leaks. Virtual so tests can force the voice-cap
+    /// failure path without audio hardware.
+    /// </summary>
+    protected virtual SoundEffectInstance StartInstance(SoundEffect sound, float volume, float pitch, float pan, bool loop)
+    {
+        var instance = sound.CreateInstance();
+        try
+        {
+            instance.IsLooped = loop;
+            instance.Volume = Math.Clamp(volume, 0f, 1f);
+            instance.Pitch = Math.Clamp(pitch, -1f, 1f);
+            instance.Pan = Math.Clamp(pan, -1f, 1f);
+            instance.Play();
+            return instance;
+        }
+        catch
+        {
+            instance.Dispose();
+            throw;
+        }
+    }
 
     /// <summary>
     /// Whether <paramref name="e"/> (or anything in its inner chain, covering

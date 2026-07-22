@@ -419,8 +419,10 @@ public class AudioSystemTests : IDisposable
 /// <summary>
 /// Contract 7: without an audio backend, <see cref="ContentAudioPlayer"/> degrades to a
 /// silent no-op — a single <c>Logger.Warning</c>, no throw — while a plain missing content
-/// key still fails loud. The failure path is forced through the protected
-/// <c>LoadSoundEffect</c> hook, so no real ContentManager or hardware is involved.
+/// key still fails loud, and the backend's voice cap (<see cref="InstancePlayLimitException"/>)
+/// drops just that voice without disabling the player. The failure paths are forced through the
+/// protected <c>LoadSoundEffect</c> / <c>StartInstance</c> hooks, so no real ContentManager or
+/// hardware is involved.
 /// </summary>
 public class ContentAudioPlayerTests
 {
@@ -432,6 +434,20 @@ public class ContentAudioPlayerTests
         {
             LoadAttempts++;
             throw failure;
+        }
+    }
+
+    private sealed class VoiceCapPlayer() : ContentAudioPlayer(null!)
+    {
+        public int StartAttempts { get; private set; }
+
+        protected override SoundEffect LoadSoundEffect(string soundKey) => null!;
+
+        protected override SoundEffectInstance StartInstance(
+            SoundEffect sound, float volume, float pitch, float pan, bool loop)
+        {
+            StartAttempts++;
+            throw new InstancePlayLimitException();
         }
     }
 
@@ -492,6 +508,27 @@ public class ContentAudioPlayerTests
 
         Assert.Equal(IAudioPlayer.InvalidHandle, handle);
         Assert.Equal(1, player.LoadAttempts);
+    }
+
+    [Fact]
+    public void VoiceCapReached_DropsTheVoice_WithoutDisablingThePlayer()
+    {
+        // The 257th simultaneous voice makes the backend throw InstancePlayLimitException
+        // (MAX_PLAYING_INSTANCES). That is a transient mixing condition, not backend absence:
+        // Play must swallow it (drop THIS voice, return InvalidHandle) WITHOUT flipping the
+        // player into the permanent disabled no-op. (The failed instance's disposal is
+        // structural: the production StartInstance disposes on any start failure.)
+        var player = new VoiceCapPlayer();
+
+        var first = player.Play("Sounds/click", 1f, 0f, 0f, loop: false);
+        Assert.Equal(IAudioPlayer.InvalidHandle, first);
+        Assert.Equal(1, player.StartAttempts);
+
+        // NOT disabled: the next Play consults the backend again (unlike the degraded path,
+        // which never does).
+        var second = player.Play("Sounds/click", 1f, 0f, 0f, loop: true);
+        Assert.Equal(IAudioPlayer.InvalidHandle, second);
+        Assert.Equal(2, player.StartAttempts);
     }
 
     [Fact]

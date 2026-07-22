@@ -93,7 +93,12 @@ anywhere in the exception's inner chain). `ContentAudioPlayer` catches
 exactly those, logs a **single** `Logger.Warning`, and becomes a permanent
 no-op: `Play` returns `IAudioPlayer.InvalidHandle` (0) and every other
 call is safe. A missing content key is a developer error and still fails
-loud (`ContentLoadException` propagates).
+loud (`ContentLoadException` propagates). A full voice pool
+(`InstancePlayLimitException` — the backend's cap on simultaneous
+instances, 256 in MonoGame 3.8) is a **transient** mixing condition, not
+backend absence: `Play` drops just that voice (`InvalidHandle`,
+`Logger.Debug`, the failed instance disposed — never leaked) and the
+player stays enabled for future calls.
 
 **Why:** `GameTestRunner` and CI spawn the real game on machines without
 audio devices; a throw would kill every integration test that happens to
@@ -101,10 +106,13 @@ cross a sound trigger. Conversely, swallowing content misses would hide
 real bugs — only backend absence is downgraded.
 **Breaks:** catching too broadly turns typo'd sound keys into silence
 (undebuggable); not catching at all makes every headless run crash on the
-first sound.
+first sound; letting the voice cap propagate crashes the game loop on the
+257th simultaneous voice, while treating it as backend absence would
+permanently silence the game after one loud mix.
 **Tests:** `MonoDreams.Tests/Audio/AudioSystemTests.cs`
 (`ContentAudioPlayerTests.WithoutAudioBackend_PlayDegradesToSilentNoOp_WithASingleWarning`,
-`ContentAudioPlayerTests.MissingContentKey_StillFailsLoud`).
+`ContentAudioPlayerTests.MissingContentKey_StillFailsLoud`,
+`ContentAudioPlayerTests.VoiceCapReached_DropsTheVoice_WithoutDisablingThePlayer`).
 **Depends on:** foundation — "`Logger` requires `Initialize` before any write".
 
 ## Web playback unlocks on the first user gesture — the shared host layer owns the resume
