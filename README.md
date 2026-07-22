@@ -3,7 +3,7 @@ MonoDreams
 
 <p align="center">
   <br>
-   <img src="/Icon/monodreams-logo.png" width="128" alt="MonoDreams Logo" title="MonoDreams Logo" />
+   <img src="/Icon/ascii/monodreams-logo.png" width="420" alt="MonoDreams — waves & waning moon ASCII logo" title="MonoDreams" />
   <br>
 </p>
 <p align="center">

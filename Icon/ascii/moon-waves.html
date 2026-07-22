@@ -1,64 +1,17 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>MonoDreams Examples (BlazorGL)</title>
-    <base href="/" />
-    <!-- Shared host-page styles + game loop come from the MonoDreams.Web.Hosting RCL. -->
-    <link href="_content/MonoDreams.Web.Hosting/css/app.css" rel="stylesheet" />
-</head>
-
-<body>
-
-    <!--
-        Boot branding: while the WASM runtime downloads/boots, the page shows the MonoDreams
-        logo (the Icon/ascii ASCII art, inlined as colored spans by Icon/ascii/pipeline — see
-        that folder's README) on black instead of a generic "Blazor loading" screen. The thin
-        bar under the logo tracks Blazor's - -blazor-load-percentage when the runtime exposes
-        it and stays a subtle pulse otherwise. The in-game SplashScreen then takes over.
-    -->
-    <style>
-        #loading {
-            position: fixed; inset: 0; background: #000;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            gap: 2.2vh;
-        }
-        #loading pre {
-            margin: 0;
-            font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
-            font-size: min(0.95vw, 0.9vh);
-            line-height: 1.0;
-            letter-spacing: 0.155em; /* matches the art's source cell aspect (~0.755) */
-            text-shadow: 0 0 14px rgba(120, 140, 255, .18), 0 0 3px rgba(255, 220, 120, .10);
-            animation: md-breathe 2.8s ease-in-out infinite;
-        }
-        #loading .md-progress {
-            width: min(22em, 40vw); height: 2px; background: #141a26; border-radius: 1px;
-            overflow: hidden;
-        }
-        #loading .md-progress-fill {
-            height: 100%; background: linear-gradient(90deg, #2f6cc4, #e6ba3e);
-            width: var(--blazor-load-percentage, 0%);
-            transition: width .2s ease-out;
-        }
-        #loading .md-status {
-            color: #55617a; font-family: Menlo, Consolas, monospace; font-size: 12px;
-            letter-spacing: .35em; text-transform: lowercase;
-        }
-        #loading .md-status::after { content: ' \00B7'; animation: md-dots 1.4s steps(3, end) infinite; }
-        @keyframes md-breathe { 0%, 100% { opacity: .92; } 50% { opacity: 1; } }
-        @keyframes md-dots {
-            0%   { content: ' \00B7'; }
-            33%  { content: ' \00B7 \00B7'; }
-            66%  { content: ' \00B7 \00B7 \00B7'; }
-        }
-    </style>
-
-    <div id="app">
-        <div id="loading">
-            <pre>                         <span style="color:#836522">··</span><span style="color:#836522;font-weight:700">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span><span style="color:#907025">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span>
+<!doctype html>
+<meta charset="utf-8">
+<title>MonoDreams — waves &amp; waning moon</title>
+<style>
+  html,body { margin:0; background:#000000; min-height:100vh;
+               display:flex; align-items:center; justify-content:center; }
+  pre { font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+        font-size: clamp(6px, 1.55vw, 15px);
+        line-height: 1.0;
+        letter-spacing: 0.155em;   /* matches the source cell aspect ~0.755 */
+        text-shadow: 0 0 14px rgba(120,140,255,.18), 0 0 3px rgba(255,220,120,.10);
+        margin: 4vh 2vw; }
+</style>
+<pre>                         <span style="color:#836522">··</span><span style="color:#836522;font-weight:700">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span><span style="color:#907025">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span>
                     <span style="color:#826422">·</span><span style="color:#826522">·</span><span style="color:#906f25;font-weight:700">·</span><span style="color:#9e7b29">-</span><span style="color:#907025;font-weight:700">*</span><span style="color:#907025">+</span><span style="color:#9e7b29">*</span><span style="color:#d9aa35;font-weight:700">%</span><span style="color:#daab36">@</span><span style="color:#dbad37">@</span><span style="color:#dbae37">@</span><span style="color:#dcae37;font-weight:700">%</span><span style="color:#9e7b29">*</span><span style="color:#836522">+</span><span style="color:#836522;font-weight:700">*</span><span style="color:#9e7b29">-</span><span style="color:#836522">··</span>
                  <span style="color:#826422;font-weight:700">.</span><span style="color:#826422">·</span><span style="color:#906f25">·</span><span style="color:#836522;font-weight:700">-*</span><span style="color:#9e7b29">+*</span><span style="color:#e6ba3e;font-weight:700">##</span><span style="color:#e6bb3f;font-weight:700">#</span><span style="color:#e0b33a;font-weight:700">#</span><span style="color:#e1b43b;font-weight:700">@</span><span style="color:#e7bc41;font-weight:700">@</span><span style="color:#e3b63c;font-weight:700">@</span><span style="color:#e3b73c;font-weight:700">@</span><span style="color:#e8bd42;font-weight:700">@</span><span style="color:#ddaf38;font-weight:700">@</span><span style="color:#e8bd41;font-weight:700">#</span><span style="color:#e8bd42;font-weight:700">#</span><span style="color:#9e7b29;font-weight:700">*</span><span style="color:#9e7b29">+</span><span style="color:#836522">*</span><span style="color:#836522;font-weight:700">-</span><span style="color:#836522">·</span>
                 <span style="color:#826422">·</span><span style="color:#826422;font-weight:700">-</span><span style="color:#906f25">*</span><span style="color:#9e7b29">*</span><span style="color:#9e7b29;font-weight:700">*</span><span style="color:#e2b63c;font-weight:700">#</span><span style="color:#e5b93d;font-weight:700">#</span><span style="color:#e7bb3f;font-weight:700">#</span><span style="color:#e7bc41;font-weight:700">#</span><span style="color:#e2b63c">@@</span><span style="color:#dcaf38">@</span><span style="color:#e8bd42;font-weight:700">@</span><span style="color:#e8be43">@</span><span style="color:#e5b93d">@</span><span style="color:#e0b33a">@</span><span style="color:#eac046">@</span><span style="color:#e0b33a">@</span><span style="color:#eac046;font-weight:700">@</span><span style="color:#e6ba3e">@</span><span style="color:#e7bb3f;font-weight:700">@</span><span style="color:#e7bc40;font-weight:700">@</span><span style="color:#ebc248;font-weight:700">#</span><span style="color:#eac147;font-weight:700">#</span><span style="color:#9e7b29">+</span><span style="color:#907025">*</span><span style="color:#836522;font-weight:700">·</span>
@@ -95,49 +48,4 @@
          <span style="color:#5ea8eb">.</span><span style="color:#4285d1">:</span><span style="color:#3d7fcc;font-weight:700">N</span><span style="color:#62acee;font-weight:700">Nm</span><span style="color:#5ea7ea;font-weight:700">w</span><span style="color:#579fe4;font-weight:700">w</span><span style="color:#5096de;font-weight:700">W</span><span style="color:#4a8ed8;font-weight:700">v</span><span style="color:#468ad4;font-weight:700">w</span><span style="color:#4589d4;font-weight:700">W</span><span style="color:#2b64b0;font-weight:700">N</span><span style="color:#2f6bb8;font-weight:700">M</span><span style="color:#21539a;font-weight:700">N</span><span style="color:#68b1f0">.</span><span style="color:#6eb5f1;font-weight:700">:</span><span style="color:#63acee;font-weight:700">m</span><span style="color:#60aaec;font-weight:700">M</span><span style="color:#5ba4e8;font-weight:700">W</span><span style="color:#549be2;font-weight:700">m</span><span style="color:#4d93db;font-weight:700">W</span><span style="color:#488cd6;font-weight:700">W</span><span style="color:#4589d4;font-weight:700">N</span><span style="color:#468ad4;font-weight:700">i</span><span style="color:#498ed7;font-weight:700">N</span><span style="color:#1d4b8f;font-weight:700">w</span><span style="color:#215298;font-weight:700">W</span><span style="color:#3879c8;font-weight:700">N</span><span style="color:#275ea7;font-weight:700">M</span><span style="color:#2960ab;font-weight:700">N</span><span style="color:#306cba;font-weight:700">~</span><span style="color:#488cd6;font-weight:700">.</span><span style="color:#836522;font-weight:700">·</span><span style="color:#836522">**</span><span style="color:#826522">*</span><span style="color:#826422;font-weight:700">·</span><span style="color:#826422">··</span>
           <span style="color:#4a8ed8">·</span><span style="color:#6ab3f0;font-weight:700">.</span><span style="color:#3676c5;font-weight:700">N</span><span style="color:#5198df;font-weight:700">m</span><span style="color:#2c66b3;font-weight:700">M</span><span style="color:#468ad4;font-weight:700">m</span><span style="color:#2960aa;font-weight:700">v</span><span style="color:#478bd5;font-weight:700">w</span><span style="color:#4c91da;font-weight:700">w</span><span style="color:#539ae0;font-weight:700">w</span><span style="color:#5aa2e7;font-weight:700">W</span><span style="color:#5fa9ec;font-weight:700">w</span><span style="color:#3f81ce;font-weight:700">W</span><span style="color:#3e80cd;font-weight:700">m</span><span style="color:#255aa3;font-weight:700">m</span><span style="color:#3373c3;font-weight:700;font-style:italic">m</span><span style="color:#2f6cb9;font-weight:700">w</span><span style="color:#2c65b1;font-weight:700">w</span><span style="color:#2961ac;font-weight:700">m</span><span style="color:#2960aa;font-weight:700">w</span><span style="color:#2a62ad;font-weight:700">w</span><span style="color:#2d67b3;font-weight:700">w</span><span style="color:#306dbb;font-weight:700">w</span><span style="color:#3474c4;font-weight:700">N</span><span style="color:#397ac9;font-weight:700">N</span><span style="color:#3d7fcc;font-weight:700">m</span><span style="color:#3f81ce;font-weight:700">w</span><span style="color:#3e80cd;font-weight:700">w</span><span style="color:#275ca5;font-weight:700">N</span><span style="color:#24579f;font-weight:700">w</span><span style="color:#215298;font-weight:700">N</span><span style="color:#1d4c91;font-weight:700">w</span><span style="color:#1b478a;font-weight:700;font-style:italic">m</span><span style="color:#1f4f94;font-weight:700">~</span><span style="color:#1e4c91;font-weight:700">~</span><span style="color:#2f6cb9;font-weight:700">.</span><span style="color:#1e4d92">.</span><span style="color:#205096;font-weight:700">.</span>
            <span style="color:#22539a">·</span><span style="color:#5197de">.</span><span style="color:#1d4b8f">.</span><span style="color:#184182;font-weight:700">N</span><span style="color:#1a4588;font-weight:700">N</span><span style="color:#1e4d91;font-weight:700;font-style:italic">l</span><span style="color:#22549b;font-weight:700">N</span><span style="color:#265ba4;font-weight:700">N</span><span style="color:#285ea8;font-weight:700">mN</span><span style="color:#265ba4;font-weight:700">N</span><span style="color:#23559c;font-weight:700">m</span><span style="color:#1f4e93;font-weight:700">N</span><span style="color:#1b478a;font-weight:700">N</span><span style="color:#184284">i</span><span style="color:#174080;font-weight:700">N</span><span style="color:#174081;font-weight:700">u</span><span style="color:#184385;font-weight:700">N</span><span style="color:#1b488c;font-weight:700">m</span><span style="color:#1f4e94;font-weight:700;font-style:italic">l</span><span style="color:#22559c;font-weight:700;font-style:italic">i</span><span style="color:#255aa3;font-weight:700">N</span><span style="color:#275ea7;font-weight:700">m</span><span style="color:#285fa9;font-weight:700;font-style:italic">l</span><span style="color:#285ea8;font-weight:700">m</span><span style="color:#265ba4;font-weight:700;font-style:italic">l</span><span style="color:#23569e;font-weight:700">N</span><span style="color:#205197;font-weight:700">m</span><span style="color:#1d4c90;font-weight:700">N</span><span style="color:#1b478a;font-weight:700">N</span><span style="color:#184385;font-weight:700">N</span><span style="color:#174081;font-weight:700;font-style:italic">l</span><span style="color:#174080;font-weight:700">N</span><span style="color:#174080">i</span><span style="color:#184283;font-weight:700">m</span><span style="color:#194587;font-weight:700;font-style:italic">l</span><span style="color:#22559c;font-weight:700">~</span><span style="color:#2559a2">.</span>
-               <span style="color:#2b64af;font-weight:700;font-style:italic">·</span><span style="color:#2e69b5;font-style:italic">·</span><span style="color:#2e6ab7;font-weight:700">.</span><span style="color:#2d68b5;font-weight:700;font-style:italic">·</span><span style="color:#2b63ae;font-weight:700;font-style:italic">·</span><span style="color:#275da6;font-style:italic">·</span><span style="color:#23559d;font-style:italic">·</span><span style="color:#204f95;font-style:italic">·</span><span style="color:#1d4b90;font-weight:700;font-style:italic">·</span><span style="color:#1c4a8e;font-weight:700;font-style:italic">·</span><span style="color:#1d4b90;font-style:italic">·</span><span style="color:#1f4f95;font-style:italic">·</span><span style="color:#22559c;font-weight:700;font-style:italic">·</span><span style="color:#265ba4;font-weight:700;font-style:italic">·</span><span style="color:#2961ab">·</span><span style="color:#2c66b2">·</span><span style="color:#2e69b6;font-weight:700;font-style:italic">·</span><span style="color:#2e6ab7;font-style:italic">·</span><span style="color:#2e69b6;font-weight:700;font-style:italic">·</span><span style="color:#2c66b3">·</span><span style="color:#2a62ad">·</span><span style="color:#275ea7;font-weight:700;font-style:italic">·</span><span style="color:#2458a1">·</span><span style="color:#22539a;font-weight:700;font-style:italic">·</span><span style="color:#1f4f95;font-style:italic">·</span><span style="color:#1e4c91;font-weight:700;font-style:italic">·</span><span style="color:#1d4a8f;font-weight:700;font-style:italic">·</span><span style="color:#1d4a8e;font-weight:700;font-style:italic">·</span><span style="color:#1d4b90;font-weight:700;font-style:italic">·</span><span style="color:#1e4d93">·</span>
-
-
-<span style="color:#71b8f2;font-weight:700">M</span>   <span style="color:#77bdf4;font-weight:700">M</span>  <span style="color:#6bb3f0;font-weight:700">N</span><span style="color:#69b1f0;font-weight:700">и</span><span style="color:#68b1f0;font-weight:700">M</span>  <span style="color:#73baf3;font-weight:700">N</span>   <span style="color:#75bcf3;font-weight:700">W</span>  <span style="color:#69b2f0;font-weight:700">M</span><span style="color:#68b1f0;font-weight:700">N</span><span style="color:#69b2f0;font-weight:700">W</span>  <span style="color:#e7bc40;font-weight:700">@</span><span style="color:#e9bf44;font-weight:700">@</span><span style="color:#eac146;font-weight:700">@</span><span style="color:#e3b63c;font-weight:700">#</span>  <span style="color:#eac046;font-weight:700">@</span><span style="color:#ecc44b;font-weight:700">@</span><span style="color:#eac045;font-weight:700">#</span><span style="color:#f1cc55;font-weight:700">@</span>  <span style="color:#f1cc54;font-weight:700">@</span><span style="color:#ebc248;font-weight:700">#</span><span style="color:#f1cc55;font-weight:700">@</span><span style="color:#f3cf59;font-weight:700">@</span>  <span style="color:#f0cb53;font-weight:700">#</span><span style="color:#f4d15b;font-weight:700">@</span><span style="color:#f2cd57;font-weight:700">@</span>  <span style="color:#ebc349;font-weight:700">#</span>   <span style="color:#edc64d;font-weight:700">@</span>  <span style="color:#e8be43;font-weight:700">@</span><span style="color:#e1b43b;font-weight:700">#</span><span style="color:#e9c045;font-weight:700">@</span><span style="color:#e9bf45;font-weight:700">@</span>
-<span style="color:#6fb6f1;font-weight:700">N</span><span style="color:#70b8f2;font-weight:700">M</span> <span style="color:#6db5f1;font-weight:700">N</span><span style="color:#69b1f0;font-weight:700">и</span> <span style="color:#61abed;font-weight:700">M</span>   <span style="color:#69b2f0;font-weight:700">M</span> <span style="color:#70b7f2;font-weight:700">M</span><span style="color:#70b8f2;font-weight:700">N</span>  <span style="color:#66afef;font-weight:700">N</span> <span style="color:#60aaec;font-weight:700">N</span>   <span style="color:#6cb4f1;font-weight:700">W</span> <span style="color:#e7bc41;font-weight:700">@</span>   <span style="color:#deb139;font-weight:700">#</span> <span style="color:#eac147;font-weight:700">@</span>   <span style="color:#f0cb54;font-weight:700">@</span> <span style="color:#efc951;font-weight:700">@</span>    <span style="color:#f5d35e;font-weight:700">@</span>   <span style="color:#f0ca53;font-weight:700">@</span> <span style="color:#f1cd56;font-weight:700">@</span><span style="color:#ecc44b;font-weight:700">#</span> <span style="color:#eec74e;font-weight:700">@</span><span style="color:#e5b93e;font-weight:700">#</span> <span style="color:#e0b33a;font-weight:700">#</span>
-<span style="color:#68b1f0;font-weight:700">M</span> <span style="color:#62acee;font-weight:700">M</span> <span style="color:#5ba3e7;font-weight:700">N</span> <span style="color:#59a1e6;font-weight:700">N</span>   <span style="color:#67b0ef;font-weight:700">и</span> <span style="color:#67b0ef;font-weight:700">M</span> <span style="color:#60a9ec;font-weight:700">N</span> <span style="color:#59a1e6;font-weight:700">M</span> <span style="color:#5ba3e7;font-weight:700">M</span>   <span style="color:#68b1f0;font-weight:700">N</span> <span style="color:#e7bc40;font-weight:700">@</span>   <span style="color:#e6bb3f;font-weight:700">@</span> <span style="color:#ebc248;font-weight:700">@</span><span style="color:#edc64d;font-weight:700">@</span><span style="color:#efc951;font-weight:700">@@</span>  <span style="color:#eec84f;font-weight:700">@</span><span style="color:#f0ca53;font-weight:700">@</span><span style="color:#f2ce57;font-weight:700">@</span>  <span style="color:#f4d15b;font-weight:700">@</span><span style="color:#f2ce57;font-weight:700">@</span><span style="color:#f0cb53;font-weight:700">@</span><span style="color:#eac147;font-weight:700">#</span><span style="color:#f0cb53;font-weight:700">@</span> <span style="color:#f1cd56;font-weight:700">@</span> <span style="color:#e9bf45;font-weight:700">#</span> <span style="color:#eac046;font-weight:700">@</span>  <span style="color:#e2b53b;font-weight:700">#</span><span style="color:#eac045;font-weight:700">@</span><span style="color:#e9be43;font-weight:700">@</span>
-<span style="color:#5ca5e8;font-weight:700">M</span>   <span style="color:#5298df;font-weight:700">M</span> <span style="color:#579ee4;font-weight:700">M</span>   <span style="color:#60a9ec;font-weight:700">N</span> <span style="color:#5aa2e6;font-weight:700">N</span>  <span style="color:#5198df;font-weight:700">N</span><span style="color:#5299e0;font-weight:700">и</span> <span style="color:#59a1e6;font-weight:700">M</span>   <span style="color:#5fa8eb;font-weight:700">M</span> <span style="color:#e6ba3e;font-weight:700">@</span>   <span style="color:#e6ba3e;font-weight:700">@</span> <span style="color:#ebc349;font-weight:700">@</span> <span style="color:#eec74e;font-weight:700">@</span>   <span style="color:#eec84f;font-weight:700">@</span>    <span style="color:#f2cd57;font-weight:700">@</span>   <span style="color:#ebc349;font-weight:700">#</span> <span style="color:#f1cc55;font-weight:700">@</span>   <span style="color:#e9bf44;font-weight:700">@</span>     <span style="color:#e3b73c;font-weight:700">@</span>
-<span style="color:#4e94dc;font-weight:700">W</span>   <span style="color:#4e94dc;font-weight:700">M</span> <span style="color:#569de3;font-weight:700">M</span>   <span style="color:#549be1;font-weight:700">M</span> <span style="color:#4c92da;font-weight:700">M</span>   <span style="color:#5096de;font-weight:700">N</span> <span style="color:#579fe4;font-weight:700">N</span>   <span style="color:#5198df;font-weight:700">и</span> <span style="color:#d9ab36;font-weight:700">#</span>   <span style="color:#e6bb3f;font-weight:700">@</span> <span style="color:#ebc349;font-weight:700">@</span>  <span style="color:#ebc349;font-weight:700">@</span>  <span style="color:#efc850;font-weight:700">@</span>    <span style="color:#f0ca53;font-weight:700">@</span>   <span style="color:#f1cd56;font-weight:700">@</span> <span style="color:#f0ca53;font-weight:700">@</span>   <span style="color:#e1b43b;font-weight:700">#</span>     <span style="color:#e0b33a;font-weight:700">@</span>
-<span style="color:#4386d2;font-weight:700">N</span>   <span style="color:#4d93db;font-weight:700">N</span>  <span style="color:#5197de;font-weight:700">M</span><span style="color:#4e93dc;font-weight:700">M</span><span style="color:#4a8fd8;font-weight:700">N</span>  <span style="color:#4386d1;font-weight:700">M</span>   <span style="color:#4f95dd;font-weight:700">M</span>  <span style="color:#4f95dd;font-weight:700">N</span><span style="color:#4c91da;font-weight:700">M</span><span style="color:#488cd6;font-weight:700">M</span>  <span style="color:#e0b23a;font-weight:700">@</span><span style="color:#d4a533;font-weight:700">#</span><span style="color:#e0b23a;font-weight:700">@</span><span style="color:#e3b73c;font-weight:700">@</span>  <span style="color:#e5b83d;font-weight:700">#</span>   <span style="color:#ebc248;font-weight:700">@</span> <span style="color:#efc951;font-weight:700">@</span><span style="color:#f1cd55;font-weight:700">@</span><span style="color:#f2cd57;font-weight:700">@</span><span style="color:#f1cc55;font-weight:700">@</span> <span style="color:#eec850;font-weight:700">@</span>   <span style="color:#f1cd56;font-weight:700">@</span> <span style="color:#eec84f;font-weight:700">@</span>   <span style="color:#e9bf45;font-weight:700">@</span> <span style="color:#eac046;font-weight:700">@</span><span style="color:#e8be43;font-weight:700">@</span><span style="color:#e6ba3e;font-weight:700">@</span><span style="color:#e1b43b;font-weight:700">@</span></pre>
-            <div class="md-progress"><div class="md-progress-fill"></div></div>
-            <div class="md-status">loading</div>
-        </div>
-    </div>
-
-    <div id="blazor-error-ui">
-        An unhandled error has occurred.
-        <a href="" class="reload">Reload</a>
-        <a class="dismiss">x</a>
-    </div>
-
-    <script src="_framework/blazor.webassembly.js"></script>
-
-    <!--
-        nkast.Wasm.* JS interop shims. Versions MUST match the restored package versions
-        (nkast.Wasm.* 8.0.11, pulled transitively by nkast.Kni.Platform.Blazor.GL 4.2.9001,
-        now referenced via the MonoDreams.Web.Hosting RCL). JSObject ships in nkast.Wasm.JSInterop
-        (it moved there from nkast.Wasm.Dom in 8.0.x).
-    -->
-    <script src="_content/nkast.Wasm.JSInterop/js/JSObject.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Window.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Document.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Navigator.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Gamepad.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Media.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.XHR/js/XHR.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Canvas/js/Canvas.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Canvas/js/Canvas2dContext.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Canvas/js/CanvasGLContext.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Audio/js/Audio.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.XR/js/XR.8.0.11.js"></script>
-
-    <!-- Shared game loop (initRenderJS / tickJS / resizeCanvas) — see the RCL's wwwroot/js/host.js. -->
-    <script src="_content/MonoDreams.Web.Hosting/js/host.js"></script>
-</body>
-
-</html>
+               <span style="color:#2b64af;font-weight:700;font-style:italic">·</span><span style="color:#2e69b5;font-style:italic">·</span><span style="color:#2e6ab7;font-weight:700">.</span><span style="color:#2d68b5;font-weight:700;font-style:italic">·</span><span style="color:#2b63ae;font-weight:700;font-style:italic">·</span><span style="color:#275da6;font-style:italic">·</span><span style="color:#23559d;font-style:italic">·</span><span style="color:#204f95;font-style:italic">·</span><span style="color:#1d4b90;font-weight:700;font-style:italic">·</span><span style="color:#1c4a8e;font-weight:700;font-style:italic">·</span><span style="color:#1d4b90;font-style:italic">·</span><span style="color:#1f4f95;font-style:italic">·</span><span style="color:#22559c;font-weight:700;font-style:italic">·</span><span style="color:#265ba4;font-weight:700;font-style:italic">·</span><span style="color:#2961ab">·</span><span style="color:#2c66b2">·</span><span style="color:#2e69b6;font-weight:700;font-style:italic">·</span><span style="color:#2e6ab7;font-style:italic">·</span><span style="color:#2e69b6;font-weight:700;font-style:italic">·</span><span style="color:#2c66b3">·</span><span style="color:#2a62ad">·</span><span style="color:#275ea7;font-weight:700;font-style:italic">·</span><span style="color:#2458a1">·</span><span style="color:#22539a;font-weight:700;font-style:italic">·</span><span style="color:#1f4f95;font-style:italic">·</span><span style="color:#1e4c91;font-weight:700;font-style:italic">·</span><span style="color:#1d4a8f;font-weight:700;font-style:italic">·</span><span style="color:#1d4a8e;font-weight:700;font-style:italic">·</span><span style="color:#1d4b90;font-weight:700;font-style:italic">·</span><span style="color:#1e4d93">·</span></pre>

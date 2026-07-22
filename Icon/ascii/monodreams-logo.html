@@ -1,64 +1,17 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>MonoDreams Examples (BlazorGL)</title>
-    <base href="/" />
-    <!-- Shared host-page styles + game loop come from the MonoDreams.Web.Hosting RCL. -->
-    <link href="_content/MonoDreams.Web.Hosting/css/app.css" rel="stylesheet" />
-</head>
-
-<body>
-
-    <!--
-        Boot branding: while the WASM runtime downloads/boots, the page shows the MonoDreams
-        logo (the Icon/ascii ASCII art, inlined as colored spans by Icon/ascii/pipeline — see
-        that folder's README) on black instead of a generic "Blazor loading" screen. The thin
-        bar under the logo tracks Blazor's - -blazor-load-percentage when the runtime exposes
-        it and stays a subtle pulse otherwise. The in-game SplashScreen then takes over.
-    -->
-    <style>
-        #loading {
-            position: fixed; inset: 0; background: #000;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            gap: 2.2vh;
-        }
-        #loading pre {
-            margin: 0;
-            font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
-            font-size: min(0.95vw, 0.9vh);
-            line-height: 1.0;
-            letter-spacing: 0.155em; /* matches the art's source cell aspect (~0.755) */
-            text-shadow: 0 0 14px rgba(120, 140, 255, .18), 0 0 3px rgba(255, 220, 120, .10);
-            animation: md-breathe 2.8s ease-in-out infinite;
-        }
-        #loading .md-progress {
-            width: min(22em, 40vw); height: 2px; background: #141a26; border-radius: 1px;
-            overflow: hidden;
-        }
-        #loading .md-progress-fill {
-            height: 100%; background: linear-gradient(90deg, #2f6cc4, #e6ba3e);
-            width: var(--blazor-load-percentage, 0%);
-            transition: width .2s ease-out;
-        }
-        #loading .md-status {
-            color: #55617a; font-family: Menlo, Consolas, monospace; font-size: 12px;
-            letter-spacing: .35em; text-transform: lowercase;
-        }
-        #loading .md-status::after { content: ' \00B7'; animation: md-dots 1.4s steps(3, end) infinite; }
-        @keyframes md-breathe { 0%, 100% { opacity: .92; } 50% { opacity: 1; } }
-        @keyframes md-dots {
-            0%   { content: ' \00B7'; }
-            33%  { content: ' \00B7 \00B7'; }
-            66%  { content: ' \00B7 \00B7 \00B7'; }
-        }
-    </style>
-
-    <div id="app">
-        <div id="loading">
-            <pre>                         <span style="color:#836522">··</span><span style="color:#836522;font-weight:700">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span><span style="color:#907025">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span>
+<!doctype html>
+<meta charset="utf-8">
+<title>MonoDreams — logo</title>
+<style>
+  html,body { margin:0; background:#000000; min-height:100vh;
+               display:flex; align-items:center; justify-content:center; }
+  pre { font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+        font-size: clamp(6px, 1.55vw, 15px);
+        line-height: 1.0;
+        letter-spacing: 0.155em;
+        text-shadow: 0 0 14px rgba(120,140,255,.18), 0 0 3px rgba(255,220,120,.10);
+        margin: 4vh 2vw; }
+</style>
+<pre>                         <span style="color:#836522">··</span><span style="color:#836522;font-weight:700">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span><span style="color:#907025">·</span><span style="color:#836522">·</span><span style="color:#836522;font-weight:700">·</span>
                     <span style="color:#826422">·</span><span style="color:#826522">·</span><span style="color:#906f25;font-weight:700">·</span><span style="color:#9e7b29">-</span><span style="color:#907025;font-weight:700">*</span><span style="color:#907025">+</span><span style="color:#9e7b29">*</span><span style="color:#d9aa35;font-weight:700">%</span><span style="color:#daab36">@</span><span style="color:#dbad37">@</span><span style="color:#dbae37">@</span><span style="color:#dcae37;font-weight:700">%</span><span style="color:#9e7b29">*</span><span style="color:#836522">+</span><span style="color:#836522;font-weight:700">*</span><span style="color:#9e7b29">-</span><span style="color:#836522">··</span>
                  <span style="color:#826422;font-weight:700">.</span><span style="color:#826422">·</span><span style="color:#906f25">·</span><span style="color:#836522;font-weight:700">-*</span><span style="color:#9e7b29">+*</span><span style="color:#e6ba3e;font-weight:700">##</span><span style="color:#e6bb3f;font-weight:700">#</span><span style="color:#e0b33a;font-weight:700">#</span><span style="color:#e1b43b;font-weight:700">@</span><span style="color:#e7bc41;font-weight:700">@</span><span style="color:#e3b63c;font-weight:700">@</span><span style="color:#e3b73c;font-weight:700">@</span><span style="color:#e8bd42;font-weight:700">@</span><span style="color:#ddaf38;font-weight:700">@</span><span style="color:#e8bd41;font-weight:700">#</span><span style="color:#e8bd42;font-weight:700">#</span><span style="color:#9e7b29;font-weight:700">*</span><span style="color:#9e7b29">+</span><span style="color:#836522">*</span><span style="color:#836522;font-weight:700">-</span><span style="color:#836522">·</span>
                 <span style="color:#826422">·</span><span style="color:#826422;font-weight:700">-</span><span style="color:#906f25">*</span><span style="color:#9e7b29">*</span><span style="color:#9e7b29;font-weight:700">*</span><span style="color:#e2b63c;font-weight:700">#</span><span style="color:#e5b93d;font-weight:700">#</span><span style="color:#e7bb3f;font-weight:700">#</span><span style="color:#e7bc41;font-weight:700">#</span><span style="color:#e2b63c">@@</span><span style="color:#dcaf38">@</span><span style="color:#e8bd42;font-weight:700">@</span><span style="color:#e8be43">@</span><span style="color:#e5b93d">@</span><span style="color:#e0b33a">@</span><span style="color:#eac046">@</span><span style="color:#e0b33a">@</span><span style="color:#eac046;font-weight:700">@</span><span style="color:#e6ba3e">@</span><span style="color:#e7bb3f;font-weight:700">@</span><span style="color:#e7bc40;font-weight:700">@</span><span style="color:#ebc248;font-weight:700">#</span><span style="color:#eac147;font-weight:700">#</span><span style="color:#9e7b29">+</span><span style="color:#907025">*</span><span style="color:#836522;font-weight:700">·</span>
@@ -104,40 +57,3 @@
 <span style="color:#5ca5e8;font-weight:700">M</span>   <span style="color:#5298df;font-weight:700">M</span> <span style="color:#579ee4;font-weight:700">M</span>   <span style="color:#60a9ec;font-weight:700">N</span> <span style="color:#5aa2e6;font-weight:700">N</span>  <span style="color:#5198df;font-weight:700">N</span><span style="color:#5299e0;font-weight:700">и</span> <span style="color:#59a1e6;font-weight:700">M</span>   <span style="color:#5fa8eb;font-weight:700">M</span> <span style="color:#e6ba3e;font-weight:700">@</span>   <span style="color:#e6ba3e;font-weight:700">@</span> <span style="color:#ebc349;font-weight:700">@</span> <span style="color:#eec74e;font-weight:700">@</span>   <span style="color:#eec84f;font-weight:700">@</span>    <span style="color:#f2cd57;font-weight:700">@</span>   <span style="color:#ebc349;font-weight:700">#</span> <span style="color:#f1cc55;font-weight:700">@</span>   <span style="color:#e9bf44;font-weight:700">@</span>     <span style="color:#e3b73c;font-weight:700">@</span>
 <span style="color:#4e94dc;font-weight:700">W</span>   <span style="color:#4e94dc;font-weight:700">M</span> <span style="color:#569de3;font-weight:700">M</span>   <span style="color:#549be1;font-weight:700">M</span> <span style="color:#4c92da;font-weight:700">M</span>   <span style="color:#5096de;font-weight:700">N</span> <span style="color:#579fe4;font-weight:700">N</span>   <span style="color:#5198df;font-weight:700">и</span> <span style="color:#d9ab36;font-weight:700">#</span>   <span style="color:#e6bb3f;font-weight:700">@</span> <span style="color:#ebc349;font-weight:700">@</span>  <span style="color:#ebc349;font-weight:700">@</span>  <span style="color:#efc850;font-weight:700">@</span>    <span style="color:#f0ca53;font-weight:700">@</span>   <span style="color:#f1cd56;font-weight:700">@</span> <span style="color:#f0ca53;font-weight:700">@</span>   <span style="color:#e1b43b;font-weight:700">#</span>     <span style="color:#e0b33a;font-weight:700">@</span>
 <span style="color:#4386d2;font-weight:700">N</span>   <span style="color:#4d93db;font-weight:700">N</span>  <span style="color:#5197de;font-weight:700">M</span><span style="color:#4e93dc;font-weight:700">M</span><span style="color:#4a8fd8;font-weight:700">N</span>  <span style="color:#4386d1;font-weight:700">M</span>   <span style="color:#4f95dd;font-weight:700">M</span>  <span style="color:#4f95dd;font-weight:700">N</span><span style="color:#4c91da;font-weight:700">M</span><span style="color:#488cd6;font-weight:700">M</span>  <span style="color:#e0b23a;font-weight:700">@</span><span style="color:#d4a533;font-weight:700">#</span><span style="color:#e0b23a;font-weight:700">@</span><span style="color:#e3b73c;font-weight:700">@</span>  <span style="color:#e5b83d;font-weight:700">#</span>   <span style="color:#ebc248;font-weight:700">@</span> <span style="color:#efc951;font-weight:700">@</span><span style="color:#f1cd55;font-weight:700">@</span><span style="color:#f2cd57;font-weight:700">@</span><span style="color:#f1cc55;font-weight:700">@</span> <span style="color:#eec850;font-weight:700">@</span>   <span style="color:#f1cd56;font-weight:700">@</span> <span style="color:#eec84f;font-weight:700">@</span>   <span style="color:#e9bf45;font-weight:700">@</span> <span style="color:#eac046;font-weight:700">@</span><span style="color:#e8be43;font-weight:700">@</span><span style="color:#e6ba3e;font-weight:700">@</span><span style="color:#e1b43b;font-weight:700">@</span></pre>
-            <div class="md-progress"><div class="md-progress-fill"></div></div>
-            <div class="md-status">loading</div>
-        </div>
-    </div>
-
-    <div id="blazor-error-ui">
-        An unhandled error has occurred.
-        <a href="" class="reload">Reload</a>
-        <a class="dismiss">x</a>
-    </div>
-
-    <script src="_framework/blazor.webassembly.js"></script>
-
-    <!--
-        nkast.Wasm.* JS interop shims. Versions MUST match the restored package versions
-        (nkast.Wasm.* 8.0.11, pulled transitively by nkast.Kni.Platform.Blazor.GL 4.2.9001,
-        now referenced via the MonoDreams.Web.Hosting RCL). JSObject ships in nkast.Wasm.JSInterop
-        (it moved there from nkast.Wasm.Dom in 8.0.x).
-    -->
-    <script src="_content/nkast.Wasm.JSInterop/js/JSObject.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Window.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Document.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Navigator.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Gamepad.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Dom/js/Media.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.XHR/js/XHR.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Canvas/js/Canvas.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Canvas/js/Canvas2dContext.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Canvas/js/CanvasGLContext.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.Audio/js/Audio.8.0.11.js"></script>
-    <script src="_content/nkast.Wasm.XR/js/XR.8.0.11.js"></script>
-
-    <!-- Shared game loop (initRenderJS / tickJS / resizeCanvas) — see the RCL's wwwroot/js/host.js. -->
-    <script src="_content/MonoDreams.Web.Hosting/js/host.js"></script>
-</body>
-
-</html>
