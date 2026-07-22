@@ -241,18 +241,25 @@ public class Game1 : Game
             return;
         }
 
-        // If a replay plan specifies a start screen or level, skip menus
+        // Resolve the boot target first (replay plan > manifest startScene > menu), THEN decide
+        // whether the splash screen fronts it. Replay plans are test timing contracts and headless/
+        // editor/export runs are tools — none of them get the 1.5s brand hold; a normal interactive
+        // boot shows the MonoDreams logo splash before its target screen.
         var replayPlan = InputReplayPlan.TryLoad(debugDir);
+        string bootScreen;
+        var showSplash = !_headless && !_editor;
         if (replayPlan?.StartScreen != null)
         {
             Logger.Info($"Replay plan detected. Skipping to screen '{replayPlan.StartScreen}'.");
-            _screenController.LoadScreen(replayPlan.StartScreen);
+            bootScreen = replayPlan.StartScreen;
+            showSplash = false;
         }
         else if (replayPlan?.StartLevel != null)
         {
             Logger.Info($"Replay plan detected. Skipping to level '{replayPlan.StartLevel}'.");
             Services.AddService(new RequestedLevelComponent(replayPlan.StartLevel));
-            _screenController.LoadScreen(ScreenName.Game);
+            bootScreen = ScreenName.Game;
+            showSplash = false;
         }
         else if (ManifestBoot.ResolveStartScene(
                      ManifestBoot.TryReadManifest(Content.RootDirectory),
@@ -265,11 +272,24 @@ public class Game1 : Game
             // until PS5), ResolveStartScene returns null and the default menu boot below runs (back-compat).
             Logger.Info($"Manifest startScene '{startScene}' resolves to a native scene; booting it.");
             Services.AddService(new RequestedLevelComponent(startScene));
-            _screenController.LoadScreen(ScreenName.Game);
+            bootScreen = ScreenName.Game;
         }
         else
         {
-            _screenController.LoadScreen(ScreenName.LevelSelection);
+            bootScreen = ScreenName.LevelSelection;
+        }
+
+        if (showSplash)
+        {
+            var splashTarget = bootScreen;
+            _screenController.RegisterScreen(ScreenName.Splash,
+                () => new SplashScreen(GraphicsDevice, _viewportManager, _spriteBatch, splashTarget),
+                new ScreenInfo("Splash"));
+            _screenController.LoadScreen(ScreenName.Splash);
+        }
+        else
+        {
+            _screenController.LoadScreen(bootScreen);
         }
 
         base.Initialize();

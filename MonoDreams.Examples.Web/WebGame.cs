@@ -92,8 +92,12 @@ namespace MonoDreams.Examples.Web
                 new ScreenInfo("Infinite Runner", InfiniteRunnerScreen.BoundSceneId));
 
             // Web has no file-based replay plan (the desktop skip-to-level mechanism), so it
-            // always takes desktop's default branch: open the level-selection menu.
-            _screenController.LoadScreen(ScreenName.LevelSelection);
+            // always takes desktop's default branch — fronted, like desktop's interactive boot,
+            // by the MonoDreams logo splash (>= 1.5s brand hold) before the level-selection menu.
+            _screenController.RegisterScreen(ScreenName.Splash,
+                () => new SplashScreen(GraphicsDevice, _viewportManager, _spriteBatch, ScreenName.LevelSelection),
+                new ScreenInfo("Splash"));
+            _screenController.LoadScreen(ScreenName.Splash);
 
             base.Initialize();
         }
