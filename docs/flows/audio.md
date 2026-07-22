@@ -34,8 +34,13 @@ instance lifecycle; the player owns the hardware.
   flipped to `Stopped` **by the system** — reality is reflected back onto the component
   so it does not restart next frame.
 - **Cut paths** (all immediate): `State = Stopped` (next reconcile), component removal,
-  entity disposal — the `SubscribeEntityComponentRemoved` callback covers the last two
-  and fires inside the removal, so no instance outlives its entity.
+  entity disposal, and overwrite via `entity.Set(new AudioSourceComponent(...))` — the
+  `SubscribeEntityComponentRemoved` callback covers removal + disposal and fires inside
+  the removal, so no instance outlives its entity; the
+  `SubscribeEntityComponentChanged` subscription cuts the **discarded old value's**
+  instance on overwrite (a `ReferenceEquals` guard skips in-place
+  `NotifyChanged`-style notifications, whose value keeps its instance), so a track swap
+  via `Set` never orphans the old loop.
 - **Teardown**: `AudioSystem.Dispose` stops everything it started and unsubscribes; the
   injected `IAudioPlayer` is disposed by whoever created it (the screen), after the
   pipeline.
@@ -53,7 +58,8 @@ the ones this flow leans on:
   point.
 - Backend absence degrades to a silent no-op with a single warning; a **missing content
   key still fails loud** (`ContentLoadException` propagates — only backend absence is
-  downgraded).
+  downgraded); the voice cap (`InstancePlayLimitException`, 256 simultaneous instances)
+  drops just that voice (`InvalidHandle`) without disabling the player.
 - `EditTimeBehavior.Freeze` is the reference edit-mode policy; it freezes
   *reconciliation*, not already-live instances (and not the message subscription or the
   removal callback, which live outside the update seam).

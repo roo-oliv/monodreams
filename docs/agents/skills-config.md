@@ -75,6 +75,7 @@ domain's premises and lenses.
 | `cursor` | `MonoDreams/cursor/**` |
 | `dialogue` | `MonoDreams/dialogue/**` |
 | `debug` | `MonoDreams/debug/**` |
+| `level-editor` | `MonoDreams/level-editor/**` |
 | `audio` | `MonoDreams/audio/**` |
 | `effect` | `MonoDreams/Effect/**` |
 | `platform` | `Directory.Build.props`, `global.json`, `MonoDreams.*.Web/**`, `MonoDreams.*.Desktop/**`, `MonoDreams.Web.Hosting/**`, `docs/web-targeting.md` |
