@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "fd8c08b56cbc",
+  "session_id": "536f901b-3ad3-46af-b775-5c4d11e649a4",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T02:05:53.633286Z",
+  "branch": "feat/brand-splash",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/settings.local.json"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 17106,
+    "cache_creation_tokens": 169621,
+    "cache_read_tokens": 3140169,
+    "output_tokens": 41103,
+    "api_call_count": 39
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T02:05:53.51842Z",
+    "agent_lines": 0,
+    "human_added": 168974,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 168974,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/536f901b-3ad3-46af-b775-5c4d11e649a4.jsonl"
+}

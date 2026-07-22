@@ -3,7 +3,7 @@
   "checkpoint_id": "fd8c08b56cbc",
   "strategy": "manual-commit",
   "branch": "feat/brand-splash",
-  "checkpoints_count": 3,
+  "checkpoints_count": 4,
   "files_touched": [
     ".claude/settings.local.json",
     ".claude/skills/deep-review/SKILL.md",
@@ -1627,13 +1627,20 @@
       "context": "/fd/8c08b56cbc/1/context.md",
       "content_hash": "/fd/8c08b56cbc/1/content_hash.txt",
       "prompt": "/fd/8c08b56cbc/1/prompt.txt"
+    },
+    {
+      "metadata": "/fd/8c08b56cbc/2/metadata.json",
+      "transcript": "/fd/8c08b56cbc/2/full.jsonl",
+      "context": "/fd/8c08b56cbc/2/context.md",
+      "content_hash": "/fd/8c08b56cbc/2/content_hash.txt",
+      "prompt": "/fd/8c08b56cbc/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 133,
-    "cache_creation_tokens": 377819,
-    "cache_read_tokens": 8174890,
-    "output_tokens": 56030,
-    "api_call_count": 93
+    "input_tokens": 17239,
+    "cache_creation_tokens": 547440,
+    "cache_read_tokens": 11315059,
+    "output_tokens": 97133,
+    "api_call_count": 132
   }
 }
