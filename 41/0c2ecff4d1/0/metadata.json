@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "410c2ecff4d1",
+  "session_id": "2145996a-55b8-463e-aa0c-287dc79bf6f3",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T02:51:05.091384Z",
+  "branch": "feat/brand-splash",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Examples.Core/Screens/SplashScreen.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "7ca673a1-fe3b-4d82-b1f9-1783fa8fa8ed",
+  "checkpoint_transcript_start": 905,
+  "transcript_lines_at_start": 905,
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 9173,
+    "cache_read_tokens": 3324850,
+    "output_tokens": 6485,
+    "api_call_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T02:51:04.591734Z",
+    "agent_lines": 3,
+    "human_added": 173145,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 173148,
+    "agent_percentage": 0.0017326218033127728
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/2145996a-55b8-463e-aa0c-287dc79bf6f3.jsonl"
+}

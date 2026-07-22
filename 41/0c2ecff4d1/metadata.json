@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "410c2ecff4d1",
+  "strategy": "manual-commit",
+  "branch": "feat/brand-splash",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Examples.Core/Screens/SplashScreen.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/41/0c2ecff4d1/0/metadata.json",
+      "transcript": "/41/0c2ecff4d1/0/full.jsonl",
+      "context": "/41/0c2ecff4d1/0/context.md",
+      "content_hash": "/41/0c2ecff4d1/0/content_hash.txt",
+      "prompt": "/41/0c2ecff4d1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 9173,
+    "cache_read_tokens": 3324850,
+    "output_tokens": 6485,
+    "api_call_count": 9
+  }
+}
