@@ -12,8 +12,8 @@ namespace MonoDreams.System.Audio;
 /// The single audio system: plays one-shot <see cref="PlaySoundRequest"/> messages and
 /// reconciles every <see cref="AudioSourceComponent"/>'s desired state against its live
 /// backend instance once per update (start / pause / resume / stop, and volume/pitch/pan
-/// propagation). Removing the component or disposing the entity cuts its playback
-/// immediately. All backend access goes through the injected <see cref="IAudioPlayer"/>;
+/// propagation). Removing the component, overwriting it via <c>Set</c>, or disposing the
+/// entity cuts its playback immediately. All backend access goes through the injected <see cref="IAudioPlayer"/>;
 /// the system owns the instance lifecycle, the player owns the hardware.
 /// </summary>
 public class AudioSystem : ISystem<GameState>
@@ -25,6 +25,7 @@ public class AudioSystem : ISystem<GameState>
     private readonly List<int> _oneShots = [];
     private readonly IDisposable _playRequestSubscription;
     private readonly IDisposable _sourceRemovedSubscription;
+    private readonly IDisposable _sourceChangedSubscription;
 
     public AudioSystem(World world, IAudioPlayer player)
     {
@@ -35,6 +36,10 @@ public class AudioSystem : ISystem<GameState>
         // Covers both explicit component removal and entity disposal: either way the
         // instance must be cut immediately, not leak past its entity.
         _sourceRemovedSubscription = world.SubscribeEntityComponentRemoved<AudioSourceComponent>(OnAudioSourceRemoved);
+        // Overwriting the component on an entity that already has one (entity.Set(new ...))
+        // fires ComponentChanged, never Removed: the discarded old value still holds the live
+        // handle, so it must be cut here or the loop plays forever with no handle left to stop it.
+        _sourceChangedSubscription = world.SubscribeEntityComponentChanged<AudioSourceComponent>(OnAudioSourceChanged);
     }
 
     public void Update(GameState state)
@@ -58,10 +63,17 @@ public class AudioSystem : ISystem<GameState>
                 break;
 
             case AudioPlaybackState.Paused:
-                if (source.Instance is { } pausable && source.AppliedState != AudioPlaybackState.Paused)
+                if (source.Instance is { } pausable)
                 {
-                    _player.Pause(pausable);
-                    source.AppliedState = AudioPlaybackState.Paused;
+                    if (source.AppliedState != AudioPlaybackState.Paused)
+                    {
+                        _player.Pause(pausable);
+                        source.AppliedState = AudioPlaybackState.Paused;
+                    }
+
+                    // A paused instance still honors the "mutations propagate on the next
+                    // reconcile" contract of Volume/Pitch/Pan (see AudioSourceComponent docs).
+                    ApplyParameters(source, pausable);
                 }
 
                 break;
@@ -124,6 +136,14 @@ public class AudioSystem : ISystem<GameState>
         StopInstance(source);
     }
 
+    private void OnAudioSourceChanged(in Entity entity, in AudioSourceComponent oldValue, in AudioSourceComponent newValue)
+    {
+        // ReferenceEquals covers NotifyChanged-style notifications (old == new): the value was
+        // mutated in place, its instance is still owned — only a genuine replacement orphans one.
+        if (oldValue is null || ReferenceEquals(oldValue, newValue)) return;
+        StopInstance(oldValue);
+    }
+
     private void ReleaseFinishedOneShots()
     {
         for (var i = _oneShots.Count - 1; i >= 0; i--)
@@ -149,6 +169,7 @@ public class AudioSystem : ISystem<GameState>
 
         _playRequestSubscription.Dispose();
         _sourceRemovedSubscription.Dispose();
+        _sourceChangedSubscription.Dispose();
         _sources.Dispose();
         GC.SuppressFinalize(this);
     }

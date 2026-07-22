@@ -9,20 +9,28 @@
 
 `AudioSystem` cuts a source's live backend instance whenever the desired
 `State` becomes `Stopped`, whenever the `AudioSourceComponent` is removed,
-or whenever its entity is disposed (the component-removed subscription
-covers both). The stop on removal/disposal is immediate (fires inside the
-removal callback, not on the next update), so no instance can outlive the
-entity that owns it.
+whenever its entity is disposed (the component-removed subscription covers
+both), or whenever the component is **overwritten** via `entity.Set(new
+AudioSourceComponent(...))` on an entity that already has one — DefaultEcs
+fires `ComponentChanged` (never `Removed`) for an overwrite, so the system
+also subscribes to component-changed and cuts the discarded old value's
+instance there. The stop on removal/disposal/overwrite is immediate (fires
+inside the callback, not on the next update), so no instance can outlive
+the entity — or the component value — that owns it.
 
 **Why:** entities are the lifecycle handle for everything they own; a
 looping ambience that keeps sounding after its entity died is an audio
 leak with no remaining handle to stop it.
 **Breaks:** disposing a level's entities during a screen switch would leave
-orphaned loops playing forever, with no component left to reference them.
+orphaned loops playing forever, with no component left to reference them;
+likewise, handling only `Removed` would let a jukebox-style track swap
+(`entity.Set(new AudioSourceComponent("track2", ...))`) orphan the old
+track's loop — the live handle sits on the discarded component value.
 **Tests:** `MonoDreams.Tests/Audio/AudioSystemTests.cs`
 (`SettingStateStopped_CutsTheLiveInstance`,
 `RemovingTheComponent_CutsTheLiveInstance`,
-`DisposingTheEntity_CutsTheLiveInstance`).
+`DisposingTheEntity_CutsTheLiveInstance`,
+`OverwritingTheComponentViaSet_CutsTheOldValuesLiveInstance`).
 **Depends on:** —
 
 ## `AudioSystem` reconciles desired state — one live instance per source, no per-frame restarts
@@ -34,7 +42,9 @@ tracks the applied state to tell "paused by us" apart from "finished
 naturally"); a non-looping source that plays to completion is released and
 its component flipped to `Stopped` by the system, so it does not restart
 on the next frame. Volume/pitch/pan mutations propagate to the live
-instance on the next reconcile.
+instance on the next reconcile — including while the source is paused (a
+paused instance is live, only silent; a pause-menu volume slider must not
+wait for resume).
 
 **Why:** the desired-state model is what makes cut/pause/resume expressible
 as plain component writes (ECS purity — no methods on components), and the
@@ -47,7 +57,8 @@ resume indistinguishable from finished-and-release.
 (`LoopingSource_StartsOnFirstReconcile_AndKeepsASingleInstanceAcrossFrames`,
 `NonLoopingSource_ThatFinishes_FlipsItselfToStopped_AndDoesNotRestart`,
 `PausedSource_PausesTheInstance_AndResumeContinuesWithoutRestart`,
-`VolumePitchPanMutations_PropagateToTheLiveInstance_OnNextReconcile`).
+`VolumePitchPanMutations_PropagateToTheLiveInstance_OnNextReconcile`,
+`VolumePitchPanMutations_PropagateWhilePaused_WithoutRePausing`).
 **Depends on:** —
 
 ## One-shot vs source: exactly one idiomatic way per use case

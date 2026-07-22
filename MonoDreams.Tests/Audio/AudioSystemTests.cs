@@ -215,6 +215,31 @@ public class AudioSystemTests : IDisposable
         Assert.Equal(1, instance.StopCalls);
     }
 
+    [Fact]
+    public void OverwritingTheComponentViaSet_CutsTheOldValuesLiveInstance()
+    {
+        var entity = NewSource(new AudioSourceComponent("Sounds/track1", loop: true));
+        _system.Update(NewState());
+        var track1 = _player.Instances[0];
+        Assert.True(track1.Live);
+
+        // Set() on an entity that already has the component fires ComponentChanged (never
+        // Removed) in DefaultEcs: the discarded old value still holds the live handle, so the
+        // system must cut it immediately or the loop plays forever with nothing left to stop it.
+        entity.Set(new AudioSourceComponent("Sounds/track2", loop: true));
+
+        Assert.False(track1.Live);
+        Assert.Equal(1, track1.StopCalls);
+
+        // The replacement source starts cleanly on the next reconcile.
+        _system.Update(NewState());
+        Assert.Equal(2, _player.PlayCalls);
+        var track2 = _player.Instances[1];
+        Assert.Equal("Sounds/track2", track2.SoundKey);
+        Assert.True(track2.Live);
+        Assert.Same(track2, _player.Get(entity.Get<AudioSourceComponent>().Instance!.Value));
+    }
+
     // ---- Contract 5: pause / resume on a live source ----
 
     [Fact]
@@ -287,6 +312,28 @@ public class AudioSystemTests : IDisposable
         Assert.Equal(-0.5f, instance.Pitch);
         Assert.Equal(1f, instance.Pan);
         Assert.Equal(1, _player.PlayCalls); // mutation is propagation, never a restart
+    }
+
+    [Fact]
+    public void VolumePitchPanMutations_PropagateWhilePaused_WithoutRePausing()
+    {
+        var entity = NewSource(new AudioSourceComponent("Sounds/music", volume: 1f));
+        _system.Update(NewState());
+        var instance = _player.Instances[0];
+
+        var source = entity.Get<AudioSourceComponent>();
+        source.State = AudioPlaybackState.Paused;
+        _system.Update(NewState());
+        Assert.True(instance.Paused);
+
+        // The "next reconcile" contract holds while paused too: the instance is live, only
+        // silent — turning the volume down during a pause menu must not wait for resume.
+        source.Volume = 0.2f;
+        _system.Update(NewState());
+
+        Assert.Equal(0.2f, instance.Volume);
+        Assert.Equal(1, instance.PauseCalls);  // the pause itself stays transition-guarded
+        Assert.True(instance.Paused);
     }
 
     // ---- Desired-state reconciliation: a finished non-loop source settles at Stopped ----
