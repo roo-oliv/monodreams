@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "b726e61cb86a",
+  "strategy": "manual-commit",
+  "branch": "feat/audio",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/scheduled_tasks.lock"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b7/26e61cb86a/0/metadata.json",
+      "transcript": "/b7/26e61cb86a/0/full.jsonl",
+      "context": "/b7/26e61cb86a/0/context.md",
+      "content_hash": "/b7/26e61cb86a/0/content_hash.txt",
+      "prompt": "/b7/26e61cb86a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 127364,
+    "cache_read_tokens": 699066,
+    "output_tokens": 30497,
+    "api_call_count": 8
+  }
+}

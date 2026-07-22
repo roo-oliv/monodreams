@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "b726e61cb86a",
+  "session_id": "5323701e-4fa2-417b-ba6a-85893788d75d",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T03:42:21.615762Z",
+  "branch": "feat/audio",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude/scheduled_tasks.lock"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 127364,
+    "cache_read_tokens": 699066,
+    "output_tokens": 30497,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T03:42:21.469907Z",
+    "agent_lines": 0,
+    "human_added": 1103,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1103,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-feat-audio/5323701e-4fa2-417b-ba6a-85893788d75d.jsonl"
+}
