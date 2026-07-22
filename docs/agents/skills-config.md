@@ -10,7 +10,7 @@ default noted here and says so in its output.
 
 `C# + .NET (dotnet), MonoGame DesktopGL (desktop) / KNI-BlazorGL (web), DefaultEcs`
 
-A code-first, ECS-purist 2D game engine shipped as 13 self-contained source modules under
+A code-first, ECS-purist 2D game engine shipped as 14 self-contained source modules under
 `MonoDreams/<module>/`, distributed shadcn-style via the `monodreams` CLI. Used only for idioms
 (test style, file naming) — never as a hard gate.
 
@@ -56,7 +56,7 @@ Where the docs the skills read and produce live. `{module}` is substituted per c
 
 ## Domains
 
-The bounded contexts of this repo (the 13 engine modules + cross-cutting platform/tooling
+The bounded contexts of this repo (the 14 engine modules + cross-cutting platform/tooling
 contexts), and how to detect which one a changed file belongs to. A file may match more than one
 domain (e.g. a web head matches both `examples` and `platform`); the skills load every matched
 domain's premises and lenses.
@@ -75,6 +75,8 @@ domain's premises and lenses.
 | `cursor` | `MonoDreams/cursor/**` |
 | `dialogue` | `MonoDreams/dialogue/**` |
 | `debug` | `MonoDreams/debug/**` |
+| `level-editor` | `MonoDreams/level-editor/**` |
+| `audio` | `MonoDreams/audio/**` |
 | `effect` | `MonoDreams/Effect/**` |
 | `platform` | `Directory.Build.props`, `global.json`, `MonoDreams.*.Web/**`, `MonoDreams.*.Desktop/**`, `MonoDreams.Web.Hosting/**`, `docs/web-targeting.md` |
 | `examples` | `MonoDreams.Examples*/**` |

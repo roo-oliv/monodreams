@@ -15,7 +15,7 @@ namespace MonoDreams.Demos.Web;
 /// <summary>
 /// The BlazorGL host for the MonoDreams module demos. Mirrors the desktop <c>Demos.Game1</c>
 /// screen-assembly path but drops every desktop-only concern (headless capture/exit, OS window
-/// position/resize events, the Q-to-quit shortcut). It registers the same five demo screens as
+/// position/resize events, the Q-to-quit shortcut). It registers the same six demo screens as
 /// desktop and boots into the <see cref="DemoLauncherScreen"/> menu, so the browser flow matches
 /// desktop (develop once, build everywhere).
 ///
@@ -83,6 +83,8 @@ public class WebGame : Game
             () => new MonoDreams.Demo.Dialogue.DialogueDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
         _screenController.RegisterScreen(DemoScreens.Ui,
             () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
+        _screenController.RegisterScreen(DemoScreens.Audio,
+            () => new MonoDreams.Demo.Audio.AudioDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch));
 
         _screenController.LoadScreen(DemoScreens.Launcher);
 

@@ -83,6 +83,7 @@ internal sealed class HeadlessOptions
         "physics" => DemoScreens.Physics,
         "dialogue" => DemoScreens.Dialogue,
         "ui" => DemoScreens.Ui,
+        "audio" => DemoScreens.Audio,
         "launcher" => DemoScreens.Launcher,
         _ => name, // allow passing a full id like "demos.camera" verbatim
     };

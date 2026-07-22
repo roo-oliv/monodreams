@@ -25,7 +25,7 @@ MonoDreams/
     ...source files...    ← all files inside ARE the module
 ```
 
-The 13 modules:
+The 14 modules:
 
 ```
 foundation              (required base — installed by `monodreams init`)
@@ -41,7 +41,8 @@ foundation              (required base — installed by `monodreams init`)
 ├── collision              (+ physics, soft)
 ├── level-loading
 │   └── level-ldtk
-└── level-editor           (+ rendering, ui, cursor, level-loading)
+├── level-editor           (+ rendering, ui, cursor, level-loading)
+└── audio                  (one-shot SFX, loops, interruptible sources)
 ```
 
 `level-editor` is the in-game level editor — an `Edit` run mode layered over the

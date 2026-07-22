@@ -126,6 +126,9 @@ public class DemoLauncherScreen : IGameScreen
             case "ui":
                 _screenController.LoadScreen(DemoScreens.Ui);
                 break;
+            case "audio":
+                _screenController.LoadScreen(DemoScreens.Audio);
+                break;
             case DemoHeader.ExitId:
                 _screenController.Game.Exit();
                 break;
@@ -153,6 +156,7 @@ public class DemoLauncherScreen : IGameScreen
         var physicsBtn = DemoUI.CreateButton(_world, "physics", "physics", _font, style, buttonTextDepth);
         var dialogueBtn = DemoUI.CreateButton(_world, "dialogue", "dialogue", _font, style, buttonTextDepth);
         var uiBtn = DemoUI.CreateButton(_world, "ui", "ui", _font, style, buttonTextDepth);
+        var audioBtn = DemoUI.CreateButton(_world, "audio", "audio", _font, style, buttonTextDepth);
         // A disabled entry shows the muted-grey disabled style (and doesn't dispatch a click).
         var soonBtn = DemoUI.CreateButton(_world, "soon", "more demos soon", _font, style, buttonTextDepth,
             disabled: true);
@@ -169,6 +173,7 @@ public class DemoLauncherScreen : IGameScreen
             .AddSlot(slot => slot.Attach(physicsBtn.container).MeasureWith(_ => physicsBtn.size))
             .AddSlot(slot => slot.Attach(dialogueBtn.container).MeasureWith(_ => dialogueBtn.size))
             .AddSlot(slot => slot.Attach(uiBtn.container).MeasureWith(_ => uiBtn.size))
+            .AddSlot(slot => slot.Attach(audioBtn.container).MeasureWith(_ => audioBtn.size))
             .AddSlot(slot => slot.Attach(soonBtn.container).MeasureWith(_ => soonBtn.size))
             .Build();
 

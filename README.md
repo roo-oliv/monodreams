@@ -16,7 +16,7 @@ A code-first 2D game engine for MonoGame, distributed as readable source you own
 ## Why MonoDreams
 
 - **You own the engine source.** Every system, every component lives inside your project. Tweak the camera follow, the collision resolution, the dialogue UI — it's yours to read and change.
-- **Composable from day one.** The engine ships as 13 small source modules (foundation, rendering, physics, collision, level-loading, dialogue, …). Install only what you need.
+- **Composable from day one.** The engine ships as 14 small source modules (foundation, rendering, physics, collision, level-loading, dialogue, audio, …). Install only what you need.
 - **ECS-pure.** Built on [DefaultEcs](https://github.com/Doraku/DefaultEcs). Components hold data, systems hold logic — no god-objects, no inheritance gymnastics.
 - **AI-agent friendly.** Source lives where agents can read it. Each module ships with a `module.json` manifest and the repo's `docs/` directory captures engine invariants per domain.
 
@@ -53,7 +53,7 @@ dotnet run
 
 `monodreams list` shows every module and preset; `--verbose` adds deps and NuGet refs.
 
-## The 13 modules
+## The 14 modules
 
 ```
 foundation              required base — installed by `monodreams init`
@@ -69,7 +69,8 @@ foundation              required base — installed by `monodreams init`
 ├── physics             velocity + gravity, decoupled from collision
 ├── collision           AABB + SAT detection, message-based responses
 ├── level-loading       LoadLevelRequest, EntitySpawnRequest plumbing
-└── level-editor        in-game Edit run mode over the real pipeline (scaffold)
+├── level-editor        in-game Edit run mode over the real pipeline (scaffold)
+└── audio               one-shot SFX, loops, interruptible sources (desktop + web)
 ```
 
 ## Project layout after `init` + `add`

@@ -47,5 +47,23 @@
 /processor:BitmapFontProcessor
 /build:Fonts/PPMondwest-Regular-fnt.fnt
 
+#begin Sounds/click.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/click.wav
+
+#begin Sounds/wind.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/wind.wav
+
+#begin Sounds/jukebox.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/jukebox.wav
+
 #begin ./game.mdproj
 /copy:./game.mdproj

@@ -146,7 +146,7 @@ public class Game1 : Game
         // own cursor pipeline, so the overlay never doubles it; keys come from the engine's
         // DefaultEditorKeys via the DemoEditor helper.
         // UX-C (TD): each demo screen declares its BOUND scene id — the demo selector itself is a scene too
-        // (the launcher) — so the editor's Scenes panel lists the five demos as scenes and each Save targets
+        // (the launcher) — so the editor's Scenes panel lists the six demos as scenes and each Save targets
         // <id>.mdscene. The project context is handed to every screen so a demo scene can be saved/loaded.
         _screenController.RegisterScreen(DemoScreens.Launcher,
             () => new DemoLauncherScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
@@ -163,6 +163,9 @@ public class Game1 : Game
         _screenController.RegisterScreen(DemoScreens.Ui,
             () => new MonoDreams.Demo.Ui.UiDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
             new ScreenInfo("UI Demo", MonoDreams.Demo.Ui.UiDemoScreen.BoundSceneId));
+        _screenController.RegisterScreen(DemoScreens.Audio,
+            () => new MonoDreams.Demo.Audio.AudioDemoScreen(GraphicsDevice, Content, _camera, _viewportManager, _spriteBatch, editorEnabled: _editor, session: session, projectContext: projectContext),
+            new ScreenInfo("Audio Demo", MonoDreams.Demo.Audio.AudioDemoScreen.BoundSceneId));
 
         if (_editor)
         {

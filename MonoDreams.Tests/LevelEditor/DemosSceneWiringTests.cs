@@ -9,7 +9,7 @@ using Xunit;
 namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
-/// TD: the Demos host adopts the Examples screen-bound-scenes pattern (UX-C) — the five demo screens each
+/// TD: the Demos host adopts the Examples screen-bound-scenes pattern (UX-C) — the six demo screens each
 /// declare a <c>BoundSceneId</c> (the launcher / demo selector included, per the user), so the editor's
 /// Scenes panel lists them as scenes and a demo Save lands <c>&lt;id&gt;.mdscene</c> in the DEMOS project
 /// tree. These are pure, host-agnostic checks of the <see cref="SceneCatalog"/> merge and the
@@ -19,7 +19,7 @@ namespace MonoDreams.Tests.LevelEditor;
 /// </summary>
 public class DemosSceneWiringTests
 {
-    /// <summary>The five Demos <c>(screenName, boundSceneId, displayName)</c> bindings <c>Game1</c> registers.</summary>
+    /// <summary>The six Demos <c>(screenName, boundSceneId, displayName)</c> bindings <c>Game1</c> registers.</summary>
     private static readonly (string Screen, string Scene, string Label)[] DemoBindings =
     {
         ("demos.launcher", "launcher", "Launcher"),
@@ -27,13 +27,14 @@ public class DemosSceneWiringTests
         ("demos.physics", "physics-demo", "Physics Demo"),
         ("demos.dialogue", "dialogue-demo", "Dialogue Demo"),
         ("demos.ui", "ui-demo", "UI Demo"),
+        ("demos.audio", "audio-demo", "Audio Demo"),
     };
 
     private static IReadOnlyList<(string Name, ScreenInfo Info)> DemoScreens() =>
         Array.ConvertAll(DemoBindings, b => (b.Screen, new ScreenInfo(b.Label, b.Scene)));
 
     [Fact]
-    public void SceneCatalog_WithTheFiveDemoBindings_ResolvedProject_ListsFiveNamedScenes()
+    public void SceneCatalog_WithTheSixDemoBindings_ResolvedProject_ListsSixNamedScenes()
     {
         var entries = SceneCatalog.Build(
             DemoScreens(),
@@ -42,8 +43,8 @@ public class DemosSceneWiringTests
             currentSceneId: "launcher",
             projectResolved: true);
 
-        // The five demos (the "(no scenes)" bug is gone), one named entry each, in registration order.
-        Assert.Equal(5, entries.Count);
+        // The six demos (the "(no scenes)" bug is gone), one named entry each, in registration order.
+        Assert.Equal(6, entries.Count);
         for (var i = 0; i < DemoBindings.Length; i++)
         {
             Assert.Equal(DemoBindings[i].Scene, entries[i].SceneId);

@@ -1,6 +1,6 @@
 # About this project
 This is **MonoDreams**, a code-first and ECS-purist 2D game engine built on
-MonoGame (rendering) and DefaultEcs (ECS framework). The engine ships as **13
+MonoGame (rendering) and DefaultEcs (ECS framework). The engine ships as **14
 self-contained source modules** under `MonoDreams/<module>/`, distributed
 shadcn-style via the `monodreams` CLI: users own the source they install. The core concept
 is plug'n play components and systems: add a `TransformComponent` and
@@ -16,10 +16,10 @@ modules into real game screens — start at
 `MonoDreams.Examples.Core/Screens/LoadLevelExampleGameScreen.cs`.
 
 # Project structure
-- `MonoDreams/` — engine source organized into 13 modules (`foundation`,
+- `MonoDreams/` — engine source organized into 14 modules (`foundation`,
   `rendering`, `rendering-text`, `camera`, `physics`, `collision`,
   `level-loading`, `level-ldtk`, `ui`, `cursor`,
-  `dialogue`, `debug`, `level-editor`). Each module has
+  `dialogue`, `debug`, `level-editor`, `audio`). Each module has
   `module.json`, `docs/`, and its components/systems/messages.
 - `MonoDreams.Examples/` — two reference games proving the module
   boundaries: LDtk platformer and infinite runner (plus the committed
@@ -184,6 +184,7 @@ the broader picture).
 | [`dialogue`](../MonoDreams/dialogue/docs/premises.md) | `DialogueRunner`, `DialogueStateComponent`, `DialogueSystem`, YarnSpinner integration |
 | [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem` |
 | [`level-editor`](../MonoDreams/level-editor/docs/premises.md) | in-game editor `Edit` run mode over the real pipeline (scaffold; the run-state model `RunMode`/`EditTimeBehavior`/`GatedSystem` lives in `foundation`) |
+| [`audio`](../MonoDreams/audio/docs/premises.md) | `AudioSourceComponent`, `PlaySoundRequest`, `AudioSystem`, `IAudioPlayer`/`ContentAudioPlayer` seam (one-shot SFX, loops, interruptible sources) |
 
 For files under `MonoDreams.Examples/`, identify which module(s) the
 change exercises and load the relevant per-module premises — Examples
@@ -213,7 +214,7 @@ Before making changes, ensure the project builds successfully.
 
 ## Build Commands
 ```bash
-# Build core engine (compiles all 13 modules together).
+# Build core engine (compiles all 14 modules together).
 # ALWAYS build this BEFORE Examples/Demos: the MGCB content step references
 # MonoDreams.dll by absolute path (not as an MSBuild dependency), so the core
 # dll must already exist or content build fails with

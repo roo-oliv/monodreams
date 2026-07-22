@@ -103,7 +103,7 @@ The integration tests use the **headless replay** harness in `MonoDreams.Tests/I
 ## Repo layout
 
 ```
-MonoDreams/                  ← the engine (13 modules + project files)
+MonoDreams/                  ← the engine (14 modules + project files)
   module.schema.json          ← JSON Schema for every module.json
   presets.json               ← named module combinations
   MODULES.md                  ← module authoring guide

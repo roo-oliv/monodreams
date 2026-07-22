@@ -115,7 +115,7 @@ dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDream
 dotnet run --project MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web
 
 # The module demos have a web head too — same flags. It boots the demo launcher
-# (camera / physics / dialogue / UI), mirroring the desktop MonoDreams.Demos flow.
+# (camera / physics / dialogue / UI / audio), mirroring the desktop MonoDreams.Demos flow.
 dotnet run --project MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj -p:MonoDreamsPlatform=web
 ```
 
@@ -147,6 +147,7 @@ it, and you build the web head explicitly with `-p:MonoDreamsPlatform=web`.
 | Concern | Desktop | Web (KNI/BlazorGL) |
 |---|---|---|
 | Runtime framework | `MonoGame.Framework.DesktopGL` 3.8.4 | `nkast.Xna.Framework.*` 4.2.9001 + `nkast.Kni.Platform.Blazor.GL` |
+| Audio (`SoundEffect` — the `audio` module) | ships inside `MonoGame.Framework.DesktopGL` | `nkast.Xna.Framework.Audio` 4.2.9001 (split package; see "Audio" below) |
 | MonoGame.Extended (BitmapFont) | `MonoGame.Extended` 4.1.0 | `KNI.Extended` 6.0.0 |
 | Extended content pipeline | `MonoGame.Extended.Content.Pipeline` | `KNI.Extended.Content.Pipeline` 6.0.0 |
 | Content builder / MGCB | `MonoGame.Content.Builder.Task` 3.8.4 | `nkast.Xna.Framework.Content.Pipeline.Builder` 4.2.9001 |
@@ -209,9 +210,24 @@ KNI's MGCB builder package ships **only Windows-native** `FreeImage` /
    and pass those web-backed dlls to MGCB with `/reference:`. (A plain
    in-process MSBuild target reuses the desktop `project.assets.json` and
    silently emits a *desktop* dll, which the KNI MGCB then fails to bind.)
+5. **If the `.mgcb` builds audio (`.wav`)**: copy `ffmpeg` + `ffprobe` from the
+   desktop MGCB tool (`dotnet-mgcb` 3.8.4, `tools/net8.0/any/osx|linux-x64/`)
+   into the KNI builder's `tools/osx/` / `tools/linux-x64/` subdir. KNI's
+   `WavImporter`/`SoundEffectProcessor` shell out to them via `ExternalTool`
+   (which probes the per-OS subdir next to `MGCB.dll` — `osx/`, `linux-x64/`,
+   `linux/`, `win-x64/`, `win-x86/` — then `PATH`) and the KNI builder package
+   ships **no** ffmpeg for any OS — without the copy the content build fails
+   with `Failed to open file <name> … not DRM protected`. (Implemented in
+   `MonoDreams.Demos.Web.csproj`, target `PrepareKniContentNativeShim`.)
 
-On Windows none of the shim is needed — the bundled `MGCB.exe` + native DLLs
-work as-is.
+On Windows the native-lib shim (steps 1–3) is not needed — the bundled
+`MGCB.exe` + native DLLs work as-is — but the ffmpeg gap (step 5) exists there
+too: KNI ships no `ffmpeg.exe`. The same `Demos.Web.csproj` target stages the
+`dotnet-mgcb` `windows-x64` `ffmpeg.exe`/`ffprobe.exe` into the builder's
+`win-x64/` probe subdir when building on Windows; that leg follows the exact
+pattern verified on macOS/Linux but is itself unverified on a real Windows
+host — if the borrow misses, ffmpeg/ffprobe on `PATH` is the fallback KNI
+probes.
 
 ### Shaders (`.fx`) — status
 
@@ -266,6 +282,55 @@ HiDef.
 - The macOS/Linux **MGCB native-lib shim** above is required for content
   builds off Windows.
 - **KniFXC** (shader compiler) is unavailable off Windows/Wine.
+
+## Audio (WebAudio) & the browser autoplay policy
+
+The `audio` module's `SoundEffect` path runs on web through KNI's WebAudio
+backend. Two engine-side facts make it compile-and-play without `#if`:
+
+- **Split package.** KNI ships XNA audio as its own assembly, so the engine's
+  web ItemGroup references `nkast.Xna.Framework.Audio` 4.2.9001 (desktop needs
+  nothing — audio ships inside `MonoGame.Framework.DesktopGL`). The WebAudio JS
+  shim (`_content/nkast.Wasm.Audio/js/Audio.8.0.11.js`) is already in both web
+  heads' `index.html`, pulled by `nkast.Kni.Platform.Blazor.GL` transitively
+  through `MonoDreams.Web.Hosting`.
+- **API parity, verified against the 4.2.9001 `net8.0` binaries** (reflection
+  sweep, 2026-07-22): `SoundEffect.CreateInstance()`, `SoundEffectInstance`
+  (`IsLooped`/`Volume`/`Pitch`/`Pan`/`State`, `Play`/`Stop`/`Pause`/`Resume`/
+  `Dispose`), `SoundState`, and `NoAudioHardwareException` are all public under
+  the same `Microsoft.Xna.Framework.Audio` namespace — `ContentAudioPlayer`
+  (including its no-hardware degradation catch) recompiles unchanged.
+
+### Autoplay: the host page owns the AudioContext unlock
+
+Browsers create an `AudioContext` in the **`suspended`** state when no user
+gesture has happened yet; a suspended context renders nothing — audio is
+silently muted until something calls `resume()` *from a gesture handler*.
+**KNI does not do this itself.** Code inspection of the 4.2.9001 binaries
+(2026-07-22):
+
+- `Microsoft.Xna.Platform.Audio.ConcreteAudioService` (in `Kni.Platform.dll`,
+  BlazorGL) creates a plain `new AudioContext()`; its `Suspend()` and
+  `Resume()` overrides are **empty method bodies**.
+- Nothing in `Kni.Platform.dll` calls `AudioContext.ResumeAsync()` (the
+  interop for JS `audioContext.resume()` exists in `nkast.Wasm.Audio` but has
+  zero call sites in the platform).
+- The `nkast.Wasm.Audio` JS shim is a bare 1:1 WebAudio interop — no
+  `pointerdown`/`keydown`/`touch` listener anywhere.
+
+So the shared host layer owns the unlock: `MonoDreams.Web.Hosting`'s
+`wwwroot/js/host.js` wraps the shim's AudioContext factories
+(`nkAudioContext.Create`/`Create1`) to track live contexts and resumes any
+suspended one on the first `pointerdown`/`keydown` (capture phase, window
+level). Engine and game code stay gesture-unaware; sources started while
+suspended (e.g. an ambient loop on screen load) begin sounding at the first
+interaction. In-browser behaviour ("first click unlocks audio") must be
+verified manually in Chrome — it is not headlessly testable; it is an
+explicit manual item in the introducing PR's test plan (#33).
+
+> **Scaffolded web heads:** `monodreams init --platform web|multi` generates a
+> *self-contained* head with its own copy of the host wiring (see the CLI note
+> above) — that copy must replicate the resume hook, or web audio stays muted.
 
 ## See also
 
