@@ -1,0 +1,9 @@
+When starting MonoDreams.Examples and selecting Level 2, the dialogue UI "next" icon on the bottom right isn't disappearing when the dialogue follows to the next interaction and it's too small. I'd like a litle bigger icon to indicate the user can press E to continue. /Users/rodrigooliveira/Desktop/Captura de Tela 2026-05-15 às 10.20.38.png
+
+---
+
+[Image: original 2854x210, displayed at 2000x147. Multiply coordinates by 1.43 to map to original image.]
+
+---
+
+I just tested it and the problem persists: while the first dialogue interaction text is being revealed the indicator is hidden and it just shows when the text is fully revealed. But for the next dialogue phases the indicator is stuck there permanently. It should disappear when the text is revealing in the next interactions and just come back when the text is fully revealed and we're in a state just waiting for the player's input. The icon is the same size still too.
