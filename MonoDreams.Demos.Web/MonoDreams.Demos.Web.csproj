@@ -17,10 +17,12 @@
     plain `dotnet build monodreams.sln` (the desktop regression) never builds it without the
     property. Requires the `wasm-tools` dotnet workload.
 
-    Content: the demos use a single BitmapFont (a .png texture + a .fnt). No LDtk levels, no
-    Yarn content (the dialogue demo runs in-memory), so the content build here needs only the
-    BitmapFont pipeline (KNI.Extended.Content.Pipeline) + the Texture importer — no engine or
-    LDtk content-pipeline dll, which is why this csproj's content section is much smaller than
+    Content: the demos use a single BitmapFont (a .png texture + a .fnt) plus the audio demo's
+    procedurally-generated .wav sound effects. No LDtk levels, no Yarn content (the dialogue
+    demo runs in-memory), so the content build here needs only the BitmapFont pipeline
+    (KNI.Extended.Content.Pipeline) + the built-in Texture/Wav importers (KNI's MGCB ships the
+    audio pipeline in its tools dir — no /reference: needed) — no engine or LDtk
+    content-pipeline dll, which is why this csproj's content section is much smaller than
     Examples.Web's.
   -->
 
@@ -39,10 +41,13 @@
 
   <ItemGroup>
     <!-- Shared demo game code, compiled into this head (the module-demo cross-compile pattern).
-         Only Screens/ + UI/ — NOT MonoDreams.Demos' desktop host (Game1/Program/HeadlessOptions),
-         which this head replaces with WebGame + the Blazor host. -->
+         Only Screens/ + UI/ + the DemoEditor composition helper — NOT MonoDreams.Demos' desktop
+         host (Game1/Program/HeadlessOptions), which this head replaces with WebGame + the Blazor
+         host. DemoEditor.cs is required since every demo screen references it (the editor overlay
+         seam; a plain web run never activates it — EditorRunFlag stays off). -->
     <Compile Include="..\MonoDreams.Demos\Screens\**\*.cs" LinkBase="Shared\Screens" />
     <Compile Include="..\MonoDreams.Demos\UI\**\*.cs" LinkBase="Shared\UI" />
+    <Compile Include="..\MonoDreams.Demos\DemoEditor.cs" LinkBase="Shared" />
     <!-- Per-module demo screens (excluded from the engine dll's default glob). -->
     <Compile Include="..\MonoDreams\**\demo\**\*.cs" LinkBase="ModuleDemos" />
   </ItemGroup>
@@ -63,8 +68,9 @@
 
   <!-- =====================================================================================
        Per-platform content build: the demos' Content.mgcb (lives in MonoDreams.Demos),
-       built for /platform:BlazorGL by the KNI builder. The demos' only content is a
-       BitmapFont (Texture + .fnt), so this needs just KNI.Extended.Content.Pipeline and the
+       built for /platform:BlazorGL by the KNI builder. The demos' content is a BitmapFont
+       (Texture + .fnt) + the audio demo's .wav sound effects (WavImporter/SoundEffectProcessor
+       are built into the KNI MGCB), so this needs just KNI.Extended.Content.Pipeline and the
        macOS/Linux native-lib shim for the TextureImporter — no engine/LDtk pipeline dll.
        ===================================================================================== -->
   <PropertyGroup>
@@ -128,6 +134,23 @@
           SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDir)/libfreetype.dylib')" />
     <Copy SourceFiles="$(MonoGameMgcbToolDirLinux)/libfreeimage.so" DestinationFiles="$(KniBuilderToolsDir)/FreeImage.so"
           SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDirLinux)/libfreeimage.so')" />
+
+    <!-- Audio shim (same borrow, different tool): KNI's WavImporter/SoundEffectProcessor shell out
+         to ffprobe/ffmpeg via ExternalTool, which probes the builder's per-OS subdir (osx/ or
+         linux-x64/, next to MGCB.dll) and then PATH — and the KNI builder package ships NO ffmpeg
+         for any OS. Borrow the binaries the desktop MonoGame MGCB tool bundles (dotnet-mgcb
+         tools/net8.0/any/<os>/) into the subdir KNI probes, or the demos' .wav content fails with
+         "Failed to open file ... not DRM protected". -->
+    <PropertyGroup>
+      <MonoGameMgcbFfDirOsx>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/osx</MonoGameMgcbFfDirOsx>
+      <MonoGameMgcbFfDirLinux>$(NuGetPackageRoot)dotnet-mgcb/3.8.4/tools/net8.0/any/linux-x64</MonoGameMgcbFfDirLinux>
+    </PropertyGroup>
+    <Copy SourceFiles="$(MonoGameMgcbFfDirOsx)/ffmpeg;$(MonoGameMgcbFfDirOsx)/ffprobe"
+          DestinationFolder="$(KniBuilderToolsDir)/osx"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirOsx)/ffprobe')" />
+    <Copy SourceFiles="$(MonoGameMgcbFfDirLinux)/ffmpeg;$(MonoGameMgcbFfDirLinux)/ffprobe"
+          DestinationFolder="$(KniBuilderToolsDir)/linux-x64"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirLinux)/ffprobe')" />
   </Target>
 
 </Project>

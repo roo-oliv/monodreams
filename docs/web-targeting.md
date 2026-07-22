@@ -115,7 +115,7 @@ dotnet build MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDream
 dotnet run --project MonoDreams.Examples.Web/MonoDreams.Examples.Web.csproj -p:MonoDreamsPlatform=web
 
 # The module demos have a web head too — same flags. It boots the demo launcher
-# (camera / physics / dialogue / UI), mirroring the desktop MonoDreams.Demos flow.
+# (camera / physics / dialogue / UI / audio), mirroring the desktop MonoDreams.Demos flow.
 dotnet run --project MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj -p:MonoDreamsPlatform=web
 ```
 
@@ -210,9 +210,20 @@ KNI's MGCB builder package ships **only Windows-native** `FreeImage` /
    and pass those web-backed dlls to MGCB with `/reference:`. (A plain
    in-process MSBuild target reuses the desktop `project.assets.json` and
    silently emits a *desktop* dll, which the KNI MGCB then fails to bind.)
+5. **If the `.mgcb` builds audio (`.wav`)**: copy `ffmpeg` + `ffprobe` from the
+   desktop MGCB tool (`dotnet-mgcb` 3.8.4, `tools/net8.0/any/osx|linux-x64/`)
+   into the KNI builder's `tools/osx/` / `tools/linux-x64/` subdir. KNI's
+   `WavImporter`/`SoundEffectProcessor` shell out to them via `ExternalTool`
+   (which probes that per-OS subdir, then `PATH`) and the KNI builder package
+   ships **no** ffmpeg for any OS — without the copy the content build fails
+   with `Failed to open file <name> … not DRM protected`. (Implemented in
+   `MonoDreams.Demos.Web.csproj`, target `PrepareKniContentNativeShim`.)
 
-On Windows none of the shim is needed — the bundled `MGCB.exe` + native DLLs
-work as-is.
+On Windows the native-lib shim (steps 1–3) is not needed — the bundled
+`MGCB.exe` + native DLLs work as-is — but the ffmpeg gap (step 5) exists there
+too: KNI ships no `ffmpeg.exe`, so audio content on Windows needs the
+`dotnet-mgcb` `windows-x64` binaries or ffmpeg/ffprobe on `PATH` (unverified —
+no Windows host here).
 
 ### Shaders (`.fx`) — status
 

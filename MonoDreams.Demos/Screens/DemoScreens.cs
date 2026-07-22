@@ -8,4 +8,5 @@ public static class DemoScreens
     public const string Physics = "demos.physics";
     public const string Dialogue = "demos.dialogue";
     public const string Ui = "demos.ui";
+    public const string Audio = "demos.audio";
 }
