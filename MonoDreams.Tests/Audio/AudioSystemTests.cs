@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Content;
 using MonoDreams.Component.Audio;
 using MonoDreams.Message;
 using MonoDreams.State;
+using MonoDreams.System;
 using MonoDreams.System.Audio;
 
 namespace MonoDreams.Tests.Audio;
@@ -326,6 +327,45 @@ public class AudioSystemTests : IDisposable
         // Unsubscribed: publishing after dispose starts nothing.
         _world.Publish(new PlaySoundRequest("Sounds/late"));
         Assert.Equal(2, _player.PlayCalls);
+    }
+
+    // ---- Edit-mode policy: Freeze stops reconciliation, not already-live playback ----
+
+    [Fact]
+    public void FreezeGatedInEdit_SkipsReconciliation_ButAlreadyLiveInstancesKeepPlaying()
+    {
+        // The reference edit-mode registration (see the audio premises and the module demo):
+        // audio is game logic, so the single AudioSystem is Freeze-gated in edit-capable screens.
+        var gate = new GatedSystem(_system, EditTimeBehavior.Freeze);
+
+        // Play mode: the wind loop starts normally through the gate.
+        var windEntity = NewSource(new AudioSourceComponent("Sounds/wind", loop: true));
+        gate.Update(NewState());
+        Assert.Equal(1, _player.PlayCalls);
+        var wind = _player.Instances[0];
+        Assert.True(wind.Live);
+
+        // Edit mode: the gate skips the reconcile — a new desired-Playing source is NOT
+        // started, and the already-live loop is NOT stopped (Freeze operates at the update
+        // seam; it cannot reach into the backend to silence live instances).
+        var edit = NewState();
+        edit.RunMode = RunMode.Edit;
+        NewSource(new AudioSourceComponent("Sounds/jukebox", loop: true));
+        gate.Update(edit);
+        Assert.Equal(1, _player.PlayCalls); // the jukebox did not start
+        Assert.True(wind.Live);             // the wind keeps sounding in Edit
+        Assert.Equal(0, wind.StopCalls);
+
+        // Lifecycle cuts stay live in Edit: the removal subscription is not gated, so
+        // disposing the entity that owns the live loop cuts it immediately.
+        windEntity.Dispose();
+        Assert.False(wind.Live);
+        Assert.Equal(1, wind.StopCalls);
+
+        // Back in Play mode the pending source starts on the next reconcile.
+        gate.Update(NewState());
+        Assert.Equal(2, _player.PlayCalls);
+        Assert.Equal("Sounds/jukebox", _player.Instances[1].SoundKey);
     }
 }
 

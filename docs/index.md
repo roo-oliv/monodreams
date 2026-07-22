@@ -14,7 +14,7 @@ next to each module's source.
 
 ## Per-module docs
 
-Each of the 13 modules ships its own `docs/` subfolder colocated with the
+Each of the 14 modules ships its own `docs/` subfolder colocated with the
 module source. Read `overview.md` for the tour (purpose, components,
 systems, wiring), `premises.md` for the load-bearing invariants.
 
@@ -33,6 +33,7 @@ systems, wiring), `premises.md` for the load-bearing invariants.
 | `dialogue` | [overview](../MonoDreams/dialogue/docs/overview.md) | [premises](../MonoDreams/dialogue/docs/premises.md) |
 | `debug` | [overview](../MonoDreams/debug/docs/overview.md) | [premises](../MonoDreams/debug/docs/premises.md) |
 | `level-editor` | [overview](../MonoDreams/level-editor/docs/overview.md) | [premises](../MonoDreams/level-editor/docs/premises.md) |
+| `audio` | [overview](../MonoDreams/audio/docs/overview.md) | [premises](../MonoDreams/audio/docs/premises.md) |
 
 Premises follow the format **Why / Breaks / Tests / Depends on**, with
 optional `Open questions`, `Aspirational direction`, and `Follow-up debt`
@@ -67,6 +68,7 @@ with the change's module footprint (see
 | [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |
 | [`debug`](flows/debug.md) | | Opt-in, read-only collider/sprite overlays + periodic screenshot capture. |
 | [`level-editor`](flows/level-editor.md) | ✅ | In-game `Edit` run mode over the real pipeline; `GatedSystem` freezes game logic while render/input/cursor/hierarchy stay live (scaffold). |
+| [`audio`](flows/audio.md) | | Desired-state reconcile: `PlaySoundRequest` / `AudioSourceComponent` → `AudioSystem` → `IAudioPlayer` backend instances. |
 
 ## Contributor docs
 

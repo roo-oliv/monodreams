@@ -125,6 +125,39 @@ explicit manual item in the PR test plan.
 selected by the head project, never by engine source" (the hook lives in
 web host infrastructure, not engine source).
 
+## `EditTimeBehavior.Freeze` is the reference edit-mode policy — it freezes reconciliation, not playback
+
+Audio is game logic: in edit-capable screens the single `AudioSystem` is
+registered with `EditTimeBehavior.Freeze`, so it stops reconciling while the
+editor is in `Edit` (the reference registration is the module demo,
+`MonoDreams/audio/demo/AudioDemoScreen.cs`). Freeze gates only the per-frame
+reconcile, which bounds exactly what it can and cannot stop: an already-live
+instance keeps sounding in Edit (an ambient loop keeps playing — the gate
+skips the system's update, it cannot reach into the backend); a
+`PlaySoundRequest` published in Edit still plays immediately (one-shots are
+message-driven, not update-driven — in practice publishers are themselves
+Freeze-gated game systems, so nothing publishes); and a lifecycle cut
+(component removed / entity disposed) still stops the instance immediately
+(the removal subscription is not gated).
+
+**Why:** the run-state contract (CORE_TENETS §9) freezes game logic in `Edit`
+so it does not act out from under the designer; audio follows the same
+policy. The gate operates at the update seam, so everything the system does
+outside `Update` — the message subscription, the removal callback —
+deliberately stays live: cutting a disposed entity's loop must not wait for
+Play mode.
+**Breaks:** registering with `RunNormally` makes source edits audible
+mid-editing (a designer flipping `State` in the Inspector starts playback in
+Edit); conversely, expecting Freeze to silence a live loop files as a bug
+("audio keeps playing in Edit") when it is the documented boundary of an
+update-seam gate.
+**Tests:** `MonoDreams.Tests/Audio/AudioSystemTests.cs`
+(`FreezeGatedInEdit_SkipsReconciliation_ButAlreadyLiveInstancesKeepPlaying`);
+the reference Freeze registration is exercised end-to-end by
+`MonoDreams.Tests/IntegrationTests/HeadlessAudioDemoTests.cs`.
+**Depends on:** foundation — "Edit-time behaviour is a per-system policy
+honoured by `GatedSystem`".
+
 ## Known limitations (acknowledged gaps)
 
 - **Music lives in RAM** — no streaming path yet; `Song`/`MediaPlayer` was
@@ -136,13 +169,6 @@ web host infrastructure, not engine source).
   live source has no effect until it is stopped and restarted.
 - **`SoundKey` is start-time only** — same reconcile rule: changing the key
   mid-play does not swap the sound; stop and restart.
-
-## Open questions
-
-- **Edit-mode behaviour** — the recommendation is `EditTimeBehavior.Freeze`
-  (audio is game logic), with the known limitation that Freeze stops
-  *reconciliation*, not already-playing instances: an ambient loop keeps
-  sounding in Edit. To be finalized with the demo registration wave.
 
 ## Aspirational direction
 

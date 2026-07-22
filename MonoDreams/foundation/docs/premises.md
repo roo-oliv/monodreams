@@ -284,7 +284,7 @@ composes the always-on editor and the transport owns RunMode").
 **Why:** the run-state model was added to `foundation` (a sensitive domain) so the
 in-game level editor can freeze the game pipeline without forking it (see
 `docs/CORE_TENETS.md` — "The editor is part of the game"). Adding a property to
-`GameState` that every screen across all 13 modules carries is only safe if the
+`GameState` that every screen across all 14 modules carries is only safe if the
 default leaves every existing screen untouched. Opt-in-only gating is what makes
 that true.
 **Breaks:** if `RunMode` defaulted to `Edit`, or if a system consulted `RunMode`
