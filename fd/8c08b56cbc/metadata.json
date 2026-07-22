@@ -3,7 +3,7 @@
   "checkpoint_id": "fd8c08b56cbc",
   "strategy": "manual-commit",
   "branch": "feat/brand-splash",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     ".claude/settings.local.json",
     ".claude/skills/deep-review/SKILL.md",
@@ -1610,7 +1610,34 @@
     ".claude/worktrees/fix-dialogue-indicator/docs/rendering/premises.md",
     ".claude/worktrees/fix-dialogue-indicator/imgui.ini",
     ".claude/worktrees/fix-dialogue-indicator/monodreams.sln",
+    "Icon/ascii/README.md",
+    "Icon/ascii/monodreams-ascii-draft.jpeg",
+    "Icon/ascii/monodreams-logo.ans",
+    "Icon/ascii/monodreams-logo.html",
+    "Icon/ascii/monodreams-logo.json",
+    "Icon/ascii/monodreams-logo.png",
+    "Icon/ascii/monodreams-logo.txt",
+    "Icon/ascii/moon-waves.ans",
+    "Icon/ascii/moon-waves.html",
+    "Icon/ascii/moon-waves.json",
+    "Icon/ascii/moon-waves.png",
+    "Icon/ascii/moon-waves.txt",
+    "Icon/ascii/pipeline/build/.gitignore",
+    "Icon/ascii/pipeline/step1_grid.py",
+    "Icon/ascii/pipeline/step2_fit.py",
+    "Icon/ascii/pipeline/step3_pitch.py",
+    "Icon/ascii/pipeline/step4_extract.py",
+    "Icon/ascii/pipeline/step5_layout.py",
+    "Icon/ascii/pipeline/step6_art.py",
+    "Icon/ascii/pipeline/step7_logo.py",
+    "Icon/ascii/render_terminal.py",
+    "MonoDreams.Examples.Core/Content/Logo/monodreams-logo.png",
+    "MonoDreams.Examples.Core/Screens/ScreenName.cs",
+    "MonoDreams.Examples.Core/Screens/SplashScreen.cs",
+    "MonoDreams.Examples.Desktop/Game1.cs",
+    "MonoDreams.Examples.Web/WebGame.cs",
     "MonoDreams.Examples/System/Dialogue/DialogueSystem.cs",
+    "README.md",
     "imgui.ini"
   ],
   "sessions": [
@@ -1634,13 +1661,20 @@
       "context": "/fd/8c08b56cbc/2/context.md",
       "content_hash": "/fd/8c08b56cbc/2/content_hash.txt",
       "prompt": "/fd/8c08b56cbc/2/prompt.txt"
+    },
+    {
+      "metadata": "/fd/8c08b56cbc/3/metadata.json",
+      "transcript": "/fd/8c08b56cbc/3/full.jsonl",
+      "context": "/fd/8c08b56cbc/3/context.md",
+      "content_hash": "/fd/8c08b56cbc/3/content_hash.txt",
+      "prompt": "/fd/8c08b56cbc/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 17239,
-    "cache_creation_tokens": 547440,
-    "cache_read_tokens": 11315059,
-    "output_tokens": 97133,
-    "api_call_count": 132
+    "input_tokens": 17451,
+    "cache_creation_tokens": 1413359,
+    "cache_read_tokens": 35909564,
+    "output_tokens": 284749,
+    "api_call_count": 242
   }
 }
