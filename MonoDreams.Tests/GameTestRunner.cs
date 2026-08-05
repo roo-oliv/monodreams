@@ -329,8 +329,18 @@ public static class GameTestRunner
         // long after the game exits; events deliver what arrived without waiting for pipe EOF.
         var stdOut = new StringBuilder();
         var stdErr = new StringBuilder();
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) lock (stdOut) stdOut.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (stdErr) stdErr.AppendLine(e.Data); };
+        var stdOutEof = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stdErrEof = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data == null) stdOutEof.TrySetResult();
+            else lock (stdOut) stdOut.AppendLine(e.Data);
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data == null) stdErrEof.TrySetResult();
+            else lock (stdErr) stdErr.AppendLine(e.Data);
+        };
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
@@ -345,7 +355,11 @@ public static class GameTestRunner
             throw new TimeoutException($"Game process did not exit within {timeoutSeconds}s.");
         }
 
-        await Task.Delay(250); // grace: let in-flight DataReceived callbacks land after the exit
+        // Wait for both streams' EOF signals (e.Data == null) so a large final line is never lost —
+        // but BOUNDED: `dotnet run` grandchildren (MSBuild nodes) can hold the pipe handles open
+        // long after the game exits, and EOF then never comes; what arrived is already captured.
+        try { await Task.WhenAll(stdOutEof.Task, stdErrEof.Task).WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (TimeoutException) { /* descendant still holds the pipes — proceed with what we have */ }
 
         var logLines = new List<string>();
         var logFiles = Directory.GetFiles(debugDir, "monodreams_*.log");

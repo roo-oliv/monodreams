@@ -1,5 +1,7 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Xna.Framework;
 using MonoDreams.State;
@@ -35,10 +37,29 @@ public static class HeadlessWindow
 
     private delegate void SdlHideWindowDelegate(IntPtr window);
 
-    /// <summary>Per-OS names of the SDL native library MonoGame DesktopGL already loaded into the
-    /// process — TryLoad resolves to the loaded image, so this adds no second SDL.</summary>
-    private static readonly string[] SdlLibraryNames =
-        { "SDL2.dll", "libSDL2-2.0.so.0", "libSDL2.dylib", "SDL2" };
+    /// <summary>The SDL images MonoGame DesktopGL may have loaded, MonoGame's own shipped names
+    /// first (macOS: <c>libSDL2-2.0.0.dylib</c> under <c>runtimes/osx/native/</c> — the bare
+    /// <c>libSDL2.dylib</c> alone silently missed it and Hide fell back to positioning). Each name
+    /// is probed bare (dlopen search + the already-loaded image), then in the app directory, then
+    /// in the deps <c>runtimes/&lt;rid&gt;/native</c> folder. dlopen of an already-loaded image
+    /// returns it ref-counted — this never loads a second SDL.</summary>
+    private static IEnumerable<string> SdlCandidates()
+    {
+        string[] names = OperatingSystem.IsMacOS()
+            ? new[] { "libSDL2-2.0.0.dylib", "libSDL2.dylib" }
+            : OperatingSystem.IsWindows()
+                ? new[] { "SDL2.dll" }
+                : new[] { "libSDL2-2.0.so.0", "libSDL2-2.0.so", "libSDL2.so" };
+        var rid = OperatingSystem.IsMacOS() ? "osx"
+            : OperatingSystem.IsWindows() ? (Environment.Is64BitProcess ? "win-x64" : "win-x86")
+            : "linux-" + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64");
+        foreach (var name in names)
+        {
+            yield return name;
+            yield return Path.Combine(AppContext.BaseDirectory, name);
+            yield return Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", name);
+        }
+    }
 
     /// <summary>
     /// Hides the game's OS window via <c>SDL_HideWindow</c> (<see cref="GameWindow.Handle"/> IS the
@@ -51,7 +72,7 @@ public static class HeadlessWindow
         if (window == null || window.Handle == IntPtr.Zero) return false;
         try
         {
-            foreach (var name in SdlLibraryNames)
+            foreach (var name in SdlCandidates())
             {
                 if (!NativeLibrary.TryLoad(name, out var lib)) continue;
                 try
