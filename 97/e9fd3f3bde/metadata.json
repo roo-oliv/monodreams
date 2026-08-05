@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "97e9fd3f3bde",
+  "strategy": "manual-commit",
+  "branch": "fix/theme-lint-and-ci-nuget",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/GameTestRunner.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/97/e9fd3f3bde/0/metadata.json",
+      "transcript": "/97/e9fd3f3bde/0/full.jsonl",
+      "context": "/97/e9fd3f3bde/0/context.md",
+      "content_hash": "/97/e9fd3f3bde/0/content_hash.txt",
+      "prompt": "/97/e9fd3f3bde/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 23,
+    "cache_creation_tokens": 12811,
+    "cache_read_tokens": 4215708,
+    "output_tokens": 10396,
+    "api_call_count": 12
+  }
+}
