@@ -77,6 +77,7 @@ public static class EngineComponentSerializers
     public const string CameraKey = "core.Camera";
     public const string ChildOfKey = "core.ChildOf";
     public const string BoundaryKey = "core.Boundary";
+    public const string TileGridKey = "core.TileGrid";
     public const string SceneLayerKey = "core.SceneLayer";
 
     /// <summary>Registers every engine serializer on <paramref name="registry"/>. Call once at init.</summary>
@@ -95,6 +96,7 @@ public static class EngineComponentSerializers
         registry.Register(CameraFollowTargetKey, typeof(CameraFollowTargetComponent), WriteCameraFollowTarget, ReadCameraFollowTarget);
         registry.Register(CameraKey, typeof(CameraComponent), WriteCamera, ReadCamera);
         registry.Register(BoundaryKey, typeof(LevelEditor.Component.BoundaryComponent), WriteBoundary, ReadBoundary);
+        registry.Register(TileGridKey, typeof(MonoDreams.Component.Level.TileGridComponent), WriteTileGrid, ReadTileGrid);
         registry.Register(SceneLayerKey, typeof(MonoDreams.Component.Level.SceneLayerComponent), WriteSceneLayer, ReadSceneLayer);
 
         // The structural parent link is captured as SceneEntityData.Parent, not a component body —
@@ -499,6 +501,88 @@ public static class EngineComponentSerializers
     {
         var dto = json.Deserialize<BoundaryDto>()!;
         e.Set(new LevelEditor.Component.BoundaryComponent(dto.Points.Select(ToVec).ToArray(), dto.Thickness));
+    }
+
+    // ---- TileGridComponent (the paint grid: values + sparse cells; baked children never persist) ----
+
+    private sealed class TilePaintValueDto
+    {
+        [JsonPropertyName("id")] public byte Id { get; set; }
+        [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+        [JsonPropertyName("color")] public byte[] Color { get; set; } = { 255, 255, 255, 255 };
+        [JsonPropertyName("activeLayers")] public int[] ActiveLayers { get; set; } = Array.Empty<int>();
+        [JsonPropertyName("passive")] public bool Passive { get; set; } = true;
+        [JsonPropertyName("entityType")] public string? EntityType { get; set; }
+        [JsonPropertyName("tilesetKey")] public string? TilesetKey { get; set; }
+        [JsonPropertyName("tileSize")] public int TileSize { get; set; } = 32;
+        [JsonPropertyName("autotileRules")] public string? AutotileRules { get; set; }
+        [JsonPropertyName("layerDepth")] public float LayerDepth { get; set; } = 0.25f;
+    }
+
+    private sealed class TileGridDto
+    {
+        [JsonPropertyName("cellSize")] public float CellSize { get; set; } = 32f;
+        [JsonPropertyName("values")] public List<TilePaintValueDto> Values { get; set; } = new();
+        /// <summary>Painted cells as [x, y, value] triples, sorted by (y, x) for canonical bytes.</summary>
+        [JsonPropertyName("cells")] public List<int[]> Cells { get; set; } = new();
+    }
+
+    private static JsonElement WriteTileGrid(Entity e)
+    {
+        var g = e.Get<MonoDreams.Component.Level.TileGridComponent>();
+        var dto = new TileGridDto { CellSize = g.CellSize };
+        foreach (var v in g.Values)
+            dto.Values.Add(new TilePaintValueDto
+            {
+                Id = v.Id,
+                Name = v.Name,
+                Color = Col(v.Color),
+                ActiveLayers = SortedCopy(v.ActiveLayers),
+                Passive = v.Passive,
+                EntityType = v.EntityType,
+                TilesetKey = v.TilesetKey,
+                TileSize = v.TileSize,
+                AutotileRules = v.AutotileRules,
+                LayerDepth = v.LayerDepth,
+            });
+        foreach (var kv in g.Cells)
+        {
+            var (x, y) = MonoDreams.Component.Level.TileGridComponent.Unpack(kv.Key);
+            dto.Cells.Add(new[] { x, y, kv.Value });
+        }
+        dto.Cells.Sort((a, b) => a[1] != b[1] ? a[1].CompareTo(b[1]) : a[0].CompareTo(b[0]));
+        return CanonicalJson.SerializeToElement(dto);
+    }
+
+    private static void ReadTileGrid(Entity e, JsonElement json)
+    {
+        var dto = json.Deserialize<TileGridDto>()!;
+        var grid = new MonoDreams.Component.Level.TileGridComponent { CellSize = dto.CellSize };
+        foreach (var v in dto.Values)
+            grid.Values.Add(new MonoDreams.Component.Level.TilePaintValue
+            {
+                Id = v.Id,
+                Name = v.Name,
+                Color = ToCol(v.Color),
+                ActiveLayers = v.ActiveLayers,
+                Passive = v.Passive,
+                EntityType = v.EntityType,
+                TilesetKey = v.TilesetKey,
+                TileSize = v.TileSize,
+                AutotileRules = v.AutotileRules,
+                LayerDepth = v.LayerDepth,
+            });
+        foreach (var cell in dto.Cells)
+            if (cell is { Length: 3 } && cell[2] is > 0 and <= 255)
+                grid.Cells[MonoDreams.Component.Level.TileGridComponent.Pack(cell[0], cell[1])] = (byte)cell[2];
+        e.Set(grid);
+    }
+
+    private static int[] SortedCopy(int[] values)
+    {
+        var copy = (int[])values.Clone();
+        Array.Sort(copy);
+        return copy;
     }
 
     // ---- SceneLayerComponent (the designer's layer: order/visibility/lock; name = EntityInfo) ----

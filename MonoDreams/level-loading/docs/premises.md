@@ -290,6 +290,60 @@ is exercised end-to-end by `LDtkLevelTests` and `BlenderLevelTests`.
 content-pipeline DLL to MGCB via `/reference:`"; foundation — "The platform
 (backend + OS services) is selected by the head project".
 
+## The paint grid is authored cells + values; everything visible/collidable is a bake product
+
+`TileGridComponent` (the LDtk-IntGrid analog, under `Component/Level/`) is the scene's paintable
+logical grid: a sparse `Cells` map (packed signed cell → value id) plus the `TilePaintValue`
+definitions (name, overlay color, collision layers/passivity/identity, tileset key, autotile rule
+DSL, layer depth). The component is PURE AUTHORED DATA and serializes as `core.TileGrid`
+(one-data-model — no special file block); the grid ENTITY's transform is the one anchor, with cell
+(0,0)'s top-left sitting on it, so moving the entity slides the whole painted terrain. Everything
+the player SEES or COLLIDES with is DERIVED: `TileGridBakeSystem` (level-editor module, beside the
+scene reader it serves) disposes + re-creates `BakedProductComponent` children whenever the component
+is added or changed — tile SPRITES whose source rect comes from the value's 4-bit same-neighbor
+autotile rules (`TileGridBaking.NeighborMask` / `ParseRules` / `PickTile` — U=1, R=2, D=4, L=8, a bit
+SET meaning that orthogonal neighbor holds the SAME value id; alternates picked by a deterministic
+cell hash), and GREEDY-MERGED collider rectangles (`TileGridBaking.MergeRectangles` — never
+per-cell: flush-adjacent colliders seam-catch swept AABBs). A game hook (`configureCollider`)
+attaches gameplay components per paint value (a hazard marker on spike rects), so the module never
+references a game type. The bake runs in BOTH the editor and the game — a loaded scene's grid bakes
+at boot, before the first physics frame, because the scene reader ADDING the component is the bake
+trigger (the component-lifecycle convention, not a message). Added events bake immediately; changed
+events debounce `TileGridBakeSystem.QuietFrames` frames of silence, so a paint stroke does not thrash
+thousands of entities per frame.
+
+**Why:** painting logical cells that derive art + collision is the LDtk/Tiled workflow (colliders
+separate from art, rules pick the tile); baking keeps the scene file small (cells, not thousands of
+tile entities) and makes iteration free — replace the tileset PNG or edit a rule and the next bake
+re-skins the world.
+**Breaks:** serializing bake products doubles the world on every load (the writer's
+`BakedProductComponent` exclusion is the guard); per-cell colliders seam-catch the swept AABB; a bake
+that runs only in the editor ships a scene the game cannot collide with; a non-deterministic
+alternate pick reshuffles the terrain's look on every repaint.
+**Tests:** `MonoDreams.Tests/LevelEditor/TileGridBakingTests.cs` — the derivation maths
+(`NeighborMask_SingleNeighbor_SetsExactlyItsBit`,
+`NeighborMask_NeighborWithADifferentValue_DoesNotSetTheBit`,
+`ParseRules_InteriorEntry_IsTheFallbackForUnmappedMasks`,
+`ParseRules_GarbledEntries_AreSkippedWithoutThrowing`,
+`PickTile_WithAlternates_IsDeterministicAcrossCallsAndRebuiltTables`,
+`MergeRectangles_ProducesNoFlushAdjacentSeams`,
+`MergeRectangles_CoversExactlyThePaintedCells`);
+`MonoDreams.Tests/LevelEditor/TileGridBakeSystemTests.cs` — the bake products
+(`ComponentAdded_Bakes_MergedColliderChildren_AtTheRectCentres`,
+`ColliderIdentity_UsesEntityTypeWhenSet_ElseTheValueName`,
+`ConfigureColliderCallback_IsInvokedOncePerBakedCollider_WithItsPaintValue`,
+`ReBake_DisposesTheOldProducts_LeavingNoDuplicates`,
+`ChangedGrid_ReBakesOnlyAfterTheQuietWindow`, `Bake_RunsInPlayMode_Too`);
+`MonoDreams.Tests/LevelEditor/ComponentSerializerRegistryTest.cs::TileGrid_RoundTrips_ValuesAndCells_Canonically`
+(only the authored cells + values persist, canonically and byte-stably).
+**Depends on:** level-editor — "The editor Save writes versioned `.mdscene` into the project source
+tree" (the grid is ordinary component state, so it needs no bespoke save path), "Trigger zones are
+Passive colliders identified by an auto-numbered EntityInfo string" (the same collider naming +
+passivity conventions), "Tile sprites stream per chunk; colliders bake whole" (what the bake emits
+per frame); collision — "Overlapping bodies depenetrate; only separated ones sweep" (why one merged
+rect per stretch beats many per-cell ones); this file — "Parsers are component-driven, not
+message-driven" (the bake follows the same trigger convention).
+
 ## Scene layers are entities; member draw order derives from (layer order, within-layer key)
 
 `SceneLayerComponent` makes the designer's LAYER an ordinary scene ENTITY (the camera

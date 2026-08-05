@@ -162,7 +162,8 @@ public sealed class EditorOverlay
         IReadOnlyList<PaletteBand>? paletteBands = null,
         IReadOnlyList<TriggerType>? triggerTypes = null,
         EditorProjectContext? projectContext = null,
-        EditorSession? session = null)
+        EditorSession? session = null,
+        Action<Entity, MonoDreams.Component.Level.TilePaintValue>? configureTileCollider = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -298,6 +299,13 @@ public sealed class EditorOverlay
         _boundaryTool = boundaryTool;
         BoundaryTool = boundaryTool;
         BoundaryBake = new BoundaryBakeSystem(world);
+        // The tile-grid bake — the same bake-never-evaluate pattern applied to the paint grid: painted
+        // cells derive tile sprites (autotile-picked, streamed per chunk around the view) and
+        // greedy-merged colliders as bake products. Runs in BOTH run modes, like the boundary bake.
+        // configureTileCollider is the game seam (a hazard marker on a "Thorn" rect) — the module
+        // itself never references a game component.
+        TileBake = new TileGridBakeSystem(world, resolveTexture: AssetTextures.Load,
+            configureCollider: configureTileCollider);
         // The armed-trigger provider reads the palette lazily (it is constructed below).
         var triggerOverlay = new TriggerOverlaySystem(world, camera, viewportManager,
             () => Palette?.ArmedTrigger);
@@ -694,6 +702,14 @@ public sealed class EditorOverlay
     /// group (entry <c>editor.boundaryBake</c>), <c>RunNormally</c> — it bakes in BOTH run modes
     /// (a scene-loading participant, not Edit-only tooling).</summary>
     public ISystem<GameState> BoundaryBake { get; }
+
+    /// <summary>The tile-grid bake (tiles + greedy-merged colliders derived from painted cells) —
+    /// runs in BOTH run modes, like the boundary bake. Weave with the level-load group
+    /// (entry <c>logic.tileBake</c>) anywhere after the scene reader; component lifecycle drives it
+    /// and a debounce coalesces paint strokes. Exposed as the CONCRETE type so a screen can wire
+    /// streaming (<see cref="TileGridBakeSystem.FocusBounds"/>,
+    /// <see cref="TileGridBakeSystem.BatchChunks"/>) and force a bake.</summary>
+    public TileGridBakeSystem TileBake { get; }
 
     /// <summary>The trigger-zone overlay (island-authoring §5.3): draws Edit-only tinted outlines
     /// for placed trigger zones + the palette's placement ghost. Its VISUALS are emitted by
@@ -2057,6 +2073,7 @@ public sealed class EditorOverlay
                 {
                     Palette.Refresh();        // re-scan the asset drop folder
                     Palette.RefreshPrefabs(); // AND the prefab shelf (PF-F — one refresh action does both)
+                    TileBake.InvalidateAll(); // AND re-bake painted grids (tilesets may have changed)
                     Notifications.Notify("Refreshed assets + prefabs", EditorNotifySeverity.Info);
                 }
                 break;

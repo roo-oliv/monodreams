@@ -3360,6 +3360,50 @@ serializes, no convex child does, children regenerate on load, polyline round-tr
 first-class editor entity…" (a baked segment is a collider entity — pickable-but-move-refused), "Viewport
 presses belong to exactly one tool family" (the `Boundary` mode).
 
+## Tile sprites stream per chunk; colliders bake whole
+
+`TileGridBakeSystem` bakes a grid's tile SPRITES per `ChunkCells`-square chunk, and only for chunks
+overlapping `FocusBounds` (the camera's world view, wired by the screen) plus a one-chunk margin —
+evicting chunks that leave the margin and baking missing ones at `ChunksPerFrame` per frame
+(`FirstFillChunks` on a grid's first fill, so a loaded level arrives complete instead of visibly
+assembling). Live sprite entities therefore track the VIEW, not the world: a painted 6400x2400px
+world is ~80k cells, and one entity per cell would put 80k transforms through culling every frame.
+Autotile neighbour masks read the WHOLE cell map, so a chunk border is seamless. Streamed tiles are
+UNPARENTED and set `VisibleComponent` + `CullingExemptComponent` themselves — the streamer owns their
+lifetime and visibility, so parenting them (five `HierarchySystem` passes per frame over every
+`ChildOf` entity) and bounds-testing them (against a view they are inside by construction) would both
+re-derive facts already guaranteed; the price is that streamed tiles do not ride the grid entity's
+transform (moving the grid needs a re-bake) and do not take `SceneLayerSystem`'s layer-order depth
+remapping — they draw at their paint value's own `LayerDepth`. `BatchChunks` goes one step further and
+bakes a chunk as ONE textured mesh per distinct (sheet, depth) group instead of up to 256 sprite
+entities. COLLIDERS deliberately do NOT stream: the greedy merge already makes them few, and
+streaming them would cut merged runs at chunk borders — reintroducing exactly the flush-adjacent seams
+the merge exists to avoid. `FocusBounds` left null disables streaming entirely and bakes every painted
+chunk on the spot, byte-identical to the pre-streaming behaviour, which is what tests, headless tools
+and small scenes want. `MaxResidentChunks` caps the resident set nearest-view-centre first, so a
+zoomed-way-out editor view cannot ask for the whole world in one frame.
+
+**Why:** world size was bounded by entity count, not by anything intrinsic; chunked sprite baking
+moves the bound to the view, and the batching + culling-exemption move the per-frame cost from
+"proportional to visible cells" to "proportional to visible chunks".
+**Breaks:** streaming the colliders too (a seam-catching swept AABB at every chunk edge); baking
+chunks without the one-chunk margin (terrain popping in at the screen edge); parenting or culling the
+streamed tiles (the per-frame hierarchy + bounds work the exemption exists to avoid); capping the
+merge to bound corrections — that is depenetration's job, and a cap reintroduces the seams.
+**Tests:** `MonoDreams.Tests/LevelEditor/TileGridBakeSystemTests.cs` —
+`CollidersBakeWhole_EvenAcrossChunkBorders` (a run straddling a `ChunkCells` border merges into ONE
+rect) plus the whole unstreamed-bake suite, which runs with `FocusBounds` null and so pins the
+"streaming off = bake everything" contract; the merge's seam property is
+`TileGridBakingTests.MergeRectangles_ProducesNoFlushAdjacentSeams`. The streaming path itself
+(eviction, per-frame budget, resident cap, batched meshes) has no test yet — it needs a live camera
+view and a `GraphicsDevice`, so it is verified on the Demos headless host.
+**Depends on:** level-loading — "The paint grid is authored cells + values; everything
+visible/collidable is a bake product" (the bake this budgets); rendering — "`VisibleComponent` is
+owned exclusively by `CullingSystem`" (the `CullingExemptComponent` carve-out streamed tiles take),
+"A mesh may be textured (`TexturedVertices` + `Texture`)" (how a batched chunk draws); collision —
+"Overlapping bodies depenetrate; only separated ones sweep" (why one merged rect per stretch beats
+many per-cell ones).
+
 ## Trigger zones are Passive colliders identified by an auto-numbered EntityInfo string
 
 A trigger zone (island-authoring §5.3 — evidence spot / talk radius / exit) is a **`Passive`
