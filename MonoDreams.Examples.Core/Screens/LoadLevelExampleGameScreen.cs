@@ -626,6 +626,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
         {
             g.Add("culling", new CullingSystem(_world, _camera));
             g.Add("spritePrep", new SpritePrepSystem(_world, _graphicsDevice, pixelPerfectRendering));
+            // Scene layers (designer-created): remap members' just-prepped draw depths from (layer
+            // order, within-layer key); hidden layers draw transparent. Layer-less entities pass
+            // through untouched.
+            g.Add("sceneLayers", new SceneLayerSystem(_world));
             g.Add("ySort", new YSortSystem(_world, _camera, _layers));
             g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
             g.Add("meshPrep", new MeshPrepSystem(_world));

@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
+using MonoDreams.Component.Level;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
@@ -28,6 +29,11 @@ namespace MonoDreams.Tests.LevelEditor;
 ///   in-memory <see cref="SceneData"/>).
 /// - "The registry is opt-in; unregistered components are skipped with a loud warning, not thrown".
 /// - "SpriteInfo serializes the AssetKey + SOURCE sort fields, never a live Texture2D".
+///
+/// Also covers the level-loading premise "Scene layers are entities; member draw order derives from
+/// (layer order, within-layer key)" — the persistence half: <c>core.SceneLayer</c> round-trips the
+/// four AUTHORED layer fields (and only those; the final depth is per-frame-derived). The draw-remap
+/// half lives in <c>MonoDreams.Tests/Rendering/SceneLayerSystemTests.cs</c>.
 ///
 /// The warning assertion mutates the process-global <see cref="Logger"/> and
 /// <see cref="PlatformServices.Current"/>, so that test is isolated in the non-parallel collection.
@@ -138,6 +144,66 @@ public class ComponentSerializerRegistryTest
         Assert.True(loadedChild.Has<ChildOfComponent>());
         Assert.Equal(loadedParent, loadedChild.Get<ChildOfComponent>().Parent);
         Assert.Same(loadedParent.Get<TransformComponent>(), loadedChild.Get<TransformComponent>().Parent);
+    }
+
+    // ---- core.SceneLayer round-trips (the designer's layer entity: order/visible/locked/screenSpace) ----
+
+    [Fact]
+    public void SceneLayer_RoundTrips_AllFourAuthoredFields()
+    {
+        using var world = new World();
+        var registry = NewEngineRegistry();
+        var serializer = new SceneSerializer(registry);
+
+        // A layer entity is nothing but its name + SceneLayerComponent — every field non-default,
+        // so a dropped field cannot pass by coinciding with the default.
+        var layer = world.CreateEntity();
+        layer.Set(new EntityInfoComponent("Layer", "Background"));
+        layer.Set(new SceneLayerComponent { Order = 3, Visible = false, Locked = true, ScreenSpace = true });
+
+        var scene = serializer.Serialize(new List<Entity> { layer });
+
+        var entry = scene.Entities[0];
+        Assert.True(entry.Components.ContainsKey(EngineComponentSerializers.SceneLayerKey));
+        var json = entry.Components[EngineComponentSerializers.SceneLayerKey];
+        Assert.Equal(3, json.GetProperty("order").GetInt32());
+        Assert.False(json.GetProperty("visible").GetBoolean());
+        Assert.True(json.GetProperty("locked").GetBoolean());
+        Assert.True(json.GetProperty("screenSpace").GetBoolean());
+
+        // Deserialize onto a FRESH world: all four authored fields reproduce.
+        using var freshWorld = new World();
+        var loaded = serializer.Deserialize(freshWorld, scene);
+        Assert.Single(loaded);
+
+        var reloaded = loaded[0].Get<SceneLayerComponent>();
+        Assert.Equal(3, reloaded.Order);
+        Assert.False(reloaded.Visible);
+        Assert.True(reloaded.Locked);
+        Assert.True(reloaded.ScreenSpace);
+        // The layer's NAME is its EntityInfo (no name field on the layer component).
+        Assert.Equal("Background", loaded[0].Get<EntityInfoComponent>().Name);
+
+        // Byte-stable: write → read → write produces identical JSON (no drift across a save cycle).
+        var rewritten = registry.SerializeEntity(loaded[0]).Components[EngineComponentSerializers.SceneLayerKey];
+        Assert.Equal(json.GetRawText(), rewritten.GetRawText());
+
+        // The derived final draw depth is never persisted — only the authored layer fields are.
+        Assert.DoesNotContain("layerDepth", json.GetRawText(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SceneLayer_IsInTheRegistryInventory()
+    {
+        var registry = NewEngineRegistry();
+
+        // The registry inventory drives the Inspector's "+ Add component" candidates — a serializer
+        // registered but missing from the inventory would be invisible to the editor.
+        Assert.Equal(typeof(SceneLayerComponent), registry.TypeForKey(EngineComponentSerializers.SceneLayerKey));
+        Assert.True(registry.IsRegistered(typeof(SceneLayerComponent)));
+        Assert.False(registry.IsStructural(typeof(SceneLayerComponent))); // ordinary designer data
+        Assert.Contains(registry.RegisteredComponents(),
+            kv => kv.Key == EngineComponentSerializers.SceneLayerKey && kv.Type == typeof(SceneLayerComponent));
     }
 
     // ---- SpriteInfo serialization never references a live Texture2D (asset-key only) ----
