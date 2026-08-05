@@ -1,6 +1,6 @@
 # debug — overview
 
-Optional, opt-in visual debug overlays: collider outlines, sprite bounds, periodic backbuffer screenshots. Every system in this module respects a flag so it can be muted without removing it from the pipeline. The structured `Logger` and input-replay scaffold live in `foundation` (production-useful); this module adds only the *visual* overlays and screenshot capture. Safe to install in any game — registering none of its systems incurs zero cost.
+Optional, opt-in visual debug overlays: collider outlines, sprite bounds, periodic backbuffer screenshots — plus `SystemProfiler`, per-system ms/frame accounting driven by `MONODREAMS_PROFILE=1`. Every system in this module respects a flag so it can be muted without removing it from the pipeline. The structured `Logger` and input-replay scaffold live in `foundation` (production-useful); this module adds only the *visual* overlays and screenshot capture. Safe to install in any game — registering none of its systems incurs zero cost.
 
 ## Purpose
 
@@ -16,6 +16,10 @@ When debugging an ECS game, the visible bug ("the player passes through walls") 
 
 Both overlay systems draw through the standard `DrawComponent` path (transient `Type = Mesh` entities), not via parallel `SpriteBatch` calls — they ride `MasterRenderSystem` like everything else.
 
+### Profiling
+
+- `SystemProfiler` — per-system ms/frame accounting. Not a pipeline system: it is a static that plugs into `foundation`'s socket, `GatedSystem.TimingSink`. Setting `SystemProfiler.Enabled` (hosts read `MONODREAMS_PROFILE=1` at boot) installs `SystemProfiler.Record` as that sink; every pipeline entry is gate-wrapped, so one seam times every screen's pipelines, and rows are labelled with the entry's full registration name from `EditorPipelineRegistrar` (`logic.game`, `logic.game.enemies`). With profiling off nothing is installed and the cost is one null check per gated system per frame.
+
 ## Pipeline wiring
 
 This module is **safe to install and register nothing**. No mandatory wiring; every consumer is opt-in.
@@ -24,6 +28,7 @@ When you do want overlays:
 
 1. **`ColliderDebugSystem`** and **`SpriteDebugSystem`** — register inside the prep stage, after `SpritePrepSystem` (so sprite bounds reflect the current frame's `DrawComponent` data) and before `MasterRenderSystem` (so the transient mesh entities they create exist when the renderer iterates).
 2. **`ScreenshotCaptureSystem`** — register anywhere in the screen pipeline (typically at the tail). Set `screenshotSystem.IsEnabled = replayPlan?.Screenshots ?? false` after constructing it to honor the replay-file opt-in.
+3. **`SystemProfiler`** — nothing to register. Wire it in the *host*: `SystemProfiler.Enabled = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_PROFILE") == "1";` at boot, then `SystemProfiler.CountFrame();` + `SystemProfiler.ReportPeriodically(state, ref timer);` in `Update` (see `MonoDreams.Demos/Game1.cs`). Every `ReportInterval` seconds (2 by default) a `[perf]` table is written through `Logger`.
 
 **Replay testing workflow.** Write `debug/input_replay.json` with `"screenshots": true`, run the game (or `dotnet run -- --headless`), check `debug/` for the resulting screenshots + log. The `MONODREAMS_DEBUG_DIR` env var redirects all debug output to a custom path — `GameTestRunner` uses this for parallel test isolation.
 
@@ -33,6 +38,7 @@ See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadL
 
 - `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer.
 - `collision` — `ColliderDebugSystem` reads `BoxColliderComponent` and `ConvexColliderComponent` to know what to outline.
+- `foundation` — `SystemProfiler` plugs into `GatedSystem.TimingSink` and reports through `Logger`. The arrow points this way only: `foundation` defines the socket and never references this module.
 
 ## Extension points
 
@@ -42,5 +48,5 @@ See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadL
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `MONODREAMS_DEBUG_DIR` env-var override)
+- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `MONODREAMS_DEBUG_DIR` env-var override, the profiler's injected-sink direction + its `[perf]` format contract)
 - Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `foundation` (provides `Logger` and the replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
