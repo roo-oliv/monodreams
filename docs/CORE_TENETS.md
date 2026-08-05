@@ -384,9 +384,19 @@ time }] }`. Actions match `AInputState` names. The `startLevel` field
 skips menus and jumps straight into the named game screen. The game
 auto-exits when the replay finishes.
 
-**Screenshots.** `ScreenshotCaptureSystem` saves PNGs every 2 seconds to
-the debug directory. Off by default; enable by setting `"screenshots":
-true` in `input_replay.json`.
+**Frame capture.** `ScreenshotCaptureSystem` writes frames to the debug
+directory in one of two formats: PNG (encoded off-thread; the right
+choice for occasional verification shots, but the ~50 ms encode caps a
+per-frame capture at ~15–26 fps) or raw RGBA (`CaptureFormat.Raw` — a
+synchronous memcpy dump sustaining full frame rate, ~3.5 MiB per frame
+at 1280x720). Off by default. Env-driven capture goes through
+`ScreenshotCaptureSystem.FromEnvironment`, the single owner of the
+`MONODREAMS_SCREENSHOT=1|png|raw` / `MONODREAMS_SCREENSHOT_INTERVAL` /
+`MONODREAMS_SCREENSHOT_MAX_FRAMES` contract; the replay-gated pattern
+(`"screenshots": true` in `input_replay.json`) still drives
+PNG-interval capture. See the `debug` module's `docs/overview.md`
+§ Frame capture for the disk-cost table and the raw-vs-encoded
+rationale.
 
 **Headless mode — two hosts, two contracts.** There are two headless
 paths and they do *not* do the same thing:

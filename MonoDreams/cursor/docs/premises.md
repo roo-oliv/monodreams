@@ -189,6 +189,43 @@ shared component.
 **Tests:** none yet (exercised by the `ui` demo's Link-button hand cursor).
 **Depends on:** "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`".
 
+## `SkipDerivation` lets an injection channel own the cursor's derived positions
+
+`CursorPositionSystem.SkipDerivation` is the derivation-half twin of
+`CursorInputSystem.SkipHardwareRead`. A channel that **injects** cursor state rather than
+reading a mouse — the editor-op replay channel, an input-replay plan, a headless test — sets
+both: `SkipHardwareRead` stops the hardware read from overwriting the injected
+`CursorInputComponent`, and `SkipDerivation` stops the per-frame screen→virtual→world
+derivation from recomputing `VirtualPosition` / `WorldPosition` / `OutsideViewport` /
+`TransformComponent.Position` on top of it. With the flag set the system early-returns before
+it touches the camera or the viewport manager, so the injected frame is exactly what
+downstream consumers read. A real-mouse session leaves it `false` (the default), so every
+existing screen is byte-identical.
+
+**Why:** an injection channel authors world-space intent (`WorldPosition` / `VirtualPosition`),
+not a window pixel, so the injected `ScreenPosition` is not a mappable in-viewport coordinate.
+Live derivation feeds that un-mapped `ScreenPosition` to
+`ViewportManager.ScaleMouseToVirtualCoordinates`, gets `null`, and clobbers the injection with
+`OutsideViewport = true` (and, whenever the injected screen position *does* happen to map,
+overwrites the injected virtual/world positions and the cursor transform with values derived
+from it). `SkipHardwareRead` alone therefore cannot deliver an injected cursor: the very next
+system in the canonical order undoes it.
+**Breaks:** replay / editor-op cursor injection silently produces `OutsideViewport = true` plus
+stale or recomputed world coordinates — every world-space consumer treats the click as "over
+chrome, ignore it", picking and gizmo drags never fire, and mouse input replay is structurally
+impossible.
+**Tests:** `MonoDreams.Tests/Cursor/CursorPositionSystemTests.cs`
+(`SkipDerivation_InjectedCursorState_SurvivesTheFrame` — the injected virtual/world positions,
+`OutsideViewport = false`, and the transform all survive an un-mapped `ScreenPosition`; plus the
+two contrast cases `WithoutSkipDerivation_UnmappedScreenPosition_ClobbersInjectionWithOutsideViewport`
+and `WithoutSkipDerivation_MappedScreenPosition_RecomputesVirtualWorldAndTransform`, which pin
+the clobber the flag exists to prevent).
+**Depends on:** "Button press/release edges derive from CursorInputSystem's own previous-state,
+immune to consumers clearing the level fields" (the same injected path — its `PreviousXButton`
+fields are likewise not read when `SkipHardwareRead` is set; the injection channel owns the
+button edges the way `SkipDerivation` hands it the positions); "Cursor system order: input →
+position → draw prep" (the derivation this flag disables is stage two).
+
 ## Open questions
 
 - **Multiple cursors** — the systems iterate an entity set, so two

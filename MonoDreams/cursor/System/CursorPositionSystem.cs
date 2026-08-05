@@ -12,8 +12,18 @@ namespace MonoDreams.System.Cursor;
 public class CursorPositionSystem(World world, MonoDreams.Component.Camera camera, ViewportManager viewportManager)
     : AEntitySetSystem<GameState>(world.GetEntities().With<CursorControllerComponent>().With<CursorInputComponent>().With<TransformComponent>().With<DrawComponent>().AsSet())
 {
+    /// <summary>
+    /// Mirrors <c>CursorInputSystem.SkipHardwareRead</c> for the DERIVATION half: an editor-op /
+    /// replay channel that INJECTS World/Virtual positions + <c>OutsideViewport</c> directly sets
+    /// this so the per-frame screen→virtual→world derivation (which would recompute them from the
+    /// un-mapped injected <c>ScreenPosition</c> and clobber the injection with
+    /// <c>OutsideViewport = true</c>) stands down. A real-mouse session leaves it false.
+    /// </summary>
+    public bool SkipDerivation { get; set; }
+
     protected override void Update(GameState state, in Entity entity)
     {
+        if (SkipDerivation) return;
         ref var transform = ref entity.Get<TransformComponent>();
         ref var input = ref entity.Get<CursorInputComponent>();
         ref var controller = ref entity.Get<CursorControllerComponent>();

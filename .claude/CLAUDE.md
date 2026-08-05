@@ -106,9 +106,13 @@ modules into real game screens — start at
   `startLevel` skips menus and jumps straight to the game screen. Actions
   match `AInputState` names (Up, Down, Left, Right, Jump, Grab, Orb, Exit,
   Interact). Game auto-exits when replay finishes.
-- **Screenshots** — `ScreenshotCaptureSystem` saves PNGs every 2s to
-  `debug/`. Off by default; enable by setting `"screenshots": true` in
-  `input_replay.json`.
+- **Frame capture** — `ScreenshotCaptureSystem` writes PNGs (verification
+  shots) or raw RGBA frames (`CaptureFormat.Raw` — full-rate 60 fps takes)
+  to `debug/`. Off by default; enable via `"screenshots": true` in
+  `input_replay.json` (PNG interval) or the env contract owned by
+  `ScreenshotCaptureSystem.FromEnvironment`: `MONODREAMS_SCREENSHOT=1|png|raw`,
+  `MONODREAMS_SCREENSHOT_INTERVAL`, `MONODREAMS_SCREENSHOT_MAX_FRAMES` (raw
+  is ~3.5 MiB/frame — always cap it). See `MonoDreams/debug/docs/overview.md`.
 - **Running a test session** — write `input_replay.json`, run
   `dotnet run --project MonoDreams.Examples.Desktop`, check `debug/` for log +
   screenshots. (Examples is now a shared `.Core` lib + per-platform heads;
