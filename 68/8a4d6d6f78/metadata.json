@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "688a4d6d6f78",
+  "strategy": "manual-commit",
+  "branch": "issue-52",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".claude/CLAUDE.md",
+    ".gitignore",
+    "MonoDreams.Tests/Debug/ColliderDebugSystemTests.cs",
+    "MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs",
+    "MonoDreams/debug/docs/premises.md",
+    "MonoDreams/debug/module.json",
+    "docs/CORE_TENETS.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/68/8a4d6d6f78/0/metadata.json",
+      "transcript": "/68/8a4d6d6f78/0/full.jsonl",
+      "context": "/68/8a4d6d6f78/0/context.md",
+      "content_hash": "/68/8a4d6d6f78/0/content_hash.txt",
+      "prompt": "/68/8a4d6d6f78/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 101,
+    "cache_creation_tokens": 479544,
+    "cache_read_tokens": 7175957,
+    "output_tokens": 44108,
+    "api_call_count": 54
+  }
+}

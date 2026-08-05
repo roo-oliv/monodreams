@@ -1,0 +1,271 @@
+Implement the issue #52. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>a07a774347f4f4dc3</task-id>
+<tool-use-id>toolu_01BkKE3NwqEpJ1D8BWuSj9KE</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port raw screenshot capture" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abab0773eaa57f9da</task-id>
+<tool-use-id>toolu_011nAgTouXiPpW3E1ESZWr25</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port collider Filter/Flash" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a24656b222a767148</task-id>
+<tool-use-id>toolu_01QVQBDFtFAKk2VaX8SkFQ7L</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port cursor SkipDerivation" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a07a774347f4f4dc3</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port raw screenshot capture" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abab0773eaa57f9da</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port collider Filter/Flash" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a24656b222a767148</task-id>
+<tool-use-id>toolu_01MkHGpwtYvHowJ92StXa2pM</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port cursor SkipDerivation" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bo9dtrqob</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait 2.5 minutes before retrying overloaded API" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abab0773eaa57f9da</task-id>
+<tool-use-id>toolu_01RS7SSEYTvsYt4JBM5f4Q7C</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port collider Filter/Flash" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b8hg633pm</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait 10 minutes before retrying overloaded API" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a24656b222a767148</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port cursor SkipDerivation" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. All three steps landed and verified.
+
+## Files changed (only my owned paths)
+
+**1. `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams/cursor/System/CursorPositionSystem.cs`** (modified)
+Added `public bool SkipDerivation { get; set; }` with the reference's full XML doc and `if (SkipDerivation) return;` as the first line of the per-entity `Update`. `diff` against the reference file reports **byte-identical** — zero deviation.
+
+Verified the doc comment's cross-reference is accurate: `CursorInputSystem.SkipHardwareRead` does exist (`MonoDreams/cursor/System/CursorInputSystem.cs:36`, early-returns at line 49), itself mirroring `AbstractInputHandlingSystem.SkipHardwareRead`, and is already used by the editor-op/replay path in every screen plus `HeadlessEditorOpTests.cs:190`.
+
+**2. `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams.Tests/Cursor/CursorPositionSystemTests.cs`** (created)
+No `Cursor/` test folder existed; cursor entities only appeared inside `LevelEditor/` editor tests, so I followed the per-module folder convention already used by `Audio/`, `Camera/`, `Collision/`, `Rendering/` and created `MonoDreams.Tests/Cursor/`.
+
+Both dependencies are **real, not null**: `new ViewportManager(null, 800, 600) { ScreenWidth = 800, ScreenHeight = 600 }` (the established test pattern — it never dereferences its `Game`) and `new MonoDreams.Component.Camera(800, 600)` (plain matrix adapter, no `GraphicsDevice`). The cursor entity comes from the **real factory** `Cursor.CreateMesh(...)` on the mesh path with an inline 3-vertex `MeshData`, so no texture asset is needed and the "factory is the contract" premise holds. (`ShapeBuilder` was not usable — it lives in `MonoDreams.Demos`, which the test project doesn't reference.)
+
+Tests — 3 passed, 0 failed:
+- `SkipDerivation_InjectedCursorState_SurvivesTheFrame` — the issue contract: injected `VirtualPosition (123,45)` / `WorldPosition (777,-321)` / `OutsideViewport=false` / `TransformComponent.Position (11,22)` all unchanged after `Update`, with an un-mappable `ScreenPosition (-5000,-5000)`.
+- `WithoutSkipDerivation_UnmappedScreenPosition_ClobbersInjectionWithOutsideViewport` — contrast: same frame without the flag flips `OutsideViewport` to true.
+- `WithoutSkipDerivation_MappedScreenPosition_RecomputesVirtualWorldAndTransform` — contrast: a mappable `ScreenPosition (100,100)` overwrites the injected virtual/world positions and the transform (HUD branch ⇒ `virtual + hotSpot = (103,105)`).
+
+**3. `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams/cursor/docs/premises.md`** (one premise appended before `## Open questions`)
+"`SkipDerivation` lets an injection channel own the cursor's derived positions", in the repo's Why/Breaks/Tests/Depends-on format. `Tests:` names the three real test methods. `Depends on:` cites the button-edges premise (same injected path — `PreviousXButton` not read under `SkipHardwareRead`) and "Cursor system order: input → position → draw prep" (the disabled derivation is stage two). I did **not** touch the "Follow-up debt" list — none of the premises listed there were modified.
+
+## Verify
+- `dotnet build MonoDreams/MonoDreams.csproj` — success, 0 errors.
+- `dotnet test MonoDreams.Tests/MonoDreams.Tests.csproj --filter "FullyQualifiedName~CursorPosition" -m:1` — **3/3 passed** (run twice, no lock races). Nothing committed; `git status` shows only my three paths plus the other agents' in-flight files.</result>
+<usage><subagent_tokens>107136</subagent_tokens><tool_uses>37</tool_uses><duration_ms>293616</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abab0773eaa57f9da</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port collider Filter/Flash" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Port landed, tests green — but there's one blocker for you to act on.
+
+## ⚠️ Blocker for the orchestrator: the new test file is gitignored
+
+`.gitignore:16` contains `/MonoDreams.Tests/[Dd]ebug/`, so `MonoDreams.Tests/Debug/ColliderDebugSystemTests.cs` is **invisible to git** (`git status` doesn't show it; `git check-ignore -v` confirms). It would be silently dropped by your commit. This also affects the sibling agent's file in the same folder.
+
+Recommended fix (one line, consistent with the file's own stated intent): **delete `.gitignore:16`**. Lines 33-34 already say "Debug output … inside build output directories only" and cover it with `**/bin/**/debug/`, so the per-project rule is redundant legacy. Alternatives: add `!/MonoDreams.Tests/Debug/` after line 16, or `git add -f MonoDreams.Tests/Debug/`. (The same redundant rule exists for Examples / YarnSpinner / Demos.) I did not touch `.gitignore` since it isn't in my owned set.
+
+## Files changed
+
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams/debug/System/ColliderDebugSystem.cs` — +45/-7. `diff` against the reference is now **byte-identical**. Added `using System;`, `Filter`, `FlashSeconds`, `Flash(Entity)`, the `_flashing`/`_expired` bookkeeping (aged before the `IsEnabled || Enabled` early-return, so flashes expire while muted), `flashing` param threaded into `CreateBoxOutline`/`CreateConvexOutline`, `_flashing.Clear()` in `Dispose`, and the updated class doc.
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams.Tests/Debug/ColliderDebugSystemTests.cs` — new, 5 tests.
+
+Note the flash-aging loop mutates `_flashing[entity]` while enumerating it. That is legal only because .NET Core 3.0+ `Dictionary` permits **overwriting an existing key's value** during enumeration (adds/removes still invalidate — hence the separate `_expired` list). Faithful to the reference; worth knowing if anyone "cleans it up".
+
+## Tests
+
+`dotnet build MonoDreams/MonoDreams.csproj` clean; `dotnet test --filter "FullyQualifiedName~ColliderDebug" -m:1` → **5 passed, 0 failed, 35 ms**. No new compiler warnings from either file.
+
+- `Filter_Null_DrawsEveryCollider` — 3 collider entities, `Filter == null` ⇒ 3 debug meshes.
+- `Filter_NarrowsTheOverlay_ToTheMatchingCollidersOnly` — predicate matching 1 ⇒ exactly 1 mesh; clearing the filter restores 3 next frame (also proves the count isn't cumulative).
+- `Flash_TurnsTheOutlineWhite_ThenRevertsWhenTheTimerExpires` — baseline Red → `Flash` + 0.01 s frame ⇒ White → 0.5 s frame ⇒ Red.
+- `Flash_AgesWhileDisabled_SoReEnablingShowsNoStaleBlink` — `Flash`, `IsEnabled=false` + 0.5 s (0 meshes), re-enable ⇒ Red, not White.
+- `Flash_OnADeadColliderEntity_IsDroppedWithoutThrowing` — flashed entity disposed before expiry; `Update` doesn't throw and only the survivor is drawn.
+
+Tests set the static `ColliderDebugSystem.Enabled` and restore it in `finally`. Colour assertions go through a `SingleOutlineColor` helper that asserts the whole overlay is one uniform colour, so a partial recolour fails loudly.
+
+## Proposed `premises.md` entry
+
+```
+## Collider flash is caller-driven and the overlay is filterable
+
+`ColliderDebugSystem` exposes two knobs for keeping the overlay readable in a
+real level. `Filter` is a `Func&lt;Entity, bool&gt;` over collider entities: null
+(the default) draws every one, and a predicate narrows the overlay to the
+handful that matter — a tile world has hundreds of baked terrain colliders that
+bury the three you are debugging. `Flash(Entity)` blinks one collider's outline
+`Color.White` for `FlashSeconds` (0.12 by default), so an event that resolves
+inside a single frame is still visible; it is **caller-driven on purpose** —
+the system never flashes on its own from `CollisionMessage`. Flash timers age
+by `state.Time` at the top of every `Update`, **before** the
+`IsEnabled`/`Enabled` early-return, and entries whose entity died or whose
+timer ran out are dropped; `Dispose` clears the table.
+
+**Why:** flashing every contact would strobe continuously on the floor and
+walls a body rests against, drowning out the one-frame events worth seeing —
+so the game names the moments it cares about (damage landing, a trigger
+firing) instead. Ageing while muted is what makes the mute honest: a flash
+started just before the overlay is toggled off must not still be white when it
+comes back on, possibly many seconds later.
+**Breaks:** auto-flashing from collision messages makes the overlay a strobe
+and hides real events. Ageing flashes *after* the enabled check (or only when
+enabled) makes re-enabling show a stale blink pinned at full brightness.
+Dropping the dead-entity check leaks recycled `Entity` keys, so a
+newly-created entity that reuses the id inherits a phantom flash. Filtering
+inside the draw helpers instead of at the query loop still allocates the mesh
+lists for colliders nobody asked to see.
+**Tests:** `MonoDreams.Tests/Debug/ColliderDebugSystemTests.cs` —
+`Filter_Null_DrawsEveryCollider`,
+`Filter_NarrowsTheOverlay_ToTheMatchingCollidersOnly`,
+`Flash_TurnsTheOutlineWhite_ThenRevertsWhenTheTimerExpires`,
+`Flash_AgesWhileDisabled_SoReEnablingShowsNoStaleBlink`,
+`Flash_OnADeadColliderEntity_IsDroppedWithoutThrowing`.
+**Depends on:** debug — "This module is opt-in; nothing requires it"
+(`Flash` bookkeeping runs even when both toggles are off, which is what the
+static/instance mute pair is allowed to skip and this is not); collision —
+"A collider is its own entity".
+```
+
+Two docs housekeeping notes if you're editing `premises.md` anyway: the "Open questions › two-toggle design" entry is now load-bearing rather than cosmetic (the mute must not stop flash ageing), and the "Follow-up debt" list can lose nothing — the new premise ships with tests. Also verify the exact collision premise title I cross-reference (`"A collider is its own entity"`) against `MonoDreams/collision/docs/premises.md`; I inferred it from CORE_TENETS §5 rather than reading that file.</result>
+<usage><subagent_tokens>110293</subagent_tokens><tool_uses>34</tool_uses><duration_ms>359501</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a07a774347f4f4dc3</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port raw screenshot capture" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All work is complete and verified. Final report:
+
+## Files changed
+
+- **`/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams/debug/System/ScreenshotCaptureSystem.cs`** — reference ported in full: `CaptureFormat` enum, `FromEnvironment`, the raw path, `AnnotateFilename`, `Format`, the Dispose summary. `#nullable enable` at the top (chose fidelity over stripping annotations). `CaptureNow` is byte-for-byte unchanged.
+- **`/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams.Demos/Game1.cs`** — added `_envFrameCapture` built by `FromEnvironment` in `Initialize`, `Update(_screenController.State)` in `Draw` after `_screenController.Draw` (so both headless and windowed runs record), disposed before `Logger.Shutdown()` so the raw summary lands in the log. The pre-existing deterministic `CaptureNow` instance is untouched.
+- **`/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams/debug/docs/overview.md`** — new "Frame capture" section (env table, disk-cost table, filename contracts, raw-as-verification rationale, encoded-clips-out-of-scope with the desktop-ffmpeg / web-MediaRecorder routes).
+- **`/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams/debug/docs/premises.md`** — two new premises in repo format with real `Tests:` values, plus two new open questions.
+- **`/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs`** (new) and **`/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-52/MonoDreams.Tests/IntegrationTests/RawFrameCaptureTests.cs`** (new).
+
+## Tests — 35/35 pass
+
+`dotnet test --filter "FullyQualifiedName~ScreenshotCapture|FullyQualifiedName~RawFrameCapture"` → **Passed: 35, Failed: 0** (34 unit cases from 13 methods + 1 integration). Regression check `HeadlessDemoTests.HeadlessCameraDemo_…` also passes (14 s).
+
+Unit methods: `FromEnvironment_ReturnsNull_WhenNothingRequested` / `_WhenExplicitlyOff` / `_AndLogsAnError_ForAnUnknownMode`, `_SelectsPng_AndDefaultsToHalfSecondInterval`, `_SelectsRaw_AndDefaultsToEveryFrame`, `_IntervalOverride_ParsesInvariantCulture` / `_AcceptsZeroAsEveryFrame` / `_IsIgnored_WhenUnparsableOrNegative` / `_ParseIsUnaffectedByTheAmbientCulture` (sets `CurrentCulture` to pt-BR and asserts `"0.25"` still means a quarter second; `"0,25"` is rejected), `_MaxFrames_Parses_AndIsReportedAtStartup` / `_IsIgnored_WhenNotAPositiveInteger`, `Constructor_DefaultsToPng_Uncapped_AndDisabled`, `AnnotateFilename_IsUnsetByDefault`. A fake `IPlatformServices` serves env vars and records the mkdir + log lines; `PlatformServices.Current` is restored in a `finally`, and the class shares the existing non-parallel collection. It also resets `Logger.MinimumLevel` in ctor/Dispose — `LoggerInterpolationTests` raises that static and only a fresh `Initialize` lowers it.
+
+Integration `RawCapture_WritesOneBlobPerFrame_AndStopsAtTheFrameCap`: camera demo, 40 frames, cap 25. Asserts exit 0; one init log line carrying `Format: Raw` + `interval: every frame` + `stopping after 25 frames` together (the host builds a second PNG instance, so a per-substring assertion would be ambiguous); exactly 25 `.rgba`; counters contiguous 0–24; geometry 1280x720; each blob exactly 1280·720·4 bytes; game-time ms forward-only overall and strictly increasing past 5 warmup frames; the cap line; the Dispose summary. It deletes its ~88 MiB of blobs in a `finally`.
+
+**Why the strict-increase is warmup-relaxed:** I ran the host manually and measured it. Steady state is ~24–28 ms/frame (3.5 MiB/frame, 105.5 MiB for 30 frames on this M-series Mac), but the first frames land 5–6 ms apart under JIT/content load, so an unqualified strict-increase would be a latent flake for no added signal (the counter, not the timestamp, keeps those frames distinct files). Also smoke-tested `MONODREAMS_SCREENSHOT=1 MONODREAMS_SCREENSHOT_INTERVAL=0.1 MAX_FRAMES=4` → exactly 4 capped PNGs, so both formats work through the real env.
+
+## Deviations
+
+1. **`tools/frames-to-gif.py` / `docs/scene-staging.md`** → repointed at the "Frame capture" section of `MonoDreams/debug/docs/overview.md`; the raw warning log line now ends "…then delete it — and cap the run with MONODREAMS_SCREENSHOT_MAX_FRAMES" instead of naming the missing script.
+2. **PNG doc comment** expanded with the ~50 ms encode → 4-sim-updates-per-draw mechanism, and the 20 s take stated as ~4.2 GB (the reference said 4.4 GB — 4200 MiB is 4.2 GiB / 4.4 GB decimal; I used the task's figure).
+3. **`#if !MONODREAMS_WEB` around the Demos env-capture construction.** The host had no such guard around capture construction (only around `Window.Position`), so this is a new one: a web head has no filesystem for a 3.5 MiB/frame dump, and the ctor itself mkdirs + logs. The engine module stays platform-neutral.
+4. **vs. the current engine file** (not the reference): `_timeSinceLastCapture = 0f` now resets *before* the `_pendingSave` check, so a PNG capture skipped while a save is in flight waits a full interval instead of firing the instant the save lands. Immaterial at 0.5 s/2 s. The 4 `Examples.Core` call sites compile unchanged (new ctor params are optional).
+
+## Deliberately left out
+
+- **Write-failure / full-disk path.** No in-process `GraphicsDevice` pattern exists in this suite — every render-path test spawns the Demos host — so faking `WriteAllBytes` throwing would need reflection hacks. It shares the `_stopped` mechanism the frame-cap test exercises; the premise's `Tests:` field says exactly that.
+- **Not in my owned set, worth a follow-up:** `MonoDreams/debug/module.json` `postInstallNotes` and `docs/CORE_TENETS.md` §8 both still describe capture as "PNGs every 2 seconds" with the old signature.
+- **Pre-existing wart the reference also kept:** the PNG filename embeds `gt{gameTime:F2}` under the *current* culture — on this pt-BR machine that yields `gt0,10`. The raw name deliberately fixed this with integer ms; the PNG name did not. Relatedly, two capture instances in one process keep independent counters, so PNG names could in principle collide (same counter + same millisecond); observed non-colliding, and raw mode cannot collide.</result>
+<usage><subagent_tokens>167470</subagent_tokens><tool_uses>58</tool_uses><duration_ms>812442</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmzy5s0pn</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full-solution Release test gate" completed (exit code 0)</summary>
+</task-notification>
