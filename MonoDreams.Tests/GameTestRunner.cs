@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MonoDreams.Input;
@@ -266,6 +267,10 @@ public static class GameTestRunner
             CreateNoWindow = true,
         };
         psi.Environment["MONODREAMS_DEBUG_DIR"] = debugDir;
+        // `dotnet run` spawns persistent MSBuild worker nodes that inherit the redirected pipe
+        // handles; with node reuse they outlive the game by ~15 minutes and keep the pipes open
+        // (the CI hang). No daemons — each run is hermetic.
+        psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         // Pin the editor project root to the isolated temp tree BEFORE the caller's env, so it applies to
         // every spawned head (editor-on or ambiently editor-on) yet an explicit caller override still wins.
         psi.Environment[EditorProjectContext.ProjectRootVariable] = projectRoot;
@@ -276,8 +281,15 @@ public static class GameTestRunner
         using var process = Process.Start(psi)!;
         // Drain both pipes from the start: an unread redirected pipe fills up and DEADLOCKS a
         // chatty child, and stderr is where a crashing game prints its unhandled exception.
-        var stdOutTask = process.StandardOutput.ReadToEndAsync();
-        var stdErrTask = process.StandardError.ReadToEndAsync();
+        // Event-based (not ReadToEnd) on purpose — ReadToEnd completes only when EVERY handle
+        // holder closes the pipe, and `dotnet run` grandchildren (MSBuild nodes) can hold it
+        // long after the game exits; events deliver what arrived without waiting for pipe EOF.
+        var stdOut = new StringBuilder();
+        var stdErr = new StringBuilder();
+        process.OutputDataReceived += (_, e) => { if (e.Data != null) lock (stdOut) stdOut.AppendLine(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (stdErr) stdErr.AppendLine(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
 
         try
@@ -290,6 +302,8 @@ public static class GameTestRunner
             throw new TimeoutException($"Game process did not exit within {timeoutSeconds}s.");
         }
 
+        await Task.Delay(250); // grace: let in-flight DataReceived callbacks land after the exit
+
         var logLines = new List<string>();
         var logFiles = Directory.GetFiles(debugDir, "monodreams_*.log");
         foreach (var logFile in logFiles.OrderBy(f => f))
@@ -297,12 +311,15 @@ public static class GameTestRunner
             logLines.AddRange(await File.ReadAllLinesAsync(logFile));
         }
 
+        string stdOutText, stdErrText;
+        lock (stdOut) stdOutText = stdOut.ToString();
+        lock (stdErr) stdErrText = stdErr.ToString();
         return new GameTestResult
         {
             ExitCode = process.ExitCode,
             LogLines = logLines,
-            StdOut = await stdOutTask,
-            StdErr = await stdErrTask,
+            StdOut = stdOutText,
+            StdErr = stdErrText,
             DebugDir = debugDir,
             ProjectRoot = projectRoot,
         };
