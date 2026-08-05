@@ -277,6 +277,54 @@ moves) — the caller's choice.
 follow → sync and asserts the resolved adapter position).
 **Depends on:** "`CameraFollowSystem` eases the camera ENTITY, not the adapter".
 
+## `CameraLookAt` overrides the DESIRED POSITION only — and bypasses the leash
+
+`CameraFollowSystem` subscribes to `CameraLookAt(Entity Target, bool Release)`.
+While a look-at is live the system aims at that entity instead of the active
+follow target, but everything else still comes from the **active target**: its
+`DampingX`/`DampingY` and its `Bounds`. It is a *change of subject, not a second
+camera mode* — the camera ENTITY is still the only thing eased, and
+`CameraSyncSystem` remains the sole writer of the live `Camera` adapter. The
+load-bearing detail is that a look-at **skips the max-distance clamp**. That
+clamp is a LEASH for following a moving subject: at a 200px leash the per-frame
+ease admits only about 25px (200 × 12.5%), so metering a deliberate pan across a
+7040px world through it takes roughly five seconds of dead air — unclamped, the
+same ease crosses in ~0.65s. A look-at is still gated on there being an active
+follow target at all (it is a detour from a follow, not a replacement for one),
+and the subject is held as a plain entity handle, so one that dies mid-flight
+(`Entity.IsAlive` goes false) falls back to the follow target on its own —
+nothing has to remember to release it. `Release: true` hands the camera back
+explicitly. Two consequences for callers. **Arrival cannot be tested by distance
+alone:** `CameraFollowTargetComponent.Bounds` clamps the camera to the level, so
+a subject near a world edge is approached and then never reached — measured at
+47px short in a shipped game, which burned a full timeout of frozen dead time
+every cycle. Treat "no longer closing" as arrived too. **The engine must never
+reference game types:** game code stays a one-line adapter — a game system
+forwards its own message to this one.
+
+**Why:** a directed pan and a follow want opposite things from the same clamp,
+and routing both through this one system is what keeps a SINGLE writer of the
+camera entity's position — a game system shoving the transform around itself
+would race the follow every frame. Keeping the damping and bounds on the active
+follow target means a pan can neither retune the camera's feel nor lurch when
+control is handed back.
+**Breaks:** applying the leash to a look-at crawls at ~25px a frame, so a boss
+reveal or cutscene sits waiting on the camera and reads as a hang (the bug this
+premise exists for). Overriding the damping or bounds along with the position
+lets a pan silently change how the camera feels and makes the hand-back lurch.
+Testing arrival by distance alone hangs forever on any subject the bounds keep
+the camera from reaching. A game system panning the camera transform directly
+instead of sending `CameraLookAt` reintroduces a second writer racing the follow.
+**Tests:** `MonoDreams.Tests/Camera/CameraLookAtTests.cs`
+(`LookAt_EasesTowardSubject_BypassingTheLeash`,
+`LookAt_KeepsDampingAndBounds_FromTheActiveFollowTarget`,
+`LookAt_DeadSubject_FallsBackToFollowTarget`,
+`LookAt_Release_RestoresNormalFollow_WithLeash`,
+`LookAt_WritesTheCameraEntityOnly_AdapterUnchangedUntilSync`).
+**Depends on:** "`CameraSyncSystem` is the only writer of the `Camera` adapter in
+Play"; "`CameraFollowSystem` eases the camera ENTITY, not the adapter"; "Follow
+bounds clamp the target before smoothing".
+
 ## Open questions
 
 - **Multi-camera support** — `Camera` adapters are not registered centrally, and
@@ -289,8 +337,8 @@ follow → sync and asserts the resolved adapter position).
 
 - A priority field on `CameraFollowTargetComponent` (and a deterministic pick
   when multiple are active) would replace today's first-active-wins iteration.
-- Camera shake, look-ahead, dead-zones, and look-at as composable systems that
-  read `CameraFollowTargetComponent` / the camera entity and layer on top of the
+- Camera shake, look-ahead, and dead-zones as composable systems that read
+  `CameraFollowTargetComponent` / the camera entity and layer on top of the
   synced adapter (the camera demo's `CameraHitSystem` is the shake prototype).
 
 ## Follow-up debt
