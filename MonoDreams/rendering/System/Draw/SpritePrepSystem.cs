@@ -40,6 +40,10 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice, bool p
             drawComponent.Color = spriteInfo.Color;
             drawComponent.LayerDepth = spriteInfo.LayerDepth;
             drawComponent.Origin = spriteInfo.Origin;
+            // The pre-generated nine-patch texture goes through the same SpriteBatch.Draw call, so the
+            // mirror flags apply here identically — ignoring them in this branch only would be a trap.
+            drawComponent.FlipHorizontally = spriteInfo.FlipHorizontally;
+            drawComponent.FlipVertically = spriteInfo.FlipVertically;
         }
         // --- Handle Regular Sprite ---
         else if (spriteInfo.SpriteSheet != null)
@@ -56,6 +60,8 @@ public class SpritePrepSystem(World world, GraphicsDevice graphicsDevice, bool p
             drawComponent.Color = spriteInfo.Color;
             drawComponent.LayerDepth = spriteInfo.LayerDepth;
             drawComponent.Origin = spriteInfo.Origin;
+            drawComponent.FlipHorizontally = spriteInfo.FlipHorizontally;
+            drawComponent.FlipVertically = spriteInfo.FlipVertically;
         }
     }
 

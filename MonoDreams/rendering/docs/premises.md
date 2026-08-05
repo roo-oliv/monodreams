@@ -465,6 +465,39 @@ no source rect uses the raw `Scale`).
 reflects) and "Y-sorted props use the feet-origin convention, factory-applied"
 (`SpriteWorldQuad`'s Size/source/origin inputs).
 
+## Sprite facing/orientation is a flip flag, not mirrored art
+
+A sprite's facing/orientation is expressed by `SpriteInfoComponent.FlipHorizontally` /
+`FlipVertically`, copied by `SpritePrepSystem` into `DrawComponent` (both branches — regular sprite
+and nine-patch) and applied by `MasterRenderSystem` as OR-combined `SpriteEffects`
+(`MasterRenderSystem.ComputeSpriteEffects`) — the GPU mirrors the quad for free. No sprite sheet
+should bake a mirrored row/column just to get the other facing. The flip mirrors pixels INSIDE the
+destination rect: `Origin` semantics are unchanged (still measured from the source's top-left), the
+drawn quad equals the unflipped quad, so hit-testing / gizmo quads
+(`GizmoTransform.SpriteWorldQuad`) are unaffected, and flips compose freely with rotation, scale and
+non-centred origins. Both flags default `false`, and `ComputeSpriteEffects` composes those defaults
+to `SpriteEffects.None`, so existing content renders byte-identical. Shear/skew is explicitly NOT a
+flag: `SpriteBatch` has no per-sprite shear (it would need a batch-wide `transformMatrix` or
+arbitrary vertices), so skew belongs to the textured-mesh path — do not go looking for a shear flag
+on this seam. The scene serializer persists the flags **omit-when-false**, so pre-flip `.mdscene`
+files stay byte-identical.
+
+**Why:** every directional thing in a 2D game (walkers, projectiles, corpses, tumbling pickups)
+otherwise needs double art; with the flags the seam now exposes everything `SpriteBatch` can do
+per-draw.
+**Breaks:** baking mirrored rows wastes sheet space and desyncs the two facings as animations are
+added; a game system writing `SpriteEffects` anywhere else would fork the seam; serializing the flags
+unconditionally would break the committed-scene byte fixed point.
+**Tests:** `MonoDreams.Tests/Rendering/SpriteFlipTests.cs` (all four `ComputeSpriteEffects`
+combinations, the byte-identical `None` default, fresh `SpriteInfoComponent` / `DrawComponent`
+defaults, `SpritePrepSystem` copying both flags without perturbing the transform fields, and the
+serializer round-trip: flags round-trip true, a default sprite writes neither key, an absent key
+reads false).
+**Depends on:** "A sprite's drawn quad honors `Transform.WorldScale` exactly once" (the same
+drawn-quad-equals-hit-test-quad invariant this must not disturb); level-editor — "Scene
+serialization is canonical and byte-stable; `entities[]` is ordered by a persisted stable scene-local
+id" and "`SpriteInfoComponent` serializes an `AssetKey`, never the live `Texture2D`".
+
 ## Y-sort tiebreaker is parent-child bias only
 
 `YSortSystem` uses a minimal epsilon (`1e-6f` in

@@ -26,7 +26,9 @@ namespace MonoDreams.LevelEditor.Serialization;
 ///   <item><c>TransformComponent</c> — position / rotation / scale / origin (not the cached world
 ///   matrix, which is derived).</item>
 ///   <item><c>SpriteInfoComponent</c> — <c>AssetKey</c> (never the live <c>Texture2D</c>),
-///   Source / Size / Color / Origin / Offset / Target, and the SOURCE sort fields
+///   Source / Size / Color / Origin / Offset / Target, the mirror flags
+///   <c>FlipHorizontally</c> / <c>FlipVertically</c> (written only when true, so pre-flip scenes stay
+///   byte-identical), and the SOURCE sort fields
 ///   <c>LayerDepth</c> / <c>YSortOffset</c> / <c>YSortDepthBias</c>. Never the per-frame-derived
 ///   <c>DrawComponent.LayerDepth</c>.</item>
 ///   <item><c>EntityInfoComponent</c> — type + name.</item>
@@ -136,6 +138,12 @@ public static class EngineComponentSerializers
         [JsonPropertyName("origin")] public float[] Origin { get; set; } = { 0f, 0f };
         [JsonPropertyName("offset")] public float[] Offset { get; set; } = { 0f, 0f };
         [JsonPropertyName("target")] public RenderTargetID Target { get; set; }
+        // Mirror flags (rendering — "Sprite facing/orientation is a flip flag, not mirrored art"). Nullable
+        // and written ONLY when true (CanonicalJson omits nulls): every pre-flip `.mdscene` — including the
+        // committed reference levels the byte-level fixed-point tests pin — stays byte-identical, and an
+        // absent key reads back as false.
+        [JsonPropertyName("flipHorizontally")] public bool? FlipHorizontally { get; set; }
+        [JsonPropertyName("flipVertically")] public bool? FlipVertically { get; set; }
         // SOURCE sort fields — never the per-frame-derived DrawComponent.LayerDepth.
         [JsonPropertyName("layerDepth")] public float LayerDepth { get; set; }
         [JsonPropertyName("ySortOffset")] public float YSortOffset { get; set; }
@@ -154,6 +162,8 @@ public static class EngineComponentSerializers
             Origin = Vec(s.Origin),
             Offset = Vec(s.Offset),
             Target = s.Target,
+            FlipHorizontally = s.FlipHorizontally ? true : null, // omit-when-false: keeps pre-flip scenes byte-identical
+            FlipVertically = s.FlipVertically ? true : null,
             LayerDepth = s.LayerDepth,
             YSortOffset = s.YSortOffset,
             YSortDepthBias = s.YSortDepthBias,
@@ -173,6 +183,8 @@ public static class EngineComponentSerializers
             Origin = ToVec(dto.Origin),
             Offset = ToVec(dto.Offset),
             Target = dto.Target,
+            FlipHorizontally = dto.FlipHorizontally ?? false, // absent key ⇒ unflipped
+            FlipVertically = dto.FlipVertically ?? false,
             LayerDepth = dto.LayerDepth,
             YSortOffset = dto.YSortOffset,
             YSortDepthBias = dto.YSortDepthBias,
