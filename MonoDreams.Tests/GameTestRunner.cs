@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -173,7 +174,7 @@ public static class GameTestRunner
             await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
         }
 
-        return await RunProcessAsync("run --project MonoDreams.Examples.Desktop -- --headless", debugDir,
+        return await RunProcessAsync("MonoDreams.Examples.Desktop", "--headless", debugDir,
             timeoutSeconds, environment);
     }
 
@@ -196,7 +197,7 @@ public static class GameTestRunner
         EditorOpPlan? editorOpPlan = null)
     {
         var debugDir = CreateDebugDir();
-        var args = $"run --project MonoDreams.Demos -- --headless --screen {screen} --frames {frames} " +
+        var args = $"--headless --screen {screen} --frames {frames} " +
                    $"--exit --capture-every {captureEvery} --sample-every {sampleEvery}";
 
         // The headless editor-op channel (TD): the Demos launcher has no InputReplaySystem, so a scripted
@@ -213,7 +214,7 @@ public static class GameTestRunner
             foreach (var (key, value) in environment)
                 env[key] = value;
 
-        return await RunProcessAsync(args, debugDir, timeoutSeconds, env);
+        return await RunProcessAsync("MonoDreams.Demos", args, debugDir, timeoutSeconds, env);
     }
 
     private static string CreateDebugDir()
@@ -250,11 +251,50 @@ public static class GameTestRunner
         return root;
     }
 
-    private static async Task<GameTestResult> RunProcessAsync(string arguments, string debugDir, int timeoutSeconds,
-        IReadOnlyDictionary<string, string>? environment = null)
+    /// <summary>One Release build per HEAD per test process, serialized — never at spawn time. A
+    /// spawn-time `dotnet run` build on a cold machine blows the per-test timeout (full build + the
+    /// MGCB dotnet-tool install), and a timeout kill mid-tool-install poisons the NuGet tool store
+    /// for every later build ("Cannot create … already exists" — the CI failure this retired).
+    /// Core builds FIRST, its own step: the heads' MGCB content step references MonoDreams.dll by
+    /// absolute path, not as an MSBuild dependency (the repo's core-first build rule).</summary>
+    private static readonly ConcurrentDictionary<string, Lazy<Task>> BuiltHeads = new();
+
+    private static Task EnsureBuiltAsync(string project) =>
+        BuiltHeads.GetOrAdd(project, p => new Lazy<Task>(() => Task.Run(async () =>
+        {
+            foreach (var target in new[] { Path.Combine("MonoDreams", "MonoDreams.csproj"), p })
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    Arguments = $"build {target} --configuration Release --nologo -v q",
+                    WorkingDirectory = FindRepoRoot(),
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+                using var build = Process.Start(psi)!;
+                var stdOut = build.StandardOutput.ReadToEndAsync();
+                var stdErr = build.StandardError.ReadToEndAsync();
+                await build.WaitForExitAsync();
+                if (build.ExitCode != 0)
+                    throw new InvalidOperationException(
+                        $"Pre-building '{target}' (Release) failed with exit {build.ExitCode}.\n" +
+                        $"{await stdOut}\n{await stdErr}");
+            }
+        }))).Value;
+
+    private static async Task<GameTestResult> RunProcessAsync(string project, string gameArguments,
+        string debugDir, int timeoutSeconds, IReadOnlyDictionary<string, string>? environment = null)
     {
         var repoRoot = FindRepoRoot();
         var projectRoot = CreateIsolatedProjectRoot();
+        await EnsureBuiltAsync(project);
+        // --no-build: the spawn only evaluates the project to find the Release output — no compile,
+        // no content build, no tool install — so a spawn is fast and safe on any machine state.
+        var arguments = $"run --configuration Release --no-build --project {project} -- {gameArguments}";
 
         var psi = new ProcessStartInfo
         {
