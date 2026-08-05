@@ -145,6 +145,64 @@ walks the island — the pre-mortem #1 tripwire).
 **Depends on:** this file — "A collider's body is resolved via `ColliderBody.Resolve`";
 foundation — "`TransformComponent.Delta` is meaningful only after `TransformCommitSystem` ran".
 
+## Overlapping bodies depenetrate; only separated ones sweep
+
+Box-vs-box resolution dispatches on `dynamicRect.Intersects(targetRect)` — `CollisionRect`
+compares with strict `<`/`>`, so a pair that merely TOUCHES does not intersect. An
+already-overlapping pair takes `ResolvePenetration`: translate the BODY along the minimum
+translation vector — the shortest of the four exits out of the target rect — and zero the
+body's velocity on that axis. A separated or strictly-touching pair takes the swept solve
+(`DynamicRectVsRect`, then the correction that lands the collider's centre on the contact
+point). Penetration and approach are different problems; only the approach has a meaningful
+contact time.
+
+**Why:** a swept solve whose START is inside the target returns a NEGATIVE contact time, and
+its contact point then sits arbitrarily far back along the motion — proportional to the
+TARGET's size, because the ray is cast against a target expanded by the mover's own extent.
+Any overlap (knockback, a spawner or teleport placing a body inside geometry, a corner clip
+of one big merged collider) therefore hurls the body through the target and out the far side;
+at a world edge that means clean out of the world, where it falls forever. The MTV correction
+is independent of both the overlap depth and the target's size, so a body stuck inside
+terrain self-heals in a frame or two.
+**Breaks:** routing overlap through the sweep reintroduces the teleport-across-terrain bug.
+Making touching count as intersecting (relaxing `CollisionRect`'s bounds from strict `<`/`>`
+to `<=`/`>=`) routes every resting contact through depenetration and jitters bodies that are
+merely standing on the floor. Handling one message twice in a frame also breaks it — see
+"Each collision message is handled exactly once per resolution system".
+**Tests:** `MonoDreams.Tests/Collision/PenetrationResolutionTests.cs` —
+`OverlappingBody_ExitsByTheNearestFace` (all four faces of a big wall),
+`OverlappingBody_WithVelocityIntoTheWall_ExitsNearestFace_NotThroughTheFarSide` (the knockback
+shape), `TouchingBodyAtRest_IsNotDepenetrated_AndDoesNotJitter`, and
+`ApproachingBody_IsBlockedAtTheWallFace_SweepPathUnchanged` (the sweep path unchanged).
+**Depends on:** this file — "Resolution corrects the BODY's Transform/Velocity, never the
+collider child" (the depenetration write-back lands on the body, exactly like the swept one).
+
+## Each collision message is handled exactly once per resolution system
+
+`TransformCollisionResolutionSystem` annotates its `virtual On(in TCollisionMessage)` with
+`[Subscribe]`, and `World.Subscribe(this)` registers every `[Subscribe]` method DefaultEcs
+finds walking the type hierarchy. A subclass that filters or extends the handler (as
+`TransformPhysicalCollisionResolutionSystem` does for `CollisionType.Physics`) therefore
+overrides `On` WITHOUT re-applying `[Subscribe]`: the base registration already dispatches
+virtually to the override, so annotating both registers the same handler twice and every
+message is resolved twice per frame.
+
+**Why:** resolution is stateful across a frame — each `Resolve*` re-validates against the
+CURRENT positions and reads the body's `TransformComponent.Delta`, which by then already
+contains the earlier correction. A second pass over the same message therefore re-solves
+against a delta that includes its own answer. For a near-face swept block that re-solve is a
+zero-length correction (the mover's centre lands exactly on the expanded target's face),
+which is why a duplicate registration can hide indefinitely; after a depenetration that exits
+ALONG the motion, the same re-solve back-projects the body clean across the target.
+**Breaks:** duplicate handling silently undoes depenetration (the body ends up on the far side
+of the collider it was just pushed out of), publishes `RigidBodyTouchMessage` twice per
+contact, and doubles resolution's per-frame work.
+**Tests:** `MonoDreams.Tests/Collision/PenetrationResolutionTests.cs` (every case drives the
+shipping `TransformPhysicalCollisionResolutionSystem`, so all of them fail if the override is
+re-annotated).
+**Depends on:** this file — "Overlapping bodies depenetrate; only separated ones sweep";
+"Multi-collider bodies are legal; resolution accumulates sequentially with re-validation".
+
 ## Multi-collider bodies are legal; resolution accumulates sequentially with re-validation
 
 A body may own N collider children (the former one-collider-of-each-type-per-entity
