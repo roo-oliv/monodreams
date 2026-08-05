@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
@@ -27,7 +28,9 @@ namespace MonoDreams.LevelEditor.Assets;
 public static class TriggerFactory
 {
     /// <summary>Builds the trigger stack at <paramref name="position"/> with identity
-    /// <c>(type.Prefix, name)</c> and a passive box of the type's size, centered on the point.</summary>
+    /// <c>(type.Prefix, name)</c> and a passive box of the type's size, centered on the point.
+    /// The type's <see cref="TriggerType.ActiveLayers"/> scope the box (null = collider default);
+    /// its <see cref="TriggerType.Configure"/> hook then attaches any game components.</summary>
     public static Entity Create(World world, TriggerType type, Vector2 position, string name)
     {
         var entity = world.CreateEntity();
@@ -35,7 +38,10 @@ public static class TriggerFactory
         entity.Set(new TransformComponent(position));
         // A trigger IS a standalone collider entity now (collider == body): the box is centered on
         // the placement point by the shape itself (former CenteredBounds), no offset needed.
-        entity.Set(new BoxColliderComponent(type.Size, passive: true));
+        entity.Set(type.ActiveLayers != null
+            ? new BoxColliderComponent(type.Size, activeLayers: new HashSet<int>(type.ActiveLayers), passive: true)
+            : new BoxColliderComponent(type.Size, passive: true));
+        type.Configure?.Invoke(entity);
         // No SceneObjectComponent here — the placement path's CreateEntityCommand tags the root.
         return entity;
     }

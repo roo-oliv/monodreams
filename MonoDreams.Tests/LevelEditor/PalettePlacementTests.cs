@@ -14,7 +14,9 @@ using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
 using MonoDreams.Platform;
+using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.UI;
 using Xunit;
 using GameCamera = MonoDreams.Component.Camera;
 
@@ -36,6 +38,12 @@ namespace MonoDreams.Tests.LevelEditor;
 ///   standard prop stack, parented to the ACTIVE scene layer (the layers wave: the LAYER is the
 ///   <c>SceneObjectComponent</c> save-root), auto-selected; undo removes it; repeated presses keep
 ///   placing.</item>
+///   <item><b>Duplicate stamps:</b> a wobbling/back-tracking hold-drag stamps exactly one copy per
+///   cell (the per-stroke visited set), and re-clicking a cell that already holds the identical prop
+///   is a loud-logged no-op that costs no undo step (the cross-stroke guard).</item>
+///   <item><b>Bottom-shelf tabs:</b> the active tab is part of the palette's layout cache key, so a
+///   PROGRAMMATIC switch (the <c>panel:tab</c> op writing the shared shell state) re-lays the shelf —
+///   the Assets chrome is never left painted over the Prefabs tab.</item>
 ///   <item><b>Headless channel:</b> a scripted <c>ToolbarAction</c> op's raw string (the
 ///   <c>palette:&lt;id&gt;</c> grammar) reaches the named dispatch.</item>
 /// </list>
@@ -570,6 +578,99 @@ public class PalettePlacementTests
     }
 
     [Fact]
+    public void MultiStampTest_WobblingDragStampsOneCopyPerCell_NeverDoublesARevisitedCell()
+    {
+        using var world = new World();
+        var gizmoState = MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        using var palette = MakePalette(world, history, serializer);
+
+        // Snap ON at the same quantum as the spacing, so every stamp of the drag lands exactly on a
+        // grid cell — the tile-painting case where a wobbling hand re-enters a cell it already filled.
+        {
+            ref var state = ref gizmoState.Get<GizmoStateComponent>();
+            state.SnapEnabled = true;
+            state.GridStep = 32f;
+            state.StampSpacing = 32f;
+        }
+        palette.ArmByIndex(0);
+        palette.SelectBand("Ground"); // top-left origin: position = snap(cursor − centre(16,16))
+
+        // Press in cell A (cursor (16,16) → position (0,0)).
+        SetCursor(cursor, new Vector2(16, 16), leftPressed: true);
+        palette.Update(Edit());
+        Assert.Single(PlacedProps(world));
+
+        // Drag one cell right into B (cursor (48,16) → position (32,0)).
+        SetCursor(cursor, new Vector2(48, 16), leftDown: true);
+        palette.Update(Edit());
+        Assert.Equal(2, PlacedProps(world).Count);
+
+        // Wobble BACK into A, then forward into B again — both cells were already filled by THIS
+        // stroke, so the per-stroke visited set drops both stamps (the previous-position guard alone
+        // catches neither: the last stamp was the OTHER cell each time).
+        SetCursor(cursor, new Vector2(16, 16), leftDown: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(48, 16), leftDown: true);
+        palette.Update(Edit());
+        Assert.Equal(2, PlacedProps(world).Count);
+
+        // Exactly one copy per cell, and the whole wobble is still ONE undo step.
+        SetCursor(cursor, new Vector2(48, 16), leftReleased: true);
+        palette.Update(Edit());
+        var xs = new List<float>();
+        foreach (var e in PlacedProps(world)) xs.Add(e.Get<TransformComponent>().Position.X);
+        xs.Sort();
+        Assert.Equal(new[] { 0f, 32f }, xs);
+        Assert.Equal(1, history.Count);
+
+        history.Undo();
+        Assert.Empty(PlacedProps(world));
+    }
+
+    [Fact]
+    public void PlacementTest_ReClickingAFilledCellIsALoudNoOp_AcrossStrokes()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        using var palette = MakePalette(world, history, serializer);
+
+        palette.ArmByIndex(0);
+        palette.SelectBand("Ground");
+
+        // Stroke 1: one click places the prop at (104,64) (cursor − centre(16,16)).
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+        var placed = Assert.Single(PlacedProps(world));
+        Assert.Equal(new Vector2(104, 64), placed.Get<TransformComponent>().Position);
+        Assert.Equal(1, history.Count);
+
+        // Stroke 2 at EXACTLY the same spot with the same entry + band: the cross-stroke duplicate
+        // guard skips it (identical props must never stack invisibly), and because nothing was pushed
+        // the stroke's transaction commits no history entry either — the no-op costs no undo step.
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+        Assert.Equal(placed, Assert.Single(PlacedProps(world)));
+        Assert.Equal(1, history.Count);
+
+        // The guard is narrow — the same prop one cell over still places (it is the CELL that is
+        // occupied, not the asset that is spent).
+        SetCursor(cursor, new Vector2(152, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(152, 80), leftReleased: true);
+        palette.Update(Edit());
+        Assert.Equal(2, PlacedProps(world).Count);
+        Assert.Equal(2, history.Count);
+    }
+
+    [Fact]
     public void PlacementTest_NoPlacementOutsideViewportOrDisarmed()
     {
         using var world = new World();
@@ -1049,6 +1150,81 @@ public class PalettePlacementTests
         Assert.False(palette.HasCrosshair);
         palette.Dispose();
     }
+
+    // ---- Bottom-shelf tab chrome (the active tab is part of the layout cache key) ----
+
+    /// <summary>A palette WITH chrome (a headless <see cref="ViewportManager"/> — it never dereferences
+    /// its Game — and a null font, so labels lay out but no text prep runs), sharing the shell state the
+    /// <c>panel:tab</c> op writes.</summary>
+    private static PalettePlacementSystem MakeChromePalette(World world, EditorHistory history,
+        SceneSerializer serializer, EditorShellStateComponent shell) =>
+        new(world, MakeCatalog(), Bands, MakeLoader(), serializer, history,
+            viewportManager: new ViewportManager(null, 800, 600)
+                { ScreenWidth = 1600, ScreenHeight = 900, DevicePixelRatio = 1f },
+            font: null, shellState: shell);
+
+    /// <summary>The palette's on-screen chrome widgets: every <see cref="SimpleButtonComponent"/> that is
+    /// not parked off-screen (the chrome hides by parking, never by a flag).</summary>
+    private static int OnScreenButtons(World world)
+    {
+        using var set = world.GetEntities().With<SimpleButtonComponent>().AsSet();
+        var n = 0;
+        foreach (var e in set.GetEntities())
+            if (e.Get<TransformComponent>().Position != SystemsPanelLayout.ParkedPosition) n++;
+        return n;
+    }
+
+    /// <summary>Whether the chrome label carrying exactly <paramref name="text"/> is on-screen.</summary>
+    private static bool LabelOnScreen(World world, string text)
+    {
+        using var set = world.GetEntities().With<DynamicTextComponent>().AsSet();
+        foreach (var e in set.GetEntities())
+            if (e.Get<DynamicTextComponent>().TextContent == text)
+                return e.Get<TransformComponent>().Position != SystemsPanelLayout.ParkedPosition;
+        return false;
+    }
+
+    [Fact]
+    public void BottomTab_ProgrammaticSwitch_RelaysTheShelfChrome_NotJustTheClickHandler()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var shell = new EditorShellStateComponent();
+        using var palette = MakeChromePalette(world, history, serializer, shell);
+
+        // First frame builds + lays out the chrome for the default Assets tab.
+        palette.Update(Edit());
+        Assert.Equal(EditorBottomTab.Assets, shell.ActiveBottomTab);
+        var assetsButtons = OnScreenButtons(world);
+        Assert.True(assetsButtons > 2, "the Assets tab shows its band row + cards beside the tab strip");
+        Assert.True(LabelOnScreen(world, "Ground"));      // the Assets-tab band selector
+        Assert.False(LabelOnScreen(world, PrefabEmptyHint)); // the Prefabs body is parked
+
+        // The programmatic switch the `panel:tab prefabs` op performs: it writes the SHARED shell state
+        // and nothing else — no resize, no scroll change, no click through the palette's hit-test. The
+        // active tab is part of the layout cache key, so the next frame re-lays the shelf.
+        shell.ActiveBottomTab = EditorBottomTab.Prefabs;
+        palette.Update(Edit());
+
+        // Every Assets widget is parked and the Prefabs body is laid out — no stale Assets chrome
+        // painted over the Prefabs tab.
+        Assert.Equal(2, OnScreenButtons(world)); // only the Assets | Prefabs tab strip itself
+        Assert.False(LabelOnScreen(world, "Ground"));
+        Assert.True(LabelOnScreen(world, PrefabEmptyHint));
+
+        // And back: the switch re-lays in both directions.
+        shell.ActiveBottomTab = EditorBottomTab.Assets;
+        palette.Update(Edit());
+        Assert.Equal(assetsButtons, OnScreenButtons(world));
+        Assert.True(LabelOnScreen(world, "Ground"));
+        Assert.False(LabelOnScreen(world, PrefabEmptyHint));
+    }
+
+    /// <summary>The Prefabs tab's empty-shelf message (the observable that its body was laid out).</summary>
+    private const string PrefabEmptyHint =
+        "No prefabs - Create Empty Prefab (right-click) or from a selection";
 }
 
 /// <summary>

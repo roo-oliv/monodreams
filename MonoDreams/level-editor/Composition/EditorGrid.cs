@@ -113,14 +113,25 @@ public sealed class EditorGrid
         var indices = new List<int>(plan.LineCount * 6);
         var offset = 0;
 
+        // Density fade: the grid must never shout. The base look is already more transparent than
+        // the theme roles, and MINOR lines fade further in STEPS as their on-screen spacing shrinks
+        // (zooming out packs them together) — majors keep the base alpha throughout, so the coarse
+        // cadence stays readable at any zoom.
+        var screenSpacing = MathF.Abs(
+            projection.ToScreen(new Vector2(spacing, 0f)).X - projection.ToScreen(Vector2.Zero).X);
+        var minorFade = screenSpacing >= 48f ? 1f
+            : screenSpacing >= 24f ? 0.55f
+            : screenSpacing >= 12f ? 0.3f
+            : 0f; // packed solid — minors vanish, majors carry the grid
+
         // Vertical lines: constant world X, spanning the visible Y range.
         foreach (var line in plan.VerticalLines)
             AddLine(vertices, indices, ref offset, projection,
-                new Vector2(line.Coordinate, top), new Vector2(line.Coordinate, bottom), line.Major);
+                new Vector2(line.Coordinate, top), new Vector2(line.Coordinate, bottom), line.Major, minorFade);
         // Horizontal lines: constant world Y, spanning the visible X range.
         foreach (var line in plan.HorizontalLines)
             AddLine(vertices, indices, ref offset, projection,
-                new Vector2(left, line.Coordinate), new Vector2(right, line.Coordinate), line.Major);
+                new Vector2(left, line.Coordinate), new Vector2(right, line.Coordinate), line.Major, minorFade);
 
         var mesh = OverlayMeshClip.ClipToRect(
             new MeshData(vertices.ToArray(), indices.ToArray()), projection.Viewport);
@@ -134,10 +145,23 @@ public sealed class EditorGrid
         draw.LayerDepth = EditorTheme.Depths.Grid;
     }
 
+    /// <summary>The grid's base alpha — deliberately quieter than the raw theme roles (the grid is
+    /// a reference, not content). Minor lines multiply the density fade on top.</summary>
+    private const float BaseAlpha = 0.55f;
+
     private void AddLine(List<VertexPositionColor> vertices, List<int> indices, ref int offset,
-        in OverlayProjection projection, Vector2 worldA, Vector2 worldB, bool major)
+        in OverlayProjection projection, Vector2 worldA, Vector2 worldB, bool major, float minorFade)
     {
-        var color = major ? EditorTheme.GridMajor : EditorTheme.GridMinor;
+        var alpha = major ? BaseAlpha : BaseAlpha * minorFade;
+        if (alpha <= 0.01f) return;
+        var baseColor = major ? EditorTheme.GridMajor : EditorTheme.GridMinor;
+        // Premultiplied fade (the mesh path blends premultiplied — see the UI-fills premise): R, G, B
+        // AND A all scale by alpha, which is exactly a lerp of the role TOWARDS Color.Transparent
+        // (0,0,0,0). Straight alpha here (scaling only A) reads BRIGHTER, not fainter. Expressed as
+        // Lerp/Transparent rather than a raw `new Color(...)` because both are the palette lint's
+        // blessed escape hatches — this fades a role that was ALREADY chosen, it adds no new palette
+        // value (EditorThemeLintTests).
+        var color = Color.Lerp(Color.Transparent, baseColor, alpha);
         var thickness = projection.ToScreenSize(major ? MajorPixelThickness : MinorPixelThickness);
         LineMeshGenerator.AddLine(vertices, indices,
             projection.ToScreen(worldA), projection.ToScreen(worldB), thickness, color, ref offset);

@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using DefaultEcs;
 using Microsoft.Xna.Framework;
 
 namespace MonoDreams.LevelEditor.Assets;
@@ -28,4 +30,16 @@ public readonly record struct TriggerType(string Prefix, string Label, Vector2 S
 
     /// <summary>Builds a trigger type with the <see cref="DefaultSize"/> box.</summary>
     public TriggerType(string prefix, string label) : this(prefix, label, DefaultSize) { }
+
+    /// <summary>The collision layers the placed box participates in, or null for the collider's
+    /// default (all layers). A game whose contact systems pattern-match on layers should scope its
+    /// zones (a solid platform box on the solid layers; a pure MARKER on an empty array — a box
+    /// that collides with nothing, selectable in the editor, inert in play).</summary>
+    public int[]? ActiveLayers { get; init; }
+
+    /// <summary>An optional game hook invoked on the freshly-built trigger entity — the seam that
+    /// attaches game components (a spawn marker, a zone tag) so one palette click authors a fully
+    /// functional game object. Runs after the standard stack (EntityInfo + Transform + BoxCollider);
+    /// it round-trips only if the components it sets have registered serializers.</summary>
+    public Action<Entity>? Configure { get; init; }
 }

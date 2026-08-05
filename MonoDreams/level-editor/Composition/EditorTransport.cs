@@ -364,13 +364,32 @@ public sealed class EditorTransport
         }
 
         state.RunMode = RunMode.Edit; // Paused first, so nothing simulates over the teardown
-        _history.Clear();             // undo entries reference the entities about to die
+
+        // Restart-undo: capture the pre-restart world as DATA before anything dies, so one Ctrl+Z can
+        // bring an accidental Restart's discarded edits back. The history still CLEARS (its entries
+        // reference the entities about to die) — the pushed RestartUndoCommand is the one surviving
+        // entry, giving exactly one level of recovery.
+        var backup = _stack.CaptureSnapshot?.Invoke();
+
+        _history.Clear();
 
         // Drop any Game tab and forget the Scene context's in-memory snapshot: the snapshot IS an unsaved
         // edit, and Restart's contract is "discards unsaved edits" — the disk reload below is the source
         // of truth. Lands on the Scene tab.
         _stack.ResetToScene();
 
+        ReloadFromDisk();
+
+        if (backup != null && _stack.RestoreSnapshot != null)
+            _history.PushApplied(new RestartUndoCommand(backup, ReloadFromDisk, RestoreBackup));
+
+        Logger.Info("[level-editor] Transport: Restart — scene rebuilt from the original load " +
+                    "request; unsaved edits discarded (Undo recovers them). Scene tab, Paused.");
+    }
+
+    /// <summary>The restart teardown + reload-from-disk core (also the restart-undo entry's REDO).</summary>
+    private void ReloadFromDisk()
+    {
         // The world-level level components must go BEFORE the re-publish: the LDtk parsers react
         // to CurrentLevelComponent ADDED (a Set over a present component fires Changed instead).
         _world.Remove<CurrentLevelComponent>();
@@ -378,9 +397,19 @@ public sealed class EditorTransport
 
         DisposeSceneEntities();
         Reload();
+    }
 
-        Logger.Info("[level-editor] Transport: Restart — scene rebuilt from the original load " +
-                    "request; unsaved edits (incl. any Game-tab sandbox) discarded. Scene tab, Paused.");
+    /// <summary>The restart-undo entry's REVERT: tear the restarted world down and restore the
+    /// captured pre-restart snapshot through the reader (the tab-switch restore path), code-built
+    /// content rebuilt around it.</summary>
+    private void RestoreBackup(SceneData backup)
+    {
+        _world.Remove<CurrentLevelComponent>();
+        _world.Remove<CurrentBackgroundColorComponent>();
+        DisposeSceneEntities();
+        RebuildCodeContent?.Invoke();
+        _stack.RestoreSnapshot?.Invoke(backup);
+        Logger.Info("[level-editor] Restart undone — the pre-restart world (unsaved edits included) is back.");
     }
 
     private void DisposeSceneEntities()

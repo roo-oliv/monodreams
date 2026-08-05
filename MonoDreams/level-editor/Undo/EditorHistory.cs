@@ -108,6 +108,21 @@ public sealed class EditorHistory
         AddEntry(command);
     }
 
+    /// <summary>
+    /// Records <paramref name="command"/> WITHOUT invoking <see cref="IEditorCommand.Apply"/> — for
+    /// mutations that already happened outside the history (the transport's Restart pushes its
+    /// undo entry this way: re-running the teardown just to record it would double the work).
+    /// The command must still honor the replayability contract (Apply after a Revert reproduces
+    /// the result) so redo works. Refused inside a transaction (an already-applied command cannot
+    /// coalesce with live pushes).
+    /// </summary>
+    public void PushApplied(IEditorCommand command)
+    {
+        if (_transaction != null)
+            throw new InvalidOperationException("PushApplied is not valid inside a coalescing transaction.");
+        AddEntry(command);
+    }
+
     /// <summary>Begins a coalescing transaction. Pushes until <see cref="CommitTransaction"/> apply
     /// live but collapse into one entry. Idempotent guard: throws if a transaction is already open.</summary>
     public void BeginTransaction()

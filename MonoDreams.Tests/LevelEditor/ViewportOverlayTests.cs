@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.LevelEditor.Component;
@@ -20,7 +22,8 @@ namespace MonoDreams.Tests.LevelEditor;
 /// Protects the viewport Overlays wave (UX3-D §3/§6/§7): the settings-component defaults, the
 /// <see cref="ViewportOverlayOps"/> op/menu channels (with the ONE spacing value = the gizmo snap
 /// step), the <see cref="EditorGrid"/> emission (lines at the shared spacing, viewport-clipped,
-/// Editor target, no VisibleComponent, bounded), and the three gates: the selection-outline
+/// Editor target, no VisibleComponent, bounded, and density-faded PREMULTIPLIED so a zoomed-out view
+/// never congeals into a solid wall of lines), and the three gates: the selection-outline
 /// suppression, the camera-glyph suppression, and the Game-mode hide. Pure/logic — no GraphicsDevice
 /// (the <see cref="ViewportManager"/> never dereferences its Game).
 /// </summary>
@@ -242,6 +245,66 @@ public class ViewportOverlayTests
         // vertices each after clipping).
         Assert.True(n <= 2 * GridGeometry.MinorLineCapPerAxis * 16,
             $"grid vertex count {n} is not bounded by the cap");
+    }
+
+    /// <summary>Every distinct vertex color the baked grid mesh carries (all four vertices of a line's
+    /// quad share one color, and clipping only ever interpolates between equal colors — so the set is
+    /// exactly "which line strengths were emitted").</summary>
+    private static HashSet<Color> GridColors(EditorGrid grid)
+    {
+        var colors = new HashSet<Color>();
+        foreach (var v in grid.Entity.Get<DrawComponent>().Vertices ?? Array.Empty<VertexPositionColor>())
+            colors.Add(v.Color);
+        return colors;
+    }
+
+    /// <summary>A theme role faded PREMULTIPLIED — R, G, B AND A all scaled, which is a lerp of the role
+    /// towards <see cref="Color.Transparent"/> (what the mesh path blends).</summary>
+    private static Color Faded(Color role, float alpha) => Color.Lerp(Color.Transparent, role, alpha);
+
+    [Fact]
+    public void Grid_MinorLines_FadeByOnScreenDensity_Premultiplied_MajorsCarryThePackedGrid()
+    {
+        using var world = new World();
+        var vm = Vm(1600, 1200); // 800×600 virtual on a 1600×1200 window → 1 world unit = 2 device px
+
+        // Zoomed in: a 32-unit step spans 64 device px (≥48) → minors keep the FULL base alpha.
+        var near = new GameCamera(800, 600) { Zoom = 1f, Position = Vector2.Zero };
+        var (nearGrid, _) = MakeGrid(world, near, vm, spacing: 32f);
+        nearGrid.EmitGrid(Edit());
+        var nearColors = GridColors(nearGrid);
+        Assert.Contains(Faded(EditorTheme.GridMajor, 0.55f), nearColors);
+        Assert.Contains(Faded(EditorTheme.GridMinor, 0.55f), nearColors);
+
+        // The fade is PREMULTIPLIED: a straight-alpha fade (role RGB, scaled A only) reads BRIGHTER on
+        // this path, not fainter — the premultiplied-mesh premise. It must never be emitted.
+        var straightAlpha = EditorTheme.GridMinor;
+        straightAlpha.A = (byte)(EditorTheme.GridMinor.A * 0.55f);
+        Assert.DoesNotContain(straightAlpha, nearColors);
+
+        // Zoom out to 0.5×: the same step now spans 32 device px (≥24) → minors step DOWN one notch,
+        // majors are untouched (the coarse cadence stays readable at any zoom).
+        var mid = new GameCamera(800, 600) { Zoom = 0.5f, Position = Vector2.Zero };
+        var (midGrid, _) = MakeGrid(world, mid, vm, spacing: 32f);
+        midGrid.EmitGrid(Edit());
+        var midColors = GridColors(midGrid);
+        Assert.Contains(Faded(EditorTheme.GridMajor, 0.55f), midColors);
+        Assert.Contains(Faded(EditorTheme.GridMinor, 0.55f * 0.55f), midColors);
+        Assert.DoesNotContain(Faded(EditorTheme.GridMinor, 0.55f), midColors); // strictly fainter
+
+        // Packed solid: a 20-unit step at 0.25× zoom spans 10 device px (<12) → the minors VANISH and
+        // the majors carry the grid alone, so a zoomed-out view never congeals into a wall of lines.
+        var far = new GameCamera(800, 600) { Zoom = 0.25f, Position = Vector2.Zero };
+        var (farGrid, _) = MakeGrid(world, far, vm, spacing: 20f);
+        farGrid.EmitGrid(Edit());
+        // The PLAN at this zoom still WANTS minors (a 3200×2400-unit visible span at spacing 20 is
+        // 161 lines/axis, under the cap) — so it is the density FADE that dropped them here, not the
+        // bounded degradation of Grid_ModerateZoomOut_StaysBounded_MajorOnly.
+        Assert.Equal(GridGeometry.GridDensity.Full,
+            GridGeometry.Plan(0f, 0f, 3200f, 2400f, 20f).Density);
+        Assert.True(VertexCount(farGrid) > 0);
+        // ONE strength survives — the majors, at the unfaded base alpha.
+        Assert.Equal(Faded(EditorTheme.GridMajor, 0.55f), Assert.Single(GridColors(farGrid)));
     }
 
     // ═══ Gate: selection outline (OutlineSelected) — suppresses only the outline ═════════════════════
