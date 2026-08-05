@@ -31,6 +31,13 @@ namespace MonoDreams.LevelEditor.Serialization;
 ///   byte-identical), and the SOURCE sort fields
 ///   <c>LayerDepth</c> / <c>YSortOffset</c> / <c>YSortDepthBias</c>. Never the per-frame-derived
 ///   <c>DrawComponent.LayerDepth</c>.</item>
+///   <item><c>SpriteAnimationComponent</c> — the AUTHORED clip only: the frame list (each frame's
+///   <c>assetKey</c> — omitted when null, i.e. an atlas animation that keeps the sprite's texture —
+///   <c>source</c> and <c>duration</c>), <c>defaultFrameDuration</c>, <c>loop</c>, <c>playing</c> and
+///   <c>speed</c>. Never the RUNTIME playback state <c>Time</c> / <c>FrameIndex</c>, which
+///   <c>SpriteAnimationSystem</c> rewrites every frame: persisting them would bake one arbitrary
+///   playback moment into the file and break the <c>load → save</c> byte fixed point. A loaded clip
+///   therefore always starts from frame 0.</item>
 ///   <item><c>EntityInfoComponent</c> — type + name.</item>
 ///   <item><c>BoxColliderComponent</c> / <c>ConvexColliderComponent</c> — collider shape + layers +
 ///   flags (world vertices and broad-phase AABB are derived and recomputed by detection).</item>
@@ -56,6 +63,7 @@ public static class EngineComponentSerializers
     // Stable component-type keys (the strings written to the scene file). Kept short + namespaced.
     public const string TransformKey = "core.Transform";
     public const string SpriteInfoKey = "core.SpriteInfo";
+    public const string SpriteAnimationKey = "core.SpriteAnimation";
     public const string EntityInfoKey = "core.EntityInfo";
     public const string BoxColliderKey = "core.BoxCollider";
     public const string ConvexColliderKey = "core.ConvexCollider";
@@ -73,6 +81,7 @@ public static class EngineComponentSerializers
 
         registry.Register(TransformKey, typeof(TransformComponent), WriteTransform, ReadTransform);
         registry.Register(SpriteInfoKey, typeof(SpriteInfoComponent), WriteSpriteInfo, ReadSpriteInfo);
+        registry.Register(SpriteAnimationKey, typeof(SpriteAnimationComponent), WriteSpriteAnimation, ReadSpriteAnimation);
         registry.Register(EntityInfoKey, typeof(EntityInfoComponent), WriteEntityInfo, ReadEntityInfo);
         registry.Register(BoxColliderKey, typeof(BoxColliderComponent), WriteBoxCollider, ReadBoxCollider);
         registry.Register(ConvexColliderKey, typeof(ConvexColliderComponent), WriteConvexCollider, ReadConvexCollider);
@@ -188,6 +197,70 @@ public static class EngineComponentSerializers
             LayerDepth = dto.LayerDepth,
             YSortOffset = dto.YSortOffset,
             YSortDepthBias = dto.YSortDepthBias,
+        });
+    }
+
+    // ---- SpriteAnimationComponent (the AUTHORED clip; never the runtime Time / FrameIndex) ----
+    // SpriteAnimationSystem rewrites Time and FrameIndex every frame from the elapsed game time, so
+    // they are derived playback state, exactly like DrawComponent.LayerDepth: writing them would bake
+    // one arbitrary playback moment into the file and make `load → save` depend on WHEN the save
+    // happened. Persisting only the authored clip keeps the byte fixed point and starts a loaded
+    // animation from frame 0.
+
+    private sealed class SpriteAnimationFrameDto
+    {
+        // Null (an atlas animation that keeps the sprite's current texture) is omitted by CanonicalJson.
+        [JsonPropertyName("assetKey")] public string? AssetKey { get; set; }
+        [JsonPropertyName("source")] public int[] Source { get; set; } = { 0, 0, 0, 0 };
+        [JsonPropertyName("duration")] public float Duration { get; set; }
+    }
+
+    private sealed class SpriteAnimationDto
+    {
+        [JsonPropertyName("frames")] public SpriteAnimationFrameDto[] Frames { get; set; } = Array.Empty<SpriteAnimationFrameDto>();
+        [JsonPropertyName("defaultFrameDuration")] public float DefaultFrameDuration { get; set; } = 0.12f;
+        [JsonPropertyName("loop")] public bool Loop { get; set; } = true;
+        [JsonPropertyName("playing")] public bool Playing { get; set; } = true;
+        [JsonPropertyName("speed")] public float Speed { get; set; } = 1f;
+    }
+
+    private static JsonElement WriteSpriteAnimation(Entity e)
+    {
+        var a = e.Get<SpriteAnimationComponent>();
+        var frames = a.Frames ?? Array.Empty<SpriteAnimationFrame>();
+        return CanonicalJson.SerializeToElement(new SpriteAnimationDto
+        {
+            Frames = frames.Select(f => new SpriteAnimationFrameDto
+            {
+                AssetKey = f.AssetKey, // the content key, never a live Texture2D
+                Source = Rect(f.Source),
+                Duration = f.Duration,
+            }).ToArray(),
+            DefaultFrameDuration = a.DefaultFrameDuration,
+            Loop = a.Loop,
+            Playing = a.Playing,
+            Speed = a.Speed,
+            // Time / FrameIndex deliberately absent — runtime playback state, see the note above.
+        });
+    }
+
+    private static void ReadSpriteAnimation(Entity e, JsonElement json)
+    {
+        var dto = json.Deserialize<SpriteAnimationDto>()!;
+        // Time = 0 and FrameIndex = -1 come from the component's field initializers, so a loaded clip
+        // starts from frame 0 (the system applies it on first sight).
+        e.Set(new SpriteAnimationComponent
+        {
+            Frames = (dto.Frames ?? Array.Empty<SpriteAnimationFrameDto>()).Select(f => new SpriteAnimationFrame
+            {
+                AssetKey = f.AssetKey,
+                Source = f.Source is { Length: 4 } s ? ToRect(s) : Rectangle.Empty,
+                Duration = f.Duration,
+            }).ToArray(),
+            DefaultFrameDuration = dto.DefaultFrameDuration,
+            Loop = dto.Loop,
+            Playing = dto.Playing,
+            Speed = dto.Speed,
         });
     }
 
