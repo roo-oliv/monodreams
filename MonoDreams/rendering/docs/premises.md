@@ -395,6 +395,61 @@ asserts a flat live heap across 600 frames of the camera demo (now four
 render passes).
 **Depends on:** —
 
+## The per-frame draw sort is allocation-free and stably ordered
+
+A `MasterRenderSystem` pass puts its draw elements in painter's order through a
+**reused, grow-only** `DrawSortBuffer` (`MonoDreams/rendering/System/Draw/DrawSortBuffer.cs`):
+`Update` calls `Rebuild(DrawSet.GetEntities())` — which refills the buffer in place
+with `(entity, draw-set index, DrawComponent)` for every element except a `Mesh`
+with no mesh data — then `Sort()`, then renders `Items[0..Count]`. The buffer grows
+only to the pass's high-water mark, so a steady-state frame allocates **nothing**
+to sort. The resulting order is **exactly** a stable sort by `LayerDepth` over the
+draw-set order: the in-place sort is introsort and therefore **not** stable, so the
+element's draw-set position is captured at rebuild time and compared explicitly as
+the tiebreaker (`depth`, then `index` — precisely `OrderBy(depth).ThenBy(index)`).
+Two mechanical consequences hold the "allocation-free" half in place: the comparer
+must be a **pre-bound `Comparison<T>` delegate** handed to `span.Sort`, because every
+`IComparer<T>` route re-materializes a delegate per call (measured on .NET 8:
+`Array.Sort(array, index, length, classComparer)` and `span.Sort(classComparer)` cost
+64 B per call, and a `struct` comparer through `span.Sort<T, TComparer>` is worse at
+88 B — the struct gets boxed to bind that delegate); and `RenderInterleaved` must
+iterate `0..Count`, never `Items.Length`, since the tail past `Count` is stale scratch
+(`Rebuild` clears it on a shrink so a leftover tuple cannot pin a disposed entity's
+texture or mesh buffers).
+
+**Why:** the pass used to sort through a LINQ chain
+(`GetEntities().ToArray() → Select((entity, index)) → Where(mesh valid) →
+OrderBy(LayerDepth) → ThenBy(index) → ToList()`) that allocated an entity array, an
+enumerable chain and a `List` **every frame, per render pass** — a dense tile field
+or a streamed terrain pass turns that into steady GC pressure in the frame loop, and
+a screen composes several passes. `LayerDepth` ties are common by construction
+(`SpritePrepSystem` gives a whole layer one depth, and `YSortSystem` leaves
+same-Y entities equal), so the stability of the old LINQ sort was load-bearing, not
+incidental: it is what "Y-sort tiebreaker is parent-child bias only" means by "falls
+through to entity insertion order".
+**Breaks:** dropping the `index` tiebreaker (or not recording it) lets introsort
+scramble equal-depth elements — same-depth sprites swap render order between frames
+as the draw set changes, i.e. flicker, with no error. Swapping the cached
+`Comparison<T>` for an `IComparer<T>` silently reintroduces a per-frame-per-pass
+allocation. Rebuilding the buffer per frame (`new` instead of reuse), or iterating
+`Items.Length`, reintroduces the garbage / draws stale elements from an earlier,
+larger frame. `SpriteSortMode.Deferred` in `BeginSpriteBatch` depends on this sort
+being correct — the batch does no sorting of its own.
+**Tests:** `MonoDreams.Tests/Rendering/DrawSortTests.cs` — drives the same
+`DrawSortBuffer` the renderer's frame path calls: the sorted order is
+element-for-element identical to the legacy LINQ chain re-run verbatim as the oracle
+(over a tie-heavy 500-element pass); an all-equal-depth pass comes out in exact
+draw-set order (the isolated stability case introsort scrambles without the
+tiebreaker); a `Mesh` with no/partial mesh data is excluded while every other element
+is kept; 500 rebuild+sort cycles over a 5000-element pass move
+`GC.GetAllocatedBytesForCurrentThread()` by exactly 0; and a shrinking pass releases
+its stale tail. `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`'s flat-heap
+assertion covers the same invariant end-to-end through the real renderer.
+**Depends on:** "The draw set is built once per instance, not per frame" (the sibling
+per-frame-allocation invariant — this one consumes that set); "Layer-depth ownership
+pipeline" (`LayerDepth` is final by the time the sort reads it); "Y-sort tiebreaker is
+parent-child bias only" (the insertion-order fallthrough this sort must preserve).
+
 ## Rendering systems run last in the pipeline
 
 In any screen's pipeline assembly, the prep / cull / sort / render stage
