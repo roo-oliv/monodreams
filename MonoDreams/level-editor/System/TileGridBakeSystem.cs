@@ -11,6 +11,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Component.Level;
 using MonoDreams.Extension;
 using MonoDreams.LevelEditor.Tile;
+using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.State;
 
@@ -437,7 +438,7 @@ public sealed class TileGridBakeSystem : ISystem<GameState>
                 AssetKey = skin.Value.TilesetKey,
                 Source = source,
                 Size = new Vector2(cell, cell),
-                Color = Color.White,
+                Color = EditorTheme.NeutralTint,
                 Target = RenderTargetID.Main,
                 LayerDepth = skin.Value.LayerDepth,
             });
@@ -493,13 +494,13 @@ public sealed class TileGridBakeSystem : ISystem<GameState>
             var baseIndex = group.Vertices.Count;
 
             group.Vertices.Add(new VertexPositionColorTexture(
-                new Vector3(origin.X, origin.Y, 0f), Color.White, new Vector2(u0, v0)));
+                new Vector3(origin.X, origin.Y, 0f), EditorTheme.NeutralTint, new Vector2(u0, v0)));
             group.Vertices.Add(new VertexPositionColorTexture(
-                new Vector3(origin.X + cell, origin.Y, 0f), Color.White, new Vector2(u1, v0)));
+                new Vector3(origin.X + cell, origin.Y, 0f), EditorTheme.NeutralTint, new Vector2(u1, v0)));
             group.Vertices.Add(new VertexPositionColorTexture(
-                new Vector3(origin.X + cell, origin.Y + cell, 0f), Color.White, new Vector2(u1, v1)));
+                new Vector3(origin.X + cell, origin.Y + cell, 0f), EditorTheme.NeutralTint, new Vector2(u1, v1)));
             group.Vertices.Add(new VertexPositionColorTexture(
-                new Vector3(origin.X, origin.Y + cell, 0f), Color.White, new Vector2(u0, v1)));
+                new Vector3(origin.X, origin.Y + cell, 0f), EditorTheme.NeutralTint, new Vector2(u0, v1)));
 
             group.Indices.Add(baseIndex);
             group.Indices.Add(baseIndex + 1);

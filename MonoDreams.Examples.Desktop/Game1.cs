@@ -79,6 +79,10 @@ public class Game1 : Game
             _graphics.PreferredBackBufferHeight = 1;
             _graphics.SynchronizeWithVerticalRetrace = false;
             IsFixedTimeStep = false;
+            // A hidden, never-activated window makes Game.IsActive false, and MonoGame throttles
+            // inactive games (InactiveSleepTime, 20ms/frame ≈ 50fps) — which would quietly break
+            // the headless max-speed contract. Headless never sleeps on inactivity.
+            InactiveSleepTime = TimeSpan.Zero;
         }
         else
         {
@@ -146,9 +150,14 @@ public class Game1 : Game
 
         if (_headless)
         {
-            // Off-screen window positioning is a desktop-only headless trick.
+            // Hiding the OS window is a desktop-only headless trick. SDL_HideWindow keeps the
+            // window (and its GL context) alive but off the screen AND out of the click path —
+            // macOS clamps off-screen positions back onto the display, so the position move alone
+            // left visible, accidentally-clickable windows there. The move stays as the fallback
+            // for a platform where the SDL hide is unavailable.
 #if !MONODREAMS_WEB
             Window.Position = new Point(-2000, -2000);
+            MonoDreams.Debug.HeadlessWindow.Hide(Window);
 #endif
             Logger.Info("Running in headless mode.");
         }
