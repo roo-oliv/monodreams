@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using DefaultEcs;
 using DefaultEcs.System;
@@ -15,9 +16,19 @@ namespace MonoDreams.System.Debug;
 /// <summary>
 /// Per-frame debug visualization for BoxColliderComponent and ConvexColliderComponent shapes.
 /// Creates ephemeral mesh entities each frame that render colored outlines:
-/// red = active, green = passive, gray = disabled.
+/// red = active, green = passive, gray = disabled — and WHITE for a moment after a contact.
 /// Development only — allocates per-frame (ToArray, transient entities) and is not
 /// intended for production builds.
+///
+/// <para><b>Filter.</b> <see cref="Filter"/> narrows what is drawn (null = every collider, the
+/// default). A game with hundreds of baked terrain colliders sets it to the handful it cares
+/// about — e.g. the player, enemies and hazards — so the overlay stays readable.</para>
+///
+/// <para><b>Flash.</b> <see cref="Flash"/> blinks a collider white for <see cref="FlashSeconds"/>,
+/// so an event that resolves within a single frame is still visible. It is <b>caller-driven on
+/// purpose</b>: flashing every contact would strobe constantly on the floor and walls a body rests
+/// against, which drowns out the events worth seeing. The game calls it from the moments it cares
+/// about — for this game, damage landing.</para>
 ///
 /// <para>Reads collider ENTITIES (colliders-as-entities): each collider is its own entity — a
 /// <c>ColliderTagComponent</c>-tagged shape + its own <c>TransformComponent</c> — and this system
@@ -39,6 +50,8 @@ public class ColliderDebugSystem : ISystem<GameState>
     private readonly World _world;
     private readonly EntitySet _colliderEntities;
     private readonly List<Entity> _debugEntities = [];
+    private readonly Dictionary<Entity, float> _flashing = new();
+    private readonly List<Entity> _expired = [];
 
     public ColliderDebugSystem(World world)
     {
@@ -51,6 +64,18 @@ public class ColliderDebugSystem : ISystem<GameState>
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>Which collider entities to draw; null (default) draws every one.</summary>
+    public Func<Entity, bool> Filter { get; set; }
+
+    /// <summary>How long a collider stays white after a contact.</summary>
+    public float FlashSeconds { get; set; } = 0.12f;
+
+    /// <summary>Blinks <paramref name="collider"/>'s outline white for <see cref="FlashSeconds"/>.</summary>
+    public void Flash(Entity collider)
+    {
+        if (collider.IsAlive) _flashing[collider] = FlashSeconds;
+    }
+
     public void Update(GameState state)
     {
         foreach (var entity in _debugEntities)
@@ -60,29 +85,41 @@ public class ColliderDebugSystem : ISystem<GameState>
         }
         _debugEntities.Clear();
 
+        // Age the flashes even while disabled, so re-enabling never shows a stale blink.
+        foreach (var (entity, remaining) in _flashing)
+        {
+            var left = remaining - state.Time;
+            if (left <= 0f || !entity.IsAlive) _expired.Add(entity);
+            else _flashing[entity] = left;
+        }
+        foreach (var entity in _expired) _flashing.Remove(entity);
+        _expired.Clear();
+
         if (!IsEnabled || !Enabled) return;
 
         foreach (var entity in _colliderEntities.GetEntities())
         {
+            if (Filter != null && !Filter(entity)) continue;
             ref readonly var transform = ref entity.Get<TransformComponent>();
+            var flashing = _flashing.ContainsKey(entity);
 
             if (entity.Has<BoxColliderComponent>())
             {
                 ref readonly var box = ref entity.Get<BoxColliderComponent>();
-                CreateBoxOutline(transform, box);
+                CreateBoxOutline(transform, box, flashing);
             }
 
             if (entity.Has<ConvexColliderComponent>())
             {
                 var convex = entity.Get<ConvexColliderComponent>();
-                CreateConvexOutline(convex);
+                CreateConvexOutline(convex, flashing);
             }
         }
     }
 
-    private void CreateBoxOutline(in TransformComponent transform, in BoxColliderComponent box)
+    private void CreateBoxOutline(in TransformComponent transform, in BoxColliderComponent box, bool flashing)
     {
-        var color = GetDebugColor(box);
+        var color = flashing ? Color.White : GetDebugColor(box);
 
         // Box pose comes from the collider entity's transform (centered, scaled) — the single
         // source is SATCollision.BoxWorldRect, so the outline matches what detection tests.
@@ -104,9 +141,9 @@ public class ColliderDebugSystem : ISystem<GameState>
         CreateDebugEntity(vertices, indices);
     }
 
-    private void CreateConvexOutline(ConvexColliderComponent convex)
+    private void CreateConvexOutline(ConvexColliderComponent convex, bool flashing)
     {
-        var color = GetDebugColor(convex);
+        var color = flashing ? Color.White : GetDebugColor(convex);
         var verts = convex.WorldVertices;
         if (verts == null || verts.Length < 3) return;
 
@@ -155,6 +192,7 @@ public class ColliderDebugSystem : ISystem<GameState>
                 entity.Dispose();
         }
         _debugEntities.Clear();
+        _flashing.Clear();
         _colliderEntities.Dispose();
     }
 }

@@ -31,6 +31,17 @@ public class Game1 : Game
     private readonly HeadlessOptions _headless;
     private readonly bool _editor;
     private ScreenshotCaptureSystem? _screenshotCapture;
+
+    /// <summary>
+    /// The env-requested frame capture (<c>MONODREAMS_SCREENSHOT=raw|png</c>) — separate from
+    /// <see cref="_screenshotCapture"/>, which is the headless host's own deterministic
+    /// <c>CaptureNow</c> channel on chosen frames. This one is a per-frame take driven entirely by the
+    /// environment, and it runs in BOTH headless and windowed runs so
+    /// <c>MONODREAMS_SCREENSHOT=raw dotnet run --project MonoDreams.Demos …</c> yields a full-rate
+    /// recording of whatever is on screen. Null unless the environment asked; see
+    /// <see cref="ScreenshotCaptureSystem.FromEnvironment"/>, the single owner of that contract.
+    /// </summary>
+    private ScreenshotCaptureSystem? _envFrameCapture;
     private int _frame;
     private float _perfTimer;
 
@@ -127,6 +138,14 @@ public class Game1 : Game
             Logger.Info($"Headless run: screen='{_headless.Screen}', frames={_headless.Frames}, " +
                         $"captureEvery={_headless.CaptureEvery}, sampleEvery={_headless.SampleEvery}.");
         }
+
+        // Env-requested frame capture, independent of --headless: a windowed run records the same way a
+        // headless one does, which is the point (an agent captures headless, a human captures what they
+        // are looking at). Desktop-only — a web head has no filesystem to dump 3.5 MiB a frame into, and
+        // the construction itself mkdirs + logs, so it is not built there at all.
+#if !MONODREAMS_WEB
+        _envFrameCapture = ScreenshotCaptureSystem.FromEnvironment(GraphicsDevice, debugDir);
+#endif
 
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
 
@@ -242,6 +261,11 @@ public class Game1 : Game
         // behaviour observable.
         _screenController.Draw(gameTime);
 
+        // AFTER the composite — the backbuffer is what a capture reads, so this must follow the draw
+        // pipeline exactly like DriveHeadless's CaptureNow does. Interval/format/cap all come from the
+        // environment; a no-capture run has no instance here and pays a null check.
+        _envFrameCapture?.Update(_screenController.State);
+
         if (_headless.Enabled)
             DriveHeadless(gameTime);
     }
@@ -283,6 +307,8 @@ public class Game1 : Game
     {
         _screenController.Dispose();
         _screenshotCapture?.Dispose();
+        // Before Logger.Shutdown: a raw run logs its byte/frame summary from Dispose.
+        _envFrameCapture?.Dispose();
         Logger.Shutdown();
         _runner.Dispose();
         _spriteBatch.Dispose();

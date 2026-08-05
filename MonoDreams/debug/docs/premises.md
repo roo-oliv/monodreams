@@ -11,6 +11,10 @@
 > the screenshot output for testing — including the headless Demos
 > observe-and-self-verify path (`MonoDreams.Demos/Game1.cs`,
 > `HeadlessOptions.cs`), which builds on `ScreenshotCaptureSystem`.
+> Frame capture has two formats (encoded PNG and uncompressed raw RGBA) and
+> one environment contract that selects between them — see the "Frame
+> capture" section of [`overview.md`](overview.md) for the env table and the
+> disk-cost table those premises refer to.
 
 ## This module is opt-in; nothing requires it
 
@@ -75,6 +79,44 @@ during camera motion or animation.
 **Tests:** none yet.
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
+## Collider flash is caller-driven and the overlay is filterable
+
+`ColliderDebugSystem` exposes two knobs for keeping the overlay readable in a
+real level. `Filter` is a `Func<Entity, bool>` over collider entities: null
+(the default) draws every one, and a predicate narrows the overlay to the
+handful that matter — a tile world has hundreds of baked terrain colliders that
+bury the three you are debugging. `Flash(Entity)` blinks one collider's outline
+`Color.White` for `FlashSeconds` (0.12 by default), so an event that resolves
+inside a single frame is still visible; it is **caller-driven on purpose** —
+the system never flashes on its own from `CollisionMessage`. Flash timers age
+by `state.Time` at the top of every `Update`, **before** the
+`IsEnabled`/`Enabled` early-return, and entries whose entity died or whose
+timer ran out are dropped; `Dispose` clears the table.
+
+**Why:** flashing every contact would strobe continuously on the floor and
+walls a body rests against, drowning out the one-frame events worth seeing —
+so the game names the moments it cares about (damage landing, a trigger
+firing) instead. Ageing while muted is what makes the mute honest: a flash
+started just before the overlay is toggled off must not still be white when it
+comes back on, possibly many seconds later.
+**Breaks:** auto-flashing from collision messages makes the overlay a strobe
+and hides real events. Ageing flashes *after* the enabled check (or only when
+enabled) makes re-enabling show a stale blink pinned at full brightness.
+Dropping the dead-entity check leaks recycled `Entity` keys, so a
+newly-created entity that reuses the id inherits a phantom flash. Filtering
+inside the draw helpers instead of at the query loop still allocates the mesh
+lists for colliders nobody asked to see.
+**Tests:** `MonoDreams.Tests/Debug/ColliderDebugSystemTests.cs` —
+`Filter_Null_DrawsEveryCollider`,
+`Filter_NarrowsTheOverlay_ToTheMatchingCollidersOnly`,
+`Flash_TurnsTheOutlineWhite_ThenRevertsWhenTheTimerExpires`,
+`Flash_AgesWhileDisabled_SoReEnablingShowsNoStaleBlink`,
+`Flash_OnADeadColliderEntity_IsDroppedWithoutThrowing`.
+**Depends on:** debug — "This module is opt-in; nothing requires it"
+(`Flash` bookkeeping runs even when both toggles are off, which is what the
+static/instance mute pair is allowed to skip and this is not); collision —
+"A collider IS an entity (colliders-as-entities)".
+
 ## `ScreenshotCaptureSystem` is gated by `IsEnabled` set from `input_replay.json`
 
 `ScreenshotCaptureSystem` is disabled by default. The integration test
@@ -121,6 +163,85 @@ that asserts a non-blank PNG exists fails intermittently.
 (asserts a non-blank screenshot from a headless run).
 **Depends on:** "Headless Demos renders every frame; capture reads the
 backbuffer".
+
+## `FromEnvironment` is the single owner of the capture env contract
+
+`ScreenshotCaptureSystem.FromEnvironment(graphicsDevice, outputDirectory)` is the
+only code in the repo that reads `MONODREAMS_SCREENSHOT`,
+`MONODREAMS_SCREENSHOT_INTERVAL`, or `MONODREAMS_SCREENSHOT_MAX_FRAMES`. It maps
+the whole protocol — mode (`1`/`png` → `CaptureFormat.Png` at 0.5s; `raw`/`rgba`
+→ `CaptureFormat.Raw` every frame; `0`/`off`/unset → nothing; anything else →
+`Logger.Error` + nothing), the invariant-culture interval override, and the frame
+cap — onto either a ready-to-run instance with `IsEnabled = true` or `null`. A
+host wires the capture in exactly one line (`_capture =
+ScreenshotCaptureSystem.FromEnvironment(GraphicsDevice, debugDir)`) and decides
+nothing itself; it reads no capture env var of its own. All env access goes
+through `PlatformServices.Current.GetEnvironmentVariable`, never
+`Environment.GetEnvironmentVariable`.
+
+**Why:** it is one environment protocol, and a second reader of it would be a
+second dialect of it. The variables are typed by convention only (a float in one,
+an int in another, an enum-ish string in the third), so every additional reader is
+an additional place `raw` could mean something subtly different, an interval could
+parse under the ambient culture, or a missing cap could go unnoticed. Centralising
+also makes the *refusal* uniform: an unrecognised mode captures nothing and says
+so, rather than one host silently defaulting to PNG while another defaults to off.
+**Breaks:** a screen or host that reads `MONODREAMS_SCREENSHOT` itself will drift
+— it will accept values the factory rejects (or reject values it accepts), miss
+the interval/cap variables entirely, and produce a run whose log line disagrees
+with what the run actually captured. Reading the env directly (bypassing
+`PlatformServices`) additionally breaks the web head, which has no process
+environment, and makes the contract untestable without real env mutation.
+**Tests:** `MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs` (the full
+protocol against a fake `IPlatformServices`: off/invalid → null, format
+selection, invariant-culture interval override, frame-cap parse);
+`MonoDreams.Tests/IntegrationTests/RawFrameCaptureTests.cs` (the contract end to
+end through the real desktop env into the Demos host).
+**Depends on:** foundation — "`Logger` requires `Initialize` before any write"
+(the factory's rejection path logs); "Debug output respects
+`MONODREAMS_DEBUG_DIR`" (the output directory the host hands the factory).
+
+## Raw capture writes synchronously on the main thread and never allocates per frame
+
+`CaptureFormat.Raw` writes each frame from `Update` **synchronously, on the main
+thread**: `GetBackBufferData` into a reused `Color[]`, one
+`MemoryMarshal.AsBytes(...).CopyTo(...)` into a reused `byte[]`, then
+`PlatformServices.Current.WriteAllBytes`. Both buffers are allocated once (and
+only re-allocated when the backbuffer geometry changes), so a 60 fps capture
+allocates nothing per frame. There is no encode, no staging `Texture2D` upload,
+and no distinct-colour pass. `MONODREAMS_SCREENSHOT_MAX_FRAMES` and the
+stop-on-write-failure branch are the two safety valves: both set `_stopped`,
+log the frame and byte totals, and make every later `Update` a no-op.
+
+**Why:** at 1280x720 the mode produces 3.5 MiB per frame, ~220 MB/s at 60 fps. A
+background writer *cannot* keep up with a producer that fast, so handing the write
+to a thread pool does not remove the cost — it converts it into a growing queue of
+3.5 MiB buffers, and the capture ends in an OOM rather than a video. Writing
+synchronously makes the disk the pacer, which is the honest behaviour: the capture
+runs as fast as the disk allows and the frame set stays complete. The per-frame
+allocation ban is the same argument from the GC's side — 3.5 MiB of fresh garbage
+per frame would put a collection inside the capture loop and make the recording a
+measurement of the GC. And because the producer can fill a disk inside a minute,
+the frame cap is not optional decoration: without it a forgotten `raw` run is a
+disk-space incident.
+**Breaks:** moving the write to `RunBackground` reintroduces unbounded queueing
+(OOM on a long take, and dropped tail frames when the process exits); allocating
+the pixel or byte buffer per frame turns a steady ~59.8 fps into a GC-sawtooth and
+inflates the live heap the headless heap-sample assertions watch; removing the
+`_stopped` valve means a full disk logs one error per frame for the rest of the run
+(or throws out of `Draw`), and an uncapped run silently consumes every remaining
+byte on the volume.
+**Tests:** `MonoDreams.Tests/IntegrationTests/RawFrameCaptureTests.cs` — a capped
+headless run asserts exactly the cap's worth of `.rgba` blobs, contiguous frame
+counters with no gaps (nothing dropped, no queue to drop from), full-size
+uncompressed frames, forward-only embedded game time at full frame rate, and the
+cap's stop-and-log line. The write-failure branch shares that `_stopped`
+mechanism and is not separately exercised (faking a full disk under a live
+`GraphicsDevice` is not honestly reachable in this test suite).
+**Depends on:** "Headless Demos renders every frame; capture reads the
+backbuffer"; "`FromEnvironment` is the single owner of the capture env contract";
+"Debug output respects `MONODREAMS_DEBUG_DIR`" (a firehose must land in a scratch
+directory, never the repo).
 
 ## Headless Demos renders every frame; capture reads the backbuffer
 
@@ -247,9 +368,17 @@ honoured by `GatedSystem`".
   both have a static `Enabled` flag *and* the standard `IsEnabled`
   instance flag. The intended split (compile-time global vs runtime
   per-instance?) isn't documented. May simplify to one toggle.
-- **Capture interval as a per-screen setting** — currently hardcoded
-  at the system's construction (2 seconds in the reference screen).
-  No reason the interval couldn't read from `input_replay.json` too.
+- **Capture interval as a per-screen setting** — the constructor's
+  interval is hardcoded per call site (2 seconds in the reference
+  screen), and `MONODREAMS_SCREENSHOT_INTERVAL` overrides it only for
+  the `FromEnvironment`-built instance. No reason the interval couldn't
+  read from `input_replay.json` too, for the replay-driven instance.
+- **Encoded clip capture is deliberately absent** — raw frames are the
+  verification artefact; muxing them into an mp4/gif belongs outside the
+  frame loop (desktop: the ffmpeg binary MGCB already bundles, on a
+  background thread; web: `canvas.captureStream()` + `MediaRecorder`).
+  Whether the engine should ship that tooling at all is open; what is
+  settled is that it must not live inside the capture path being verified.
 
 ## Aspirational direction
 
