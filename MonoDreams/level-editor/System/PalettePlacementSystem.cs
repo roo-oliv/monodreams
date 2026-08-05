@@ -125,6 +125,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private readonly EntitySet _cursorSet;
     private readonly EntitySet _gizmoStateSet;
     private readonly EntitySet _selectedSet;
+    private readonly EntitySet _placedProps; // duplicate-stamp guard's candidates (sprite props)
 
     // Chrome entities (built lazily once; parked/positioned per layout pass).
     private sealed class ItemButton
@@ -203,6 +204,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private int _scroll;
     private int _laidOutWidth, _laidOutHeight, _laidOutScroll = -1;
     private int _laidOutBottomHeightPt = -1;
+    private EditorBottomTab? _laidOutBottomTab; // the active tab is part of the layout key: a switch
+                                                // from ANY path (mouse, the panel:tab op, a prefab
+                                                // flow) must re-lay the shelf, not just the click
+                                                // handler
     private float _laidOutScale;
 
     private int _armedIndex = -1;
@@ -227,6 +232,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private bool _stamping;
     private Vector2 _lastStampWorld;    // the raw cursor world of the last stamp (arc-length anchor)
     private Vector2? _lastPlacedSnapped; // the last stamped (snapped) position — snap-collapse dedupe
+    private readonly HashSet<Vector2> _strokeStamped = new(); // every position stamped THIS stroke —
+                                                              // a wiggling drag never doubles a cell
     private Entity _lastStampCreated;   // auto-selected when the stroke ends
 
     public bool IsEnabled { get; set; } = true;
@@ -294,6 +301,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
         _selectedSet = world.GetEntities().With<SelectedComponent>().AsSet();
+        _placedProps = world.GetEntities()
+            .With<EntityInfoComponent>()
+            .With<SpriteInfoComponent>()
+            .With<TransformComponent>()
+            .AsSet();
     }
 
     /// <summary>The armed catalog entry, or null while disarmed.</summary>
@@ -625,7 +637,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 _laidOutHeight != _viewportManager.ScreenHeight ||
                 _laidOutScroll != _scroll ||
                 _laidOutScale != scale ||
-                _laidOutBottomHeightPt != _shellState.BottomHeightPt)
+                _laidOutBottomHeightPt != _shellState.BottomHeightPt ||
+                _laidOutBottomTab != _shellState.ActiveBottomTab)
                 PositionChrome(strip, scale);
             ReflectState(state, hovered, editing);
         }
@@ -1006,6 +1019,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _history.BeginTransaction();
         _stamping = true;
         _lastPlacedSnapped = null;
+        _strokeStamped.Clear();
         StampAt(entry, band, firstPosition, texture);
         _lastStampWorld = cursorWorld;
     }
@@ -1034,6 +1048,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Microsoft.Xna.Framework.Graphics.Texture2D? texture)
     {
         if (_lastPlacedSnapped.HasValue && _lastPlacedSnapped.Value == position) return;
+        if (!_strokeStamped.Add(position)) return; // this stroke already filled that cell
+        if (IsDuplicateStamp(entry, band, position)) return; // the CELL already holds this exact prop
         // PF-F: in a prefab tab, auto-parent the placed prop under the single prefab root (so assembly
         // never creates a second root — a multi-root prefab is un-savable). A no-op in a scene context.
         var parentTo = PrefabContextRoot.ResolveIfPrefab(_world, _shellState);
@@ -1056,6 +1072,26 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
         Logger.Info($"[level-editor] Placed '{entry.Id}' on band '{band.Name}' at " +
                     $"({position.X:0.##}, {position.Y:0.##}).");
+    }
+
+    /// <summary>Whether an identical prop (same asset entry, same band depth, same snapped
+    /// position) already lives in the world — re-clicking a filled cell must not stack an
+    /// invisible duplicate (the tile-painting convention; place variants by nudging position or
+    /// band instead). Loud-skips via the log so the no-op is explainable.</summary>
+    private bool IsDuplicateStamp(AssetCatalogEntry entry, PaletteBand band, Vector2 position)
+    {
+        foreach (var existing in _placedProps.GetEntities())
+        {
+            var info = existing.Get<EntityInfoComponent>();
+            if (info.Type != SpritePropFactory.EntityInfoType || info.Name != entry.Label) continue;
+            if (existing.Get<TransformComponent>().Position != position) continue;
+            ref readonly var sprite = ref existing.Get<SpriteInfoComponent>();
+            if (Math.Abs(sprite.LayerDepth - band.LayerDepth) > 0.0001f) continue;
+            Logger.Info($"[level-editor] Skipped stamping '{entry.Id}' at ({position.X:0.##}, " +
+                        $"{position.Y:0.##}) — that cell already holds it on band '{band.Name}'.");
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Ends the multi-stamp stroke: commit the coalesced transaction (one undo step for
@@ -1687,6 +1723,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _laidOutScroll = _scroll;
         _laidOutScale = scale;
         _laidOutBottomHeightPt = _shellState.BottomHeightPt;
+        _laidOutBottomTab = _shellState.ActiveBottomTab;
     }
 
     /// <summary>Positions the Assets | Prefabs tab strip (PF-D) in the shelf's tab band; records each
@@ -2043,5 +2080,6 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _cursorSet.Dispose();
         _gizmoStateSet.Dispose();
         _selectedSet.Dispose();
+        _placedProps.Dispose();
     }
 }

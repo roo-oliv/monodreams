@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DefaultEcs;
@@ -17,6 +18,9 @@ namespace MonoDreams.Tests.LevelEditor;
 /// sub-graph" — the delete half (<c>DeleteUndoSnapshotTest</c>). Pure logic: an in-memory world,
 /// a counter-mutating test command, and a real <see cref="DeleteEntityCommand"/> over the engine
 /// serializer registry (no GraphicsDevice).
+///
+/// <para>Also covers <see cref="EditorHistory.PushApplied"/> — the record-without-applying entry point
+/// the transport's Restart pushes its undo command through ("Restart is one-level undoable").</para>
 /// </summary>
 public class UndoTests
 {
@@ -29,6 +33,16 @@ public class UndoTests
         public IncrementCommand(int[] box, int delta) { _box = box; _delta = delta; }
         public void Apply(World world) => _box[0] += _delta;
         public void Revert(World world) => _box[0] -= _delta;
+    }
+
+    /// <summary>A probe that only COUNTS its apply/revert calls — it can prove whether the history
+    /// invoked <see cref="IEditorCommand.Apply"/> when it recorded the command.</summary>
+    private sealed class CountingCommand : IEditorCommand
+    {
+        public int Applies;
+        public int Reverts;
+        public void Apply(World world) => Applies++;
+        public void Revert(World world) => Reverts++;
     }
 
     private static ComponentSerializerRegistry NewEngineRegistry()
@@ -140,6 +154,53 @@ public class UndoTests
         history.CancelTransaction(); // an aborted drag undoes its live effect and records nothing
         Assert.Equal(0, box[0]);
         Assert.Equal(0, history.Count);
+    }
+
+    // ---- PushApplied: record a mutation that ALREADY happened, without re-applying it ----
+
+    [Fact]
+    public void PushApplied_RecordsWithoutApplying_ThenUndoRedoDriveTheCommandNormally()
+    {
+        using var world = new World();
+        var history = new EditorHistory(world);
+        var probe = new CountingCommand();
+
+        // The transport-Restart shape: the mutation already ran outside the history, so RECORDING it
+        // must not invoke Apply (re-running the teardown just to record it would double the work).
+        history.PushApplied(probe);
+        Assert.Equal(0, probe.Applies);
+        Assert.Equal(0, probe.Reverts);
+        Assert.Equal(1, history.Count);
+        Assert.True(history.CanUndo);
+
+        // From here it is an ordinary entry: undo reverts once, redo applies once (the replayability
+        // contract PushApplied relies on).
+        history.Undo();
+        Assert.Equal(1, probe.Reverts);
+        Assert.Equal(0, probe.Applies);
+        Assert.True(history.CanRedo);
+
+        history.Redo();
+        Assert.Equal(1, probe.Applies);
+        Assert.Equal(1, probe.Reverts);
+    }
+
+    [Fact]
+    public void PushApplied_InsideAnOpenTransaction_Throws()
+    {
+        using var world = new World();
+        var history = new EditorHistory(world);
+        var probe = new CountingCommand();
+
+        // An already-applied command cannot coalesce with a transaction's live pushes — refused loudly
+        // rather than silently folded into the drag's single entry.
+        history.BeginTransaction();
+        Assert.Throws<InvalidOperationException>(() => history.PushApplied(probe));
+        Assert.Equal(0, probe.Applies);
+        Assert.Equal(0, history.Count);
+
+        history.CancelTransaction();
+        Assert.False(history.InTransaction);
     }
 
     // ---- DeleteUndoSnapshotTest: delete an entity with a ChildOf child → undo restores both + components ----

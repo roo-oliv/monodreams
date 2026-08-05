@@ -11,6 +11,7 @@ using MonoDreams.Extension;
 using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
@@ -240,6 +241,129 @@ public class EditorTransportTests
         Assert.True(keptRoot.IsAlive);
         Assert.True(keptChild.IsAlive); // kept transitively through the ChildOf parent chain
         Assert.False(sceneEntity.IsAlive);
+    }
+
+    // ---- Restart is ONE-LEVEL undoable: the discarded unsaved edits are recoverable with Ctrl+Z ----
+
+    [Fact]
+    public void Restart_WithTheSnapshotSeamsWired_PushesOneUndoEntry_UndoRestoresThePreRestartWorld()
+    {
+        using var world = new World();
+        var (transport, history) = MakeTransport(world);
+
+        // The screen's SPLIT reload seams (TD): the code half only counts (nothing here is code-built),
+        // the scene half stands in for the disk load and re-creates the scene entity at its on-disk state.
+        var rebuilds = 0;
+        var loads = 0;
+        Entity fromDisk = default;
+        transport.RebuildCodeContent = () => rebuilds++;
+        transport.ReloadSceneContent = () =>
+        {
+            loads++;
+            fromDisk = world.CreateEntity();
+            fromDisk.Set(new TransformComponent(new Vector2(10, 20)));
+        };
+        transport.Reload(); // the original load
+
+        // The snapshot seams — the SAME capture/restore path a tab switch uses. The probe stamps the live
+        // edited X onto SceneData.Version, so a restore can prove WHICH world came back through the reader.
+        SceneData? captured = null;
+        SceneData? restored = null;
+        Entity fromSnapshot = default;
+        transport.CaptureSnapshot = () =>
+        {
+            var snapshot = new SceneData { Version = (int)fromDisk.Get<TransformComponent>().Position.X };
+            captured = snapshot;
+            return snapshot;
+        };
+        transport.RestoreSnapshot = data =>
+        {
+            restored = data;
+            fromSnapshot = world.CreateEntity();
+            fromSnapshot.Set(new TransformComponent(new Vector2(data.Version, data.Version)));
+        };
+
+        // An unsaved live edit through the shared history (the gizmo path) — the work an accidental
+        // Restart used to eat with no recourse.
+        history.Push(TransformEditCommand.FromCurrent(
+            fromDisk, new Vector2(99, 99), 0f, Vector2.One, Vector2.Zero));
+        Assert.Equal(new Vector2(99, 99), fromDisk.Get<TransformComponent>().Position);
+
+        var preRestart = fromDisk;
+        transport.Restart(Paused());
+
+        // The restart still happened in full: the pre-restart entity is gone, the disk state is back…
+        Assert.False(preRestart.IsAlive);
+        Assert.Equal(2, loads);
+        Assert.Equal(new Vector2(10, 20), fromDisk.Get<TransformComponent>().Position);
+
+        // …and the history holds EXACTLY the one restart entry (the pre-restart entries were cleared —
+        // they reference disposed entities — so Restart-undo is exactly one level deep).
+        Assert.Equal(1, history.Count);
+        Assert.True(history.CanUndo);
+        Assert.NotNull(captured);
+        Assert.Equal(99, captured!.Version); // captured BEFORE the teardown, unsaved edit included
+
+        // Ctrl+Z: the pre-restart world comes back through the reader (sweep → code rebuild → restore).
+        var rebuildsBeforeUndo = rebuilds;
+        var restarted = fromDisk;
+        history.Undo();
+
+        Assert.Same(captured, restored);                // the reader got the captured pre-restart snapshot
+        Assert.Equal(rebuildsBeforeUndo + 1, rebuilds); // code-built content rebuilt around the restore
+        Assert.Equal(2, loads);                         // …and NOT re-loaded from disk (that is the redo path)
+        Assert.False(restarted.IsAlive);                // the restarted world was swept
+        Assert.Equal(new Vector2(99, 99), fromSnapshot.Get<TransformComponent>().Position); // the edit is back
+        Assert.False(history.CanUndo);                  // one level only — nothing older survived
+        Assert.True(history.CanRedo);
+
+        // Redo re-runs the teardown + reload-from-disk (the replayability contract).
+        history.Redo();
+        Assert.Equal(3, loads);
+        Assert.False(fromSnapshot.IsAlive);
+        Assert.Equal(new Vector2(10, 20), fromDisk.Get<TransformComponent>().Position);
+        Assert.True(history.CanUndo);
+    }
+
+    [Fact]
+    public void Restart_WithoutTheSnapshotSeams_PushesNothing_AndStillRestarts()
+    {
+        using var world = new World();
+        var (transport, history) = MakeTransport(world);
+
+        Entity scene = default;
+        var loads = 0;
+        transport.Reload = () =>
+        {
+            loads++;
+            scene = world.CreateEntity();
+            scene.Set(new TransformComponent(new Vector2(10, 20)));
+        };
+        transport.Reload();
+        var preRestart = scene;
+
+        // No CaptureSnapshot wired (a screen that never enabled the snapshot seam): the restart-undo
+        // entry is SKIPPED — graceful degradation, never a half-wired command that cannot restore.
+        Assert.Null(transport.CaptureSnapshot);
+        transport.Restart(Paused());
+
+        Assert.False(preRestart.IsAlive); // the restart still ran…
+        Assert.Equal(2, loads);
+        Assert.Equal(0, history.Count);   // …with nothing recorded to undo
+        Assert.False(history.CanUndo);
+        history.Undo();                   // empty-stack undo stays a safe no-op
+        Assert.True(scene.IsAlive);
+        Assert.Equal(new Vector2(10, 20), scene.Get<TransformComponent>().Position);
+
+        // The other half of the guard: a capture WITHOUT a restore seam is equally useless, so it is
+        // skipped too (a command that could not revert would be a lying undo entry).
+        transport.CaptureSnapshot = () => new SceneData();
+        Assert.Null(transport.RestoreSnapshot);
+        transport.Restart(Paused());
+
+        Assert.Equal(3, loads);
+        Assert.Equal(0, history.Count);
+        Assert.False(history.CanUndo);
     }
 
     // ---- The transport owns BOTH RunMode and the Scene/Game ViewMode (UX2-F, one owner) ----

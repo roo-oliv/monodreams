@@ -1852,6 +1852,17 @@ UI). **Save Backup As…
 working scene to its on-disk (source) truth — the backup captured the edits; the working scene reloads
 clean.
 
+**Restart is one-level undoable.** The transport captures the pre-restart world as DATA
+(`stack.CaptureSnapshot`) BEFORE the teardown and pushes ONE `RestartUndoCommand` onto the
+just-cleared history via `EditorHistory.PushApplied` (record without re-applying — the restart
+already ran; refused inside a coalescing transaction). Ctrl+Z restores the pre-restart world through
+the reader (the same sweep → `RebuildCodeContent` → `RestoreSnapshot` delegates a Game-tab exit
+uses), unsaved edits included; redo re-runs the teardown + reload-from-disk. The history still
+CLEARS (its entries reference the entities about to die) — the pushed command is the one surviving
+entry, so Restart-undo is exactly one level deep: recovery from the accident, never a time machine
+across restarts. A stack with no `CaptureSnapshot`/`RestoreSnapshot` seam wired skips the push and
+Restart behaves as before (graceful degradation).
+
 **Why:** direct user directive — the F1 toggle is retired; "play/pause and restart buttons to play
 the game, pause it or reset it" are the way the designer moves between editing and playing, and
 restart must be trustworthy: it either fully rebuilds the loaded scene or refuses loudly.
@@ -1868,7 +1879,11 @@ survive; unsaved-edit discard demonstrated — edit a transform through the hist
 value is back at the loaded state and undo is a no-op; the world-level components are removed;
 restart while Playing lands Paused; a reloadless restart is a loud no-op; the headless
 `Play`/`Pause`/`Restart` ops drive the same paths; the camera ENTITY is ordinary scene content now, so
-Restart sweeps + re-loads it from disk like everything else — no camera-specific survival case);
+Restart sweeps + re-loads it from disk like everything else — no camera-specific survival case;
+**restart-undo**: `Restart_WithTheSnapshotSeamsWired_PushesOneUndoEntry_UndoRestoresThePreRestartWorld`
++ `Restart_WithoutTheSnapshotSeams_PushesNothing_AndStillRestarts`, and
+`MonoDreams.Tests/LevelEditor/UndoTests.cs::PushApplied_RecordsWithoutApplying_ThenUndoRedoDriveTheCommandNormally`
++ `PushApplied_InsideAnOpenTransaction_Throws`);
 `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs::StaleBundleRegression_ResolvedContextLoadsSource_UnresolvedLoadsBundled`
 (the reload reads the SOURCE bytes under a resolved context — the pre-mortem #5 regression);
 `MonoDreams.Tests/LevelEditor/SceneSourceWriteTests.cs::SaveBackupAs_WritesDanglingFile_NoSavePoint_NoBundle_ThenRestartReloadsBoundScene`
@@ -2443,7 +2458,12 @@ overlay depth (`EditorTheme.Depths.Grid` = 0.01, beneath `ProxyOverlay`), every 
 `GridMajor` role (else `GridMinor` — subtle warm darks, `Bg2..Border` on the ramp). The line count is
 **bounded** by the pure `GridGeometry` (pre-mortem #5): above ~200 minor lines/axis it degrades to
 major-only, above ~200 major lines/axis it draws nothing — a zoomed-out view over a small spacing can
-never allocate an unbounded mesh. The grid, the selection outline (`OutlineSelected` off → the outline
+never allocate an unbounded mesh. The grid also **fades by density**: a quieter base alpha (0.55 —
+the grid is a reference, not content) with minors stepping toward invisible as their on-screen
+spacing shrinks (≥48px full, ≥24px 0.55×, ≥12px 0.3×, below that minors vanish and majors carry the
+grid), so a zoomed-out view never congeals into a solid wall of lines — and the fade is applied
+**premultiplied** (R, G, B and A all scaled; a straight-alpha fade on this path reads BRIGHTER, not
+fainter — see rendering's premultiplied-mesh premise). The grid, the selection outline (`OutlineSelected` off → the outline
 emit is suppressed; the selection itself is unaffected), and the camera glyph (`ShowCameraGlyph` off →
 hidden; the view/camera divergence rule then applies only while on) are all **Edit-only**, and **all three
 are hidden while the Game tab is active (`ActiveContextKind == Game`)** — the sandbox looks like the game (Blender hides overlays in camera
@@ -2466,7 +2486,8 @@ zoomed-out view freezes/OOMs the editor; a `VisibleComponent` on the grid mesh p
 + `Spacing_IsTheSnapStep_OneValue_BothDirections`; `Grid_BakesAnEditorTargetMesh_NoVisibleComponent_WhenOnAndInEdit`,
 `Grid_FollowsTheSharedGridStep_ChangingItViaTheOpReSpacesTheGrid`, `Grid_ClipsToTheGameViewport_UnderAnInset_DevicePixelDestination`,
 `Grid_HiddenInPlay_AndWhenTheGateIsFalse`, `Grid_PathologicalZoomOut_DegradesToNothing_NoUnboundedMesh`,
-`Grid_ModerateZoomOut_StaysBounded_MajorOnly`; `OutlineSelectedOff_SuppressesOnlyTheOutline_HandleStays_SelectionUnaffected`,
+`Grid_ModerateZoomOut_StaysBounded_MajorOnly`,
+`Grid_MinorLines_FadeByOnScreenDensity_Premultiplied_MajorsCarryThePackedGrid`; `OutlineSelectedOff_SuppressesOnlyTheOutline_HandleStays_SelectionUnaffected`,
 `GameMode_HidesAllGizmoOverlays_TheSandboxLooksLikeTheGame`, `CameraGlyphGate_Off_HidesTheFrustum_EvenWhenTheViewDiffersFromTheCamera`).
 **Depends on:** this file — "Editor context menus are a data-driven popup …" (the Toggle menu that drives
 these settings), "The gizmo applies a quantized (snap-on) or raw (snap-off) transform edit" (the
@@ -2489,8 +2510,12 @@ the drag). A **single click** (press then release with no drag) is the degenerat
 one undo step. This is the plain embryo of the future scatter brush — no jitter, no seed; each stamp
 is an ordinary `CreateEntityCommand` (auto-tagged `SceneObjectComponent`, sub-graph snapshot). A
 non-positive `StampSpacing` disables multi-stamp (a click still places one). Stamps that
-snap-collapse onto the previous position (snap on + spacing < grid) are skipped so identical props
-never stack in one cell; the last stamp is auto-selected on release. Any interruption of an open
+snap-collapse onto the previous position (snap on + spacing < grid) are skipped, a per-stroke
+visited set drops re-entered positions (a wiggling/back-tracking drag never doubles a cell), and a
+CROSS-stroke duplicate guard skips a stamp whose cell already holds the identical prop (same asset
+label + snapped position + band depth — re-clicking a filled cell is a loud-logged no-op, the
+tile-painting convention) — so identical props never stack invisibly; the last stamp is
+auto-selected on release. Any interruption of an open
 stroke (disarm, Escape/right-click, entering Play, dispose) **commits** it — the placed stamps are
 real edits, and an abandoned open transaction on the shared history would break the next
 `BeginTransaction`. Triggers (island §5.3) stay single-click, not multi-stamped.
@@ -2506,7 +2531,10 @@ carry-over, disable/short-segment no-op) and `MonoDreams.Tests/LevelEditor/Palet
 (`MultiStampTest_HoldDragStampsAtSpacingAndCoalescesToOneUndoStep` — a scripted hold-drag stamps at
 the expected spacing, nothing is committed mid-drag, the release is one undo step that one undo
 reverses whole; `PlacementTest_SingleClickIsOneUndoStepAutoSelectAndRepeat` — a single click still
-places one, one undo step, auto-selected).
+places one, one undo step, auto-selected;
+`MultiStampTest_WobblingDragStampsOneCopyPerCell_NeverDoublesARevisitedCell` — the per-stroke
+visited set; `PlacementTest_ReClickingAFilledCellIsALoudNoOp_AcrossStrokes` — the cross-stroke
+duplicate guard, cell-scoped).
 **Depends on:** this file — "Bounded undo with drag-coalescing" (the transaction pattern) and
 "Viewport presses belong to exactly one tool family" (multi-stamp acts only in `Place`).
 
@@ -2648,7 +2676,12 @@ any foreign splitter/scrollbar drag owns the pointer. **PF-D:** the shelf's tab 
 interactive (`Assets | Prefabs`, OWNED by this system — the retired static tab left
 `EditorChromeBuilder`); the **Prefabs** tab lists `.mdprefab` cards (a prefab glyph + id) and reuses the
 SAME `Place`-mode arm/ghost/click machinery (mutually exclusive with an armed asset/trigger; the prefab
-ghost v1 is none — click-on-viewport). Each tab's chrome parks when the other is active. See "The prefab
+ghost v1 is none — click-on-viewport). Each tab's chrome parks when the other is active — and the
+**active tab is part of the layout cache key** (`_laidOutBottomTab`, beside width/height/scroll/scale/
+shelf-height): the palette re-lays its chrome whenever ANY input the layout branches on changes, no
+matter which path changed it (a mouse click, the headless `panel:tab` op, a prefab flow) — a tab
+switch that only the click handler re-laid left the Assets chrome painted over the Prefabs tab after
+a programmatic switch (a stale-UI lie). See "The prefab
 UX … (PF-D)". **PF-F — the palette is now UNIVERSAL:** when a screen supplies NO catalog/bands of its own
 but the project context is resolved, the OVERLAY builds them itself — a default catalog scanned from the
 `Content/Island` drop-folder convention (`EditorOverlay.DefaultAssetDropFolder`) + one band per layer of
@@ -2670,7 +2703,9 @@ marking.
 `CardSubRects_IconTopLabelBottomChipCorner`, `RaisedStripFitsHeaderPlusACardRow`,
 `CardMetrics_AtDpr2_Double`); `MonoDreams.Tests/LevelEditor/EditorShellTests.cs`
 (`ChromeLayout_DefaultScale_IsThePreDprLayout`, `ChromeLayout_AtDpr2_DoublesEveryPointMetric` — the
-raised inset at DPR 1 and 2).
+raised inset at DPR 1 and 2);
+`MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs::BottomTab_ProgrammaticSwitch_RelaysTheShelfChrome_NotJustTheClickHandler`
+(the active tab in the layout cache key — a programmatic switch re-lays the shelf chrome).
 **Depends on:** this file — "The editor shell insets the game viewport and renders its chrome at
 native resolution" (the `ViewportInset` the strip height feeds, and the device-pixel space the cards
 render in); rendering — the `SimpleButtonComponent`/`DynamicTextComponent` chrome primitives.
@@ -3413,7 +3448,16 @@ auto-numbered scene-unique instance id (`"evidence_01"`, `TriggerFactory.NextNam
 highest existing suffix, so numbering survives deletes). **No new component**: the trigger IS a
 passive collider + a serialized identity string, exactly what a game reaction system pattern-matches
 on (the in-repo `ZoneDialogueTriggerSystem` precedent — a collision message + a zone identity → a
-game reaction). It round-trips through the existing `EntityInfo` + `BoxCollider` serializers
+game reaction). **Two additive knobs on `TriggerType`:** `ActiveLayers` scopes the placed box's
+collision layers (null = the collider default; an EMPTY array is a pure MARKER — a box that collides
+with nothing, selectable in the editor, inert in play), and `Configure` is an optional game hook
+invoked on the freshly-built entity after the standard stack (EntityInfo + Transform + BoxCollider).
+`Configure` is **THE sanctioned way a game teaches the palette to build its objects** — one palette
+click authors a fully functional game object (collider, layers, game components attached) while the
+module stays ignorant of what it built; without this seam either the editor places dumb rectangles
+the game must post-process, or game components leak into engine code. What the hook sets round-trips
+only if it has registered serializers (the opt-in registry premise). It round-trips through the
+existing `EntityInfo` + `BoxCollider` serializers
 unchanged (the `Passive` flag already serialises); rename is editing the saved JSON (banked decision
 3 — no free-text widget). Placement rides the palette's Place mode (a "Triggers section" of the
 strip); the placed zone is centred on the click, auto-selected, and one `CreateEntityCommand` undo
@@ -3439,7 +3483,11 @@ the game's reaction system would have to learn instead of reading the string it 
 **Tests:** `MonoDreams.Tests/LevelEditor/TriggerPlacementTests.cs` (`TriggerFactory` makes a passive
 centred box with the prefix identity; `NextName` auto-numbers uniquely per prefix; the trigger
 round-trips through the serializers; a moving player entering the zone emits a `CollisionMessage`
-carrying the trigger's `EntityInfoComponent` identity) and the milestone test.
+carrying the trigger's `EntityInfoComponent` identity;
+`Create_RunsTheTypesConfigureHook_AfterTheStandardStack` — the `Configure` seam fires after the
+standard stack and the attached game component survives;
+`Create_ScopesTheBoxToTheTypesActiveLayers_EmptyMeaningAPureMarker` — `ActiveLayers` scoping incl.
+the empty-array pure marker and the null default) and the milestone test.
 **Depends on:** collision — `Passive` = "does not initiate" (a passive target still resolves an
 active body); foundation — `EntityInfoComponent` (string identity, serialized); this file — "The
 component-serializer registry is opt-in per type" (the trigger uses only pre-registered serializers).
