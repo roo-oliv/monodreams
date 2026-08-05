@@ -258,7 +258,16 @@ stay renderable): the old `(-2000, -2000)` position move alone is kept
 only as the fallback, because macOS clamps off-screen positions back onto
 the display, leaving visible windows a user could accidentally click
 during a local test run. On a display-less CI runner the tests run under
-`xvfb-run` (SDL still needs a video device to create the window at all).
+`xvfb-run` (SDL still needs a video device to create the window at all). Hiding
+alone does not stop the macOS FOCUS STEAL — that happens at app activation
+during SDL video init, before any window exists to hide — so headless runs also
+call `HeadlessWindow.PreventFocusSteal()` **before the `Game` is constructed**
+(both heads' `Program.cs`; the SDL `SDL_MAC_BACKGROUND_APP` hint via env, which
+`GameTestRunner` also sets on every spawn): the game launches as an accessory
+app that never interrupts the user's typing. And because a hidden,
+never-activated window makes `Game.IsActive` false, both heads zero
+`InactiveSleepTime` in headless mode — MonoGame's inactive throttle (20ms/frame
+≈ 50fps) would otherwise quietly break the headless max-speed contract.
 
 **Why:** the entire point of the headless observe path (issue #28) is to
 let an agent verify visual/runtime claims without a human. A no-op `Draw`

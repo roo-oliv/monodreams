@@ -18,6 +18,21 @@ namespace MonoDreams.Debug;
 /// </summary>
 public static class HeadlessWindow
 {
+    /// <summary>
+    /// Keeps a headless run from STEALING FOCUS at launch. On macOS the focus grab happens at app
+    /// activation, during SDL video init — before any window exists to hide — so this must run
+    /// BEFORE the <c>Game</c> is constructed (SDL initializes in the <c>Game</c> base ctor; call it
+    /// first thing in <c>Program.cs</c>). It sets SDL's <c>SDL_MAC_BACKGROUND_APP</c> hint via its
+    /// environment variable, making the app an accessory: no Dock icon, no menu bar, and no
+    /// activation — the user's typing is never interrupted by a spawned test game. A no-op on other
+    /// platforms (the hint is macOS-only) and never overrides an explicitly-set value.
+    /// </summary>
+    public static void PreventFocusSteal()
+    {
+        if (Environment.GetEnvironmentVariable("SDL_MAC_BACKGROUND_APP") == null)
+            Environment.SetEnvironmentVariable("SDL_MAC_BACKGROUND_APP", "1");
+    }
+
     private delegate void SdlHideWindowDelegate(IntPtr window);
 
     /// <summary>Per-OS names of the SDL native library MonoGame DesktopGL already loaded into the

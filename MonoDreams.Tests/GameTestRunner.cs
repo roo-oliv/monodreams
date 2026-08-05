@@ -311,6 +311,9 @@ public static class GameTestRunner
         // handles; with node reuse they outlive the game by ~15 minutes and keep the pipes open
         // (the CI hang). No daemons — each run is hermetic.
         psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+        // macOS: never steal the user's focus at launch (the heads set this themselves under
+        // --headless; the env covers any spawn path). SDL hint, ignored elsewhere.
+        psi.Environment["SDL_MAC_BACKGROUND_APP"] = "1";
         // Pin the editor project root to the isolated temp tree BEFORE the caller's env, so it applies to
         // every spawned head (editor-on or ambiently editor-on) yet an explicit caller override still wins.
         psi.Environment[EditorProjectContext.ProjectRootVariable] = projectRoot;

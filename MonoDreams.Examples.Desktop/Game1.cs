@@ -79,6 +79,10 @@ public class Game1 : Game
             _graphics.PreferredBackBufferHeight = 1;
             _graphics.SynchronizeWithVerticalRetrace = false;
             IsFixedTimeStep = false;
+            // A hidden, never-activated window makes Game.IsActive false, and MonoGame throttles
+            // inactive games (InactiveSleepTime, 20ms/frame ≈ 50fps) — which would quietly break
+            // the headless max-speed contract. Headless never sleeps on inactivity.
+            InactiveSleepTime = TimeSpan.Zero;
         }
         else
         {
