@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "c1dbfda0616e",
+  "session_id": "7b13e697-1f0d-4c35-a104-0d05d85f7f2a",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T11:48:04.493331Z",
+  "branch": "issue-38",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Tests/Rendering/DrawSortTests.cs",
+    "MonoDreams/rendering/System/Draw/DrawSortBuffer.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 21,
+    "cache_creation_tokens": 118372,
+    "cache_read_tokens": 943932,
+    "output_tokens": 15959,
+    "api_call_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T11:48:04.343105Z",
+    "agent_lines": 375,
+    "human_added": 1133,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1508,
+    "agent_percentage": 24.86737400530504
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-36/7b13e697-1f0d-4c35-a104-0d05d85f7f2a.jsonl"
+}
