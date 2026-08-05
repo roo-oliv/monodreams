@@ -10,6 +10,7 @@ using MonoDreams.Examples.Inspector;
 #endif
 using MonoDreams.Component.Collision;
 using MonoDreams.Component.Draw;
+using MonoDreams.Component.Level;
 using MonoDreams.Component.Physics;
 using MonoDreams.Draw;
 using MonoDreams.Extension;
@@ -19,6 +20,7 @@ using MonoDreams.Examples.Runner;
 using MonoDreams.Examples.System;
 using MonoDreams.Input;
 using MonoDreams.LevelEditor.Composition;
+using MonoDreams.LevelEditor.System;
 using MonoDreams.Message;
 using MonoDreams.Platform;
 using MonoDreams.Renderer;
@@ -141,6 +143,7 @@ public class InfiniteRunnerScreen : IGameScreen
         CreatePlayer();
         CreateSpawnPoint();
         CreateScoreHUD(content);
+        if (_editorEnabled) AttachHudLayer();
         Logger.Info("InfiniteRunner screen loaded.");
 
         if (_editor != null)
@@ -159,6 +162,9 @@ public class InfiniteRunnerScreen : IGameScreen
                 CreatePlayer();
                 CreateSpawnPoint();
                 CreateScoreHUD(content);
+                // Idempotent: the Restart sweep disposes the HUD layer along with its members, so the
+                // rebuild re-creates the grouping and re-parents the fresh score label into it.
+                AttachHudLayer();
             };
             _editor.Transport.ReloadSceneContent = () =>
                 NativeLevelLoader.TryPublishSceneLoad(_world, _content.RootDirectory, BoundSceneId, _projectContext);
@@ -303,6 +309,56 @@ public class InfiniteRunnerScreen : IGameScreen
         entity.Set(new ScoreDisplay());
     }
 
+    /// <summary>
+    /// The editor's <b>HUD layer</b> (Blender-collections grouping): a code-created SCREEN-SPACE
+    /// scene layer named "HUD" (never serialized — no <c>SceneObjectComponent</c>) that groups this
+    /// screen's screen-fixed text (the score label) in the Entities hierarchy.
+    /// <see cref="HudPreviewSystem"/> projects the members into the camera entity's frame while
+    /// Paused — "fixed over the CAMERA, not the editor viewer" — and the eye toggle hides them while
+    /// designing. Idempotent: re-run after every code-content rebuild (Restart), re-parenting any
+    /// member the sweep re-created. Locked so placements never target it.
+    ///
+    /// <para>Membership is discriminated by the RENDER TARGET, not by <c>EntityInfoComponent.Type</c>
+    /// (the runner tags its score label, its treadmill meshes and its spawn point all "Interface"):
+    /// a HUD-target <c>DynamicTextComponent</c> IS a screen-fixed label. Note the game-over label is
+    /// created lazily by the <c>Freeze</c>-gated <c>GameOverSystem</c> — it can only appear in Play,
+    /// where the preview is inert anyway, so it joins the layer on the next rebuild if at all.</para>
+    /// </summary>
+    private void AttachHudLayer()
+    {
+        var hud = default(Entity);
+        using (var layers = _world.GetEntities().With<SceneLayerComponent>().AsSet())
+        {
+            foreach (var layer in layers.GetEntities())
+                if (layer.Get<SceneLayerComponent>().ScreenSpace)
+                {
+                    hud = layer;
+                    break;
+                }
+        }
+        if (!hud.IsAlive)
+        {
+            hud = _world.CreateEntity();
+            hud.Set(new EntityInfoComponent("Layer", "HUD"));
+            hud.Set(new TransformComponent(Vector2.Zero));
+            hud.Set(new SceneLayerComponent
+            {
+                Order = 1000, // listed above every world layer (front-most)
+                ScreenSpace = true,
+                Locked = true, // never a placement target
+            });
+        }
+
+        using var texts = _world.GetEntities().With<DynamicTextComponent>().AsSet();
+        foreach (var text in texts.GetEntities())
+        {
+            if (text.Get<DynamicTextComponent>().Target != RenderTargetID.HUD) continue;
+            // Re-parent when unparented OR the old parent died (a renamed/rebuilt layer).
+            if (text.Has<ChildOfComponent>() && text.Get<ChildOfComponent>().Parent.IsAlive) continue;
+            text.SetParent(hud);
+        }
+    }
+
     private static CollisionMessage CreateRunnerCollision(
         Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB,
         Vector2 contactPoint, Vector2 contactNormal, float contactTime, float penetrationDepth, int layer)
@@ -443,6 +499,14 @@ public class InfiniteRunnerScreen : IGameScreen
         p.Add("hierarchy", hierarchySystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
+            // The HUD preview (editor only): projects the HUD layer's members into the camera
+            // entity's frame while Paused — AFTER the HUD-content writer (the Freeze-gated
+            // `logic.scoreDisplay`, whose text for this frame has already landed) and after
+            // `hierarchy`, so the projection is the last word on the member's transform; BEFORE the
+            // draw prep, which reads the projected position + target. Restores the real HUD pass the
+            // moment Play starts.
+            p.Add("editor.hudPreview", new HudPreviewSystem(_world, _viewportManager),
+                EditTimeBehavior.RunNormally);
             p.AddGroup("editor.toolbar", EditTimeBehavior.RunNormally, g =>
             {
                 g.Add("meshPrep", _editor.ToolbarMeshPrep);

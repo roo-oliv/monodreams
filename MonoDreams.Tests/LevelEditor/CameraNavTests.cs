@@ -177,6 +177,70 @@ public class CameraNavTests
         Assert.Null(CameraNav.ContentBounds(Array.Empty<Vector2[]>()));
     }
 
+    // ---- Frame-selected (HP): centre on the SELECTION, zoom kept; no selection = no-op ----
+
+    [Fact]
+    public void FrameSelected_CentersOnTheSelectedSpritesQuadCentre_AndKeepsZoom()
+    {
+        using var world = new World();
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        camera.Position = Vector2.Zero;
+        camera.Zoom = 2.5f; // a deliberate zoom the focus must NOT change (a focus, not a fit)
+
+        // A 10×10 top-left-origin sprite at (1000,-600) → world quad centre = (1005,-595).
+        var sprite = MakeSprite(world, new Vector2(1000, -600));
+        MakeSprite(world, new Vector2(-400, 400)); // unselected content must not pull the view
+        sprite.Set(new MonoDreams.LevelEditor.Component.SelectedComponent());
+        MakeCursor(world);
+
+        using var nav = new CameraNavSystem(world, camera);
+
+        Assert.True(nav.FrameSelected());
+        Assert.Equal(1005f, camera.Position.X, 3);
+        Assert.Equal(-595f, camera.Position.Y, 3);
+        Assert.Equal(2.5f, camera.Zoom, 5);
+    }
+
+    [Fact]
+    public void FrameSelected_SpritelessSelection_CentersOnItsWorldPosition()
+    {
+        using var world = new World();
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        camera.Position = Vector2.Zero;
+
+        // A spriteless entity (a layer, a marker) focuses on its transform WORLD position — here a
+        // child, so the parent offset must be included.
+        var parent = world.CreateEntity();
+        parent.Set(new TransformComponent(new Vector2(200, 50)));
+        var child = world.CreateEntity();
+        var childTransform = new TransformComponent(new Vector2(30, -10)) { Parent = parent.Get<TransformComponent>() };
+        child.Set(childTransform);
+        child.Set(new MonoDreams.LevelEditor.Component.SelectedComponent());
+        MakeCursor(world);
+
+        using var nav = new CameraNavSystem(world, camera);
+
+        Assert.True(nav.FrameSelected());
+        Assert.Equal(new Vector2(230, 40), camera.Position);
+    }
+
+    [Fact]
+    public void FrameSelected_NoSelection_IsNoOpAndReportsFalse()
+    {
+        using var world = new World();
+        var camera = new MonoDreams.Component.Camera(800, 600);
+        camera.Position = new Vector2(42, 7);
+        var startZoom = camera.Zoom;
+        MakeSprite(world, new Vector2(1000, 1000)); // content exists, but nothing is selected
+        MakeCursor(world);
+
+        using var nav = new CameraNavSystem(world, camera);
+
+        Assert.False(nav.FrameSelected());
+        Assert.Equal(new Vector2(42, 7), camera.Position);
+        Assert.Equal(startZoom, camera.Zoom);
+    }
+
     // ---- Edit-guarded: inert in Play (no camera mutation for pan/zoom/frame) ----
 
     [Fact]

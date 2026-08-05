@@ -43,6 +43,10 @@ public static class EditorIcons
         Play, Pause, Restart,
         Save, Undo, Redo, Refresh,
         Camera, Overlays, Prefab,
+        // Hierarchy-panel glyphs (HP): the + Add / focus-selected header buttons and the layer rows'
+        // radio (active), eye (visibility) and padlock (lock) toggles — mesh glyphs, never font text.
+        Plus, Focus,
+        Eye, EyeOff, Lock, Unlock, RadioOn, RadioOff,
     }
 
     /// <summary>The fraction of the smaller button dimension the glyph square occupies (centered) — the
@@ -131,6 +135,14 @@ public static class EditorIcons
             case EditorIcon.Camera: Camera(pen); break;
             case EditorIcon.Overlays: Overlays(pen); break;
             case EditorIcon.Prefab: Prefab(pen); break;
+            case EditorIcon.Plus: Plus(pen); break;
+            case EditorIcon.Focus: Focus(pen); break;
+            case EditorIcon.Eye: Eye(pen); break;
+            case EditorIcon.EyeOff: EyeOff(pen); break;
+            case EditorIcon.Lock: Padlock(pen, locked: true); break;
+            case EditorIcon.Unlock: Padlock(pen, locked: false); break;
+            case EditorIcon.RadioOn: Radio(pen, on: true); break;
+            case EditorIcon.RadioOff: Radio(pen, on: false); break;
             default: throw new ArgumentOutOfRangeException(nameof(icon), icon, "Unknown editor icon.");
         }
         return pen.ToMesh();
@@ -256,6 +268,71 @@ public static class EditorIcons
         const float r = 0.22f, cy = 0.5f;
         p.Arc(0.40f, cy, r, 0f, 360f, 20); // left circle
         p.Arc(0.60f, cy, r, 0f, 360f, 20); // right circle
+    }
+
+    /// <summary>Plus + — the Add affordance (Lucide "plus"): a vertical and a horizontal stroke.</summary>
+    private static void Plus(Pen p)
+    {
+        p.Line(0.5f, 0.18f, 0.5f, 0.82f);
+        p.Line(0.18f, 0.5f, 0.82f, 0.5f);
+    }
+
+    /// <summary>Focus — a crosshair-with-circle (Lucide "locate"): a centre ring, four tick strokes
+    /// reaching the box edges, and a small filled centre dot — "centre the view on the selection".</summary>
+    private static void Focus(Pen p)
+    {
+        const float r = 0.26f;
+        p.Arc(0.5f, 0.5f, r, 0f, 360f, 18);
+        p.Line(0.5f, 0.06f, 0.5f, 0.5f - r);   // up tick
+        p.Line(0.5f, 0.94f, 0.5f, 0.5f + r);   // down tick
+        p.Line(0.06f, 0.5f, 0.5f - r, 0.5f);   // left tick
+        p.Line(0.94f, 0.5f, 0.5f + r, 0.5f);   // right tick
+        p.FillQuad(0.46f, 0.46f, 0.54f, 0.54f); // centre dot
+    }
+
+    /// <summary>Eye (visible) — the upper and lower lid arcs forming a lens, with a filled pupil. The
+    /// two arcs are circles centred just outside the box (one above, one below) whose corners meet at
+    /// the eye's tips at <c>u ≈ 0.06 / 0.94</c> — inset far enough that the stroke's half-thickness
+    /// still lands inside the glyph rect.</summary>
+    private static void Eye(Pen p)
+    {
+        p.Arc(0.5f, LidCenterFar, LidRadius, 221f, 319f, 10); // upper lid (from the below-centre circle)
+        p.Arc(0.5f, LidCenterNear, LidRadius, 41f, 139f, 10); // lower lid (from the above-centre circle)
+        p.FillQuad(0.42f, 0.42f, 0.58f, 0.58f);               // pupil
+    }
+
+    /// <summary>Eye (hidden) — a closed lid: the lower arc alone with three small lashes.</summary>
+    private static void EyeOff(Pen p)
+    {
+        p.Arc(0.5f, LidCenterNear, LidRadius, 41f, 139f, 10); // the closed lower lid
+        p.Line(0.28f, 0.62f, 0.20f, 0.78f);
+        p.Line(0.50f, 0.70f, 0.50f, 0.88f);
+        p.Line(0.72f, 0.62f, 0.80f, 0.78f);
+    }
+
+    // The eye-lid arc geometry (shared by Eye + EyeOff): a circle of LidRadius centred above the box
+    // bulges DOWN to v = 0.70 (the lower lid); its mirror below the box bulges UP to v = 0.30.
+    private const float LidRadius = 0.584f;
+    private const float LidCenterNear = 0.116f;        // the above-box centre → the lower lid
+    private const float LidCenterFar = 1f - LidCenterNear; // the below-box centre → the upper lid
+
+    /// <summary>Padlock — a filled body with a shackle arc: closed (both legs seated) when
+    /// <paramref name="locked"/>, else swung open (the right leg lifted clear).</summary>
+    private static void Padlock(Pen p, bool locked)
+    {
+        p.FillQuad(0.28f, 0.48f, 0.72f, 0.86f); // body
+        if (locked)
+            p.Arc(0.5f, 0.48f, 0.16f, 180f, 360f, 8); // shackle seated on the body
+        else
+            p.Arc(0.62f, 0.40f, 0.16f, 150f, 330f, 8); // shackle swung up-right, open
+    }
+
+    /// <summary>Radio — a ring, with a filled centre dot when <paramref name="on"/> (the ACTIVE
+    /// layer marker: "this is the layer placements and the brush target").</summary>
+    private static void Radio(Pen p, bool on)
+    {
+        p.Arc(0.5f, 0.5f, 0.30f, 0f, 360f, 16);
+        if (on) p.FillQuad(0.36f, 0.36f, 0.64f, 0.64f);
     }
 
     /// <summary>Play ▶ — a filled right-pointing triangle.</summary>

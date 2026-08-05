@@ -231,6 +231,14 @@ public sealed class EditorShellStateComponent
     /// <summary>The bottom shelf's active tab (default — and only — <see cref="EditorBottomTab.Assets"/>).</summary>
     public EditorBottomTab ActiveBottomTab = EditorBottomTab.Assets;
 
+    /// <summary>The ACTIVE scene layer (the layers wave — the Aseprite/LDtk model): the layer new
+    /// placements parent to. Set by the Entities panel's layer rows (the radio glyph, or a body
+    /// click on a usable world layer); a dead/default Entity means "no layer" (placements
+    /// auto-create one). Editor session state, never serialized — the durable truth is the layer
+    /// ENTITY's own <c>SceneLayerComponent</c>, and which of them is "active" is a per-session
+    /// authoring choice, not scene content.</summary>
+    public DefaultEcs.Entity ActiveLayer;
+
     // ── The viewport tab strip (PF-B) ──────────────────────────────────────────────────────────────
     /// <summary>The ordered viewport-tab descriptors — the tab strip's <b>render source</b> (the strip
     /// renderer reads ONLY this, never the stack). The <c>ViewportContextStack</c> is the ONE writer:

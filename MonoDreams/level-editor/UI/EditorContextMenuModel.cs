@@ -94,36 +94,66 @@ public static class EditorContextMenuModel
     public const string PrefabEditPathPrefix = "prefab-edit:";
     public const string PrefabDeletePathPrefix = "prefab-delete:";
 
+    // Scene-layer paths (layers wave): create the designer's layers, rename, and reorder. Kind is
+    // DERIVED from what the layer entity carries (there is no kind enum) — today every layer is a
+    // Sprites/Entity layer; the painted "Indexed Layer" creator arrives with the tile-paint wave.
+    public const string NewSpritesLayerPath = "layer/new-sprites";
+    public const string RenameLayerPath = "layer/rename";
+    public const string LayerUpPath = "layer/up";
+    public const string LayerDownPath = "layer/down";
+
     /// <summary>The entity context menu (the viewport right-click AND the header <c>Entity ▾</c>
-    /// dropdown — one model, two anchors): <b>Order ▸</b> (Bring Forward / Send Backward),
+    /// dropdown — one model, two anchors): when the selection is a scene LAYER
+    /// (<paramref name="isLayer"/>) the layer verbs lead — <b>Rename Layer…</b>, <b>Move Layer Up</b>,
+    /// <b>Move Layer Down</b> + a separator — then <b>Order ▸</b> (Bring Forward / Send Backward),
     /// <b>Add Collider ▸</b> (Box / Polygon — creates a child collider entity), a separator, the prefab
     /// actions — <b>Create Prefab from Selection…</b> (PF-D, enabled with a selection) and
     /// <b>Unpack Prefab</b> (<see cref="EditorMenuItem.Danger"/>, enabled only when the selection is a
     /// prefab instance root, <paramref name="isPrefabInstance"/>) — a separator, then <b>Delete</b>
     /// (<see cref="EditorMenuItem.Danger"/>). Every selection-gated item is disabled when nothing is
     /// selected, so the header dropdown reads inert with no selection.</summary>
-    public static IReadOnlyList<EditorMenuItem> EntityMenu(bool hasSelection, bool isPrefabInstance = false) => new[]
+    public static IReadOnlyList<EditorMenuItem> EntityMenu(bool hasSelection, bool isPrefabInstance = false,
+        bool isLayer = false)
     {
-        OrderSubmenu(hasSelection),
-        AddColliderSubmenu(hasSelection),
-        Separator(),
-        new EditorMenuItem
+        var items = new List<EditorMenuItem>();
+        if (isLayer)
+        {
+            // Layer verbs (layers wave) ABOVE the generic entity items: rename and reorder.
+            items.Add(new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Rename Layer…", Path = RenameLayerPath,
+            });
+            items.Add(new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Move Layer Up", Path = LayerUpPath,
+            });
+            items.Add(new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Move Layer Down", Path = LayerDownPath,
+            });
+            items.Add(Separator());
+        }
+        items.Add(OrderSubmenu(hasSelection));
+        items.Add(AddColliderSubmenu(hasSelection));
+        items.Add(Separator());
+        items.Add(new EditorMenuItem
         {
             Kind = EditorMenuItemKind.Action, Label = "Create Prefab from Selection…",
             Path = CreatePrefabFromSelectionPath, Enabled = hasSelection,
-        },
-        new EditorMenuItem
+        });
+        items.Add(new EditorMenuItem
         {
             Kind = EditorMenuItemKind.Action, Label = "Unpack Prefab", Path = UnpackPrefabPath,
             Enabled = isPrefabInstance, Danger = true,
-        },
-        Separator(),
-        new EditorMenuItem
+        });
+        items.Add(Separator());
+        items.Add(new EditorMenuItem
         {
             Kind = EditorMenuItemKind.Action, Label = "Delete", Path = DeletePath,
             Enabled = hasSelection, Danger = true,
-        },
-    };
+        });
+        return items;
+    }
 
     /// <summary>The per-card prefab menu on the Prefabs shelf (PF-D): <b>Edit Prefab</b> (opens its tab)
     /// and <b>Delete</b> (<see cref="EditorMenuItem.Danger"/>, file delete with a confirm). Both paths
@@ -165,8 +195,28 @@ public static class EditorContextMenuModel
         {
             Kind = EditorMenuItemKind.Action, Label = "Add Empty Entity", Path = AddEmptyPath,
         });
+        // The layer creator (layers wave): always available — the Entities tree IS the layers panel
+        // (the Figma model), so its background menu is where new layers are born. (The painted
+        // "New Indexed Layer" creator arrives with the tile-paint wave.)
+        items.Add(Separator());
+        items.Add(new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Action, Label = "New Entity Layer", Path = NewSpritesLayerPath,
+        });
         return items;
     }
+
+    /// <summary>The Entities-panel toolbar's <b>+ Add</b> dropdown (HP — anchored below the + button):
+    /// what can be born into the scene — an empty entity, or an <b>Entity Layer</b> (holds placed
+    /// sprites/props). The kind choice lives right in the dropdown (one hop; the LDtk "what kind of
+    /// layer?" question answered at creation). The painted <b>Indexed Layer</b> entry lands with the
+    /// tile-paint wave, which brings the grid component a painted layer is defined by.</summary>
+    public static IReadOnlyList<EditorMenuItem> AddMenu() => new[]
+    {
+        new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Empty Entity", Path = AddEmptyPath },
+        Separator(),
+        new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Entity Layer", Path = NewSpritesLayerPath },
+    };
 
     /// <summary>The Scenes-panel context menu (UX2-D §4): <b>Create Empty Scene…</b> (opens the small
     /// name modal on the dialog machinery).</summary>

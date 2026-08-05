@@ -124,6 +124,40 @@ public class EditorContextMenuTests
     }
 
     [Fact]
+    public void EntityMenu_ForALayerSelection_LeadsWithTheLayerVerbs_KeepingTheColliderSubmenu()
+    {
+        var items = EditorContextMenuModel.EntityMenu(hasSelection: true, isLayer: true);
+
+        // The layer verbs come FIRST (rename + reorder), separated from the generic entity items.
+        Assert.Equal(EditorContextMenuModel.RenameLayerPath, items[0].Path);
+        Assert.Equal(EditorContextMenuModel.LayerUpPath, items[1].Path);
+        Assert.Equal(EditorContextMenuModel.LayerDownPath, items[2].Path);
+        Assert.Equal(EditorMenuItemKind.Separator, items[3].Kind);
+        // …then the unchanged entity items, collider submenu included.
+        Assert.Equal(EditorContextMenuModel.OrderSubmenuPath, items[4].Path);
+        Assert.Equal(EditorContextMenuModel.AddColliderSubmenuPath, items[5].Path);
+        Assert.Equal(EditorContextMenuModel.AddColliderBoxPath, items[5].Submenu![0].Path);
+        Assert.Equal(EditorContextMenuModel.DeletePath, items[^1].Path);
+
+        // A non-layer selection is byte-identical to the pre-wave menu (no layer verbs).
+        var plain = EditorContextMenuModel.EntityMenu(hasSelection: true);
+        Assert.Equal(EditorContextMenuModel.OrderSubmenuPath, plain[0].Path);
+        Assert.DoesNotContain(plain, i => i.Path == EditorContextMenuModel.RenameLayerPath);
+    }
+
+    [Fact]
+    public void AddMenu_IsEmptyEntityThenTheLayerCreator()
+    {
+        // The Entities-panel toolbar's + Add dropdown (HP): what can be born into the scene.
+        var items = EditorContextMenuModel.AddMenu();
+        Assert.Equal(3, items.Count);
+        Assert.Equal(EditorContextMenuModel.AddEmptyPath, items[0].Path);
+        Assert.Equal(EditorMenuItemKind.Separator, items[1].Kind);
+        Assert.Equal(EditorContextMenuModel.NewSpritesLayerPath, items[2].Path);
+        Assert.All(items, i => Assert.True(i.Enabled)); // nothing here is selection-gated
+    }
+
+    [Fact]
     public void EntitiesPanelMenu_WithRow_IncludesEntityItemsAboveSeparator()
     {
         var items = EditorContextMenuModel.EntitiesPanelMenu(hasRowEntity: true);
@@ -134,11 +168,15 @@ public class EditorContextMenuTests
     }
 
     [Fact]
-    public void EntitiesPanelMenu_NoRow_IsJustAddEmpty()
+    public void EntitiesPanelMenu_NoRow_IsAddEmptyPlusTheLayerCreator()
     {
+        // Layers wave: the Entities tree IS the layers panel, so its background menu carries the
+        // layer creator below Add Empty Entity (separated).
         var items = EditorContextMenuModel.EntitiesPanelMenu(hasRowEntity: false);
-        Assert.Single(items);
+        Assert.Equal(3, items.Count);
         Assert.Equal(EditorContextMenuModel.AddEmptyPath, items[0].Path);
+        Assert.Equal(EditorMenuItemKind.Separator, items[1].Kind);
+        Assert.Equal(EditorContextMenuModel.NewSpritesLayerPath, items[2].Path);
     }
 
     [Fact]

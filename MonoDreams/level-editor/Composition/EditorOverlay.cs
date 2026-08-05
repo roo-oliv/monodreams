@@ -495,8 +495,17 @@ public sealed class EditorOverlay
         // the cursor — SelectionSystem has already picked + selected, so open directly (no re-pick); the
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
         _selection.ViewportContextMenuRequested = _ =>
-            _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance()), CursorScreenPoint());
+            _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance(),
+                    SelectionIsLayer()), CursorScreenPoint());
         _leftPanel.ContextMenuRequested = OpenLeftPanelContextMenu;
+        // HP: the Entities panel toolbar — + Add opens the Add dropdown below the button (Empty
+        // Entity / Entity Layer); focus centres the VIEW on the selection.
+        _leftPanel.AddMenuRequested = (s, anchor) => _menu.OpenBelow(EditorContextMenuModel.AddMenu(), anchor);
+        _leftPanel.FocusSelectionRequested = () =>
+        {
+            if (!_cameraNav.FrameSelected())
+                Notifications.Notify("Nothing selected to focus", EditorNotifySeverity.Info);
+        };
 
         // PF-D (pre-mortem #9): a dirty prefab tab's × routes the Save & Close / Discard / Cancel confirm.
         // The transport activates the tab first (so Save/Discard act on ITS world), then invokes this with
@@ -532,9 +541,10 @@ public sealed class EditorOverlay
                 $"asset(s) from '{dropRoot}') + {paletteBands.Count} band(s) from the screen's layer map.");
         }
 
-        // The asset palette + placement (island-authoring Slice 1): when a catalog + a layer-band map are
-        // present — supplied by the screen OR built above (PF-F). Lives in the shell's bottom strip.
-        if (assetCatalog != null && paletteBands is { Count: > 0 })
+        // The asset palette + placement (island-authoring Slice 1; layers wave: bands are optional
+        // legacy — a placement's DRAW layer is the ACTIVE scene layer it parents to, so a catalog
+        // alone is enough). Lives in the shell's bottom strip.
+        if (assetCatalog != null)
         {
             // Per-asset band marks (FW3): loaded from asset-bands.json alongside the assets (the
             // catalog's scan root), so a mark survives an editor restart. Null root (no drop folder)
@@ -1176,7 +1186,8 @@ public sealed class EditorOverlay
                 // Viewport pick → instance root (Unity's model): a right-click anywhere on a placed
                 // instance targets the whole instance, matching the left-click select redirect.
                 _selection.SelectExclusive(SelectionSystem.ResolveViewportSelection(hit));
-                _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance()), CursorScreenPoint());
+                _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance(),
+                    SelectionIsLayer()), CursorScreenPoint());
                 break;
             case EditorMenuContext.EntitiesPanel:
                 var row = _leftPanel.EntityAtPoint(CursorScreenPoint());
@@ -1187,7 +1198,8 @@ public sealed class EditorOverlay
                 _menu.OpenAt(EditorContextMenuModel.ScenesPanelMenu(), CursorScreenPoint());
                 break;
             case EditorMenuContext.EntityHeader:
-                _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection(), SelectionIsPrefabInstance()), EntityButtonBounds());
+                _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection(), SelectionIsPrefabInstance(),
+                    SelectionIsLayer()), EntityButtonBounds());
                 break;
             case EditorMenuContext.AddAtCursor:
                 // The Shift+A shortcut (UX3-E) + the menu:open add op: the Entities-panel ADD section
@@ -1282,6 +1294,11 @@ public sealed class EditorOverlay
             case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
             case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
             case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;
+            // Scene-layer actions (layers wave): create / rename / reorder.
+            case EditorContextMenuModel.NewSpritesLayerPath: CreateSceneLayer(); break;
+            case EditorContextMenuModel.RenameLayerPath: OpenRenameLayerDialog(); break;
+            case EditorContextMenuModel.LayerUpPath: MoveSelectedLayer(+1); break;
+            case EditorContextMenuModel.LayerDownPath: MoveSelectedLayer(-1); break;
             // PF-D prefab actions (entity menu + prefab shelf menu).
             case EditorContextMenuModel.CreatePrefabFromSelectionPath: OpenCreatePrefabFromSelectionDialog(state); break;
             case EditorContextMenuModel.UnpackPrefabPath: UnpackSelection(state); break;
@@ -1440,6 +1457,88 @@ public sealed class EditorOverlay
     /// enabled state).</summary>
     private bool SelectionIsPrefabInstance() =>
         TryGetSelectedRoot(out var root) && root.Has<PrefabInstanceComponent>();
+
+    // ─── Scene layers (layers wave): create / rename / reorder — the Entities tree is the layers panel ───
+
+    /// <summary>Whether the selection is a scene LAYER entity (drives the layer menu verbs).</summary>
+    private bool SelectionIsLayer() =>
+        TryGetSelectedRoot(out var root) && root.Has<MonoDreams.Component.Level.SceneLayerComponent>();
+
+    /// <summary>Creates a new scene layer (undoable), names it uniquely ("Layer 2", …), puts it in
+    /// FRONT (highest order among the world layers — a screen-space HUD grouping stays above them
+    /// all and is excluded from the count), makes it the ACTIVE layer, and selects it so the
+    /// Inspector shows its settings. The <see cref="CreateEntityCommand"/> tags the created root
+    /// <c>SceneObjectComponent</c>, so the layer is a save-root and round-trips through Save.</summary>
+    public void CreateSceneLayer()
+    {
+        var nextOrder = 0;
+        foreach (var layer in MonoDreams.System.Level.SceneLayerSystem.OrderedLayers(_world))
+        {
+            var sceneLayer = layer.Get<MonoDreams.Component.Level.SceneLayerComponent>();
+            if (sceneLayer.ScreenSpace) continue; // the HUD grouping stays above every world layer
+            nextOrder = Math.Max(nextOrder, sceneLayer.Order + 1);
+        }
+        var name = EntityNaming.UniqueName(_world, "Layer");
+
+        var created = default(Entity);
+        History.Push(new CreateEntityCommand(_world, Serializer, w =>
+        {
+            created = w.CreateEntity();
+            created.Set(new EntityInfoComponent("Layer", name));
+            created.Set(new TransformComponent(Vector2.Zero));
+            created.Set(new MonoDreams.Component.Level.SceneLayerComponent { Order = nextOrder });
+            return created;
+        }));
+
+        if (created.IsAlive)
+        {
+            ClearWorldSelection();
+            created.Set(new SelectedComponent());
+            _shellState.ActiveLayer = created;
+        }
+        Notifications.Notify($"Created layer '{name}'", EditorNotifySeverity.Success);
+    }
+
+    /// <summary>Opens the rename modal for the selected layer (the create-prefab name-dialog
+    /// machinery; the sanitized name lands on the layer's EntityInfo).</summary>
+    private void OpenRenameLayerDialog()
+    {
+        if (!TryGetSelectedRoot(out var layer) || !layer.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+        {
+            Notifications.Notify("Select a layer to rename", EditorNotifySeverity.Warning);
+            return;
+        }
+        Dialog.OpenCreatePrefab("Rename Layer", "layer", _ => false, (name, _) =>
+        {
+            if (!layer.IsAlive) return;
+            var info = layer.Get<EntityInfoComponent>();
+            layer.Set(new EntityInfoComponent(info.Type, name));
+            History.MarkDirty();
+            Notifications.Notify($"Renamed layer to '{name}'", EditorNotifySeverity.Success);
+        });
+    }
+
+    /// <summary>Moves the selected layer one step forward (+1) or back (−1) by swapping
+    /// <c>Order</c> with its neighbor. The draw remap re-derives depths next frame — member data is
+    /// never rewritten (a reorder is a one-line diff).</summary>
+    private void MoveSelectedLayer(int delta)
+    {
+        if (!TryGetSelectedRoot(out var layer) || !layer.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+            return;
+        var ordered = MonoDreams.System.Level.SceneLayerSystem.OrderedLayers(_world);
+        var index = ordered.IndexOf(layer);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= ordered.Count) return;
+
+        var a = layer.Get<MonoDreams.Component.Level.SceneLayerComponent>();
+        var b = ordered[target].Get<MonoDreams.Component.Level.SceneLayerComponent>();
+        // Normalize orders to indices first (ties collapse), then swap the two slots.
+        for (var i = 0; i < ordered.Count; i++)
+            ordered[i].Get<MonoDreams.Component.Level.SceneLayerComponent>().Order = i;
+        a.Order = target;
+        b.Order = index;
+        History.MarkDirty();
+    }
 
     private void ClearWorldSelection()
     {
@@ -2444,14 +2543,17 @@ public sealed class EditorOverlay
         {
             // view:camera — snap the free editor VIEW onto the scene camera entity (CM), the headless
             // twin of the Scene-header nav-corner button. view:frame — centre + zoom-fit the VIEW on all
-            // content (UX3-E), the headless twin of the Home shortcut (both call the shared CameraNav).
+            // content (UX3-E, the Home shortcut's twin). view:selected — centre on the selection (HP,
+            // the Entities panel focus button's twin). All call the shared CameraNav.
             var verb = name.Substring(viewPrefix.Length).Trim();
             if (string.Equals(verb, "camera", StringComparison.OrdinalIgnoreCase))
                 DispatchToolbarAction(EditorToolbarAction.CameraView, state);
             else if (string.Equals(verb, "frame", StringComparison.OrdinalIgnoreCase))
                 _cameraNav.FrameScene();
+            else if (string.Equals(verb, "selected", StringComparison.OrdinalIgnoreCase))
+                _cameraNav.FrameSelected();
             else
-                Logger.Warning($"[level-editor] Editor-op '{name}': expected view:camera or view:frame.");
+                Logger.Warning($"[level-editor] Editor-op '{name}': expected view:camera, view:frame or view:selected.");
             return;
         }
 

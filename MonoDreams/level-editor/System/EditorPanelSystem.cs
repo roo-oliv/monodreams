@@ -108,6 +108,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // Stable display ids for entities with no EntityInfo name (a panel-local render detail).
     private readonly Dictionary<Entity, int> _displayIds = new();
+
+    /// <summary>Layers already seeded collapsed by <see cref="CollapseNewLayers"/> — seeding is
+    /// once-per-layer, so a designer's expand sticks.</summary>
+    private readonly HashSet<Entity> _autoCollapsedLayers = new();
     private int _nextDisplayId = 1;
 
     private readonly List<PanelRow> _rows = new();
@@ -116,6 +120,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     private Entity _scrollTrack;
     private Entity _scrollThumb;
     private int _scroll;
+
+    // HP: the Entities panel toolbar's persistent widgets (the + Add and focus buttons) — a slim
+    // band between the tab strip and the tree, LeftTabs role + Entities tab only.
+    private Entity _addButtonFill, _addButtonGlyph, _focusButtonFill, _focusButtonGlyph;
+    private float _addHover, _focusHover;
 
     // PF-A editable-Inspector transient state (RightInspector role): which member (if any) is being
     // inline-edited, whether the filter field owns the keyboard, and the caret blink phase.
@@ -134,6 +143,15 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     /// <summary>Raised when the "+ Add component" row is clicked (PF-A §3) — the overlay wires it (for
     /// the Inspector) to open the filterable add-component popup at the cursor. Null → the row is inert.</summary>
     public Action<GameState>? AddComponentRequested { get; set; }
+
+    /// <summary>Raised by the Entities panel toolbar's <b>+ Add</b> button (HP) with the button's
+    /// bounds — the overlay anchors the Add dropdown (Empty Entity / Entity Layer) below it.
+    /// Null → the button is inert. LeftTabs role only.</summary>
+    public Action<GameState, Rectangle>? AddMenuRequested { get; set; }
+
+    /// <summary>Raised by the Entities panel toolbar's <b>focus</b> (crosshair) button (HP) — the
+    /// overlay centres the editor VIEW on the current selection. Null → inert. LeftTabs only.</summary>
+    public Action? FocusSelectionRequested { get; set; }
 
     /// <summary>Whether the editable Inspector currently OWNS the keyboard — the filter field is focused
     /// OR an inline member edit is open (PF-A §3). The overlay ORs this into the host keyboard's
@@ -192,6 +210,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         public Entity ValueLabel;
         public Entity FieldBox;
         public Entity DeleteGlyph;
+        // HP: a LAYER row's leading glyph meshes — the ACTIVE radio, the visibility eye, the padlock
+        // (EditorIcons meshes in the LayerToggleRect slots). Cleared on every other row.
+        public Entity GlyphRadio;
+        public Entity GlyphEye;
+        public Entity GlyphLock;
     }
 
     /// <summary>An open inline member edit (PF-A §3): the target component + member (by type + name) and
@@ -241,9 +264,14 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         // Scene candidates: entities with a transform, minus the editor's own machinery (chrome,
-        // gizmo overlays, proxies, ghost, cursor, the gizmo/panel state entities) — hidden by default.
+        // gizmo overlays, proxies, ghost, cursor, the gizmo/panel state entities) — hidden by
+        // default — and minus BAKE PRODUCTS (boundary segments): derived children that never
+        // serialize and would otherwise swamp the tree by the hundreds.
         _sceneSet = world.GetEntities()
-            .With<TransformComponent>().Without<EditorInfrastructureComponent>().AsSet();
+            .With<TransformComponent>()
+            .Without<EditorInfrastructureComponent>()
+            .Without<BakedProductComponent>()
+            .AsSet();
         // The camera is an ordinary scene entity now (CM: EntityInfoComponent("Camera") + Transform +
         // CameraComponent, SceneObjectComponent-tagged, NOT infra) — so it appears in _sceneSet naturally
         // and needs no special fold or label. (Pre-CM it was an infra-tagged rig folded in explicitly.)
@@ -280,6 +308,12 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                     LabelEntity = CreateText(),
                     Underline = CreateMesh(EditorTheme.Depths.TabUnderline),
                 });
+
+            // HP: the Entities panel toolbar's + Add / focus buttons (fill mesh + icon glyph each).
+            _addButtonFill = CreateMesh(EditorTheme.Depths.Button);
+            _addButtonGlyph = CreateMesh(EditorTheme.Depths.Label);
+            _focusButtonFill = CreateMesh(EditorTheme.Depths.Button);
+            _focusButtonGlyph = CreateMesh(EditorTheme.Depths.Label);
         }
         else
         {
@@ -301,7 +335,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         var scale = _viewportManager.DevicePixelRatio;
         var panel = RegionRect(scale);
         var header = EditorChromeLayout.TabStrip(panel, scale); // the region header band (tabs or title)
-        var body = EditorChromeLayout.RegionBody(panel, scale); // rows live below the header
+        var toolbar = PanelToolbarRect(panel, scale);            // HP: + Add / focus band (or Empty)
+        var body = BodyRect(panel, scale);                       // rows live below header (+ toolbar)
 
         // The Inspector panel tracks selection changes (clearing stale expand state); the left tabbed
         // panel does not own the Inspector's expand set. It also owns the keyboard while the filter is
@@ -316,14 +351,18 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
         // Build the flat rows for hit-testing, handle clicks/scroll (which may mutate collapse state,
         // the selection, the active tab or the scroll), then rebuild so the visuals reflect the
-        // post-click state this same frame.
+        // post-click state this same frame. The toolbar band re-derives after interaction — a tab
+        // switch inside HandleInteraction shows/hides it the same frame.
         BuildRows();
-        HandleInteraction(panel, header, body, scale, state);
+        HandleInteraction(panel, header, toolbar, body, scale, state);
         BuildRows();
+        toolbar = PanelToolbarRect(panel, scale);
+        body = BodyRect(panel, scale);
 
         _scroll = SystemsPanelLayout.ClampScroll(_scroll, _rows.Count, body, scale);
         if (_role == EditorPanelRole.LeftTabs) PositionTabs(header, scale, state.Time);
         else PositionTitle(header, scale);
+        PositionPanelToolbar(toolbar, scale, state.Time);
         PositionVisuals(body, scale);
         PositionScrollbar(body, scale);
     }
@@ -335,6 +374,49 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             _shellState.LeftWidthPt, _shellState.BottomHeightPt)
         : EditorChromeLayout.RightPanel(_viewportManager.ScreenWidth, _viewportManager.ScreenHeight, scale,
             _shellState.RightWidthPt, _shellState.BottomHeightPt);
+
+    /// <summary>Whether the panel toolbar (the + Add / focus band) is shown: the LEFT strip's
+    /// Entities tab only (the tree is where things are born and found).</summary>
+    public bool ShowsPanelToolbar =>
+        _role == EditorPanelRole.LeftTabs && _shellState.ActiveLeftTab == EditorPanelTab.Entities;
+
+    /// <summary>The panel toolbar band (HP): a tab-strip-height band directly below the header,
+    /// or <see cref="Rectangle.Empty"/> when not shown.</summary>
+    private Rectangle PanelToolbarRect(Rectangle panel, float scale)
+    {
+        if (!ShowsPanelToolbar) return Rectangle.Empty;
+        var header = EditorChromeLayout.TabStrip(panel, scale);
+        return new Rectangle(panel.X, header.Bottom, panel.Width,
+            EditorChromeLayout.Px(EditorChromeLayout.TabStripHeight, scale));
+    }
+
+    /// <summary>The rows' body: the region below the header, less the panel toolbar band when shown.
+    /// The ONE body everyone (interaction, visuals, <see cref="EntityAtPoint"/>) derives from.</summary>
+    private Rectangle BodyRect(Rectangle panel, float scale)
+    {
+        var body = EditorChromeLayout.RegionBody(panel, scale);
+        var toolbar = PanelToolbarRect(panel, scale);
+        if (toolbar == Rectangle.Empty) return body;
+        return new Rectangle(body.X, body.Y + toolbar.Height, body.Width,
+            Math.Max(1, body.Height - toolbar.Height));
+    }
+
+    /// <summary>The + Add button's square inside the toolbar band (left-anchored).</summary>
+    private static Rectangle AddButtonRect(Rectangle toolbar, float scale)
+    {
+        var size = EditorChromeLayout.Px(20, scale);
+        return new Rectangle(toolbar.X + EditorChromeLayout.Px(8, scale),
+            toolbar.Y + (toolbar.Height - size) / 2, size, size);
+    }
+
+    /// <summary>The focus (crosshair) button's square inside the toolbar band (right-anchored,
+    /// clear of the scrollbar gutter).</summary>
+    private static Rectangle FocusButtonRect(Rectangle toolbar, float scale)
+    {
+        var size = EditorChromeLayout.Px(20, scale);
+        return new Rectangle(toolbar.Right - EditorChromeLayout.Px(12, scale) - size,
+            toolbar.Y + (toolbar.Height - size) / 2, size, size);
+    }
 
     // ---- Model assembly ----------------------------------------------------
 
@@ -377,6 +459,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         var (update, draw) = _pipelines();
         var selected = FirstSelected();
         var nodes = EntitySceneTree.Build(MaterializeScene());
+        CollapseNewLayers(nodes);
 
         // Only build the scene catalog when the Scenes tab is showing — the provider scans the
         // levels dir (filesystem IO), so it must not run every frame on the Entities/Systems tabs.
@@ -386,6 +469,24 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         _rows.AddRange(EditorPanelModel.Build(
             _state, _shellState.ActiveLeftTab, update, draw, nodes, SceneLabel, selected,
             ProjectInfo(), catalog, _isDirty()));
+    }
+
+    /// <summary>
+    /// Collapses each SCENE LAYER's subtree the first time it is seen, so the Entities tree opens
+    /// on the LAYER LIST (Blender/Aseprite behaviour) instead of one layer's hundreds of members
+    /// pushing every other layer below the fold — the state that made a scene's other layers look
+    /// missing. Only the first sighting seeds it: a designer who expands a layer keeps it expanded
+    /// (the toggle owns it from then on), and layers created later collapse on their own arrival.
+    /// </summary>
+    private void CollapseNewLayers(IReadOnlyList<EntitySceneTree.Node> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.HasChildren || !node.Entity.IsAlive) continue;
+            if (!node.Entity.Has<MonoDreams.Component.Level.SceneLayerComponent>()) continue;
+            if (_autoCollapsedLayers.Add(node.Entity))
+                _state.CollapsedTreeEntities.Add(node.Entity);
+        }
     }
 
     /// <summary>The Project-tab info, with the root middle-truncated to the panel's char budget so a
@@ -411,12 +512,37 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         var hideScreenInfra = _isScreenInfrastructure != null
                               && ActiveViewportKind() == ViewportContextKind.Prefab;
 
-        var list = new List<Entity>();
+        // Layers wave: the Entities tree IS the layers panel — LAYER entities list FIRST,
+        // front-most layer on top (the Figma/Aseprite convention: top of the list = front of the
+        // draw), then everything else in stable creation order.
+        var layers = new List<Entity>();
+        var rest = new List<Entity>();
         foreach (var e in _sceneSet.GetEntities())
         {
             if (hideScreenInfra && _isScreenInfrastructure!(e)) continue;
-            list.Add(e);
+            if (e.Has<MonoDreams.Component.Level.SceneLayerComponent>()) layers.Add(e);
+            else rest.Add(e);
         }
+        layers.Sort(MonoDreams.System.Level.SceneLayerSystem.CompareLayers);
+        layers.Reverse(); // top of the list = front of the draw
+
+        // Heal the active layer (it may have died with an undo/restart): default to the top WORLD
+        // layer — a screen-space (HUD) grouping is never a placement target.
+        if (!_shellState.ActiveLayer.IsAlive ||
+            !_shellState.ActiveLayer.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+        {
+            _shellState.ActiveLayer = default;
+            foreach (var layer in layers)
+            {
+                if (layer.Get<MonoDreams.Component.Level.SceneLayerComponent>().ScreenSpace) continue;
+                _shellState.ActiveLayer = layer;
+                break;
+            }
+        }
+
+        var list = new List<Entity>(layers.Count + rest.Count);
+        list.AddRange(layers);
+        list.AddRange(rest);
         // The camera entity is an ordinary scene entity (CM), so _sceneSet already includes it — no fold.
         // A prefab context has no camera entity (prefabs refuse cameras), so nothing camera-shaped appears.
         return list;
@@ -440,9 +566,19 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     }
 
     /// <summary>An entity's tree label: its <c>EntityInfoComponent</c> name (or type), else a stable
-    /// panel-local id.</summary>
+    /// panel-local id. A LAYER row (HP) is its NAME + a kind suffix — <c>(hud)</c> for a screen-space
+    /// grouping — the state glyphs (active radio / eye / padlock) are MESHES in the leading slots
+    /// (<see cref="SystemsPanelLayout.LayerToggleRect"/>), baked by <c>ConfigureVisual</c>, never
+    /// label text. (The painted-layer <c>(indexed)</c> suffix arrives with the tile-paint wave — it
+    /// keys off the grid component that wave introduces.)</summary>
     private string SceneLabel(Entity e)
     {
+        if (e.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+        {
+            var name = MonoDreams.System.Level.SceneLayerSystem.LayerName(e);
+            var kind = e.Get<MonoDreams.Component.Level.SceneLayerComponent>().ScreenSpace ? " (hud)" : "";
+            return $"{name}{kind}";
+        }
         if (e.Has<EntityInfoComponent>())
         {
             var info = e.Get<EntityInfoComponent>();
@@ -459,7 +595,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
 
     // ---- Interaction -------------------------------------------------------
 
-    private void HandleInteraction(Rectangle panel, Rectangle header, Rectangle body, float scale, GameState state)
+    private void HandleInteraction(Rectangle panel, Rectangle header, Rectangle toolbar, Rectangle body,
+        float scale, GameState state)
     {
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -475,6 +612,17 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (_shellState.ActiveDrag != ShellDragKind.None) return;
 
             if (!panel.Contains(point)) return;
+
+            // HP: the panel toolbar band (+ Add / focus) — its clicks never fall through to rows.
+            if (toolbar != Rectangle.Empty && toolbar.Contains(point))
+            {
+                if (!input.LeftButtonReleased) return;
+                if (AddButtonRect(toolbar, scale).Contains(point))
+                    AddMenuRequested?.Invoke(state, AddButtonRect(toolbar, scale));
+                else if (FocusButtonRect(toolbar, scale).Contains(point))
+                    FocusSelectionRequested?.Invoke();
+                return;
+            }
 
             if (input.ScrollWheelDelta != 0 && body.Contains(point))
                 _scroll = SystemsPanelLayout.ClampScroll(
@@ -608,8 +756,37 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 else TogglePipelineEnabled(row);
                 break;
             case PanelRowKind.SceneEntity:
-                if (onArrow) ToggleTreeEntity(row.Entity);
-                else SelectEntity(row.Entity);
+                if (onArrow) { ToggleTreeEntity(row.Entity); break; }
+                // Layer rows (HP): the leading glyph slots are the verbs — radio = make it the
+                // ACTIVE layer (placements target it), eye = visibility, padlock = lock. The row
+                // BODY selects (Inspector binding) AND activates a usable world layer — the
+                // intuitive "click the layer, then place into it" flow; the radio stays as the
+                // explicit activate-without-reselecting verb. Screen-space (HUD) and locked layers
+                // select without activating (never placement targets).
+                if (row.Entity.IsAlive && row.Entity.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+                {
+                    var layer = row.Entity.Get<MonoDreams.Component.Level.SceneLayerComponent>();
+                    if (SystemsPanelLayout.LayerToggleRect(line, 0, scale, row.Depth).Contains(point))
+                    {
+                        _shellState.ActiveLayer = row.Entity;
+                        break;
+                    }
+                    if (SystemsPanelLayout.LayerToggleRect(line, 1, scale, row.Depth).Contains(point))
+                    {
+                        layer.Visible = !layer.Visible;
+                        _history?.MarkDirty();
+                        break;
+                    }
+                    if (SystemsPanelLayout.LayerToggleRect(line, 2, scale, row.Depth).Contains(point))
+                    {
+                        layer.Locked = !layer.Locked;
+                        _history?.MarkDirty();
+                        break;
+                    }
+                    if (!layer.ScreenSpace && !layer.Locked)
+                        _shellState.ActiveLayer = row.Entity;
+                }
+                SelectEntity(row.Entity);
                 break;
             case PanelRowKind.InspectorFilter:
                 _filterFocused = true;
@@ -678,7 +855,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     {
         var scale = _viewportManager.DevicePixelRatio;
         var panel = RegionRect(scale);
-        var body = EditorChromeLayout.RegionBody(panel, scale);
+        var body = BodyRect(panel, scale); // the SAME body the interaction/visuals use (HP)
         if (!body.Contains(point)) return default;
         var visible = SystemsPanelLayout.VisibleLineCount(body, scale);
         for (var i = 0; i < _rows.Count; i++)
@@ -1287,8 +1464,13 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         // edit field (member rows), and the filter field background. Parks them for every other row.
         ConfigureInspectorExtras(visual, row, line, scale, labelHeight, hovered);
 
-        // Label. The filter row draws its text (or placeholder) INSIDE the field; every other row draws
-        // its label at the normal position in its kind color.
+        // HP: a LAYER row's leading glyphs (active radio / eye / padlock) — meshes, cleared elsewhere.
+        var isLayerRow = row.Kind == PanelRowKind.SceneEntity && row.Entity.IsAlive
+                         && row.Entity.Has<MonoDreams.Component.Level.SceneLayerComponent>();
+        ConfigureLayerGlyphs(visual, row, line, scale, isLayerRow);
+
+        // Label. The filter row draws its text (or placeholder) INSIDE the field; a layer row starts
+        // past its glyph slots; every other row draws at the normal position in its kind color.
         if (row.Kind == PanelRowKind.InspectorFilter)
         {
             var field = SystemsPanelLayout.InspectorFieldRect(line, row.Depth, scale);
@@ -1298,6 +1480,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             var pos = new Vector2(field.X + EditorChromeLayout.Px(6, scale), field.Y + (field.Height - labelHeight) / 2f);
             SetText(visual.Label, shown, pos, scale, hasText ? EditorTheme.Text0 : EditorTheme.TextMuted);
         }
+        else if (isLayerRow)
+        {
+            SetText(visual.Label, row.Label,
+                SystemsPanelLayout.LayerLabelPosition(line, labelHeight, scale, row.Depth), scale, RowColor(row));
+        }
         else
         {
             var labelPos = row.HasCheckbox
@@ -1305,6 +1492,74 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 : SystemsPanelLayout.LabelPositionNoCheckbox(line, labelHeight, row.Depth, scale);
             SetText(visual.Label, row.Label, labelPos, scale, RowColor(row));
         }
+    }
+
+    /// <summary>Bakes (or clears) a LAYER row's three leading glyph meshes (HP): the ACTIVE radio
+    /// (<see cref="EditorTheme.Accent"/> when this is the active layer), the visibility eye
+    /// (<see cref="EditorTheme.Text1"/> shown / <see cref="EditorTheme.TextMuted"/> hidden) and the
+    /// padlock (<see cref="EditorTheme.Warning"/> locked / muted open) — each in its
+    /// <see cref="SystemsPanelLayout.LayerToggleRect"/> slot, a click zone the row click reads.</summary>
+    private void ConfigureLayerGlyphs(RowVisual visual, PanelRow row, Rectangle line, float scale, bool isLayerRow)
+    {
+        if (!isLayerRow)
+        {
+            ClearMesh(visual.GlyphRadio);
+            ClearMesh(visual.GlyphEye);
+            ClearMesh(visual.GlyphLock);
+            return;
+        }
+
+        var layer = row.Entity.Get<MonoDreams.Component.Level.SceneLayerComponent>();
+        var isActive = _shellState.ActiveLayer == row.Entity;
+
+        SetMeshAt(visual.GlyphRadio, EditorIcons.Build(
+                isActive ? EditorIcons.EditorIcon.RadioOn : EditorIcons.EditorIcon.RadioOff,
+                SystemsPanelLayout.LayerGlyphBox(SystemsPanelLayout.LayerToggleRect(line, 0, scale, row.Depth), scale),
+                isActive ? EditorTheme.Accent : EditorTheme.TextMuted),
+            EditorTheme.Depths.Label);
+        SetMeshAt(visual.GlyphEye, EditorIcons.Build(
+                layer.Visible ? EditorIcons.EditorIcon.Eye : EditorIcons.EditorIcon.EyeOff,
+                SystemsPanelLayout.LayerGlyphBox(SystemsPanelLayout.LayerToggleRect(line, 1, scale, row.Depth), scale),
+                layer.Visible ? EditorTheme.Text1 : EditorTheme.TextMuted),
+            EditorTheme.Depths.Label);
+        SetMeshAt(visual.GlyphLock, EditorIcons.Build(
+                layer.Locked ? EditorIcons.EditorIcon.Lock : EditorIcons.EditorIcon.Unlock,
+                SystemsPanelLayout.LayerGlyphBox(SystemsPanelLayout.LayerToggleRect(line, 2, scale, row.Depth), scale),
+                layer.Locked ? EditorTheme.Warning : EditorTheme.TextMuted),
+            EditorTheme.Depths.Label);
+    }
+
+    /// <summary>Positions (or parks) the Entities panel toolbar's + Add / focus buttons (HP): a
+    /// hover-faded fill + an icon glyph each, baked like the toolbar's icon buttons.</summary>
+    private void PositionPanelToolbar(Rectangle toolbar, float scale, float dt)
+    {
+        if (_role != EditorPanelRole.LeftTabs || !_addButtonFill.IsAlive) return;
+        if (toolbar == Rectangle.Empty)
+        {
+            ClearMesh(_addButtonFill);
+            ClearMesh(_addButtonGlyph);
+            ClearMesh(_focusButtonFill);
+            ClearMesh(_focusButtonGlyph);
+            return;
+        }
+
+        var add = AddButtonRect(toolbar, scale);
+        var focus = FocusButtonRect(toolbar, scale);
+        var overAdd = CursorOver(add) && !_shellState.IsDragging;
+        var overFocus = CursorOver(focus) && !_shellState.IsDragging;
+        _addHover = EditorTheme.AdvanceHover(_addHover, overAdd, dt);
+        _focusHover = EditorTheme.AdvanceHover(_focusHover, overFocus, dt);
+
+        SetMeshAt(_addButtonFill, new FilledRectangleMeshGenerator(add,
+            Color.Lerp(EditorTheme.Bg2, EditorTheme.Bg3, _addHover)).Generate(), EditorTheme.Depths.Button);
+        SetMeshAt(_addButtonGlyph, EditorIcons.Build(EditorIcons.EditorIcon.Plus,
+            EditorIcons.CenteredIconRect(add), Color.Lerp(EditorTheme.Text1, EditorTheme.Text0, _addHover)),
+            EditorTheme.Depths.Label);
+        SetMeshAt(_focusButtonFill, new FilledRectangleMeshGenerator(focus,
+            Color.Lerp(EditorTheme.Bg2, EditorTheme.Bg3, _focusHover)).Generate(), EditorTheme.Depths.Button);
+        SetMeshAt(_focusButtonGlyph, EditorIcons.Build(EditorIcons.EditorIcon.Focus,
+            EditorIcons.CenteredIconRect(focus), Color.Lerp(EditorTheme.Text1, EditorTheme.Text0, _focusHover)),
+            EditorTheme.Depths.Label);
     }
 
     /// <summary>Configures the editable-Inspector's per-row extras (PF-A §3): the filter field background,
@@ -1414,6 +1669,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
                 FieldBox = CreateBox(SystemsPanelLayout.CheckboxSize, SystemsPanelLayout.CheckboxSize,
                     lineThickness: 1f, outline: EditorTheme.Border, depth: EditorTheme.Depths.Button),
                 DeleteGlyph = CreateMesh(EditorTheme.Depths.Label),
+                // HP: a layer row's active-radio / eye / padlock glyph meshes (cleared elsewhere).
+                GlyphRadio = CreateMesh(EditorTheme.Depths.Label),
+                GlyphEye = CreateMesh(EditorTheme.Depths.Label),
+                GlyphLock = CreateMesh(EditorTheme.Depths.Label),
             });
     }
 
@@ -1511,6 +1770,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         ClearMesh(visual.BgFill);
         ClearMesh(visual.AccentBar);
         ClearMesh(visual.DeleteGlyph);
+        ClearMesh(visual.GlyphRadio);
+        ClearMesh(visual.GlyphEye);
+        ClearMesh(visual.GlyphLock);
     }
 
     private static void Park(Entity entity) => Place(entity, SystemsPanelLayout.ParkedPosition);
@@ -1556,6 +1818,9 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (visual.ValueLabel.IsAlive) visual.ValueLabel.Dispose();
             if (visual.FieldBox.IsAlive) visual.FieldBox.Dispose();
             if (visual.DeleteGlyph.IsAlive) visual.DeleteGlyph.Dispose();
+            if (visual.GlyphRadio.IsAlive) visual.GlyphRadio.Dispose();
+            if (visual.GlyphEye.IsAlive) visual.GlyphEye.Dispose();
+            if (visual.GlyphLock.IsAlive) visual.GlyphLock.Dispose();
         }
         _pool.Clear();
         foreach (var tab in _tabs)
@@ -1565,6 +1830,10 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             if (tab.Underline.IsAlive) tab.Underline.Dispose();
         }
         _tabs.Clear();
+        if (_addButtonFill.IsAlive) _addButtonFill.Dispose();
+        if (_addButtonGlyph.IsAlive) _addButtonGlyph.Dispose();
+        if (_focusButtonFill.IsAlive) _focusButtonFill.Dispose();
+        if (_focusButtonGlyph.IsAlive) _focusButtonGlyph.Dispose();
         if (_titleLabel.IsAlive) _titleLabel.Dispose();
         if (_scrollTrack.IsAlive) _scrollTrack.Dispose();
         if (_scrollThumb.IsAlive) _scrollThumb.Dispose();
