@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "e7e433f08bed",
+  "strategy": "manual-commit",
+  "branch": "issue-43",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Rendering/TexturedMeshTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e7/e433f08bed/0/metadata.json",
+      "transcript": "/e7/e433f08bed/0/full.jsonl",
+      "context": "/e7/e433f08bed/0/context.md",
+      "content_hash": "/e7/e433f08bed/0/content_hash.txt",
+      "prompt": "/e7/e433f08bed/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 65,
+    "cache_creation_tokens": 181790,
+    "cache_read_tokens": 4246177,
+    "output_tokens": 42705,
+    "api_call_count": 35
+  }
+}

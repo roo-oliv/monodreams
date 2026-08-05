@@ -1,0 +1,45 @@
+git fetch origin and create a new branch from main's latest remote version, the branch shall be named `issue-43`. Implement the issue #43. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>ac7aed2ef25e8778f</task-id>
+<tool-use-id>toolu_012ByNjGv2PSKEviSE3by5dy</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement issue #43 textured meshes" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Implemented and verified. Summary:
+
+## Files changed
+
+**`MonoDreams/rendering/Component/Draw/DrawComponent.cs`** — added `TexturedVertices` (`VertexPositionColorTexture[]?`), `IsTexturedMesh`, `MeshVertexCount`, widened `HasValidMesh` to accept either buffer, extended the 16-bit ceiling check in `Get16BitIndices()` to cover `TexturedVertices`, and added two once-per-buffer loud guards: `WarnIndexCeilingExceeded` (private, called from the ceiling check) and `WarnTexturedMeshWithoutTexture` (internal, called by the renderer). Both de-dup on **array reference identity** (same trick as `_indices16Source`), so the per-frame render path logs once per distinct buffer and allocates nothing.
+
+**`MonoDreams/rendering/System/Draw/MasterRenderSystem.cs`** — `DrawSingleMesh` now branches on `dc.IsTexturedMesh`: sets `BasicEffect.TextureEnabled` (assigned on *every* mesh draw, so it never leaks into the next colour mesh), binds `dc.Texture`, sets `SamplerStates[0]` to the pass's sprite sampler (PointClamp default), and draws `TexturedVertices` through the same 16-bit-preferred / 32-bit-fallback overload pair. Plus the NRE guard: `TexturedVertices` with no `Texture` skips the draw and warns. The colour path is untouched (`TextureEnabled = false` is a no-op assignment in MonoGame's setter). No sort/flip changes were ported.
+
+**`MonoDreams/physics/demo/PhysicsDemoScreen.cs`** — a 64×64 screen-space quad on `RenderTargetID.UI` at (1176, 616) drawn as one textured mesh from a procedural 2×2 texture (4 distinct opaque colours), with a right-aligned "textured mesh" caption; plus `TexturedMeshUVCheckSystem` (registered *after* `FinalDrawSystem`, which unbinds targets) that at frame 90 reads the UI target into a ctor-allocated buffer and logs one `TexturedMeshUVCheck: … pass=True/False` line. `pass` requires all four texel-block centres to be exactly the four texels **and** both pixels flanking the vertical texel seam to be pure (Linear filtering would blend them). Recreated by the editor's `RebuildCodeContent`; texture created once and disposed with the screen.
+
+**`MonoDreams.Tests/Rendering/TexturedMeshTests.cs`** (new) — `TexturedMeshTests` (pure: ceiling null at 65537, still converts at exactly 65536, `HasValidMesh`/`MeshVertexCount`/`IsTexturedMesh`, colour-only unaffected) + `TexturedMeshIndexCeilingWarningTests` in the existing `[Collection("PlatformServices (non-parallel: mutates static state)")]`, observing the `Logger` through a local `FakePlatformServices` (the established pattern — no new engine seam): the fallback logs a `[ WARN]` naming the count and the Reach consequence, exactly once per buffer across repeated calls, again for a new oversized buffer, silent within the ceiling; missing-texture warning once per buffer.
+
+**`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`** — extended the existing `HeadlessPhysicsDemo_…` test with `AssertLogContains("TexturedMeshUVCheck")` + a `pass=True` assertion. All prior assertions (including `AssertHeapFlat`) kept.
+
+**Docs** — `MonoDreams/rendering/docs/premises.md`: new premise "A mesh may be textured (`TexturedVertices` + `Texture`)"; extended "Mesh indices render through 16-bit indices (Reach-safe)" with the loud fallback, the silent web failure mode, the chunk-size design rule and the *Witch v Necromancer* 113k→13.4k anecdote, and updated its `Tests:`; removed the now-resolved "Texturing meshes" open question; reworded the aspirational per-vertex-UV bullet to "shipped" and pointed the remaining work at a tile-chunk builder; cross-referenced from the flip premise's shear remark. Also `rendering/docs/overview.md` (one bullet) and `rendering/module.json` postInstallNotes (textured meshes + the "keep any one mesh under 65,536 vertices" cliff).
+
+## Test results
+- `dotnet build MonoDreams/MonoDreams.csproj` — 0 errors; `dotnet build MonoDreams.sln` — 0 errors.
+- `--filter TexturedMesh|MeshIndexConversion` — **16 passed, 0 failed** (6 new pure + 4 new warning + 6 existing `MeshIndexConversionTests`, which is unmodified).
+- `--filter HeadlessPhysicsDemo` — **1 passed**.
+- Full `dotnet test MonoDreams.Tests/` — **1041 passed, 0 failed** (1 m 49 s). `MonoDreams.Cli.Tests/` — **47 passed** (module.json touched).
+- Manual headless run confirmed the exact line: all four blocks and both seam pixels match byte-for-byte, `pass=True`, no WARN lines. Screenshots verified visually in both flag-off and `MONODREAMS_EDITOR=1` runs — the quad renders crisply in the bottom-right with its caption, clear of all other chrome.
+
+## Serialization pre-mortem
+**Not serialized — no byte-stability risk.** `DrawComponent` is an explicit opt-*out* of `ComponentSerializerRegistry`; `EngineComponentSerializers` documents it ("Deliberately NOT registered … `DrawComponent` (its sprite fields are re-prepped from `SpriteInfoComponent` and its `LayerDepth` is per-frame-derived)"), and `SceneRehydration.RestoreDrawComponents` / `ComponentPairing` re-derive it after a load. The registry is explicit key-based, not reflective, so new fields cannot alter any `.mdscene` bytes. The level-editor byte-stability tests pass untouched.
+
+## Deviations / notes for you
+- **Loud guard mechanism:** the once-per-buffer flag is set even when the log level would discard the line, so "once per buffer" doesn't depend on `Logger.MinimumLevel`. `Logger` is safe pre-`Initialize` (writes via `PlatformServices.Current`, default desktop; `_writer` is null-checked), so no extra guarding was needed.
+- **Readback reads the whole UI target** into a constructor-allocated buffer rather than a sub-rect: MonoGame's GL `GetData` with a rect allocates a full-size temp internally, so full-target readback is the genuinely allocation-free-at-check-time option. Documented in the system's doc comment.
+- `MeshVertexCount` has no engine call site yet (it's a public contract from the reference port); it is covered by a unit test, per CORE_TENETS §2.
+- `CullingSystem` queries `[With(SpriteInfoComponent, …)]`, so mesh entities are never culled — the UI quad's `VisibleComponent` (needed by `MeshPrepSystem` for `WorldMatrix`) is stable in both editor and non-editor runs. Verified by running both.
+- Nothing committed. New file `MonoDreams.Tests/Rendering/TexturedMeshTests.cs` is untracked.</result>
+<usage><subagent_tokens>273554</subagent_tokens><tool_uses>83</tool_uses><duration_ms>1258210</duration_ms></usage>
+</task-notification>
