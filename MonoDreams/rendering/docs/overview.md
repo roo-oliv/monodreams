@@ -32,6 +32,7 @@ This module defines how things appear on screen. It owns the entire draw path �
 ### Mesh primitives
 
 - `IMeshGenerator` — interface returning `MeshData` (triangle-list `VertexPositionColor[]` + `short[]`)
+- Textured meshes — `DrawComponent.TexturedVertices` (`VertexPositionColorTexture[]`) + `DrawComponent.Texture` draw one mesh sampling a sheet, so a whole tile chunk is ONE draw call; same `BasicEffect`, `TextureEnabled` + the sprite sampler (`PointClamp`). `IMeshGenerator` itself stays vertex-coloured. See the premise "A mesh may be textured (`TexturedVertices` + `Texture`)"
 - Canonical implementations: `CircleMeshGenerator`, `LineMeshGenerator`, `RectangleOutlineMeshGenerator`, `FilledRectangleMeshGenerator`, `GradientPathMeshGenerator`, `CompositeMeshGenerator` (rebases sub-mesh indices into the combined buffer)
 
 ### Non-ECS types

@@ -87,6 +87,22 @@ public class PhysicsDemoScreen : IGameScreen
     private const int BlueBallLayer = 1;
     // Walls own both layers so red and blue both collide with them.
 
+    // ─── textured-mesh showcase (issue #43) ──────────────────────────────────
+    // A 2×2 sheet stretched over a 64×64 screen-space quad: ONE textured mesh draw
+    // (DrawComponent.TexturedVertices + Texture) instead of four sprites — the same primitive a
+    // whole batched tile chunk is built from, shown at a scale where each texel reads as a 32×32
+    // block. It lives in the bottom-right corner, clear of the boundary box (Main) and of the
+    // header/sidebar chrome (HUD). TexturedMeshUVCheckSystem reads exactly these pixels back so a
+    // headless run self-verifies the UV mapping and the PointClamp sampler.
+    private const float ShowcaseQuadSize = 64f;
+    private static readonly Vector2 ShowcaseQuadPosition = new(1176f, 616f);
+    // Four distinct OPAQUE texels: opaque because the mesh path composites premultiplied (see the
+    // rendering premise) and because the self-check asserts exact colour equality.
+    private static readonly Color ShowcaseTexelTopLeft     = new(214,  73,  73);
+    private static readonly Color ShowcaseTexelTopRight    = new(106, 190,  89);
+    private static readonly Color ShowcaseTexelBottomLeft  = new( 90, 160, 230);
+    private static readonly Color ShowcaseTexelBottomRight = new(232, 190,  90);
+
     private readonly ContentManager _content;
     private readonly GraphicsDevice _graphicsDevice;
     private readonly MonoDreams.Component.Camera _camera;
@@ -105,6 +121,9 @@ public class PhysicsDemoScreen : IGameScreen
     private Entity _floorVisual;
     private Entity _redInput;
     private Entity _blueInput;
+    // The 2×2 sheet the textured-mesh showcase samples. Created once (a code-content rebuild
+    // re-creates the quad ENTITY, never the texture) and disposed with the screen.
+    private Texture2D? _showcaseTexture;
     private int _redCount = DefaultRedCount;
     private int _blueCount = DefaultBlueCount;
     private bool _gravityOn = true;
@@ -175,6 +194,7 @@ public class PhysicsDemoScreen : IGameScreen
         CreateFloorVisual();
         CreateWalls();
         RebuildBalls();
+        CreateTexturedMeshShowcase();
         BuildHud(content);
 
         if (_editor != null)
@@ -188,6 +208,7 @@ public class PhysicsDemoScreen : IGameScreen
                 CreateFloorVisual();
                 CreateWalls();
                 RebuildBalls();
+                CreateTexturedMeshShowcase();
                 BuildHud(_content);
             };
             _editor.BindScene(screenController, _world, _content.RootDirectory, DemoScreens.Physics, BoundSceneId);
@@ -495,6 +516,78 @@ public class PhysicsDemoScreen : IGameScreen
         return new Vector2(x, y);
     }
 
+    /// The textured-mesh showcase (issue #43): ONE mesh draw sampling a 2×2 sheet across a 64×64
+    /// screen-space quad — the primitive a batched tile chunk is made of, at a scale where each
+    /// texel reads as a flat 32×32 block. Screen-space (<c>RenderTargetID.UI</c>), so it holds
+    /// still while the world bounces.
+    /// <para>
+    /// The UI target ignores culling, but <c>MeshPrepSystem</c> — the writer of
+    /// <c>DrawComponent.WorldMatrix</c> — queries <c>[With(VisibleComponent)]</c>, so the tag is set
+    /// here as the one-shot marker the rendering premises allow for UI/HUD entities. Every other
+    /// mesh entity in this demo does exactly the same.
+    /// </para>
+    private void CreateTexturedMeshShowcase()
+    {
+        _showcaseTexture ??= CreateShowcaseTexture();
+
+        const float s = ShowcaseQuadSize;
+        var quad = _world.CreateEntity();
+        quad.Set(new TransformComponent(ShowcaseQuadPosition));
+        quad.Set(new DrawComponent
+        {
+            Type = DrawElementType.Mesh,
+            Target = RenderTargetID.UI,
+            LayerDepth = 0.5f,
+            Texture = _showcaseTexture,
+            // Local-space quad (0,0)..(s,s) with the FULL texture mapped across it; the transform
+            // places it, exactly as it would a vertex-coloured mesh. White vertex colours leave the
+            // sampled texel untinted, which is what makes the self-check's equality exact.
+            TexturedVertices =
+            [
+                new VertexPositionColorTexture(new Vector3(0f, 0f, 0f), Color.White, new Vector2(0f, 0f)),
+                new VertexPositionColorTexture(new Vector3(s,  0f, 0f), Color.White, new Vector2(1f, 0f)),
+                new VertexPositionColorTexture(new Vector3(0f, s,  0f), Color.White, new Vector2(0f, 1f)),
+                new VertexPositionColorTexture(new Vector3(s,  s,  0f), Color.White, new Vector2(1f, 1f)),
+            ],
+            Indices = [0, 1, 2, 2, 1, 3], // two triangles; winding is free (mesh path is CullNone)
+        });
+        quad.Set<VisibleComponent>();
+
+        // Caption, right-aligned above the quad so the showcase reads as intentional chrome.
+        const float labelScale = 0.16f;
+        const string labelText = "textured mesh";
+        var labelSize = new Vector2(
+            _font.MeasureString(labelText).Width * labelScale,
+            _font.LineHeight * labelScale);
+        var label = _world.CreateEntity();
+        label.Set(new TransformComponent(new Vector2(
+            ShowcaseQuadPosition.X + ShowcaseQuadSize - labelSize.X,
+            ShowcaseQuadPosition.Y - labelSize.Y - 6f)));
+        label.Set(new DynamicTextComponent
+        {
+            Target = RenderTargetID.UI,
+            LayerDepth = 0.51f,
+            TextContent = labelText,
+            Font = _font,
+            Color = DemoPalette.TextLight,
+            Scale = labelScale,
+        });
+    }
+
+    /// The 2×2 source sheet: four distinct opaque texels, so a readback can tell correct UVs from
+    /// flipped/rotated/offset ones AND point sampling from bilinear (which would smear the texels
+    /// into gradients instead of four flat blocks).
+    private Texture2D CreateShowcaseTexture()
+    {
+        var texture = new Texture2D(_graphicsDevice, 2, 2);
+        texture.SetData(new[]
+        {
+            ShowcaseTexelTopLeft, ShowcaseTexelTopRight,
+            ShowcaseTexelBottomLeft, ShowcaseTexelBottomRight,
+        });
+        return texture;
+    }
+
     private static Vector2[] CircleVertices(float radius, int segments)
     {
         var verts = new Vector2[segments];
@@ -765,6 +858,17 @@ public class PhysicsDemoScreen : IGameScreen
             p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
         p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),
             EditTimeBehavior.RunNormally);
+        // Textured-mesh self-check — deliberately LAST, after FinalDrawSystem has unbound the render
+        // targets: a still-bound target cannot be read back. One log line on one frame; see
+        // TexturedMeshUVCheckSystem.
+        p.Add("texturedMeshCheck", new TexturedMeshUVCheckSystem(
+                _renderTargets[RenderTargetID.UI],
+                new Rectangle(
+                    (int)ShowcaseQuadPosition.X, (int)ShowcaseQuadPosition.Y,
+                    (int)ShowcaseQuadSize, (int)ShowcaseQuadSize),
+                ShowcaseTexelTopLeft, ShowcaseTexelTopRight,
+                ShowcaseTexelBottomLeft, ShowcaseTexelBottomRight),
+            EditTimeBehavior.RunNormally);
 
         return p.Build();
     }
@@ -774,6 +878,7 @@ public class PhysicsDemoScreen : IGameScreen
         UpdateSystem.Dispose();
         DrawSystem.Dispose();
         foreach (var rt in _renderTargets.Values) rt.Dispose();
+        _showcaseTexture?.Dispose();
         _world.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -1169,6 +1274,95 @@ public class BallSpeedClampSystem(World world, float maxSpeed)
         if (speedSq > maxSpeed * maxSpeed)
             velocity.Current = velocity.Current * (maxSpeed / MathF.Sqrt(speedSq));
     }
+}
+
+// ─── textured-mesh self-check ──────────────────────────────────────────────
+
+/// One-shot render-path proof for the textured-mesh capability (issue #43). On a single frame past
+/// warmup it reads the UI render target back and logs one <c>TexturedMeshUVCheck:</c> line
+/// describing what the GPU actually painted for the showcase quad — the observe-and-self-verify
+/// channel (issue #28) asserting two things a screenshot cannot:
+/// <list type="bullet">
+///   <item><b>The UVs map correctly</b> — the centre of each of the four 32×32 blocks is EXACTLY
+///   the matching texel of the 2×2 source sheet. A flipped, rotated or half-texel-offset mapping
+///   lands a different colour in at least one block.</item>
+///   <item><b>The sampler is PointClamp, not Linear</b> — the pixel column immediately left of the
+///   vertical texel seam is EXACTLY the left texel, and the one immediately right of it EXACTLY the
+///   right texel. Bilinear filtering blends across the seam, so neither would match.</item>
+/// </list>
+/// Equality is exact by construction: the mesh path multiplies the sampled texel by an opaque white
+/// vertex colour and composites opaque-over-transparent, so the destination pixel is the texel
+/// byte-for-byte.
+/// <para>
+/// Must be registered AFTER <c>FinalDrawSystem</c> — a bound render target cannot be read back. The
+/// readback buffer is allocated ONCE in the constructor and covers the whole target (a sub-rect
+/// <c>GetData</c> allocates a full-size temp internally), and the check runs on exactly one frame,
+/// so the headless heap-flat assertion is untouched.
+/// </para>
+public sealed class TexturedMeshUVCheckSystem : ISystem<GameState>
+{
+    /// Well past content load + JIT warmup; the scene is static by then.
+    private const int CheckFrame = 90;
+
+    private readonly RenderTarget2D _uiTarget;
+    private readonly Rectangle _region;
+    private readonly Color[] _pixels;
+    private readonly Color _topLeft;
+    private readonly Color _topRight;
+    private readonly Color _bottomLeft;
+    private readonly Color _bottomRight;
+    private int _frame;
+    private bool _done;
+
+    public bool IsEnabled { get; set; } = true;
+
+    public TexturedMeshUVCheckSystem(RenderTarget2D uiTarget, Rectangle region,
+        Color topLeft, Color topRight, Color bottomLeft, Color bottomRight)
+    {
+        _uiTarget = uiTarget;
+        _region = region;
+        _pixels = new Color[uiTarget.Width * uiTarget.Height];
+        _topLeft = topLeft;
+        _topRight = topRight;
+        _bottomLeft = bottomLeft;
+        _bottomRight = bottomRight;
+    }
+
+    public void Update(GameState state)
+    {
+        if (!IsEnabled || _done) return;
+        if (_frame++ < CheckFrame) return;
+        _done = true;
+
+        _uiTarget.GetData(_pixels);
+
+        Color At(int x, int y) => _pixels[(_region.Y + y) * _uiTarget.Width + _region.X + x];
+
+        var halfW = _region.Width / 2;
+        var halfH = _region.Height / 2;
+        var quarterW = _region.Width / 4;
+        var quarterH = _region.Height / 4;
+
+        // Block centres — one per texel.
+        var tl = At(quarterW, quarterH);
+        var tr = At(halfW + quarterW, quarterH);
+        var bl = At(quarterW, halfH + quarterH);
+        var br = At(halfW + quarterW, halfH + quarterH);
+        // One pixel each side of the vertical texel seam: point sampling keeps both pure, bilinear
+        // filtering pulls each toward the other.
+        var seamLeft = At(halfW - 1, quarterH);
+        var seamRight = At(halfW, quarterH);
+
+        var pass = tl == _topLeft && tr == _topRight && bl == _bottomLeft && br == _bottomRight
+                   && seamLeft == _topLeft && seamRight == _topRight;
+
+        Logger.Info($"TexturedMeshUVCheck: tl={tl} tr={tr} bl={bl} br={br} " +
+                    $"seamL={seamLeft} seamR={seamRight} " +
+                    $"expected tl={_topLeft} tr={_topRight} bl={_bottomLeft} br={_bottomRight} " +
+                    $"pass={pass}");
+    }
+
+    public void Dispose() => GC.SuppressFinalize(this);
 }
 
 // ─── resting / sleep ───────────────────────────────────────────────────────

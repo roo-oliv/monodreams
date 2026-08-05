@@ -65,6 +65,12 @@ public class HeadlessDemoTests
     /// smoke for that body-side consumer: it must render every frame AND hold a flat live heap while the
     /// detection grid rebuilds and the balls move perpetually — a per-frame retained allocation in the
     /// collision hot path (or a leaked collider entity) would fail (c).
+    ///
+    /// It is ALSO the live proof for the textured-mesh path (issue #43): the demo draws a 64×64
+    /// screen-space quad from a 2×2 sheet as ONE textured mesh, and TexturedMeshUVCheckSystem reads the
+    /// UI render target back on one frame to assert what the GPU actually painted — the four texel
+    /// blocks land where the UVs say (correct mapping) and the pixels either side of the texel seam are
+    /// pure (PointClamp, not bilinear). No unit test can assert that: it needs a real GraphicsDevice.
     [Fact]
     public async Task HeadlessPhysicsDemo_SelfTerminates_CapturesFrames_AndHoldsFlatHeap()
     {
@@ -89,6 +95,15 @@ public class HeadlessDemoTests
 
         // (c) the live managed heap stays flat across 600 frames of perpetual collision resolution +
         // per-frame broadphase-grid rebuild — the CE hot path must not retain per-frame allocations.
+        // The textured-mesh self-check must not perturb this: its readback buffer is allocated once at
+        // construction (before the first sample) and it runs on exactly one frame.
         result.AssertHeapFlat(maxGrowthRatio: 1.5, skipSamples: 2);
+
+        // (d) the textured-mesh path actually painted the right pixels (issue #43). The check line is
+        // emitted once, from a readback of the UI target; pass=True means all four texel blocks matched
+        // their UVs AND both pixels flanking the texel seam were pure (point-sampled, not blended).
+        result.AssertLogContains("TexturedMeshUVCheck");
+        Assert.Contains(result.LogLines,
+            line => line.Contains("TexturedMeshUVCheck") && line.Contains("pass=True"));
     }
 }

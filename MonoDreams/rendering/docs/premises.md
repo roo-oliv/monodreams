@@ -343,9 +343,24 @@ never by engine source".
 (`MeshData.Indices`, every `IMeshGenerator`), so `Get16BitIndices()` converts once and caches
 the result, rebuilding only when `Indices` is reassigned (reference identity changes). It
 returns `null` only when the mesh has more vertices than a 16-bit index can address (more than
-65536); the renderer then falls back to the 32-bit `int[]` overload, which is valid only on
+65536) — and the check covers **both** vertex buffers, `Vertices` and `TexturedVertices`; the
+renderer then falls back to the 32-bit `int[]` overload, which is valid only on
 HiDef. As with the sprite-run flush, the renderer contains no `GraphicsProfile` literal — the
 16-bit path is taken on every profile.
+
+**The fallback is LOUD, and that is half the premise.** Crossing the ceiling emits one
+`Logger.Warning` per oversized vertex buffer — de-duplicated by array reference identity, exactly
+like the index cache, so a per-frame render loop logs once and allocates nothing — naming the
+vertex count, the fallback, and the platform consequence. It has to be loud because the failure
+mode is otherwise invisible: **desktop HiDef renders the 32-bit fallback perfectly, and the Reach
+profile (WebGL ES2 / BlazorGL) renders NOTHING — no exception, no driver error, just a blank
+canvas.** Without this warning the developer has a working build, a black browser tab, and nothing
+to grep for; the warning IS the only signal that exists.
+
+**The design rule it implies:** size chunked geometry so every chunk stays under 65,536 vertices.
+That is not theoretical — the reference game *Witch v Necromancer* had to run-length-merge 113k
+world cells down to 13.4k vertices to stay under this ceiling, and for a long time the only record
+of *why* was a code comment. This premise and that warning are the record now.
 
 **Why:** the overload's index-array type selects the GPU index width (`int[]` ⇒ 32-bit,
 `short[]` ⇒ 16-bit), and the Reach profile (WebGL ES2 / BlazorGL) rejects 32-bit indices with
@@ -357,17 +372,89 @@ source stays platform-agnostic.
 **Breaks:** rendering meshes through the `int[]` overload again (e.g. passing `dc.Indices`
 directly) reintroduces the Reach crash for every mesh-backed entity — orbs, the demo UI
 buttons/checkboxes, physics-demo circles. Converting per frame instead of caching reintroduces
-a per-frame allocation that fails the headless heap-flat assertion.
+a per-frame allocation that fails the headless heap-flat assertion. Checking only `Vertices` lets an
+oversized **textured** chunk through and hands the GPU wrapped 16-bit indices — garbled geometry
+instead of an honest fallback. Silencing the warning restores the silent-web-blank failure mode;
+firing it per frame instead of per buffer floods the log and re-introduces a per-frame allocation.
 **Caching note:** the cache keys off the `Indices` array reference, not `SetMeshData` — factories
 that set `DrawComponent.Indices` directly (e.g. `PlayerEntityFactory`) still get a correct,
 rebuilt-on-change conversion.
-**Tests:** `MonoDreams.Tests/Rendering/MeshIndexConversionTests.cs` — asserts the short values
-match the int indices, that the conversion is cached across calls and rebuilt on reassignment,
-that values above 32767 round-trip as unsigned 16-bit bit patterns, and that a mesh past the
-16-bit vertex ceiling returns `null` (32-bit fallback). The physics/UI demo headless tests
-exercise the mesh path on HiDef; the in-browser physics demo confirms it on Reach.
+**Tests:** `MonoDreams.Tests/Rendering/MeshIndexConversionTests.cs` — the colour buffer: asserts the
+short values match the int indices, that the conversion is cached across calls and rebuilt on
+reassignment, that values above 32767 round-trip as unsigned 16-bit bit patterns, and that a mesh
+past the 16-bit vertex ceiling returns `null` (32-bit fallback).
+`MonoDreams.Tests/Rendering/TexturedMeshTests.cs` — the `TexturedVertices` buffer trips the same
+ceiling at 65537 vertices and still converts at exactly 65536; its
+`TexturedMeshIndexCeilingWarningTests` asserts the fallback is loud (a `[ WARN]` line naming the
+vertex count and the Reach consequence), fires **exactly once** per buffer across repeated calls,
+fires **again** for a new oversized buffer, and stays silent for a mesh within the ceiling. The
+physics/UI demo headless tests exercise the mesh path on HiDef; the in-browser physics demo confirms
+it on Reach.
 **Depends on:** foundation — "The platform … is selected by the head project,
-never by engine source".
+never by engine source"; "A mesh may be textured (`TexturedVertices` + `Texture`)" (a batched tile
+chunk is precisely the geometry that reaches this ceiling).
+
+## A mesh may be textured (`TexturedVertices` + `Texture`)
+
+A mesh draws EITHER vertex-coloured (`DrawComponent.Vertices`, `VertexPositionColor`) or TEXTURED
+(`DrawComponent.TexturedVertices`, `VertexPositionColorTexture`, plus a `DrawComponent.Texture` to
+sample). The two buffers are mutually exclusive: `HasValidMesh` accepts either one (with `Indices`),
+`IsTexturedMesh` reports which is live, and `MeshVertexCount` reads whichever is set. `Indices`,
+`PrimitiveType` and `WorldMatrix` behave identically for both, and both go through the SAME
+`BasicEffect` in `MasterRenderSystem.DrawSingleMesh` — only `TextureEnabled`, the sampler and the
+vertex type differ. `TextureEnabled` is assigned on **every** mesh draw (`= textured`), so a
+textured mesh never leaks its texture stage into the next colour mesh.
+
+**Why it exists:** one textured mesh is how thousands of tiles become ONE culled / sorted / drawn
+thing. A tile chunk built from sprites is one entity and one quad *per cell*, each quad counting
+against the 5461-sprite flush budget; built as a textured mesh it is one entity, one
+`DrawComponent`, one draw call, with the sheet's UVs baked per vertex. It is also the seam for
+per-vertex distortions a `SpriteBatch` quad cannot express — skew/shear, trapezoids, wave warps —
+which is where the flip premise's "shear is not a flag" remark points.
+
+**The sampler is the pass's sprite sampler, `PointClamp` by default.** Pixel art must not
+bilinear-smear across cell boundaries: with linear filtering every tile edge in a chunk bleeds into
+its neighbour, and a 2×2 sheet stretched over a quad reads as a gradient instead of four flat
+blocks. The textured branch sets `SamplerStates[0]` to the pass's `spriteSampler`, matching the
+sprite path.
+
+**`TexturedVertices` without a `Texture` is skipped, loudly.** That is the one combination which
+passes `HasValidMesh` and is NOT `IsTexturedMesh`, so the colour branch would dereference a null
+`Vertices` — an NRE thrown from inside the render loop. `DrawSingleMesh` detects it, skips the draw,
+and calls `DrawComponent.WarnTexturedMeshWithoutTexture()`, which logs once per buffer (the same
+reference-identity de-duplication as the index-ceiling warning, for the same per-frame reason).
+
+**Vertex colours tint the sampled texel** — `BasicEffect` keeps `VertexColorEnabled` on, so white
+vertices give the texel untouched. Alpha composites premultiplied here as everywhere on the mesh
+path.
+
+**Why:** the general-over-specialized rule (CORE_TENETS §1). Batched tiles, distorted sprites, and
+atlas-sampled UI are three features that all want "a mesh that samples a texture"; adding the vertex
+type to the existing `DrawComponent` + `BasicEffect` path buys all three without a new component, a
+new prep system or a second renderer.
+**Breaks:** setting both vertex buffers on one `DrawComponent` makes the textured one win silently
+(`IsTexturedMesh` short-circuits) and the colour geometry never draws. Setting `TexturedVertices`
+without `Texture` renders nothing (with exactly one warning to say so). Passing a non-point
+`spriteSampler` to a pass that draws tile chunks reintroduces the edge bleed. Forgetting that a mesh
+entity still needs `VisibleComponent` for `MeshPrepSystem` to write its `WorldMatrix` leaves the mesh
+at the identity matrix — a UI/HUD mesh must set the tag itself.
+**Tests:** `MonoDreams.Tests/Rendering/TexturedMeshTests.cs` (`HasValidMesh` accepts a textured
+buffer + indices and rejects it without them; `MeshVertexCount` reads whichever buffer is set;
+`IsTexturedMesh` is false without a `Texture` — the true case needs a `GraphicsDevice`, so it is the
+integration test's job; a colour-only mesh is unaffected) plus its
+`TexturedMeshIndexCeilingWarningTests` (the missing-texture warning fires once per buffer). The GPU
+half is the headless physics demo: `MonoDreams/physics/demo/PhysicsDemoScreen.cs` draws a 64×64
+UI-target quad from a 2×2 sheet and `TexturedMeshUVCheckSystem` reads the render target back on one
+frame, asserting the four texel blocks land exactly where the UVs say AND that both pixels flanking
+the texel seam are pure (point-sampled, not blended);
+`HeadlessDemoTests.HeadlessPhysicsDemo_SelfTerminates_CapturesFrames_AndHoldsFlatHeap` asserts
+`pass=True`.
+**Depends on:** "`DrawComponent.Type` is mutually exclusive"; "Mesh indices render through 16-bit
+indices (Reach-safe)"; "`MasterRenderSystem` samples per draw type: sprites/meshes PointClamp, text
+LinearClamp"; "The mesh render path uses premultiplied alpha — UI fills must be opaque";
+"`MeshPrepSystem` writes the world matrix once per frame"; "`VisibleComponent` is owned exclusively
+by `CullingSystem`" (UI/HUD may set the tag themselves); "Sprite facing/orientation is a flip flag,
+not mirrored art" (its shear remark defers to this path).
 
 ## The draw set is built once per instance, not per frame
 
@@ -539,8 +626,8 @@ drawn quad equals the unflipped quad, so hit-testing / gizmo quads
 non-centred origins. Both flags default `false`, and `ComputeSpriteEffects` composes those defaults
 to `SpriteEffects.None`, so existing content renders byte-identical. Shear/skew is explicitly NOT a
 flag: `SpriteBatch` has no per-sprite shear (it would need a batch-wide `transformMatrix` or
-arbitrary vertices), so skew belongs to the textured-mesh path — do not go looking for a shear flag
-on this seam. The scene serializer persists the flags **omit-when-false**, so pre-flip `.mdscene`
+arbitrary vertices), so skew belongs to the textured-mesh path (see "A mesh may be textured
+(`TexturedVertices` + `Texture`)") — do not go looking for a shear flag on this seam. The scene serializer persists the flags **omit-when-false**, so pre-flip `.mdscene`
 files stay byte-identical.
 
 **Why:** every directional thing in a 2D game (walkers, projectiles, corpses, tumbling pickups)
@@ -831,9 +918,6 @@ premultiplied alpha — UI fills must be opaque".
   settled convention.
 - **`DrawElement` cache invalidation** — what happens if a prep system
   mutates `SpriteInfoComponent` after the draw queue was built?
-- **Texturing meshes** — `MeshData` carries `VertexPositionColor`
-  vertices; there's no `VertexPositionTexture` path. Whether to add one
-  (and how it interacts with the SpriteBatch-based sprite path) is open.
 - **Mesh culling extents** — meshes get `VisibleComponent` from
   `CullingSystem` based on `TransformComponent.WorldPosition` against
   the camera bounds. A mesh's actual extents (computed from its
@@ -854,9 +938,14 @@ premultiplied alpha — UI fills must be opaque".
   passes, shader effects.
 - A `MeshTransformBatcher` that combines static meshes sharing a layer
   depth into a single submission, cutting `BasicEffect` draw calls.
-- Per-vertex texture-coordinate support so meshes can sample sprite
-  atlases (would let the dialogue indicator or UI nine-patches be a
-  mesh rather than a `SpriteBatch` ninepatch).
+- Per-vertex texture coordinates are **shipped** — `DrawComponent.TexturedVertices`
+  (see "A mesh may be textured (`TexturedVertices` + `Texture`)"). What is
+  still open is the *content* side: a tile-chunk mesh builder (the native
+  tile-layer batching primitive the `Level_0` migration needs —
+  CORE_TENETS §10) and moving `SpriteBatch`-based visuals such as the
+  dialogue indicator or UI nine-patches onto that path. `IMeshGenerator`
+  itself remains vertex-coloured; a textured-mesh generator interface is
+  the obvious next step once a second call site exists.
 
 ## Follow-up debt
 
