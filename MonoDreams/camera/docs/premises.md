@@ -65,6 +65,58 @@ is fine, but must run AFTER the sync and never feed back into the entity.
 **Depends on:** foundation — "`GatedSystem` freezes a child in `Edit`"; rendering
 — "`Camera.VirtualResolution` is immutable".
 
+## `pixelSnap` is one of two first-class pixel-art styles — the failure mode is the mix
+
+`CameraSyncSystem(pixelSnap: true)` rounds the camera position to whole world pixels
+on its way to the adapter, and it is the THIRD of the three snaps the **hard-snap
+retro** style needs: an integer zoom, snapped sprite AND text positions
+(`SpritePrepSystem`/`TextPrepSystem`'s `pixelPerfectRendering`), and a snapped camera
+(this flag). With all three, every art pixel is an exact NxN block of screen pixels at
+all times; the cost is that following advances in whole world pixels. The other style
+is **equally first-class**: in *smooth-scroll pixel art* the camera stays fractional
+(`pixelSnap` off — the default) and moves freely at output resolution, while the
+composed frame is displaced by the sub-virtual-pixel remainder at composite time and
+the border pixels are cut — a screen-composition concern OUTSIDE this system. Neither
+is "the one true way"; what is broken is the **halfway mix** — a fractional camera with
+the zoom applied INSIDE the view transform (`(world - camera) * zoom + centre`), which
+samples art at fractional positions and makes the whole world shimmer and crawl
+whenever the camera moves. Snapping the sprites alone does not fix that mix: the
+subtraction reintroduces the fraction. The snap lands on the adapter COPY only — the
+camera entity's eased position stays smooth and fractional, so easing, authoring and
+inspection are unchanged, and the default `false` leaves every existing game
+byte-identical. **Fine print for the hard-snap style, learned in a shipped game:** a
+camera SHAKE layered on the adapter must ROUND its own offsets too (an unrounded shake
+puts the fraction straight back and smears the whole screen), and it must REMOVE last
+frame's offset before applying the next (a shake that only adds permanently displaces
+the camera). That is consistent with the adapter-writer premise above, which already
+requires a transient effect like shake to run AFTER the sync and never feed back into
+the camera entity.
+
+**Why:** the shimmer/crawl bug is the one where every individual thing checks out — art
+authored 1:1, sprites snapped via `pixelPerfectRendering`, an integer zoom, a
+nearest-neighbour sampler — and the camera is the one coordinate nobody thought to
+check, because it is not "art". It was proven in a shipped game by measuring exact-colour
+run lengths across screenshots: with all three snaps every run is a multiple of the zoom,
+and with the camera left fractional the runs come out as N±1 and drift as the camera
+moves. Naming both styles keeps the flag from reading as a mandate and stops the smooth-
+scroll style (which deliberately wants a fractional camera) being "fixed" by turning it on.
+**Breaks:** the mix — sprites/text snapped but the camera fractional (or a snapped camera
+with a non-integer zoom) — shimmers and crawls exactly as if nothing were snapped; turning
+`pixelSnap` on in a smooth-scroll game throws away the sub-pixel motion it is built on and
+makes the camera visibly step. Rounding the camera ENTITY instead of the adapter copy would
+quantize the easing itself (a slow follow stutters, and the authored/saved value drifts to
+whatever the last frame rounded to). A shake that does not round its offsets re-introduces
+the fraction for the whole screen; a shake that does not remove last frame's offset
+accumulates and permanently displaces the camera.
+**Tests:** `MonoDreams.Tests/Camera/CameraPixelSnapTests.cs`
+(`PixelSnap_AdapterPositionIsIntegral_WhileEntityStaysFractional`,
+`PixelSnap_OverMultipleEasedFrames_AdapterAlwaysIntegral_EntitySmooth`,
+`Default_NoSnap_AdapterEqualsEntityPositionExactly`,
+`PixelSnap_RoundingMatchesMathFRound`).
+**Depends on:** "`CameraSyncSystem` is the only writer of the `Camera` adapter in Play";
+rendering — `SpritePrepSystem`/`TextPrepSystem`'s `pixelPerfectRendering` position snap
+(the sprite/text two-thirds; not yet a named premise there).
+
 ## `CameraFollowSystem` eases the camera ENTITY, not the adapter
 
 In Play, `CameraFollowSystem` lerps the camera **entity's**
