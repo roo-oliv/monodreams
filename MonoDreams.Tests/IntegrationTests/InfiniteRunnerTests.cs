@@ -18,7 +18,7 @@ public class InfiniteRunnerTests
             }
         });
 
-        Assert.Equal(0, result.ExitCode);
+        result.AssertExitedCleanly();
         result.AssertLogContainsInOrder(
             "Loading InfiniteRunner screen",
             "InfiniteRunner screen loaded",
@@ -42,7 +42,7 @@ public class InfiniteRunnerTests
             }
         }, timeoutSeconds: 30);
 
-        Assert.Equal(0, result.ExitCode);
+        result.AssertExitedCleanly();
         result.AssertLogContainsInOrder(
             "Loading InfiniteRunner screen",
             "Game over."
@@ -66,7 +66,7 @@ public class InfiniteRunnerTests
             }
         }, timeoutSeconds: 30);
 
-        Assert.Equal(0, result.ExitCode);
+        result.AssertExitedCleanly();
         result.AssertLogContains("Loading InfiniteRunner screen");
         // Charm may or may not be collected depending on timing, so just verify the run completes
         result.AssertLogContains("Replay complete. Exiting game.");

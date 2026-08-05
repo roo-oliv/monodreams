@@ -14,6 +14,13 @@ public class GameTestResult
     public int ExitCode { get; init; }
     public List<string> LogLines { get; init; } = new();
 
+    /// The spawned process's captured stdout / stderr — a crashing game prints its unhandled
+    /// exception to stderr, which the debug log never sees. Surfaced by
+    /// <see cref="AssertExitedCleanly"/> so a nonzero exit is diagnosable from the test output
+    /// alone (a CI runner's temp debug dir is gone by the time anyone looks).
+    public string StdOut { get; init; } = "";
+    public string StdErr { get; init; } = "";
+
     /// The temp debug directory the run wrote its log + screenshots into.
     public string DebugDir { get; init; } = "";
 
@@ -21,6 +28,18 @@ public class GameTestResult
     /// <see cref="GameTestRunner"/>). A resolved editor process writes only under here, never the real
     /// repo content tree — assert against it to prove isolation held.
     public string ProjectRoot { get; init; } = "";
+
+    /// <summary>Asserts the game exited 0 — and on failure reports WHY: the stderr (the unhandled
+    /// exception lives there) plus the debug log's tail, instead of a bare "Expected: 0".</summary>
+    public void AssertExitedCleanly()
+    {
+        if (ExitCode == 0) return;
+        var logTail = string.Join("\n", LogLines.TakeLast(15));
+        Assert.Fail(
+            $"Game process exited {ExitCode} (expected 0).\n" +
+            $"--- stderr ---\n{StdErr.Trim()}\n" +
+            $"--- debug log tail ---\n{logTail}");
+    }
 
     public void AssertLogContains(string substring)
     {
@@ -255,6 +274,10 @@ public static class GameTestRunner
                 psi.Environment[key] = value;
 
         using var process = Process.Start(psi)!;
+        // Drain both pipes from the start: an unread redirected pipe fills up and DEADLOCKS a
+        // chatty child, and stderr is where a crashing game prints its unhandled exception.
+        var stdOutTask = process.StandardOutput.ReadToEndAsync();
+        var stdErrTask = process.StandardError.ReadToEndAsync();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
 
         try
@@ -278,6 +301,8 @@ public static class GameTestRunner
         {
             ExitCode = process.ExitCode,
             LogLines = logLines,
+            StdOut = await stdOutTask,
+            StdErr = await stdErrTask,
             DebugDir = debugDir,
             ProjectRoot = projectRoot,
         };
