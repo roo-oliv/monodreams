@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "3a7523b061c0",
+  "session_id": "c0d1b446-7353-4da6-8929-c68d99db4e0a",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T16:37:46.973219Z",
+  "branch": "fix/theme-lint-and-ci-nuget",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/ci.yml",
+    "MonoDreams.Demos/Game1.cs",
+    "MonoDreams.Examples.Desktop/Game1.cs",
+    "MonoDreams/debug/HeadlessWindow.cs",
+    "MonoDreams/debug/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "cee3f8cf-eeae-4ca1-a0d2-ec5f5ae66df7",
+  "checkpoint_transcript_start": 1056,
+  "transcript_lines_at_start": 1056,
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 329421,
+    "cache_read_tokens": 8190203,
+    "output_tokens": 20517,
+    "api_call_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T16:37:46.57699Z",
+    "agent_lines": 119,
+    "human_added": 6,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 125,
+    "agent_percentage": 95.19999999999999
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-50/c0d1b446-7353-4da6-8929-c68d99db4e0a.jsonl"
+}
