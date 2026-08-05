@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -57,6 +55,13 @@ public class MasterRenderSystem(
     private EntitySet? _drawSet;
 
     private EntitySet DrawSet => _drawSet ??= BuildDrawSet();
+
+    // The reused per-frame sort scratch (see the comment in Update): the draw list is rebuilt in
+    // place every frame, so a busy pass allocates NOTHING to sort — the buffer grows to the
+    // high-water mark of this pass's drawable elements and stays there. Sorting thousands of
+    // streamed tiles through LINQ used to allocate an array, an enumerable chain and a List every
+    // frame, per pass. See premise "The per-frame draw sort is allocation-free and stably ordered".
+    private readonly DrawSortBuffer _sortBuffer = new();
 
     private EntitySet BuildDrawSet()
     {
@@ -143,21 +148,23 @@ public class MasterRenderSystem(
 
         var transformMatrix = camera?.GetViewTransformationMatrix() ?? Matrix.Identity;
 
-        // Sort ALL entities by LayerDepth (stable sort preserves order for same depth)
-        var entities = DrawSet.GetEntities().ToArray();
-        var sortedEntities = entities
-            .Select((entity, index) => (entity, index, dc: entity.Get<DrawComponent>()))
-            .Where(x => x.dc.Type != DrawElementType.Mesh || x.dc.HasValidMesh)
-            .OrderBy(x => x.dc.LayerDepth)
-            .ThenBy(x => x.index) // Stable sort
-            .ToList();
+        // Collect this pass's drawable elements into the reused buffer, then sort by LayerDepth with
+        // the ENTITY-SET ORDER as the tiebreaker — identical ordering to the previous
+        // OrderBy(LayerDepth).ThenBy(index), which was a *stable* sort of the set order, without the
+        // per-frame allocations. The in-place introsort is NOT stable, so DrawSortBuffer compares the
+        // recorded set-order index explicitly; same-depth elements therefore still render in set order
+        // (what "Y-sort tiebreaker is parent-child bias only" leans on). Mesh elements with no mesh
+        // data are filtered out during the rebuild, exactly as the old .Where() did.
+        _sortBuffer.Rebuild(DrawSet.GetEntities());
+        if (_sortBuffer.Count == 0) return;
 
-        if (sortedEntities.Count > 0)
-            RenderInterleaved(sortedEntities, transformMatrix);
+        _sortBuffer.Sort();
+        RenderInterleaved(_sortBuffer.Items, _sortBuffer.Count, transformMatrix);
     }
 
     private void RenderInterleaved(
-        List<(Entity entity, int index, DrawComponent dc)> sortedEntities,
+        (Entity entity, int index, DrawComponent dc)[] sortedEntities,
+        int count,
         Matrix transformMatrix)
     {
         BatchType currentBatch = BatchType.None;
@@ -166,8 +173,10 @@ public class MasterRenderSystem(
         // every Begin (context switch or flush); used to keep each run below the Reach 16-bit-index budget.
         var batchRun = new SpriteBatchFlush.BatchRun();
 
-        foreach (var (_, _, dc) in sortedEntities)
+        // Only the first `count` entries of the grow-only buffer are live this frame.
+        for (var i = 0; i < count; i++)
         {
+            var dc = sortedEntities[i].dc;
             var requiredBatch = GetBatchType(dc.Type);
 
             // Batch type changed - switch context. Sprite and Text both use the SpriteBatch
