@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "2b93932d9a03",
+  "strategy": "manual-commit",
+  "branch": "issue-37",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Foundation/LoggerInterpolationTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2b/93932d9a03/0/metadata.json",
+      "transcript": "/2b/93932d9a03/0/full.jsonl",
+      "context": "/2b/93932d9a03/0/context.md",
+      "content_hash": "/2b/93932d9a03/0/content_hash.txt",
+      "prompt": "/2b/93932d9a03/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 102782,
+    "cache_read_tokens": 1653007,
+    "output_tokens": 16630,
+    "api_call_count": 21
+  }
+}
