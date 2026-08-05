@@ -23,5 +23,9 @@ jobs:
       - uses: actions/checkout@v3
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+      # xvfb gives the integration tests a virtual X display: they spawn real game
+      # processes, and MonoGame DesktopGL initializes SDL video (a real window + GL
+      # context) even in the repo's headless modes — without a display the spawned
+      # games abort (SIGABRT). Mesa's software GL on the runner backs the context.
       - name: Run tests
-        run: dotnet test --configuration Release
+        run: xvfb-run -a dotnet test --configuration Release

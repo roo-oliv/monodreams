@@ -128,11 +128,15 @@ public class Game1 : Game
 
         if (_headless.Enabled)
         {
-            // Hide the window off-screen; the GL context (and its backbuffer) stay live
-            // so Draw renders real frames we read back to PNG. Desktop-only — a web head
-            // has no OS window to move.
+            // Hide the window; the GL context (and its full-res backbuffer) stay live so
+            // Draw renders real frames we read back to PNG. SDL_HideWindow takes it off the
+            // screen and out of the click path — macOS clamps the off-screen position move
+            // back onto the display, so the move alone left a visible, clickable window
+            // there; it stays as the fallback where the SDL hide is unavailable.
+            // Desktop-only — a web head has no OS window to hide.
 #if !MONODREAMS_WEB
             Window.Position = new Point(-2000, -2000);
+            MonoDreams.Debug.HeadlessWindow.Hide(Window);
 #endif
             _screenshotCapture = new ScreenshotCaptureSystem(GraphicsDevice, captureIntervalSeconds: 0f, debugDir);
             Logger.Info($"Headless run: screen='{_headless.Screen}', frames={_headless.Frames}, " +
