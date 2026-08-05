@@ -1,0 +1,318 @@
+Implement the issue #48. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+Implement the issue #48. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>a52124a78b8c38e2a</task-id>
+<tool-use-id>toolu_01WoSfuBrwqrnMyVtf2348cG</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port layers panel wave" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af033892b9fcaab7b</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port HudPreviewSystem + wiring" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a52124a78b8c38e2a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port layers panel wave" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af033892b9fcaab7b</task-id>
+<tool-use-id>toolu_01FD9W7hnngKMg4o6RWFCz5D</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Agent "Port HudPreviewSystem + wiring" failed: Agent terminated early due to an API error: API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bk25dq74c</task-id>
+<tool-use-id>toolu_017CZqUVNCYytnUSD5oW28fW</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait 90s before resuming agent (API overloaded)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af033892b9fcaab7b</task-id>
+<tool-use-id>toolu_017NuWmLXvpk2DgcoUVg2aoN</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port HudPreviewSystem + wiring" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Work complete. Here's the report.
+
+## Files changed
+
+**New:**
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-48/MonoDreams/level-editor/System/HudPreviewSystem.cs` — `HudPreviewStashComponent` struct + `HudPreviewSystem`, ported faithfully (semantics and comments) from the reference.
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-48/MonoDreams.Tests/LevelEditor/HudPreviewTests.cs` — 7 test cases (authored, **not run** — no dotnet commands issued).
+
+**Modified:**
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-48/MonoDreams.Examples.Core/Screens/InfiniteRunnerScreen.cs` — `AttachHudLayer()` twin + two call sites + `editor.hudPreview` pipeline entry + 2 usings.
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-48/MonoDreams/level-loading/Component/Level/SceneLayerComponent.cs` — `ScreenSpace` doc comment delta only (I deliberately did **not** port the reference's other delta in that file, a `TileGridComponent` paint-layer sentence — unrelated downstream feature).
+
+I touched none of the other agent's files (their in-flight edits to `EditorPanelSystem`, `EditorOverlay`, `CameraNavSystem`, `EditorIcons`, `SystemsPanelLayout`, `EditorContextMenuModel`, `EditorShellStateComponent` are untouched; I re-verified `SystemsPanelLayout.ParkedPosition` still exists at line 274 after their change).
+
+## API verification / adaptations vs. the reference
+
+Everything resolved locally with the same shapes; **no signature adaptations were needed**. Verified by reading source: `CameraComponent` (class, `MonoDreams.Component`, `.Zoom`), `DynamicTextComponent` (struct, `MonoDreams.Component.Draw`, `.Target`/`.Scale`), `SceneLayerComponent` (class, `.ScreenSpace`/`.Visible`/`.Order`/`.Locked`), `TransformComponent` (class, `.Position`/`.WorldPosition`), `ChildOfComponent`, `RenderTargetID` (Main/UI/HUD/Scroll/Editor), `ViewportManager.VirtualWidth/.VirtualHeight`, `GameState.RunMode`, `SceneLayerSystem.OwningLayer(Entity)`, `SystemsPanelLayout.ParkedPosition`. Notable points:
+
+1. **`global::MonoDreams.System.Level.SceneLayerSystem`** kept verbatim — required, since from inside `MonoDreams.LevelEditor.System` a bare `MonoDreams.System.…` would resolve relative to the enclosing namespace.
+2. **Field-declaration tidy only:** the reference declares `_cameras` *after* the constructor; I hoisted it beside `_members`. No semantic change.
+3. **`ViewportManager` in tests** needs no fake: it never dereferences its `Game`, and `new ViewportManager(null!, w, h)` is the established headless pattern across ~12 existing test files. The system constructor stays byte-faithful to the reference.
+4. **`AttachHudLayer` membership predicate diverges by necessity.** The reference filtered HUD texts on `EntityInfoComponent.Type` (`"StatsHud"`, `"WorldClockHud"`, …). The runner tags its score label, its treadmill meshes and its spawn point **all** `"Interface"`, so Type is not a discriminator here. I discriminate on `DynamicTextComponent.Target == RenderTargetID.HUD` instead — a more general predicate (a HUD-target dynamic text *is* a screen-fixed label), documented in the method's doc comment. Everything else in the sweep (idempotent layer lookup by `ScreenSpace`, the "unparented OR parent died" re-parent guard, `Order = 1000` / `ScreenSpace = true` / `Locked = true`, deliberately no `SceneObjectComponent`) is a direct port.
+5. **No `Transport.KeepAlive` needed** (the reference added one to keep its layer across Restart). The runner's `RebuildCodeContent` already re-creates its HUD text from scratch, so I call `AttachHudLayer()` at the end of that closure and let it re-create the layer — simpler, and it exercises the idempotence the reference documents.
+6. **Pipeline placement:** `editor.hudPreview` is the first entry of the post-`hierarchy` editor block — after the HUD-content writer (`logic.scoreDisplay`, inside the `Freeze` group) and after `hierarchy`, before `drawPrep`. Mirrors the reference's relative order.
+7. **Module manifest needed no change** — `level-editor`'s `module.json` already declares `rendering-text` and `level-loading`.
+
+Two things I checked because they'd have been silent breakage: `CullingSystem` requires `SpriteInfoComponent`, so it never strips the text's `VisibleComponent`; and `TextPrepSystem` has no `[With(VisibleComponent)]`, reads `transform.WorldPosition` and `text.Target` — so flipping `Target` to `Main` is exactly what routes the label through the camera-transformed pass. `SceneLayerSystem` also requires `SpriteInfoComponent`, so the new ScreenSpace layer cannot perturb the world draw bands. And `SceneWriter` collects only `SceneObjectComponent` roots plus their closure, confirming the HUD layer never serializes.
+
+## Test cases authored (not run)
+
+`MonoDreams.Tests/LevelEditor/HudPreviewTests.cs` — pure logic (a `World`, hand-built entities, `new ViewportManager(null!, 800, 600)`; 800×600 at zoom 2 makes every expected value an exact binary fraction, so all asserts are exact equality, matching the local `Assert.Equal(2.5f, camera.Zoom)` idiom):
+
+1. `EditWithCamera_ProjectsHudMemberIntoTheCameraFrame` — camera at (500,300) zoom 2, member authored at (100,40) scale 0.5: position lands at `(300,150) + (50,20) = (350,170)`, `Target` flips to `Main`, `Scale` becomes 0.25, and the stash holds the three authored values.
+2. `RepeatedEditFrames_DoNotCompound` — three Edit frames, position and scale unchanged after the first (guards the re-derive-from-stash claim).
+3. `FlippingToPlay_RestoresAuthoredValuesByteIdenticallyAndDropsTheStash` — exact equality with the authored position/scale/target, and `!Has&lt;HudPreviewStashComponent&gt;()`.
+4. `RestoreIsIdempotent` — three Play frames after one Edit frame.
+5. `EyeOffWhilePreviewing_ParksTheMemberAndKeepsTheStash` — `Visible = false` parks at `SystemsPanelLayout.ParkedPosition` *with the stash intact*, re-showing returns to (350,170), then Play restores exactly.
+6. `NoCameraEntity_LeavesTheMemberUntouched` — bare world in Edit: authored values, no stash.
+7. `AWorldLayerMember_IsNeverProjected` — a non-`ScreenSpace` layer's text is never touched.
+
+## Proposed premises entry (for `MonoDreams/level-editor/docs/premises.md`)
+
+```
+## The HUD-layer preview projects screen-space members into the camera entity's frame while Paused
+
+A SCREEN-SPACE scene layer (`SceneLayerComponent.ScreenSpace` — the game's "HUD"
+grouping) holds text authored in virtual-resolution coordinates on the HUD render
+pass, which composites over the whole game viewport. That is right in Play and
+wrong in Edit: the free view pans away while the HUD stays glued to the editor
+pane, reading as chrome rather than as scene content. `HudPreviewSystem`
+re-projects those members while the transport is Paused (`RunMode.Edit`) **and a
+camera entity exists**: it stashes the authored (position, text scale, render
+target) once into a `HudPreviewStashComponent`, then every frame re-derives from
+that stash — `DynamicTextComponent.Target` → `Main`, `Scale` → stashed / zoom,
+`TransformComponent.Position` → `camFrameTopLeft + stashedVirtualPos / zoom`,
+followed by `NotifyChanged&lt;TransformComponent&gt;()`. Re-deriving from the stash
+(never from last frame's output) is what keeps the projection from compounding.
+The layer's eye toggle (`Visible = false`) parks the member at
+`SystemsPanelLayout.ParkedPosition` while **keeping** the stash. Every other
+case — Play, no camera entity, a member of a world (non-screen-space) layer —
+takes `Restore()`, which puts the stashed values back **byte-identically** and
+drops the stash; it is idempotent. The stash is an editor-session artifact and is
+never serialized. The system is composed only under the editor run flag, woven
+`RunNormally` after the screen's HUD-content writer systems and before the draw
+prep; the plain game never constructs it. A host opts a screen in by creating a
+code-built screen-space layer (`EntityInfoComponent("Layer", "HUD")` +
+`TransformComponent(Vector2.Zero)` + `SceneLayerComponent { Order = 1000,
+ScreenSpace = true, Locked = true }`, deliberately **no**
+`SceneObjectComponent`) and parenting its HUD text into it — idempotently, so a
+transport Restart re-parents whatever the sweep re-created.
+
+**Why:** "what you edit is what ships" fails for the HUD if the designer cannot
+see where a label actually sits relative to the camera; the direct framing is
+"fixed over the CAMERA, not the editor viewer". Restoring byte-identically is
+what keeps the REAL HUD pass untouched — the game's own rendering must not drift
+by a pixel because someone paused.
+**Breaks:** projecting from the previous frame's value instead of the stash
+marches the label off-screen (or decays its scale to zero) while the transport
+sits Paused; dropping the stash on the eye toggle makes the later restore
+inexact, so the shipped HUD drifts one park-cycle at a time; a projection that
+does not restore on Play leaves the game rendering HUD text on the
+camera-transformed `Main` pass at world coordinates; serializing the stash (or
+the HUD layer) would leak editor-session state into `.mdscene` and violate
+"Inspector-visible ⇒ Save-persisted ⇒ round-trip-owned" from the wrong end;
+composing the system before the HUD-content writers shows last frame's text.
+**Tests:** `MonoDreams.Tests/LevelEditor/HudPreviewTests.cs` (the projection
+math — `camTopLeft + authored/zoom`, target → `Main`, scale ÷ zoom; repeated Edit
+frames do not compound; Play restores position/scale/target with exact equality
+and removes the stash; restore is idempotent; eye-off parks at
+`ParkedPosition` and keeps the stash, re-showing re-projects and Play still
+restores exactly; no camera entity leaves the member untouched; a world-layer
+member is never projected).
+**Depends on:** level-loading — "Scene layers are entities; member draw order
+derives from (layer order, within-layer key)" (the `ScreenSpace` exclusion from
+band slicing, and `SceneLayerSystem.OwningLayer` as the membership walk); this
+file — "The editor run flag composes the always-on editor and the transport owns
+RunMode", "The pipeline registrar is the composition seam", "The editor overlay
+is universal", "The editor visualizes + edits the scene camera ENTITY" (the
+camera entity's `WorldPosition` + `CameraComponent.Zoom` are the projected
+frame); rendering-text — "`TextPrepSystem` writes the world-transformed
+position"; foundation — "Edit-time behaviour is a per-system policy honoured by
+`GatedSystem`".
+```</result>
+<usage><subagent_tokens>178295</subagent_tokens><tool_uses>60</tool_uses><duration_ms>998685</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a52124a78b8c38e2a</task-id>
+<tool-use-id>toolu_01NSYV6P3R7CbhR5Y4R8hfSU</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port layers panel wave" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All verification green. Here is my report.
+
+## Files changed (engine — `MonoDreams/level-editor/`, plus tests)
+
+| File | What landed |
+|---|---|
+| `MonoDreams/level-editor/UI/EditorIcons.cs` | 8 glyphs: `Plus`, `Focus`, `Eye`, `EyeOff`, `Lock`, `Unlock`, `RadioOn`, `RadioOff` (enum + `Build` cases + pen methods) |
+| `MonoDreams/level-editor/UI/SystemsPanelLayout.cs` | `LayerToggleSlots`, `LayerToggleWidth`, `LayerToggleRect`, `LayerLabelPosition`, `LayerGlyphBox` |
+| `MonoDreams/level-editor/Component/EditorShellStateComponent.cs` | `ActiveLayer` field only (session state, never serialized) |
+| `MonoDreams/level-editor/System/EditorPanelSystem.cs` | `_sceneSet` `.Without&lt;BakedProductComponent&gt;()`; layers-first tree ordering + active-layer healing; `CollapseNewLayers`; layer-row `SceneLabel` (`(hud)`); `RowVisual.GlyphRadio/Eye/Lock` + `ConfigureLayerGlyphs` + create/clear/dispose; layer click semantics; the `+ Add` / focus toolbar band (`PanelToolbarRect`/`BodyRect`/`AddMenuRequested`/`FocusSelectionRequested`/`PositionPanelToolbar`); `EntityAtPoint` now uses the same `BodyRect` |
+| `MonoDreams/level-editor/System/CameraNavSystem.cs` | `FrameSelected()` (position only, zoom kept, sprite-quad centre else `WorldPosition`, returns bool) |
+| `MonoDreams/level-editor/UI/EditorContextMenuModel.cs` | `NewSpritesLayerPath`/`RenameLayerPath`/`LayerUpPath`/`LayerDownPath`; `AddMenu()`; `EntityMenu(..., bool isLayer)`; `EntitiesPanelMenu` + "New Entity Layer" |
+| `MonoDreams/level-editor/Composition/EditorOverlay.cs` | panel toolbar wiring; menu dispatch for the 4 layer paths; `SelectionIsLayer()` at 3 `EntityMenu` sites; `CreateSceneLayer()` / `OpenRenameLayerDialog()` / `MoveSelectedLayer(±1)`; `view:selected` op; palette gate relaxed to `assetCatalog != null` |
+| `MonoDreams/level-editor/System/PalettePlacementSystem.cs` | bands now optional (`IReadOnlyList&lt;PaletteBand&gt;?`, no throw); `ActiveLayerBand` synthetic band; `CycleAssetBand` no-ops bandless; `EnsureActiveSpritesLayer()` (locked → loud refusal; adopt-else-bootstrap "Layer 1" with `SceneObjectComponent`); `StampAt` parents to the layer and returns on refusal |
+
+## Tests
+
+**18 new** (1080 → 1098 passing, 0 failures):
+- `CameraNavTests` (3): quad-centre focus keeps zoom; spriteless selection uses `WorldPosition` (parented, so the offset matters); no selection → no-op + `false`.
+- `EditorPanelTests` (8): layers list first, front-most on top, `(hud)` suffix, healing picks the top **world** layer; body-click selects **and** activates while the radio slot activates **without** reselecting; locked and screen-space layers select but never activate; eye/padlock toggle + `MarkDirty` without selecting; layers seed collapsed once and a designer's expand sticks; bake products hidden; toolbar buttons raise both requests and a band click never falls through to a row; toolbar is LeftTabs+Entities only.
+- `PalettePlacementTests` (4): stamp parents to the **active** (not front-most) layer and the layer is the save-root; no layers → bootstraps `"Layer 1"` (order 0, `SceneObjectComponent`, activated) and reuses it; a bandless palette constructs and resolves the synthetic 0.5 band; locked active layer refuses (nothing created, nothing selected, no bootstrap) and unlocking makes the next click land.
+- `PalettePlacementLockedLayerLogTests` (1, in the existing non-parallel `PlatformServices` collection): the refusal is **loud** — `WARN … Placement refused … LOCKED`.
+- `EditorContextMenuTests` (2): layer verbs lead for a layer selection with the collider submenu unchanged, and a non-layer menu is byte-identical to before; `AddMenu()` shape.
+
+**3 existing tests updated** (semantic, not cosmetic): `EntitiesPanelMenu_NoRow_…` (renamed, now asserts the layer creator), `PooledVisuals_AreBoundedByTheVisibleWindow` (7 meshes/row + 4 toolbar meshes), and `PalettePlacementTests`' `PlacedProps` helper + `PlacementTest_SingleClick…` — placements are no longer save-roots (`CreateEntityCommand.AutoParent` drops the tag), the **layer** is; the `LineFor` test helper now offsets by the toolbar band.
+
+Verify: `dotnet build MonoDreams/MonoDreams.csproj` 0 errors → `dotnet build MonoDreams.sln` 0 errors → full `MonoDreams.Tests` **1098/1098 pass**.
+
+## Deliberate deviations from the reference
+
+1. **Eye/EyeOff geometry re-derived.** The reference's lid arcs (`r=0.72` centred at `v=±0.02`) meet at `u≈0.009/0.991`, so the stroke's half-thickness escapes the glyph rect — `EditorIconsTests.EveryIcon_GeometryStaysInsideTheGivenRect` enumerates the enum and caught it. I solved the circle through `(0.06,0.5)/(0.5,0.70)/(0.94,0.5)`: `r=0.584`, centres `v=0.116/0.884`, angles `41–139` / `221–319`. Same eye, provably inside the rect. (The reference repo ships no tests, so this bug is latent there.)
+2. **`ShowsPanelToolbar` is public** (private in the reference) so the test helper mirrors the body offset from the one source instead of duplicating the tab-strip predicate.
+3. **`(indexed)` label branch, `NewPaintLayerPath`/`EditLayerRulesPath`, `isPaintLayer`, "Indexed Layer" menu rows, `EditorWorkspace`, the Paint bottom tab** — all omitted per scope, each with a code comment naming the wave that brings them.
+4. **`EnsureActiveSpritesLayer`'s bootstrap is a raw `CreateEntity`, not a command** (as in the reference) — it runs inside the stamp's open transaction; I added a comment saying the stamp's own `CreateEntityCommand` is the undo step. Consequence worth knowing: undoing the first-ever placement leaves `"Layer 1"` behind (empty). The reference has the same behaviour.
+5. **`CreateSceneLayer` names via `UniqueName(world, "Layer")`** → the first menu-created layer is `"Layer"`, while the palette bootstrap hardcodes `"Layer 1"`. Reference-faithful, but a small naming inconsistency someone may want to unify.
+6. `PalettePlacementSystem`'s `bands` parameter became nullable — the reference kept it non-nullable but `?? Array.Empty` (dead null-coalesce under NRT); nullable is honest now that `EditorOverlay` can pass a null band list.
+
+## Note
+
+`MonoDreams/packages.lock.json` shows a large unrelated diff (KNI/web packages promoted to `Direct`). I never ran a web-platform build; it is not my change — likely the concurrent agent or an IDE restore. Flagging so you don't attribute it to this wave.
+
+## Proposed premises entry (`MonoDreams/level-editor/docs/premises.md`)
+
+```
+## The Entities panel IS the layers panel: layers list first, three glyph verbs, and placement targets the ACTIVE layer (HP)
+
+The left panel's **Entities** tab doubles as the layers panel — there is no second layers UI. Scene
+LAYER entities (`SceneLayerComponent`) sort to the TOP of the tree, ordered by
+`SceneLayerSystem.CompareLayers` then **reversed** so top-of-list = front-of-draw (the
+Figma/Aseprite convention); everything else follows in creation order. Each layer row leads with
+three **mesh** glyph slots (`SystemsPanelLayout.LayerToggleRect`, never font text — the disclosure-arrow
+pattern): slot 0 the ACTIVE **radio** (`Accent` when active), slot 1 the visibility **eye**
+(`Text1`/`TextMuted`), slot 2 the **padlock** (`Warning`/`TextMuted`); its label is
+`SceneLayerSystem.LayerName` plus a DERIVED kind suffix (`(hud)` for `ScreenSpace`). Click semantics are
+load-bearing and distinct: **radio → activate only** (selection untouched — the explicit
+activate-without-reselecting verb); **eye / padlock → toggle `Visible` / `Locked` + `History.MarkDirty()`**
+(no selection change); **row BODY → select AND activate**, but activation is refused for a `ScreenSpace`
+(HUD grouping) or `Locked` layer — those select so their Inspector is reachable, and are never
+placement targets; the **arrow** still only collapses. The active layer lives in
+`EditorShellStateComponent.ActiveLayer` (session state, **never serialized** — the durable truth is the
+layer entity; which one is active is an authoring choice) and **self-heals** every frame: a dead or
+non-layer value defaults to the top **world** layer, never a HUD grouping. Each layer's subtree is
+seeded **collapsed on first sighting only** (`_autoCollapsedLayers` → `CollapsedTreeEntities`), so the
+tree opens on the layer LIST and a designer's expand sticks. Bake products
+(`BakedProductComponent`) are excluded from the tree entirely. Placement follows the panel:
+`PalettePlacementSystem` parents every stamp to the active layer via `ChildOfComponent` (so the LAYER is
+the `SceneObjectComponent` save-root and the prop rides its descendant closure), **refuses loudly** into a
+locked layer (`Logger.Warning "[level-editor] Placement refused: the active layer is LOCKED."` — no
+entity, no bootstrap), and with no layers at all **adopts an existing one else bootstraps
+`"Layer 1"`** (SceneObject-tagged) so the first click never dead-ends. Screen-supplied `PaletteBand`s
+became **optional legacy** — a bandless palette is legal and resolves the synthetic `ActiveLayerBand`
+(depth 0.5 = the within-layer key's midpoint, never Y-sorted). The panel also grows a slim
+**toolbar band** below the tab strip (Entities tab only): **+ Add** (the `AddMenu()` dropdown, anchored
+below the button) and **focus** (`CameraNavSystem.FrameSelected()` — position only, zoom kept; the
+`view:selected` op's twin). Its clicks are consumed by the band and never fall through to a row, and
+`EntityAtPoint`, the interaction pass, and the visuals all derive from the ONE `BodyRect` that subtracts it.
+
+**Why:** designer-created, renamable, reorderable layers are the Figma/Aseprite/LDtk model, and the
+entity tree already IS that list — a second layers panel would fork the pooled-row machinery for the
+same data (the no-duplicate-ways tenet). Body-click-activates is what makes "click the layer, then
+place into it" work without a mode; the radio survives as the verb for activating without disturbing
+the Inspector binding. First-sighting-only collapse is the difference between an openable layer list
+and one layer's hundreds of members pushing every other layer below the fold. Parenting stamps to the
+active layer is what makes the layer's `ChildOf` membership real (and reorder a one-line diff) rather
+than a label.
+**Breaks:** activating a `Locked` or `ScreenSpace` layer on a body click silently sends placements
+into a layer the designer locked, or into the HUD grouping; a silent locked-layer refusal reads as
+"the editor is broken" (the designer cannot distinguish it from a dead click); re-seeding the collapse
+every frame makes a layer impossible to expand; not healing `ActiveLayer` leaves a dangling target after
+an undo/Restart and placements refuse forever; serializing `ActiveLayer` bakes a per-session choice into
+the scene file; a toolbar band click that falls through selects a row under the button; deriving
+`EntityAtPoint` from the raw `RegionBody` while the visuals use the inset body mis-maps every
+right-click by one band; keeping the empty-bands `throw` blocks every screen from adopting layers;
+tagging the placed prop (instead of the layer) `SceneObjectComponent` makes each stamp its own
+save-root and the layer's membership cosmetic.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs`
+(`REDACTED`,
+`LayerRowBodyClick_SelectsAndActivates_WhileTheRadioSlotActivatesWithoutSelecting`,
+`LockedOrScreenSpaceLayerBodyClick_Selects_ButNeverActivates`,
+`REDACTED`,
+`Layers_SeedCollapsedOnFirstSighting_AndADesignersExpandSticks`, `SceneTree_HidesBakeProducts`,
+`PanelToolbarButtons_RaiseTheAddMenuAndFocusRequests_AndNeverFallThroughToRows`,
+`PanelToolbar_IsEntitiesTabOnly`, `PooledVisuals_AreBoundedByTheVisibleWindow` — the pooled bound
+holds through the 3 glyph meshes + 4 toolbar meshes);
+`MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`PlacementTargetsTheActiveLayer_ParentingTheStampToIt`,
+`PlacementWithNoLayers_BootstrapsLayer1_AndActivatesIt`,
+`ABandlessPalette_IsLegal_AndPlacesOnTheSyntheticWithinLayerBand`,
+`PlacementIntoALockedActiveLayer_IsRefused_NothingIsCreated`) +
+`PalettePlacementLockedLayerLogTests.LockedActiveLayer_RefusesThePlacement_Loudly` (the LOUD half);
+`MonoDreams.Tests/LevelEditor/CameraNavTests.cs` (`FrameSelected_*` — quad centre, spriteless world
+position, zoom kept, no-selection no-op); `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs`
+(`REDACTED`,
+`AddMenu_IsEmptyEntityThenTheLayerCreator`, `REDACTED`);
+`MonoDreams.Tests/LevelEditor/EditorIconsTests.cs` (the 8 new glyphs ride the enum-wide
+geometry/colour/DPR assertions).
+**Depends on:** level-loading — "Scene layers are entities; member draw order derives from (layer
+order, within-layer key)" (the component, `CompareLayers`/`LayerName`/`OrderedLayers`, and why hiding
+is a colour zero); this file — "The editor's panels: a LEFT tabbed panel …" (the tree these rows
+extend), "Panel disclosure arrows are triangle MESHES, not font glyphs" and "Toolbar icon buttons are
+procedural meshes tinted by state …" (the mesh-glyph pattern the slots + toolbar reuse), "Every
+level-editor color and depth is an `EditorTheme` role" (the glyph colours + `AdvanceHover` fades),
+"The editor shell's region sizes, tabs, and drag ownership live in one shell-state component"
+(`ActiveLayer`'s home + `IsDragging` muting the toolbar hover), "Editor camera navigation pans/zooms/
+frames the scene directly" (`FrameSelected` joins `FrameScene`), "Editor context menus are a
+data-driven popup" (the layer verbs + `AddMenu`), "Bounded undo with drag-coalescing" +
+"The editor history tracks a dirty save-point signal" (the `MarkDirty` the toggles fire, the
+`CreateEntityCommand` a new layer is), "The palette hold-drag multi-stamps …" (the stroke the layer
+parenting joins); foundation — `ChildOfComponent` (layer membership).
+```
+
+Two follow-ups this wave surfaced but did not take: undoing the first-ever placement leaves the bootstrapped empty `"Layer 1"` behind, and `CreateSceneLayer`'s `UniqueName("Layer")` names the first menu-created layer `"Layer"` while the palette bootstrap hardcodes `"Layer 1"`.</result>
+<usage><subagent_tokens>321052</subagent_tokens><tool_uses>173</tool_uses><duration_ms>2192637</duration_ms></usage>
+</task-notification>
