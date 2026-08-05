@@ -290,6 +290,54 @@ is exercised end-to-end by `LDtkLevelTests` and `BlenderLevelTests`.
 content-pipeline DLL to MGCB via `/reference:`"; foundation — "The platform
 (backend + OS services) is selected by the head project".
 
+## Scene layers are entities; member draw order derives from (layer order, within-layer key)
+
+`SceneLayerComponent` makes the designer's LAYER an ordinary scene ENTITY (the camera
+precedent): its name is its `EntityInfoComponent.Name`, its members are its `ChildOf`
+children, its kind is DERIVED from what else the layer entity carries (today every layer is
+a Sprites layer; a later tile-paint wave's marker component makes a layer a paint layer by
+being present on it — there is no kind enum), and it serializes as `core.SceneLayer`
+(`order`, `visible`, `locked`, `screenSpace`). The load-bearing depth rule: a member sprite's
+persisted `SpriteInfoComponent.LayerDepth` is reinterpreted as its WITHIN-layer position
+(0..1) and `SceneLayerSystem` — woven into the draw prep between `SpritePrepSystem` and
+`YSortSystem` (the layer-depth ownership chain gains one stage) — computes the final
+`DrawComponent.LayerDepth` as `slice.Min + key * slice.Width`, slicing
+`BandMin..BandMax` (0.05..0.9) evenly across the layers by `Order` (ties by name, for
+determinism). REORDERING layers therefore never rewrites member data (member depths are
+layer-relative, so a reorder is a one-line diff); hiding a layer draws its members fully
+transparent (post-prep color zero — no render-path or culling-query changes); entities on NO
+layer pass through with their authored depths (full backward compatibility — legacy scenes
+and code-built HUD/overlay entities are untouched). Membership is the whole `ChildOf`
+ancestor chain (bounded by a cycle guard), so a prefab instance's sprites remap through their
+instance root's layer. It runs in the editor AND the game (a hidden layer ships hidden). A
+`screenSpace` layer (the HUD grouping) is organizational only: EXCLUDED from the band
+slicing, so its members keep their own authored depths and the game's HUD pass is untouched.
+Because `YSortSystem` runs AFTER this stage and keys its band lookup on the SOURCE
+`SpriteInfoComponent.LayerDepth` (an exact-match `DrawLayerMap` lookup), a member whose
+within-layer key happens to equal a registered Y-sorted band value is still Y-sorted —
+`YSortSystem` keeps the last word, exactly as the ownership chain says.
+
+**Why:** designer-created, renamable, reorderable layers are the Figma/Aseprite/LDtk model an
+editor layer panel exposes; entity-membership via `ChildOf` gives free tree grouping,
+rename-safety (references are entity links, not strings), serialization (the parent index
+already round-trips), and lifecycle. Deriving the final depth per frame — instead of baking
+it — is what keeps a reorder from touching member data.
+**Breaks:** deriving member depths by REWRITING their source fields on reorder churns every
+member row in the diff (the within-layer-key model is what keeps a reorder a one-line
+change); a visibility mechanism that fights `CullingSystem` over `VisibleComponent` flickers
+(hence the post-prep color zero); registering the system after `YSortSystem` would clobber
+Y-sorted members' depths; writing the layer slice into `SpriteInfoComponent.LayerDepth`
+instead of `DrawComponent.LayerDepth` would persist a derived value.
+**Tests:** `MonoDreams.Tests/Rendering/SceneLayerSystemTests.cs` (band slicing +
+within-layer key, hidden-layer transparency, screen-space exclusion, `ChildOf`-ancestor
+membership, non-layered pass-through) and the `core.SceneLayer` round-trip in
+`MonoDreams.Tests/LevelEditor/ComponentSerializerRegistryTest.cs`.
+**Depends on:** rendering — "Layer-depth ownership pipeline" (the chain this system joins)
+and "`VisibleComponent` is owned exclusively by `CullingSystem`" (why hiding is a color
+zero, not a tag removal); level-editor — "The serializer persists SOURCE sort fields, never
+the per-frame-derived `DrawComponent.LayerDepth`" and "Within-band ordering nudges SOURCE
+sort fields and never breaks the band" (the within-layer nudges that keep working).
+
 ## Known limitations (acknowledged gaps)
 
 - **Hot reload doesn't fully work** — adding `CurrentLevelComponent`

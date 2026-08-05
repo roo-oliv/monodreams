@@ -414,17 +414,23 @@ positions without re-culling — entities pop in or out by one frame.
 ## Layer-depth ownership pipeline
 
 `SpritePrepSystem` initializes `DrawComponent.LayerDepth` from
-`SpriteInfoComponent.LayerDepth`. `YSortSystem` may override it for
-entities on Y-sorted layers. `MasterRenderSystem` sorts on the final
-value. Game systems writing `LayerDepth` after `YSortSystem` create
-undefined sort behavior.
+`SpriteInfoComponent.LayerDepth`. When a screen composes scene layers, the
+optional `SceneLayerSystem` (`level-loading`) runs next and remaps each
+layer member's depth into its layer's slice — entities on no layer pass
+through untouched. `YSortSystem` may override it for entities on Y-sorted
+layers. `MasterRenderSystem` sorts on the final value. Game systems writing
+`LayerDepth` after `YSortSystem` create undefined sort behavior.
 
-**Why:** three writers in a defined order produce one final value. A
-fourth writer in between (or after) breaks the contract.
+**Why:** three writers in a defined order (four with scene layers composed)
+produce one final value. An unplanned writer in between (or after) breaks
+the contract.
 **Breaks:** entities flicker, depth-fight, or render behind/in-front of
 static elements unexpectedly.
-**Tests:** none yet.
-**Depends on:** —
+**Tests:** none yet (the scene-layer stage is covered by
+`MonoDreams.Tests/Rendering/SceneLayerSystemTests.cs`).
+**Depends on:** level-loading — "Scene layers are entities; member draw
+order derives from (layer order, within-layer key)" (the optional stage
+between prep and Y-sort).
 
 ## A sprite's drawn quad honors `Transform.WorldScale` exactly once
 

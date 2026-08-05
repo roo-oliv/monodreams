@@ -42,6 +42,10 @@ namespace MonoDreams.LevelEditor.Serialization;
 ///   <item><c>CameraComponent</c> — the scene camera marker + zoom (CM). Position/rotation come from the
 ///   entity's Transform; the camera entity is an ordinary <c>SceneObjectComponent</c> root, so it saves
 ///   in <c>entities[]</c> like everything else. Exactly one per scene.</item>
+///   <item><c>SceneLayerComponent</c> — the designer's scene layer (order / visible / locked /
+///   screenSpace). The layer's NAME is its <c>EntityInfoComponent</c>, its members are its
+///   <c>ChildOf</c> children, and its members' final draw depths are derived per frame by
+///   <c>SceneLayerSystem</c> — so only the authored layer fields persist.</item>
 ///   <item><c>ChildOfComponent</c> — registered as the structural parent link (captured as
 ///   <see cref="SceneEntityData.Parent"/>, not a component body).</item>
 /// </list>
@@ -65,6 +69,7 @@ public static class EngineComponentSerializers
     public const string CameraKey = "core.Camera";
     public const string ChildOfKey = "core.ChildOf";
     public const string BoundaryKey = "core.Boundary";
+    public const string SceneLayerKey = "core.SceneLayer";
 
     /// <summary>Registers every engine serializer on <paramref name="registry"/>. Call once at init.</summary>
     public static void RegisterEngineComponents(this ComponentSerializerRegistry registry)
@@ -81,6 +86,7 @@ public static class EngineComponentSerializers
         registry.Register(CameraFollowTargetKey, typeof(CameraFollowTargetComponent), WriteCameraFollowTarget, ReadCameraFollowTarget);
         registry.Register(CameraKey, typeof(CameraComponent), WriteCamera, ReadCamera);
         registry.Register(BoundaryKey, typeof(LevelEditor.Component.BoundaryComponent), WriteBoundary, ReadBoundary);
+        registry.Register(SceneLayerKey, typeof(MonoDreams.Component.Level.SceneLayerComponent), WriteSceneLayer, ReadSceneLayer);
 
         // The structural parent link is captured as SceneEntityData.Parent, not a component body —
         // register it so a parented entity never trips the unregistered-component warning.
@@ -420,6 +426,40 @@ public static class EngineComponentSerializers
     {
         var dto = json.Deserialize<BoundaryDto>()!;
         e.Set(new LevelEditor.Component.BoundaryComponent(dto.Points.Select(ToVec).ToArray(), dto.Thickness));
+    }
+
+    // ---- SceneLayerComponent (the designer's layer: order/visibility/lock; name = EntityInfo) ----
+
+    private sealed class SceneLayerDto
+    {
+        [JsonPropertyName("order")] public int Order { get; set; }
+        [JsonPropertyName("visible")] public bool Visible { get; set; } = true;
+        [JsonPropertyName("locked")] public bool Locked { get; set; }
+        [JsonPropertyName("screenSpace")] public bool ScreenSpace { get; set; }
+    }
+
+    private static JsonElement WriteSceneLayer(Entity e)
+    {
+        var layer = e.Get<MonoDreams.Component.Level.SceneLayerComponent>();
+        return CanonicalJson.SerializeToElement(new SceneLayerDto
+        {
+            Order = layer.Order,
+            Visible = layer.Visible,
+            Locked = layer.Locked,
+            ScreenSpace = layer.ScreenSpace,
+        });
+    }
+
+    private static void ReadSceneLayer(Entity e, JsonElement json)
+    {
+        var dto = json.Deserialize<SceneLayerDto>()!;
+        e.Set(new MonoDreams.Component.Level.SceneLayerComponent
+        {
+            Order = dto.Order,
+            Visible = dto.Visible,
+            Locked = dto.Locked,
+            ScreenSpace = dto.ScreenSpace,
+        });
     }
 
     // ---- ChildOfComponent: structural-link stub (body is empty; the link is SceneEntityData.Parent) ----

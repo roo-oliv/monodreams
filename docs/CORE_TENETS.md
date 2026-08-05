@@ -178,8 +178,11 @@ DrawComponent + Visible` for Main, minus `Visible` for UI/HUD.
 **This split is a known wart** (§10): `Visible` may become a property of
 `DrawComponent` to remove the easy-to-miss tag.
 
-**Layer depth ownership.** Three systems write `LayerDepth`, in this
-order: `SpritePrepSystem` initializes it from the sprite's layer,
+**Layer depth ownership.** Three systems write `LayerDepth` — four when a
+screen composes scene layers — in this order: `SpritePrepSystem`
+initializes it from the sprite's layer, the optional `SceneLayerSystem`
+remaps each scene-layer member's depth from (layer order, within-layer
+key) while entities on no layer pass through untouched (see §6),
 `YSortSystem` may override it for entities on Y-sorted layers, and
 `MasterRenderSystem` sorts on the final value. `YSortSystem` uses a
 minimal epsilon to bias parent-child groups so children stay attached
