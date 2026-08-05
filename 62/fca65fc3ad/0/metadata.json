@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "62fca65fc3ad",
+  "session_id": "5ef0120c-6af6-47c5-a591-5c606c8958ff",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T13:49:32.292904Z",
+  "branch": "issue-51",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Tests/Foundation/GatedSystemTimingSinkTests.cs",
+    "MonoDreams/debug/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "059e3c13-d7c0-4056-a2a7-88575d96bd4e",
+  "token_usage": {
+    "input_tokens": 95,
+    "cache_creation_tokens": 181467,
+    "cache_read_tokens": 6726153,
+    "output_tokens": 47399,
+    "api_call_count": 51
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T13:49:32.100426Z",
+    "agent_lines": 228,
+    "human_added": 596,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 833,
+    "agent_percentage": 27.370948379351738
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-51/5ef0120c-6af6-47c5-a591-5c606c8958ff.jsonl"
+}

@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "62fca65fc3ad",
+  "strategy": "manual-commit",
+  "branch": "issue-51",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Tests/Foundation/GatedSystemTimingSinkTests.cs",
+    "MonoDreams/debug/docs/premises.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/62/fca65fc3ad/0/metadata.json",
+      "transcript": "/62/fca65fc3ad/0/full.jsonl",
+      "context": "/62/fca65fc3ad/0/context.md",
+      "content_hash": "/62/fca65fc3ad/0/content_hash.txt",
+      "prompt": "/62/fca65fc3ad/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 95,
+    "cache_creation_tokens": 181467,
+    "cache_read_tokens": 6726153,
+    "output_tokens": 47399,
+    "api_call_count": 51
+  }
+}

@@ -1,0 +1,94 @@
+Implement the issue #51. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>aaeb43d413363d6f4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement profiler source + docs" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. All five tasks implemented; both builds green.
+
+## Files changed
+
+**Source**
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams/foundation/System/GatedSystem.cs` — added `#nullable enable` + `using System;`, the static `public static Action&lt;string, long&gt;? TimingSink;` socket and `public string? ProfileName { get; set; }`, both XML-documented with the dependency-direction contract; `Update` now reads the sink once into a local and, only when a sink is installed *and* `ProfileName != null`, brackets `_child.Update(state)` with `global::System.Diagnostics.Stopwatch.GetTimestamp()`. Off path is one null check.
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams/debug/SystemProfiler.cs` — **new**. `MonoDreams.Debug.SystemProfiler`, ported verbatim from the reference except `Enabled` is now a property whose setter installs/clears `GatedSystem.TimingSink` via a cached `RecordSink` delegate. `Record` / `CountFrame` / `Report` / `ReportPeriodically` and the `[perf]` report string are byte-identical to the reference.
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams/level-editor/Composition/EditorPipelineRegistrar.cs` — leaf ctor sets `ProfileName = name` (the full hierarchical name); `SealGroup` sets `ProfileName = Name` with the group-nesting comment.
+- `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams.Demos/Game1.cs` — `using MonoDreams.Debug;`, `_perfTimer` field, `SystemProfiler.Enabled` set from `MONODREAMS_PROFILE=1` right after `Logger.Initialize`, and `CountFrame()` + `ReportPeriodically(_screenController.State, ref _perfTimer)` after `_screenController.Update(gameTime)`.
+
+**Docs / manifest**
+- `MonoDreams/debug/module.json` — `"foundation"` added to `dependencies` (first, matching cursor/ui/level-loading convention); `description` and `postInstallNotes` extended with the profiler wiring recipe. JSON re-validated.
+- `MonoDreams/debug/docs/premises.md` — header blurb now names `SystemProfiler`; new premise **"The profiler hooks the one seam every pipeline entry passes through"** (seam coverage + group nesting, socket/plug direction, how to read the table, the format-is-a-parsing-contract rule) with the specified Tests/Depends-on fields.
+- `MonoDreams/foundation/docs/premises.md` — new premise **"`GatedSystem`'s timing sink keeps the profiler out of foundation"** placed immediately after the `EditTimeBehavior`/`GatedSystem` premise, with the specified Tests/Depends-on fields.
+- `MonoDreams/debug/docs/overview.md` — intro line, a `### Profiling` subsection under "What ships", a step 3 in Pipeline wiring, a `foundation` entry under cross-module dependencies, and the premises "See also" line.
+- `.claude/CLAUDE.md` — `debug` row of the module-to-premises table now lists `SystemProfiler`.
+
+## Build results
+- `dotnet build MonoDreams/MonoDreams.csproj` → **0 errors**, 143 warnings (all pre-existing CS1573/CS1574 XML-doc warnings; a targeted grep confirms none reference `GatedSystem`, `SystemProfiler`, or `EditorPipelineRegistrar`).
+- `dotnet build MonoDreams.Demos/MonoDreams.Demos.csproj` → **0 errors**, 28 warnings (all pre-existing, e.g. `UiDemoScreen` unused fields).
+
+No test project was built or run; nothing committed.
+
+## One deliberate deviation (needs your eye)
+Your brief contained a conflict: the verbatim `Update` snippet's comment said "*(see the debug module's SystemProfiler)*" and the `TimingSink` doc instruction said "the debug module's `SystemProfiler` installs the plug", while the CRITICAL rule said **no** reference to `MonoDreams.Debug` or `SystemProfiler` may appear anywhere under `MonoDreams/foundation/` because a test source-scans for it. I let the CRITICAL rule win for `.cs` files: the comment now reads "*(see the optional debug module's profiler)*" and the XML doc says "the optional debug module's profiler assigns its own recorder here" — same contract, neither token present. Verified: `grep -rn "MonoDreams.Debug\|SystemProfiler" MonoDreams/foundation --include='*.cs'` returns nothing. The `.md` premise under `foundation/docs/` *does* contain both tokens, exactly as you specified — which is only consistent if the scan is `.cs`-only, so please make sure the sibling agent's scan globs source files rather than everything under the directory.</result>
+<usage><subagent_tokens>132262</subagent_tokens><tool_uses>44</tool_uses><duration_ms>397034</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad1b839f66c34092e</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Write profiler tests" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Files written (all inside `MonoDreams.Tests/`, nothing built, nothing committed).
+
+## Files
+
+**Created** `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams.Tests/Foundation/GatedSystemTimingSinkTests.cs` — `[Collection("SystemProfilerStatics")]`, `IDisposable`, resets `GatedSystem.TimingSink = null` in ctor + Dispose. Reuses `RunStateGatingTest`'s `CountingSystem` / `NewState` conventions.
+- `REDACTED`
+- `Update_WithSinkAndProfileName_RecordsElapsedTicks`
+- `Update_WithSinkButNullProfileName_DoesNotRecord`
+- `Update_SkippedByPolicyOrDisabled_DoesNotRecord`
+- `Update_SinkRemoved_StopsRecording`
+- `Foundation_SourcesNeverReferenceDebugModule`
+
+**Created** `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams.Tests/Profiling/SystemProfilerTests.cs` — same collection, resets `Enabled`/`TimingSink`/`ReportInterval` + drains the window in ctor + Dispose.
+- `Enabled_InstallsAndUninstallsTimingSink`
+- `Report_NamesRowsPerRegistrarRegistration`
+- `Report_FormatMatchesGrepContract`
+- `Report_ReturnsNull_WithNoFramesOrNoRecordings`
+- `Disabled_MidRun_StopsRecording`
+- `Report_ResetsWindow`
+- `ReportPeriodically_HonoursInterval`
+
+**Modified** `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-51/MonoDreams.Tests/LevelEditor/EditorPipelineRegistrarTests.cs` — appended `Gates_CarryHierarchicalProfileNames` (outside the collection, matching the file's existing style).
+
+## Deviations worth relaying
+
+1. **`MonoDreams.Tests/Debug/` is git-ignored.** `.gitignore:16` has `/MonoDreams.Tests/[Dd]ebug/` (a build-output rule). A test file there compiles locally but **never gets committed** — it would have silently vanished from the PR. I put the file in `MonoDreams.Tests/Profiling/` (namespace `MonoDreams.Tests.Profiling`, folder↔namespace parity preserved) and left a comment explaining why. The alternative — a `!` un-ignore line in `.gitignore` — was outside my "only touch MonoDreams.Tests/" scope; flag it if you'd rather have the `Debug/` name.
+2. **The sibling's code is already on disk** (`MonoDreams/debug/SystemProfiler.cs`, the `GatedSystem` + registrar diffs). I read all three and wrote against the real API rather than the sketch. Everything matched the contract. Relevant behavioural detail I designed around: `Report()` early-returns `null` **without** resetting when the window is empty — so my `DrainWindow()` helper forces both preconditions (`Record(marker,1)` + `CountFrame()`) to guarantee a real reset. This makes `Report_ReturnsNull_WithNoFramesOrNoRecordings` deterministic regardless of leftover frame counts. I did **not** build or run anything, per instructions.
+3. **Culture tolerance in the format regexes.** Numeric separators are matched as `[.,]` — the impl formats with the current culture, and the dev machine may be pt-BR. Layout (field order, `ms`/`%` suffixes, `frames, …ms/frame in profiled systems:`) is asserted strictly.
+4. **`Foundation_SourcesNeverReferenceDebugModule` strips line comments** (`//` and `///`) before scanning, following the `EditorThemeLintTests` palette-lint precedent. Rationale: the invariant is a *code* dependency, and `GatedSystem.cs`'s doc comment already describes the socket/plug relationship in prose — a literal whole-file grep would fail today on documentation. Code, strings and `using`s are still caught.
+5. **Repo-root discovery**: no shared helper exists (`GameTestRunner.FindRepoRoot` is `private`), so I mirrored the `EditorThemeLintTests.RepoRoot()` walk-up idiom, keying on `monodreams.sln` + a `MonoDreams/` directory as instructed.
+6. **`BusySystem` instead of a bare counter** in the profiler tests: it burns ~0.2 ms so recorded ticks are never 0. A zero total would make the share column degenerate (`0/0`) and the format assertions meaningless.
+7. **File 1 does not reference `SystemProfiler`.** Clearing `GatedSystem.TimingSink` is sufficient isolation, and a foundation test that imported the debug module would sit badly next to the dependency-direction assertion in the same file. `SystemProfilerTests` fully resets `Enabled` on both ends, so no leak crosses over.
+8. **No `CollectionDefinition` class** — the repo's idiom is a bare `[Collection("…")]` string (see the widely-used `"PlatformServices (non-parallel: mutates static state)"`), and `xunit.runner.json` already sets `parallelizeTestCollections: false`.
+9. `ReportPeriodically_HonoursInterval` **was included and does not initialize the Logger**: `Logger.Write` on an uninitialized logger is a safe no-op to the file sink (it still routes a line to `PlatformServices.Current.WriteLineToConsole`), so no temp dir or one-shot `Logger.Initialize` was needed. `ReportInterval` is restored to `2f` in the reset helper.</result>
+<usage><subagent_tokens>157662</subagent_tokens><tool_uses>36</tool_uses><duration_ms>593964</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bldk7tfh9</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run MonoDreams.Tests explicitly in Release" completed (exit code 0)</summary>
+</task-notification>
