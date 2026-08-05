@@ -406,9 +406,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
         // reader) and the LDtk path is skipped. No native file ⇒ the legacy LDtk fallback runs unchanged
         // (migration coexistence — removed in PS5).
         ISystem<GameState> nativeSceneReader;
+        TileGridBakeSystem tileBake;
         if (_editor != null)
         {
             nativeSceneReader = _editor.SceneReader;
+            tileBake = _editor.TileBake;
         }
         else
         {
@@ -432,7 +434,19 @@ public class LoadLevelExampleGameScreen : IGameScreen
             nativeSceneReader = new SceneReaderSystem(_world, nativeSerializer, _content,
                 fileTextureLoader: nativeAssetTextures.Load, prefabExpander: nativePrefabExpander,
                 ensureSingleCamera: true); // CM: the shipped game's booted scene always has one camera entity
+            // The shipped reader needs the tile-grid bake too: a bundled scene may carry a painted
+            // TileGridComponent, whose tiles + merged colliders are DERIVED (never serialized), so a
+            // game with no editor must bake them itself. Same texture resolver as the reader above; no
+            // game seam here (the Examples paints carry no game components on their colliders).
+            tileBake = new TileGridBakeSystem(_world, nativeAssetTextures.Load, null);
         }
+        // Terrain STREAMS around the camera (TileGridBakeSystem's chunked sprite bake): only chunks
+        // overlapping the view (+ a margin) are baked, so live tile entities are proportional to the
+        // VIEW, not to the painted world. Wired identically in both compositions — the editor's free
+        // view streams exactly like the game's follow camera. BatchChunks is left OFF (the default):
+        // this screen's layers may be reordered in the editor, and a batched chunk skips the
+        // scene-layer depth remap.
+        tileBake.FocusBounds = () => _camera.VirtualScreenBounds;
         // Source-first when the editor's project is resolved (UX-D pre-mortem #5): a Restart-after-Save
         // re-publishes LoadLevelRequest through this probe, and the source tree — not the stale bundle —
         // must win. A shipped build (null context) keeps the bundled TitleContainer path byte-identical.
@@ -467,6 +481,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 // The native reader for a shipped game (no editor). When the editor is composed, its own
                 // editor.sceneReader (below) is the single reader — do not double-subscribe here.
                 if (_editor == null) g.Add("nativeSceneReader", nativeSceneReader);
+                // …and its tile-grid bake (the editor branch registers the overlay's instance below).
+                if (_editor == null) g.Add("tileBake", tileBake);
             }
         });
         if (_editor != null)
@@ -487,6 +503,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // a scene load, a vertex edit) and generates the segment colliders. RunNormally: a
             // shipped game loading a native scene with a boundary must bake it too (§S2).
             p.Add("editor.boundaryBake", _editor.BoundaryBake, EditTimeBehavior.RunNormally);
+            // Tile-grid bake — same story for the paint grid: a scene load / paint stroke re-derives the
+            // tile sprites (streamed per chunk) and the greedy-merged colliders. RunNormally for the
+            // same reason as the boundary bake — a shipped game loading a painted scene must bake it too.
+            p.Add("editor.tileBake", tileBake, EditTimeBehavior.RunNormally);
         }
         // Game logic + physics + dialogue — FROZEN in Edit (runs only in Play; the group's single
         // Freeze gate skips all children, exactly like the old opaque composite). The collision

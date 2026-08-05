@@ -9,7 +9,10 @@ using MonoDreams.State;
 
 namespace MonoDreams.System.Draw;
 
+// CullingExempt sprites manage their own visibility (streamed tile chunks — see the component): they
+// are excluded from the set entirely rather than tested and skipped, so they cost nothing here.
 [With(typeof(SpriteInfoComponent), typeof(TransformComponent))]
+[Without(typeof(CullingExemptComponent))]
 public class CullingSystem(World world, MonoDreams.Component.Camera camera) : AEntitySetSystem<GameState>(world)
 {
     public bool IsEnabled { get; set; } = true;

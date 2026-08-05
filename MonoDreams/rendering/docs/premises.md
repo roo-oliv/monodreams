@@ -191,16 +191,33 @@ camera's `VirtualScreenBounds`. UI and HUD entities may set
 `VisibleComponent` themselves as a one-shot tag, since those targets
 ignore culling (see "Three render targets, two behaviors").
 
+**The one carve-out — `CullingExemptComponent`.** `CullingSystem` is
+`[Without(typeof(CullingExemptComponent))]`, so an entity carrying that
+tag is skipped by the culler entirely and its PRODUCER owns its
+visibility: the producer sets `VisibleComponent` itself and takes
+responsibility for the entity existing only while it should draw. The
+narrow case it exists for is a streamed tile chunk — `TileGridBakeSystem`
+bakes only the chunks the view covers and disposes them when they leave,
+so every live tile is inside the view by construction and bounds-testing
+thousands of them per frame re-derives a fact the streamer already
+guarantees. Do NOT tag anything whose position moves independently of its
+producer's bookkeeping; culling is the right default and this is the
+exception.
+
 **Why:** `VisibleComponent` is a derived state on the Main target. Manual
 mutation creates ghost entities (visible but outside the frustum, wasting
 draw calls) or phantom-invisible entities (inside the frustum but
 skipped). `CullingSystem` will overwrite the game-set value next frame
-anyway.
+anyway — *unless* the entity is `CullingExemptComponent`, which is the
+only way to opt a Main-target entity out of that arbitration.
 **Breaks:** entities flicker in and out as `CullingSystem` overwrites
 game-set values frame to frame; or the cull check fights game code
-forever.
+forever. Conversely, an exempt entity whose producer forgets to set
+`VisibleComponent` never draws at all (nothing else will set it), and one
+whose producer forgets to dispose it keeps drawing forever.
 **Tests:** none yet.
-**Depends on:** —
+**Depends on:** level-editor — "Tile sprites stream per chunk; colliders
+bake whole" (the producer the exemption exists for).
 
 ## Three render targets, two behaviors
 

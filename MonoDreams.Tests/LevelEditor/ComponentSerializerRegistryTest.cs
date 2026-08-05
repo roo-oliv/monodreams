@@ -35,6 +35,12 @@ namespace MonoDreams.Tests.LevelEditor;
 /// four AUTHORED layer fields (and only those; the final depth is per-frame-derived). The draw-remap
 /// half lives in <c>MonoDreams.Tests/Rendering/SceneLayerSystemTests.cs</c>.
 ///
+/// And the level-loading premise "The paint grid is authored cells + values; everything
+/// visible/collidable is a bake product" — the persistence half: <c>core.TileGrid</c> round-trips
+/// the paint VALUES and the sparse CELLS canonically (cells sorted by (y, x), activeLayers sorted)
+/// and nothing else; the derived tiles/colliders are bake products, tested in
+/// <c>TileGridBakeSystemTests</c> and <c>TileGridBakingTests</c>.
+///
 /// The warning assertion mutates the process-global <see cref="Logger"/> and
 /// <see cref="PlatformServices.Current"/>, so that test is isolated in the non-parallel collection.
 /// </summary>
@@ -204,6 +210,133 @@ public class ComponentSerializerRegistryTest
         Assert.False(registry.IsStructural(typeof(SceneLayerComponent))); // ordinary designer data
         Assert.Contains(registry.RegisteredComponents(),
             kv => kv.Key == EngineComponentSerializers.SceneLayerKey && kv.Type == typeof(SceneLayerComponent));
+    }
+
+    // ---- core.TileGrid round-trips the AUTHORED grid (values + sparse cells), canonically ----
+
+    private static int[] Triple(JsonElement cell) =>
+        new[] { cell[0].GetInt32(), cell[1].GetInt32(), cell[2].GetInt32() };
+
+    [Fact]
+    public void TileGrid_RoundTrips_ValuesAndCells_Canonically()
+    {
+        using var world = new World();
+        var registry = NewEngineRegistry();
+        var serializer = new SceneSerializer(registry);
+
+        var grid = new TileGridComponent { CellSize = 24f };
+        // Value 1 — every optional field set, and ActiveLayers deliberately UNSORTED on the way in.
+        grid.Values.Add(new TilePaintValue
+        {
+            Id = 1,
+            Name = "Wall",
+            Color = new Color(10, 20, 30, 40),
+            ActiveLayers = new[] { 7, 2, 5 },
+            Passive = false,
+            EntityType = "Blocker",
+            TilesetKey = "Atlas/Tiles",
+            TileSize = 16,
+            AutotileRules = "15:1,1|6,0 6:0,0",
+            LayerDepth = 0.75f,
+        });
+        // Value 2 — the visual-less, collision-less shape: no layers, no tileset, no entity type.
+        grid.Values.Add(new TilePaintValue
+        {
+            Id = 2,
+            Name = "Decor",
+            ActiveLayers = Array.Empty<int>(),
+            Passive = true,
+            TileSize = 8,
+            LayerDepth = 0.1f,
+        });
+        // Cells inserted OUT of canonical order, and including negative coordinates (the grid
+        // entity's transform is the anchor, so painting up/left of it is ordinary).
+        grid.Cells[TileGridComponent.Pack(3, 1)] = 1;
+        grid.Cells[TileGridComponent.Pack(-2, -1)] = 2;
+        grid.Cells[TileGridComponent.Pack(0, 1)] = 1;
+        grid.Cells[TileGridComponent.Pack(-2, 4)] = 1;
+
+        var e = world.CreateEntity();
+        e.Set(new EntityInfoComponent("Terrain", "Paint"));
+        e.Set(grid);
+
+        var scene = serializer.Serialize(new List<Entity> { e });
+        var json = scene.Entities[0].Components[EngineComponentSerializers.TileGridKey];
+
+        // The payload is the AUTHORED data and nothing else — no derived tiles, no collider rects.
+        var properties = json.EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(3, properties.Length);
+        Assert.Contains("cellSize", properties);
+        Assert.Contains("values", properties);
+        Assert.Contains("cells", properties);
+
+        // Canonical bytes: cells are [x, y, value] triples sorted by (y, x)...
+        var cells = json.GetProperty("cells");
+        Assert.Equal(4, cells.GetArrayLength());
+        Assert.Equal(new[] { -2, -1, 2 }, Triple(cells[0]));
+        Assert.Equal(new[] { 0, 1, 1 }, Triple(cells[1]));
+        Assert.Equal(new[] { 3, 1, 1 }, Triple(cells[2]));
+        Assert.Equal(new[] { -2, 4, 1 }, Triple(cells[3]));
+        // ...and activeLayers are sorted (an unsorted write makes two identical grids diff).
+        var layers = json.GetProperty("values")[0].GetProperty("activeLayers");
+        Assert.Equal(new[] { 2, 5, 7 },
+            new[] { layers[0].GetInt32(), layers[1].GetInt32(), layers[2].GetInt32() });
+
+        // Deserialize onto a FRESH world: every authored field reproduces.
+        using var freshWorld = new World();
+        var loaded = serializer.Deserialize(freshWorld, scene);
+        var loadedEntity = Assert.Single(loaded);
+        var reloaded = loadedEntity.Get<TileGridComponent>();
+
+        Assert.Equal(24f, reloaded.CellSize);
+        Assert.Equal(2, reloaded.Values.Count);
+
+        var wall = reloaded.Values[0];
+        Assert.Equal((byte)1, wall.Id);
+        Assert.Equal("Wall", wall.Name);
+        Assert.Equal(new Color(10, 20, 30, 40), wall.Color);
+        Assert.Equal(new[] { 2, 5, 7 }, wall.ActiveLayers); // sorted on write, preserved on read
+        Assert.False(wall.Passive);
+        Assert.Equal("Blocker", wall.EntityType);
+        Assert.Equal("Atlas/Tiles", wall.TilesetKey);
+        Assert.Equal(16, wall.TileSize);
+        Assert.Equal("15:1,1|6,0 6:0,0", wall.AutotileRules);
+        Assert.Equal(0.75f, wall.LayerDepth);
+
+        var decor = reloaded.Values[1];
+        Assert.Equal((byte)2, decor.Id);
+        Assert.Equal("Decor", decor.Name);
+        Assert.Empty(decor.ActiveLayers); // empty layers = a paint that bakes no colliders
+        Assert.True(decor.Passive);
+        Assert.Null(decor.EntityType);
+        Assert.Null(decor.TilesetKey); // null tileset = a paint that bakes no visuals
+        Assert.Equal(8, decor.TileSize);
+        Assert.Equal(0.1f, decor.LayerDepth);
+
+        Assert.Equal(4, reloaded.Cells.Count);
+        Assert.Equal((byte)1, reloaded.Cells[TileGridComponent.Pack(3, 1)]);
+        Assert.Equal((byte)2, reloaded.Cells[TileGridComponent.Pack(-2, -1)]);
+        Assert.Equal((byte)1, reloaded.Cells[TileGridComponent.Pack(0, 1)]);
+        Assert.Equal((byte)1, reloaded.Cells[TileGridComponent.Pack(-2, 4)]);
+
+        // Byte-stable: write → read → write produces identical JSON (a level's git diff stays
+        // meaningful, and `load → save` is a fixed point).
+        var rewritten = registry.SerializeEntity(loadedEntity).Components[EngineComponentSerializers.TileGridKey];
+        Assert.Equal(json.GetRawText(), rewritten.GetRawText());
+    }
+
+    [Fact]
+    public void TileGrid_IsInTheRegistryInventory()
+    {
+        var registry = NewEngineRegistry();
+
+        // The inventory drives the Inspector's "+ Add component" candidates — a paint grid that
+        // serializes but is invisible to the editor could never be authored.
+        Assert.Equal(typeof(TileGridComponent), registry.TypeForKey(EngineComponentSerializers.TileGridKey));
+        Assert.True(registry.IsRegistered(typeof(TileGridComponent)));
+        Assert.False(registry.IsStructural(typeof(TileGridComponent))); // ordinary designer data
+        Assert.Contains(registry.RegisteredComponents(),
+            kv => kv.Key == EngineComponentSerializers.TileGridKey && kv.Type == typeof(TileGridComponent));
     }
 
     // ---- SpriteInfo serialization never references a live Texture2D (asset-key only) ----
