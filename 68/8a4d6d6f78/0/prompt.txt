@@ -269,3 +269,17 @@ Integration `RawCapture_WritesOneBlobPerFrame_AndStopsAtTheFrameCap`: camera dem
 <status>completed</status>
 <summary>Background command "Run full-solution Release test gate" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+branch `main` was updated, rebase and resolve conflicts
+
+---
+
+<task-notification>
+<task-id>b9wphe2a6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run full-solution Release test gate after rebase" completed (exit code 0)</summary>
+</task-notification>

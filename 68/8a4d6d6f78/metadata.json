@@ -3,15 +3,11 @@
   "checkpoint_id": "688a4d6d6f78",
   "strategy": "manual-commit",
   "branch": "issue-52",
-  "checkpoints_count": 3,
+  "checkpoints_count": 2,
   "files_touched": [
-    ".claude/CLAUDE.md",
-    ".gitignore",
-    "MonoDreams.Tests/Debug/ColliderDebugSystemTests.cs",
-    "MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs",
-    "MonoDreams/debug/docs/premises.md",
-    "MonoDreams/debug/module.json",
-    "docs/CORE_TENETS.md"
+    "MonoDreams.Tests/IntegrationTests/RawFrameCaptureTests.cs",
+    "MonoDreams/debug/docs/overview.md",
+    "MonoDreams/debug/module.json"
   ],
   "sessions": [
     {
@@ -23,10 +19,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 101,
-    "cache_creation_tokens": 479544,
-    "cache_read_tokens": 7175957,
-    "output_tokens": 44108,
-    "api_call_count": 54
+    "input_tokens": 43,
+    "cache_creation_tokens": 407644,
+    "cache_read_tokens": 4142541,
+    "output_tokens": 15418,
+    "api_call_count": 23
   }
 }
