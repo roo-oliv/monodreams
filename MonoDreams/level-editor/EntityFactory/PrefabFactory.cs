@@ -26,7 +26,7 @@ namespace MonoDreams.LevelEditor.EntityFactory;
 /// the editor (a harmless transient tag in a shipped game).</para>
 ///
 /// <para><b>Unknown id → warn-and-drop.</b> An identifier without the prefix, an empty id, or a prefab
-/// that does not resolve logs a <see cref="Logger.Warning"/> and drops the spawn — the factory's
+/// that does not resolve logs a <see cref="Logger.Warning(string)"/> and drops the spawn — the factory's
 /// loud-warning convention (mirrors level-loading's "Unregistered factory identifiers log a warning and
 /// silently drop the spawn"). The scene reader, by contrast, fails LOUD on a missing prefab (a file it
 /// cannot honor aborts the load); the factory's channel is fire-and-forget, so it warns instead.</para>

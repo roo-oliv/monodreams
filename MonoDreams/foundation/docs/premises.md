@@ -179,6 +179,50 @@ other's log file (same default `debug/` path).
 parallel execution will surface this indirectly).
 **Depends on:** —
 
+## A suppressed `Logger` line costs nothing, and an emitted one is byte-identical
+
+`Logger` exposes **two overloads per level**: the plain `Debug/Info/Warning/Error(string)`
+and an interpolated-string-handler `Debug/Info/Warning/Error(ref Logger.Message<TLevel>)`,
+where `TLevel` is one of the `Logger.AtDebug` / `AtInfo` / `AtWarning` / `AtError`
+tag structs implementing `Logger.ILogLevelTag`. An interpolated string
+literal at a call site — `Logger.Debug($"entity {id} at {x,6:F2}")` — binds
+to the **handler** overload, whose constructor compares `TLevel.Value`
+against `Logger.MinimumLevel` *before* a single interpolation hole is
+evaluated; when the level is suppressed it reports `shouldAppend: false`
+and the compiler skips the holes entirely (no `ToString`, no boxing, no
+`StringBuilder`, no line). Anything that is already a `string` — a
+variable, a concatenation such as `"literal " + $"interp {x}"`, a method
+result — has no interpolation left to defer and binds to the plain
+`string` overload, eagerly, exactly as it always did. `MinimumLevel` is a
+public auto-property read **without** taking the logger's lock: it is
+assigned once, inside `Initialize`, before any system exists to log.
+The emitted line format — `[wallclock] [GT gametime] [LEVEL] message` —
+is identical on both paths and is a **parsing contract**, not a
+preference.
+
+**Why:** before the handler existed, every interpolated call site (300+
+across the engine and its reference games) formatted its message in full
+and handed the finished string to a method whose first act was to discard
+it — and the per-entity ones in level loading, culling and collision paid
+that every frame, per entity. The two-overload pair is what buys the
+deferral without touching a single call site. The format is fixed because
+the input-replay / verification workflow, `GameTestRunner`'s log
+assertions and the tooling greps all parse these lines.
+**Breaks:** collapsing to a single `string` overload (or adding a
+`string`-only convenience that shadows the handler) silently restores the
+eager cost at every interpolated call site. Reading `MinimumLevel` under
+the lock reintroduces a monitor per discarded line — more expensive than
+the message it refuses to build. Moving the threshold check later in
+`Write`, or reflowing the line format, breaks the contract for every log
+consumer. Adding a hole with a side effect is now level-dependent
+behaviour: at a suppressed level it never runs.
+**Tests:** `MonoDreams.Tests/Foundation/LoggerInterpolationTests.cs` — a
+`ToString()` that throws proves suppressed holes are never evaluated; the
+same message logged through both call forms is asserted byte-identical
+after the wall clock, and every emitted line is matched against the
+format-contract regex.
+**Depends on:** —
+
 ## Engine source is backend/OS-agnostic — non-portable calls go through `IPlatformServices`
 
 MonoDreams engine modules never touch `System.IO.File` / `Directory`,

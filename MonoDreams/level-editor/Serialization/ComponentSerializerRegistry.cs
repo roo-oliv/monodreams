@@ -22,7 +22,7 @@ namespace MonoDreams.LevelEditor.Serialization;
 /// serializers for its own components (e.g. <c>PlayerState</c>) through <c>Register</c>.</para>
 ///
 /// <para><b>Loud on the unexpected.</b> Serializing an entity that carries a component type with
-/// no registered serializer skips that component and logs a <see cref="Logger.Warning"/> — the
+/// no registered serializer skips that component and logs a <see cref="Logger.Warning(string)"/> — the
 /// component is silently dropped from the file otherwise, which is the missing-entity class of bug.
 /// (Registered structural tags like <c>ChildOfComponent</c> are an exception: the parent link is
 /// captured as <see cref="SceneEntityData.Parent"/> by the caller, so its serializer is registered
@@ -115,7 +115,7 @@ public sealed class ComponentSerializerRegistry
     /// <summary>
     /// Serializes every registered component on <paramref name="entity"/> into a
     /// <see cref="SceneEntityData"/>. Components with no registered serializer are skipped with a
-    /// <see cref="Logger.Warning"/>. The structural parent link is NOT captured here (the caller
+    /// <see cref="Logger.Warning(string)"/>. The structural parent link is NOT captured here (the caller
     /// owns the entity→index mapping); the caller sets <see cref="SceneEntityData.Parent"/> after
     /// all entities are serialized.
     /// </summary>
