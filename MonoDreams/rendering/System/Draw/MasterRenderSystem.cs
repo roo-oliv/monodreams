@@ -237,9 +237,31 @@ public class MasterRenderSystem(
         _basicEffect!.Projection = Projection();
         _basicEffect.World = (dc.WorldMatrix ?? Matrix.Identity) * transformMatrix;
 
+        // A TEXTURED mesh samples a sheet (batched tile chunks); a plain one is vertex-coloured
+        // (procedural outlines, debug overlays). Both go through the same BasicEffect — only the
+        // texture stage and the vertex type differ.
+        var textured = dc.IsTexturedMesh;
+
+        // TexturedVertices with no Texture is the one combination that passes HasValidMesh and is
+        // still undrawable: it is not `textured`, and the vertex-coloured branch below has no
+        // Vertices to read. Skip it loudly instead of throwing an NRE inside the render loop.
+        if (!textured && dc.Vertices is not { Length: > 0 })
+        {
+            dc.WarnTexturedMeshWithoutTexture();
+            return;
+        }
+
+        _basicEffect.TextureEnabled = textured;
+        if (textured)
+        {
+            _basicEffect.Texture = dc.Texture;
+            graphicsDevice.SamplerStates[0] = SpriteSamplerState; // pixel art: no bleeding between cells
+        }
+
         // Prefer 16-bit indices so meshes paint on the Reach profile (WebGL/BlazorGL), which
         // rejects 32-bit indices. Procedural meshes are tiny, so this is the path taken; only a
-        // mesh exceeding the 16-bit vertex ceiling falls back to 32-bit indices (HiDef only).
+        // mesh exceeding the 16-bit vertex ceiling falls back to 32-bit indices (HiDef only) —
+        // which Get16BitIndices() warns about, because on Reach that fallback renders nothing.
         // See DrawComponent.Get16BitIndices() and the "Mesh indices render 16-bit" premise.
         var indices16 = dc.Get16BitIndices();
         var primitiveCount = dc.GetPrimitiveCount();
@@ -247,7 +269,16 @@ public class MasterRenderSystem(
         foreach (var pass in _basicEffect.CurrentTechnique.Passes)
         {
             pass.Apply();
-            if (indices16 != null)
+            if (textured)
+            {
+                if (indices16 != null)
+                    graphicsDevice.DrawUserIndexedPrimitives(
+                        dc.PrimitiveType, dc.TexturedVertices, 0, dc.TexturedVertices!.Length, indices16, 0, primitiveCount);
+                else
+                    graphicsDevice.DrawUserIndexedPrimitives(
+                        dc.PrimitiveType, dc.TexturedVertices, 0, dc.TexturedVertices!.Length, dc.Indices, 0, primitiveCount);
+            }
+            else if (indices16 != null)
                 graphicsDevice.DrawUserIndexedPrimitives(
                     dc.PrimitiveType, dc.Vertices, 0, dc.Vertices!.Length, indices16, 0, primitiveCount);
             else
