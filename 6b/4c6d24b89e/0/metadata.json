@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "6b4c6d24b89e",
+  "session_id": "2a6e7c4f-a9eb-4aa4-8f42-33ee52f68a03",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T02:49:01.64679Z",
+  "branch": "issue-36",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Tests/Collision/PenetrationResolutionTests.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 125212,
+    "cache_read_tokens": 2811963,
+    "output_tokens": 22127,
+    "api_call_count": 29
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T02:49:01.509209Z",
+    "agent_lines": 211,
+    "human_added": 117,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 328,
+    "agent_percentage": 64.32926829268293
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-36/2a6e7c4f-a9eb-4aa4-8f42-33ee52f68a03.jsonl"
+}

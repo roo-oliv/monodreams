@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "6b4c6d24b89e",
+  "strategy": "manual-commit",
+  "branch": "issue-36",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Tests/Collision/PenetrationResolutionTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6b/4c6d24b89e/0/metadata.json",
+      "transcript": "/6b/4c6d24b89e/0/full.jsonl",
+      "context": "/6b/4c6d24b89e/0/context.md",
+      "content_hash": "/6b/4c6d24b89e/0/content_hash.txt",
+      "prompt": "/6b/4c6d24b89e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 125212,
+    "cache_read_tokens": 2811963,
+    "output_tokens": 22127,
+    "api_call_count": 29
+  }
+}
