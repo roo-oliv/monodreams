@@ -1,6 +1,7 @@
 using System;
 using DefaultEcs;
 using DefaultEcs.System;
+using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.State;
 
@@ -31,12 +32,31 @@ public sealed class CameraSyncSystem : ISystem<GameState>
 {
     private readonly MonoDreams.Component.Camera _camera;
     private readonly EntitySet _cameraEntities;
+    private readonly bool _pixelSnap;
 
     public bool IsEnabled { get; set; } = true;
 
-    public CameraSyncSystem(World world, MonoDreams.Component.Camera camera)
+    /// <param name="world">The world whose camera entity drives the adapter.</param>
+    /// <param name="camera">The render adapter this system writes each frame in Play.</param>
+    /// <param name="pixelSnap">
+    /// Round the camera's position to whole world pixels on its way to the adapter. This is the third of
+    /// the THREE snaps a <b>hard-snap retro</b> look needs — an integer zoom, snapped sprite AND text
+    /// positions (<c>SpritePrepSystem</c>/<c>TextPrepSystem</c>'s <c>pixelPerfectRendering</c>), and a
+    /// snapped camera (this flag) — after which every art pixel is an exact NxN block of screen pixels at
+    /// all times; the cost is that following advances in whole world pixels. The equally first-class
+    /// alternative is <b>smooth-scroll pixel art</b>: leave this off, let the camera move freely at output
+    /// resolution, and displace the composed frame by the sub-virtual-pixel remainder at composite/blit
+    /// time (a screen-composition concern outside this system) — buttery movement, crisp pixels, cut border
+    /// pixels. What is broken is the MIX: the view transform is <c>(world - camera) * zoom + centre</c>, so
+    /// a fractional camera with the zoom applied INSIDE it samples art at fractional positions and the
+    /// whole world shimmers and crawls whenever the camera moves — snapping the sprites alone just moves
+    /// the fraction, because the subtraction reintroduces it. Pick a style and be consistent. Defaults to
+    /// <c>false</c>, so an existing game renders byte-identically.
+    /// </param>
+    public CameraSyncSystem(World world, MonoDreams.Component.Camera camera, bool pixelSnap = false)
     {
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
+        _pixelSnap = pixelSnap;
         _cameraEntities = world.GetEntities()
             .With<CameraComponent>()
             .With<TransformComponent>()
@@ -50,7 +70,12 @@ public sealed class CameraSyncSystem : ISystem<GameState>
         foreach (var entity in _cameraEntities.GetEntities())
         {
             var transform = entity.Get<TransformComponent>();
-            _camera.Position = transform.WorldPosition;
+            var position = transform.WorldPosition;
+            // The snap lives on the adapter COPY only — the entity's eased position stays fractional and
+            // smooth, so follow easing is unaffected and the authored/inspectable value is untouched.
+            _camera.Position = _pixelSnap
+                ? new Vector2(MathF.Round(position.X), MathF.Round(position.Y))
+                : position;
             _camera.Rotation = transform.WorldRotation;
             _camera.Zoom = entity.Get<CameraComponent>().Zoom;
             return; // exactly one camera per scene
