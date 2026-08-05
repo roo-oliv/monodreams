@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "81477b22d269",
+  "session_id": "bfcfdd11-081a-43b4-a97f-767291b8d38f",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T02:47:21.90622Z",
+  "branch": "issue-40",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Camera/CameraPixelSnapTests.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "478125d1-ff99-407e-a158-f9b266e9dfe4",
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 97284,
+    "cache_read_tokens": 2396889,
+    "output_tokens": 19827,
+    "api_call_count": 31
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T02:47:21.782094Z",
+    "agent_lines": 162,
+    "human_added": 79,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 241,
+    "agent_percentage": 67.21991701244814
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-40/bfcfdd11-081a-43b4-a97f-767291b8d38f.jsonl"
+}

@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "81477b22d269",
+  "strategy": "manual-commit",
+  "branch": "issue-40",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Camera/CameraPixelSnapTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/81/477b22d269/0/metadata.json",
+      "transcript": "/81/477b22d269/0/full.jsonl",
+      "context": "/81/477b22d269/0/context.md",
+      "content_hash": "/81/477b22d269/0/content_hash.txt",
+      "prompt": "/81/477b22d269/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 97284,
+    "cache_read_tokens": 2396889,
+    "output_tokens": 19827,
+    "api_call_count": 31
+  }
+}
