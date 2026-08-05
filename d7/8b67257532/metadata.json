@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d78b67257532",
+  "strategy": "manual-commit",
+  "branch": "issue-50",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams/level-editor/docs/premises.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d7/8b67257532/0/metadata.json",
+      "transcript": "/d7/8b67257532/0/full.jsonl",
+      "context": "/d7/8b67257532/0/context.md",
+      "content_hash": "/d7/8b67257532/0/content_hash.txt",
+      "prompt": "/d7/8b67257532/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 157,
+    "cache_creation_tokens": 254441,
+    "cache_read_tokens": 13225619,
+    "output_tokens": 57456,
+    "api_call_count": 84
+  }
+}
