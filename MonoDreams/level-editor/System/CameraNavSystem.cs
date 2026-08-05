@@ -153,6 +153,35 @@ public sealed class CameraNavSystem : ISystem<GameState>
                 FrameMargin, _minZoom, _maxZoom);
     }
 
+    /// <summary>
+    /// Centres the VIEW on the current selection (the Entities-panel focus button + the
+    /// <c>view:selected</c> op — Unity's F / Blender's numpad-period): position only, zoom kept (a
+    /// focus, not a fit — the designer's zoom level is deliberate). Reads the selection's sprite
+    /// world-quad centre when it renders, else its transform WORLD position (a child focuses where
+    /// it actually sits). No selection → no-op. Returns whether something was focused.
+    /// </summary>
+    public bool FrameSelected()
+    {
+        using var selected = _world.GetEntities()
+            .With<Component.SelectedComponent>().With<TransformComponent>().AsSet();
+        foreach (var e in selected.GetEntities())
+        {
+            if (e.Has<SpriteInfoComponent>())
+            {
+                var quad = GizmoTransform.SpriteWorldQuad(e.Get<TransformComponent>(), e.Get<SpriteInfoComponent>());
+                var center = Vector2.Zero;
+                foreach (var corner in quad) center += corner;
+                _camera.Position = center / quad.Length;
+            }
+            else
+            {
+                _camera.Position = e.Get<TransformComponent>().WorldPosition;
+            }
+            return true;
+        }
+        return false;
+    }
+
     private Rectangle? ComputeContentBounds()
     {
         var quads = new List<Vector2[]>();

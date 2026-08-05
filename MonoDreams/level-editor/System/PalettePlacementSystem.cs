@@ -241,7 +241,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     public PalettePlacementSystem(
         World world,
         AssetCatalog catalog,
-        IReadOnlyList<PaletteBand> bands,
+        IReadOnlyList<PaletteBand>? bands,
         FileAssetTextureLoader textures,
         SceneSerializer serializer,
         EditorHistory history,
@@ -266,8 +266,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         // Per-asset band marks (FW3). Null = in-memory (a screen with no drop-folder root, or a
         // test) — marks then live only for the session; resolution still works (marked→its band).
         _bandConfig = bandConfig ?? new AssetBandConfig();
-        _bands = bands ?? throw new ArgumentNullException(nameof(bands));
-        if (bands.Count == 0) throw new ArgumentException("The palette needs at least one layer band.", nameof(bands));
+        // Layers wave: placements target the ACTIVE scene layer (their depth is a within-layer
+        // key), so screen-supplied bands are OPTIONAL legacy — an empty (or null) list is fine.
+        _bands = bands ?? Array.Empty<PaletteBand>();
         _triggerTypes = triggerTypes ?? Array.Empty<TriggerType>();
         _textures = textures ?? throw new ArgumentNullException(nameof(textures));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -301,7 +302,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
     /// <summary>The globally-selected layer band (the band-selector header). Used for any asset
     /// with no permanent per-asset mark — see <see cref="ResolveBand"/>.</summary>
-    public PaletteBand SelectedBand => _bands[_bandIndex];
+    public PaletteBand SelectedBand =>
+        _bands.Count == 0 ? ActiveLayerBand : _bands[Math.Clamp(_bandIndex, 0, _bands.Count - 1)];
 
     /// <summary>
     /// The band a placement of <paramref name="entry"/> targets, per the FW3 resolution rule: the
@@ -311,6 +313,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// </summary>
     public PaletteBand ResolveBand(AssetCatalogEntry entry)
     {
+        // Layers wave: the placement's DRAW layer is the ACTIVE scene layer (the entity the stamp
+        // parents to); the band only carries the within-layer key + origin convention now. Legacy
+        // band marks / the global selector apply only on screens still supplying bands.
+        if (_bands.Count == 0) return ActiveLayerBand;
         if (_bandConfig.TryGetBand(entry.Id, out var name))
             for (var i = 0; i < _bands.Count; i++)
                 if (string.Equals(_bands[i].Name, name, StringComparison.OrdinalIgnoreCase))
@@ -368,6 +374,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// </summary>
     public void CycleAssetBand(int index)
     {
+        if (_bands.Count == 0) return; // layers wave: band marks retired when no bands are supplied
         if (index < 0 || index >= _catalog.Entries.Count) return;
         var entry = _catalog.Entries[index];
         var current = _bandConfig.TryGetBand(entry.Id, out var name) ? name : null;
@@ -1030,6 +1037,13 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         // PF-F: in a prefab tab, auto-parent the placed prop under the single prefab root (so assembly
         // never creates a second root — a multi-root prefab is un-savable). A no-op in a scene context.
         var parentTo = PrefabContextRoot.ResolveIfPrefab(_world, _shellState);
+        if (!parentTo.IsAlive)
+        {
+            // Layers wave: in a SCENE context the stamp parents to the ACTIVE scene layer instead
+            // (its member depth is a within-layer key the layer remap slices).
+            parentTo = EnsureActiveSpritesLayer();
+            if (!parentTo.IsAlive) return; // locked active layer — refused loud in the ensure
+        }
         var created = default(Entity);
         _history.Push(new CreateEntityCommand(_world, _serializer,
             w =>
@@ -1425,6 +1439,53 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// glance (entries are already sorted folder-first).</summary>
     public static string ItemLabel(AssetCatalogEntry entry) =>
         string.IsNullOrEmpty(entry.Folder) ? entry.Label : $"{entry.Folder}/{entry.Label}";
+
+    /// <summary>The synthetic band every placement uses under the layers model: depth 0.5 is the
+    /// WITHIN-LAYER key's midpoint (the layer's slice position comes from the scene-layer remap);
+    /// never Y-sorted (a screen that wants Y-sorting supplies its own bands).</summary>
+    private static readonly PaletteBand ActiveLayerBand = new("Layer", 0.5f, YSorted: false);
+
+    /// <summary>
+    /// The scene layer a new placement parents to (layers wave): the ACTIVE layer when it is a
+    /// usable target (alive, not locked — a locked layer refuses placement loud, the Aseprite rule);
+    /// when the scene has NO layers yet, creates "Layer 1" (SceneObject-tagged, so it round-trips
+    /// through Save) so the first placement just works. Dead Entity = refuse the stamp.
+    /// </summary>
+    private Entity EnsureActiveSpritesLayer()
+    {
+        var active = _shellState.ActiveLayer;
+        if (active.IsAlive && active.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+        {
+            if (active.Get<MonoDreams.Component.Level.SceneLayerComponent>().Locked)
+            {
+                Logger.Warning("[level-editor] Placement refused: the active layer is LOCKED.");
+                return default;
+            }
+            return active;
+        }
+
+        // The active layer is gone (or was never set): adopt an existing layer before creating one.
+        using (var layers = _world.GetEntities().With<MonoDreams.Component.Level.SceneLayerComponent>().AsSet())
+        {
+            foreach (var layer in layers.GetEntities())
+            {
+                _shellState.ActiveLayer = layer;
+                return layer;
+            }
+        }
+
+        // No layers yet: bootstrap the first one so placement never dead-ends. Created raw (not
+        // through a command): it is scaffolding for the stamp that follows, and the stamp's own
+        // CreateEntityCommand is the undo step the designer reasons about.
+        var created = _world.CreateEntity();
+        created.Set(new EntityInfoComponent("Layer", "Layer 1"));
+        created.Set(new TransformComponent(Vector2.Zero));
+        created.Set(new MonoDreams.Component.Level.SceneLayerComponent { Order = 0 });
+        created.Set(new SceneObjectComponent()); // a save-root: the layer IS scene content
+        _shellState.ActiveLayer = created;
+        Logger.Info("[level-editor] Created the scene's first layer ('Layer 1') for placement.");
+        return created;
+    }
 
     private Entity CreateLabel(string label)
     {

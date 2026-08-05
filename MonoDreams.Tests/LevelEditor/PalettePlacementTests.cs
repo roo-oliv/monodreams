@@ -1,5 +1,6 @@
 #nullable enable
 using System.Collections.Generic;
+using System.IO;
 using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Component;
@@ -12,6 +13,7 @@ using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
+using MonoDreams.Platform;
 using MonoDreams.State;
 using Xunit;
 using GameCamera = MonoDreams.Component.Camera;
@@ -31,8 +33,9 @@ namespace MonoDreams.Tests.LevelEditor;
 ///   shared snap settings, parked while <c>OutsideViewport</c>, despawned on disarm; editor
 ///   infrastructure, never a scene object.</item>
 ///   <item><b>Placement:</b> one press = one <c>CreateEntityCommand</c> undo step building the
-///   standard prop stack (tagged <c>SceneObjectComponent</c>, auto-selected); undo removes it;
-///   repeated presses keep placing.</item>
+///   standard prop stack, parented to the ACTIVE scene layer (the layers wave: the LAYER is the
+///   <c>SceneObjectComponent</c> save-root), auto-selected; undo removes it; repeated presses keep
+///   placing.</item>
 ///   <item><b>Headless channel:</b> a scripted <c>ToolbarAction</c> op's raw string (the
 ///   <c>palette:&lt;id&gt;</c> grammar) reaches the named dispatch.</item>
 /// </list>
@@ -103,9 +106,22 @@ public class PalettePlacementTests
         openStream: _ => null, decode: _ => null, createPlaceholder: () => null);
 
     private static PalettePlacementSystem MakePalette(World world, EditorHistory history,
-        SceneSerializer serializer, global::System.Func<GameState, bool>? cancel = null) =>
+        SceneSerializer serializer, global::System.Func<GameState, bool>? cancel = null,
+        EditorShellStateComponent? shellState = null) =>
         new(world, MakeCatalog(), Bands, MakeLoader(), serializer, history,
-            viewportManager: null, font: null, cancelRequested: cancel);
+            viewportManager: null, font: null, cancelRequested: cancel, shellState: shellState);
+
+    /// <summary>A scene LAYER entity (layers wave): an ordinary entity carrying a
+    /// <c>SceneLayerComponent</c>, tagged <c>SceneObjectComponent</c> as its own save-root.</summary>
+    private static Entity MakeLayer(World world, string name, int order, bool locked = false)
+    {
+        var layer = world.CreateEntity();
+        layer.Set(new TransformComponent(Vector2.Zero));
+        layer.Set(new EntityInfoComponent("Layer", name));
+        layer.Set(new SceneObjectComponent());
+        layer.Set(new MonoDreams.Component.Level.SceneLayerComponent { Order = order, Locked = locked });
+        return layer;
+    }
 
     private static (SceneSerializer Serializer, EditorHistory History) MakeInfra(World world)
     {
@@ -121,10 +137,25 @@ public class PalettePlacementTests
         return null;
     }
 
+    /// <summary>The placed PROPS — sprite-prop entities, excluding the ghost (editor
+    /// infrastructure) and the scene LAYER the stamps parent to (layers wave: the layer is the
+    /// save-root, its member props are its <c>ChildOf</c> children, so the props themselves carry no
+    /// <c>SceneObjectComponent</c> — the writer auto-closes the descendant set).</summary>
     private static List<Entity> PlacedProps(World world)
     {
         var list = new List<Entity>();
-        using var set = world.GetEntities().With<SceneObjectComponent>().AsSet();
+        using var set = world.GetEntities()
+            .With<SpriteInfoComponent>().Without<EditorInfrastructureComponent>().AsSet();
+        foreach (var e in set.GetEntities()) list.Add(e);
+        return list;
+    }
+
+    /// <summary>The scene layer entities (layers wave) — placement bootstraps one when a scene has
+    /// none, and every stamp parents to the ACTIVE layer.</summary>
+    private static List<Entity> SceneLayers(World world)
+    {
+        var list = new List<Entity>();
+        using var set = world.GetEntities().With<MonoDreams.Component.Level.SceneLayerComponent>().AsSet();
         foreach (var e in set.GetEntities()) list.Add(e);
         return list;
     }
@@ -297,6 +328,134 @@ public class PalettePlacementTests
         Assert.False(palette.HasGhost);
     }
 
+    // ---- Placement targeting: the ACTIVE scene layer (layers wave) ----
+
+    [Fact]
+    public void PlacementTargetsTheActiveLayer_ParentingTheStampToIt()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var back = MakeLayer(world, "Background", 0);
+        MakeLayer(world, "Props", 1);
+        var shell = new EditorShellStateComponent { ActiveLayer = back };
+        using var palette = MakePalette(world, history, serializer, shellState: shell);
+
+        palette.ArmByIndex(0);
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+
+        // The stamp is a ChildOf member of the ACTIVE layer (not the front-most one), so the layer
+        // remap owns its final draw depth and the writer saves it inside the layer's descendant set.
+        var placed = Assert.Single(PlacedProps(world));
+        Assert.Equal(back, placed.Get<ChildOfComponent>().Parent);
+        Assert.False(placed.Has<SceneObjectComponent>()); // the LAYER is the save-root, not the prop
+        Assert.Equal(2, SceneLayers(world).Count);        // no extra layer was invented
+    }
+
+    [Fact]
+    public void PlacementWithNoLayers_BootstrapsLayer1_AndActivatesIt()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var shell = new EditorShellStateComponent();
+        using var palette = MakePalette(world, history, serializer, shellState: shell);
+        Assert.Empty(SceneLayers(world));
+
+        palette.ArmByIndex(0);
+        SetCursor(cursor, new Vector2(64, 32), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(64, 32), leftReleased: true);
+        palette.Update(Edit());
+
+        // The first placement never dead-ends: it bootstraps a save-root "Layer 1" and activates it.
+        var layer = Assert.Single(SceneLayers(world));
+        Assert.Equal("Layer 1", layer.Get<EntityInfoComponent>().Name);
+        Assert.True(layer.Has<SceneObjectComponent>());
+        Assert.Equal(0, layer.Get<MonoDreams.Component.Level.SceneLayerComponent>().Order);
+        Assert.Equal(layer, shell.ActiveLayer);
+        Assert.Equal(layer, Assert.Single(PlacedProps(world)).Get<ChildOfComponent>().Parent);
+
+        // A second placement reuses that layer rather than creating another.
+        SetCursor(cursor, new Vector2(200, 32), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(200, 32), leftReleased: true);
+        palette.Update(Edit());
+        Assert.Single(SceneLayers(world));
+        Assert.Equal(2, PlacedProps(world).Count);
+    }
+
+    [Fact]
+    public void ABandlessPalette_IsLegal_AndPlacesOnTheSyntheticWithinLayerBand()
+    {
+        // Layers wave: screen-supplied bands became OPTIONAL legacy (the placement's DRAW layer is
+        // the ACTIVE scene layer), so an empty band list must construct — it used to throw — and
+        // resolve to the synthetic within-layer band (depth 0.5, never Y-sorted).
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var layer = MakeLayer(world, "Props", 0);
+        using var palette = new PalettePlacementSystem(world, MakeCatalog(),
+            global::System.Array.Empty<PaletteBand>(), MakeLoader(), serializer, history,
+            viewportManager: null, font: null,
+            shellState: new EditorShellStateComponent { ActiveLayer = layer });
+
+        var band = palette.ResolveBand(MakeCatalog().Entries[0]);
+        Assert.Equal(0.5f, band.LayerDepth);
+        Assert.False(band.YSorted);
+        Assert.Equal(band, palette.SelectedBand);
+
+        palette.ArmByIndex(0);
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+
+        var placed = Assert.Single(PlacedProps(world));
+        Assert.Equal(layer, placed.Get<ChildOfComponent>().Parent);
+        // The SOURCE depth is the within-layer key; SceneLayerSystem slices it into the layer's band.
+        Assert.Equal(0.5f, placed.Get<SpriteInfoComponent>().LayerDepth);
+    }
+
+    [Fact]
+    public void PlacementIntoALockedActiveLayer_IsRefused_NothingIsCreated()
+    {
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var locked = MakeLayer(world, "Terrain", 0, locked: true);
+        var shell = new EditorShellStateComponent { ActiveLayer = locked };
+        using var palette = MakePalette(world, history, serializer, shellState: shell);
+
+        palette.ArmByIndex(0);
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+
+        // Refused: no prop, no bootstrap layer, and nothing selected. (The LOUD half — the Logger
+        // warning that makes the no-op explainable — is asserted in
+        // <see cref="PalettePlacementLockedLayerLogTests"/>.)
+        Assert.Empty(PlacedProps(world));
+        Assert.Equal(locked, Assert.Single(SceneLayers(world)));
+        Assert.Null(Selected(world));
+
+        // Unlocking the same layer makes the very next click land — the refusal is state, not a latch.
+        locked.Get<MonoDreams.Component.Level.SceneLayerComponent>().Locked = false;
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+        Assert.Equal(locked, Assert.Single(PlacedProps(world)).Get<ChildOfComponent>().Parent);
+    }
+
     // ---- Placement ----
 
     [Fact]
@@ -316,7 +475,11 @@ public class PalettePlacementTests
         SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
         palette.Update(Edit());
         var placed = Assert.Single(PlacedProps(world));
-        Assert.True(placed.Has<SceneObjectComponent>());
+        // Layers wave: the stamp is a CHILD of the ACTIVE layer (bootstrapped here), so the LAYER is
+        // the save-root and the prop rides along in its ChildOf descendant set.
+        var layer = Assert.Single(SceneLayers(world));
+        Assert.True(layer.Has<SceneObjectComponent>());
+        Assert.Equal(layer, placed.Get<ChildOfComponent>().Parent);
         // Centred: Ground is top-left origin (0,0) on the 32×32 fallback, so position = cursor −
         // centre(16,16) = (120,80) − (16,16) = (104,64) (visual centre lands at the cursor).
         Assert.Equal(new Vector2(104, 64), placed.Get<TransformComponent>().Position);
@@ -885,5 +1048,103 @@ public class PalettePlacementTests
         palette.Disarm();
         Assert.False(palette.HasCrosshair);
         palette.Dispose();
+    }
+}
+
+/// <summary>
+/// The LOUD half of the locked-layer placement refusal (layers wave): refusing must say so through
+/// <see cref="Logger"/>, because a silent no-op reads as "the editor is broken" — the designer has no
+/// way to tell a locked layer from a dead click. <see cref="Logger"/> and
+/// <see cref="PlatformServices.Current"/> are process-global, so this lives in the existing
+/// non-parallel collection and observes the sinks through a fake platform rather than the disk.
+/// </summary>
+[Collection("PlatformServices (non-parallel: mutates static state)")]
+public class PalettePlacementLockedLayerLogTests
+{
+    /// <summary>Minimal in-memory <see cref="IPlatformServices"/> — enough to capture the two Logger
+    /// sinks. Mirrors the fakes in <c>TexturedMeshTests</c> / <c>LoggerInterpolationTests</c>.</summary>
+    private sealed class FakePlatformServices : IPlatformServices
+    {
+        public string BaseDirectory => "/fake/base/";
+        public List<string> ConsoleLines { get; } = new();
+        public StringWriter LogWriter { get; } = new();
+
+        public string GetEnvironmentVariable(string name) => null!;
+        public string CombinePath(params string[] paths) => string.Join("/", paths);
+        public bool FileExists(string path) => false;
+        public string ReadAllText(string path) => throw new FileNotFoundException(path);
+        public void WriteAllText(string path, string contents) { }
+        public void WriteAllBytes(string path, byte[] bytes) { }
+        public string ExportScene(string suggestedFileName, string contents) => suggestedFileName;
+        public void CreateDirectory(string path) { }
+        public TextWriter OpenLogWriter(string directory, string fileName) => LogWriter;
+        public void WriteLineToConsole(string line) => ConsoleLines.Add(line);
+        public void RunBackground(global::System.Action work) => work();
+    }
+
+    private static List<string> RunCapturingLog(global::System.Action body)
+    {
+        var fake = new FakePlatformServices();
+        var previous = PlatformServices.Current;
+        try
+        {
+            PlatformServices.Current = fake;
+            Logger.Shutdown();           // close whatever an earlier test left open
+            Logger.Initialize("logdir");  // ...and reopen on the fake sink at Debug
+            body();
+            Logger.Shutdown();           // flush
+        }
+        finally
+        {
+            Logger.Shutdown();
+            PlatformServices.Current = previous;
+        }
+        return fake.ConsoleLines;
+    }
+
+    [Fact]
+    public void LockedActiveLayer_RefusesThePlacement_Loudly()
+    {
+        var lines = RunCapturingLog(() =>
+        {
+            using var world = new World();
+            var gizmo = world.CreateEntity();
+            gizmo.Set(new EditorInfrastructureComponent());
+            gizmo.Set(GizmoStateComponent.Default);
+            var cursor = world.CreateEntity();
+            cursor.Set(new CursorControllerComponent(CursorType.Default));
+            cursor.Set(new CursorInputComponent());
+
+            var registry = new ComponentSerializerRegistry();
+            registry.RegisterEngineComponents();
+            var serializer = new SceneSerializer(registry);
+            var history = new EditorHistory(world);
+
+            var locked = world.CreateEntity();
+            locked.Set(new TransformComponent(Vector2.Zero));
+            locked.Set(new EntityInfoComponent("Layer", "Terrain"));
+            locked.Set(new SceneObjectComponent());
+            locked.Set(new MonoDreams.Component.Level.SceneLayerComponent { Order = 0, Locked = true });
+
+            var catalog = new AssetCatalog(new[]
+            {
+                new AssetCatalogEntry("Island/props/tree01.png", null, null, "tree01", "props"),
+            });
+            var textures = new FileAssetTextureLoader(
+                openStream: _ => null, decode: _ => null, createPlaceholder: () => null);
+            using var palette = new PalettePlacementSystem(world, catalog,
+                new[] { new PaletteBand("Ground", 0.9f, YSorted: false) },
+                textures, serializer, history, viewportManager: null, font: null,
+                shellState: new EditorShellStateComponent { ActiveLayer = locked });
+
+            palette.ArmByIndex(0);
+            ref var input = ref cursor.Get<CursorInputComponent>();
+            input.WorldPosition = input.VirtualPosition = new Vector2(120, 80);
+            input.LeftButtonPressed = input.LeftButton = true;
+            palette.Update(new GameState(new GameTime()) { RunMode = RunMode.Edit });
+        });
+
+        Assert.Contains(lines, l => l.Contains("WARN") && l.Contains("Placement refused")
+                                                       && l.Contains("LOCKED"));
     }
 }

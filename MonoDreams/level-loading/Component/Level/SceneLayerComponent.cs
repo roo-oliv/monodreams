@@ -35,7 +35,9 @@ public sealed class SceneLayerComponent
 
     /// <summary>A SCREEN-SPACE layer (Blender-collections HUD grouping): its members are UI fixed
     /// over the CAMERA's frame, not world objects — they author in virtual-resolution coordinates
-    /// on the HUD render pass. Excluded from the world draw-band slicing, so its members keep their
-    /// own authored depths and the game's HUD pass is untouched.</summary>
+    /// on the HUD render pass, and the editor's Edit mode previews them INSIDE the camera entity's
+    /// frustum (<c>HudPreviewSystem</c>) so panning the free view never smears the HUD over the
+    /// scene. Excluded from the world draw-band slicing, so its members keep their own authored
+    /// depths and the game's HUD pass is untouched.</summary>
     public bool ScreenSpace;
 }

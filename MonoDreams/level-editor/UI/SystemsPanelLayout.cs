@@ -197,6 +197,43 @@ public static class SystemsPanelLayout
         return new Rectangle(x, line.Y + inset, Math.Max(1, right - x), Math.Max(1, line.Height - inset * 2));
     }
 
+    /// <summary>The number of leading glyph slots on a LAYER row (HP): 0 = the ACTIVE radio,
+    /// 1 = the visibility eye, 2 = the padlock. The label starts after them.</summary>
+    public const int LayerToggleSlots = 3;
+
+    /// <summary>A layer glyph slot's width, logical points (a generous click target at ~16pt rows).</summary>
+    public const int LayerToggleWidth = 18;
+
+    /// <summary>A LAYER row's toggle zone (HP — mesh glyphs, never font text): slot 0 = the ACTIVE
+    /// radio (placements target this layer), slot 1 = the visibility eye, slot 2 = the padlock —
+    /// past the row's depth indent AND the arrow gutter, so the slots never overlap the disclosure
+    /// arrow of a layer that has visible children (the arrow sits at
+    /// <c>depth * IndentPerDepth</c>; slots start after the gutter beyond it). Each the full row
+    /// height (easy targets).</summary>
+    public static Rectangle LayerToggleRect(Rectangle line, int slot, float scale = 1f, int depth = 0)
+    {
+        var width = Px(LayerToggleWidth, scale);
+        var x = line.X + depth * Px(IndentPerDepth, scale) + Px(ArrowGutter, scale) + slot * width;
+        return new Rectangle(x, line.Y, width, Px(RowHeight, scale));
+    }
+
+    /// <summary>Top-left of a LAYER row's label: past the depth indent, the arrow gutter, and the
+    /// <see cref="LayerToggleSlots"/> glyph slots.</summary>
+    public static Vector2 LayerLabelPosition(Rectangle line, float labelHeight, float scale = 1f, int depth = 0) => new(
+        line.X + depth * Px(IndentPerDepth, scale) + Px(ArrowGutter, scale)
+        + LayerToggleSlots * Px(LayerToggleWidth, scale) + Px(4, scale),
+        line.Y + (Px(RowHeight, scale) - labelHeight) / 2f);
+
+    /// <summary>The glyph box INSIDE a layer toggle slot (centered square, breathing room around).</summary>
+    public static Rectangle LayerGlyphBox(Rectangle slotRect, float scale = 1f)
+    {
+        var size = Px(13, scale);
+        return new Rectangle(
+            slotRect.X + (slotRect.Width - size) / 2,
+            slotRect.Y + (slotRect.Height - size) / 2,
+            size, size);
+    }
+
     /// <summary>The delete-<c>×</c> square at a component row's right gutter, vertically centered.</summary>
     public static Rectangle DeleteRect(Rectangle line, float scale = 1f)
     {

@@ -3856,6 +3856,159 @@ and the `PrefabShelf_ArmPrefab…` crosshair fallback).
 placement the ghost previews), "The palette lists assets as cards …" (the same thumbnail/texture path);
 rendering — "Layer depth ownership" (the ghost/crosshair are Main-target draws the real pipeline renders).
 
+## The Entities panel IS the layers panel: layers list first, three glyph verbs, and placement targets the ACTIVE layer (HP)
+
+The left panel's **Entities** tab doubles as the layers panel — there is no second layers UI. Scene
+LAYER entities (`SceneLayerComponent`) sort to the TOP of the tree, ordered by
+`SceneLayerSystem.CompareLayers` then **reversed** so top-of-list = front-of-draw (the
+Figma/Aseprite convention); everything else follows in creation order. Each layer row leads with
+three **mesh** glyph slots (`SystemsPanelLayout.LayerToggleRect`, never font text — the disclosure-arrow
+pattern): slot 0 the ACTIVE **radio** (`Accent` when active), slot 1 the visibility **eye**
+(`Text1`/`TextMuted`), slot 2 the **padlock** (`Warning`/`TextMuted`); its label is
+`SceneLayerSystem.LayerName` plus a DERIVED kind suffix (`(hud)` for `ScreenSpace`). Click semantics are
+load-bearing and distinct: **radio → activate only** (selection untouched — the explicit
+activate-without-reselecting verb); **eye / padlock → toggle `Visible` / `Locked` + `History.MarkDirty()`**
+(no selection change); **row BODY → select AND activate**, but activation is refused for a `ScreenSpace`
+(HUD grouping) or `Locked` layer — those select so their Inspector is reachable, and are never
+placement targets; the **arrow** still only collapses. The active layer lives in
+`EditorShellStateComponent.ActiveLayer` (session state, **never serialized** — the durable truth is the
+layer entity; which one is active is an authoring choice) and **self-heals** every frame: a dead or
+non-layer value defaults to the top **world** layer, never a HUD grouping. Each layer's subtree is
+seeded **collapsed on first sighting only** (`_autoCollapsedLayers` → `CollapsedTreeEntities`), so the
+tree opens on the layer LIST and a designer's expand sticks. Bake products
+(`BakedProductComponent`) are excluded from the tree entirely. Placement follows the panel:
+`PalettePlacementSystem` parents every stamp to the active layer via `ChildOfComponent` (so the LAYER is
+the `SceneObjectComponent` save-root and the prop rides its descendant closure), **refuses loudly** into a
+locked layer (`Logger.Warning "[level-editor] Placement refused: the active layer is LOCKED."` — no
+entity, no bootstrap), and with no layers at all **adopts an existing one else bootstraps
+`"Layer 1"`** (SceneObject-tagged) so the first click never dead-ends. Screen-supplied `PaletteBand`s
+became **optional legacy** — a bandless palette is legal and resolves the synthetic `ActiveLayerBand`
+(depth 0.5 = the within-layer key's midpoint, never Y-sorted). The panel also grows a slim
+**toolbar band** below the tab strip (Entities tab only): **+ Add** (the `AddMenu()` dropdown, anchored
+below the button) and **focus** (`CameraNavSystem.FrameSelected()` — position only, zoom kept; the
+`view:selected` op's twin). Its clicks are consumed by the band and never fall through to a row, and
+`EntityAtPoint`, the interaction pass, and the visuals all derive from the ONE `BodyRect` that subtracts it.
+
+**Why:** designer-created, renamable, reorderable layers are the Figma/Aseprite/LDtk model, and the
+entity tree already IS that list — a second layers panel would fork the pooled-row machinery for the
+same data (the no-duplicate-ways tenet). Body-click-activates is what makes "click the layer, then
+place into it" work without a mode; the radio survives as the verb for activating without disturbing
+the Inspector binding. First-sighting-only collapse is the difference between an openable layer list
+and one layer's hundreds of members pushing every other layer below the fold. Parenting stamps to the
+active layer is what makes the layer's `ChildOf` membership real (and reorder a one-line diff) rather
+than a label.
+**Breaks:** activating a `Locked` or `ScreenSpace` layer on a body click silently sends placements
+into a layer the designer locked, or into the HUD grouping; a silent locked-layer refusal reads as
+"the editor is broken" (the designer cannot distinguish it from a dead click); re-seeding the collapse
+every frame makes a layer impossible to expand; not healing `ActiveLayer` leaves a dangling target after
+an undo/Restart and placements refuse forever; serializing `ActiveLayer` bakes a per-session choice into
+the scene file; a toolbar band click that falls through selects a row under the button; deriving
+`EntityAtPoint` from the raw `RegionBody` while the visuals use the inset body mis-maps every
+right-click by one band; keeping the empty-bands `throw` blocks every screen from adopting layers;
+tagging the placed prop (instead of the layer) `SceneObjectComponent` makes each stamp its own
+save-root and the layer's membership cosmetic.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorPanelTests.cs`
+(`LayerRows_ListFirst_FrontMostOnTop_AndTheTopWorldLayerIsActiveByDefault`,
+`LayerRowBodyClick_SelectsAndActivates_WhileTheRadioSlotActivatesWithoutSelecting`,
+`LockedOrScreenSpaceLayerBodyClick_Selects_ButNeverActivates`,
+`EyeAndPadlockSlots_ToggleVisibleAndLocked_AndMarkTheHistoryDirty`,
+`Layers_SeedCollapsedOnFirstSighting_AndADesignersExpandSticks`, `SceneTree_HidesBakeProducts`,
+`PanelToolbarButtons_RaiseTheAddMenuAndFocusRequests_AndNeverFallThroughToRows`,
+`PanelToolbar_IsEntitiesTabOnly`, `PooledVisuals_AreBoundedByTheVisibleWindow` — the pooled bound
+holds through the 3 glyph meshes + 4 toolbar meshes);
+`MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs`
+(`PlacementTargetsTheActiveLayer_ParentingTheStampToIt`,
+`PlacementWithNoLayers_BootstrapsLayer1_AndActivatesIt`,
+`ABandlessPalette_IsLegal_AndPlacesOnTheSyntheticWithinLayerBand`,
+`PlacementIntoALockedActiveLayer_IsRefused_NothingIsCreated`) +
+`PalettePlacementLockedLayerLogTests.LockedActiveLayer_RefusesThePlacement_Loudly` (the LOUD half);
+`MonoDreams.Tests/LevelEditor/CameraNavTests.cs` (`FrameSelected_*` — quad centre, spriteless world
+position, zoom kept, no-selection no-op); `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs`
+(`EntityMenu_ForALayerSelection_LeadsWithTheLayerVerbs_KeepingTheColliderSubmenu`,
+`AddMenu_IsEmptyEntityThenTheLayerCreator`, `EntitiesPanelMenu_NoRow_IsAddEmptyPlusTheLayerCreator`);
+`MonoDreams.Tests/LevelEditor/EditorIconsTests.cs` (the 8 new glyphs ride the enum-wide
+geometry/colour/DPR assertions).
+**Depends on:** level-loading — "Scene layers are entities; member draw order derives from (layer
+order, within-layer key)" (the component, `CompareLayers`/`LayerName`/`OrderedLayers`, and why hiding
+is a colour zero); this file — "The editor's panels: a LEFT tabbed panel (Entities/Systems/Scenes), a
+dedicated RIGHT Inspector, and a region-owned header framework" (the tree these rows extend), "Panel
+disclosure arrows are triangle MESHES, not font glyphs" and "Toolbar icon buttons are procedural
+meshes tinted by state; a pooled tooltip names them on hover" (the mesh-glyph pattern the slots +
+toolbar reuse), "Every level-editor color and depth is an `EditorTheme` role; visual translucency is
+precomputed opaque" (the glyph colours + `AdvanceHover` fades), "The editor shell's region sizes,
+tabs, and drag ownership live in one shell-state component; splitters resize it and the inset derives
+from it" (`ActiveLayer`'s home + `IsDragging` muting the toolbar hover), "Editor camera navigation
+pans/zooms/frames the scene directly, Edit-guarded, before the cursor's world-pos derivation"
+(`FrameSelected` joins `FrameScene`), "Editor context menus are a data-driven popup: one model, two
+anchors, modal like the dialog" (the layer verbs + `AddMenu`), "Bounded undo with drag-coalescing" +
+"The editor history tracks a dirty save-point signal" (the `MarkDirty` the toggles fire, the
+`CreateEntityCommand` a new layer is), "The palette hold-drag multi-stamps at arc-length spacing,
+coalesced into one undo step" (the stroke the layer parenting joins); foundation —
+"`ChildOfComponent` and `TransformComponent.Parent` are two intentional links" (layer membership is
+the structural link).
+
+## The HUD-layer preview projects screen-space members into the camera entity's frame while Paused
+
+A SCREEN-SPACE scene layer (`SceneLayerComponent.ScreenSpace` — the game's "HUD"
+grouping) holds text authored in virtual-resolution coordinates on the HUD render
+pass, which composites over the whole game viewport. That is right in Play and
+wrong in Edit: the free view pans away while the HUD stays glued to the editor
+pane, reading as chrome rather than as scene content. `HudPreviewSystem`
+re-projects those members while the transport is Paused (`RunMode.Edit`) **and a
+camera entity exists**: it stashes the authored (position, text scale, render
+target) once into a `HudPreviewStashComponent`, then every frame re-derives from
+that stash — `DynamicTextComponent.Target` → `Main`, `Scale` → stashed / zoom,
+`TransformComponent.Position` → `camFrameTopLeft + stashedVirtualPos / zoom`,
+followed by `NotifyChanged<TransformComponent>()`. Re-deriving from the stash
+(never from last frame's output) is what keeps the projection from compounding.
+The layer's eye toggle (`Visible = false`) parks the member at
+`SystemsPanelLayout.ParkedPosition` while **keeping** the stash. Every other
+case — Play, no camera entity, a member of a world (non-screen-space) layer —
+takes `Restore()`, which puts the stashed values back **byte-identically** and
+drops the stash; it is idempotent. The stash is an editor-session artifact and is
+never serialized. The system is composed only under the editor run flag, woven
+`RunNormally` after the screen's HUD-content writer systems and before the draw
+prep; the plain game never constructs it. A host opts a screen in by creating a
+code-built screen-space layer (`EntityInfoComponent("Layer", "HUD")` +
+`TransformComponent(Vector2.Zero)` + `SceneLayerComponent { Order = 1000,
+ScreenSpace = true, Locked = true }`, deliberately **no**
+`SceneObjectComponent`) and parenting its HUD text into it — idempotently, so a
+transport Restart re-parents whatever the sweep re-created.
+
+**Why:** "what you edit is what ships" fails for the HUD if the designer cannot
+see where a label actually sits relative to the camera; the direct framing is
+"fixed over the CAMERA, not the editor viewer". Restoring byte-identically is
+what keeps the REAL HUD pass untouched — the game's own rendering must not drift
+by a pixel because someone paused.
+**Breaks:** projecting from the previous frame's value instead of the stash
+marches the label off-screen (or decays its scale to zero) while the transport
+sits Paused; dropping the stash on the eye toggle makes the later restore
+inexact, so the shipped HUD drifts one park-cycle at a time; a projection that
+does not restore on Play leaves the game rendering HUD text on the
+camera-transformed `Main` pass at world coordinates; serializing the stash (or
+the HUD layer) would leak editor-session state into `.mdscene`; composing the
+system before the HUD-content writers shows last frame's text.
+**Tests:** `MonoDreams.Tests/LevelEditor/HudPreviewTests.cs` (the projection
+math — `camTopLeft + authored/zoom`, target → `Main`, scale ÷ zoom; repeated Edit
+frames do not compound; Play restores position/scale/target with exact equality
+and removes the stash; restore is idempotent; eye-off parks at
+`ParkedPosition` and keeps the stash, re-showing re-projects and Play still
+restores exactly; no camera entity leaves the member untouched; a world-layer
+member is never projected).
+**Depends on:** level-loading — "Scene layers are entities; member draw order
+derives from (layer order, within-layer key)" (the `ScreenSpace` exclusion from
+band slicing, and `SceneLayerSystem.OwningLayer` as the membership walk); this
+file — "The editor run flag composes the always-on editor and the transport owns
+RunMode (and drives the viewport tab stack)", "The pipeline registrar is the
+composition seam: named, ordered, gate-wrapped, runtime-toggleable — and it owns
+the hierarchy", "The editor overlay is universal: under the run flag, every
+screen of every host composes it", "The editor visualizes + edits the scene
+camera ENTITY (glyph, snap, S→Zoom, R legal, last-camera delete guard)" (the
+camera entity's `WorldPosition` + `CameraComponent.Zoom` are the projected
+frame); rendering-text — "`TextPrepSystem` writes the world-transformed
+position"; foundation — "Edit-time behaviour is a per-system policy honoured by
+`GatedSystem`".
+
 ## See also
 
 - `docs/CORE_TENETS.md` — "The editor is part of the game" + the interaction matrix.

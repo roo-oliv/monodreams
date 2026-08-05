@@ -76,10 +76,17 @@ public class EditorPanelTests
     private Rectangle LineFor(EditorPanelSystem panel, ViewportManager vm, int rowIndex)
     {
         // The left tabbed panel's rows live in the LEFT region BODY (below the tab strip) at the
-        // shell's runtime region sizes (UX2-B — the tab group moved to the left strip).
+        // shell's runtime region sizes (UX2-B — the tab group moved to the left strip). On the
+        // Entities tab the body starts one band lower: the HP panel toolbar (+ Add / focus) sits
+        // between the tab strip and the tree.
         var panelRect = EditorChromeLayout.LeftPanel(vm.ScreenWidth, vm.ScreenHeight, vm.DevicePixelRatio,
             panel.ShellState.LeftWidthPt, panel.ShellState.BottomHeightPt);
         var body = EditorChromeLayout.RegionBody(panelRect, vm.DevicePixelRatio);
+        if (panel.ShowsPanelToolbar)
+        {
+            var band = EditorChromeLayout.Px(EditorChromeLayout.TabStripHeight, vm.DevicePixelRatio);
+            body = new Rectangle(body.X, body.Y + band, body.Width, body.Height - band);
+        }
         return SystemsPanelLayout.LineRect(body, rowIndex - panel.ScrollOffset);
     }
 
@@ -392,11 +399,16 @@ public class EditorPanelTests
         // and a delete-× mesh. The field-background box is a SimpleButtonComponent (counted in neither
         // set). Created for both roles (parked on the left panel's rows), so the count stays a function of
         // the visible window + a fixed overhead, never the row count.
+        // HP added three more pooled meshes per slot (a layer row's active-radio / eye / padlock
+        // glyphs, emptied on every non-layer row) and four persistent chrome meshes (the Entities
+        // panel toolbar's + Add and focus buttons — a fill + an icon glyph each). Both are
+        // row-count-independent, so the bound still holds.
         const int labelsPerRow = 2;      // row label + value label
-        const int meshesPerRow = 4;      // arrow + row-fill + accent-bar + delete-glyph
+        const int meshesPerRow = 7;      // arrow + row-fill + accent-bar + delete-glyph + radio/eye/lock
         const int tabCount = 3;          // Entities / Systems / Scenes
         const int tabLabels = tabCount;  // one label each
         const int tabMeshes = tabCount * 2; // fill + underline each
+        const int panelToolbarMeshes = 4;   // + Add fill/glyph + focus fill/glyph (HP)
         const int scrollbarMeshes = 2;   // track + thumb
         int labelEntities;
         using (var set = world.GetEntities().With<DynamicTextComponent>().AsSet())
@@ -405,7 +417,7 @@ public class EditorPanelTests
         using (var set = world.GetEntities().With<DrawComponent>().AsSet())
             meshEntities = set.GetEntities().Length;
         Assert.Equal(visible * labelsPerRow + tabLabels, labelEntities);
-        Assert.Equal(visible * meshesPerRow + tabMeshes + scrollbarMeshes, meshEntities);
+        Assert.Equal(visible * meshesPerRow + tabMeshes + panelToolbarMeshes + scrollbarMeshes, meshEntities);
         Assert.True(visible < panel.Rows.Count, "the window is smaller than the content → pooling is active");
     }
 
@@ -638,6 +650,276 @@ public class EditorPanelTests
         ClickBody(panel, vm, cursor, idx);
         panel.Update(Edit());
         Assert.True(camera.Has<SelectedComponent>());
+    }
+
+    // ---- The layers panel (HP): layer rows, the glyph slots, and the bake-product filter ----
+
+    /// <summary>A scene LAYER entity: an ordinary entity carrying a <c>SceneLayerComponent</c>. Its
+    /// name is its <c>EntityInfoComponent.Name</c> (the level-loading layers premise).</summary>
+    private static Entity MakeLayer(World world, string name, int order,
+        bool locked = false, bool screenSpace = false, bool visible = true)
+    {
+        var layer = world.CreateEntity();
+        layer.Set(new TransformComponent(Vector2.Zero));
+        layer.Set(new EntityInfoComponent("Layer", name));
+        layer.Set(new MonoDreams.Component.Level.SceneLayerComponent
+        {
+            Order = order, Locked = locked, ScreenSpace = screenSpace, Visible = visible,
+        });
+        return layer;
+    }
+
+    /// <summary>Clicks the given LAYER glyph slot (0 = the ACTIVE radio, 1 = the eye, 2 = the
+    /// padlock) of a row, rather than its body.</summary>
+    private void ClickLayerSlot(EditorPanelSystem panel, ViewportManager vm, Entity cursor, int rowIndex, int slot)
+    {
+        var line = LineFor(panel, vm, rowIndex);
+        var rect = SystemsPanelLayout.LayerToggleRect(line, slot, vm.DevicePixelRatio, panel.Rows[rowIndex].Depth);
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(rect.Center.X, rect.Center.Y);
+        input.LeftButtonReleased = true;
+    }
+
+    [Fact]
+    public void LayerRows_ListFirst_FrontMostOnTop_AndTheTopWorldLayerIsActiveByDefault()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        var back = MakeLayer(world, "Background", 0);
+        var front = MakeLayer(world, "Props", 1);
+        var hud = MakeLayer(world, "HUD", 5, screenSpace: true);
+        MakeSceneEntity(world, "Loose"); // an entity on no layer still shows, after the layers
+        var shell = new EditorShellStateComponent();
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null), shellState: shell);
+
+        panel.Update(Edit());
+
+        var layerRows = panel.Rows
+            .Where(r => r.Kind == PanelRowKind.SceneEntity && r.Entity.Has<MonoDreams.Component.Level.SceneLayerComponent>())
+            .Select(r => r.Label).ToList();
+        // Top of the list = front of the draw (the Figma/Aseprite convention), and a screen-space
+        // grouping reads as "(hud)".
+        Assert.Equal(new[] { "HUD (hud)", "Props", "Background" }, layerRows);
+        // The layers precede everything else in the tree.
+        var looseIndex = RowIndex(panel, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Loose");
+        var backIndex = RowIndex(panel, r => r.Kind == PanelRowKind.SceneEntity && r.Entity == back);
+        Assert.True(backIndex < looseIndex);
+
+        // Active-layer healing defaults to the top WORLD layer — never the HUD grouping.
+        Assert.Equal(front, shell.ActiveLayer);
+        Assert.NotEqual(hud, shell.ActiveLayer);
+    }
+
+    [Fact]
+    public void LayerRowBodyClick_SelectsAndActivates_WhileTheRadioSlotActivatesWithoutSelecting()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var back = MakeLayer(world, "Background", 0);
+        var front = MakeLayer(world, "Props", 1);
+        var shell = new EditorShellStateComponent();
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null), shellState: shell);
+
+        panel.Update(Edit());
+        Assert.Equal(front, shell.ActiveLayer); // the healed default (front-most world layer)
+
+        // BODY click on the unlocked world layer: selects AND activates ("click the layer, then place").
+        var backIndex = RowIndex(panel, r => r.Entity == back);
+        ClickBody(panel, vm, cursor, backIndex);
+        panel.Update(Edit());
+        Assert.True(back.Has<SelectedComponent>());
+        Assert.Equal(back, shell.ActiveLayer);
+
+        // RADIO slot click on the OTHER layer: activates it without touching the selection — the
+        // explicit activate-without-reselecting verb.
+        var frontIndex = RowIndex(panel, r => r.Entity == front);
+        ClickLayerSlot(panel, vm, cursor, frontIndex, slot: 0);
+        panel.Update(Edit());
+        Assert.Equal(front, shell.ActiveLayer);
+        Assert.True(back.Has<SelectedComponent>());   // selection unchanged
+        Assert.False(front.Has<SelectedComponent>());
+    }
+
+    [Fact]
+    public void LockedOrScreenSpaceLayerBodyClick_Selects_ButNeverActivates()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var world1 = MakeLayer(world, "Props", 1);
+        var locked = MakeLayer(world, "Terrain", 0, locked: true);
+        var hud = MakeLayer(world, "HUD", 9, screenSpace: true);
+        var shell = new EditorShellStateComponent();
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null), shellState: shell);
+
+        panel.Update(Edit());
+        Assert.Equal(world1, shell.ActiveLayer);
+
+        // A LOCKED layer selects (so its Inspector settings — including the padlock — are editable)
+        // but is never a placement target.
+        ClickBody(panel, vm, cursor, RowIndex(panel, r => r.Entity == locked));
+        panel.Update(Edit());
+        Assert.True(locked.Has<SelectedComponent>());
+        Assert.Equal(world1, shell.ActiveLayer);
+
+        // Same for a SCREEN-SPACE (HUD) grouping: organizational only.
+        ClickBody(panel, vm, cursor, RowIndex(panel, r => r.Entity == hud));
+        panel.Update(Edit());
+        Assert.True(hud.Has<SelectedComponent>());
+        Assert.Equal(world1, shell.ActiveLayer);
+    }
+
+    [Fact]
+    public void EyeAndPadlockSlots_ToggleVisibleAndLocked_AndMarkTheHistoryDirty()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var layer = MakeLayer(world, "Props", 0);
+        var history = new EditorHistory(world);
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null), history: history);
+
+        panel.Update(Edit());
+        var idx = RowIndex(panel, r => r.Entity == layer);
+        var data = layer.Get<MonoDreams.Component.Level.SceneLayerComponent>();
+        Assert.True(data.Visible);
+        Assert.False(data.Locked);
+
+        ClickLayerSlot(panel, vm, cursor, idx, slot: 1); // the eye
+        panel.Update(Edit());
+        Assert.False(layer.Get<MonoDreams.Component.Level.SceneLayerComponent>().Visible);
+        Assert.True(history.IsDirty);
+        // A visibility toggle is not a selection change.
+        Assert.False(layer.Has<SelectedComponent>());
+
+        ClickLayerSlot(panel, vm, cursor, idx, slot: 2); // the padlock
+        panel.Update(Edit());
+        Assert.True(layer.Get<MonoDreams.Component.Level.SceneLayerComponent>().Locked);
+        Assert.False(layer.Has<SelectedComponent>());
+    }
+
+    [Fact]
+    public void Layers_SeedCollapsedOnFirstSighting_AndADesignersExpandSticks()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var layer = MakeLayer(world, "Props", 0);
+        var member = MakeSceneEntity(world, "Tree");
+        member.Set(new ChildOfComponent(layer));
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        // First sighting: the layer's subtree is seeded collapsed, so the tree opens on the LAYER
+        // LIST instead of one layer's members pushing every other layer below the fold.
+        panel.Update(Edit());
+        Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Entity == member);
+
+        // The designer expands it via the disclosure arrow…
+        ClickArrow(panel, vm, cursor, RowIndex(panel, r => r.Entity == layer));
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Entity == member);
+
+        // …and it STAYS expanded on later frames (seeding is once-per-layer, the toggle owns it after).
+        panel.Update(Edit());
+        panel.Update(Edit());
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Entity == member);
+    }
+
+    [Fact]
+    public void SceneTree_HidesBakeProducts()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        MakeSceneEntity(world, "Boundary");
+        // Bake products (boundary segment colliders, …) are derived children that never serialize —
+        // showing them would swamp the tree by the hundreds.
+        var baked = MakeSceneEntity(world, "BoundarySegment");
+        baked.Set(new BakedProductComponent());
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+
+        panel.Update(Edit());
+
+        Assert.Contains(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "Boundary");
+        Assert.DoesNotContain(panel.Rows, r => r.Kind == PanelRowKind.SceneEntity && r.Label == "BoundarySegment");
+    }
+
+    // ---- The panel toolbar (HP): + Add / focus, LeftTabs + Entities tab only ----
+
+    [Fact]
+    public void PanelToolbarButtons_RaiseTheAddMenuAndFocusRequests_AndNeverFallThroughToRows()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        var vm = Vm();
+        var hero = MakeSceneEntity(world, "Hero");
+        using var panel = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+        Rectangle? addAnchor = null;
+        var focusRequests = 0;
+        panel.AddMenuRequested = (_, anchor) => addAnchor = anchor;
+        panel.FocusSelectionRequested = () => focusRequests++;
+
+        panel.Update(Edit());
+        Assert.True(panel.ShowsPanelToolbar); // LeftTabs + the Entities tab
+
+        // The toolbar band sits between the tab strip and the tree.
+        var panelRect = EditorChromeLayout.LeftPanel(vm.ScreenWidth, vm.ScreenHeight, vm.DevicePixelRatio,
+            panel.ShellState.LeftWidthPt, panel.ShellState.BottomHeightPt);
+        var header = EditorChromeLayout.TabStrip(panelRect, vm.DevicePixelRatio);
+        var band = EditorChromeLayout.Px(EditorChromeLayout.TabStripHeight, vm.DevicePixelRatio);
+        var toolbar = new Rectangle(panelRect.X, header.Bottom, panelRect.Width, band);
+
+        // The + Add button (left-anchored) raises the request with its own bounds as the anchor.
+        ref var input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(toolbar.X + band / 2f, toolbar.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.NotNull(addAnchor);
+        Assert.True(toolbar.Contains(addAnchor!.Value.Center));
+
+        // The focus button (right-anchored, clear of the scrollbar gutter).
+        input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(
+            toolbar.Right - EditorChromeLayout.Px(12, vm.DevicePixelRatio) - EditorChromeLayout.Px(10, vm.DevicePixelRatio),
+            toolbar.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.Equal(1, focusRequests);
+
+        // A click in the band but on NEITHER button is consumed — it never falls through to a row.
+        Assert.False(hero.Has<SelectedComponent>());
+        input = ref cursor.Get<CursorInputComponent>();
+        input.ScreenPosition = new Vector2(toolbar.Center.X, toolbar.Center.Y);
+        input.LeftButtonReleased = true;
+        panel.Update(Edit());
+        Assert.False(hero.Has<SelectedComponent>());
+    }
+
+    [Fact]
+    public void PanelToolbar_IsEntitiesTabOnly()
+    {
+        using var world = new World();
+        MakeCursor(world);
+        var vm = Vm();
+        using var left = new EditorPanelSystem(world, vm, font: null,
+            () => ((EditorPipelineRegistrar?)null, (EditorPipelineRegistrar?)null));
+        Assert.True(left.ShowsPanelToolbar);
+        left.SetActiveTab(EditorPanelTab.Systems);
+        Assert.False(left.ShowsPanelToolbar);
+        left.SetActiveTab(EditorPanelTab.Scenes);
+        Assert.False(left.ShowsPanelToolbar);
+
+        using var inspector = new EditorPanelSystem(world, vm, font: null, role: EditorPanelRole.RightInspector);
+        Assert.False(inspector.ShowsPanelToolbar);
     }
 
     // ---- Inspector panel (RightInspector role): component list + members ---
