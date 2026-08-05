@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "a029db375c62",
+  "strategy": "manual-commit",
+  "branch": "issue-50",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/publish.yml",
+    "MonoDreams.Tests/LevelEditor/PalettePlacementTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/29db375c62/0/metadata.json",
+      "transcript": "/a0/29db375c62/0/full.jsonl",
+      "context": "/a0/29db375c62/0/context.md",
+      "content_hash": "/a0/29db375c62/0/content_hash.txt",
+      "prompt": "/a0/29db375c62/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 94,
+    "cache_creation_tokens": 266534,
+    "cache_read_tokens": 13266286,
+    "output_tokens": 23867,
+    "api_call_count": 50
+  }
+}
