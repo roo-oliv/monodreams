@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d67b3a3d3b99",
+  "session_id": "4e28bc8b-468e-4ede-a48d-afe43684ade9",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T12:12:59.245706Z",
+  "branch": "issue-44",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Rendering/SceneLayerSystemTests.cs",
+    "MonoDreams/level-loading/Component/Level/SceneLayerComponent.cs",
+    "MonoDreams/level-loading/System/Level/SceneLayerSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "78d6a127-6f89-487f-b538-7e48811fba8f",
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 117150,
+    "cache_read_tokens": 3481001,
+    "output_tokens": 31904,
+    "api_call_count": 35
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T12:12:59.087544Z",
+    "agent_lines": 561,
+    "human_added": 181,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 742,
+    "agent_percentage": 75.60646900269542
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-37/4e28bc8b-468e-4ede-a48d-afe43684ade9.jsonl"
+}

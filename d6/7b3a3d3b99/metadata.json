@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "d67b3a3d3b99",
+  "strategy": "manual-commit",
+  "branch": "issue-44",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Rendering/SceneLayerSystemTests.cs",
+    "MonoDreams/level-loading/Component/Level/SceneLayerComponent.cs",
+    "MonoDreams/level-loading/System/Level/SceneLayerSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d6/7b3a3d3b99/0/metadata.json",
+      "transcript": "/d6/7b3a3d3b99/0/full.jsonl",
+      "context": "/d6/7b3a3d3b99/0/context.md",
+      "content_hash": "/d6/7b3a3d3b99/0/content_hash.txt",
+      "prompt": "/d6/7b3a3d3b99/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 117150,
+    "cache_read_tokens": 3481001,
+    "output_tokens": 31904,
+    "api_call_count": 35
+  }
+}
