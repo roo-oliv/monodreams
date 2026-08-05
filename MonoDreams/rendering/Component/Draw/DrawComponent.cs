@@ -27,6 +27,8 @@ public class DrawComponent
     public Texture2D? Texture;
     public Rectangle? SourceRectangle;
     public Vector2 Size;
+    public bool FlipHorizontally; // mirrors the source rect left-to-right (see SpriteInfoComponent)
+    public bool FlipVertically; // mirrors the source rect top-to-bottom (see SpriteInfoComponent)
 
     // Text specific
     public BitmapFont? Font;

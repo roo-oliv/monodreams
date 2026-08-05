@@ -275,6 +275,24 @@ public class MasterRenderSystem(
         return element.Scale;
     }
 
+    /// <summary>
+    /// The <see cref="SpriteEffects"/> passed to <c>SpriteBatch.Draw</c> for a sprite
+    /// <see cref="DrawComponent"/>: the OR of its two mirror flags (written by
+    /// <c>SpritePrepSystem</c> from <c>SpriteInfoComponent.FlipHorizontally</c> /
+    /// <c>FlipVertically</c>). Both default to <c>false</c>, so the defaults compose to
+    /// <see cref="SpriteEffects.None"/> and an unflagged sprite renders byte-identical to before
+    /// the flags existed.
+    /// <para>
+    /// The flip mirrors the pixels INSIDE the destination rect, so the drawn quad — and therefore
+    /// the gizmo hit-test quad (<c>GizmoTransform.SpriteWorldQuad</c>) — is unchanged; a flip never
+    /// moves what you grab. And flips compose freely with rotation and origin, because
+    /// <c>SpriteBatch</c> applies the effect to the source sampling, not to the transform.
+    /// </para>
+    /// </summary>
+    internal static SpriteEffects ComputeSpriteEffects(DrawComponent element) =>
+        (element.FlipHorizontally ? SpriteEffects.FlipHorizontally : SpriteEffects.None) |
+        (element.FlipVertically ? SpriteEffects.FlipVertically : SpriteEffects.None);
+
     private void DrawElement(DrawComponent element)
     {
         switch (element.Type)
@@ -290,7 +308,7 @@ public class MasterRenderSystem(
                     element.Rotation,
                     element.Origin,
                     ComputeSpriteScale(element),
-                    SpriteEffects.None,
+                    ComputeSpriteEffects(element),
                     element.LayerDepth);
                 break;
 
