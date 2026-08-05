@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.Debug;
 using MonoDreams.Demos.Screens;
 using MonoDreams.Demos.UI;
 using MonoDreams.LevelEditor.Composition;
@@ -31,6 +32,7 @@ public class Game1 : Game
     private readonly bool _editor;
     private ScreenshotCaptureSystem? _screenshotCapture;
     private int _frame;
+    private float _perfTimer;
 
     public Game1(string[]? args = null)
     {
@@ -101,6 +103,14 @@ public class Game1 : Game
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
+
+        // MONODREAMS_PROFILE=1 turns on per-system frame timing (SystemProfiler) — the way to find
+        // out which system is eating the frame, identically on desktop and in the browser (where
+        // the log reaches the dev console).
+        SystemProfiler.Enabled =
+            PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_PROFILE") == "1";
+        if (SystemProfiler.Enabled)
+            Logger.Info("[perf] per-system profiling ON (MONODREAMS_PROFILE=1).");
 
         // Project-wide dark navy theme for all MonoDreams demo screens.
         FinalDrawSystem.ClearColor = DemoPalette.DarkBg;
@@ -200,6 +210,12 @@ public class Game1 : Game
         if (!_headless.Enabled && Keyboard.GetState().IsKeyDown(Keys.Q))
             Exit();
         _screenController.Update(gameTime);
+
+        if (SystemProfiler.Enabled)
+        {
+            SystemProfiler.CountFrame();
+            SystemProfiler.ReportPeriodically(_screenController.State, ref _perfTimer);
+        }
     }
 
     /// <summary>

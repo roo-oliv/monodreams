@@ -416,4 +416,28 @@ public class EditorPipelineRegistrarTests
         Assert.True(group.Gate.IsEnabled);
         Assert.Equal(PipelineEnabledState.On, group.EnabledState);
     }
+
+    // ---- Profiling: every gate is labelled with its entry's full hierarchical name ----
+
+    [Fact]
+    public void Gates_CarryHierarchicalProfileNames()
+    {
+        var registrar = new EditorPipelineRegistrar();
+        registrar.Add("input", new CountingSystem(), EditTimeBehavior.RunNormally);
+        registrar.AddGroup("logic", EditTimeBehavior.Freeze, g =>
+        {
+            g.Add("movement", new CountingSystem());
+            g.AddGroup("inner", EditTimeBehavior.RunNormally, gg => gg.Add("deep", new CountingSystem()));
+        });
+
+        // Leaves AND groups: the gate's profile name IS the entry's full name (the registrar is the
+        // only thing that knows it), so a profiler's report reads back as this pipeline tree — a
+        // group's own total on its own line, its children nested under it by name.
+        foreach (var entry in registrar.Entries)
+            Assert.Equal(entry.Name, entry.Gate.ProfileName);
+
+        Assert.Equal(
+            new[] { "input", "logic", "logic.movement", "logic.inner", "logic.inner.deep" },
+            registrar.Entries.Select(e => e.Gate.ProfileName!));
+    }
 }

@@ -182,7 +182,7 @@ the broader picture).
 | [`ui`](../MonoDreams/ui/docs/premises.md) | `LayoutNodeComponent`, `LayoutSlotComponent`, `AutoLayoutBuilder`, `IntrinsicSizingSystem`, `AutoLayoutSystem`, button visuals |
 | [`cursor`](../MonoDreams/cursor/docs/premises.md) | `CursorControllerComponent`, `CursorInputComponent`, `CursorTexturesComponent`, cursor pipeline systems |
 | [`dialogue`](../MonoDreams/dialogue/docs/premises.md) | `DialogueRunner`, `DialogueStateComponent`, `DialogueSystem`, YarnSpinner integration |
-| [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem` |
+| [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem`, `SystemProfiler` |
 | [`level-editor`](../MonoDreams/level-editor/docs/premises.md) | in-game editor `Edit` run mode over the real pipeline (scaffold; the run-state model `RunMode`/`EditTimeBehavior`/`GatedSystem` lives in `foundation`) |
 | [`audio`](../MonoDreams/audio/docs/premises.md) | `AudioSourceComponent`, `PlaySoundRequest`, `AudioSystem`, `IAudioPlayer`/`ContentAudioPlayer` seam (one-shot SFX, loops, interruptible sources) |
 

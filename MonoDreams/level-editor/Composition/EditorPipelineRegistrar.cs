@@ -69,7 +69,8 @@ public sealed class EditorPipelineEntry
         System = system;
         Policy = policy;
         EnabledInEditByDefault = enabledInEditByDefault;
-        Gate = new GatedSystem(system, policy);
+        // `name` is already the full hierarchical name — the row label a profiling report uses.
+        Gate = new GatedSystem(system, policy) { ProfileName = name };
     }
 
     /// <summary>Group constructor: the composite (and its gate) is sealed after the children
@@ -93,7 +94,9 @@ public sealed class EditorPipelineEntry
     internal void SealGroup(ISystem<GameState> composite)
     {
         System = composite;
-        Gate = new GatedSystem(composite, Policy);
+        // A group's gate reports its OWN total (its children are timed individually under their
+        // nested names), so a report reads as `logic.game 3.1ms` over `logic.game.enemies 1.8ms`.
+        Gate = new GatedSystem(composite, Policy) { ProfileName = Name };
     }
 
     /// <summary>The unique, hierarchical name of this entry: a top-level entry's registered name

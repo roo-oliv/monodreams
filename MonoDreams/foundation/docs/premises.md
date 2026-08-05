@@ -372,6 +372,40 @@ fake runs in `Play` and is skipped in `Edit`; a `RunNormally`-wrapped fake runs 
 both; the gate honours its own `IsEnabled`).
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
+## `GatedSystem`'s timing sink keeps the profiler out of foundation
+
+`GatedSystem.TimingSink` — a static `Action<string, long>?` (profile name, elapsed
+Stopwatch ticks) defaulting to `null` — is the **only** profiling hook in
+`foundation`, and it is a socket, not an implementation: this module never
+references the `debug` module, never names a profiler type, and contains no timing
+logic beyond reading the sink once per `Update` and, when one is installed,
+bracketing the child call with `Stopwatch.GetTimestamp()`. The plug comes from
+outside — the optional `debug` module's `SystemProfiler` installs its `Record`
+method as the sink when profiling is enabled and clears it when disabled — so with
+nothing installed the entire feature is one null check per gated `Update` and no
+profiler is reachable in the build's object graph at all. A gate whose
+`ProfileName` is `null` (the default; the `EditorPipelineRegistrar` sets it to the
+entry's full hierarchical name) is never timed even while a sink IS installed.
+
+**Why:** timing at the gate is what makes per-system profiling total — every
+pipeline entry passes through a `GatedSystem`, so one seam covers every screen's
+pipelines with nothing opting in. But `foundation` is a sensitive domain that every
+game depends on, and `debug` is optional: hooking the profiler by direct call would
+invert the module dependency and make an optional overlay module a hard dependency
+of the run-state model. An injectable sink buys the coverage while keeping the
+dependency arrow pointing from `debug` to `foundation`.
+**Breaks:** a direct call from `GatedSystem` into the debug module drags the
+profiler into every build and makes `foundation` un-installable without `debug`.
+Timing unconditionally (no sink check, or timing unnamed gates) puts two
+`Stopwatch` reads and a delegate invocation in the hot path of every gated system
+of every shipped game. Reading the static field twice instead of into a local lets
+an uninstall between the two reads null-reference mid-frame.
+**Tests:** `MonoDreams.Tests/Foundation/GatedSystemTimingSinkTests.cs`
+(default-null sink, forwarding without a sink, recording with sink + name, and a
+source scan asserting foundation never references `MonoDreams.Debug`).
+**Depends on:** debug — "The profiler hooks the one seam every pipeline entry
+passes through".
+
 ## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) are the survivors of a screen switch
 
 `ScreenController.RegisterScreen` has two overloads: the historical `(name, creator)` (which records a

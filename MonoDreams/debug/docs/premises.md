@@ -1,8 +1,10 @@
 # debug — premises
 
 > Technical invariants the engine assumes about the debug overlays
-> module: `ColliderDebugSystem`, `SpriteDebugSystem`, and
-> `ScreenshotCaptureSystem`. (The `Logger` and the input-replay
+> module: `ColliderDebugSystem`, `SpriteDebugSystem`,
+> `ScreenshotCaptureSystem`, and `SystemProfiler` (per-system frame
+> timing — not a pipeline system, a plug into `foundation`'s socket).
+> (The `Logger` and the input-replay
 > scaffold live in `foundation` because they're useful in production;
 > this module adds the *visual* debug overlays and screenshot capture
 > only.) Read this before changing any of those pieces or relying on
@@ -186,6 +188,58 @@ attributed to the wrong run.
 indirectly).
 **Depends on:** foundation — "`Logger` requires `Initialize` before any
 write".
+
+## The profiler hooks the one seam every pipeline entry passes through
+
+`SystemProfiler` measures per-system frame cost by timing `GatedSystem` —
+the decorator every pipeline entry is wrapped in — and nothing else. One
+stopwatch at that seam therefore covers both pipelines of every screen of
+every host, groups included: a registrar group's gate reports the group's
+own total while its children report individually under their nested names
+(`logic.game` above `logic.game.enemies`), because the registrar stamps
+each gate's `ProfileName` with the entry's full hierarchical registration
+name. The wiring direction is inverted relative to the usual dependency:
+`foundation` owns only the **socket** (`GatedSystem.TimingSink`, a static
+`Action<string, long>?` that defaults to null and is read once per
+`Update`), and this module owns the **plug** — setting
+`SystemProfiler.Enabled` installs `SystemProfiler.Record` as that sink and
+clearing it uninstalls the sink, so disabling mid-run stops recording
+immediately, and with nothing installed no profiler exists in the object
+graph at all, not even as a reference. A gate with a null `ProfileName` is
+never timed even while a sink is installed. Reading the output: the host
+calls `CountFrame()` once per Update and `ReportPeriodically(state, ref
+timer)`, which every `ReportInterval` seconds logs a window through
+`Logger` and resets it. A report is a header line — `[perf] N frames,
+X.XXms/frame in profiled systems:` — followed by one indented row per
+system, `<name> <ms>ms <share>%`, sorted by descending ms/frame; rows
+under 0.01ms/frame are suppressed once 12 rows have been shown (the tail
+is noise). **That format is a parsing contract, not a preference** — the
+`[perf]` lines are grep-parsed by verification tooling, so the header
+wording, the row shape, and the numeric precision must not change.
+
+**Why:** the platform that matters most here is a browser, where attaching
+a native profiler to wasm reports on the runtime rather than on which
+system is heavy; timing at the ECS seam gives the same answer on desktop
+and on web, and it rides `Logger`, which reaches the browser console on a
+web head. Hooking the gate (rather than each system) is what makes the
+coverage total for free — nothing has to opt in — and the injectable sink
+is what keeps the dependency arrow pointing the right way: a sensitive
+core module must not reference an optional debug module just to be
+measurable.
+**Breaks:** calling into this module from `GatedSystem` directly inverts
+the module dependency and drags the profiler into every build that uses
+the run-state model. Recording without a sink check (or timing unnamed
+gates) puts a stopwatch in the hot path of every gated system in every
+shipped game. Leaving the sink installed after `Enabled = false` keeps
+recording — and growing the entry table — for a profiler that is
+supposedly off. Reflowing the `[perf]` header or row format silently
+breaks the tooling that greps it, with no compile error and no test
+failure outside the format test.
+**Tests:** `MonoDreams.Tests/Profiling/SystemProfilerTests.cs` (sink
+install/uninstall, rows named per registration, disable mid-run stops
+recording, format contract).
+**Depends on:** foundation — "Edit-time behaviour is a per-system policy
+honoured by `GatedSystem`".
 
 ## Open questions
 

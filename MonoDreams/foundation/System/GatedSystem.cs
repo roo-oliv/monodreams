@@ -1,3 +1,5 @@
+#nullable enable
+using System;
 using DefaultEcs.System;
 using MonoDreams.State;
 
@@ -47,6 +49,34 @@ public sealed class GatedSystem : ISystem<GameState>
     /// </summary>
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// The profiling <b>socket</b>: an optional sink invoked with
+    /// <c>(<see cref="ProfileName"/>, elapsed Stopwatch ticks)</c> after a named gate forwards to
+    /// its child. Every pipeline entry passes through a gate, so this one seam times an entire
+    /// screen's pipelines — which is exactly why the hook lives here and not in each system.
+    ///
+    /// <para><b>Dependency direction.</b> <c>foundation</c> owns the socket and nothing else:
+    /// it never references the profiler, the debug module, or any timing implementation. The
+    /// <b>plug</b> is installed from the outside — the optional debug module's profiler assigns
+    /// its own recorder here when profiling is turned on, and clears it when profiling is turned
+    /// off. With nothing installed (the default, <c>null</c>) no profiler exists in the build's
+    /// object graph at all, not even as a reference, and the whole feature costs one null check
+    /// per gated <see cref="Update"/>.</para>
+    ///
+    /// <para>Static because gates are constructed all over a screen's composition and the switch is
+    /// process-wide; it is read once per <see cref="Update"/> into a local, so installing or
+    /// uninstalling the sink from another thread mid-frame cannot tear a call.</para>
+    /// </summary>
+    public static Action<string, long>? TimingSink;
+
+    /// <summary>
+    /// This gate's name in a profiling report, set by the composition seam that registered the
+    /// entry (<c>EditorPipelineRegistrar</c> assigns the entry's full hierarchical name, e.g.
+    /// <c>"logic.game.enemies"</c>). <c>null</c> — the default — means the gate is unnamed and is
+    /// therefore <b>never</b> timed, even while a <see cref="TimingSink"/> is installed.
+    /// </summary>
+    public string? ProfileName { get; set; }
+
     public GatedSystem(ISystem<GameState> child, EditTimeBehavior policy)
     {
         _child = child;
@@ -59,7 +89,18 @@ public sealed class GatedSystem : ISystem<GameState>
         if (!ShouldRun(_policy, state.RunMode)) return;
         // The child honors its own IsEnabled internally (per the ISystem contract), so we
         // forward unconditionally once the gate + policy admit this frame.
+        var sink = TimingSink; // one read: the sink can be (un)installed from another thread mid-frame
+        if (sink == null || ProfileName == null)
+        {
+            _child.Update(state);
+            return;
+        }
+
+        // A sink is installed and this gate is named: time the child at this seam — the one
+        // place every pipeline entry passes through (see the optional debug module's profiler).
+        var start = global::System.Diagnostics.Stopwatch.GetTimestamp();
         _child.Update(state);
+        sink(ProfileName, global::System.Diagnostics.Stopwatch.GetTimestamp() - start);
     }
 
     /// <summary>
