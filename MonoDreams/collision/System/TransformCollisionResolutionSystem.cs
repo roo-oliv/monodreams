@@ -85,6 +85,20 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
         var dynamicRect = SATCollision.BoxWorldRect(colliderA.Get<BoxColliderComponent>(), colliderA.Get<TransformComponent>());
         var targetRect = SATCollision.BoxWorldRect(colliderB.Get<BoxColliderComponent>(), colliderB.Get<TransformComponent>());
 
+        // ALREADY INTERPENETRATING: push out along the axis of least overlap (the minimum translation
+        // vector) instead of solving the sweep. A swept solve whose START is inside the target returns
+        // a NEGATIVE contact time, and its "contact point" then sits arbitrarily far back along the
+        // motion — proportional to the TARGET's size, so resolving against one big merged terrain
+        // rectangle teleports the body across it (and, at a world edge, clean out of the world, where
+        // it falls forever). Penetration is not a sweep; it is a depenetration, and this is the
+        // shortest correction that ends it. Bodies that merely TOUCH do not intersect (CollisionRect
+        // uses strict bounds), so resting contacts still take the sweep path below, unchanged.
+        if (dynamicRect.Intersects(targetRect))
+        {
+            ResolvePenetration(dynamicRect, targetRect, bodyA, ref bodyTransform);
+            return;
+        }
+
         if (!TransformCollisionDetectionSystem<TCollisionMessage>.DynamicRectVsRect(dynamicRect, bodyTransform.Delta, targetRect,
                 out var contactPoint, out var contactNormal, out var contactTime)) return;
 
@@ -133,6 +147,43 @@ public class TransformCollisionResolutionSystem<TCollisionMessage> : ISystem<Gam
     // Reusable buffers for box-to-polygon conversion
     private readonly Vector2[] _boxBufA = new Vector2[4];
     private readonly Vector2[] _boxBufB = new Vector2[4];
+
+    /// <summary>
+    /// Depenetrates two overlapping boxes: translate the body along whichever of the four exits is
+    /// shortest, and kill the velocity component on that axis. Independent of how deep the overlap is
+    /// and of how big the target is, so being stuck inside terrain self-heals in a frame or two
+    /// instead of throwing the body somewhere arbitrary.
+    /// </summary>
+    private void ResolvePenetration(in CollisionRect dynamicRect, in CollisionRect targetRect,
+        Entity bodyA, ref TransformComponent bodyTransform)
+    {
+        var pushLeft = dynamicRect.Right - targetRect.Left;   // move -X by this to clear
+        var pushRight = targetRect.Right - dynamicRect.Left;  // move +X
+        var pushUp = dynamicRect.Bottom - targetRect.Top;     // move -Y (y grows down)
+        var pushDown = targetRect.Bottom - dynamicRect.Top;   // move +Y
+
+        var horizontal = MathF.Min(pushLeft, pushRight);
+        var vertical = MathF.Min(pushUp, pushDown);
+
+        if (horizontal <= vertical)
+        {
+            bodyTransform.TranslateX(pushLeft <= pushRight ? -pushLeft : pushRight);
+            if (bodyA.Has<VelocityComponent>())
+            {
+                ref var velocity = ref bodyA.Get<VelocityComponent>();
+                velocity.Current.X = 0;
+            }
+        }
+        else
+        {
+            bodyTransform.TranslateY(pushUp <= pushDown ? -pushUp : pushDown);
+            if (bodyA.Has<VelocityComponent>())
+            {
+                ref var velocity = ref bodyA.Get<VelocityComponent>();
+                velocity.Current.Y = 0;
+            }
+        }
+    }
 
     private void ResolveSAT(Entity colliderA, Entity colliderB, Entity bodyA, Entity bodyB, bool hasBoxA, bool hasBoxB)
     {
