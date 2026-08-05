@@ -498,6 +498,62 @@ drawn-quad-equals-hit-test-quad invariant this must not disturb); level-editor �
 serialization is canonical and byte-stable; `entities[]` is ordered by a persisted stable scene-local
 id" and "`SpriteInfoComponent` serializes an `AssetKey`, never the live `Texture2D`".
 
+## `SpriteAnimationSystem` mutates the sprite's SOURCE fields only
+
+`SpriteAnimationSystem` is an **update-pipeline** system (registered ahead of the draw prep, never
+inside it): it advances each `SpriteAnimationComponent`'s runtime `Time` / `FrameIndex` and writes the
+current frame onto the entity's `SpriteInfoComponent` SOURCE fields — `SpriteSheet` / `AssetKey` /
+`Source`, plus `Size` when the sprite was rendering unscaled (its `Size` equalled its previous
+source's pixel size; a deliberately scaled sprite keeps its authored `Size`). It never touches
+`DrawComponent`, `LayerDepth`, or anything else the render path derives — `SpritePrepSystem` re-reads
+the sprite every frame, so writing the source is enough. It is also deliberately **not greedy about
+the texture**: a frame whose `AssetKey` is `null` keeps whatever texture the sprite currently carries
+(the atlas animation — only `Source` moves), the sheet is reassigned only when a frame's key DIFFERS
+from the sprite's current `AssetKey`, and an injected resolver that returns `null` leaves the current
+texture in place instead of blanking the sprite. Because a frame is applied only when the resolved
+index **changes**, game code may swap the sprite's texture/source itself between updates (a
+white-flash hit blink, a telegraph tint) and the animator will not stomp it back mid-frame — but for
+the same reason, handing the entity a *different* strip of the SAME length can resolve to the same
+index and silently skip the apply, leaving the swapped-in art on screen. The escape hatch is
+`FrameIndex = -1` ("nothing applied yet"), which makes the next update apply frame 0 unconditionally.
+Edit-time policy: register it `Freeze` in editor-capable screens, so in `RunMode.Edit` sprites hold
+their authored frame; and the serializer persists the authored clip only — `Time` / `FrameIndex` never
+reach a `.mdscene`, so a loaded scene always starts an animation from frame 0.
+
+**Why:** the source-vs-derived split is the same one `SpritePrepSystem` / `YSortSystem` already own
+(see "Layer-depth ownership pipeline"): an animator that wrote `DrawComponent` would be a second
+writer of derived state, racing the prep stage and losing whenever prep runs after it. Keeping the
+texture swap conditional on a key CHANGE is what makes the flash/tint trick — mutate the sprite
+directly for a few frames, then hand it back — possible at all, and what keeps a one-texture-per-frame
+strip from re-resolving the same content key every frame. Persisting only the authored clip keeps
+`load → save` a byte fixed point (an animating sprite would otherwise serialize whichever frame the
+save happened to catch).
+**Breaks:** writing `DrawComponent` from the animator forks the prep contract (the frame either
+flickers or is overwritten, depending on registration order). Resolving the texture unconditionally
+(or on every apply) re-loads content every frame and clobbers a game-code texture swap. Applying on
+every update instead of on index change fights any external swap outright. Forgetting `FrameIndex = -1`
+after such a swap leaves the stale art up for the rest of the clip — the confirmed bug from the
+reference game's telegraph flames. Registering it `RunNormally` in an editor screen animates sprites
+while the designer is placing them and makes saves/prefab diffs nondeterministic.
+**Tests:** `MonoDreams.Tests/Rendering/SpriteAnimationTests.cs`
+(`PerFrameDurations_AdvanceAtTheAuthoredBoundaries_AndLoop`;
+`NonLooping_HoldsTheLastFrame_AndClearsPlaying`;
+`NullAssetKeyFrames_MoveOnlyTheSource_AndNeverCallTheResolver`;
+`ResolutionFailure_KeepsTheCurrentTexture_AndStillMovesTheSource`;
+`Serializer_MidAnimationRuntimeState_NeverReachesTheFile`;
+`Serializer_WriteReadWrite_IsByteIdentical_AndReloadsAtFrameZero`;
+`Resolver_IsInvokedOnKeyChangeOnly_AcrossAOneTexturePerFrameStrip`;
+`Resolver_IsNotInvoked_WhenTheFrameKeyEqualsTheSpritesCurrentKey`;
+`FrameIndexMinusOne_ForcesAReApply_AfterGameCodeSwappedTheSpriteItself`;
+`UnscaledSprite_SizeFollowsTheNewSource_WhileAnAuthoredScaleIsPreserved`;
+`Speed_ScalesThePlaybackRate`).
+**Depends on:** "Layer-depth ownership pipeline" and "Rendering systems run last in the pipeline"
+(the animator is upstream of the prep stage it feeds); "Sprite facing/orientation is a flip flag, not
+mirrored art" (the sibling source-field seam — flips compose freely with an animated `Source`);
+foundation — "Edit-time behaviour is a per-system policy honoured by `GatedSystem`" (the `Freeze`
+registration); level-editor — "Scene serialization is canonical and byte-stable; `entities[]` is
+ordered by a persisted stable scene-local id" (why the runtime playback state is excluded).
+
 ## Y-sort tiebreaker is parent-child bias only
 
 `YSortSystem` uses a minimal epsilon (`1e-6f` in

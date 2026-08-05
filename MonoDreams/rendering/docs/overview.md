@@ -13,6 +13,7 @@ This module defines how things appear on screen. It owns the entire draw path �
 - `DrawComponent` (class) — the unified render component; one per renderable entity. `Type` discriminates `Sprite`/`Text`/`NinePatch`/`Mesh`
 - `DrawElement` / `DrawElementType` — enum + helpers for the draw-type discriminator
 - `SpriteInfoComponent` (struct) — texture + source rect + color + layer depth for sprite-typed draws
+- `SpriteAnimationComponent` (struct) — a frame-sequence clip over a sprite: `SpriteAnimationFrame[]` (per-frame asset key + source rect + duration), `DefaultFrameDuration`, `Loop`, `Playing`, `Speed`, plus the runtime `Time` / `FrameIndex` (never serialized)
 - `NinePatchInfo` — source data for nine-patch sprite drawing
 - `VisibleComponent` — empty tag added/removed by `CullingSystem` for Main-target entities; UI/HUD set it themselves
 - `RenderTargetID` — enum: `Main` (world, camera-transformed), `UI` (screen-space), `HUD` (screen-space, on top)
@@ -20,6 +21,7 @@ This module defines how things appear on screen. It owns the entire draw path �
 ### Systems
 
 - `SpritePrepSystem` — copies `SpriteInfoComponent` + `TransformComponent` into `DrawComponent` each frame
+- `SpriteAnimationSystem` — advances each `SpriteAnimationComponent` and writes the current frame onto the sprite's SOURCE fields (texture / asset key / source rect, and size when unscaled); an update-pipeline system registered BEFORE the prep stage, with an injected `resolveTexture` callback for one-texture-per-frame strips. Register it `Freeze` in editor-capable screens
 - `MeshPrepSystem` — invokes each mesh entity's `IMeshGenerator`, copies the resulting `MeshData` + `TransformComponent.WorldMatrix` into `DrawComponent`
 - `CullingSystem` — adds/removes `VisibleComponent` based on camera view bounds (Main target only)
 - `YSortSystem` — writes layer-depth offset for back-to-front Y-sorted layers; parent-child tiebreaker via tiny epsilon
