@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "f3f5d6c06af6",
+  "session_id": "ebe7ba0f-f321-4bd9-bc94-663183837126",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-05T11:48:07.879754Z",
+  "branch": "issue-42",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "MonoDreams.Tests/Rendering/SpriteAnimationTests.cs",
+    "MonoDreams/rendering/Component/Draw/SpriteAnimationComponent.cs",
+    "MonoDreams/rendering/System/Draw/SpriteAnimationSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 41,
+    "cache_creation_tokens": 150293,
+    "cache_read_tokens": 2338379,
+    "output_tokens": 22781,
+    "api_call_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-05T11:48:07.6876Z",
+    "agent_lines": 658,
+    "human_added": 1140,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1798,
+    "agent_percentage": 36.59621802002225
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-39/ebe7ba0f-f321-4bd9-bc94-663183837126.jsonl"
+}
