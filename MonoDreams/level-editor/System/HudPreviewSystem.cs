@@ -108,10 +108,15 @@ public sealed class HudPreviewSystem : ISystem<GameState>
             // Virtual → the camera frame's world rect: the frustum covers virtual/zoom world units
             // centred on the camera entity; text glyphs shrink by the same factor.
             var topLeft = camCenter - virtualSize / (2f * zoom);
+            // The retarget must be re-published so anything filtering DynamicTextComponent by value
+            // observes it (foundation premise "A value-predicate EntitySet re-evaluates only when
+            // the component is published") — but only on the flip, not per preview frame.
+            var retargeted = text.Target != RenderTargetID.Main;
             text.Target = RenderTargetID.Main;
             text.Scale = stash.TextScale / zoom;
             transform.Position = topLeft + stash.VirtualPosition / zoom;
             member.NotifyChanged<TransformComponent>();
+            if (retargeted) member.NotifyChanged<DynamicTextComponent>();
         }
     }
 
@@ -126,6 +131,7 @@ public sealed class HudPreviewSystem : ISystem<GameState>
         text.Scale = stash.TextScale;
         transform.Position = stash.VirtualPosition;
         member.NotifyChanged<TransformComponent>();
+        member.NotifyChanged<DynamicTextComponent>(); // the restore retargets back to the stashed pass
         member.Remove<HudPreviewStashComponent>();
     }
 

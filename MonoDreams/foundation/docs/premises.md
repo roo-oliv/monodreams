@@ -3,8 +3,9 @@
 > Technical invariants the engine assumes about the foundation module:
 > `TransformComponent`, `ChildOfComponent`, `HierarchySystem`,
 > `TransformCommitSystem`, the `EntityHierarchy` resource, the input/replay
-> scaffold, the `Logger`, and the run-state model (`GameState.RunMode`,
-> `EditTimeBehavior`, `GatedSystem`). Read this before changing any of those
+> scaffold, the `Logger`, the run-state model (`GameState.RunMode`,
+> `EditTimeBehavior`, `GatedSystem`), and the engine-wide DefaultEcs
+> component-publication contract. Read this before changing any of those
 > pieces or any system that depends on them.
 
 ## Don't mix two Transform-shaped components in one project
@@ -485,6 +486,42 @@ op channels are protected by `MonoDreams.Tests/LevelEditor/EditorShortcutTests.c
 engine source" (why the OS fact is injected); level-editor — "The editor's keyboard shortcuts are ONE chord
 table, gated by a single viewport context" (the first consumer).
 
+## A value-predicate `EntitySet` re-evaluates only when the component is published
+
+DefaultEcs lets a query filter on a component's VALUE, not only on its presence, and
+the engine uses that twice: `MasterRenderSystem.BuildDrawSet` builds each render
+pass's draw set as `world.GetEntities().With((in DrawComponent d) => d.Target ==
+source)`, and `GravitySystem`'s set is `.With((in TRigidBodyComponent b) =>
+b.Gravity.active)`. Such a set runs its predicate only when the component is
+**published** — `entity.Set(component)` or `entity.NotifyChanged<T>()` — and caches
+the answer as set membership. Mutating the stored value instead publishes nothing:
+neither `ref var c = ref entity.Get<T>(); c.Field = …` nor — because `DrawComponent`
+and `RigidBodyComponent` are *classes*, so `Get<T>()` hands back the stored instance
+— a plain `entity.Get<DrawComponent>().Target = …`. The entity therefore keeps
+whatever membership its last publication earned it. Any code that edits a field a
+predicate reads must follow the edit with `entity.Set(…)` or
+`entity.NotifyChanged<T>()`. Editing fields no predicate reads needs neither — which
+is why `SpritePrepSystem` rewrites a dozen `DrawComponent` fields in place every
+frame and never notifies: `Target` is not one of them.
+
+**Why:** publication is the only signal DefaultEcs has; it cannot observe a write
+made through a `ref` or through a class reference. The failure mode is the worst kind
+of silent one — retarget or re-layer an entity in place and it stays in the OLD
+pass's set while every field on it inspects correct, so it renders where nobody is
+looking, with no exception, no warning, and nothing to grep for. The gravity set
+fails the same way: a body whose `Gravity.active` was switched off in place keeps
+falling.
+**Breaks:** an in-place retarget draws through the previous pass, or through none at
+all if that pass no longer exists; a debugger shows the new value while the screen
+shows the old behaviour. The opposite mistake is cheaper but real —
+`NotifyChanged` per entity per frame re-runs every predicate set subscribed to that
+component type, turning a cached membership test into a per-frame one.
+**Tests:** none yet.
+**Depends on:** rendering — "One `MasterRenderSystem` instance is one render pass"
+(the `DrawComponent.Target` predicate set); physics — "`GravitySystem` affects only
+entities with `RigidBodyComponent` + `VelocityComponent`" (the engine's second
+value-predicate set).
+
 ## Open questions
 
 - **Entity disposed mid-frame:** convention not yet established —
@@ -518,6 +555,7 @@ documented but not programmatically protected:
 - Children are disposed with their parents
 - `WorldMatrix` is cached and computed lazily
 - `Logger` requires `Initialize` before any write
+- A value-predicate `EntitySet` re-evaluates only when the component is published
 
 Architectural tests (ArchUnit-style) protecting these are on the engine
 backlog.

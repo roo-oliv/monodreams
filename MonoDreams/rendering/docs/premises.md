@@ -219,6 +219,43 @@ whose producer forgets to dispose it keeps drawing forever.
 **Depends on:** level-editor — "Tile sprites stream per chunk; colliders
 bake whole" (the producer the exemption exists for).
 
+## Main-target TEXT (and bare meshes) get `VisibleComponent` from whoever spawns them
+
+`CullingSystem` is `[With(typeof(SpriteInfoComponent), typeof(TransformComponent))]`
+and derives its cull rectangle from `SpriteInfoComponent` — `Size`, `Source`,
+`Origin`, `Offset`, plus `Target` for the Main-only early-out. An entity with no
+`SpriteInfoComponent` — a `DynamicTextComponent` label, a procedural mesh — is
+therefore not in the culling set at all, so `CullingSystem` neither adds nor removes
+`VisibleComponent` on it. But `MasterRenderSystem`'s Main pass DOES filter on the tag
+(`BuildDrawSet` appends `.With<VisibleComponent>()` when `source == Main`), so a
+Main-target text or mesh entity that nobody tagged is never drawn. For these entities
+the PRODUCER owns the tag: it sets `VisibleComponent` at creation and removes it to
+hide. This does not contradict "`VisibleComponent` is owned exclusively by
+`CullingSystem`" — there is nothing to arbitrate, because the entity is outside the
+culler's query by construction. Note also that `TextPrepSystem` does **not** gate on
+the tag (unlike `SpritePrepSystem`, `YSortSystem` and `MeshPrepSystem`, which all
+declare `[With(typeof(VisibleComponent))]`), so an untagged label's `DrawComponent` is
+faithfully prepared every frame and then filtered out of the draw set.
+
+**Why:** culling needs a rectangle, and `SpriteInfoComponent` is the only source of
+one in the engine — text extents come from a font measurement the culler has no font
+to make. The shipped pattern is explicit at both call sites: `DialogueSystem` tags its
+text entity on creation (`if (_renderTarget != RenderTargetID.UI)
+_dialogueState.TextEntity.Set<VisibleComponent>()`), and the dialogue demo's
+Main-target prompt labels are toggled as a group by its NPC-interaction system.
+**Breaks:** the canonical invisible-text bug — a world-space label with a font, a
+colour, a correct `TransformComponent` and a `DrawComponent` that simply never
+appears, with zero errors anywhere and every field inspecting correct. In the other
+direction, a producer that sets the tag and never removes it keeps the entity drawn
+after the camera has left it; the culler will not clean up after you. (The
+enhancement that would retire this premise — a text- and mesh-aware `CullingSystem` —
+is listed under Aspirational direction below.)
+**Tests:** none yet.
+**Depends on:** "Renderable entity stack on the Main target" (the tag the Main query
+requires); "`VisibleComponent` is owned exclusively by `CullingSystem`" (the
+arbitration this case sits outside of); rendering-text — "Text pipeline order:
+`TextUpdateSystem` → `TextPrepSystem` → `MasterRenderSystem`".
+
 ## Three render targets, two behaviors
 
 `RenderTargetID.Main` is camera-transformed and respects culling.
@@ -870,6 +907,59 @@ to dim a fill makes it brighter, not dimmer.
 ui — "`ToggleSwitchComponent` drives a checkmark mesh's visibility from a
 bool".
 
+## `SpriteInfoComponent.Color` is a multiply tint — it can darken, never whiten
+
+`SpritePrepSystem` copies `SpriteInfoComponent.Color` into `DrawComponent.Color`, and
+`MasterRenderSystem` passes that straight to `SpriteBatch.Draw` as the `color`
+argument — which the GPU MULTIPLIES with the sampled texel. A tint can therefore only
+take channels down: `Color.White` is the identity, `Color.Red` kills green and blue,
+and no value exists that makes a dark pixel bright. (`SpriteInfoComponent.Color`
+defaults to `default` — transparent black — so a factory that never assigns it
+multiplies the sprite away entirely; `DrawComponent.Color` defaults to `Color.White`,
+which is why an entity whose sprite is prepared by something other than
+`SpritePrepSystem` looks fine.) A hit-flash, a freeze-white, or any "flash the sprite
+solid white" effect consequently cannot be a tint at all: it needs a SECOND
+texture — a white silhouette derived from the sheet at runtime, every pixel's RGB
+forced to white and its alpha preserved — swapped in for the flash frames.
+
+**The mask derivation must DETECT the alpha convention**, because the same art reaches
+this engine both ways. The MGCB content pipeline builds textures with
+`/processorParam:PremultiplyAlpha=True`, so a transparent margin's RGB is already
+multiplied down toward zero; a raw file loader does not —
+`FileAssetTextureLoader` (level-editor) decodes drop-folder PNGs through
+`Texture2D.FromStream`, which leaves straight alpha. Write `(255,255,255,a)` over a
+premultiplied source and the transparent margin becomes an opaque white block; write
+`(a,a,a,a)` over a straight-alpha source and the flash comes out grey and
+semi-transparent. Prefer deciding from the asset's actual route when it is known
+(which loader produced the texture). A pixel scan is one-way evidence only: any pixel
+whose max RGB channel exceeds its alpha PROVES straight alpha, but a texture with no
+such pixel is ambiguous — dark straight-alpha art passes the same test. Treating an
+ambiguous texture as premultiplied is the safer fallback: the residual error is
+confined to semi-transparent pixels (an opaque pixel's mask is white either way),
+where the other misclassification paints the opaque white block.
+
+**Why:** `SpriteBatch` offers exactly one per-draw colour input and it is a multiply;
+there is no additive or replace mode short of a custom effect, which the sole-renderer
+rule (see "`MasterRenderSystem` is the sole render *implementation*") puts outside
+game code. Deriving the mask is therefore the only path, and detecting the convention
+is what makes one derivation correct for both content routes — which matters because a
+sprite can move between them (a `file:` key graduating to an MGCB content key changes
+the convention without changing the art).
+**Breaks:** trying to whiten with a tint produces no visible change at all (the
+brightest a multiply reaches is the untinted texel), so the effect reads as "the flash
+isn't firing" and the hunt goes to the game logic. Getting the convention backwards
+paints an opaque white rectangle over the sprite's transparent margin — the flash
+becomes a box. Assuming premultiplied because "the pipeline does it" breaks the moment
+a drop-folder PNG is involved.
+**Tests:** none yet (no mask derivation ships in the engine today — this premise is
+the contract for game code that adds one).
+**Depends on:** "A sprite's drawn quad honors `Transform.WorldScale` exactly once"
+(the same `SpritePrepSystem` → `DrawComponent` → `SpriteBatch.Draw` hand-off); "The
+mesh render path uses premultiplied alpha — UI fills must be opaque" (the mesh-side
+alpha trap this is the sprite-side sibling of); level-editor —
+"`SpriteInfoComponent` serializes an `AssetKey`, never the live `Texture2D`" (the two
+loader routes a key can resolve through).
+
 ## Scrollable content uses a dedicated `RenderTargetID.Scroll` target composited via `RenderLayer.Overlay`
 
 Scrollable UI regions render into their own `RenderTargetID.Scroll` render
@@ -935,16 +1025,27 @@ premultiplied alpha — UI fills must be opaque".
   settled convention.
 - **`DrawElement` cache invalidation** — what happens if a prep system
   mutates `SpriteInfoComponent` after the draw queue was built?
-- **Mesh culling extents** — meshes get `VisibleComponent` from
-  `CullingSystem` based on `TransformComponent.WorldPosition` against
-  the camera bounds. A mesh's actual extents (computed from its
-  vertices) might lie outside the position's frustum, causing visible
-  pop-out at edges. No bounding-box-from-vertices logic exists today.
+- **Mesh culling extents** — a bare mesh has no `SpriteInfoComponent`, so
+  it is outside `CullingSystem`'s query entirely and its producer sets
+  `VisibleComponent` itself (see "Main-target TEXT (and bare meshes) get
+  `VisibleComponent` from whoever spawns them"). If culling ever becomes
+  mesh-aware, the rectangle must come from the mesh's vertex extents, not
+  from `TransformComponent.WorldPosition` alone — extents can lie outside
+  the position's frustum, causing visible pop-out at edges. No
+  bounding-box-from-vertices logic exists today.
 
 ## Aspirational direction
 
 - `VisibleComponent` becomes a property of `DrawComponent` (removes the
   easy-to-miss tag).
+- **`CullingSystem` becomes text- and mesh-aware.** Today it derives bounds
+  from `SpriteInfoComponent` only, so a Main-target text or bare-mesh entity
+  is outside its query and its producer must own `VisibleComponent` (see
+  "Main-target TEXT (and bare meshes) get `VisibleComponent` from whoever
+  spawns them"). Deriving a rectangle for `DynamicTextComponent` from a font
+  measurement, and for a mesh from its vertex extents (the "Mesh culling
+  extents" open question above), would restore a single owner of the tag on
+  the Main target.
 - Multi-view (minimap / splitscreen / CCTV / portals) is now possible by
   composing `MasterRenderSystem` instances + `RenderLayer`s (the camera
   demo ships a minimap). What's still missing is **per-view culling**: a
@@ -976,6 +1077,7 @@ The following premises currently have **Tests: none yet**:
 - `FinalDrawSystem` composites an explicit, ordered layer list
 - Renderable entity stack on the Main target
 - `VisibleComponent` is owned exclusively by `CullingSystem`
+- Main-target TEXT (and bare meshes) get `VisibleComponent` from whoever spawns them
 - Three render targets, two behaviors
 - `MasterRenderSystem` samples per draw type: sprites/meshes PointClamp, text LinearClamp
 - Rendering systems run last in the pipeline
@@ -986,6 +1088,7 @@ The following premises currently have **Tests: none yet**:
 - `MeshPrepSystem` writes the world matrix once per frame
 - `CompositeMeshGenerator` rebases indices into the combined buffer
 - The mesh render path uses premultiplied alpha — UI fills must be opaque
+- `SpriteInfoComponent.Color` is a multiply tint — it can darken, never whiten
 - Scrollable content uses a dedicated `RenderTargetID.Scroll` target composited via `RenderLayer.Overlay`
 - `RoundedRectangleOutlineMeshGenerator` draws a stroked rounded-rectangle border
 

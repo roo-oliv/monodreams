@@ -94,6 +94,12 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
         else
         {
             ref var drawComponent = ref entity.Get<DrawComponent>();
+            // Target feeds MasterRenderSystem's value-predicate draw sets, which re-evaluate only
+            // on publication (foundation premise "A value-predicate EntitySet re-evaluates only
+            // when the component is published") — so a retarget must be re-published, and ONLY a
+            // retarget: this runs per button per frame, and an unconditional notify would re-run
+            // every pass's predicate each frame.
+            var retargeted = drawComponent.Target != outline.Target;
             drawComponent.Type = DrawElementType.Mesh;
             drawComponent.Vertices = vertices.ToArray();
             drawComponent.Indices = indices.ToArray();
@@ -101,6 +107,7 @@ public class ButtonMeshPrepSystem(World world) : AEntitySetSystem<GameState>(wor
             drawComponent.Target = outline.Target;
             drawComponent.LayerDepth = layerDepth;
             drawComponent.WorldMatrix = Matrix.Identity;
+            if (retargeted) entity.NotifyChanged<DrawComponent>();
         }
     }
 

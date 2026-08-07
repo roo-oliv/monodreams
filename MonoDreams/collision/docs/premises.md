@@ -120,6 +120,46 @@ plain-parent-falls-back-to-self).
 **Depends on:** foundation — "`ChildOfComponent` and `TransformComponent.Parent` are two
 intentional links"; physics — "`GravitySystem`/`VelocitySystem`" (the body markers).
 
+## A `ChildOf`-parented collider costs hierarchy work every frame; mass-produced statics go unparented
+
+Parent a collider when it must ride a body or share its lifecycle — `ColliderBody.Resolve`
+walks the `ChildOf` chain, so that link IS the model. A collider with no physics ancestor is
+already its own body (static geometry, trigger zones), so parenting it buys nothing but cost,
+and the cost is per parented entity per frame: `HierarchySystem.Update` makes **three full
+passes over the `ChildOf` set** every frame — `DisposeOrphans`, then
+`EntityHierarchy.Rebuild` (which also clears and repopulates two dictionaries, allocating a
+`List<Entity>` per parent), then `SyncTransformParents` — on top of the **three passes over
+the `TransformComponent` set** in `PropagateDirtyFlags` (build the parent→children map,
+collect the changed roots, clear every propagation flag). A parented collider is therefore
+visited six times a frame plus a dictionary insert; an unparented one, three. That is fine for
+a handful and dominant for thousands: when a view's worth of mass-produced tile children
+stopped being parented, the measured hierarchy cost fell from **1.42 ms to 0.23 ms per
+frame**. So a producer that mass-produces static colliders should spawn them UNPARENTED with
+their pose written directly in world space — and then owns their disposal itself, since
+nothing will cascade for it. (The live counterweight: `TileGridBakeSystem` still
+`SetParent`s its greedy-merged tile colliders to the grid entity, deliberately, so deleting a
+grid cascade-disposes them. The merge keeps them few by design, but a large painted world
+bakes thousands, so that is a named trade, not a free choice.)
+
+**Why:** the hierarchy passes are unconditional — they cost whether or not anything moved —
+and a baked-collider producer is exactly the code that can turn thousands of entities into
+`ChildOf` members in one bake. The escape is safe only because a standalone collider needs no
+parent to be found by detection (the auto-`ColliderTagComponent` is what detection queries)
+and no parent to resolve its body (it resolves to itself).
+**Breaks:** parenting mass-produced static colliders puts them in six per-frame set walks and
+a per-frame dictionary rebuild, showing up as a flat frame-time tax that profiles inside
+`HierarchySystem` and looks nothing like a collision problem. Unparenting them without moving
+the disposal responsibility to the producer leaks every collider the producer forgets — there
+is no cascade to catch them — and unparenting a collider that was riding a body silently
+freezes it in world space while its body moves away.
+**Tests:** none yet.
+**Depends on:** foundation — "`HierarchySystem` must run ahead of any system reading
+WorldPosition" and "Children are disposed with their parents" (the cascade the unparented
+producer gives up); this file — "A collider's body is resolved via `ColliderBody.Resolve`"
+(why a standalone collider needs no parent); level-editor — "Tile sprites stream per chunk;
+colliders bake whole" (the shipping producer, and the sprite side that already took this
+escape).
+
 ## Resolution corrects the BODY's Transform/Velocity, never the collider child
 
 The resolution systems apply the position correction (box: translate the body so its
@@ -202,6 +242,57 @@ shipping `TransformPhysicalCollisionResolutionSystem`, so all of them fail if th
 re-annotated).
 **Depends on:** this file — "Overlapping bodies depenetrate; only separated ones sweep";
 "Multi-collider bodies are legal; resolution accumulates sequentially with re-validation".
+
+## A one-way platform is a resolution FILTER plus a half-thickness collider drop
+
+The engine has no one-way-platform primitive and needs none: the seam already exists as the
+resolution system's `protected virtual void On(in TCollisionMessage)` — the same override
+`TransformPhysicalCollisionResolutionSystem` uses to admit only `CollisionType.Physics`
+contacts. Game code builds a one-way platform by subclassing a resolution system (or by
+classifying upstream in its `CreateCollisionMessageDelegate`) and admitting a platform contact
+only when BOTH conditions hold: the body is **falling** (`VelocityComponent.Current.Y > 0` —
+y grows down) and its feet were **above the platform's top face** before the motion (the
+body's collider bottom versus `SATCollision.BoxWorldRect(plate…).Top`, backed out by the
+body's `TransformComponent.Delta` to get the pre-move edge). A rejected message is simply not
+added to `Collisions`, so the body passes through, upward or sideways, with no correction. The
+override must NOT re-apply `[Subscribe]` — see "Each collision message is handled exactly once
+per resolution system".
+
+**And the plate's collider must be dropped by half its thickness.** A `BoxColliderComponent`
+is CENTERED on its collider entity's `WorldPosition` (there is no offset field), so a collider
+entity placed on the visible surface line puts the box's top face half a thickness ABOVE the
+art. The body is then stopped short of the pixels it should stand on, and — worse — while
+rising through the plate its feet are inside the box, which the falling-and-above test can read
+as a legitimate landing on the next descending frame. Offset the collider entity DOWN by half
+the box's effective world-space thickness so the top face is flush with the surface the player
+sees — `Size.Y / 2` for an unscaled collider; `SATCollision.BoxWorldRect` multiplies `Size` by
+`WorldScale`, so a scaled plate drops by `Size.Y * WorldScale.Y / 2`.
+
+**Why:** one-way behaviour is a *policy* about which contacts count, not a new geometry or a
+new component, so it belongs in the resolver's message filter — the framework's
+general-over-specialized rule. Putting it anywhere else (a flag consulted inside
+`ResolveBoxVsBox`, a second resolution system) forks a path every game would then have to
+opt out of. The half-thickness drop is a consequence of the centered-box model, not of the
+filter: it applies to any thin plate authored against a visible surface line.
+**Breaks:** filtering on "moving downward" alone lets a body that clipped a corner get snapped
+up onto the plate from below; filtering on "feet above the top" alone re-blocks a body jumping
+through (its feet cross the line mid-arc). Re-annotating the override with `[Subscribe]`
+registers the handler twice and every admitted contact resolves twice. Centring the collider
+on the surface line leaves the box's top face standing half a thickness proud of the art, so
+the body is blocked in the air above the surface and its feet occupy that band while rising —
+which is what makes a thin plate read as a wall instead of a floor ("I should land on it and
+instead I bounce off nothing above it").
+**Tests:** none yet (no one-way platform ships in the engine or its reference games; the
+filter seam itself — the `On` override — is covered by
+`MonoDreams.Tests/Collision/PenetrationResolutionTests.cs`, which drives
+`TransformPhysicalCollisionResolutionSystem`).
+**Depends on:** this file — "Each collision message is handled exactly once per resolution
+system" (the override seam and its `[Subscribe]` trap); "A collider IS an entity
+(colliders-as-entities)" (the centered `Size`, which is why the drop is needed); "Resolution
+corrects the BODY's Transform/Velocity, never the collider child" (the delta and velocity the
+filter reads belong to the body); "Overlapping bodies depenetrate; only separated ones sweep"
+(a body admitted while already overlapping the plate takes the depenetration path, not the
+sweep).
 
 ## Multi-collider bodies are legal; resolution accumulates sequentially with re-validation
 
@@ -441,6 +532,8 @@ The following premises currently have **Tests: none yet**:
 - `TransformCollisionDetectionSystem` is single-threaded by design
 - Layer-based filtering is the semantic pair filter
 - Collision today couples to `TransformComponent` directly
+- A `ChildOf`-parented collider costs hierarchy work every frame
+- A one-way platform is a resolution FILTER plus a half-thickness collider drop
 
 The `BroadPhaseAABB`, the colliders-as-entities model, body resolution, the write-back
 rule, multi-collider bodies, the four-entity message, and the perf smoke now carry test
