@@ -21,9 +21,10 @@ namespace MonoDreams.LevelEditor.System;
 
 /// <summary>
 /// Loads a native MonoDreams scene in response to a <see cref="LoadSceneRequest"/>. This is the
-/// read half of Wave 3 — deliberately on its <b>own</b> message, never <c>LoadLevelRequest</c>, so
-/// it never triggers (or, on failure, clobbers) the LDtk content path
-/// (<c>LevelLoadRequestSystem</c>'s unconditional <c>Content.Load</c> / <c>Remove&lt;CurrentLevelComponent&gt;</c>).
+/// read half of Wave 3 — deliberately on its <b>own</b> message, never <c>LoadLevelRequest</c>, so a
+/// native-scene load never enters whichever level dispatcher the screen composed (the native-only
+/// <c>LevelLoadRequestSystem</c>, or an import pipeline's <c>LDtkLevelLoadSystem</c>) and can never
+/// have its world-level level state clobbered by that dispatcher's miss path.
 ///
 /// <para>It reconstructs entities from serialized components, never by re-running factories. Two
 /// passes (delegated to <see cref="SceneSerializer.Deserialize"/>): create every entity +

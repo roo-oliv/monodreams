@@ -191,7 +191,7 @@ public class EditorTransportTests
 
         // The LDtk parsers subscribe to CurrentLevelComponent ADDED — a re-publish over a still-set
         // component would fire Changed instead, so restart must remove it first.
-        world.Set(new CurrentLevelComponent(null));
+        world.Set(new CurrentLevelComponent("Level_0"));
         world.Set(new CurrentBackgroundColorComponent(Color.Black));
 
         transport.Restart(Paused());

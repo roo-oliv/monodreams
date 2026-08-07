@@ -7,14 +7,16 @@ namespace MonoDreams.LevelEditor.Message;
 /// Requests loading a <b>native MonoDreams scene</b> (the editor's own format) — either from a path
 /// (a file / content read) or from an <b>already-built <see cref="SceneData"/> in memory</b>.
 ///
-/// <para>This message is deliberately <b>separate</b> from <c>LoadLevelRequest</c>. The LDtk
-/// handler on <c>LoadLevelRequest</c> (<c>LevelLoadRequestSystem</c>) unconditionally runs
-/// <c>content.Load&lt;LDtkLevel&gt;</c> and sets / removes the <c>CurrentLevelComponent</c> singleton —
-/// driving the LDtk tile + entity parsers. If the native scene loader shared that message, a
-/// native-scene load would also trigger (and on failure, clobber) the LDtk pipeline. A dedicated
-/// message keeps the two load paths independent: <c>LoadSceneRequest</c> drives only the
-/// <c>SceneReaderSystem</c>, which reconstructs entities from serialized components — never via the
-/// LDtk content path.</para>
+/// <para>This message is deliberately <b>separate</b> from <c>LoadLevelRequest</c>. Exactly one
+/// dispatcher handles <c>LoadLevelRequest</c> per pipeline — the native-only
+/// <c>LevelLoadRequestSystem</c> at game boot, or a format module's own loader in an import
+/// pipeline (<c>level-ldtk</c>'s <c>LDtkLevelLoadSystem</c>, which loads an <c>.ldtk</c> file and
+/// sets the level components that drive its tile + entity parsers). Sharing that message would
+/// mean a native-scene load also entered whichever level dispatcher the screen composed — and, on
+/// a miss, let it clobber the world-level level state. A dedicated message keeps the load paths
+/// independent and lets the reader be published DIRECTLY, with no dispatcher composed at all:
+/// <c>LoadSceneRequest</c> drives only the <c>SceneReaderSystem</c>, which reconstructs entities
+/// from serialized components.</para>
 ///
 /// <para><b>In-memory restore (UX2-F).</b> The <see cref="Scene"/> overload carries an already-built
 /// <see cref="SceneData"/> so a restore skips the file read but runs the <b>identical</b> reader

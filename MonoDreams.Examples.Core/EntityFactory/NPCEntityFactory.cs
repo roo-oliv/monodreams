@@ -12,6 +12,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Extension;
 using MonoDreams.Message;
+using MonoDreams.System.Level;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -22,6 +23,20 @@ public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEn
 {
     private const string CharactersTilesetKey = "Characters";
     private readonly Texture2D _charactersTileset = content.Load<Texture2D>(CharactersTilesetKey);
+
+    /// <summary>The LDtk layer opacity off the request's <c>ldtk:</c> channel; 1 for a code-driven
+    /// spawn that carries no LDtk layer context.</summary>
+    private static float LayerOpacity(in EntitySpawnRequest request) =>
+        request.CustomFields.TryGetValue(LDtkSpawnFields.LayerOpacity, out var value) && value is float opacity
+            ? opacity
+            : 1f;
+
+    /// <summary>The LDtk layer grid size off the request's <c>ldtk:</c> channel; 16 for a code-driven
+    /// spawn that carries no LDtk layer context.</summary>
+    private static int GridSize(in EntitySpawnRequest request) =>
+        request.CustomFields.TryGetValue(LDtkSpawnFields.GridSize, out var value) && value is int gridSize
+            ? gridSize
+            : 16;
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -41,14 +56,15 @@ public class NPCEntityFactory(ContentManager content, DrawLayerMap layers) : IEn
         npcCollider.SetParent(entity);
 
         // Add sprite information for rendering
+        var gridSize = GridSize(request);
         entity.Set(new SpriteInfoComponent
         {
             SpriteSheet = _charactersTileset,
             AssetKey = CharactersTilesetKey, // so the editor can re-load this texture on scene load
             Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
-                                 request.Layer._GridSize, request.Layer._GridSize),
-            Size = new Vector2(request.Layer._GridSize, request.Layer._GridSize),
-            Color = Color.White * request.Layer._Opacity,
+                                 gridSize, gridSize),
+            Size = new Vector2(gridSize, gridSize),
+            Color = Color.White * LayerOpacity(request),
             Target = RenderTargetID.Main,
             LayerDepth = layers.GetDepth(GameDrawLayer.Characters)
         });

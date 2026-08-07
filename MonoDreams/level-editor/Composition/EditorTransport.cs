@@ -29,9 +29,10 @@ namespace MonoDreams.LevelEditor.Composition;
 ///   <item><b>Restart</b> — return the world to the state of the ORIGINAL load: clear the undo
 ///   history (its entries reference entities about to die), <see cref="ViewportContextStack.ResetToScene"/>
 ///   (drop any Game tab, land on the Scene tab, forget the in-memory snapshot), remove the world-level
-///   level components (<see cref="CurrentLevelComponent"/> / <see cref="CurrentBackgroundColorComponent"/> —
-///   the LDtk parsers subscribe to the component <i>added</i> event, so a re-publish over a
-///   still-set component would never re-parse), dispose every scene entity, re-run the screen's
+///   <b>marker</b> components (<see cref="CurrentLevelComponent"/> — a plain string level id now — and
+///   <see cref="CurrentBackgroundColorComponent"/>, so the reload starts from a clean world-level
+///   state; a <c>Set</c> over a still-present component fires <i>Changed</i>, not <i>Added</i>), dispose
+///   every scene entity, re-run the screen's
 ///   recorded <see cref="Reload"/>, and land <b>Paused</b> (also when restarted mid-Play). <b>Unsaved live
 ///   edits are DISCARDED</b> — the standard play-mode trade-off; Save first if you want to keep them.</item>
 /// </list>
@@ -390,8 +391,11 @@ public sealed class EditorTransport
     /// <summary>The restart teardown + reload-from-disk core (also the restart-undo entry's REDO).</summary>
     private void ReloadFromDisk()
     {
-        // The world-level level components must go BEFORE the re-publish: the LDtk parsers react
-        // to CurrentLevelComponent ADDED (a Set over a present component fires Changed instead).
+        // The world-level MARKER components must go BEFORE the re-publish, so the reload starts from a
+        // clean world-level state (a Set over a still-present component fires Changed, not Added).
+        // Scope note: the LDtk parsers key off level-ldtk's own LDtkLevelDataComponent, which exists
+        // only in the import-op composition — where this transport never runs — so it is deliberately
+        // not swept here.
         _world.Remove<CurrentLevelComponent>();
         _world.Remove<CurrentBackgroundColorComponent>();
 

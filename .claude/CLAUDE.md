@@ -89,12 +89,19 @@ modules into real game screens — start at
 - `GravitySystem` and `VelocitySystem` in `MonoDreams/physics/System/`.
 
 ## Level loading
-- LDtk parser in `level-ldtk`. Shared spawn plumbing in `level-loading`.
+- LDtk loader + parsers in `level-ldtk`. Shared, **format-agnostic** spawn
+  plumbing in `level-loading` — it carries no LDtk type; the arrow is
+  level-ldtk → level-loading, never the reverse.
 - `LoadLevelRequest` message triggers the pipeline.
-- LDtk parsers are component-driven (subscribe to `CurrentLevelComponent`
-  added). At game boot the pipeline is native-only (`LoadLevelRequest` →
-  native `.mdscene` via the native reader, else fail loud); the LDtk parser
-  is import-only machinery, composed only in the import op.
+- LDtk parsers are component-driven (subscribe to `LDtkLevelDataComponent`
+  added — the LDtk module's own level singleton holding the `LDtkLevel`;
+  `CurrentLevelComponent` is just a `string LevelIdentifier` marker). At game
+  boot the pipeline is native-only (`LoadLevelRequest` → native `.mdscene` via
+  the native reader, else fail loud — `new LevelLoadRequestSystem(world,
+  probe)`); the LDtk module is import-only machinery, and the import op
+  composes `LDtkLevelLoadSystem` in place of `LevelLoadRequestSystem`.
+- Layer-derived spawn data rides `EntitySpawnRequest.CustomFields` under
+  `LDtkSpawnFields`' `ldtk:` keys (`request.Layer` no longer exists).
 
 ## Debug infrastructure
 - **Logger** — `MonoDreams.State.Logger` (`foundation` module). Replaces

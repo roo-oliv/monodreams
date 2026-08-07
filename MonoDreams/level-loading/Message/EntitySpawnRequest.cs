@@ -1,22 +1,27 @@
 using System.Collections.Generic;
-using LDtk;
 using Microsoft.Xna.Framework;
 
 namespace MonoDreams.Message;
 
 /// <summary>
-/// Message published when an LDtk entity instance should be spawned into the ECS world.
-/// Contains parsed data from the LDtkEntityInstance.
+/// Message published when an entity should be spawned into the ECS world. Carries the entity's
+/// identifier plus placement data; <c>EntitySpawnSystem</c> routes it to the registered
+/// <c>IEntityFactory</c> for that identifier (exact match, else a prefix channel like <c>"prefab:"</c>).
+///
+/// <para>The message is <b>format-agnostic</b>: it carries no LDtk (or any other importer's) types.
+/// Importer-specific extras ride in <see cref="CustomFields"/> under a namespaced key — the LDtk
+/// parsers publish layer opacity / grid size under the <c>ldtk:</c> keys in
+/// <c>LDtkSpawnFields</c> (level-ldtk).</para>
 /// </summary>
 public readonly struct EntitySpawnRequest
 {
     /// <summary>
-    /// The identifier of the entity definition in LDtk (e.g., "PlayerStart", "NPC").
+    /// The identifier of the entity definition (e.g., "PlayerStart", "NPC", "prefab:door").
     /// </summary>
     public readonly string Identifier;
 
     /// <summary>
-    /// The unique instance identifier (IID) of the entity in the LDtk level.
+    /// A unique instance identifier for this spawn, or empty for code-driven spawns.
     /// </summary>
     public readonly string InstanceIid;
 
@@ -36,11 +41,11 @@ public readonly struct EntitySpawnRequest
     public readonly Vector2 Pivot;
 
     public readonly Vector2 TilesetPosition;
-    public readonly LayerInstance Layer;
 
     /// <summary>
     /// A dictionary containing the parsed custom fields for this entity instance.
     /// Keys are field identifiers (names), values are parsed objects (int, float, bool, string, Vector2 for Point, etc.).
+    /// Importer-derived extras use a namespaced key (see <c>LDtkSpawnFields</c>).
     /// </summary>
     public readonly Dictionary<string, object> CustomFields;
 
@@ -50,7 +55,6 @@ public readonly struct EntitySpawnRequest
         Vector2 size,
         Vector2 pivot,
         Vector2 tilesetPosition,
-        LayerInstance layer,
         Dictionary<string, object> customFields)
     {
         Identifier = identifier;
@@ -59,15 +63,14 @@ public readonly struct EntitySpawnRequest
         Size = size;
         Pivot = pivot;
         TilesetPosition = tilesetPosition;
-        Layer = layer;
         CustomFields = customFields ?? new Dictionary<string, object>();
     }
 
     /// <summary>
     /// A lightweight spawn request — just an <paramref name="identifier"/> and a world
-    /// <paramref name="position"/> — for code-driven spawns that carry no LDtk layer/tileset context
-    /// (e.g. the <c>"prefab:&lt;id&gt;"</c> channel: <c>new EntitySpawnRequest("prefab:npc-boldo", pos)</c>).
-    /// Size / pivot / tileset default to zero, the LDtk layer is null, and custom fields are empty.
+    /// <paramref name="position"/> — for code-driven spawns (e.g. the <c>"prefab:&lt;id&gt;"</c> channel:
+    /// <c>new EntitySpawnRequest("prefab:npc-boldo", pos)</c>). Size / pivot / tileset default to zero and
+    /// custom fields are empty.
     /// </summary>
     public EntitySpawnRequest(string identifier, Vector2 position)
     {
@@ -77,7 +80,6 @@ public readonly struct EntitySpawnRequest
         Size = Vector2.Zero;
         Pivot = Vector2.Zero;
         TilesetPosition = Vector2.Zero;
-        Layer = null;
         CustomFields = new Dictionary<string, object>();
     }
 }

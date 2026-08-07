@@ -61,8 +61,8 @@ with the change's module footprint (see
 | [`camera`](flows/camera.md) | | Follow target → camera position, ordered before culling/render reads it. |
 | [`physics`](flows/physics.md) | | Physics tick: gravity → velocity integrate → handoff to collision (Transform.Delta). |
 | [`collision`](flows/collision.md) | | Detection (AABB + SAT, swept via Delta) → `CollisionMessage` → resolution. |
-| [`level-loading`](flows/level-loading.md) | | `LoadLevelRequest` → `CurrentLevelComponent` / `EntitySpawnRequest` → factory-by-id dispatch. |
-| [`level-ldtk`](flows/level-ldtk.md) | | Component-driven LDtk parse (tiles + entities) on `CurrentLevelComponent` add. |
+| [`level-loading`](flows/level-loading.md) | | Format-agnostic plumbing: `LoadLevelRequest` → native `.mdscene` or fail loud; `EntitySpawnRequest` → factory-by-id dispatch. |
+| [`level-ldtk`](flows/level-ldtk.md) | | Import-only LDtk path: `LDtkLevelLoadSystem` → component-driven parse (tiles + entities) on `LDtkLevelDataComponent` add. |
 | [`ui`](flows/ui.md) | | Auto-layout: build tree → intrinsic sizing (bottom-up) → flexbox placement (top-down). |
 | [`cursor`](flows/cursor.md) | | Poll input → project across coordinate spaces → paint cursor on top (HUD). |
 | [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |

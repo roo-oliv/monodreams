@@ -38,16 +38,16 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _content = content ?? throw new ArgumentNullException(nameof(content));
 
-        _levelLoadedSubscription = _world.SubscribeWorldComponentAdded<CurrentLevelComponent>(HandleLevelLoaded);
-        _levelUnloadedSubscription = _world.SubscribeWorldComponentRemoved<CurrentLevelComponent>(HandleLevelUnloaded);
+        _levelLoadedSubscription = _world.SubscribeWorldComponentAdded<LDtkLevelDataComponent>(HandleLevelLoaded);
+        _levelUnloadedSubscription = _world.SubscribeWorldComponentRemoved<LDtkLevelDataComponent>(HandleLevelUnloaded);
 
-        if (_world.Has<CurrentLevelComponent>())
+        if (_world.Has<LDtkLevelDataComponent>())
         {
-            HandleLevelLoaded(_world, _world.Get<CurrentLevelComponent>());
+            HandleLevelLoaded(_world, _world.Get<LDtkLevelDataComponent>());
         }
     }
 
-    private void HandleLevelLoaded(World _, in CurrentLevelComponent currentLevelComp)
+    private void HandleLevelLoaded(World _, in LDtkLevelDataComponent currentLevelComp)
     {
         if (!IsEnabled) return;
 
@@ -112,13 +112,16 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
                     size: new Vector2(layer._GridSize, layer._GridSize),
                     pivot: Vector2.Zero,
                     tilesetPosition: new Vector2(tile.Src.X, tile.Src.Y),
-                    layer: layer,
                     customFields: new Dictionary<string, object>
                     {
                         ["layerDepth"] = currentLayerDepth,
                         ["tilesetTexture"] = tilesetTexture,
                         ["tilesetKey"] = tilesetKey,
-                        ["tileId"] = tile.T
+                        ["tileId"] = tile.T,
+                        // Layer-derived data rides in the ldtk: channel keys instead of a shared
+                        // LDtk-typed Layer member on the message (issue #54).
+                        [LDtkSpawnFields.LayerOpacity] = (float)layer._Opacity,
+                        [LDtkSpawnFields.GridSize] = (int)layer._GridSize
                     }
                 );
 
@@ -132,7 +135,7 @@ public sealed class LDtkTileParserSystem : ISystem<GameState>
         Logger.Info($"Published {tilesProcessed} tile spawn requests for level '{levelData.Identifier}'.");
     }
 
-    private void HandleLevelUnloaded(World _, in CurrentLevelComponent currentLevelComp)
+    private void HandleLevelUnloaded(World _, in LDtkLevelDataComponent currentLevelComp)
     {
         if (!IsEnabled) return;
         Logger.Info($"Cleaning up tiles for level '{currentLevelComp.LevelData?.Identifier}'...");

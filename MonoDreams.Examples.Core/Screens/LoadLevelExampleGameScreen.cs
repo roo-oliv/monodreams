@@ -464,9 +464,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             if (_importMode)
             {
                 // Import machinery (dev/export op): re-parse the legacy LDtk level so the
-                // importer can capture + serialize it. No native probe — force the legacy parse even if
-                // a .mdscene already exists (re-import). The importer takes the parsed world afterwards.
-                g.Add("requests", new LevelLoadRequestSystem(_world, _content, tryLoadNativeScene: null, enableLegacyLdtkFallback: true));
+                // importer can capture + serialize it. LDtkLevelLoadSystem (level-ldtk) REPLACES the
+                // native-only LevelLoadRequestSystem here — it forces the legacy parse even if a
+                // .mdscene already exists (re-import). The importer takes the parsed world afterwards.
+                g.Add("requests", new LDtkLevelLoadSystem(_world, _content));
                 g.Add("ldtkTiles", new LDtkTileParserSystem(_world, _content));
                 g.Add("ldtkEntities", new LDtkEntityParserSystem(_world));
                 g.Add("entitySpawn", entitySpawnSystem);
@@ -474,10 +475,11 @@ public class LoadLevelExampleGameScreen : IGameScreen
             else
             {
                 // Native-only game boot (PS5): the game loads bundled .mdscene levels through the native
-                // reader; the legacy LDtk loader is import-only (composed only above), so a
+                // reader. LevelLoadRequestSystem knows nothing about LDtk at all now (issue #54) — the
+                // LDtk loader is a separate import-only system (composed only above), so a
                 // LoadLevelRequest with no native scene fails loud — no silent legacy attempt. This is
                 // the single content-driven load path that closes the parser-asymmetry.
-                g.Add("requests", new LevelLoadRequestSystem(_world, _content, nativeSceneProbe, enableLegacyLdtkFallback: false));
+                g.Add("requests", new LevelLoadRequestSystem(_world, nativeSceneProbe));
                 // The native reader for a shipped game (no editor). When the editor is composed, its own
                 // editor.sceneReader (below) is the single reader — do not double-subscribe here.
                 if (_editor == null) g.Add("nativeSceneReader", nativeSceneReader);

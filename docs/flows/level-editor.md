@@ -119,9 +119,11 @@ pipeline):
 1. **Input** (`RunNormally`) — input mapping + `CursorInputSystem` (raw mouse / edge state).
 2. **Level / scene load** — `LoadLevelRequest` (native-only at boot, PS5: the probe → native reader, or
    fail loud) + `LoadSceneRequest` (`SceneReaderSystem`, the editor's Save-then-reload + the Scenes-panel
-   load; there is no Load button — UX-D). The LDtk
-   parser is import-only (composed only in the export op's `importMode`), so it is not on this live
-   path. The transport's Restart re-drives it: it removes `CurrentLevelComponent`, disposes the scene
+   load; there is no Load button — UX-D). The whole LDtk
+   module is import-only (its own `LDtkLevelLoadSystem` + parsers, composed only in the export op's
+   `importMode`), so it is not on this live path — and since #54 `level-loading` holds no LDtk type at
+   all. The transport's Restart re-drives the load: it removes the world-level marker components
+   (`CurrentLevelComponent` — a plain string id — + background color), disposes the scene
    entities, and re-publishes the screen-recorded original load request. Migrating a legacy level into a
    native `.mdscene` is a one-shot `LevelImporter` op (see the module overview), not part of this flow.
 3. **Game logic / physics / collision** (`Freeze`) — runs in `Play`, skipped in `Edit`.
@@ -288,8 +290,8 @@ the ones this flow leans on:
   `DisposeOrphans` when the entity is deleted. Overlay entities must be standalone; delete is the
   reversible `DeleteEntityCommand`, never a bare `entity.Dispose()`.
 - **Scene load clobbered** (Wave 3) — loading a native scene through
-  `LoadLevelRequest` triggers the unconditional LDtk `Content.Load` + `Remove<CurrentLevelComponent>`.
-  Use the dedicated `LoadSceneRequest`.
+  `LoadLevelRequest` drives whichever level dispatcher the screen composed and lets its miss path
+  clobber the world-level level state. Use the dedicated `LoadSceneRequest`.
 - **Shell leaked onto the next screen** (Wave 7) — the `ViewportManager` and the host `Game`
   outlive a screen; swapping screens while in Edit without `EditorShellSystem.Dispose` running
   leaves the menu inset into a corner with a visible OS pointer. The dispose restore is the guard.
@@ -302,8 +304,8 @@ the ones this flow leans on:
   meshes whose vertices are baked at absolute pixel positions. Chrome entities carry no
   `VisibleComponent` (only the Main pass consults it).
 - **Restart without the teardown order** (transport model) — re-publishing the load request
-  while `CurrentLevelComponent` is still set fires the *Changed* event the parsers ignore
-  (nothing re-parses — the broken-hot-reload path); an uncleared `EditorHistory` dangles
+  while a level component is still set fires the *Changed* event component-driven subscribers
+  ignore (nothing re-parses — the broken-hot-reload path); an uncleared `EditorHistory` dangles
   commands against disposed entities; a sweep that misses an editor entity (untagged chrome)
   makes the editor UI vanish on restart. `EditorTransport.Restart` owns the exact order —
   never hand-roll it.
