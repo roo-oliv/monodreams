@@ -118,8 +118,9 @@ permanently silence the game after one loud mix.
 ## `Preload` is an optimisation, never a gate
 
 `ContentAudioPlayer.Preload(IEnumerable<string>)` decodes sound keys into the
-same `_sounds` cache `Play` reads, so no `Play` ever pays the disk read plus
-PCM decode mid-frame. It is meant to be called from a loading moment, where a
+same `_sounds` cache `Play` reads, so no `Play` of a successfully warmed key
+ever pays the disk read plus PCM decode mid-frame (a failed or omitted key
+stays on the lazy path). It is meant to be called from a loading moment, where a
 hitch is invisible — the reference warm is the module demo, which preloads its
 three keys next to its font load (`MonoDreams/audio/demo/AudioDemoScreen.cs`).
 Every failure mode of the warm is non-fatal by construction: a key that will
@@ -128,8 +129,9 @@ so `Play` behaves exactly as it did before — including still failing loud
 there, where a content miss is a developer error. Backend absence
 (`NoAudioHardwareException` / `DllNotFoundException` anywhere in the chain)
 short-circuits the entire warm through the same `Disable` path `Play` uses, so
-a deviceless machine spends nothing. Already-cached keys and an already-
-disabled player are skipped, and the warm closes with a `Logger.Info` summary.
+a deviceless machine spends nothing. Already-cached keys are skipped, and a
+warm that runs to completion closes with a `Logger.Info` summary — an
+already-disabled player, or a backend failure mid-warm, returns before it.
 `Preload` lives on `ContentAudioPlayer` only, **not** on `IAudioPlayer`:
 warming is a content-pipeline concern of this implementation, not part of the
 playback seam.
