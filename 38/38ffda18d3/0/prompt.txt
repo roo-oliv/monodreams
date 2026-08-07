@@ -1,0 +1,104 @@
+Implement the issue #56. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>a30072b1e90335217</task-id>
+<tool-use-id>toolu_01UiJyBbqcDDLYaBZKZkieDD</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Add cross-links to recipes page" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Three files edited, no commit made.
+
+## Files edited
+
+**1. `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-56/docs/index.md`** — new row in the "Engine-wide" table, placed directly after the `web-targeting.md` row (its nearest neighbour topically):
+
+```
+| [`recipes/shipping.md`](recipes/shipping.md) | Shipping recipes — the six failures that only exist in production: the build is green, the defect appears only after upload (itch.io's CDN subpath + no `Content-Encoding` negotiation, macOS codesign order + signature checks, the authoring toolchain shipped inside the game, licensed content missing from a fresh clone). Each recipe points at a reference implementation to adapt, not copy. |
+```
+
+**2. `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-56/docs/web-targeting.md`** — moment-of-need blockquote at the end of the "Building &amp; running the web head" section (right after the "Two web heads today" note, before "Why the web head is excluded from the `.sln` build"). That is the point where the reader has just served the build locally with `dotnet run`, which is exactly the false-confidence the shipping page is about. The doc has no publish section, so this is the closest publish-adjacent moment:
+
+```
+&gt; **Publishing it is a different problem.** A build that runs fine here — served
+&gt; from the root, uncompressed, off your own machine — can still 404 its way to a
+&gt; black canvas once uploaded, because hosts like itch.io serve each build from a
+&gt; per-build **subpath** and never negotiate `Content-Encoding`. Before your first
+&gt; upload read [`recipes/shipping.md`](recipes/shipping.md): the six failures that
+&gt; only exist in production, and the verify-before-push publish script that catches
+&gt; them.
+```
+
+**3. `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-56/MonoDreams.Cli/Installer/ProjectScaffolder.cs`** — two spots in generated output.
+
+Convention check first: every existing generated reference uses the **bare repo path** (`docs/web-targeting.md` at lines 40, 323/326, 355/358, 1007/1010) — there is not a single URL anywhere in the CLI project's emitted text. So I mirrored the bare-path form rather than the GitHub URL, and qualified it with "MonoDreams'" so a template user outside the repo knows whose docs tree it is.
+
+Web head `.csproj` header comment, appended to the block that already explains how to build the head:
+
+```
+    BEFORE YOUR FIRST UPLOAD (itch.io, GitHub Pages, any static host), read MonoDreams'
+    docs/recipes/shipping.md — the shipping failures a green build cannot catch.
+```
+
+Generated `wwwroot/index.html`, appended to the `&lt;base href="./" /&gt;` explainer (which already discusses itch.io subpath 404s — the strongest moment-of-need in the whole template):
+
+```
+        The base href is only the first upload trap — test the build AT a subpath, and prune Blazor's
+        .br/.gz twins for hosts that don't negotiate. See MonoDreams' docs/recipes/shipping.md.
+```
+
+## Build / test
+
+- `dotnet build MonoDreams.Cli/MonoDreams.Cli.csproj` — success, 0 warnings, 0 errors.
+- `dotnet test MonoDreams.Cli.Tests/` — **57 passed, 0 failed**.
+
+No test edits were needed: both insertions land inside existing XML/HTML comment blocks, and neither `ScaffolderPlatformTests.cs` nor `WebTemplateTests.cs` asserts on comment prose (their assertions target `&lt;base href="./" /&gt;`, `&lt;script src&gt;` version segments, `PackageReference` versions, element IDs, and boot-hook identifiers).
+
+One note for the parent: `docs/recipes/shipping.md` does not exist yet in this worktree (the parallel agent hasn't landed it), so all three links are currently dangling by design.</result>
+<usage><subagent_tokens>77239</subagent_tokens><tool_uses>22</tool_uses><duration_ms>244661</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab940d2ed02fd6336</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Write shipping recipes doc" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Created `docs/recipes/shipping.md` in the worktree. Nothing else touched — the other modified files in `git status` (`docs/index.md`, `docs/web-targeting.md`, `MonoDreams.Cli/Installer/ProjectScaffolder.cs`) are from parallel work, not mine. The reference repo at `/Users/rodrigooliveira/git/roo-oliv/gmtk-2026gj` is untouched (verified clean).
+
+**File path:** `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-56/docs/recipes/shipping.md` (553 lines)
+
+**Structure.** The page opens with unheaded framing prose (matching `web-targeting.md`'s style): the failure class stated as a blockquote — *the build succeeds, and the defect only appears after upload* — why `dotnet build` / `dotnet test` / headless Demos structurally cannot see it (layout, toolchain, and absent files aren't modelled by the compiler), the provenance in *Witch v Necromancer*, an explicit "nothing here lands in the engine" boundary note tying to CORE_TENETS §1, a read-alongside pointer to `docs/web-targeting.md`, and a table of the six reference implementations with `blob/main` GitHub links (default branch confirmed `main`, repo confirmed `PUBLIC` via `gh`). Then six `##` recipes, each with bold run-in **Signature.** / **Why it passes locally.** / **Countermeasure.** parts so an agent can parse them uniformly, with short excerpted snippets from the real scripts (assertion names and flags preserved: `base_href` awk pass, `content_files -gt 10`, the `_content/**.js` shim loop, the `osx-arm64:*arm64*` case block, `MOUNT = "/html/2846731/"`, `send_error`/`TYPES`, the two `ExcludeAssets` ItemGroups, `codesign --force --sign -` + `cmp -s`, the `.br`/`.gz` prune, the `Copy`/`GetFileHash`/`Warning` targets and the `assert_real_music` loop). Recipe 4 carries the pipefail trap as its own `###` subsection with a WRONG/RIGHT pair. It closes with an 8-step ordered pre-push checklist and a See-also.
+
+MonoDreams-specific ties made throughout rather than staying generic: the `.Core`+heads model and global `-p:MonoDreamsPlatform=web`; the KNI content build + macOS/Linux native-lib shim as the concrete reason `Content/` can be empty on a green build; the `nkast.Wasm.*` hand-versioned shim coupling already documented in `web-targeting.md`; the `.mdscene` MIME entry tied to CORE_TENETS §6 native-only fail-loud level load; `file:` AssetKeys / raw art-drop folder beside the executable as exactly what breaks `codesign --deep`; MGCB's out-of-process `/reference:`-from-NuGet-cache mechanism as why `ExcludeAssets="all"` is safe (plus why the web head additionally needs `GeneratePathProperty="true"`); MGCB's no-conditionals/no-glob nature as why substitution beats splitting the `.mgcb`.
+
+**Exact H1:** `# Shipping: the six failures that only exist in production`
+
+**`##` section titles, in order** (for the cross-linking agent):
+1. `## 1. The publish script asserts every upload precondition`
+2. `## 2. Test the web build at a subpath, never at a root`
+3. ``## 3. `ExcludeAssets="all"` on every content-pipeline `PackageReference` ``
+4. `## 4. Codesign the plain executable, before bundling it`
+5. `## 5. Prune Blazor's `*.br` / `*.gz` before uploading to itch`
+6. `## 6. Ship a committed placeholder for gitignored licensed content`
+7. `## The pre-push checklist`
+8. `## See also`
+
+One `###` subsection exists, under recipe 4: `### The pipefail trap: a passing check that reads as failing`.</result>
+<usage><subagent_tokens>102020</subagent_tokens><tool_uses>15</tool_uses><duration_ms>455031</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brif3l90w</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run engine test project in Release and capture true exit code" completed (exit code 0)</summary>
+</task-notification>
