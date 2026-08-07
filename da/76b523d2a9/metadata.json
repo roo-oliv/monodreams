@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "da76b523d2a9",
+  "strategy": "manual-commit",
+  "branch": "issue-57",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/level-editor/System/HudPreviewSystem.cs",
+    "MonoDreams/ui/ButtonMeshPrepSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/da/76b523d2a9/0/metadata.json",
+      "transcript": "/da/76b523d2a9/0/full.jsonl",
+      "context": "/da/76b523d2a9/0/context.md",
+      "content_hash": "/da/76b523d2a9/0/content_hash.txt",
+      "prompt": "/da/76b523d2a9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 29,
+    "cache_creation_tokens": 159388,
+    "cache_read_tokens": 2099248,
+    "output_tokens": 13300,
+    "api_call_count": 15
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "da76b523d2a9",
+  "session_id": "34de1532-b452-446a-9e77-8c2c00fa9270",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T16:45:47.551332Z",
+  "branch": "issue-57",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/level-editor/System/HudPreviewSystem.cs",
+    "MonoDreams/ui/ButtonMeshPrepSystem.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "c314387d-adb0-4b79-810b-ca4049101b2c",
+  "checkpoint_transcript_start": 269,
+  "transcript_lines_at_start": 269,
+  "token_usage": {
+    "input_tokens": 29,
+    "cache_creation_tokens": 159388,
+    "cache_read_tokens": 2099248,
+    "output_tokens": 13300,
+    "api_call_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T16:45:47.355576Z",
+    "agent_lines": 13,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 13,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-57/34de1532-b452-446a-9e77-8c2c00fa9270.jsonl"
+}
