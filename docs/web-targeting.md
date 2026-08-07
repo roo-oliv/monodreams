@@ -159,6 +159,19 @@ These are tagged per platform in each module's `module.json`
 (`nugetDependencies[].platforms`) and conditioned by `$(MonoDreamsPlatform)`
 in `MonoDreams.csproj`.
 
+> **The `nkast.Wasm.*` shim coupling.** The last row hides a trap: a head's
+> `wwwroot/index.html` references the `nkast.Wasm.*` JS assets **by version**
+> (`_content/nkast.Wasm.Canvas/js/Canvas.8.0.11.js`), and that version is
+> whatever `nkast.Kni.Platform.Blazor.GL` transitively pulls — so bumping the
+> KNI package without editing every `<script src>` gives you a perfectly green
+> build and a runtime 404 on every shim (black canvas, no game). Nothing checks
+> it at build time. For **scaffolded** heads the CLI now stamps both numbers at
+> scaffold time from one constant pair
+> (`ProjectScaffolder.KniPackageVersion` / `ProjectScaffolder.WasmShimVersion`),
+> so a fresh project starts consistent and both emitted files carry a comment
+> saying they must be bumped together; the in-repo heads still maintain the two
+> sites by hand.
+
 ### LDtk is vendored as source
 
 `LDtkMonogame` has no KNI build on NuGet, so its runtime + content pipeline
