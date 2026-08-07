@@ -236,6 +236,9 @@ public class DemoLauncherScreen : IGameScreen
             p.Add("editor.sceneReader", _editor.Overlay.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Overlay.Dialog, EditTimeBehavior.RunNormally);
             p.Add("editor.contextMenu", _editor.Overlay.Menu, EditTimeBehavior.RunNormally);
+            // WS: the Autotile Rules workspace — after the modal input-owners (it stands down while a
+            // dialog/menu owns the pointer) and before the shortcuts, whose gate ORs its IsOpen.
+            p.Add("editor.rules", _editor.Overlay.RulesEditor, EditTimeBehavior.RunNormally);
             // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
             p.Add("editor.shortcuts", _editor.Overlay.Shortcuts, EditTimeBehavior.RunNormally);
             p.Add("editor.modal", _editor.Overlay.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
@@ -269,6 +272,7 @@ public class DemoLauncherScreen : IGameScreen
                 g.Add("clicks", _editor.Overlay.ToolbarClicks);
                 g.Add("tooltip", _editor.Overlay.Tooltip);
                 g.Add("viewportTabs", _editor.Overlay.ViewportTabs); // PF-B: the viewport tab strip
+                g.Add("workspaceTabs", _editor.Overlay.WorkspaceTabs); // WS: the top-bar workspace tab strip
             });
             p.Add("editor.systemsPanel", _editor.Overlay.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Overlay.Inspector, EditTimeBehavior.RunNormally);

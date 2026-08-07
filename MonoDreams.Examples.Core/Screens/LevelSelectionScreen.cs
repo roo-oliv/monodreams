@@ -374,13 +374,17 @@ public class LevelSelectionScreen : IGameScreen
             // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands
             // down while a Save/Load dialog owns the keys; the mouse half is the dialog consuming the
             // cursor edges.
-            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive || _editor.InspectorOwnsKeyboard;
+            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive
+                || _editor.InspectorOwnsKeyboard || _editor.RulesEditor.IsOpen;
             p.Add("editor.keys", editorKeys, EditTimeBehavior.RunNormally);
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
             // Woven immediately after the dialog so the dialog wins when both could open (UX2-D).
             p.Add("editor.contextMenu", _editor.Menu, EditTimeBehavior.RunNormally);
+            // WS: the Autotile Rules workspace — after the modal input-owners (it stands down while a
+            // dialog/menu owns the pointer) and before the shortcuts, whose gate ORs its IsOpen.
+            p.Add("editor.rules", _editor.RulesEditor, EditTimeBehavior.RunNormally);
             // The editor shortcut owner (UX3-E) — after the modal input-owners; inert while Playing.
             p.Add("editor.shortcuts", _editor.Shortcuts, EditTimeBehavior.RunNormally);
             p.Add("editor.modal", _editor.Modal, EditTimeBehavior.RunNormally); // UX3-F: G/S/R modal transforms
@@ -420,6 +424,7 @@ public class LevelSelectionScreen : IGameScreen
                 g.Add("clicks", _editor.ToolbarClicks);
                 g.Add("tooltip", _editor.Tooltip);
                 g.Add("viewportTabs", _editor.ViewportTabs); // PF-B: the viewport tab strip
+                g.Add("workspaceTabs", _editor.WorkspaceTabs); // WS: the top-bar workspace tab strip
             });
             p.Add("editor.systemsPanel", _editor.SystemsPanel, EditTimeBehavior.RunNormally);
             p.Add("editor.inspector", _editor.Inspector, EditTimeBehavior.RunNormally);

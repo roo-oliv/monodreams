@@ -736,8 +736,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         return EditorChromeLayout.TabStrip(shelf, scale);
     }
 
-    /// <summary>The "+ New" paint card's click: the overlay wires the new-index name dialog for the
-    /// ACTIVE Indexed layer (a new paintable index). Null hides the card.</summary>
+    /// <summary>The "+ New" paint card's click (WS): the overlay wires the New-Rule-Set name dialog
+    /// for the ACTIVE Indexed layer (a new paintable index = a new rule set). Null hides the card.</summary>
     public Action<Entity>? NewIndexRequested
     {
         get => _newIndexRequested;
@@ -1636,8 +1636,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             });
         }
 
-        // The trailing "+ New" card — a real ACTIVE layer's palette is editable in place (create an
-        // index here, then re-color / bind its collision in the Inspector).
+        // WS: the trailing "+ New" card — a real ACTIVE layer's palette is editable in place (create
+        // an index here, then bind its tileset/rules in the Autotile Rules workspace).
         if (activeLayer.IsAlive && _newIndexRequested != null)
         {
             var newLabel = CreateLabel("+ New");

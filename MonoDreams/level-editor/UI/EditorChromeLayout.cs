@@ -308,6 +308,22 @@ public static class EditorChromeLayout
         ButtonRowIn(new Rectangle(0, 0, 1, Px(TopBarHeight, scale)), buttonWidths, scale);
 
     /// <summary>
+    /// Lays the window top bar's GENERAL buttons out <b>right-anchored</b> (WS: the top bar's left is
+    /// the workspace tab strip now — Undo / Redo / Refresh dock at the right edge, in the given
+    /// left-to-right order, vertically centered). The mirror of <see cref="ButtonRow"/>, using the
+    /// same right-cluster math as the Scene header's transport cluster.
+    /// </summary>
+    public static Rectangle[] TopBarRightRow(int screenWidth, IReadOnlyList<int> buttonWidths, float scale = 1f) =>
+        SceneHeaderRightCluster(TopBar(screenWidth, scale), buttonWidths, scale);
+
+    /// <summary>Lays the WORKSPACE tabs (WS — [Level Editor | Autotile Rules]) out left-to-right at
+    /// the window top bar's LEFT, each the full top-bar height (the Blender workspace-tab strip;
+    /// the active tab's underline sits flush with the bar's bottom edge). Same adjacency model as
+    /// <see cref="ViewportTabRow"/>, anchored on the top bar.</summary>
+    public static Rectangle[] WorkspaceTabRow(int screenWidth, IReadOnlyList<int> tabWidths, float scale = 1f) =>
+        ViewportTabRow(TopBar(screenWidth, scale), tabWidths, scale);
+
+    /// <summary>
     /// Lays a right-anchored button cluster in the Scene header's tool row (TB-A row 2 far right): the
     /// <b>camera-view · Play/Pause · Restart · Save</b> cluster, in the given left-to-right order, docked at
     /// the row's RIGHT edge (inset by the row margin) and vertically centered. Returns one rect per width,
