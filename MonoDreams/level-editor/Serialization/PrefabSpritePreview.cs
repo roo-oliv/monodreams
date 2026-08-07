@@ -47,8 +47,13 @@ public readonly struct PrefabSpritePreview
     /// <summary>The sprite entity's WORLD rotation (radians) within the prefab.</summary>
     public float Rotation { get; }
 
+    /// <summary>The dominant sprite's animation frame ASSET KEYS (from a <c>core.SpriteAnimation</c>
+    /// on the same entity), in play order — null for a static sprite. The shelf card and the
+    /// placement ghost cycle these (pixel-art wave: previews are animated).</summary>
+    public IReadOnlyList<string>? SequenceFrames { get; }
+
     private PrefabSpritePreview(string assetKey, Rectangle source, Vector2 spriteOrigin, float layerDepth,
-        Vector2 offset, Vector2 scale, float rotation)
+        Vector2 offset, Vector2 scale, float rotation, IReadOnlyList<string>? sequenceFrames)
     {
         AssetKey = assetKey;
         Source = source;
@@ -57,6 +62,7 @@ public readonly struct PrefabSpritePreview
         Offset = offset;
         Scale = scale;
         Rotation = rotation;
+        SequenceFrames = sequenceFrames;
     }
 
     /// <summary>
@@ -84,7 +90,8 @@ public readonly struct PrefabSpritePreview
                 ReadRect(spriteEl, "source"),
                 ReadVec(spriteEl, "origin"),
                 ReadFloat(spriteEl, "layerDepth"),
-                offset, scale, rotation);
+                offset, scale, rotation,
+                ReadSequenceFrames(entities[i]));
             return true;
         }
         return false;
@@ -166,6 +173,25 @@ public readonly struct PrefabSpritePreview
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
             : null;
+
+    /// <summary>The frame asset keys of a <c>core.SpriteAnimation</c> on <paramref name="entity"/>
+    /// (in play order, key-less frames skipped), or null when the entity has none / no keyed frames.</summary>
+    private static IReadOnlyList<string>? ReadSequenceFrames(SceneEntityData entity)
+    {
+        if (!entity.Components.TryGetValue(EngineComponentSerializers.SpriteAnimationKey, out var animEl) ||
+            animEl.ValueKind != JsonValueKind.Object ||
+            !animEl.TryGetProperty("frames", out var framesEl) ||
+            framesEl.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var keys = new List<string>();
+        foreach (var frame in framesEl.EnumerateArray())
+        {
+            var key = ReadString(frame, "assetKey");
+            if (!string.IsNullOrEmpty(key)) keys.Add(key!);
+        }
+        return keys.Count > 1 ? keys : null;
+    }
 
     private static float ReadFloat(JsonElement obj, string prop) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number

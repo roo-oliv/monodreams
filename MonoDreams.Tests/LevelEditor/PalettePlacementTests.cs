@@ -46,6 +46,9 @@ namespace MonoDreams.Tests.LevelEditor;
 ///   the Assets chrome is never left painted over the Prefabs tab.</item>
 ///   <item><b>Headless channel:</b> a scripted <c>ToolbarAction</c> op's raw string (the
 ///   <c>palette:&lt;id&gt;</c> grammar) reaches the named dispatch.</item>
+///   <item><b>Refresh re-skins (drop-a-PNG wave):</b> a refresh invalidates the loader AND walks the
+///   already-placed <c>file:</c>-keyed sprites, re-resolving each one, so re-exporting art updates
+///   the placed world in place.</item>
 /// </list>
 /// </summary>
 public class PalettePlacementTests
@@ -804,6 +807,55 @@ public class PalettePlacementTests
         {
             try { global::System.IO.Directory.Delete(root, recursive: true); } catch { /* best effort */ }
         }
+    }
+
+    /// <summary>
+    /// Refresh is not only a shelf rebuild: it re-resolves every ALREADY-PLACED <c>file:</c>-keyed
+    /// sprite through the just-invalidated loader, so re-exporting a PNG updates the placed world in
+    /// place (the Blender-material behaviour). Headless every texture stays null, so what this
+    /// observes is the RE-RESOLUTION — the placed prop's path is opened again after the refresh — not
+    /// the texture swap itself.
+    /// </summary>
+    [Fact]
+    public void RefreshTest_ReSkinsEveryPlacedFileKeyedSprite()
+    {
+        var opened = new List<string>();
+        using var world = new World();
+        MakeGizmoState(world);
+        var cursor = MakeCursor(world);
+        var (serializer, history) = MakeInfra(world);
+        var textures = new FileAssetTextureLoader(
+            openStream: path => { opened.Add(path); return null; },
+            decode: _ => null,
+            createPlaceholder: () => null);
+        // Chrome-built (the headless ViewportManager + a null font, as in MakeChromePalette) so the
+        // refresh runs its full body — the toolbar's Refresh button drives exactly this.
+        using var palette = new PalettePlacementSystem(world, MakeCatalog(), Bands, textures,
+            serializer, history,
+            viewportManager: new ViewportManager(null, 800, 600)
+                { ScreenWidth = 1600, ScreenHeight = 900, DevicePixelRatio = 1f },
+            font: null);
+        palette.Update(Edit()); // builds + lays out the chrome (thumbnails load once, memoized)
+
+        // Place one prop the ordinary way: its SpriteInfoComponent.AssetKey is a file: key.
+        palette.ArmByIndex(0);
+        palette.SelectBand("Ground");
+        SetCursor(cursor, new Vector2(120, 80), leftPressed: true);
+        palette.Update(Edit());
+        SetCursor(cursor, new Vector2(120, 80), leftReleased: true);
+        palette.Update(Edit());
+
+        var placed = Assert.Single(PlacedProps(world));
+        Assert.Equal("file:Island/props/tree01.png", placed.Get<SpriteInfoComponent>().AssetKey);
+
+        // Everything the palette needed is memoized by now — nothing re-opens on its own.
+        var beforeRefresh = opened.Count;
+        palette.Refresh();
+
+        // The refresh invalidated the loader AND walked the placed props, so the placed sprite's PNG
+        // was opened again: a changed file on disk decodes fresh into the live world.
+        var afterRefresh = opened.GetRange(beforeRefresh, opened.Count - beforeRefresh);
+        Assert.Contains("Island/props/tree01.png", afterRefresh);
     }
 
     // ---- Per-asset band marks (FW3): resolution rule + set + cycle + persistence ----

@@ -16,6 +16,11 @@ namespace MonoDreams.Tests.LevelEditor;
 /// (Origin = bottom-center in source pixels, YSortOffset = 0 — the entity's Position IS where it
 /// stands, so YSortSystem sorts by the feet line). No GraphicsDevice — the texture is nullable and
 /// sliced entries carry their own Source rect.
+///
+/// <para>The drop-a-PNG wave adds one branch: a folded <c>.anim</c> entry
+/// (<see cref="AssetCatalogEntry.IsSequence"/>) also gets a <c>SpriteAnimationComponent</c> whose
+/// frames are the folder's PNGs as <c>file:</c> keys, full-texture and duration-defaulted; a static
+/// entry gets none.</para>
 /// </summary>
 public class SpritePropFactoryTests
 {
@@ -24,6 +29,17 @@ public class SpritePropFactoryTests
 
     private static AssetCatalogEntry SlicedEntry(Rectangle region) =>
         new("Island/props/sheet.png", "trunk", region, label: "sheet#trunk", folder: "props");
+
+    /// <summary>A folded <c>.anim</c> folder entry: three frames in play order, the first of which
+    /// is also the entry's own path (its frame-0 / thumbnail texture).</summary>
+    private static AssetCatalogEntry SequenceEntry() =>
+        new("Island/fx/Torch.anim/1.png", regionName: null, region: null, label: "Torch", folder: "fx",
+            sequenceFrames: new[]
+            {
+                "Island/fx/Torch.anim/1.png",
+                "Island/fx/Torch.anim/2.png",
+                "Island/fx/Torch.anim/10.png",
+            });
 
     [Fact]
     public void SpritePropStandardStackTest()
@@ -102,5 +118,49 @@ public class SpritePropFactoryTests
         Assert.Equal(new Rectangle(0, 0, SpritePropFactory.FallbackSizePixels, SpritePropFactory.FallbackSizePixels),
             sprite.Source);
         Assert.Equal(new Vector2(SpritePropFactory.FallbackSizePixels), sprite.Size);
+    }
+
+    // ---- Animation-folder entries also get a SpriteAnimationComponent ----
+
+    [Fact]
+    public void SequenceEntryBuildsASpriteAnimationOfFileKeyedFramesTest()
+    {
+        using var world = new World();
+        var band = new PaletteBand("Props", LayerDepth: 0.45f, YSorted: true);
+
+        var entity = SpritePropFactory.Create(world, SequenceEntry(), band, Vector2.Zero, texture: null);
+
+        Assert.True(entity.Has<SpriteAnimationComponent>());
+        var frames = entity.Get<SpriteAnimationComponent>().Frames;
+        Assert.Equal(3, frames.Length);
+
+        // The frame keys are the folder's PNGs composed into `file:` keys, IN PLAY ORDER — the same
+        // scheme the sprite itself serializes, so a frame resolves through the same loader ladder.
+        Assert.Equal("file:Island/fx/Torch.anim/1.png", frames[0].AssetKey);
+        Assert.Equal("file:Island/fx/Torch.anim/2.png", frames[1].AssetKey);
+        Assert.Equal("file:Island/fx/Torch.anim/10.png", frames[2].AssetKey);
+
+        // Rectangle.Empty = "the whole frame texture": one PNG per frame, sizes only known once the
+        // frame's texture loads. Duration 0 defers to the component's DefaultFrameDuration.
+        foreach (var frame in frames)
+        {
+            Assert.Equal(Rectangle.Empty, frame.Source);
+            Assert.Equal(0f, frame.Duration);
+        }
+
+        // The authored sprite still holds frame 0 (what the editor shows while the animator is frozen).
+        Assert.Equal("file:Island/fx/Torch.anim/1.png", entity.Get<SpriteInfoComponent>().AssetKey);
+    }
+
+    [Fact]
+    public void StaticEntryGetsNoSpriteAnimationTest()
+    {
+        using var world = new World();
+        var band = new PaletteBand("Ground", LayerDepth: 0.9f, YSorted: false);
+
+        var entity = SpritePropFactory.Create(world, WholeEntry(), band, Vector2.Zero, texture: null);
+
+        // A plain PNG prop must not pay for an animator: no component, nothing to serialize.
+        Assert.False(entity.Has<SpriteAnimationComponent>());
     }
 }

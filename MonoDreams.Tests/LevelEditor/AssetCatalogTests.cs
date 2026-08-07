@@ -18,6 +18,14 @@ namespace MonoDreams.Tests.LevelEditor;
 /// generated files in a per-test temp directory — no dependence on downloaded (gitignored,
 /// license-encumbered) packs; no GraphicsDevice (the loader's decode/placeholder functions are
 /// the injectable test seam).
+///
+/// <para>The drop-a-PNG wave adds three groups: the <c>(NxM)</c> filename <b>auto-grid</b> (sliced
+/// from the PNG's IHDR header — the fixtures are 24 header bytes and nothing else, so a passing test
+/// proves the scan never decodes), the <c>.anim</c> <b>folder folding</b> (one animated entry, frames
+/// in natural-numeric order), and the <b>`file:` ladder</b> — source tree → build output → the MGCB
+/// content key for the same path minus its extension → the loud magenta placeholder. Names the premise
+/// "The `file:` ladder degrades dev machine → packaged platform, and never assumes a filesystem" in
+/// MonoDreams/level-editor/docs/premises.md.</para>
 /// </summary>
 public class AssetCatalogTests
 {
@@ -32,6 +40,38 @@ public class AssetCatalogTests
             var path = Path.Combine(Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, contents);
+        }
+
+        /// <summary>
+        /// Writes a "PNG" whose bytes are EXACTLY the 24-byte signature + IHDR prefix declaring
+        /// <paramref name="width"/>×<paramref name="height"/> — and nothing else (no IDAT, no IEND).
+        /// Such a file can never be DECODED, so an auto-grid test that reads the right dimensions
+        /// from it proves the scan reads the fixed-offset header and nothing more.
+        /// </summary>
+        public void AddPngHeader(string relativePath, int width, int height)
+        {
+            var header = new byte[24];
+            // 8-byte PNG signature: \x89 P N G \r \n \x1A \n
+            header[0] = 0x89; header[1] = (byte)'P'; header[2] = (byte)'N'; header[3] = (byte)'G';
+            header[4] = 0x0D; header[5] = 0x0A; header[6] = 0x1A; header[7] = 0x0A;
+            // The first chunk MUST be IHDR: 4-byte length (13) + 4-byte type.
+            header[8] = 0; header[9] = 0; header[10] = 0; header[11] = 13;
+            header[12] = (byte)'I'; header[13] = (byte)'H'; header[14] = (byte)'D'; header[15] = (byte)'R';
+            // Then the big-endian width + height — the only two fields the scan wants.
+            WriteBigEndian(header, 16, width);
+            WriteBigEndian(header, 20, height);
+
+            var path = Path.Combine(Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, header);
+        }
+
+        private static void WriteBigEndian(byte[] buffer, int offset, int value)
+        {
+            buffer[offset] = (byte)(value >> 24);
+            buffer[offset + 1] = (byte)(value >> 16);
+            buffer[offset + 2] = (byte)(value >> 8);
+            buffer[offset + 3] = (byte)value;
         }
 
         public void Dispose()
@@ -161,6 +201,118 @@ public class AssetCatalogTests
         Assert.Equal("Island/props/sheet.png", entry.RelativePath);
     }
 
+    // ---- Tileset auto-grid: the `(NxM)` filename convention, sliced from HEADER BYTES ONLY ----
+
+    [Fact]
+    public void AutoGridTest_NxMMarkerSlicesTheSheetFromItsIhdrHeader()
+    {
+        using var dir = new TempAssetDir();
+        // The fixture is 24 bytes of PNG header and NOTHING else: a decoder would choke on it, so a
+        // correct grid here can only have come from the fixed-offset IHDR read (the scan never
+        // decodes — that is the whole point of the drop-a-PNG loop staying O(1) at startup).
+        dir.AddPngHeader("tiles/Terrain (32x32).png", width: 64, height: 96);
+
+        var catalog = AssetCatalog.Scan(dir.Root, "Island");
+
+        // 64x96 / 32x32 = 2 columns x 3 rows, named row-major rRRcCC.
+        Assert.Equal(6, catalog.Entries.Count);
+        Assert.Equal(
+            new[] { "r00c00", "r00c01", "r01c00", "r01c01", "r02c00", "r02c01" },
+            catalog.Entries.Select(e => e.RegionName!).ToArray());
+        Assert.Equal(
+            new[]
+            {
+                "Terrain (32x32)#r00c00", "Terrain (32x32)#r00c01",
+                "Terrain (32x32)#r01c00", "Terrain (32x32)#r01c01",
+                "Terrain (32x32)#r02c00", "Terrain (32x32)#r02c01",
+            },
+            catalog.Entries.Select(e => e.Label).ToArray());
+        Assert.Equal(
+            new[]
+            {
+                new Rectangle(0, 0, 32, 32), new Rectangle(32, 0, 32, 32),
+                new Rectangle(0, 32, 32, 32), new Rectangle(32, 32, 32, 32),
+                new Rectangle(0, 64, 32, 32), new Rectangle(32, 64, 32, 32),
+            },
+            catalog.Entries.Select(e => e.Region!.Value).ToArray());
+
+        // Every cell is a region OF THE SAME SHEET: one PNG path, the region rect on the entry.
+        foreach (var entry in catalog.Entries)
+        {
+            Assert.Equal("Island/tiles/Terrain (32x32).png", entry.RelativePath);
+            Assert.Equal("tiles", entry.Folder);
+            Assert.False(entry.IsSequence);
+        }
+        Assert.Equal("file:Island/tiles/Terrain (32x32).png#r01c01",
+            catalog.Entries.Single(e => e.RegionName == "r01c01").AssetKey);
+    }
+
+    [Fact]
+    public void AutoGridTest_FallsBackToTheWholePngWhenItCannotSliceCleanly()
+    {
+        using var dir = new TempAssetDir();
+        // (a) The sheet does not divide evenly into the marked cell size (50 % 32 != 0).
+        dir.AddPngHeader("tiles/Ragged (32x32).png", width: 50, height: 40);
+        // (b) The marked cell size would explode past the MaxAutoGridCells safety cap
+        // (32x32 / 1x1 = 1024 cells): a palette of thousands of cards is unusable, not helpful.
+        dir.AddPngHeader("tiles/Pixels (1x1).png", width: 32, height: 32);
+
+        var catalog = AssetCatalog.Scan(dir.Root, "Island");
+
+        // Both fall back LOUDLY to one whole-PNG entry each — the art is still placeable, never hidden.
+        Assert.Equal(2, catalog.Entries.Count);
+        var cellsIfSliced = 32 * 32; // what the (1x1) marker would carve the 32x32 sheet into
+        Assert.True(cellsIfSliced > AssetCatalog.MaxAutoGridCells, "the (1x1) fixture must exceed the cap");
+        foreach (var entry in catalog.Entries)
+        {
+            Assert.Null(entry.RegionName);
+            Assert.Null(entry.Region);
+        }
+        Assert.Equal(new[] { "Pixels (1x1)", "Ragged (32x32)" },
+            catalog.Entries.Select(e => e.Label).ToArray());
+    }
+
+    // ---- Animation folders: a `.anim` directory folds into ONE sequence entry ----
+
+    [Fact]
+    public void AnimFolderTest_FoldsToOneSequenceEntryInNaturalNumericOrder()
+    {
+        using var dir = new TempAssetDir();
+        dir.AddFile("fx/Torch" + AssetCatalog.AnimDirectorySuffix + "/1.png");
+        dir.AddFile("fx/Torch" + AssetCatalog.AnimDirectorySuffix + "/2.png");
+        dir.AddFile("fx/Torch" + AssetCatalog.AnimDirectorySuffix + "/10.png");
+        dir.AddFile("fx/Lantern.png"); // a loose sibling of the folder: still its own static prop
+
+        var catalog = AssetCatalog.Scan(dir.Root, "Island");
+
+        // Four PNGs → two palette entries: the folded animation + the loose sibling.
+        Assert.Equal(2, catalog.Entries.Count);
+
+        var torch = catalog.Entries.Single(e => e.Label == "Torch"); // the `.anim` suffix is stripped
+        Assert.True(torch.IsSequence);
+        // Natural-numeric, so 10 sorts AFTER 2 (a plain string sort would give 1, 10, 2 and the
+        // animation would play out of order).
+        Assert.Equal(
+            new[]
+            {
+                "Island/fx/Torch.anim/1.png",
+                "Island/fx/Torch.anim/2.png",
+                "Island/fx/Torch.anim/10.png",
+            },
+            torch.SequenceFrames!);
+        // The entry's own path IS frame 0 — its thumbnail/ghost/frame-0 texture.
+        Assert.Equal("Island/fx/Torch.anim/1.png", torch.RelativePath);
+        Assert.Equal("file:Island/fx/Torch.anim/1.png", torch.AssetKey);
+        Assert.Equal("fx", torch.Folder); // the folder the `.anim` directory lives in, not the directory
+        Assert.Null(torch.RegionName);
+
+        // The loose sibling is untouched by the folding.
+        var lantern = catalog.Entries.Single(e => e.Label == "Lantern");
+        Assert.False(lantern.IsSequence);
+        Assert.Null(lantern.SequenceFrames);
+        Assert.Equal("Island/fx/Lantern.png", lantern.RelativePath);
+    }
+
     // ---- file: AssetKey scheme ----
 
     [Fact]
@@ -225,5 +377,95 @@ public class AssetCatalogTests
         // The placeholder is shared: created at most once however many files are missing.
         Assert.Equal(1, placeholderRequests);
         Assert.Equal(0, loader.DecodeCount);
+    }
+
+    // ---- The `file:` ladder: source tree → build output → MGCB content key → loud placeholder ----
+
+    [Fact]
+    public void FileLadderTest_FallsThroughToTheContentKeyWithTheExtensionStripped()
+    {
+        // The packaged-platform simulation: the FILESYSTEM rung is disabled (on web/mobile/console
+        // there is no source tree and no readable drop folder), so the only rung left is the MGCB
+        // content key for the same path minus its extension — the .xnb that shipped in the bundle.
+        var resolved = new List<string>();
+        var loader = new FileAssetTextureLoader(
+            openStream: _ => null,
+            decode: _ => null,
+            createPlaceholder: () => null,
+            resolveContentKey: key => { resolved.Add(key); return null; });
+
+        loader.Load("file:Island/props/tree01.png");
+
+        // The content rung was tried, with the ".png" dropped exactly as MGCB drops it when it builds.
+        Assert.Equal(new[] { "Island/props/tree01" }, resolved);
+        // Every rung missed → the loud magenta path, recorded once.
+        Assert.Equal(new[] { "Island/props/tree01.png" }, loader.MissingPaths);
+
+        // The whole ladder is memoized: a second Load re-walks nothing (the content resolver is not
+        // re-invoked, and the miss is not re-recorded).
+        loader.Load("file:Island/props/tree01.png");
+        Assert.Single(resolved);
+        Assert.Single(loader.MissingPaths);
+    }
+
+    [Fact]
+    public void ContentKeyServingTest_NonFileKeysGoStraightToTheResolver_Memoized()
+    {
+        // A NON-file: key (a plain MGCB content key) never touches the filesystem rungs at all — a
+        // mixed-key consumer (a prefab thumbnail whose sprite already graduated to content) resolves
+        // through this one loader.
+        var resolved = new List<string>();
+        var placeholderRequests = 0;
+        var loader = new FileAssetTextureLoader(
+            openStream: _ => throw new IOException("a content key must never hit the filesystem"),
+            decode: _ => null,
+            createPlaceholder: () => { placeholderRequests++; return null; },
+            resolveContentKey: key => { resolved.Add(key); return null; });
+
+        loader.Load("Atlas/TX Player");
+        loader.Load("Atlas/TX Player");
+
+        // The RAW key (no extension to strip, no scheme to parse), asked for exactly once.
+        Assert.Equal(new[] { "Atlas/TX Player" }, resolved);
+        // A null resolution still yields the shared placeholder, built at most once.
+        Assert.Equal(1, placeholderRequests);
+        Assert.Equal(0, loader.DecodeCount);
+        Assert.Empty(loader.MissingPaths); // a content-key miss is not a missing FILE
+    }
+
+    [Fact]
+    public void ContentKeyServingTest_WithoutAResolverTheLegacyPlaceholderBehaviorIsUnchanged()
+    {
+        var placeholderRequests = 0;
+        var loader = new FileAssetTextureLoader(
+            openStream: _ => throw new IOException("a content key must never hit the filesystem"),
+            decode: _ => null,
+            createPlaceholder: () => { placeholderRequests++; return null; });
+
+        loader.Load("Atlas/TX Player");
+        loader.Load("Atlas/TX Player");
+
+        // No resolver wired: a non-file: key is a composition error → the loud shared placeholder,
+        // exactly as before the ladder existed.
+        Assert.Equal(1, placeholderRequests);
+        Assert.Equal(0, loader.DecodeCount);
+        Assert.Empty(loader.MissingPaths);
+    }
+
+    [Fact]
+    public void AbsoluteContentRootTest_OpensARealStreamInsteadOfThrowing()
+    {
+        // Regression: TitleContainer.OpenStream throws on a ROOTED path by contract, and the editor's
+        // source-content-tree loader hands it exactly that — an absolute project root. The rung must
+        // detect the rooted combination and read the file directly, or the editor dies on boot.
+        using var dir = new TempAssetDir();
+        dir.AddFile("a.png");
+        Assert.True(Path.IsPathRooted(dir.Root));
+
+        using var stream = FileAssetTextureLoader.OpenContentStream(dir.Root, "a.png");
+
+        Assert.NotNull(stream);
+        Assert.True(stream!.CanRead);
+        Assert.NotEqual(-1, stream.ReadByte()); // a real, readable stream — bytes came back
     }
 }

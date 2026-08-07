@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using MonoDreams.State;
 
 namespace MonoDreams.LevelEditor.Assets;
@@ -17,8 +18,22 @@ namespace MonoDreams.LevelEditor.Assets;
 /// (<c>{"regions":[{"name":"trunk","x":0,"y":0,"w":32,"h":48}]}</c>). A sliced sheet contributes
 /// its regions only (the raw sheet is not itself a placeable prop).
 ///
-/// <para><b>The scan reads only the directory listing and the sidecar JSONs</b> — it never opens a
-/// PNG. Textures are loaded lazily, on first use, by <see cref="FileAssetTextureLoader"/>.</para>
+/// <para><b>Tileset auto-grid (pixel-art wave).</b> A sheet whose file name carries a
+/// <c>(NxM)</c> cell-size marker (the asset-pack convention — <c>Terrain (32x32).png</c>) and has
+/// no sidecar is auto-sliced into a full row-major grid of <c>rRRcCC</c> regions. Cell dimensions
+/// come from the marker; sheet dimensions come from the PNG's IHDR header (a 24-byte read — the
+/// scan still never DECODES a texture).</para>
+///
+/// <para><b>Animation folders (pixel-art wave).</b> A directory whose name ends in <c>.anim</c>
+/// (e.g. <c>Chest Open.anim/01.png…10.png</c>) collapses into ONE animated entry: frame 0 is the
+/// entry's texture/thumbnail and every member PNG (natural-numeric order) becomes a
+/// <c>SpriteAnimationComponent</c> frame at placement (see <see cref="AssetCatalogEntry.SequenceFrames"/>
+/// and <see cref="SpritePropFactory"/>). Explicit-by-convention — numbered VARIANTS
+/// (<c>tree01.png</c>, <c>tree02.png</c>) stay separate props unless the artist folders them.</para>
+///
+/// <para><b>The scan reads only the directory listing, the sidecar JSONs, and (for auto-grid
+/// sheets) the PNG's fixed-offset IHDR dimensions</b> — it never decodes a texture. Textures are
+/// loaded lazily, on first use, by <see cref="FileAssetTextureLoader"/>.</para>
 ///
 /// <para><b>Why System.IO here and TitleContainer for the loads:</b> <c>TitleContainer</c> is a
 /// stream-only API — it cannot enumerate a directory — so the scan uses host-filesystem
@@ -121,7 +136,7 @@ public sealed class AssetCatalog
         if (!Directory.Exists(rootAbsolutePath))
         {
             Logger.Info($"[level-editor] Asset folder '{rootAbsolutePath}' not found — the palette " +
-                        "starts empty. See Content/Island/MANIFEST.md for what to download.");
+                        $"starts empty. Drop PNGs under it (key root '{keyRoot}').");
             return entries;
         }
 
@@ -130,14 +145,42 @@ public sealed class AssetCatalog
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase) // deterministic across platforms
             .ToList();
 
+        // Animation folders first: every PNG inside a `<name>.anim` directory belongs to ONE
+        // animated entry (frames in natural-numeric order), not to the per-PNG loop below.
+        var animGroups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var loosePngs = new List<string>();
         foreach (var absolutePath in pngs)
         {
-            var relativeToRoot = Path.GetRelativePath(rootAbsolutePath, absolutePath).Replace('\\', '/');
-            var relativePath = string.IsNullOrEmpty(keyRoot) ? relativeToRoot : keyRoot + "/" + relativeToRoot;
+            var animDir = FindAnimDirectory(rootAbsolutePath, absolutePath);
+            if (animDir != null)
+            {
+                if (!animGroups.TryGetValue(animDir, out var frames))
+                    animGroups[animDir] = frames = new List<string>();
+                frames.Add(absolutePath);
+            }
+            else
+            {
+                loosePngs.Add(absolutePath);
+            }
+        }
+
+        foreach (var (animDir, frames) in animGroups.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            frames.Sort(CompareNaturalNumeric);
+            var framePaths = frames
+                .Select(f => ComposeRelativePath(rootAbsolutePath, keyRoot, f))
+                .ToList();
+            var dirName = Path.GetFileName(animDir);
+            var label = dirName.Substring(0, dirName.Length - AnimDirectorySuffix.Length);
+            entries.Add(new AssetCatalogEntry(framePaths[0], regionName: null, region: null,
+                label: label, FolderOf(rootAbsolutePath, animDir), sequenceFrames: framePaths));
+        }
+
+        foreach (var absolutePath in loosePngs)
+        {
+            var relativePath = ComposeRelativePath(rootAbsolutePath, keyRoot, absolutePath);
             var stem = Path.GetFileNameWithoutExtension(absolutePath);
-            var folder = relativeToRoot.Contains('/')
-                ? relativeToRoot.Substring(0, relativeToRoot.IndexOf('/'))
-                : string.Empty;
+            var folder = FolderOf(rootAbsolutePath, absolutePath);
 
             var regions = TryReadSidecar(absolutePath);
             if (regions is { Count: > 0 })
@@ -148,6 +191,13 @@ public sealed class AssetCatalog
                         relativePath, region.Name,
                         new Microsoft.Xna.Framework.Rectangle(region.X, region.Y, region.W, region.H),
                         label: $"{stem}#{region.Name}", folder));
+            }
+            else if (TryAutoGridRegions(absolutePath, stem, out var cells))
+            {
+                // A `(NxM)`-marked tileset with no sidecar: one entry per grid cell.
+                foreach (var (name, rect) in cells)
+                    entries.Add(new AssetCatalogEntry(relativePath, name, rect,
+                        label: $"{stem}#{name}", folder));
             }
             else
             {
@@ -162,8 +212,131 @@ public sealed class AssetCatalog
             .ToList();
 
         Logger.Info($"[level-editor] Asset catalog scanned '{rootAbsolutePath}': " +
-                    $"{pngs.Count} PNG(s) → {ordered.Count} palette entries.");
+                    $"{pngs.Count} PNG(s) → {ordered.Count} palette entries " +
+                    $"({animGroups.Count} animation(s)).");
         return ordered;
+    }
+
+    /// <summary>The directory suffix that marks an animation-frames folder.</summary>
+    public const string AnimDirectorySuffix = ".anim";
+
+    /// <summary>The nearest ancestor directory of <paramref name="pngAbsolutePath"/> (inside the
+    /// scan root) whose name ends in <see cref="AnimDirectorySuffix"/>, or null.</summary>
+    private static string? FindAnimDirectory(string rootAbsolutePath, string pngAbsolutePath)
+    {
+        var dir = Path.GetDirectoryName(pngAbsolutePath);
+        while (dir != null && dir.Length >= rootAbsolutePath.Length)
+        {
+            if (Path.GetFileName(dir).EndsWith(AnimDirectorySuffix, StringComparison.OrdinalIgnoreCase))
+                return dir;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return null;
+    }
+
+    private static string ComposeRelativePath(string rootAbsolutePath, string keyRoot, string absolutePath)
+    {
+        var relativeToRoot = Path.GetRelativePath(rootAbsolutePath, absolutePath).Replace('\\', '/');
+        return string.IsNullOrEmpty(keyRoot) ? relativeToRoot : keyRoot + "/" + relativeToRoot;
+    }
+
+    private static string FolderOf(string rootAbsolutePath, string absolutePath)
+    {
+        var relativeToRoot = Path.GetRelativePath(rootAbsolutePath, absolutePath).Replace('\\', '/');
+        return relativeToRoot.Contains('/')
+            ? relativeToRoot.Substring(0, relativeToRoot.IndexOf('/'))
+            : string.Empty;
+    }
+
+    /// <summary>Natural-numeric file-name comparison (<c>frame2</c> before <c>frame10</c>) so
+    /// animation frames order by their number regardless of zero-padding.</summary>
+    internal static int CompareNaturalNumeric(string a, string b)
+    {
+        var na = Regex.Replace(a, @"\d+", m => m.Value.PadLeft(10, '0'));
+        var nb = Regex.Replace(b, @"\d+", m => m.Value.PadLeft(10, '0'));
+        return string.Compare(na, nb, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ---- Tileset auto-grid (the `(NxM)` filename convention) ----
+
+    private static readonly Regex GridMarker = new(@"\((\d+)\s*[xX]\s*(\d+)\)", RegexOptions.Compiled);
+
+    /// <summary>The auto-grid safety cap: a sheet that would slice into more cells than this is
+    /// left whole (loud) — a palette with thousands of cards is unusable, not helpful.</summary>
+    public const int MaxAutoGridCells = 256;
+
+    /// <summary>
+    /// Slices a <c>(NxM)</c>-named sheet into row-major <c>rRRcCC</c> cell regions. Sheet
+    /// dimensions come from the PNG IHDR header (<see cref="TryReadPngDimensions"/> — a fixed-offset
+    /// 24-byte read, never a decode). False (whole-PNG fallback, loud where it matters) when the
+    /// name has no marker, the header is unreadable, the sheet doesn't divide evenly, or the cell
+    /// count exceeds <see cref="MaxAutoGridCells"/>.
+    /// </summary>
+    private static bool TryAutoGridRegions(string absolutePath, string stem,
+        out List<(string Name, Microsoft.Xna.Framework.Rectangle Rect)> cells)
+    {
+        cells = new List<(string, Microsoft.Xna.Framework.Rectangle)>();
+        var marker = GridMarker.Match(stem);
+        if (!marker.Success) return false;
+
+        var cellW = int.Parse(marker.Groups[1].Value);
+        var cellH = int.Parse(marker.Groups[2].Value);
+        if (cellW <= 0 || cellH <= 0) return false;
+
+        if (!TryReadPngDimensions(absolutePath, out var width, out var height))
+        {
+            Logger.Warning($"[level-editor] '{absolutePath}' has a (NxM) grid marker but its PNG " +
+                           "header is unreadable — using the whole PNG.");
+            return false;
+        }
+        if (width % cellW != 0 || height % cellH != 0)
+        {
+            Logger.Warning($"[level-editor] '{absolutePath}' ({width}x{height}) does not divide " +
+                           $"into {cellW}x{cellH} cells — using the whole PNG.");
+            return false;
+        }
+
+        var cols = width / cellW;
+        var rows = height / cellH;
+        if (cols * rows > MaxAutoGridCells)
+        {
+            Logger.Warning($"[level-editor] '{absolutePath}' would slice into {cols * rows} cells " +
+                           $"(cap {MaxAutoGridCells}) — using the whole PNG. Add a slices.json for " +
+                           "the regions you actually want.");
+            return false;
+        }
+
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < cols; c++)
+            cells.Add(($"r{r:00}c{c:00}",
+                new Microsoft.Xna.Framework.Rectangle(c * cellW, r * cellH, cellW, cellH)));
+        return true;
+    }
+
+    /// <summary>Reads a PNG's pixel dimensions from its fixed-offset IHDR chunk (signature 8 bytes
+    /// + length 4 + type 4 + width 4 + height 4, both big-endian) — 24 bytes, no decode.</summary>
+    internal static bool TryReadPngDimensions(string absolutePath, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        try
+        {
+            using var stream = File.OpenRead(absolutePath);
+            Span<byte> header = stackalloc byte[24];
+            if (stream.Read(header) != header.Length) return false;
+            // PNG signature, then the first chunk must be IHDR.
+            if (header[0] != 0x89 || header[1] != (byte)'P' || header[2] != (byte)'N' || header[3] != (byte)'G')
+                return false;
+            if (header[12] != (byte)'I' || header[13] != (byte)'H' || header[14] != (byte)'D' || header[15] != (byte)'R')
+                return false;
+            width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
+            height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+            return width > 0 && height > 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>The sidecar regions of <paramref name="pngAbsolutePath"/>, or null (no sidecar, or
