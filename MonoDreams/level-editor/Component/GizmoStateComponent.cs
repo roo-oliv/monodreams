@@ -46,9 +46,16 @@ public enum EditorToolMode
     /// <see cref="Place"/>, selection and the transform gizmo are dormant in this mode.</summary>
     Boundary,
 
+    /// <summary>The tile-grid paint brush (pixel-art wave — the "GroundPaint" reserved slot,
+    /// live): the palette's Paint tab armed a <c>TilePaintValue</c> (or the eraser); holding the
+    /// left button paints cells of the scene's <c>TileGridComponent</c> under the cursor
+    /// (<c>TileGridPaintSystem</c>). Selection and the transform gizmo are dormant, exactly like
+    /// <see cref="Place"/>; Escape / right-click disarms.</summary>
+    GroundPaint,
+
     // Reserved mode names for the later brush waves (wave-repass §S1) — added here (not
     // implemented) so the modality contract is stable: Scatter (Wave D scatter brush),
-    // GroundPaint (Wave E ground canvas), Road (Wave F spline tool).
+    // Road (Wave F spline tool).
 }
 
 /// <summary>
@@ -116,6 +123,12 @@ public struct GizmoStateComponent
     /// reads it the same way it reads snap.
     /// </summary>
     public float StampSpacing;
+
+    /// <summary>The armed <c>TilePaintValue.Id</c> while <see cref="Mode"/> is
+    /// <see cref="EditorToolMode.GroundPaint"/> (0 = the eraser). Set by the palette's Paint tab,
+    /// read by <c>TileGridPaintSystem</c> (the stroke) and the paint-view overlay (the brush
+    /// preview) — the shared-editor-state pattern, like <see cref="Mode"/> itself.</summary>
+    public byte PaintValue;
 
     /// <summary>A sensible default: select/transform modality, move tool, snap off, a 16-unit
     /// grid, 15° rotation step, 32-unit multi-stamp spacing.</summary>

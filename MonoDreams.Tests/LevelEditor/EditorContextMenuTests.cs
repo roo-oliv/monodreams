@@ -146,14 +146,16 @@ public class EditorContextMenuTests
     }
 
     [Fact]
-    public void AddMenu_IsEmptyEntityThenTheLayerCreator()
+    public void AddMenu_IsEmptyEntityThenTheLayerCreators()
     {
-        // The Entities-panel toolbar's + Add dropdown (HP): what can be born into the scene.
+        // The Entities-panel toolbar's + Add dropdown (HP): what can be born into the scene — an
+        // empty entity, or a layer by KIND (pixel-art wave: Entity Layer | Indexed Layer).
         var items = EditorContextMenuModel.AddMenu();
-        Assert.Equal(3, items.Count);
+        Assert.Equal(4, items.Count);
         Assert.Equal(EditorContextMenuModel.AddEmptyPath, items[0].Path);
         Assert.Equal(EditorMenuItemKind.Separator, items[1].Kind);
         Assert.Equal(EditorContextMenuModel.NewSpritesLayerPath, items[2].Path);
+        Assert.Equal(EditorContextMenuModel.NewPaintLayerPath, items[3].Path);
         Assert.All(items, i => Assert.True(i.Enabled)); // nothing here is selection-gated
     }
 
@@ -168,15 +170,16 @@ public class EditorContextMenuTests
     }
 
     [Fact]
-    public void EntitiesPanelMenu_NoRow_IsAddEmptyPlusTheLayerCreator()
+    public void EntitiesPanelMenu_NoRow_IsAddEmptyPlusTheLayerCreators()
     {
         // Layers wave: the Entities tree IS the layers panel, so its background menu carries the
-        // layer creator below Add Empty Entity (separated).
+        // layer creators below Add Empty Entity (separated) — both kinds (pixel-art wave).
         var items = EditorContextMenuModel.EntitiesPanelMenu(hasRowEntity: false);
-        Assert.Equal(3, items.Count);
+        Assert.Equal(4, items.Count);
         Assert.Equal(EditorContextMenuModel.AddEmptyPath, items[0].Path);
         Assert.Equal(EditorMenuItemKind.Separator, items[1].Kind);
         Assert.Equal(EditorContextMenuModel.NewSpritesLayerPath, items[2].Path);
+        Assert.Equal(EditorContextMenuModel.NewPaintLayerPath, items[3].Path);
     }
 
     [Fact]

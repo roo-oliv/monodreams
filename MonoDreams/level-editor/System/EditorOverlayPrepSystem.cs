@@ -36,6 +36,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     private readonly TriggerOverlaySystem? _triggers;
     private readonly CameraEntityOverlay? _cameraOverlay;
     private readonly EditorGrid? _grid;
+    private readonly Tile.TileGridOverlay? _tileGrid;
 
     public bool IsEnabled { get; set; } = true;
 
@@ -50,9 +51,13 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
     /// into this same pass when the view differs from the camera entity.</param>
     /// <param name="grid">Optional world-space grid (UX3-D): its <see cref="EditorGrid.EmitGrid"/> bakes
     /// the reference grid into this same pass, BENEATH the other overlays (lowest overlay depth).</param>
+    /// <param name="tileGrid">Optional tile-grid paint view (pixel-art wave): its
+    /// <see cref="Tile.TileGridOverlay.EmitCells"/> bakes the painted cells' colored blocks + the
+    /// brush's cursor-cell highlight, just above the reference grid.</param>
     public EditorOverlayPrepSystem(GizmoSystem gizmo, ProxySyncSystem proxySync,
         BoundaryToolSystem? boundary = null, TriggerOverlaySystem? triggers = null,
-        CameraEntityOverlay? cameraOverlay = null, EditorGrid? grid = null)
+        CameraEntityOverlay? cameraOverlay = null, EditorGrid? grid = null,
+        Tile.TileGridOverlay? tileGrid = null)
     {
         _gizmo = gizmo ?? throw new ArgumentNullException(nameof(gizmo));
         _proxySync = proxySync ?? throw new ArgumentNullException(nameof(proxySync));
@@ -60,6 +65,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
         _triggers = triggers;
         _cameraOverlay = cameraOverlay;
         _grid = grid;
+        _tileGrid = tileGrid;
     }
 
     public void Update(GameState state)
@@ -67,6 +73,7 @@ public sealed class EditorOverlayPrepSystem : ISystem<GameState>
         if (!IsEnabled) return;
         // Grid first — the backdrop reference beneath the interactive overlays (depth-ordered anyway).
         _grid?.EmitGrid(state);
+        _tileGrid?.EmitCells(state); // the paint view: colored logical blocks over the world
         _gizmo.EmitOverlays(state);
         _proxySync.EmitOverlays(state);
         _boundary?.EmitOverlays(state);
