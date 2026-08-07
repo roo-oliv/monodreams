@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "926467185661",
+  "session_id": "34de1532-b452-446a-9e77-8c2c00fa9270",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T17:15:20.893565Z",
+  "branch": "issue-57",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/collision/docs/premises.md",
+    "MonoDreams/debug/docs/overview.md",
+    "MonoDreams/rendering/docs/premises.md",
+    "docs/recipes/build-bitmap-font.md",
+    "docs/recipes/build-sfx.md",
+    "docs/recipes/frames-to-gif.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "6ee44f49-1af1-4417-9ee5-f4b307038bb9",
+  "checkpoint_transcript_start": 397,
+  "transcript_lines_at_start": 397,
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 187450,
+    "cache_read_tokens": 1581241,
+    "output_tokens": 20642,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T17:15:20.643036Z",
+    "agent_lines": 54,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 54,
+    "agent_percentage": 100
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-57/34de1532-b452-446a-9e77-8c2c00fa9270.jsonl"
+}
