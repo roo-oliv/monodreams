@@ -1,0 +1,113 @@
+Implement the issue #53. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>adba62f653bd3c0ba</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port Preload + tests" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. All three tasks landed, everything green.
+
+## Files changed (3 files, +196 / -0)
+
+| File | Change |
+|---|---|
+| `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-53/MonoDreams/audio/System/ContentAudioPlayer.cs` | +48 — the three verbatim deltas |
+| `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-53/MonoDreams/audio/demo/AudioDemoScreen.cs` | +6 — loading-moment warm |
+| `/Users/rodrigooliveira/.warp/worktrees/monodreams/issue-53/MonoDreams.Tests/Audio/AudioSystemTests.cs` | +142 — 2 fakes + 3 tests |
+
+## Task 1 — port verified byte-identical
+
+`diff` between the target and `/Users/rodrigooliveira/git/roo-oliv/gmtk-2026gj/Gmtk2026.Core/MonoDreams/audio/System/ContentAudioPlayer.cs` is **empty**. Ported exactly the three deltas: `using System.Diagnostics;`, the cache-miss comment in `Play`, and `Preload` + XML doc between `Play` and `Stop`. `IAudioPlayer.cs` also confirmed still byte-identical between the two repos (untouched — `Preload` stays on the concrete class).
+
+## Task 2 — demo wiring
+
+The player is constructed in the **constructor**, not `Load` (`_audioPlayer = new ContentAudioPlayer(content);` immediately after `content.Load&lt;BitmapFont&gt;(...)`) — that constructor *is* the screen's loading moment, and the reference game's pattern is construct-then-warm adjacency, so I put the call right there:
+
+```csharp
+_audioPlayer.Preload(new[] { ClickSoundKey, WindSoundKey, JukeboxSoundKey });
+```
+
+covering the demo's three existing keys, with a comment in the screen's existing `//`-block style. Used `new[] { }` rather than a collection expression to match the file's own idiom (`descriptionLines: new[]`). Nothing awkward about the ownership — the screen owns and disposes the player, so the warm is naturally colocated. Note the warm survives the editor's `RebuildCodeContent` sweep for free: the sweep recreates the *source entities*, not the player, so the cache persists.
+
+## Task 3 — tests
+
+Three new tests with the exact contracted names, plus two new fake subclasses (`CountingPlayer` counting both seams; `SelectiveFailurePlayer` failing one key). Followed the existing `Logger.Shutdown → Initialize(tempDir) → try/finally Shutdown` + log-file-scan + temp-dir-cleanup pattern in tests 2 and 3 (I did assert the single "Audio backend unavailable" warning in test 3 — the disable path returns before `Logger.Info`, so it's the only WARN line). In test 1 I left `Stop`/`Dispose`/`IsPlaying` unexercised on the null-instance handle, with a comment saying why.
+
+Confirmed `MonoDreams.Tests/xunit.runner.json` sets `parallelizeTestCollections: false`, so the global-static Logger ownership in these tests is safe against the rest of the assembly.
+
+## Verify
+
+```
+dotnet build MonoDreams/MonoDreams.csproj              → 0 Erro(s)
+dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj  → 0 Erro(s)
+dotnet test --filter "FullyQualifiedName~ContentAudioPlayerTests" --no-build
+  Aprovado!  – Com falha: 0, Aprovado: 7, Ignorado: 0, Total: 7, Duração: 25 ms
+```
+
+7 = the 4 pre-existing + 3 new. Also ran the whole `MonoDreams.Tests.Audio` namespace (21/21 green) to confirm the Logger juggling didn't disturb `AudioSystemTests`.
+
+## Deviations / extras
+
+- **One extra build, deliberate:** `MonoDreams/**/demo/**` is `Compile Remove`d from `MonoDreams.csproj` and compiled by `MonoDreams.Demos.csproj` instead, so the core build does *not* cover my `AudioDemoScreen.cs` edit. I built `MonoDreams.Demos` as well (0 errors) — otherwise the demo change would have gone unverified. Worth knowing for the orchestrator: a demo-folder edit needs the Demos build, not just core.
+- `git status` is clean of incidental churn — no `packages.lock.json` was touched, so no checkout was needed. Only the 3 intended files are modified; nothing under `MonoDreams/audio/docs/` or repo-root `docs/`.</result>
+<usage><subagent_tokens>106544</subagent_tokens><tool_uses>24</tool_uses><duration_ms>207759</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af9b74451cd00c4f8</task-id>
+<tool-use-id>toolu_017ov84CY4PfH9mNuP8i72MD</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Premises + exploration" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Only the two doc files were touched; no code written, no `dotnet` run.
+
+## Exploration outcome (for the PR description)
+
+**A debug-build "sound requests published with no consumer" warning cannot be implemented cheaply or honestly — the issue's hypothesis is confirmed.** Verified against the exact pinned version, DefaultEcs `0.18.0-beta01` (`MonoDreams/MonoDreams.csproj:143`), read from `~/.nuget/packages/defaultecs/0.18.0-beta01/`. Its entire public pub/sub surface is `World.Publish&lt;T&gt;(in T)` / `World.Subscribe&lt;T&gt;(MessageHandler&lt;T&gt;)`, the same two members on `IPublisher`, and the attribute-driven `IPublisherExtension.Subscribe` helpers — there is no subscriber count, no has-listeners query, and no way to enumerate subscriptions. Cross-checked two ways: the package's `DefaultEcs.xml` documents no such member, and a dump of the assembly's `#Strings` heap (which carries private names too) contains no symbol resembling `SubscriberCount` / `HasSubscribers` / `ListenerCount`; the only `GetSubscriptions` symbols are compiler-generated local functions (`g__GetSubscriptions|NN_0`) inside `World.SubscribeEntityComponentRemoved` / `SubscribeWorldComponentRemoved` / `AResourceManager.Manage`, and the subscription lists are private fields (`_subscriptions`, `_nonReactSubscriptions`) of an undocumented internal `Publisher&lt;T&gt;`.
+
+Beyond the missing API, the module has no seam to check from. The engine does not own the publish call — game code writes `world.Publish(new PlaySoundRequest(...))` directly (`AudioDemoScreen.cs:197`), so counting consumers would require routing one-shots through an engine-owned wrapper, i.e. a second way to play a sound, which the module's own "exactly one idiomatic way per use case" premise forbids. The three remaining ideas are all hacks the issue rejects: reflection into `Publisher&lt;T&gt;`'s private fields (brittle across a *beta* whose release notes already record renamed subscribe members); a module-registered sentinel subscriber (circular — the only module-owned object is `AudioSystem` itself, the very thing being forgotten); and a composition-time assertion (the engine has no pipeline-validation hook — screens build plain `SequentialSystem`s, and `EditorPipelineRegistrar` is demo/editor-only — plus CORE_TENETS §2 puts pipeline assembly in the screen, not the system). There is also no `#if DEBUG` precedent anywhere under `MonoDreams/`. **Conclusion: no runtime tripwire; the premise is the guard.** That conclusion is folded into the premise text itself.
+
+## Premises added — `MonoDreams/audio/docs/premises.md` (+122 lines, 3 new entries)
+
+Placement groups them by subject rather than appending:
+
+| Entry | Placed |
+|---|---|
+| **`Preload` is an optimisation, never a gate** | Immediately after "`ContentAudioPlayer` degrades to a silent no-op…" — both are `ContentAudioPlayer` premises, and the new one cross-references it in *Depends on* (it reuses that entry's `Disable` path and fails-loud-on-content-miss rule). New entry rather than an extension: the degrade premise is about surviving absent hardware, the warm is about cost placement; merging would have buried both. |
+| **An unregistered `AudioSystem` is a silently mute game** | Immediately **before** the `EditTimeBehavior.Freeze` premise, so the two registration premises are adjacent and read in order: "you must register it at all" → "and with which edit-time policy". |
+| **`MediaPlayer` is one stream — a failed `Song` load must `Stop()` or the old track resurrects** | Last premise entry, immediately before *Known limitations* — sitting between the rest of the invariants and the two places the streaming follow-up is named ("Music lives in RAM"; "Streaming music backend"), which is where the next music-system author lands. Opens by declaring itself forward-looking. |
+
+Two details worth flagging, both grounded rather than assumed:
+- The mute-trap entry also documents the **partial** form of the trap I verified in `AudioSystem.cs`: with `IsEnabled = false` the one-shots still sound (the `PlaySoundRequest` subscription is made in the constructor and is *not* gated by `IsEnabled`) while every `AudioSourceComponent` goes silent — the same update-seam boundary the Freeze premise documents.
+- Its `Tests:` field is honest: `none yet, and not testable from inside the module`, with the reasoning that `HeadlessAudioDemoTests` exercises the *registered* path and so by construction cannot catch a missing registration.
+
+The parallel agent's `Preload` work had fully landed before I wrote (impl at `ContentAudioPlayer.cs:79`, demo warm at `AudioDemoScreen.cs:121`, and the three tests at `AudioSystemTests.cs:586/610/648` under exactly the specified names), so the Tests field and the described semantics were written against real code, not the spec.
+
+## Overview — `MonoDreams/audio/docs/overview.md` (+3 lines changed, no restructuring)
+
+- **Seam bullet** — appended `Preload` to the `ContentAudioPlayer` description: loading-moment warm of the same cache, failures log-and-skip onto the lazy path, backend absence short-circuits, and why it is deliberately not on `IAudioPlayer`.
+- **Pipeline wiring** — one sentence prepended to the existing paragraph: registering the system is the load-bearing act, forgetting it is a silently mute game, and DefaultEcs exposes no subscriber count so there is no runtime tripwire; points at the premises.
+- **Known limitations (v1)** — one clause on the existing streaming-follow-up bullet pointing the future music author at the new `MediaPlayer` premise. This is slightly beyond the literal brief but is the single place that author will actually look, which is the stated point of Deliverable 2.</result>
+<usage><subagent_tokens>105406</subagent_tokens><tool_uses>31</tool_uses><duration_ms>322732</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bj2qelsqn</task-id>
+<tool-use-id>toolu_01EWsaoYT1eWuYMB4zRP1d2W</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full-solution Release test gate" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Does the CodeRabbit comments make sense and are worth fixing? If yes, fix them, otherwise leave a comment on the PR.

@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "47dca5643724",
+  "session_id": "ae727181-84f7-413a-85e0-c7d46f5189d0",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T14:20:46.532275Z",
+  "branch": "issue-53",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams/audio/docs/overview.md",
+    "MonoDreams/audio/docs/premises.md"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "ce202cb1-eb4f-4e19-b821-4938cfa6f13e",
+  "token_usage": {
+    "input_tokens": 71,
+    "cache_creation_tokens": 289670,
+    "cache_read_tokens": 3471148,
+    "output_tokens": 35179,
+    "api_call_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T14:20:46.135862Z",
+    "agent_lines": 127,
+    "human_added": 196,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 323,
+    "agent_percentage": 39.318885448916404
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-53/ae727181-84f7-413a-85e0-c7d46f5189d0.jsonl"
+}
