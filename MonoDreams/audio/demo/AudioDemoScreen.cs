@@ -113,6 +113,12 @@ public class AudioDemoScreen : IGameScreen
         };
         _font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
         _audioPlayer = new ContentAudioPlayer(content);
+        // WARMED here — the screen's loading moment, next to the font load. A SoundEffect is a disk
+        // read plus a PCM decode on first request and Play runs mid-frame, so an unwarmed demo
+        // hitches once on the first click, once on the wind, once on the jukebox; warming pays that
+        // cost where a hitch is invisible. A key that fails to warm is logged and skipped (never
+        // fatal) and stays on the lazy path in Play.
+        _audioPlayer.Preload(new[] { ClickSoundKey, WindSoundKey, JukeboxSoundKey });
 
         camera.Position = Vector2.Zero;
 

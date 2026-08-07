@@ -115,6 +115,46 @@ permanently silence the game after one loud mix.
 `ContentAudioPlayerTests.VoiceCapReached_DropsTheVoice_WithoutDisablingThePlayer`).
 **Depends on:** foundation — "`Logger` requires `Initialize` before any write".
 
+## `Preload` is an optimisation, never a gate
+
+`ContentAudioPlayer.Preload(IEnumerable<string>)` decodes sound keys into the
+same `_sounds` cache `Play` reads, so no `Play` ever pays the disk read plus
+PCM decode mid-frame. It is meant to be called from a loading moment, where a
+hitch is invisible — the reference warm is the module demo, which preloads its
+three keys next to its font load (`MonoDreams/audio/demo/AudioDemoScreen.cs`).
+Every failure mode of the warm is non-fatal by construction: a key that will
+not load is logged (`Logger.Warning`) and **skipped**, which leaves it uncached
+so `Play` behaves exactly as it did before — including still failing loud
+there, where a content miss is a developer error. Backend absence
+(`NoAudioHardwareException` / `DllNotFoundException` anywhere in the chain)
+short-circuits the entire warm through the same `Disable` path `Play` uses, so
+a deviceless machine spends nothing. Already-cached keys and an already-
+disabled player are skipped, and the warm closes with a `Logger.Info` summary.
+`Preload` lives on `ContentAudioPlayer` only, **not** on `IAudioPlayer`:
+warming is a content-pipeline concern of this implementation, not part of the
+playback seam.
+
+**Why:** an unwarmed game stutters once per distinct sound (38 ms in one frame
+for the first sound ever played, which also pays audio-backend spin-up), and
+because it only ever happens the first time it reads as a gameplay bug rather
+than a load. Conversely, letting the warm throw would trade a cosmetic hitch
+for a refusal to boot, and letting it absorb the miss would move a developer
+error out of `Play`, the one place it is diagnosable.
+**Breaks:** making a warm failure fatal turns one absent effect into a crash at
+startup; caching a sentinel — or otherwise recording a failed key as
+"attempted" — silences the content miss `Play` is supposed to raise, converting
+a loud developer error into the module's worst failure mode, silence; hoisting
+`Preload` onto `IAudioPlayer` forces every backend (a streaming player, a test
+fake) to implement a `SoundEffect`-cache concept it does not have.
+**Tests:** `MonoDreams.Tests/Audio/AudioSystemTests.cs`
+(`ContentAudioPlayerTests.PreloadedKeys_NeverTouchTheLoaderInPlay`,
+`ContentAudioPlayerTests.PreloadFailingKey_WarnsAndSkips_WithoutAbortingTheWarm_AndStaysOnTheLazyPath`,
+`ContentAudioPlayerTests.BackendAbsenceDuringWarm_ShortCircuitsAndDisables_SoHeadlessWarmIsANoOp`).
+**Depends on:** this file — "`ContentAudioPlayer` degrades to a silent no-op
+without an audio backend" (the warm reuses its `Disable` path and its
+fails-loud-on-content-miss rule); foundation — "`Logger` requires `Initialize`
+before any write".
+
 ## Web playback unlocks on the first user gesture — the shared host layer owns the resume
 
 Browsers start an `AudioContext` created before any user interaction in the
@@ -143,6 +183,52 @@ explicit manual item in the PR test plan.
 **Depends on:** foundation — "The platform (backend + OS services) is
 selected by the head project, never by engine source" (the hook lives in
 web host infrastructure, not engine source).
+
+## An unregistered `AudioSystem` is a silently mute game
+
+Nothing in this module sounds until `AudioSystem` is registered in a screen's
+update pipeline: its **constructor** is what subscribes to `PlaySoundRequest`
+and what opens the `AudioSourceComponent` set. A screen that composes the
+components and publishes the messages but never adds the system is not broken
+in any observable way — `World.Publish` on a message nobody listens for returns
+normally, sources sit at `State = Playing` with `Instance = null` forever, and
+there is no exception, no log line, not even the degraded-mode warning a
+missing audio device would produce. Registration is the load-bearing act; the
+reference registration is the module demo (`MonoDreams/audio/demo/AudioDemoScreen.cs`,
+`p.Add("audio", new AudioSystem(_world, _audioPlayer), EditTimeBehavior.Freeze)`).
+A registered-but-disabled system (`IsEnabled = false`) is a partial form of the
+same trap — one-shots still sound, because the message subscription is not
+gated by `IsEnabled`, while every `AudioSourceComponent` goes silent (the same
+update-seam boundary the Freeze premise below documents).
+
+No runtime tripwire exists to catch this, and none can be added honestly.
+DefaultEcs 0.18.0-beta01's public pub/sub surface is exactly `Publish<T>` /
+`Subscribe<T>` (on `World` and `IPublisher`, plus the attribute-driven
+`IPublisherExtension.Subscribe` helpers): there is no subscriber count, no
+"has listeners" query, and no way to enumerate subscriptions — the lists live
+in private fields of an undocumented internal `Publisher<T>`. The engine does
+not own the publish call either: game code writes
+`world.Publish(new PlaySoundRequest(...))` directly, so counting consumers
+would mean routing one-shots through an engine-owned wrapper — a second way to
+play a sound, which the entry-point premise above forbids. This premise is the
+guard.
+
+**Why:** it cost the shipped reference game's developer a debugging session. A
+game that is *entirely* silent looks like a content, asset, or audio-hardware
+problem, and each of those is investigated before "the system is missing from
+the pipeline" — which is why the absence has to be documented where a wiring
+mistake is made rather than detected where it manifests.
+**Breaks:** any screen that wires `AudioSourceComponent`s or publishes
+`PlaySoundRequest` without adding `AudioSystem` to its update pipeline — or
+that drops it while reordering one. The whole game is mute with zero
+diagnostics to work back from.
+**Tests:** none yet, and not testable from inside the module.
+`MonoDreams.Tests/IntegrationTests/HeadlessAudioDemoTests.cs` exercises the
+*registered* path, which by construction cannot catch a missing registration;
+an assertion would have to live in screen composition, which the module does
+not own (CORE_TENETS §2 — the screen owns pipeline assembly, and a system makes
+no assumption about what else is registered).
+**Depends on:** —
 
 ## `EditTimeBehavior.Freeze` is the reference edit-mode policy — it freezes reconciliation, not playback
 
@@ -176,6 +262,42 @@ the reference Freeze registration is exercised end-to-end by
 `MonoDreams.Tests/IntegrationTests/HeadlessAudioDemoTests.cs`.
 **Depends on:** foundation — "Edit-time behaviour is a per-system policy
 honoured by `GatedSystem`".
+
+## `MediaPlayer` is one stream — a failed `Song` load must `Stop()` or the old track resurrects
+
+Forward-looking: the engine has no music system today (`Song`/`MediaPlayer` was
+deliberately rejected for this module — see *Known limitations* below), so this
+invariant is addressed to whoever builds the named streaming-backend follow-up.
+XNA's `MediaPlayer` is a global, single-stream singleton: one song at a time,
+which means a crossfade between tracks is necessarily a volume ramp on that one
+stream — the outgoing track is turned **down**, never stopped. So a track swap
+whose new `Song` fails to load must call `MediaPlayer.Stop()` in its catch
+block, not merely log and return. The stream still holds the previous track at
+a faded-down level, and the fade logic — running under a system that has
+already recorded the swap as done — ramps it back **up**: the failed swap
+resurrects the track it was replacing. The `Stop()` goes inside its own
+`try`/`catch`, because it throws when there is nothing to stop or no audio
+device at all, and a missing music track must never become a crash. Silence is
+what a failed track has to sound like.
+
+**Why:** a real defect in the shipped reference game's `MediaPlayer`-backed
+music player, where it surfaced as the *previous* area's music playing in the
+new area — an audio bug that presents as a level/state bug and gets
+investigated as one. The one-stream shape is what makes "do nothing on failure"
+different from "produce silence"; the per-instance `SoundEffect` mixer this
+module is built on has no such coupling, which is exactly why the trap is
+invisible to anyone reasoning from the current module.
+**Breaks:** any streaming/music backend whose failed-load path returns without
+stopping the stream: every failed swap leaves the old track audible while its
+owning system believes the new one is playing, so the *next* swap crossfades
+out of a track that is not the one it thinks it is. An unguarded `Stop()`
+trades the resurrection for a crash on the deviceless machines the rest of this
+module goes out of its way to survive.
+**Tests:** none yet (no music system in the engine; invariant for the named
+streaming-backend follow-up).
+**Depends on:** this file — "`ContentAudioPlayer` degrades to a silent no-op
+without an audio backend" (a music backend inherits the same
+never-crash-without-a-device obligation).
 
 ## Known limitations (acknowledged gaps)
 

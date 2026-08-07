@@ -437,6 +437,45 @@ public class ContentAudioPlayerTests
         }
     }
 
+    /// <summary>
+    /// Counts both seams and hands back nothing: <c>LoadSoundEffect</c> returns <c>null!</c> (safe —
+    /// with <c>StartInstance</c> also overridden, nothing ever dereferences the sound) and
+    /// <c>StartInstance</c> returns a <c>null!</c> instance. Lets a test observe exactly how many
+    /// loads a warm-then-play sequence costs.
+    /// </summary>
+    private sealed class CountingPlayer() : ContentAudioPlayer(null!)
+    {
+        public int LoadCalls { get; private set; }
+        public int StartCalls { get; private set; }
+
+        protected override SoundEffect LoadSoundEffect(string soundKey)
+        {
+            LoadCalls++;
+            return null!;
+        }
+
+        protected override SoundEffectInstance StartInstance(
+            SoundEffect sound, float volume, float pitch, float pan, bool loop)
+        {
+            StartCalls++;
+            return null!;
+        }
+    }
+
+    /// <summary>Loads every key successfully except <paramref name="failingKey"/>, which raises a
+    /// plain content miss — the "one bad key in a warm list" case.</summary>
+    private sealed class SelectiveFailurePlayer(string failingKey) : ContentAudioPlayer(null!)
+    {
+        public int LoadCalls { get; private set; }
+
+        protected override SoundEffect LoadSoundEffect(string soundKey)
+        {
+            LoadCalls++;
+            if (soundKey == failingKey) throw new ContentLoadException($"asset '{soundKey}' not found");
+            return null!;
+        }
+    }
+
     private sealed class VoiceCapPlayer() : ContentAudioPlayer(null!)
     {
         public int StartAttempts { get; private set; }
@@ -539,5 +578,108 @@ public class ContentAudioPlayerTests
         var player = new ThrowingPlayer(new ContentLoadException("asset 'Sounds/typo' not found"));
 
         Assert.Throws<ContentLoadException>(() => player.Play("Sounds/typo", 1f, 0f, 0f, loop: false));
+    }
+
+    // ---- Preload: the warm decodes into the same cache Play reads ----
+
+    [Fact]
+    public void PreloadedKeys_NeverTouchTheLoaderInPlay()
+    {
+        // The point of the warm: a SoundEffect is a disk read plus a PCM decode, and Play runs
+        // mid-frame. Preload moves that cost to a loading moment by filling the SAME cache Play
+        // consults — so a warmed key's Play never reaches the loader at all.
+        var player = new CountingPlayer();
+
+        player.Preload(["Sounds/a", "Sounds/b"]);
+        Assert.Equal(2, player.LoadCalls);
+
+        var handle = player.Play("Sounds/a", 1f, 0f, 0f, loop: false);
+        Assert.True(handle > IAudioPlayer.InvalidHandle); // playback still works, from the cache
+        Assert.Equal(1, player.StartCalls);
+        Assert.Equal(2, player.LoadCalls);               // ...and cost no load
+
+        // Warming an already-warm key is free: the cache-hit skip means no second decode.
+        player.Preload(["Sounds/a", "Sounds/b"]);
+        Assert.Equal(2, player.LoadCalls);
+
+        // NB: StartInstance handed back a null instance, so Stop/Dispose/IsPlaying are deliberately
+        // not exercised on this handle — they would dereference it.
+    }
+
+    [Fact]
+    public void PreloadFailingKey_WarnsAndSkips_WithoutAbortingTheWarm_AndStaysOnTheLazyPath()
+    {
+        // Warming is an optimisation: refusing to boot over one absent sound effect would turn a
+        // cosmetic gap into a crash. The bad key is logged, skipped, and left UNCACHED — so Play
+        // still fails loud on it, where a content miss is a real developer error.
+        var logDir = Path.Combine(Path.GetTempPath(), "md-audio-log-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(logDir);
+        Logger.Shutdown(); // make sure we own the logger for this test
+        Logger.Initialize(logDir);
+        SelectiveFailurePlayer player;
+        try
+        {
+            player = new SelectiveFailurePlayer("Sounds/bad");
+
+            player.Preload(["Sounds/good1", "Sounds/bad", "Sounds/good2"]);
+
+            // All three attempted: the failure skipped one key, it did not abort the warm.
+            Assert.Equal(3, player.LoadCalls);
+        }
+        finally
+        {
+            Logger.Shutdown();
+        }
+
+        var logFile = Directory.GetFiles(logDir, "monodreams_*.log").Single();
+        var warnings = File.ReadAllLines(logFile).Where(l => l.Contains("[ WARN]")).ToList();
+        var warmWarning = Assert.Single(warnings);
+        Assert.Contains("Could not preload sound", warmWarning);
+        Assert.Contains("Sounds/bad", warmWarning);
+        Directory.Delete(logDir, recursive: true);
+
+        // The skipped key stayed on the lazy path: Play consults the loader again AND the content
+        // miss propagates — degrading it into silence here would hide a typo'd key forever.
+        Assert.Throws<ContentLoadException>(() => player.Play("Sounds/bad", 1f, 0f, 0f, loop: false));
+        Assert.Equal(4, player.LoadCalls);
+    }
+
+    [Fact]
+    public void BackendAbsenceDuringWarm_ShortCircuitsAndDisables_SoHeadlessWarmIsANoOp()
+    {
+        // On a deviceless machine (headless CI) the warm must cost nothing: the first key's backend
+        // failure goes through the same Disable path Play uses and returns, so the rest of the list
+        // is never attempted and the player is permanently a silent no-op.
+        var logDir = Path.Combine(Path.GetTempPath(), "md-audio-log-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(logDir);
+        Logger.Shutdown(); // make sure we own the logger for this test
+        Logger.Initialize(logDir);
+        try
+        {
+            var player = new ThrowingPlayer(new NoAudioHardwareException("no audio device"));
+
+            player.Preload(["Sounds/a", "Sounds/b", "Sounds/c"]); // no throw
+            Assert.Equal(1, player.LoadAttempts);                 // short-circuited after the first
+
+            // Disabled for the rest of its lifetime: Play is a silent no-op that never loads...
+            Assert.Equal(IAudioPlayer.InvalidHandle, player.Play("Sounds/a", 1f, 0f, 0f, loop: false));
+            Assert.Equal(1, player.LoadAttempts);
+
+            // ...and a later warm is skipped wholesale by the same _disabled guard.
+            player.Preload(["Sounds/d"]);
+            Assert.Equal(1, player.LoadAttempts);
+        }
+        finally
+        {
+            Logger.Shutdown();
+        }
+
+        // One warning for the whole degraded lifetime — the warm reuses Play's Disable, it does not
+        // add a second announcement.
+        var logFile = Directory.GetFiles(logDir, "monodreams_*.log").Single();
+        var warnings = File.ReadAllLines(logFile).Where(l => l.Contains("[ WARN]")).ToList();
+        var audioWarning = Assert.Single(warnings);
+        Assert.Contains("Audio backend unavailable", audioWarning);
+        Directory.Delete(logDir, recursive: true);
     }
 }

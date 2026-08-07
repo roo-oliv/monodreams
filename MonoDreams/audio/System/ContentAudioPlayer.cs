@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Content;
 using MonoDreams.State;
@@ -34,6 +35,7 @@ public class ContentAudioPlayer(ContentManager content) : IAudioPlayer
         {
             if (!_sounds.TryGetValue(soundKey, out var sound))
             {
+                // Reached only for a key the warm did not cover (see Preload): still correct, just late.
                 sound = LoadSoundEffect(soundKey);
                 _sounds[soundKey] = sound;
             }
@@ -57,6 +59,52 @@ public class ContentAudioPlayer(ContentManager content) : IAudioPlayer
             Disable(e);
             return IAudioPlayer.InvalidHandle;
         }
+    }
+
+    /// <summary>
+    /// Decodes <paramref name="soundKeys"/> into the cache NOW, so no <see cref="Play"/> ever pays the
+    /// load. A <see cref="SoundEffect"/> is a disk read plus a decode to PCM on first request, and
+    /// <see cref="Play"/> runs mid-frame — an unwarmed game stutters once per distinct sound, which reads
+    /// as a gameplay bug because it only ever happens the first time. Call it from a loading moment, where
+    /// a hitch is invisible.
+    ///
+    /// <para><b>A failure is never fatal.</b> A missing or unreadable key is logged as a warning and
+    /// skipped: warming is an optimisation, and refusing to boot over one absent effect would turn a
+    /// cosmetic gap into a crash. The key stays uncached, so <see cref="Play"/> behaves exactly as it did
+    /// before — including failing loud there, where a content miss is still a developer error.</para>
+    ///
+    /// <para>Backend absence (headless CI) short-circuits the whole warm through the same
+    /// <see cref="Disable"/> path <see cref="Play"/> uses, so a deviceless machine spends nothing here.</para>
+    /// </summary>
+    public void Preload(IEnumerable<string> soundKeys)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var loaded = 0;
+
+        foreach (var soundKey in soundKeys)
+        {
+            if (_disabled) return;
+            if (_sounds.ContainsKey(soundKey)) continue;
+
+            try
+            {
+                _sounds[soundKey] = LoadSoundEffect(soundKey);
+                loaded++;
+            }
+            catch (Exception e) when (IsAudioBackendFailure(e))
+            {
+                Disable(e);
+                return;
+            }
+            catch (Exception e)
+            {
+                Logger.Warning($"Could not preload sound '{soundKey}' ({e.GetType().Name}: {e.Message}); " +
+                               "it will be loaded on first play instead.");
+            }
+        }
+
+        var elapsedMs = (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
+        Logger.Info($"Audio warm: {loaded} sound effect(s) decoded in {elapsedMs:F1}ms.");
     }
 
     public void Stop(int handle)
