@@ -5,7 +5,9 @@
 > that re-run factories; a native scene is a **full component serialization**
 > that round-trips by reconstructing components, never by re-running factories.
 > The native scene is loaded by a dedicated `LoadSceneRequest` message (Wave 3),
-> never `LoadLevelRequest` (which is LDtk-coupled — see
+> never `LoadLevelRequest` — that message belongs to whichever level dispatcher a screen
+> composed (the native-only `LevelLoadRequestSystem`, or an import pipeline's
+> `LDtkLevelLoadSystem`), and the dedicated message keeps the reader independent of it (see
 > [`level-loading` premises](../../level-loading/docs/premises.md)).
 
 **Status (persistence phase complete):** the format, its in-memory model

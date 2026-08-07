@@ -64,7 +64,7 @@ public class RunnerSpawnerSystem : ISystem<GameState>
             var entityType = _random.NextDouble() < RunnerConstants.ObstacleSpawnChance ? "Obstacle" : "Charm";
             _world.Publish(new EntitySpawnRequest(
                 entityType, "", spawnPosition,
-                Vector2.Zero, Vector2.Zero, Vector2.Zero, default, null));
+                Vector2.Zero, Vector2.Zero, Vector2.Zero, null));
         }
     }
 

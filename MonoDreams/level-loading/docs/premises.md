@@ -7,35 +7,44 @@
 > `level-ldtk` module; this file covers the
 > contract every parser ships into.
 
-## `LevelLoadRequestSystem`'s LDtk path adds `CurrentLevelComponent` (import-only now)
+## `level-loading` is LDtk-free; the dependency arrow points level-ldtk → level-loading
 
-When `LevelLoadRequestSystem` is composed with `enableLegacyLdtkFallback: true`
-(the **import** composition only — PS5), a `LoadLevelRequest` with no native scene
-loads the file as an LDtk level and adds `CurrentLevelComponent` (and
-`CurrentBackgroundColorComponent`). The component-driven parsers
-(`LDtkEntityParserSystem`, `LDtkTileParserSystem`) subscribe to the component being
-added, not to the message. At **game boot** this path does not run:
-`enableLegacyLdtkFallback` is `false`, so an id with no native scene fails loud (see
-the native-only premise below) — `CurrentLevelComponent` is never added at boot.
+No LDtk type appears anywhere in `level-loading` source (issue #54). `CurrentLevelComponent`
+holds a plain `string LevelIdentifier`; `EntitySpawnRequest` has no `LayerInstance` member;
+`LevelLoadRequestSystem` takes no `ContentManager` and has no `Content.Load<LDtkLevel>` path.
+The arrow is one-way and stays that way: **`level-ldtk` depends on `level-loading`, never the
+reverse**. Everything LDtk-shaped that used to ride the shared plumbing lives one module over —
+the full `LDtkLevel` payload on `level-ldtk`'s `LDtkLevelDataComponent`, the import-path loader in
+its `LDtkLevelLoadSystem`, and layer-derived per-spawn data in `EntitySpawnRequest.CustomFields`
+under the `ldtk:`-prefixed keys of `LDtkSpawnFields`. A game that never installs `level-ldtk`
+therefore never compiles against LDtk and never ships its packages.
 
-**Why:** the separation lets parsers be ignorant of how the level arrived — a test
-that adds `CurrentLevelComponent` manually triggers parsing equivalently. This is
-the engine-wide pattern (see "Parsers are component-driven"); it now serves the
-import op, which re-parses a legacy level so the importer can serialize it to native.
-**Breaks:** game code that subscribes to `LoadLevelRequest` to react to a load
-competes with `LevelLoadRequestSystem`, possibly seeing the message before the level
-is actually loaded.
+**Why:** `level-loading` is the plumbing *every* level format rides — native `.mdscene` levels
+authored in the editor, LDtk imports, and any future parser. A game whose levels are native (the
+shipped path, see the native-only premise below) must be able to install the plumbing without
+taking on `LDtkMonogame`, its content-pipeline DLL, and its `/reference:` MGCB wiring. The module
+boundary is also what keeps the import-only story honest: if the shared contract still named an
+LDtk type, "import-only" would be a composition convention rather than a structural fact.
+**Breaks:** reintroducing an LDtk type into `level-loading` (a typed member on
+`EntitySpawnRequest`, an `LDtkLevel` payload back on `CurrentLevelComponent`, a `Content.Load`
+branch in `LevelLoadRequestSystem`) re-couples every non-LDtk game to the LDtk packages, pulls a
+DesktopGL-only dependency into the web graph, and reopens the parser-asymmetry the native-only
+boot closed. Module-specific data belongs on that module's own component or in the
+`CustomFields` channel.
 **Tests:**
-`MonoDreams.Tests/LevelEditor/LevelImporterTests.cs` (the import → native round-trip
-over an LDtk-shaped world) and
 `MonoDreams.Tests/IntegrationTests/LDtkLevelTests.cs::UnmigratedLevel_FailsLoud_WithNoSilentLdtkBoot`
-(an unmigrated LDtk id fails loud at boot — the LDtk path is not wired there).
-**Depends on:** "Parsers are component-driven, not message-driven".
+(an unmigrated LDtk id fails loud at boot — the LDtk loader is not composed there) and
+`::ImportOp_StillParsesTilesAndSpawnsEntities` (the import op, which *does* compose the LDtk
+module, still parses tiles and spawns entities across the decoupled seam).
+**Depends on:** level-ldtk — "`LDtkLevelDataComponent` is the LDtk module's own level singleton;
+both parsers subscribe to it being added" and "Layer-derived spawn data rides the `ldtk:`
+`CustomFields` channel".
 
 ## `LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only (fails loud otherwise)
 
-`LevelLoadRequestSystem` is the load dispatcher on `LoadLevelRequest`. At game boot
-(`enableLegacyLdtkFallback: false`, the default) it is **native-only**: the composed
+`LevelLoadRequestSystem` is the load dispatcher on `LoadLevelRequest`, and it is
+**native-only, unconditionally** — its whole constructor is
+`(World world, Func<string,bool>? tryLoadNativeScene = null)`. The composed
 `tryLoadNativeScene` `Func<string,bool>` (built by `NativeLevelLoader.CreateProbe` in
 `level-editor`) is called FIRST for every request. The probe resolves the scene
 **source-first when an editor `EditorProjectContext` is resolved** (UX-D): a resolved
@@ -46,9 +55,10 @@ read). A **null** context (a shipped / console / web build) skips the source bra
 so the bundled path is byte-identical to before. On a hit it loads through the native reader
 (`SceneReaderSystem`, generalized off the editor-only `LoadSceneRequest`) and returns `true` —
 `LevelLoadRequestSystem` then returns. **No native scene ⇒ it fails loud** (a logged error, no
-entities), with no legacy LDtk attempt. The legacy LDtk `Content.Load<LDtkLevel>` path
-runs **only** when a caller explicitly opts in with `enableLegacyLdtkFallback: true` — the
-import op's dedicated composition, never the shipped boot. The delegate is a plain
+entities): there is no LDtk branch left in this system to fall back to. Loading an `.ldtk`
+level is a job for a *different* system in a *different* module — the import op composes
+`level-ldtk`'s `LDtkLevelLoadSystem` in place of this one (issue #54), so the import path is a
+composition choice at the screen, not a flag on the shipped dispatcher. The delegate is a plain
 `Func<string,bool>` so `level-loading` never depends upward on `level-editor`; the
 native reader runs in BOTH run modes and in a plain game with no editor composed (a
 shipped game boots native scenes too).
@@ -62,13 +72,15 @@ makes the reload reflect the last SAVE. `CreateProbe` and the editor-bound-scree
 `TryPublishSceneLoad(world, contentRoot, sceneId, projectContext)` optional load share ONE
 source-first resolution (`NativeLevelLoader.TryPublishSourceFirst`), so the boot probe, the
 Restart reload, and the bound-screen load all agree. `TryPublishSceneLoad` publishes
-`LoadSceneRequest` **directly** (never through `LevelLoadRequestSystem`), so it stays off the
-LDtk `CurrentLevelComponent` path.
+`LoadSceneRequest` **directly** (never through `LevelLoadRequestSystem`), so a bound screen
+can load its scene without composing the dispatcher at all.
 
 **Why:** native `.mdscene` is the game's real level format (the shipped game reads
-bundled scenes via `TitleContainer`). A single native-only boot path is what closed
-the LDtk parser-asymmetry — the LDtk parser is import-only machinery now, off the boot path.
-**Breaks:** if the boot path silently fell back to LDtk on a native miss, the
+bundled scenes via `TitleContainer`). A single native-only load path is what closed
+the LDtk parser-asymmetry — the LDtk loader + parsers are import-only machinery in another
+module now, off the boot path and out of this module's source (see "`level-loading` is
+LDtk-free").
+**Breaks:** if the dispatcher regrew a fallback branch on a native miss, the
 asymmetry would reopen and an unmigrated id would load stale content instead of
 surfacing the migration gap. If the delegate imported a `level-editor` type into
 `level-loading`, the module layering inverts.
@@ -139,41 +151,55 @@ sample is bundled where `TitleContainer` finds it),
 **Depends on:** level-editor — "New levels bundle zero-touch: the editor appends the MGCB
 `/copy:` entry on first save".
 
-## `CurrentLevelComponent` is a world-scoped singleton
+## `CurrentLevelComponent` is a world-scoped singleton holding a plain string identifier
 
-Exactly one `CurrentLevelComponent` exists in the world at a time.
-Loading a different level removes the previous component and re-adds
-with new data, re-triggering parsers.
+Exactly one `CurrentLevelComponent` exists in the world at a time, and it carries a
+**format-agnostic `string LevelIdentifier`** — the name of the level that is current, nothing
+more (issue #54). It is the world-scoped marker for "this level is loaded", not a payload:
+format-specific level data lives on the owning module's own component (`level-ldtk`'s
+`LDtkLevelDataComponent` holds the full `LDtkLevel`). Loading a different level removes the
+previous component and re-adds it with the new identifier. The native boot path does not set it
+— the native reader reconstructs entities from serialized components and has nothing to
+announce; the LDtk **import** loader sets it alongside its own level component. The editor
+transport's Restart removes it as part of returning the world to its loaded state.
 
-**Why:** a single-level invariant keeps parser subscriptions simple —
-they don't need to disambiguate between levels. Multi-level support
-is an explicit aspirational direction (see below).
-**Breaks:** adding a second `CurrentLevelComponent` without removing
-the first triggers parsers against ambiguous state; some parsers may
-see the old, some the new.
+**Why:** a single-level invariant keeps subscriptions simple — a subscriber doesn't need to
+disambiguate between levels. Holding only an identifier is what lets the component live in the
+shared plumbing at all: an `LDtkLevel`-typed payload made every consumer of `level-loading`
+compile against LDtk (see "`level-loading` is LDtk-free"). Multi-level support is an explicit
+aspirational direction (see below).
+**Breaks:** adding a second `CurrentLevelComponent` without removing the first leaves
+subscribers reading ambiguous state; some may see the old identifier, some the new. Putting a
+format-specific payload back on it re-couples the module to that format.
 **Tests:** none yet.
-**Depends on:** —
+**Depends on:** level-ldtk — "`LDtkLevelDataComponent` is the LDtk module's own level
+singleton; both parsers subscribe to it being added".
 
 ## Parsers are component-driven, not message-driven
 
-The LDtk parsers (`LDtkEntityParserSystem`, `LDtkTileParserSystem`)
-subscribe to `CurrentLevelComponent` being added — they do not consume
-`LoadLevelRequest` directly. This is the engine-wide default: react to
-component lifecycle events when the work depends on persistent state;
-reserve push messages for one-shot events (input, collision, screen
-transitions). All shipping parsers now follow this component-driven pattern.
+A parser subscribes to **its own module's level component being added** — it does not consume
+`LoadLevelRequest` directly. The LDtk parsers (`LDtkEntityParserSystem`,
+`LDtkTileParserSystem`) subscribe to `level-ldtk`'s `LDtkLevelDataComponent` (issue #54: the
+component carrying the data they actually read moved into their module with them). This is the
+engine-wide default: react to component lifecycle events when the work depends on persistent
+state; reserve push messages for one-shot events (input, collision, screen transitions). All
+shipping parsers — and the tile-grid bake, further down this file — follow the pattern.
 
-**Why:** the component-driven pattern lets a test or tool add
-`CurrentLevelComponent` manually and trigger the parsers without
-faking a message. The pattern generalizes — any system whose work
-depends on a piece of persistent state should subscribe to its
-lifecycle rather than to a "go" message.
-**Breaks:** a new parser that consumes `LoadLevelRequest` directly
-diverges from the pattern; tests can't trigger it the standard way,
-and game code that adds the level state without publishing the
-message bypasses it.
-**Tests:** none yet.
-**Depends on:** —
+**Why:** the component-driven pattern lets a test or tool set the level component manually and
+trigger the parser without faking a message. The pattern generalizes — any system whose work
+depends on a piece of persistent state should subscribe to its lifecycle rather than to a "go"
+message. Keying on the parser's *own* component (rather than the shared
+`CurrentLevelComponent`) is what lets the shared marker stay format-agnostic while the parser
+still gets a lifecycle trigger carrying exactly the data it needs.
+**Breaks:** a new parser that consumes `LoadLevelRequest` directly diverges from the pattern;
+tests can't trigger it the standard way, and a loader that sets the level state without
+publishing the message bypasses it. A parser keyed on `CurrentLevelComponent` instead of its own
+component would fire on levels of a format it cannot read.
+**Tests:**
+`MonoDreams.Tests/LevelLdtk/LDtkEntityParserSystemTests.cs::EntityParser_OnLDtkLevelDataAdded_PublishesSpawnRequestsWithLdtkChannelFields`
+(setting the component — no message — drives the parse).
+**Depends on:** level-ldtk — "`LDtkLevelDataComponent` is the LDtk module's own level
+singleton; both parsers subscribe to it being added".
 
 ## `EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`
 
@@ -229,20 +255,28 @@ intended throw moves the failure to load time.
 
 ## `IEntityFactory.CreateEntity` receives a structured `EntitySpawnRequest`
 
-The request struct carries identifier, instance IID, position, size,
-pivot, tileset position, layer, and a `CustomFields` dictionary.
-Factories that ignore `CustomFields` cannot be configured from the
-level editor.
+The request struct carries identifier, instance IID, position, size, pivot, tileset position,
+and a `CustomFields` dictionary — **format-agnostic fields only** (issue #54 removed the
+LDtk `LayerInstance Layer` member). Anything a specific level format needs to hand a factory
+rides `CustomFields` under a namespaced key: `level-ldtk` publishes its layer-derived values
+there (`LDtkSpawnFields.LayerOpacity` = `"ldtk:layerOpacity"`, `LDtkSpawnFields.GridSize` =
+`"ldtk:gridSize"`), and a factory reads them with a safe default so the same factory also
+serves a spawn that came from somewhere else. Factories that ignore `CustomFields` cannot be
+configured from the level editor.
 
-**Why:** the custom-fields dictionary is the level designer's
-configuration channel. A factory that ignores it accepts only
-default-shaped entities — the editor can't tune them without a
-framework change.
-**Breaks:** a level with per-entity tuning in custom fields produces
-identical, untuned entities at runtime; the designer's intent is
-silently discarded.
-**Tests:** none yet.
-**Depends on:** —
+**Why:** the custom-fields dictionary is the level designer's configuration channel *and* the
+extension seam for format-specific data — it is what lets the shared message stay free of any
+one format's types (see "`level-loading` is LDtk-free"). A factory that ignores it accepts only
+default-shaped entities — the editor can't tune them without a framework change.
+**Breaks:** a level with per-entity tuning in custom fields produces identical, untuned entities
+at runtime; the designer's intent is silently discarded. Adding a format-typed member back to
+the struct instead of using the channel re-couples every consumer of `level-loading` to that
+format. Reading a namespaced key without a default crashes on a spawn from another source.
+**Tests:**
+`MonoDreams.Tests/LevelLdtk/LDtkEntityParserSystemTests.cs::EntityParser_OnLDtkLevelDataAdded_PublishesSpawnRequestsWithLdtkChannelFields`
+(the `ldtk:` channel is populated on the emitted requests).
+**Depends on:** level-ldtk — "Layer-derived spawn data rides the `ldtk:` `CustomFields`
+channel".
 
 ## Content is built per-platform from the same `.mgcb`; custom processors must match the backend's pipeline assemblies
 
@@ -394,9 +428,10 @@ sort fields and never breaks the band" (the within-layer nudges that keep workin
 
 ## Known limitations (acknowledged gaps)
 
-- **Hot reload doesn't fully work** — adding `CurrentLevelComponent`
-  again over an already-loaded level partially re-triggers parsers
-  but leaves the previous level's entities in unpredictable state.
+- **Hot reload doesn't fully work** — re-adding a level component over an
+  already-loaded level (`CurrentLevelComponent`, or `LDtkLevelDataComponent`
+  in an LDtk import composition) partially re-triggers parsers but leaves
+  the previous level's entities in unpredictable state.
   Needs attention before being relied on. *Status: known gap.*
 
 ## Open questions
@@ -418,15 +453,16 @@ sort fields and never breaks the band" (the within-layer nudges that keep workin
 
 The following premises currently have **Tests: none yet**:
 
-- `CurrentLevelComponent` is a world-scoped singleton
-- Parsers are component-driven, not message-driven
+- `CurrentLevelComponent` is a world-scoped singleton holding a plain string
+  identifier (the singleton invariant itself; the string shape is covered
+  indirectly by the LDtk decoupling tests)
 - `EntitySpawnRequest` → `EntitySpawnSystem` → registered `IEntityFactory`
 - Unregistered factory identifiers log a warning and silently drop the
   spawn
-- `IEntityFactory.CreateEntity` receives a structured
-  `EntitySpawnRequest`
 
 The `LoadLevelRequest` flow is the only one with happy-path test
-coverage. An architectural test asserting that no parser system
-subscribes directly to `LoadLevelRequest` would protect the
-component-driven pattern.
+coverage. Two architectural tests would protect the module boundary:
+one asserting that no parser system subscribes directly to
+`LoadLevelRequest` (the component-driven pattern), and one asserting
+that no type in `MonoDreams/level-loading/` references `LDtk` (the
+LDtk-free premise, enforced today only by review).

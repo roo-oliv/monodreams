@@ -12,6 +12,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Extension;
 using MonoDreams.Message;
+using MonoDreams.System.Level;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -22,6 +23,13 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
 {
     private const string CharactersTilesetKey = "Atlas/TX Player";
     private readonly Texture2D _charactersTileset = content.Load<Texture2D>(CharactersTilesetKey);
+
+    /// <summary>The LDtk layer opacity off the request's <c>ldtk:</c> channel; 1 for a code-driven
+    /// spawn that carries no LDtk layer context.</summary>
+    private static float LayerOpacity(in EntitySpawnRequest request) =>
+        request.CustomFields.TryGetValue(LDtkSpawnFields.LayerOpacity, out var value) && value is float opacity
+            ? opacity
+            : 1f;
 
     public Entity CreateEntity(World world, in EntitySpawnRequest request)
     {
@@ -61,7 +69,7 @@ public class PlayerEntityFactory(ContentManager content, DrawLayerMap layers) : 
             Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                                  (int)request.Size.X, (int)request.Size.Y),
             Size = request.Size,
-            Color = Color.White * request.Layer._Opacity,
+            Color = Color.White * LayerOpacity(request),
             Target = RenderTargetID.Main,
             LayerDepth = layers.GetDepth(GameDrawLayer.Characters),
             Offset = Constants.PlayerSpriteOffset,

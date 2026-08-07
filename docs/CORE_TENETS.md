@@ -268,32 +268,49 @@ end-state is collision against any Transform-shaped contract.
 ## 6. Level loading & entity spawning
 
 **The shipped game boots native `.mdscene` levels only** (see "Native-only
-load" below). The LDtk (`.ldtk`) parser is now **import-only**: it runs
-once, off the game boot, to migrate a legacy level into a native scene the
-game then owns. The pipeline below describes that **import** path — a
+load" below). The LDtk (`.ldtk`) module is now **import-only**: its loader and
+parsers run once, off the game boot, to migrate a legacy level into a native
+scene the game then owns. The pipeline below describes that **import** path — a
 request loads a file, the parser walks the data, and it emits
 `EntitySpawnRequest` messages that a factory turns into entities. It is
 composed only in the reference screen's `importMode`, never at live boot.
 
 **The pipeline.**
 1. Game code publishes `LoadLevelRequest`.
-2. `LevelLoadRequestSystem` subscribes to the message. On the import path
-   (`enableLegacyLdtkFallback: true`) it loads the LDtk file and **adds
-   `CurrentLevelComponent` to the world**.
+2. The import composition registers **`level-ldtk`'s own
+   `LDtkLevelLoadSystem`** as the handler for that message (in place of the
+   native-only `LevelLoadRequestSystem` the boot path composes). It loads the
+   LDtk file and **adds `LDtkLevelDataComponent` to the world** — the LDtk
+   module's own level singleton, carrying the full `LDtkLevel` — plus the
+   format-agnostic `CurrentLevelComponent(identifier)` marker and the
+   background color.
 3. The LDtk parsers (`LDtkEntityParserSystem`, `LDtkTileParserSystem`)
-   **subscribe to `CurrentLevelComponent` being added** and parse on add.
-4. Parsers emit `EntitySpawnRequest`s.
+   **subscribe to `LDtkLevelDataComponent` being added** and parse on add.
+4. Parsers emit `EntitySpawnRequest`s. Layer-derived data they can no longer
+   pass as an LDtk type rides `CustomFields` under the `ldtk:` keys of
+   `LDtkSpawnFields`.
 5. `EntitySpawnSystem` consumes each spawn request and dispatches to an
    `IEntityFactory` registered for the request's string identifier.
 
-**Key invariant — the LDtk parsers react to component lifecycle, not
-to push messages.** Their pattern (subscribe to `CurrentLevelComponent`
-added) is the engine-wide default. A test or tool that adds
-`CurrentLevelComponent` manually triggers them just as well as the
-regular `LoadLevelRequest` path. For new parsers, follow this pattern —
-resist the urge to make a system "only respond when the right message
-arrived"; that couples the system to an upstream sequence that should be
-the assembler's choice.
+**Key invariant — `level-loading` is format-agnostic; the dependency arrow
+points parser → plumbing.** No LDtk type appears in `level-loading` source
+(issue #54): the shared `CurrentLevelComponent` holds a plain string
+identifier, `EntitySpawnRequest` has no `LayerInstance` member, and
+`LevelLoadRequestSystem` has no `ContentManager` and no format fallback.
+Everything format-shaped lives in the format's own module — its level
+component, its `LoadLevelRequest` handler, and its namespaced `CustomFields`
+keys. A game that never installs `level-ldtk` therefore never compiles
+against LDtk. When you add a format, add a module; do not add a branch or a
+typed member to the shared plumbing.
+
+**Key invariant — the parsers react to component lifecycle, not
+to push messages.** Their pattern (subscribe to their module's level
+component being added) is the engine-wide default. A test or tool that sets
+`LDtkLevelDataComponent` manually triggers them just as well as the regular
+`LoadLevelRequest` path — and without a content pipeline. For new parsers,
+follow this pattern — resist the urge to make a system "only respond when the
+right message arrived"; that couples the system to an upstream sequence that
+should be the assembler's choice.
 
 **Factory registration.** `EntitySpawnSystem` keeps a dictionary of
 `string → IEntityFactory`. Game code registers factories at screen
@@ -309,15 +326,17 @@ each `LoadLevelRequest` probes for a bundled native scene
 read) and, on a hit, loads it through the generalized `SceneReaderSystem`
 (the same native reader the editor's `LoadSceneRequest` uses —
 reconstructing entities from serialized components, not factories). An id
-with **no** native scene **fails loud** — there is no silent LDtk attempt.
+with **no** native scene **fails loud** — there is no LDtk branch in the system
+to fall back to (issue #54 removed it along with the `ContentManager`).
 Native `.mdscene` is the game's real level format: versioned in
 `Content/Levels/`, MGCB-`/copy:`-bundled, read read-only via `TitleContainer`
-on every platform (only the desktop editor writes, PS3). **The LDtk parser
-is now IMPORT-ONLY machinery:** it runs once — via the import op (a headless
-`--export-scene <id>` / `MONODREAMS_EXPORT_SCENE` dev op, or a future editor
-toolbar action) — to re-parse a legacy level and serialize the resulting
-world to a native `.mdscene` the game then owns; it is **not wired to live
-game boot** (composed only in the reference screen's `importMode`). This
+on every platform (only the desktop editor writes, PS3). **The whole LDtk module
+is now IMPORT-ONLY machinery:** its loader + parsers run once — via the import op
+(a headless `--export-scene <id>` / `MONODREAMS_EXPORT_SCENE` dev op, or a future
+editor toolbar action) — to re-parse a legacy level and serialize the resulting
+world to a native `.mdscene` the game then owns; they are **not wired to live
+game boot** (composed only in the reference screen's `importMode`, which
+registers `LDtkLevelLoadSystem` in place of `LevelLoadRequestSystem`). This
 closes the parser-asymmetry backlog (§10): one content-driven load path.
 (The Blender importer that once shared this path was retired in wave BR —
 see §10.) Migration status: the committed
@@ -460,9 +479,13 @@ live — the boot state under the flag), **Playing** = `RunMode.Play`
 transport buttons + systems panel stay interactive, but the editing
 tools are inert — a click in the viewport belongs to the game), and
 **Restart** = return the world to the state of the original load:
-clear the undo history, remove the world-level level components
-(`CurrentLevelComponent` — the LDtk parsers react to its *added* event),
-dispose every scene entity (editor infrastructure — entities tagged
+clear the undo history, remove the world-level **marker** components
+(`CurrentLevelComponent` — a plain string level id now — and
+`CurrentBackgroundColorComponent`, so the reload starts from a clean
+world-level state; a `Set` over a still-present component fires *Changed*, not
+*Added*. The LDtk parsers key off `level-ldtk`'s own `LDtkLevelDataComponent`,
+which exists only in the import-op composition — where the transport never
+runs — so it is deliberately not swept), dispose every scene entity (editor infrastructure — entities tagged
 `EditorInfrastructureComponent` — the cursor pipeline, and
 screen-`KeepAlive`-named infrastructure survive), re-run the screen's
 recorded `Reload`, and land Paused. **Unsaved live edits are discarded
@@ -650,9 +673,11 @@ code".
 - **`Blender_` identifier prefix / parser-asymmetry** (§6). **RESOLVED
   (PS5); Blender importer DELETED (wave BR).** The game boot is a single
   native-only dispatcher (`LevelLoadRequestSystem`): `LoadLevelRequest` →
-  native `.mdscene` via `SceneReaderSystem`, or fail loud. The LDtk parser
-  is import-only machinery (composed only in the reference screen's
-  `importMode`, run by the export op), so nothing legacy runs at boot. The
+  native `.mdscene` via `SceneReaderSystem`, or fail loud. The LDtk module is
+  import-only machinery (its own `LDtkLevelLoadSystem` + parsers, composed only
+  in the reference screen's `importMode`, run by the export op), so nothing
+  legacy runs at boot — and since issue #54 `level-loading` carries no LDtk
+  type at all, so the separation is structural, not a flag. The
   Blender importer that once shared the `Blender_` name-prefix dispatch was
   retired wholesale in wave BR (parser + data types + exporter plugin + CLI
   registry entry + module-count docs), so the name-prefix hack is gone

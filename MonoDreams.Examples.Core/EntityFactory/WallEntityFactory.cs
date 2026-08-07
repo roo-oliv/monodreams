@@ -12,6 +12,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.EntityFactory;
 using MonoDreams.Extension;
 using MonoDreams.Message;
+using MonoDreams.System.Level;
 
 namespace MonoDreams.Examples.EntityFactory;
 
@@ -23,6 +24,13 @@ public class WallEntityFactory : IEntityFactory
 {
     private readonly ContentManager _content;
     private readonly DrawLayerMap _layers;
+
+    /// <summary>The LDtk layer opacity off the request's <c>ldtk:</c> channel; 1 for a code-driven
+    /// spawn that carries no LDtk layer context.</summary>
+    private static float LayerOpacity(in EntitySpawnRequest request) =>
+        request.CustomFields.TryGetValue(LDtkSpawnFields.LayerOpacity, out var value) && value is float opacity
+            ? opacity
+            : 1f;
 
     public WallEntityFactory(ContentManager content, DrawLayerMap layers)
     {
@@ -56,7 +64,7 @@ public class WallEntityFactory : IEntityFactory
         //         Position = request.Position,
         //         SourceRectangle = new Rectangle(request.TilesetPosition.ToPoint(), 
         //             new Point((int)request.Size.X, (int)request.Size.Y)),
-        //         Color = Color.White * request.Layer._Opacity,
+        //         Color = Color.White * LayerOpacity(request),
         //         Size = request.Size,
         //         LayerDepth = layerDepth
         //     };
@@ -73,7 +81,7 @@ public class WallEntityFactory : IEntityFactory
                 Source = new Rectangle((int)request.TilesetPosition.X, (int)request.TilesetPosition.Y,
                     (int)request.Size.X, (int)request.Size.Y),
                 Size = request.Size,
-                Color = Color.White * request.Layer._Opacity,
+                Color = Color.White * LayerOpacity(request),
                 Target = RenderTargetID.Main,
                 LayerDepth = layerDepth,
             });

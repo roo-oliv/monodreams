@@ -153,8 +153,10 @@ the camera is captured in the closure), and writes
 the canonical JSON through `IPlatformServices.WriteAllText` into the versioned project source tree
 (`ProjectRoot/LevelsDir/<sceneId>.mdscene` — PS3; see "The editor Save writes versioned `.mdscene`
 into the project source tree"). Loading is a
-**dedicated `LoadSceneRequest`** message — separate from `LoadLevelRequest` so it never triggers
-(or, on failure, clobbers) the LDtk `Content.Load` / `Remove<CurrentLevelComponent>` path —
+**dedicated `LoadSceneRequest`** message — separate from `LoadLevelRequest` so a native-scene load
+never enters whichever level dispatcher the screen composed (the native-only
+`LevelLoadRequestSystem`, or an import pipeline's `LDtkLevelLoadSystem`) and can never have its
+world-level level state clobbered by that dispatcher's miss path —
 handled by `SceneReaderSystem` in two passes (create + deserialize each entity's components, then
 wire the parent graph from the recorded indices). After deserialize the reader **re-tags each scene
 root** — every top-level `entities[]` entry (no in-scope parent), mirroring `CollectMembership`'s
@@ -171,12 +173,14 @@ data). A re-prep + Y-sort frame after load recomputes `DrawComponent.LayerDepth`
 the SOURCE sort fields — not the derived depth — were persisted.
 
 **Why:** the round-trip must reconstruct from components, not by re-running factories (GAP-A), so
-edited state and factory sub-graphs survive; a dedicated load message keeps the native and LDtk load
-paths independent; rehydration restores the live GPU texture the JSON cannot carry; failing loud on an
+edited state and factory sub-graphs survive; a dedicated load message keeps the native-scene read
+independent of whatever `LoadLevelRequest` dispatcher a screen composed (and lets it be published with
+none composed at all); rehydration restores the live GPU texture the JSON cannot carry; failing loud on an
 unknown component turns a dropped component into a visible error rather than the missing-entity class of
 bug.
-**Breaks:** sharing `LoadLevelRequest` would let a native-scene load clobber the LDtk
-`CurrentLevelComponent`; serializing from factories would lose edited state; a missing membership
+**Breaks:** sharing `LoadLevelRequest` would let a native-scene load drive the composed level
+dispatcher and clobber the world-level level state on its miss path; serializing from factories
+would lose edited state; a missing membership
 closure would drop a tagged root's children; **not re-tagging reloaded roots makes the next Save
 write an empty scene — the designer's whole iterate-on-a-level loop silently loses all work since
 loading**; persisting the derived depth would bake one camera frame's Y-sort into the file;
@@ -191,8 +195,9 @@ frame recomputes the identical derived `DrawComponent.LayerDepth`;
 `ReloadedSceneReTagsRoots_LoadEditSaveIsAFixedPoint` — save mixed content, reload, edit a loaded
 transform, re-save: the same 3 roots reproduce, the boundary bake child stays excluded, and the edit
 persists — the second save is empty without the re-tag).
-**Depends on:** level-loading — `LoadLevelRequest` is LDtk-coupled (the asymmetry this premise routes
-around); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
+**Depends on:** level-loading — "`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only
+(fails loud otherwise)" (`LoadLevelRequest` belongs to the screen's composed level dispatcher; this
+premise's dedicated message routes around it); rendering — "Layer depth ownership" (`SpritePrepSystem` → `YSortSystem` re-derive depth each
 frame); foundation — the `IPlatformServices` portability seam.
 
 ## A loaded sprite entity carries a `DrawComponent` (reader-restored); the reader frames the view on content and ensures one camera entity
@@ -1801,9 +1806,12 @@ is the active-tab kind, superseding the retired `ViewMode`) — ONE owner, no pa
 order: set Paused (nothing simulates over the teardown), `EditorHistory.Clear()` (the recorded
 commands reference entities about to die — replaying them in either direction would dangle),
 `stack.ResetToScene()` (drop any Game tab, land on the Scene tab, forget the in-memory snapshot),
-`world.Remove<CurrentLevelComponent>()` + `Remove<CurrentBackgroundColorComponent>()` (the LDtk
-parsers subscribe to the component **added** event — a re-publish over a still-set component fires
-*Changed* and never re-parses), dispose every scene entity, then invoke the screen-recorded
+`world.Remove<CurrentLevelComponent>()` + `Remove<CurrentBackgroundColorComponent>()` (the
+world-level **marker** components — `CurrentLevelComponent` is a plain string level id since #54 —
+so the reload starts from a clean world-level state; a `Set` over a still-present component fires
+*Changed*, not *Added*. `level-ldtk`'s own `LDtkLevelDataComponent` exists only in the import-op
+composition, where the transport never runs, so it is deliberately not swept), dispose every scene
+entity, then invoke the screen-recorded
 `Reload`. **`Reload` is a SPLIT seam (TD).** A screen registers TWO callbacks in `Load` —
 **`RebuildCodeContent`** (its code-owned builders: the menu's UI builder, the runner's / a demo's
 create-methods — everything the screen creates in code that is never `SceneObjectComponent`-tagged and so
@@ -1868,7 +1876,8 @@ the game, pause it or reset it" are the way the designer moves between editing a
 restart must be trustworthy: it either fully rebuilds the loaded scene or refuses loudly.
 **Breaks:** an uncleared history dangles undo entries against disposed entities (undo after
 restart crashes or silently no-ops against the wrong world); a restart that skips the
-`CurrentLevelComponent` removal never re-parses (the documented broken-hot-reload path); a sweep
+world-level marker removal leaves stale level state over the reload (and, for a component-driven
+parser, fires *Changed* instead of *Added* — the documented broken-hot-reload path); a sweep
 without the editor-marker exclusion disposes the chrome/panel/gizmo state (the editor UI vanishes
 on restart); disposing the cursor pipeline kills all mouse input for the session; a silent no-op
 restart (or a teardown without reload) strands a blank world; a reload that read the **bundled** copy
@@ -1895,9 +1904,10 @@ Restart sweeps + re-loads it from disk like everything else — no camera-specif
 (+ `SwitchToPrefabTab_DoesNotRebuildCodeContent_PrefabContextIsIsolated` — the sweep → rebuild → restore
 order, skipped for a prefab target).
 **Depends on:** foundation — "Default `RunMode = Play` preserves all existing pipelines" (the
-transport is the only mode owner); level-loading — the `LoadLevelRequest` →
-`CurrentLevelComponent`-added parse trigger this premise routes around, and "`LevelLoadRequestSystem`
-resolves `LoadLevelRequest` native-only" (the source-first probe the reload goes through); this file —
+transport is the only mode owner); level-loading — "Parsers are component-driven, not
+message-driven" (the added-event trigger this premise's removal order routes around) and
+"`LevelLoadRequestSystem` resolves `LoadLevelRequest` native-only" (the source-first probe the
+reload goes through); this file —
 "The editor run flag composes the always-on editor and the transport owns RunMode", "Bounded undo with
 drag-coalescing" (the history the restart clears), "The editor's Save dialog is a modal three-action
 chooser …" (Save Backup As… composes write + Restart).
@@ -3176,7 +3186,8 @@ bound-screen optional load (`NativeLevelLoader.TryPublishSourceFirst`). It runs 
 **with no editor composed**: `LoadLevelExampleGameScreen` reuses the overlay's reader when the editor is
 present, else builds a standalone one (engine **and game** serializers — PS5), so a shipped game boots
 native scenes too. When no `.mdscene` exists for the id the boot dispatcher **fails loud** — the
-LDtk loader is import-only (PS5) and not wired to boot, so there is no silent legacy attempt.
+LDtk loader is import-only (PS5), lives in `level-ldtk`, and is not composed at boot, so there is no
+silent legacy attempt (since #54 `LevelLoadRequestSystem` has no LDtk branch at all).
 The bundled
 `game.mdproj` (read at boot via
 `ManifestBoot.TryReadManifest` over `TitleContainer`) drives the entry: `ManifestBoot.ResolveStartScene`
@@ -3186,12 +3197,13 @@ back-compat until PS5 lands its `.mdscene`).
 
 **Why:** native `.mdscene` is the game's real level format; the shipped game must boot it read-only on
 every platform (`TitleContainer`, console-portable), and the load entry must be unified so a native load
-is not clobbered by the LDtk remove-on-miss — this is what closes the CORE_TENETS §6 parser-asymmetry
+is never followed by a second, format-specific attempt that could clobber it on a miss — this is what
+closes the CORE_TENETS §6 parser-asymmetry
 (fully in PS5). The manifest-boot guard (native-exists) keeps a placeholder `startScene` from breaking
 the default boot before its level is committed.
 **Breaks:** if the native reader were only composed behind the editor, a shipped game could never boot a
 `.mdscene`; if `ResolveStartScene` returned `startScene` unconditionally, a manifest naming a
-not-yet-committed level would send the game into a failing LDtk load instead of its menu.
+not-yet-committed level would send the game into a fail-loud load with an empty world instead of its menu.
 **Tests:** `MonoDreams.Tests/LevelEditor/NativeFirstLoadTests.cs`
 (`NativeFirst_LoadsScene_ViaTheNativeReader_WithNoEditorComposed`,
 `NoNativeScene_ProbeReturnsFalse_AndPublishesNothing`, `CommittedSampleScene_MatchesTheCanonicalShape`,
@@ -3527,7 +3539,9 @@ static-blocker semantics.
 
 ## LDtk is import-only; the importer round-trips a parsed world to native
 
-The LDtk parser is no longer wired to live game boot (PS5). It is **import
+The LDtk loader + parsers are no longer wired to live game boot (PS5), and since #54 they live
+entirely in `level-ldtk` (its own `LDtkLevelLoadSystem` handles `LoadLevelRequest` in the import
+composition; `level-loading` holds no LDtk type). They are **import
 machinery**: run once, via the import op (`Game1`'s headless `--export-scene <id>` /
 `MONODREAMS_EXPORT_SCENE`, or a future editor toolbar action), to re-parse a legacy level into a native
 `.mdscene` the game then owns. `LevelImporter` is the testable core: given a world a parser populated, it
@@ -3537,7 +3551,7 @@ membership closure captures it + its `ChildOf` descendants, then serializes thro
 Reconstruction on load is by components, never by re-running the parser — so every component a
 factory/parser sets needs a registered serializer, and the reference factories set
 `SpriteInfoComponent.AssetKey` (the tileset/texture content key) so the native reader re-loads the
-texture. The parsers are composed only in the reference screen's `importMode`, never at boot; the import
+texture. The loader + parsers are composed only in the reference screen's `importMode`, never at boot; the import
 op boots in `RunMode.Edit` so the frozen logic group cannot perturb the pristine parsed positions before
 capture, and disposes system-built screen infrastructure (the `DialogueStateComponent` UI sub-graph)
 before importing so only level content is captured.

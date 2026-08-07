@@ -27,15 +27,15 @@ namespace MonoDreams.System.Level
         public LDtkEntityParserSystem(World world)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
-            _levelLoadedSubscription = _world.SubscribeWorldComponentAdded<CurrentLevelComponent>(HandleLevelLoaded);
+            _levelLoadedSubscription = _world.SubscribeWorldComponentAdded<LDtkLevelDataComponent>(HandleLevelLoaded);
 
-            if (_world.Has<CurrentLevelComponent>())
+            if (_world.Has<LDtkLevelDataComponent>())
             {
-                HandleLevelLoaded(_world, _world.Get<CurrentLevelComponent>());
+                HandleLevelLoaded(_world, _world.Get<LDtkLevelDataComponent>());
             }
         }
 
-        private void HandleLevelLoaded(World _, in CurrentLevelComponent currentLevelComp)
+        private void HandleLevelLoaded(World _, in LDtkLevelDataComponent currentLevelComp)
         {
             if (!IsEnabled) return;
 
@@ -66,6 +66,13 @@ namespace MonoDreams.System.Level
 
         private static EntitySpawnRequest CreateEntitySpawnRequest(EntityInstance entityInstance, LayerInstance layer)
         {
+            // Layer-derived data rides in CustomFields under the ldtk: channel keys instead of a shared
+            // LDtk-typed Layer member on the message (issue #54) — LDtk field identifiers cannot contain
+            // ':', so these can never collide with a designer-authored field.
+            var customFields = ParseFieldInstances(entityInstance.FieldInstances);
+            customFields[LDtkSpawnFields.LayerOpacity] = (float)layer._Opacity;
+            customFields[LDtkSpawnFields.GridSize] = (int)layer._GridSize;
+
             return new EntitySpawnRequest(
                 entityInstance._Identifier,
                 entityInstance.Iid.ToString(),
@@ -73,8 +80,7 @@ namespace MonoDreams.System.Level
                 new Vector2(entityInstance.Width, entityInstance.Height),
                 new Vector2(entityInstance._Pivot.X, entityInstance._Pivot.Y),
                 new Vector2(entityInstance._Tile.X, entityInstance._Tile.Y),
-                layer,
-                ParseFieldInstances(entityInstance.FieldInstances)
+                customFields
             );
         }
 

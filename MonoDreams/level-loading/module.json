@@ -1,7 +1,7 @@
 {
   "$schema": "../module.schema.json",
   "name": "level-loading",
-  "description": "Shared level/spawn plumbing: LoadLevelRequest, EntitySpawnRequest, parser pipeline",
+  "description": "Shared format-agnostic level/spawn plumbing: LoadLevelRequest, native-only load, EntitySpawnRequest",
   "dependencies": [
     "foundation",
     "rendering"
@@ -10,6 +10,6 @@
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],
-  "postInstallNotes": "## level-loading installed\n\nThis is the shared plumbing the `level-ldtk` parser rides on. By itself it can't load anything \u2014 you need a parser module.\n\nFlow:\n1. Publish `LoadLevelRequest { LevelIdentifier = \"...\" }`.\n2. `LevelLoadRequestSystem` dispatches to the LDtk parser system.\n3. The parser publishes one `EntitySpawnRequest` per entity in the level.\n4. `EntitySpawnSystem` routes each request to the registered `IEntityFactory` (registered by string identifier).\n\nRegister factories at startup with `EntitySpawnSystem.RegisterFactory(\"Player\", new PlayerFactory());`.\n\nScene layers: add `SceneLayerSystem` to the draw pipeline between `SpritePrepSystem` and `YSortSystem` to make `SceneLayerComponent` layer entities drive their members' draw order (entities on no layer are untouched).\n\n**Premises:** `docs/premises.md`",
+  "postInstallNotes": "## level-loading installed\n\nThe shared, **format-agnostic** level/spawn plumbing. It contains no format-specific code \u2014 no LDtk type appears in its source, and it never depends on a parser module (the arrow is parser \u2192 plumbing).\n\nFlow (native game boot):\n1. Publish `LoadLevelRequest { LevelIdentifier = \"...\" }`.\n2. `LevelLoadRequestSystem` is **native-only**: `new LevelLoadRequestSystem(world, tryLoadNativeScene)` resolves the id to a bundled `Content/Levels/<id>.mdscene` and loads it through the native reader. No native scene \u21d2 it logs an error and loads nothing (fail loud, no fallback).\n3. A parser-driven format instead publishes `EntitySpawnRequest` per entity \u2014 LDtk lives one module over (`level-ldtk`: its own `LDtkLevelLoadSystem` handles `LoadLevelRequest`, composed *instead of* `LevelLoadRequestSystem`).\n4. `EntitySpawnSystem` routes each request to the registered `IEntityFactory` (by string identifier, exact match first, then longest prefix).\n\nRegister factories at startup with `EntitySpawnSystem.RegisterFactory(\"Player\", new PlayerFactory());`. Format-specific per-spawn data rides `EntitySpawnRequest.CustomFields` under a namespaced key (e.g. `level-ldtk`'s `ldtk:layerOpacity`) \u2014 never a new member on the shared message.\n\nScene layers: add `SceneLayerSystem` to the draw pipeline between `SpritePrepSystem` and `YSortSystem` to make `SceneLayerComponent` layer entities drive their members' draw order (entities on no layer are untouched).\n\n**Premises:** `docs/premises.md`",
   "premisesRef": "docs/premises.md"
 }
