@@ -1,0 +1,410 @@
+Implement the issue #47. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>a53f68190825c7d59</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port workspaces + rules editor" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Issue #47 (workspace / autotile-rules wave "WS") is ported and green.
+
+## Files added (2)
+- `MonoDreams/level-editor/System/AutotileRuleEditorSystem.cs` — the full-screen Autotile Rules workspace (rule-set list / 16 exposure cases / tileset sheet, DSL toggle, live undoable edits).
+- `MonoDreams/level-editor/System/WorkspaceTabStripSystem.cs` — the `[Level Editor | Autotile Rules]` tab strip at the window top bar's left.
+
+## Files changed (19)
+Module: `Undo/PaintValueCommands.cs` (added `PaintValueEditCommand` with `Rules`/`Tileset` factories), `Component/EditorShellStateComponent.cs` (`EditorWorkspace` enum + `ActiveWorkspace`), `UI/EditorChromeLayout.cs` (`TopBarRightRow` + `WorkspaceTabRow`), `UI/EditorChromeBuilder.cs` (Decision 2), `UI/EditorContextMenuModel.cs` (Collider submenu + paint-layer item), `Composition/EditorOverlay.cs` (all WS hunks), `System/PalettePlacementSystem.cs` (2 doc comments).
+Hosts: all 9 screens + `MonoDreams.Demos/DemoEditor.cs`. Tests: `EditorContextMenuTests.cs`, `ToolbarTests.cs`.
+
+## Adaptations vs. the reference (and why)
+1. **Did NOT port `EditorBottomTab.Paint`** or the `panel:tab paint` op case — local deliberately dropped them in #46 (the paint shelf is ACTIVE-layer-driven).
+2. **Kept local's `ActiveLayer` doc comment**, local's `TileGridPaintSystem` construction (no `createDefaults` param), and local's richer `EntityMenu` / `CreateSceneLayer` / `MoveSelectedLayer` / `PalettePlacementSystem` comments — local is ahead of the ref in each case. Only augmented `EntityMenu`'s doc for the new `isPaintLayer` arg.
+3. **Skipped the ref's `PalettePlacementSystem` regressions** entirely (nullable `bands` → non-nullable, retired band-row layout, deleted layer comments, raw `new Color(`). Applied only the 2 doc comments that genuinely reference the now-existing workspace.
+4. **Theme-lint fixes** in `AutotileRuleEditorSystem`: 3 × `Color.White` → `EditorTheme.NeutralTint` (the established role; `Color.Lerp`/`Color.Transparent` are allowlisted so they stayed).
+5. **Fixed one latent ref bug**: `TrySheetCellAt` accepted clicks in the sheet pane when *no tileset was bound* (`SheetDims()` falls back to `(1,1)`), so a click on the empty pane pushed a phantom `ToggleTile(0,0)` rules edit onto the shared history. Added a bound-tileset guard. The headless `rules:tile` op calls `ToggleTile` directly and is unaffected.
+6. **Test facts updated minimally** (no new test files): Collider submenu is 4 items with `Add Box`/`Add Polygon`/`Add Vertex`/`Remove Collider (Danger)`; window-bar asserts flipped to `DoesNotContain` for all four collider actions; `IconButtons_BakeGlyphMeshes_TintedByState` now uses `EditorToolbarAction.EntityMenu` as its text-button probe (the only remaining icon-less toolbar action).
+7. **Did NOT port** `EditorIcons.cs`, the `RefreshCatalog` comment tweak, or any docs (`premises.md`/`overview.md` untouched, per instruction).
+
+## Nothing skipped in the host wiring
+All 9 screens got `editor.rules` (after `editor.contextMenu`, before `editor.shortcuts`) and `workspaceTabs` (after `viewportTabs`). The `ShouldSuppressInput` OR landed in **4** places, not 9: the 6 Demos-hosted screens share one lambda in `MonoDreams.Demos/DemoEditor.cs:104`; the three Examples screens have their own (`LevelSelectionScreen` ×1, `LoadLevelExampleGameScreen` and `InfiniteRunnerScreen` ×2 each — a `#if DEBUG` debug-inspector variant plus the main one). Verified the weave order in `LoadLevelExampleGameScreen` puts `editor.rules` ahead of every downstream pointer consumer (commands, gizmo, toolbar, panels, palette, tilePaint, shell, selection), and the workspace surface starts *below* the top bar so the workspace tabs and Undo/Redo/Refresh stay live.
+
+## Build/test status — all green
+- `dotnet build MonoDreams/MonoDreams.csproj` → 0 errors
+- `dotnet build MonoDreams.Tests/…` → 0 errors
+- `dotnet test --filter "FullyQualifiedName~LevelEditor"` → **966/966 passed**
+- `dotnet test MonoDreams.Tests/` (full suite) → **1254/1254 passed**
+- `dotnet build MonoDreams.Examples.Desktop/…` and `MonoDreams.Demos/…` → 0 errors
+
+Two notes for the commit: I ran `git add -N` on the two new files so `EditorThemeLintTests` (which scans `git ls-files`) actually covered them — that's why the lint result is honest, and it's a no-op for your `git add -A`. And `dotnet restore` did churn `MonoDreams/packages.lock.json` (KNI packages promoted to Direct); I reverted it and re-verified the build stays green with the original lock file. Nothing is committed.</result>
+<usage><subagent_tokens>241211</subagent_tokens><tool_uses>114</tool_uses><duration_ms>1120225</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4676e92bb6ba96bd</task-id>
+<tool-use-id>toolu_01AsZAPg9JyPyheZMP4U1rs3</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Author tests + premises text" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All gates pass. Here is the report.
+
+## 1. Tests added / changed
+
+### NEW — `MonoDreams.Tests/LevelEditor/AutotileRuleEditorTests.cs` (9 tests)
+Issue test-list items **1** and **2**. Pure logic; the bake's texture seam is fed the ctor-less `Texture2D` stand-in (`RuntimeHelpers.GetUninitializedObject` + `GC.SuppressFinalize`) that `SpriteFlipTests`/`SpriteAnimationTests` already use, so the bake's **sprite** path runs headless and a baked tile's `SpriteInfoComponent.Source` is directly assertable.
+
+| Test | Proves |
+|---|---|
+| `RulesEdit_ReBakesTheTileSourceRects_PerNeighborMask_AndUndoRestoresThem` | **"re-bakes visibly"**: a `PaintValueEditCommand.Rules` through the shared history changes the *baked child's* source rect for the edited mask only (corner mask 6 → sheet cell (5,5); interior mask 15 untouched), `BakeCount` increments (the `NotifyChanged` reached the bake past its quiet window), and Undo/Redo walk the art back and forth |
+| `ToggleTile_ThroughTheWorkspace_IsOneUndoableStep_ThatReSkinsTheSelectedCase` | The real `AutotileRuleEditorSystem.ToggleTile` = one history entry each, alternates add/remove, and the interior tile re-skins |
+| `ToggleTile_NeverEmptiesACase_TheLastRemovalFallsBackToSheetCellZero` | Removing a case's last assignment restores (0,0) — `PickTile` never indexes an empty array |
+| `SerializeRules_IsTheCanonicalDsl_ParseRulesReadsItBackUnchanged` | `SerializeRules` writes exactly the grammar `TileGridBaking.ParseRules` reads (all 16 cases, `\|` alternates) |
+| `ApplyTilesetPick_IsOneUndoableCommand_ThatKeepsTheRules` | Tileset re-bind = key + tile size, rules untouched, one undo step, notified |
+| `SelectValueByName_BindsAcrossEveryGrid_AndIsCaseInsensitive` | The `rules:value` op's binding |
+| `UndoingARuleSetsCreation_ReBindsTheViewToASurvivingRuleSet` | `HealBinding` (drives the system's real `Update` headless) |
+| `CreatedAndEditedRuleSet_RoundTripsThroughTheCanonicalSerializer` | **CRUD round-trip**: `AddPaintValueCommand` → `ApplyTilesetPick` → `ToggleTile`, then save→load reproduces id/name/color/tilesetKey/tileSize/autotileRules; each Undo round-trips *through the file* (rules → tileset → the value leaves `entities[]`), and 3 Redos restore it |
+| `RuleSetEdits_AreByteStable_LoadSaveIsAFixedPoint` | `write → read → write` is byte-identical after rules+tileset edits |
+
+### NEW — `MonoDreams.Tests/LevelEditor/WorkspaceTests.cs` (7 tests)
+Issue test-list item **3**.
+
+| Test | Proves |
+|---|---|
+| `WorkspaceTabs_AreTwoAdjacentTabsAtTheTopBarsLeft_TheActiveOneUnderlined` | Two adjacent full-bar-height tabs at the top bar's left margin, in its left half |
+| `REDACTED` | `TopBarRightRow` docks Undo/Redo/Refresh right, starting after the tab strip (no silently un-clickable cluster) |
+| `ClickingTheInactiveWorkspaceTab_DispatchesTheSwitch_AndTheActiveTabIsInert` | Real strip hit-test → dispatch; `IsOpen` derives from `ActiveWorkspace`; the active tab is inert |
+| `WorkspaceTabs_SuppressedDuringAShellDrag_DispatchNothing` | The shell-drag token |
+| `REDACTED` | The refusal + Warning notification, and that pausing lets the same click through |
+| `WorkspaceRoundTrip_PreservesSelection_History_ActiveLayer_AndTheBoundRuleSet` | Selection, `History.Count`+`EditVersion`, `ActiveLayer`, bound layer/rule set — and the **selected case**, observed the only way it is observable (the next `ToggleTile` still lands on case 6) |
+| `REDACTED` | Leaving parks the full-screen panes; exactly one tab underline mesh is filled |
+
+### EXTENDED — `MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs` (+6 tests)
+Issue test-list item **4**. `MenuOver` (the repo's existing "shape the overlay's DispatchMenuAction uses" helper) gained the four collider paths + `layer/rules`.
+
+`EntityMenu_EditAutotileRules_AppearsExactlyForAPaintLayerSelection`, `MenuPick_ColliderAddBoxAndAddPolygon_CreateChildColliderEntities_Undoable`, `MenuPick_ColliderAddVertex_SplitsTheLongestEdgeOfTheSelectedConvexCollider`, `MenuPick_ColliderRemove_DeletesTheSelectedColliderEntity_Undoable`, `REDACTED` (real `AutotileRuleEditorSystem.Open` — binds the layer, flips the workspace, picks the first sheet-bound rule set). I did **not** touch the previous agent's fact updates.
+
+## 2. Gate status
+
+1. `dotnet build MonoDreams.Tests/MonoDreams.Tests.csproj` — **0 errors**
+2. `dotnet test --filter "FullyQualifiedName~LevelEditor"` — **987 passed, 0 failed**
+3. `dotnet test MonoDreams.Tests/` (full project) — **1275 passed, 0 failed**
+4. Extra: `dotnet build MonoDreams.sln` — **0 errors**. `MonoDreams/packages.lock.json` unchanged. **No source files were modified** — only the two new test files and the extended `EditorContextMenuTests.cs`.
+
+## 3. Bugs / observations in the shipped implementation
+
+**No genuine functional bug found** — every test passes against the implementation as shipped, unmodified. Three low-severity observations for your judgment:
+
+1. **The Play refusal is entry-only.** `SetActiveWorkspace` / `OpenLayerRulesEditor` refuse *entering* `AutotileRules` while Playing, but nothing forces a *leave* if `RunMode` flips to Play while the workspace is already open. Unreachable through the UI (the workspace surface covers the Scene-header transport buttons and `editor.rules` weaves before `editor.toolbar`, so it swallows the click; `EditorShortcutSystem` ORs `RulesEditor.IsOpen` into its dialog gate) — but reachable via the headless `Play` op, which would leave live rules edits pushing commands while the simulation runs.
+2. **Depth tie.** The workspace surface sits at `EditorTheme.Depths.DialogBackdrop` (0.70), the same value as the modal dialog's dimmer. The dialog *panel*/controls/labels (0.74–0.86) still draw above, so this is cosmetic (the dimmer may or may not read), but the tie resolves on insertion order.
+3. **Testability gap (why one assertion is a mirror).** `EditorOverlay` is not unit-constructible (`ContentManager` / `GraphicsDevice` / `SpriteBatch` / real `BitmapFont`), so `SetActiveWorkspace`'s refusal branch is exercised through a documented mirror in the test harness, following the repo's own `MenuOver` precedent. Everything it drives (`WorkspaceTabStripSystem` dispatch, `AutotileRuleEditorSystem`, `EditorNotifications`) is real. If you want the policy itself protected rather than mirrored, the minimal change is a pure static (e.g. `AutotileRuleEditorSystem.CanEnter(EditorWorkspace, RunMode)`) called from both overlay sites — I did not make it, since it is a source change and no test required it.
+
+---
+
+# PART 2 — Premises text (verbatim-ready)
+
+## (a) NEW premise — append to `MonoDreams/level-editor/docs/premises.md` (before the `## See also` section)
+
+```markdown
+## The editor's top-level WORKSPACES are a tab strip at the window top bar's left, and the Autotile Rules workspace edits rule sets LIVE through the ONE shared history
+
+The editor has **top-level workspaces** (WS — the Blender workspace-tab model): `EditorWorkspace` is
+`LevelEditor` (the familiar shell — viewport + panels + shelf) or `AutotileRules` (a full-window rule-set
+editor with its own pane disposition: rule-set list, the 16 exposure cases, the tileset sheet), held as
+`EditorShellStateComponent.ActiveWorkspace` — session state, never serialized. `WorkspaceTabStripSystem`
+renders and hit-tests the two tabs at the window **top bar's LEFT** in the one tab language the panel and
+viewport strips already speak (active = `Bg1` fill + `Accent` underline; inactive = `Bg0` hover-fading to
+`Bg2`), which is why `EditorChromeBuilder.DefaultButtons` — now exactly **Undo / Redo / Refresh** — is
+laid **right-anchored** by `EditorChromeLayout.TopBarRightRow`: the bar's two clusters own opposite ends
+and cannot collide. The strip is live in **both** transport states, stands down while a shell
+splitter/scrollbar drag owns the pointer, and never writes `ActiveWorkspace` itself — a click dispatches
+into the composer-supplied switch.
+
+**One switch owner.** `EditorOverlay.SetActiveWorkspace` is that owner (the tab click AND the
+`workspace:level-editor|autotile-rules` ops), and it is where entering a workspace MEANS something:
+entering `AutotileRules` is an EDITING view, so it is **refused loudly while Playing** ("Pause to edit
+autotile rules" — the same refusal `OpenLayerRulesEditor` applies to the layer menu's "Edit Autotile
+Rules…" jump), and leaving lands back on the Level Editor shell.
+`AutotileRuleEditorSystem.IsOpen` **derives** from `ActiveWorkspace` — there is no second open flag to
+desync — and while it is open the workspace owns the pointer BELOW the top bar (it swallows the cursor
+edges so nothing beneath re-picks or places, leaving the tabs and Undo/Redo live above) and ORs into the
+editor keyboard's suppression, exactly like a dialog. **A switch is not an edit:** selection, the ONE
+shared `EditorHistory` (its count and its `EditVersion`), the ACTIVE layer, and the rules view's own
+binding (layer, rule set, selected case) all survive the round trip — only the presented panes change.
+
+**Edits are LIVE and undoable — there is no Save/Cancel.** Every rules-workspace mutation (a case's tile
+toggle, a tileset pick) is one `PaintValueEditCommand` pushed through that same shared history, keyed by
+the value's stable `TilePaintValue.Id` — indices shift when values are added or removed, ids never do.
+`Apply`/`Revert` write `AutotileRules` / `TilesetKey` / `TileSize` and publish
+`NotifyChanged&lt;TileGridComponent&gt;`, which IS the debounced bake's trigger, so the painted world re-skins
+within the bake's quiet window and Ctrl+Z walks a rules edit back like any other scene edit. A rules edit
+keeps the tileset and a tileset re-bind keeps the rules (masks are sheet-agnostic; the cell indices are
+the designer's to fix up next), and a case can never be emptied — removing its last assignment restores
+sheet cell 0,0, which is what `TileGridBaking.PickTile` assumes. Creating a rule set is the SAME
+`AddPaintValueCommand` the paint shelf's `+ New` card fires (a rule set IS a paintable index), so the
+workspace adds **no parallel data model**: everything it authors is `core.TileGrid` component state that
+round-trips byte-stably. The view **heals its binding** every frame — a dead layer or an undone value
+re-binds to the first surviving rule set — because undo/redo and deletes can invalidate the selection
+under an open workspace.
+
+**Why:** rules authoring needs three panes at once (rule sets, the 16 exposure cases, the sheet); that is
+a workspace, not a floating modal over the shell, and Blender's answer to "a different task wants a
+different whole-window layout" is a workspace tab. Making the edits live commands rather than a
+Save/Cancel buffer is the call the rest of the editor already made — the history IS the safety net (the
+one-data-model tenet) — and the designer watches the terrain re-skin while they toggle instead of after
+they commit. Refusing entry while Playing keeps the editing-tools-are-inert-while-Playing contract
+intact, and deriving `IsOpen` from `ActiveWorkspace` keeps a second, desyncable "is the rules view open"
+flag from ever being born.
+**Breaks:** a Save/Cancel buffer over the same values re-introduces exactly the parallel representation
+the camera block cost three days of bugs; an edit that forgets `NotifyChanged` leaves the world showing
+the OLD art until some unrelated change happens to re-bake (the designer concludes the rule "did
+nothing"); a workspace that owns the pointer over the top bar traps the designer inside it (no tab, no
+Undo); a switch that resets selection / history / active layer makes leaving the rules view cost the
+session; entering the workspace while Playing means live edits fight the running simulation and a Ctrl+Z
+races physics; keying the command by list INDEX instead of `Id` makes an undo after an add/remove rewrite
+the WRONG rule set; letting a case go empty makes `PickTile` index an empty alternates array mid-bake; a
+second `IsOpen` flag beside `ActiveWorkspace` desyncs the tab strip from the view it names.
+**Tests:** `MonoDreams.Tests/LevelEditor/WorkspaceTests.cs`
+(`WorkspaceTabs_AreTwoAdjacentTabsAtTheTopBarsLeft_TheActiveOneUnderlined`,
+`REDACTED` — the top bar's two clusters;
+`ClickingTheInactiveWorkspaceTab_DispatchesTheSwitch_AndTheActiveTabIsInert`,
+`WorkspaceTabs_SuppressedDuringAShellDrag_DispatchNothing` — the dispatch and its guards;
+`REDACTED` — the refusal, and
+that pausing lets the same click through;
+`WorkspaceRoundTrip_PreservesSelection_History_ActiveLayer_AndTheBoundRuleSet` — the editing state
+survives a switch (the selected CASE observed through the next toggle still landing on it);
+`REDACTED` — the view parks and exactly
+one tab is underlined);
+`MonoDreams.Tests/LevelEditor/AutotileRuleEditorTests.cs`
+(`RulesEdit_ReBakesTheTileSourceRects_PerNeighborMask_AndUndoRestoresThem` — a rules edit through the
+history changes the BAKED tile's source rect for the edited mask only, and undo/redo walk it back and
+forth; `ToggleTile_ThroughTheWorkspace_IsOneUndoableStep_ThatReSkinsTheSelectedCase`,
+`ToggleTile_NeverEmptiesACase_TheLastRemovalFallsBackToSheetCellZero`,
+`ApplyTilesetPick_IsOneUndoableCommand_ThatKeepsTheRules`,
+`SelectValueByName_BindsAcrossEveryGrid_AndIsCaseInsensitive`,
+`UndoingARuleSetsCreation_ReBindsTheViewToASurvivingRuleSet` — the workspace verbs and the self-heal;
+`SerializeRules_IsTheCanonicalDsl_ParseRulesReadsItBackUnchanged`;
+`CreatedAndEditedRuleSet_RoundTripsThroughTheCanonicalSerializer` and
+`RuleSetEdits_AreByteStable_LoadSaveIsAFixedPoint` — create → bind → author → save → load, with each
+undo step round-tripping through the FILE too);
+`MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs`
+(`EntityMenu_EditAutotileRules_AppearsExactlyForAPaintLayerSelection`,
+`REDACTED` — the layer-menu jump).
+The workspace's own DRAW (the three panes, the 3x3 case glyphs, the sheet thumbnails) has no test — it is
+verified on the demo host like the other chrome draws; and the refusal-while-Playing POLICY is exercised
+through a mirror of `EditorOverlay.SetActiveWorkspace` (the `MenuOver` precedent), because the overlay
+itself is not unit-constructible.
+**Depends on:** this file — "The Paint tab arms a tile-grid brush; the paint VIEW shows logical colored
+blocks; strokes are one undo step" (the rule sets ARE that tab's paintable indices, and `+ New Rule Set…`
+is its `+ New` card), "Bounded undo with drag-coalescing" (the ONE shared history every rules edit rides),
+"Editor context menus are a data-driven popup: one model, two anchors, modal like the dialog" (the layer
+menu's "Edit Autotile Rules…" jump and the tileset picker's filtered popup), "The editor toolbar's buttons
+drive the same shared editor instances; the chrome is native-resolution on the Editor target, always on
+while the editor is composed" (the top bar the tab strip shares with the right-anchored general buttons),
+"The editor shell's region sizes, tabs, and drag ownership live in one shell-state component"
+(`ActiveWorkspace`'s home + the drag token the strip honors), "Every level-editor color and depth is an
+`EditorTheme` role" (the tab visuals and the workspace's depth band), "The transport's Restart rebuilds
+the scene from the original load request and discards unsaved edits" (the
+`EditorInfrastructureComponent` tag that keeps the workspace chrome alive across a Restart);
+level-loading — "The paint grid is authored cells + values; everything visible/collidable is a bake
+product" (what a rules edit re-derives, and the `core.TileGrid` round-trip the rule sets persist through).
+```
+
+## (b) Surgical updates to stale text
+
+### b1 — paint-tab premise closing parenthetical (`premises.md` ~4238–4240)
+
+**OLD (exact):**
+```
+disarm. (The Autotile Rules **workspace** that binds tilesets and edits the rule DSL is a later wave
+— today a value's `TilesetKey`/`AutotileRules` are authored through the Inspector like any component
+data.)
+```
+**NEW:**
+```
+disarm. (The Autotile Rules **workspace** — the window's second workspace tab — is what binds tilesets
+and edits the rule DSL now; its edits are LIVE undoable `PaintValueEditCommand`s through the same shared
+history, and the identical fields stay hand-editable in the Inspector (`TileGrid ▸ values ▸
+autotileRules`). See "The editor's top-level WORKSPACES are a tab strip at the window top bar's left …".)
+```
+
+### b2 — context-menu premise, Four-surfaces paragraph (`premises.md` ~2191–2194)
+
+**OLD (exact):**
+```
+**Four surfaces, one primitive.** The viewport right-click opens the entity menu (Order ▸ Bring
+Forward / Send Backward, **Add Collider ▸ Box / Polygon** — the colliders-as-entities add flow, creating a
+child collider entity of the selection; separator; the prefab actions; separator; Delete `Danger`) — see
+the tool-modality premise for the right-click composition; the Entities-panel right-click opens Add Empty Entity plus, when a tree row is
+```
+**NEW:**
+```
+**Four surfaces, one primitive.** The viewport right-click opens the entity menu (Order ▸ Bring
+Forward / Send Backward, **Collider ▸ Add Box / Add Polygon / Add Vertex / Remove Collider `Danger`** —
+the colliders-as-entities flow, whose add verbs create a child collider entity of the selection; WS
+retired the window-bar `+Box`/`+Poly`/`-Col`/`+Vtx` text buttons, so this submenu is the ONLY surface for
+all four; when the selection is a PAINT layer the layer block also carries **Edit Autotile Rules…**, the
+jump into the Autotile Rules workspace; separator; the prefab actions; separator; Delete `Danger`) — see
+the tool-modality premise for the right-click composition; the Entities-panel right-click opens Add Empty Entity plus, when a tree row is
+```
+
+### b3 — toolbar/chrome premise, window-bar sentence (`premises.md` ~742–744)
+
+**OLD (exact):**
+```
+the header (its dispatch opens the entity context menu below it). The window bar (`DefaultButtons`) now
+keeps **Undo / Redo / Refresh** (ICON buttons) plus the still-text **collider/vertex** authoring
+actions (their future home is a follow-up, not built this wave). **PF-F: Save left the window bar** for
+```
+**NEW:**
+```
+the header (its dispatch opens the entity context menu below it). **WS then took the collider/vertex text
+buttons too** (`+Box`/`+Poly`/`-Col`/`+Vtx` → the entity menu's **Collider ▸** submenu — they are
+selection tools, not global actions; the `EditorToolbarAction`s and their dispatch stay, only the buttons
+are gone), so the window bar (`DefaultButtons`) is now exactly **Undo / Redo / Refresh** (ICON buttons),
+laid **right-anchored** by `EditorChromeLayout.TopBarRightRow` because the bar's LEFT belongs to the
+workspace tab strip (`WorkspaceTabStripSystem` — see "The editor's top-level WORKSPACES …"). **PF-F: Save left the window bar** for
+```
+
+### b4 — collider-entity premise, Add/remove flows (`premises.md` ~1752–1763)
+
+**OLD (exact):**
+```
+- **Add / remove flows.** **Add Collider ▸ Box / Polygon** (the entity context menu + the Entity-header
+  dropdown + the toolbar `+Box`/`+Poly` + the `collider:addBox`/`addConvex` ops + the
+  `collider/add-box`/`collider/add-polygon` menu paths) creates a CHILD collider ENTITY of the selection
+```
+**NEW:**
+```
+- **Add / remove flows.** **Collider ▸ Add Box / Add Polygon** (the entity context menu + the
+  Entity-header dropdown + the `collider:addBox`/`addConvex` ops + the
+  `collider/add-box`/`collider/add-polygon` menu paths — WS retired the window-bar `+Box`/`+Poly` text
+  buttons, so the submenu is the only surface) creates a CHILD collider ENTITY of the selection
+```
+
+**OLD (exact):**
+```
+  "already present" guard. **−Col** (`collider:remove`) DELETES the selected collider entity (the
+  snapshotting `DeleteEntityCommand`), a loud no-op when the selection is not a collider. `+Vtx` /
+  vertex-delete act on a selected convex collider entity (the next premise). The add actions gate on a
+  selection.
+```
+**NEW:**
+```
+  "already present" guard. **Collider ▸ Remove Collider** (`Danger`; `collider:remove`, path
+  `collider/remove`) DELETES the selected collider entity (the snapshotting `DeleteEntityCommand`), a
+  loud no-op when the selection is not a collider. **Collider ▸ Add Vertex** (path
+  `collider/add-vertex`) / vertex-delete act on a selected convex collider entity (the next premise). The
+  add actions gate on a selection.
+```
+
+### b5 — `MonoDreams/level-editor/docs/overview.md` status paragraph (line 5)
+
+**OLD (exact):**
+```
+and the **collider authoring actions** (toolbar +Box/+Poly/-Col/+Vtx, headless `collider:*` — footprint default = full sprite width x bottom quarter, feet-anchored, pure `Proxy/ColliderDefaults`; add/remove through the snapshotting `Undo/ColliderComponentCommand`; Delete retargets on proxies: a vertex proxy deletes its vertex with the &gt;= 3 guard, a shape proxy removes its bound collider)
+```
+**NEW:**
+```
+and the **collider authoring actions** (the entity context menu's **Collider ▸ Add Box / Add Polygon / Add Vertex / Remove Collider** submenu — the WS wave retired the window-bar +Box/+Poly/-Col/+Vtx text buttons, leaving the menu as the only surface; the headless `collider:*` ops and the dispatch are unchanged — footprint default = full sprite width x bottom quarter, feet-anchored, pure `Proxy/ColliderDefaults`; add/remove through the snapshotting `Undo/ColliderComponentCommand`; Delete retargets on proxies: a vertex proxy deletes its vertex with the &gt;= 3 guard, a shape proxy removes its bound collider)
+```
+
+**Optional addition** — append to the end of that same status paragraph, before `Anything not yet built is marked **(planned, Wave N)**.`:
+```
+The **workspaces wave (WS, issue #47)** added top-level **workspaces**: a `[ Level Editor | Autotile Rules ]` tab strip (`System/WorkspaceTabStripSystem`) at the window top bar's LEFT over `EditorShellStateComponent.ActiveWorkspace` (the general Undo/Redo/Refresh buttons right-anchor beside it via `EditorChromeLayout.TopBarRightRow`), and the full-window **Autotile Rules workspace** (`System/AutotileRuleEditorSystem` — rule-set list · the 16 exposure cases · the tileset sheet, plus a DSL view) whose every edit is a LIVE undoable `Undo/PaintValueEditCommand` through the ONE shared history (no Save/Cancel; the bake re-skins the world from the command's `NotifyChanged`). `EditorOverlay.SetActiveWorkspace` is the one switch owner (refused while Playing); ops: `workspace:*` and `rules:*`.
+```
+
+## (c) Updated `Tests:` lines for premises whose protecting tests I extended
+
+### c1 — paint-tab premise: append to the end of its `Tests:` block
+
+**OLD (exact):**
+```
+`EnteringPlayMidStroke_CommitsTheStroke_AndStopsPainting` — the no-op and modality edges). The paint
+VIEW itself (the overlay quads) has no test yet — it is verified on the demo host, like the other
+overlay draws.
+```
+**NEW:**
+```
+`EnteringPlayMidStroke_CommitsTheStroke_AndStopsPainting` — the no-op and modality edges). The paint
+VIEW itself (the overlay quads) has no test yet — it is verified on the demo host, like the other
+overlay draws. The paint VALUES' other half — creating a rule set, binding its sheet and authoring its
+case→tile mapping — is `MonoDreams.Tests/LevelEditor/AutotileRuleEditorTests.cs` (see "The editor's
+top-level WORKSPACES …").
+```
+
+### c2 — context-menu premise `Tests:` (`premises.md` ~2232–2233)
+
+**OLD (exact):**
+```
+item-click dispatches; the menu→command wiring — Order nudges the selected sprite, Delete is the
+snapshotting command + undo restores; `AddEmptyEntity`; the Create-Empty-Scene dialog collision refusal +
+```
+**NEW:**
+```
+item-click dispatches; the menu→command wiring — Order nudges the selected sprite, Delete is the
+snapshotting command + undo restores, and (WS) the Collider ▸ verbs fire the SAME editor commands the
+retired window-bar buttons did:
+`MenuPick_ColliderAddBoxAndAddPolygon_CreateChildColliderEntities_Undoable`,
+`MenuPick_ColliderAddVertex_SplitsTheLongestEdgeOfTheSelectedConvexCollider`,
+`MenuPick_ColliderRemove_DeletesTheSelectedColliderEntity_Undoable`, plus the Paint-layer-only
+`EntityMenu_EditAutotileRules_AppearsExactlyForAPaintLayerSelection` /
+`REDACTED`; `AddEmptyEntity`; the Create-Empty-Scene dialog collision refusal +
+```
+
+### c3 — toolbar/chrome premise `Tests:` (`premises.md` ~796–800)
+
+**OLD (exact):**
+```
+`WindowBar_IsSlimmed_ToolsRelocatedToTheHeader` — TB-A: the transform tools are `HeaderButtons` (Move
+leads), the transport is its own `HeaderTransportButtons` array, and Save is a fixed header button in
+NEITHER `HeaderButtons` nor `DefaultButtons`; `IconButtons_BakeGlyphMeshes_TintedByState` — the icon
+```
+**NEW:**
+```
+`WindowBar_IsSlimmed_ToolsRelocatedToTheHeader` — TB-A: the transform tools are `HeaderButtons` (Move
+leads), the transport is its own `HeaderTransportButtons` array, Save is a fixed header button in
+NEITHER `HeaderButtons` nor `DefaultButtons`, and (WS) `DefaultButtons` carries NONE of
+`ColliderAddBox`/`ColliderAddConvex`/`ColliderRemove`/`VertexAdd`;
+`MonoDreams.Tests/LevelEditor/WorkspaceTests.cs`
+(`REDACTED` — the WS right-anchored general
+cluster starts after the workspace tab strip, so neither cluster is silently un-clickable);
+`IconButtons_BakeGlyphMeshes_TintedByState` — the icon
+```
+
+### c4 — collider-entity premise `Tests:` (`premises.md` ~1775–1780)
+
+**OLD (exact):**
+```
+`ColliderActionTests.cs` (Add Box/Polygon create a footprint child collider entity — auto-named, selected,
+undoable, N-per-body; the sprite-less 32² fallback; −Col deletes the selected collider entity; Delete on a
+collider entity deletes it whole; a baked-product Delete refused; the passive-static-blocker integration
+still blocks an active body without drifting),
+```
+**NEW:**
+```
+`ColliderActionTests.cs` (Add Box/Polygon create a footprint child collider entity — auto-named, selected,
+undoable, N-per-body; the sprite-less 32² fallback; Remove Collider deletes the selected collider entity;
+Delete on a collider entity deletes it whole; a baked-product Delete refused; the passive-static-blocker
+integration still blocks an active body without drifting),
+`EditorContextMenuTests.cs` (WS — the Collider ▸ menu picks route to those same commands, now the ONLY
+surface: `MenuPick_ColliderAddBoxAndAddPolygon_CreateChildColliderEntities_Undoable`,
+`MenuPick_ColliderAddVertex_SplitsTheLongestEdgeOfTheSelectedConvexCollider`,
+`MenuPick_ColliderRemove_DeletesTheSelectedColliderEntity_Undoable`),
+```</result>
+<usage><subagent_tokens>308743</subagent_tokens><tool_uses>85</tool_uses><duration_ms>1199509</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bab1wsdz5</task-id>
+<tool-use-id>toolu_01PLomCK57uosMKJqo967ih9</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full-solution Release test gate" completed (exit code 0)</summary>
+</task-notification>
