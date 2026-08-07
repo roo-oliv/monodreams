@@ -81,11 +81,15 @@ public static class EditorContextMenuModel
     public const string AddEmptyPath = "add-empty";
     public const string CreateScenePath = "create-scene";
 
-    // Add Collider ▸ Box / Polygon (colliders-as-entities): creates a CHILD collider entity of the
-    // selection (the toolbar +Box/+Poly twin). The submenu path is the parent; the leaves dispatch.
+    // Collider ▸ Add Box / Add Polygon / Add Vertex / Remove Collider (colliders-as-entities): the add
+    // verbs create a CHILD collider entity of the selection. WS retired the window-bar text buttons
+    // (+Box/+Poly/-Col/+Vtx), so the submenu is now the ONLY surface for all four — they are
+    // selection tools, not global actions. The submenu path is the parent; the leaves dispatch.
     public const string AddColliderSubmenuPath = "collider";
     public const string AddColliderBoxPath = "collider/add-box";
     public const string AddColliderPolygonPath = "collider/add-polygon";
+    public const string AddVertexPath = "collider/add-vertex";
+    public const string RemoveColliderPath = "collider/remove";
 
     // Prefab paths (PF-D). The card paths carry the prefab id as a suffix (the card knows which prefab).
     public const string CreatePrefabFromSelectionPath = "prefab/from-selection";
@@ -101,24 +105,29 @@ public static class EditorContextMenuModel
     public const string RenameLayerPath = "layer/rename";
     public const string LayerUpPath = "layer/up";
     public const string LayerDownPath = "layer/down";
+    public const string EditLayerRulesPath = "layer/rules";
 
     /// <summary>The entity context menu (the viewport right-click AND the header <c>Entity ▾</c>
     /// dropdown — one model, two anchors): when the selection is a scene LAYER
     /// (<paramref name="isLayer"/>) the layer verbs lead — <b>Rename Layer…</b>, <b>Move Layer Up</b>,
-    /// <b>Move Layer Down</b> + a separator — then <b>Order ▸</b> (Bring Forward / Send Backward),
-    /// <b>Add Collider ▸</b> (Box / Polygon — creates a child collider entity), a separator, the prefab
+    /// <b>Move Layer Down</b>, plus (WS) <b>Edit Autotile Rules…</b> when it is a PAINT layer
+    /// (<paramref name="isPaintLayer"/> — the jump into the Autotile Rules workspace) + a separator —
+    /// then <b>Order ▸</b> (Bring Forward / Send Backward),
+    /// <b>Collider ▸</b> (Add Box / Add Polygon — creates a child collider entity — Add Vertex, and
+    /// Remove Collider, <see cref="EditorMenuItem.Danger"/>), a separator, the prefab
     /// actions — <b>Create Prefab from Selection…</b> (PF-D, enabled with a selection) and
     /// <b>Unpack Prefab</b> (<see cref="EditorMenuItem.Danger"/>, enabled only when the selection is a
     /// prefab instance root, <paramref name="isPrefabInstance"/>) — a separator, then <b>Delete</b>
     /// (<see cref="EditorMenuItem.Danger"/>). Every selection-gated item is disabled when nothing is
     /// selected, so the header dropdown reads inert with no selection.</summary>
     public static IReadOnlyList<EditorMenuItem> EntityMenu(bool hasSelection, bool isPrefabInstance = false,
-        bool isLayer = false)
+        bool isLayer = false, bool isPaintLayer = false)
     {
         var items = new List<EditorMenuItem>();
         if (isLayer)
         {
-            // Layer verbs (layers wave) ABOVE the generic entity items: rename and reorder.
+            // Layer verbs (layers wave) ABOVE the generic entity items: rename, reorder, and — for a
+            // Paint layer — its autotile rules editor.
             items.Add(new EditorMenuItem
             {
                 Kind = EditorMenuItemKind.Action, Label = "Rename Layer…", Path = RenameLayerPath,
@@ -131,6 +140,11 @@ public static class EditorContextMenuModel
             {
                 Kind = EditorMenuItemKind.Action, Label = "Move Layer Down", Path = LayerDownPath,
             });
+            if (isPaintLayer)
+                items.Add(new EditorMenuItem
+                {
+                    Kind = EditorMenuItemKind.Action, Label = "Edit Autotile Rules…", Path = EditLayerRulesPath,
+                });
             items.Add(Separator());
         }
         items.Add(OrderSubmenu(hasSelection));
@@ -324,16 +338,25 @@ public static class EditorContextMenuModel
 
     private static EditorMenuItem AddColliderSubmenu(bool enabled) => new()
     {
-        Kind = EditorMenuItemKind.Submenu, Label = "Add Collider", Path = AddColliderSubmenuPath, Enabled = enabled,
+        Kind = EditorMenuItemKind.Submenu, Label = "Collider", Path = AddColliderSubmenuPath, Enabled = enabled,
         Submenu = new[]
         {
             new EditorMenuItem
             {
-                Kind = EditorMenuItemKind.Action, Label = "Box", Path = AddColliderBoxPath, Enabled = enabled,
+                Kind = EditorMenuItemKind.Action, Label = "Add Box", Path = AddColliderBoxPath, Enabled = enabled,
             },
             new EditorMenuItem
             {
-                Kind = EditorMenuItemKind.Action, Label = "Polygon", Path = AddColliderPolygonPath, Enabled = enabled,
+                Kind = EditorMenuItemKind.Action, Label = "Add Polygon", Path = AddColliderPolygonPath, Enabled = enabled,
+            },
+            new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Add Vertex", Path = AddVertexPath, Enabled = enabled,
+            },
+            new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action, Label = "Remove Collider", Path = RemoveColliderPath,
+                Enabled = enabled, Danger = true,
             },
         },
     };

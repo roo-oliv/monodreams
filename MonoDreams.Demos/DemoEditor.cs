@@ -101,7 +101,8 @@ public sealed class DemoEditor
             session: session);
         // Modal capture (keyboard half): while a Save/Load dialog is open the editor keyboard stands
         // down so the dialog owns the keys (the mouse half is the dialog consuming the cursor edges).
-        keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen || overlay.Menu.IsOpen || overlay.Modal.IsActive || overlay.InspectorOwnsKeyboard;
+        keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen || overlay.Menu.IsOpen || overlay.Modal.IsActive
+            || overlay.InspectorOwnsKeyboard || overlay.RulesEditor.IsOpen;
         return new DemoEditor(keys, overlay, projectContext);
     }
 

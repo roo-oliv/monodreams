@@ -6,9 +6,12 @@ using DefaultEcs;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
+using MonoDreams.Component.Collision;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
+using MonoDreams.Component.Level;
 using MonoDreams.Draw;
+using MonoDreams.LevelEditor.Assets;
 using MonoDreams.LevelEditor.Component;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
@@ -62,7 +65,7 @@ public class EditorContextMenuTests
     [Fact]
     public void EntityMenu_HasOrderSubmenu_PrefabActions_AndDangerDelete()
     {
-        // Order ▸ | Add Collider ▸ | --- | Create Prefab from Selection… | Unpack Prefab (Danger) | --- | Delete (Danger).
+        // Order ▸ | Collider ▸ | --- | Create Prefab from Selection… | Unpack Prefab (Danger) | --- | Delete (Danger).
         var items = EditorContextMenuModel.EntityMenu(hasSelection: true);
         Assert.Equal(7, items.Count);
         Assert.Equal(EditorMenuItemKind.Submenu, items[0].Kind);
@@ -70,12 +73,17 @@ public class EditorContextMenuTests
         Assert.Equal(2, items[0].Submenu!.Count);
         Assert.Equal(EditorContextMenuModel.OrderForwardPath, items[0].Submenu![0].Path);
         Assert.Equal(EditorContextMenuModel.OrderBackPath, items[0].Submenu![1].Path);
-        // Add Collider ▸ Box / Polygon (colliders-as-entities): creates a child collider entity.
+        // Collider ▸ Add Box / Add Polygon (colliders-as-entities: a child collider entity) / Add
+        // Vertex / Remove Collider (Danger) — WS folded the retired window-bar +Vtx / -Col text
+        // buttons into the SAME submenu, so all four collider verbs live here.
         Assert.Equal(EditorMenuItemKind.Submenu, items[1].Kind);
         Assert.Equal(EditorContextMenuModel.AddColliderSubmenuPath, items[1].Path);
-        Assert.Equal(2, items[1].Submenu!.Count);
+        Assert.Equal(4, items[1].Submenu!.Count);
         Assert.Equal(EditorContextMenuModel.AddColliderBoxPath, items[1].Submenu![0].Path);
         Assert.Equal(EditorContextMenuModel.AddColliderPolygonPath, items[1].Submenu![1].Path);
+        Assert.Equal(EditorContextMenuModel.AddVertexPath, items[1].Submenu![2].Path);
+        Assert.Equal(EditorContextMenuModel.RemoveColliderPath, items[1].Submenu![3].Path);
+        Assert.True(items[1].Submenu![3].Danger); // Remove Collider is destructive
         Assert.Equal(EditorMenuItemKind.Separator, items[2].Kind);
         Assert.Equal(EditorContextMenuModel.CreatePrefabFromSelectionPath, items[3].Path);
         Assert.True(items[3].Enabled); // enabled with a selection
@@ -116,8 +124,8 @@ public class EditorContextMenuTests
         var items = EditorContextMenuModel.EntityMenu(hasSelection: false);
         Assert.False(items[0].Enabled);            // Order submenu
         Assert.False(items[0].Submenu![0].Enabled); // Bring Forward
-        Assert.False(items[1].Enabled);            // Add Collider submenu
-        Assert.False(items[1].Submenu![0].Enabled); // Add Collider ▸ Box
+        Assert.False(items[1].Enabled);            // Collider submenu
+        Assert.False(items[1].Submenu![0].Enabled); // Collider ▸ Add Box
         Assert.False(items[3].Enabled);            // Create Prefab from Selection
         Assert.False(items[4].Enabled);            // Unpack (also needs an instance)
         Assert.False(items[6].Enabled);            // Delete
@@ -143,6 +151,27 @@ public class EditorContextMenuTests
         var plain = EditorContextMenuModel.EntityMenu(hasSelection: true);
         Assert.Equal(EditorContextMenuModel.OrderSubmenuPath, plain[0].Path);
         Assert.DoesNotContain(plain, i => i.Path == EditorContextMenuModel.RenameLayerPath);
+    }
+
+    [Fact]
+    public void EntityMenu_EditAutotileRules_AppearsExactlyForAPaintLayerSelection()
+    {
+        // WS: the jump into the Autotile Rules workspace is a LAYER verb, and only an INDEXED (paint)
+        // layer has rule sets to edit — offering it on a sprites layer would open an editor bound to
+        // nothing.
+        var paint = EditorContextMenuModel.EntityMenu(hasSelection: true, isLayer: true, isPaintLayer: true);
+        Assert.Equal(EditorContextMenuModel.EditLayerRulesPath, paint[3].Path);
+        Assert.Equal(EditorMenuItemKind.Separator, paint[4].Kind); // still below the layer-verb block
+        Assert.True(paint[3].Enabled);
+
+        // A non-paint layer, and a plain entity, never show it.
+        Assert.DoesNotContain(EditorContextMenuModel.EntityMenu(hasSelection: true, isLayer: true),
+            i => i.Path == EditorContextMenuModel.EditLayerRulesPath);
+        Assert.DoesNotContain(EditorContextMenuModel.EntityMenu(hasSelection: true),
+            i => i.Path == EditorContextMenuModel.EditLayerRulesPath);
+        // The isPaintLayer flag alone (no layer) adds nothing — it only qualifies the layer block.
+        Assert.DoesNotContain(EditorContextMenuModel.EntityMenu(hasSelection: true, isPaintLayer: true),
+            i => i.Path == EditorContextMenuModel.EditLayerRulesPath);
     }
 
     [Fact]
@@ -254,7 +283,7 @@ public class EditorContextMenuTests
         Assert.False(menu.IsOpen);
         menu.OpenAt(EditorContextMenuModel.EntityMenu(true), new Point(100, 100));
         Assert.True(menu.IsOpen);
-        Assert.Equal(7, menu.Items.Count); // Order / Add Collider / --- / Create Prefab / Unpack / --- / Delete
+        Assert.Equal(7, menu.Items.Count); // Order / Collider / --- / Create Prefab / Unpack / --- / Delete
 
         menu.Close();
         Assert.False(menu.IsOpen);
@@ -320,7 +349,7 @@ public class EditorContextMenuTests
         var items = EditorContextMenuModel.EntityMenu(true);
         menu.OpenAt(items, new Point(100, 100));
         var menuRect = EditorContextMenuLayout.MenuRect(new Point(100, 100), items, 800, 600, 1f);
-        var deleteRect = EditorContextMenuLayout.ItemRect(menuRect, items, 6, 1f); // Delete (index 6 with Add Collider)
+        var deleteRect = EditorContextMenuLayout.ItemRect(menuRect, items, 6, 1f); // Delete (index 6 with Collider)
         SetCursorScreen(cursor, Center(deleteRect), leftReleased: true);
 
         menu.Update(Edit());
@@ -507,8 +536,11 @@ public class EditorContextMenuTests
 
     /// <summary>Wires a menu whose dispatch maps the action-id paths to a real
     /// <see cref="EditorCommandSystem"/> (the shape the overlay's DispatchMenuAction uses), so a
-    /// <c>menu:pick</c> exercises the command end-to-end.</summary>
-    private static EditorContextMenuSystem MenuOver(World world, EditorCommandSystem commands) =>
+    /// <c>menu:pick</c> exercises the command end-to-end. WS: the four Collider ▸ verbs route here
+    /// too — the entity menu is their ONLY surface now that the window bar's +Box/+Poly/-Col/+Vtx text
+    /// buttons are retired, so the wiring is what keeps them reachable at all.</summary>
+    private static EditorContextMenuSystem MenuOver(World world, EditorCommandSystem commands,
+        Action<GameState>? editLayerRules = null) =>
         new(world, Vm(), null, (path, s) =>
         {
             switch (path)
@@ -516,6 +548,11 @@ public class EditorContextMenuTests
                 case EditorContextMenuModel.OrderForwardPath: commands.BringForward(s); break;
                 case EditorContextMenuModel.OrderBackPath: commands.SendBack(s); break;
                 case EditorContextMenuModel.DeletePath: commands.DeleteSelection(s); break;
+                case EditorContextMenuModel.AddColliderBoxPath: commands.AddBoxCollider(s); break;
+                case EditorContextMenuModel.AddColliderPolygonPath: commands.AddConvexCollider(s); break;
+                case EditorContextMenuModel.AddVertexPath: commands.AddVertex(s); break;
+                case EditorContextMenuModel.RemoveColliderPath: commands.RemoveCollider(s); break;
+                case EditorContextMenuModel.EditLayerRulesPath: editLayerRules?.Invoke(s); break;
             }
         });
 
@@ -551,6 +588,156 @@ public class EditorContextMenuTests
 
         history.Undo();
         Assert.Equal(1, CountSprites(world)); // the sub-graph is reconstructed from the snapshot
+    }
+
+    // ═══ WS: the Collider ▸ submenu is the ONLY surface for the four collider verbs ═════════════════
+
+    private static Entity SelectedProp(World world)
+    {
+        var e = world.CreateEntity();
+        e.Set(new TransformComponent(new Vector2(50, 50)));
+        e.Set(new SpriteInfoComponent
+        {
+            Source = new Rectangle(0, 0, 32, 48),
+            Size = new Vector2(32, 48),
+            Origin = new Vector2(16, 48),
+            Target = RenderTargetID.Main,
+        });
+        e.Set(new SceneObjectComponent());
+        e.Set(new SelectedComponent());
+        return e;
+    }
+
+    private static Entity SingleWith<T>(World world)
+    {
+        Entity found = default;
+        using var set = world.GetEntities().With<T>().AsSet();
+        foreach (var e in set.GetEntities()) found = e;
+        return found;
+    }
+
+    [Fact]
+    public void MenuPick_ColliderAddBoxAndAddPolygon_CreateChildColliderEntities_Undoable()
+    {
+        using var world = new World();
+        var (commands, history, _) = NewCommands(world);
+        var prop = SelectedProp(world);
+        using var menu = MenuOver(world, commands);
+        var items = EditorContextMenuModel.EntityMenu(hasSelection: true);
+
+        menu.OpenAt(items, new Point(100, 100));
+        menu.Pick(EditorContextMenuModel.AddColliderBoxPath, Edit()); // a SUBMENU leaf, found by path
+
+        var box = SingleWith<BoxColliderComponent>(world);
+        Assert.True(box.IsAlive);
+        Assert.Equal(prop, box.Get<ChildOfComponent>().Parent); // a CHILD collider entity, not a component
+        Assert.Equal(new Vector2(32, 12), box.Get<BoxColliderComponent>().Size); // the sprite footprint
+        Assert.False(prop.Has<BoxColliderComponent>());
+        Assert.Equal(1, history.Count);
+        Assert.False(menu.IsOpen); // an Action leaf closes the menu
+
+        // Add Polygon acts on the NEW selection (the box child) — the same command the retired +Poly fired.
+        menu.OpenAt(items, new Point(100, 100));
+        menu.Pick(EditorContextMenuModel.AddColliderPolygonPath, Edit());
+        var poly = SingleWith<ConvexColliderComponent>(world);
+        Assert.True(poly.IsAlive);
+        Assert.Equal(2, history.Count);
+
+        history.Undo();
+        history.Undo();
+        using var boxes = world.GetEntities().With<BoxColliderComponent>().AsSet();
+        using var polys = world.GetEntities().With<ConvexColliderComponent>().AsSet();
+        Assert.Equal(0, boxes.Count);
+        Assert.Equal(0, polys.Count);
+    }
+
+    [Fact]
+    public void MenuPick_ColliderAddVertex_SplitsTheLongestEdgeOfTheSelectedConvexCollider()
+    {
+        using var world = new World();
+        var (commands, history, _) = NewCommands(world);
+
+        var collider = world.CreateEntity();
+        collider.Set(new TransformComponent(Vector2.Zero));
+        collider.Set(new ConvexColliderComponent(new[]
+        {
+            new Vector2(0, 0), new Vector2(30, 0), new Vector2(15, 10),
+        }));
+        collider.Set(new SelectedComponent());
+        using var menu = MenuOver(world, commands);
+
+        menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), new Point(100, 100));
+        menu.Pick(EditorContextMenuModel.AddVertexPath, Edit());
+
+        Assert.Equal(new[]
+        {
+            new Vector2(0, 0), new Vector2(15, 0), new Vector2(30, 0), new Vector2(15, 10),
+        }, collider.Get<ConvexColliderComponent>().ModelVertices);
+        Assert.Equal(1, history.Count);
+
+        history.Undo();
+        Assert.Equal(3, collider.Get<ConvexColliderComponent>().ModelVertices.Length);
+    }
+
+    [Fact]
+    public void MenuPick_ColliderRemove_DeletesTheSelectedColliderEntity_Undoable()
+    {
+        using var world = new World();
+        var (commands, history, _) = NewCommands(world);
+
+        var collider = world.CreateEntity();
+        collider.Set(new EntityInfoComponent("BoxCollider"));
+        collider.Set(new TransformComponent(new Vector2(7, 9)));
+        collider.Set(new BoxColliderComponent(new Vector2(3, 4)));
+        collider.Set(new SelectedComponent());
+        using var menu = MenuOver(world, commands);
+
+        menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true), new Point(100, 100));
+        menu.Pick(EditorContextMenuModel.RemoveColliderPath, Edit());
+
+        Assert.False(collider.IsAlive);
+        Assert.Equal(1, history.Count);
+
+        history.Undo();
+        Assert.Equal(new Vector2(3, 4), SingleWith<BoxColliderComponent>(world).Get<BoxColliderComponent>().Size);
+    }
+
+    [Fact]
+    public void MenuPick_EditAutotileRules_OpensTheWorkspaceBoundToThatPaintLayer()
+    {
+        using var world = new World();
+        var (commands, _, _) = NewCommands(world);
+        var shell = new EditorShellStateComponent();
+        var history = new EditorHistory(world);
+
+        var data = new TileGridComponent { CellSize = 32f };
+        data.Values.Add(new TilePaintValue { Id = 1, Name = "Rock", TilesetKey = "file:a.png", TileSize = 32 });
+        data.Values.Add(new TilePaintValue { Id = 2, Name = "Sand" });
+        var layer = world.CreateEntity();
+        layer.Set(new TransformComponent(Vector2.Zero));
+        layer.Set(new EntityInfoComponent("Layer", "Terrain"));
+        layer.Set(new SceneLayerComponent { Order = 0 });
+        layer.Set(data);
+        layer.Set(new SelectedComponent());
+
+        // The texture seam is never touched here (no Update, so nothing lays out).
+        var textures = new FileAssetTextureLoader(
+            openStream: _ => null, decode: _ => null, createPlaceholder: () => null);
+        using var rules = new AutotileRuleEditorSystem(world, Vm(), textures, font: null, shell, history);
+        using var menu = MenuOver(world, commands, editLayerRules: _ => rules.Open(layer));
+
+        Assert.False(rules.IsOpen);
+        Assert.Equal(EditorWorkspace.LevelEditor, shell.ActiveWorkspace);
+
+        var items = EditorContextMenuModel.EntityMenu(hasSelection: true, isLayer: true, isPaintLayer: true);
+        menu.OpenAt(items, new Point(100, 100));
+        menu.Pick(EditorContextMenuModel.EditLayerRulesPath, Edit());
+
+        Assert.Equal(EditorWorkspace.AutotileRules, shell.ActiveWorkspace);
+        Assert.True(rules.IsOpen);
+        Assert.Equal(layer, rules.CurrentLayer);
+        Assert.Equal((byte)1, rules.CurrentValueId); // the first rule set with a bound sheet
+        Assert.False(menu.IsOpen);
     }
 
     // ═══ Add Empty Entity (undoable, tagged root) ═══════════════════════════════════════════════════

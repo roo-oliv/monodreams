@@ -5,6 +5,21 @@ using MonoDreams.LevelEditor.UI;
 
 namespace MonoDreams.LevelEditor.Component;
 
+/// <summary>A top-level editor <b>workspace</b> (WS — the Blender workspace-tab model): the whole
+/// window switches between task-oriented layouts via the tab strip at the window top bar's LEFT.
+/// <see cref="LevelEditor"/> is the familiar shell (viewport + panels + shelf);
+/// <see cref="AutotileRules"/> is the full-view rules editor (its own pane disposition — rule-set
+/// list, case editor, tileset panel). Session state, never serialized.</summary>
+public enum EditorWorkspace
+{
+    /// <summary>The level-editing shell: viewport, Entities/Systems/Scenes panels, Inspector, shelf.</summary>
+    LevelEditor,
+
+    /// <summary>The autotile-rules workspace: rule sets (paint-layer values) with their case → tile
+    /// mappings and tileset, edited visually or as the DSL.</summary>
+    AutotileRules,
+}
+
 /// <summary>A left-strip tab (region-agnostic by name so a future region can reuse it — UX2-B moved
 /// the tab group from the right strip to the left). <see cref="Entities"/> = the entity tree;
 /// <see cref="Systems"/> = the pipeline listing; <see cref="Scenes"/> = the scene catalog + project
@@ -225,6 +240,11 @@ public sealed class EditorShellStateComponent
     public int StatusBarHeightPt => EditorChromeLayout.StatusBarHeight;
 
     // ── Active tabs (one per region) ─────────────────────────────────────────────────────────────
+    /// <summary>The active top-level WORKSPACE (WS — the window top bar's left tab strip): the whole
+    /// window switches between the Level Editor shell and the Autotile Rules view. Editing state
+    /// stays put across a switch (selection, history, active layer) — only the presented panes change.</summary>
+    public EditorWorkspace ActiveWorkspace = EditorWorkspace.LevelEditor;
+
     /// <summary>The left strip's active tab (default <see cref="EditorPanelTab.Entities"/>).</summary>
     public EditorPanelTab ActiveLeftTab = EditorPanelTab.Entities;
 

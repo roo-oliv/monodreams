@@ -115,6 +115,10 @@ public sealed class EditorOverlay
     private string? _currentScreenName;
     private Func<IReadOnlyList<(string Name, ScreenInfo Info)>>? _registeredScreens;
     private Action<SceneCatalogEntry>? _switchScene;
+    // WS: the resolved asset catalog (the tileset picker's source) + the rule set a picker pick
+    // targets (stashed when the picker opens; the menu path carries only the sheet).
+    private AssetCatalog? _assetCatalog;
+    private (Entity Layer, byte ValueId) _tilesetPickTarget;
 
     /// <summary>
     /// Builds the overlay over the screen's own world/camera/layers. <paramref name="toolbarFont"/>
@@ -321,6 +325,15 @@ public sealed class EditorOverlay
         // itself never references a game component.
         TileBake = new TileGridBakeSystem(world, resolveTexture: AssetTextures.Load,
             configureCollider: configureTileCollider);
+        // WS: the rules editor is a full WORKSPACE view (the top bar's second tab), gated on the
+        // shell's ActiveWorkspace; edits are LIVE undoable commands through the ONE shared History.
+        // The dialog/menu predicates read the properties lazily (both are assigned later this ctor).
+        RulesEditor = new AutotileRuleEditorSystem(world, viewportManager, AssetTextures, toolbarFont,
+            _shellState, History,
+            notify: (message, severity) => Notifications.Notify(message, severity),
+            inputBlocked: () => Dialog.IsOpen || Menu.IsOpen);
+        RulesEditor.NewRuleSetRequested = OpenNewRuleSetDialog;
+        RulesEditor.TilesetPickerRequested = OpenTilesetPicker;
         // The armed-trigger provider reads the palette lazily (it is constructed below).
         var triggerOverlay = new TriggerOverlaySystem(world, camera, viewportManager,
             () => Palette?.ArmedTrigger);
@@ -411,6 +424,12 @@ public sealed class EditorOverlay
             switchToTab: ActivateViewportTab,
             closeTab: CloseViewportTab,
             isInputSuppressed: () => _shellState.IsDragging);
+        // WS: the top-level workspace tab strip ([Level Editor | Autotile Rules]) at the window top
+        // bar's LEFT (the general Undo/Redo/Refresh buttons right-anchor beside it). A switch routes
+        // through SetActiveWorkspace — the one owner of what entering/leaving a workspace means.
+        WorkspaceTabs = new WorkspaceTabStripSystem(world, viewportManager, toolbarFont, _shellState,
+            switchWorkspace: SetActiveWorkspace,
+            isInputSuppressed: () => _shellState.IsDragging);
         // The two editor panels (UX2-B) share ONE collapse/expand state component (ECS purity: the
         // state lives once, both panels read/write their own fields). On an editor-infra entity so it
         // is discoverable + survives a transport Restart.
@@ -496,7 +515,9 @@ public sealed class EditorOverlay
         // stop a mid-modal G/S/R re-trigger.
         _shortcutSystem = new EditorShortcutSystem(
             world, _shortcuts, DispatchShortcut,
-            dialogOpen: () => Dialog.IsOpen,
+            // WS: the Autotile Rules workspace owns input like a modal — no viewport chord (G/S/R,
+            // Delete, Shift+A) may fire under it, so it ORs into the dialog-open gate.
+            dialogOpen: () => Dialog.IsOpen || RulesEditor.IsOpen,
             menuOpen: () => Menu.IsOpen,
             commandIsMeta: OperatingSystem.IsMacOS(),
             modalActive: () => _modal.IsActive,
@@ -524,7 +545,7 @@ public sealed class EditorOverlay
         // left panel's right-click opens the Entities/Scenes menu (per the active tab).
         _selection.ViewportContextMenuRequested = _ =>
             _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance(),
-                    SelectionIsLayer()), CursorScreenPoint());
+                    SelectionIsLayer(), SelectionIsPaintLayer()), CursorScreenPoint());
         _leftPanel.ContextMenuRequested = OpenLeftPanelContextMenu;
         // HP: the Entities panel toolbar — + Add opens the Add dropdown below the button (Empty
         // Entity / Entity Layer); focus centres the VIEW on the selection.
@@ -568,6 +589,10 @@ public sealed class EditorOverlay
                 $"[level-editor] Universal palette: built a default catalog ({assetCatalog.Entries.Count} " +
                 $"asset(s) from '{dropRoot}') + {paletteBands.Count} band(s) from the screen's layer map.");
         }
+
+        // WS: the resolved catalog (screen-supplied or universal-default) also feeds the Autotile
+        // Rules workspace's tileset picker — stash it before the palette consumes it.
+        _assetCatalog = assetCatalog;
 
         // The asset palette + placement (island-authoring Slice 1; layers wave: bands are optional
         // legacy — a placement's DRAW layer is the ACTIVE scene layer it parents to, so a catalog
@@ -662,7 +687,43 @@ public sealed class EditorOverlay
     private GizmoStateComponent ReadGizmoState() =>
         _gizmoState.IsAlive ? _gizmoState.Get<GizmoStateComponent>() : GizmoStateComponent.Default;
 
-    // ─── Paint values: create a paintable index on an Indexed layer ───────────────────────────────
+    /// <summary>The <c>rules:*</c> headless ops (the Autotile Rules workspace's twin): open / mode
+    /// &lt;visual|dsl&gt; / value &lt;name&gt; / case &lt;mask&gt; / tile &lt;col&gt;,&lt;row&gt; /
+    /// new &lt;name&gt; (a new rule set on the bound layer) / tileset &lt;size&gt; &lt;key&gt; /
+    /// close (save/cancel are aliases — edits are live+undoable now, there is nothing to commit).</summary>
+    private void DispatchRulesOp(string verb, string name, GameState state)
+    {
+        var space = verb.IndexOf(' ');
+        var arg = space >= 0 ? verb.Substring(space + 1).Trim() : string.Empty;
+        var op = space >= 0 ? verb.Substring(0, space) : verb;
+        switch (op.ToLowerInvariant())
+        {
+            case "open": OpenLayerRulesEditor(state); break;
+            case "mode": RulesEditor.SetMode(string.Equals(arg, "dsl", StringComparison.OrdinalIgnoreCase)); break;
+            case "value": RulesEditor.SelectValueByName(arg); break;
+            case "case": if (int.TryParse(arg, out var mask)) RulesEditor.SelectCase(mask); break;
+            case "tile":
+                var comma = arg.IndexOf(',');
+                if (comma > 0 && int.TryParse(arg.AsSpan(0, comma), out var col)
+                              && int.TryParse(arg.AsSpan(comma + 1), out var row))
+                    RulesEditor.ToggleTile(col, row);
+                break;
+            case "new": CreatePaintValue(RulesEditor.CurrentLayer, EditorTextField.Sanitize(arg)); break;
+            case "tileset":
+                // rules:tileset <tileSize> <assetKey> — bind a sheet to the bound rule set.
+                var sp = arg.IndexOf(' ');
+                if (sp > 0 && int.TryParse(arg.AsSpan(0, sp), out var size))
+                    RulesEditor.ApplyTilesetPick(RulesEditor.CurrentLayer, RulesEditor.CurrentValueId,
+                        arg.Substring(sp + 1).Trim(), size);
+                else
+                    Logger.Warning($"[level-editor] Editor-op '{name}': expected rules:tileset <size> <key>.");
+                break;
+            case "save": case "cancel": case "close": RulesEditor.Close(); break;
+            default: Logger.Warning($"[level-editor] Editor-op '{name}': unknown rules verb."); break;
+        }
+    }
+
+    // ─── Rule sets (WS): create a paintable index + bind tilesets — the workspace's verbs ─────────
 
     /// <summary>The swatch cycle a NEW paint value takes (readable on the dark paint view; the
     /// designer can re-color in the Inspector).</summary>
@@ -672,8 +733,9 @@ public sealed class EditorOverlay
         new(150, 100, 190), new(70, 165, 175), new(200, 120, 160), new(140, 140, 90),
     };
 
-    /// <summary>Opens the new-index name modal for <paramref name="paintLayer"/> (the shelf's
-    /// <c>+ New</c> card): a new paintable index on that layer's grid.</summary>
+    /// <summary>Opens the New-Rule-Set name modal for <paramref name="paintLayer"/> (the workspace's
+    /// <c>+ New Rule Set…</c> row and the shelf's <c>+ New</c> card — one flow: a rule set IS a new
+    /// paintable index on that layer's grid).</summary>
     public void OpenNewRuleSetDialog(Entity paintLayer)
     {
         if (!paintLayer.IsAlive || !paintLayer.Has<MonoDreams.Component.Level.TileGridComponent>())
@@ -681,7 +743,7 @@ public sealed class EditorOverlay
             Notifications.Notify("Select an Indexed Layer first", EditorNotifySeverity.Warning);
             return;
         }
-        Dialog.OpenCreatePrefab("New Index", "index",
+        Dialog.OpenCreatePrefab("New Rule Set", "index",
             nameExists: n =>
             {
                 if (!paintLayer.IsAlive) return false;
@@ -693,10 +755,10 @@ public sealed class EditorOverlay
     }
 
     /// <summary>Creates a new <see cref="MonoDreams.Component.Level.TilePaintValue"/> (a paintable
-    /// index) on <paramref name="paintLayer"/>'s grid — one undoable
+    /// index / rule set) on <paramref name="paintLayer"/>'s grid — one undoable
     /// <see cref="AddPaintValueCommand"/>: next free id, a cycled swatch color, no collision (make it
-    /// solid in the Inspector), 32px tiles, no tileset yet (#47's Autotile Rules workspace is what
-    /// binds one; until then the Inspector owns the value's fields).</summary>
+    /// solid in the Inspector), 32px tiles, no tileset yet (bind one in the rules workspace). Selects
+    /// it in the rules view so the next click is the tileset pick.</summary>
     public void CreatePaintValue(Entity paintLayer, string valueName)
     {
         if (string.IsNullOrWhiteSpace(valueName)) return;
@@ -722,7 +784,55 @@ public sealed class EditorOverlay
             TileSize = 32,
         };
         History.Push(new AddPaintValueCommand(paintLayer, value));
-        Notifications.Notify($"Added index '{valueName}'", EditorNotifySeverity.Success);
+        RulesEditor.SelectValue(paintLayer, value.Id);
+        Notifications.Notify($"Added index '{valueName}' - bind a tileset to autotile it",
+            EditorNotifySeverity.Success);
+    }
+
+    /// <summary>The context-menu action-id prefix a tileset-picker pick dispatches — the rest is
+    /// <c>&lt;tileSize&gt;|&lt;assetKey&gt;</c>; the TARGET rule set was stashed when the picker opened.</summary>
+    private const string RulesTilesetPath = "rules-tileset:";
+
+    /// <summary>Opens the tileset picker (WS — the rules workspace's <c>Change Tileset…</c>): a
+    /// filterable popup of the asset catalog's SHEETS — auto-grid/sliced sheets first (their slice
+    /// size rides along), then whole PNGs (32px default) — anchored at the button. A pick routes
+    /// <c>rules-tileset:&lt;size&gt;|&lt;key&gt;</c> back through the menu dispatch.</summary>
+    public void OpenTilesetPicker(Entity paintLayer, byte valueId, Point anchor)
+    {
+        if (_assetCatalog == null)
+        {
+            Notifications.Notify("No asset catalog on this screen", EditorNotifySeverity.Warning);
+            return;
+        }
+
+        // Distinct sheets: sliced entries collapse to their sheet file (slice size = tile size);
+        // whole-PNG static entries offer themselves at the 32px default. Sequences are animations,
+        // not tilesets — skipped.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var items = new List<EditorMenuItem>();
+        foreach (var entry in _assetCatalog.Entries)
+        {
+            if (entry.IsSequence) continue;
+            var isSlice = entry.Region is { } region && region.Width > 0;
+            var tileSize = entry.Region is { } r ? Math.Max(1, Math.Min(r.Width, r.Height)) : 32;
+            if (!seen.Add(entry.RelativePath)) continue;
+            var stem = Path.GetFileNameWithoutExtension(entry.RelativePath);
+            items.Add(new EditorMenuItem
+            {
+                Kind = EditorMenuItemKind.Action,
+                Label = isSlice ? $"{stem}  ({tileSize}px grid)" : stem,
+                Path = RulesTilesetPath + tileSize.ToString(CultureInfo.InvariantCulture) + "|"
+                       + FileAssetKey.Compose(entry.RelativePath, null),
+            });
+        }
+        if (items.Count == 0)
+        {
+            Notifications.Notify("No sheets in the asset catalog (drop PNGs + Refresh)",
+                EditorNotifySeverity.Warning);
+            return;
+        }
+        _tilesetPickTarget = (paintLayer, valueId);
+        _menu.OpenFiltered(items, anchor);
     }
 
     /// <summary>The live scene grid's paint values, or null when no grid entity exists yet.</summary>
@@ -873,6 +983,33 @@ public sealed class EditorOverlay
     /// <c>RunNormally</c> (live in both transport states — leaving the Game tab must work while Playing).</summary>
     public ISystem<GameState> ViewportTabs { get; }
 
+    /// <summary>The top-level WORKSPACE tab strip (WS): <c>[Level Editor | Autotile Rules]</c> at the
+    /// window top bar's left. Weave in the <c>editor.toolbar</c> group alongside
+    /// <see cref="ViewportTabs"/>, <c>RunNormally</c> — the top bar stays live over every workspace.</summary>
+    public ISystem<GameState> WorkspaceTabs { get; }
+
+    /// <summary>
+    /// The ONE workspace switch (WS — the tab strip's click and the <c>workspace:*</c> ops): entering
+    /// <see cref="EditorWorkspace.AutotileRules"/> is an editing view (refused loud while Playing —
+    /// pause first); leaving lands back on the Level Editor shell. Editing state (selection, history,
+    /// active layer, the rules view's bound rule set) persists across switches.
+    /// </summary>
+    public void SetActiveWorkspace(EditorWorkspace workspace, GameState state)
+    {
+        if (_shellState.ActiveWorkspace == workspace) return;
+        if (workspace == EditorWorkspace.AutotileRules)
+        {
+            if (state.RunMode == RunMode.Play)
+            {
+                Notifications.Notify("Pause to edit autotile rules", EditorNotifySeverity.Warning);
+                return;
+            }
+            RulesEditor.OpenWorkspace();
+            return;
+        }
+        RulesEditor.Close();
+    }
+
     // The concrete panels: the headless panel:* ops drive their section/group/tree/inspector toggles
     // directly (like _editorCommands for the selection-edit ops).
     private readonly EditorPanelSystem _leftPanel;
@@ -938,6 +1075,13 @@ public sealed class EditorOverlay
     /// step per stroke. Weave as <c>editor.tilePaint</c> right after <c>editor.palette</c> (it reads
     /// this frame's cursor world position).</summary>
     public TileGridPaintSystem TilePaint { get; }
+
+    /// <summary>The Autotile Rules WORKSPACE (WS — the window's second workspace tab, not a floating
+    /// modal): edits a paint value's tileset binding + case→tile rules as LIVE undoable commands.
+    /// Weave as <c>editor.rules</c> right after <c>editor.contextMenu</c> (before
+    /// <c>editor.shortcuts</c>); wire <see cref="AutotileRuleEditorSystem.IsOpen"/> into the editor
+    /// keys' suppression (it owns the pointer below the top bar + the keyboard while open).</summary>
+    public AutotileRuleEditorSystem RulesEditor { get; }
 
     /// <summary>The overlay-owned <c>CursorInputSystem</c> when the screen asked for a
     /// self-sufficient cursor pipeline (<c>provideCursorPipeline: true</c>), else null. Weave with
@@ -1313,7 +1457,7 @@ public sealed class EditorOverlay
                 // instance targets the whole instance, matching the left-click select redirect.
                 _selection.SelectExclusive(SelectionSystem.ResolveViewportSelection(hit));
                 _menu.OpenAt(EditorContextMenuModel.EntityMenu(hasSelection: true, SelectionIsPrefabInstance(),
-                    SelectionIsLayer()), CursorScreenPoint());
+                    SelectionIsLayer(), SelectionIsPaintLayer()), CursorScreenPoint());
                 break;
             case EditorMenuContext.EntitiesPanel:
                 var row = _leftPanel.EntityAtPoint(CursorScreenPoint());
@@ -1325,7 +1469,7 @@ public sealed class EditorOverlay
                 break;
             case EditorMenuContext.EntityHeader:
                 _menu.OpenBelow(EditorContextMenuModel.EntityMenu(HasSelection(), SelectionIsPrefabInstance(),
-                    SelectionIsLayer()), EntityButtonBounds());
+                    SelectionIsLayer(), SelectionIsPaintLayer()), EntityButtonBounds());
                 break;
             case EditorMenuContext.AddAtCursor:
                 // The Shift+A shortcut (UX3-E) + the menu:open add op: the Entities-panel ADD section
@@ -1399,6 +1543,17 @@ public sealed class EditorOverlay
             return;
         }
 
+        // WS: a tileset-picker pick — "rules-tileset:<size>|<assetKey>" onto the stashed rule set.
+        if (path.StartsWith(RulesTilesetPath, StringComparison.Ordinal))
+        {
+            var payload = path.Substring(RulesTilesetPath.Length);
+            var bar = payload.IndexOf('|');
+            if (bar > 0 && int.TryParse(payload.AsSpan(0, bar), out var tileSize))
+                RulesEditor.ApplyTilesetPick(_tilesetPickTarget.Layer, _tilesetPickTarget.ValueId,
+                    payload.Substring(bar + 1), tileSize);
+            return;
+        }
+
         // PF-D: the per-card prefab actions carry the prefab id as a suffix.
         if (path.StartsWith(EditorContextMenuModel.PrefabEditPathPrefix, StringComparison.Ordinal))
         {
@@ -1417,6 +1572,9 @@ public sealed class EditorOverlay
             case EditorContextMenuModel.OrderBackPath: _editorCommands.SendBack(state); break;
             case EditorContextMenuModel.AddColliderBoxPath: _editorCommands.AddBoxCollider(state); break;
             case EditorContextMenuModel.AddColliderPolygonPath: _editorCommands.AddConvexCollider(state); break;
+            // WS: the collider verbs that used to be window-bar text buttons (+Vtx / -Col).
+            case EditorContextMenuModel.AddVertexPath: _editorCommands.AddVertex(state); break;
+            case EditorContextMenuModel.RemoveColliderPath: _editorCommands.RemoveCollider(state); break;
             case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
             case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
             case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;
@@ -1426,6 +1584,7 @@ public sealed class EditorOverlay
             case EditorContextMenuModel.RenameLayerPath: OpenRenameLayerDialog(); break;
             case EditorContextMenuModel.LayerUpPath: MoveSelectedLayer(+1); break;
             case EditorContextMenuModel.LayerDownPath: MoveSelectedLayer(-1); break;
+            case EditorContextMenuModel.EditLayerRulesPath: OpenLayerRulesEditor(state); break;
             // PF-D prefab actions (entity menu + prefab shelf menu).
             case EditorContextMenuModel.CreatePrefabFromSelectionPath: OpenCreatePrefabFromSelectionDialog(state); break;
             case EditorContextMenuModel.UnpackPrefabPath: UnpackSelection(state); break;
@@ -1591,6 +1750,13 @@ public sealed class EditorOverlay
     private bool SelectionIsLayer() =>
         TryGetSelectedRoot(out var root) && root.Has<MonoDreams.Component.Level.SceneLayerComponent>();
 
+    /// <summary>Whether the selection is a PAINT layer (a layer carrying a tile grid) — WS: the extra
+    /// gate on the layer menu's "Edit Autotile Rules…" jump into the rules workspace.</summary>
+    private bool SelectionIsPaintLayer() =>
+        TryGetSelectedRoot(out var root)
+        && root.Has<MonoDreams.Component.Level.SceneLayerComponent>()
+        && root.Has<MonoDreams.Component.Level.TileGridComponent>();
+
     /// <summary>Creates a new scene layer (undoable), names it uniquely ("Layer 2", …), puts it in
     /// FRONT (highest order among the world layers — a screen-space HUD grouping stays above them
     /// all and is excluded from the count), makes it the ACTIVE layer, and selects it so the
@@ -1653,6 +1819,25 @@ public sealed class EditorOverlay
             History.MarkDirty();
             Notifications.Notify($"Renamed layer to '{name}'", EditorNotifySeverity.Success);
         });
+    }
+
+    /// <summary>Enters the Autotile Rules WORKSPACE (WS) bound to the selected-or-active Indexed
+    /// layer when there is one — the layer menu's "Edit Autotile Rules…" jump; with no such layer
+    /// the workspace still opens (it lists every rule set and shows the empty state).</summary>
+    private void OpenLayerRulesEditor(GameState state)
+    {
+        if (state.RunMode == RunMode.Play)
+        {
+            Notifications.Notify("Pause to edit autotile rules", EditorNotifySeverity.Warning);
+            return;
+        }
+        if (TryGetSelectedRoot(out var layer) && layer.Has<MonoDreams.Component.Level.TileGridComponent>())
+            RulesEditor.Open(layer);
+        else if (_shellState.ActiveLayer.IsAlive &&
+                 _shellState.ActiveLayer.Has<MonoDreams.Component.Level.TileGridComponent>())
+            RulesEditor.Open(_shellState.ActiveLayer);
+        else
+            RulesEditor.OpenWorkspace();
     }
 
     /// <summary>Moves the selected layer one step forward (+1) or back (−1) by swapping
@@ -2676,6 +2861,25 @@ public sealed class EditorOverlay
             return;
         }
 
+        const string workspacePrefix = "workspace:";
+        if (name.StartsWith(workspacePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // workspace:level-editor | workspace:autotile-rules — the top bar tab strip's twin (WS).
+            var verb = name.Substring(workspacePrefix.Length).Trim().ToLowerInvariant();
+            switch (verb)
+            {
+                case "level-editor": case "level": case "editor":
+                    SetActiveWorkspace(EditorWorkspace.LevelEditor, state); break;
+                case "autotile-rules": case "rules":
+                    SetActiveWorkspace(EditorWorkspace.AutotileRules, state); break;
+                default:
+                    Logger.Warning(
+                        $"[level-editor] Editor-op '{name}': expected workspace:level-editor|autotile-rules.");
+                    break;
+            }
+            return;
+        }
+
         if (name.StartsWith(viewPrefix, StringComparison.OrdinalIgnoreCase))
         {
             // view:camera — snap the free editor VIEW onto the scene camera entity (CM), the headless
@@ -2897,6 +3101,13 @@ public sealed class EditorOverlay
                 Logger.Warning($"[level-editor] Editor-op '{name}': expected asset-band:<entryId>:<band>.");
             else
                 Palette.SetAssetBand(rest.Substring(0, sep), rest.Substring(sep + 1));
+            return;
+        }
+
+        const string rulesPrefix = "rules:";
+        if (name.StartsWith(rulesPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            DispatchRulesOp(name.Substring(rulesPrefix.Length).Trim(), name, state);
             return;
         }
 

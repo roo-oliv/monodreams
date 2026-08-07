@@ -125,26 +125,20 @@ public sealed class EditorChromeBuilder
     }
 
     /// <summary>
-    /// The window top bar's buttons (UX2-B/-C: the thin GLOBAL bar). UX2-C relocated the transform-tool
-    /// cluster (Move/Rotate/Scale/Boundary/Snap) into the Scene panel header (<see cref="HeaderButtons"/>),
-    /// leaving the global editing actions: <b>Save / Undo / Redo</b> (icon buttons; the <c>label</c> is
-    /// their tooltip) plus the still-text collider/vertex authoring actions and <b>Refresh</b> (icon).
-    /// <b>UX2-D relocated the within-band Order (<c>Fwd</c>/<c>Back</c>) buttons OFF the window bar into
-    /// the entity context menus</b> (the actions + dispatch stay — the menus fire them); the
-    /// collider/vertex text buttons REMAIN here this phase (their future home is a follow-up).
+    /// The window top bar's GENERAL buttons (WS): <b>Undo / Redo / Refresh</b> (icon buttons; the
+    /// <c>label</c> is their tooltip), laid out <b>right-anchored</b> — the top bar's LEFT belongs to
+    /// the workspace tab strip ([Level Editor | Autotile Rules], its own
+    /// <c>WorkspaceTabStripSystem</c>). The collider/vertex authoring actions (<c>+Box</c> /
+    /// <c>+Poly</c> / <c>-Col</c> / <c>+Vtx</c>) moved OFF the window bar into the entity context
+    /// menu's <b>Collider ▸</b> submenu (they are selection tools, not global actions — WS retired
+    /// the out-of-context text buttons); their actions + dispatch remain for the menus/ops.
+    /// PF-F had already relocated Save into the Scene panel header (see <c>_saveButton</c>) — ONE
+    /// Save affordance, context-aware (Save Scene / Save Prefab).
     /// </summary>
     public static readonly (EditorToolbarAction action, string label)[] DefaultButtons =
     {
-        // PF-F: Save relocated OFF the window bar into the Scene panel header (right cluster, beside the
-        // camera-view button) — ONE Save affordance, context-aware (Save Scene / Save Prefab). See
-        // _saveButton below.
         (EditorToolbarAction.Undo, "Undo"),
         (EditorToolbarAction.Redo, "Redo"),
-        // Island-authoring Slice 2: collider authoring (text — no icon this wave). Order relocated (UX2-D).
-        (EditorToolbarAction.ColliderAddBox, "+Box"),
-        (EditorToolbarAction.ColliderAddConvex, "+Poly"),
-        (EditorToolbarAction.ColliderRemove, "-Col"),
-        (EditorToolbarAction.VertexAdd, "+Vtx"),
         (EditorToolbarAction.RefreshCatalog, "Refresh"),
     };
 
@@ -298,10 +292,11 @@ public sealed class EditorChromeBuilder
         // ViewportTabStripSystem); the tools + transport live in the TOOL ROW (row 2).
         var toolRow = EditorChromeLayout.SceneHeaderToolRow(sceneHeader, scale);
 
-        // The window top bar's editing buttons, then the Scene header's LEFT tool cluster (from the tool
-        // row's left margin — the tabs are on their own row now, so no reservation offset).
+        // The window top bar's general buttons — RIGHT-anchored (WS: the bar's left is the workspace
+        // tab strip) — then the Scene header's LEFT tool cluster (from the tool row's left margin —
+        // the viewport tabs are on their own row now, so no reservation offset).
         LayoutButtonRow(_buttonEntities,
-            EditorChromeLayout.ButtonRow(MeasureWidths(_buttons, scale), scale), scale);
+            EditorChromeLayout.TopBarRightRow(screenWidth, MeasureWidths(_buttons, scale), scale), scale);
         LayoutButtonRow(_headerButtonEntities,
             EditorChromeLayout.ButtonRowIn(toolRow, MeasureWidths(_headerButtons, scale), scale), scale);
         LayoutEntityMenuCaret(scale);

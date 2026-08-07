@@ -321,12 +321,17 @@ public class ToolbarTests
         Assert.Contains(EditorToolbarAction.Redo, windowActions);
         Assert.Contains(EditorToolbarAction.RefreshCatalog, windowActions);
         // UX2-D: the within-band Order buttons left the TOOLBAR ENTIRELY (into the entity context
-        // menus); neither bar carries them. The collider/vertex authoring text buttons remain.
+        // menus); neither bar carries them. WS did the same to the collider/vertex authoring text
+        // buttons (+Box / +Poly / -Col / +Vtx → the entity menu's Collider ▸ submenu), so the window
+        // bar is now exactly the three general icon actions (its LEFT belongs to the workspace tabs).
         Assert.DoesNotContain(EditorToolbarAction.OrderForward, windowActions);
         Assert.DoesNotContain(EditorToolbarAction.OrderBack, windowActions);
         Assert.DoesNotContain(EditorToolbarAction.OrderForward, headerActions);
         Assert.DoesNotContain(EditorToolbarAction.OrderBack, headerActions);
-        Assert.Contains(EditorToolbarAction.ColliderAddBox, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ColliderAddBox, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ColliderAddConvex, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.ColliderRemove, windowActions);
+        Assert.DoesNotContain(EditorToolbarAction.VertexAdd, windowActions);
         // UX2-D: the fixed "Entity ▾" dropdown lives in the Scene-panel header.
         Assert.Contains(EditorToolbarAction.EntityMenu, headerActions);
     }
@@ -359,8 +364,9 @@ public class ToolbarTests
 
         var move = ButtonOf(EditorToolbarAction.ToolMove);
         var snap = ButtonOf(EditorToolbarAction.ToggleSnap);
-        // A still-text selection-context button (UX2-D relocated Order into menus, so use a collider one).
-        var textButton = ButtonOf(EditorToolbarAction.ColliderAddBox);
+        // A still-text button. WS relocated the collider text buttons into the entity menu, so the
+        // remaining icon-less toolbar action is the Scene-header "Entity ▾" dropdown.
+        var textButton = ButtonOf(EditorToolbarAction.EntityMenu);
 
         // Icon buttons carry an IconEntity and no label; the text button is the reverse.
         Assert.NotNull(move.Get<ToolbarButtonComponent>().IconEntity);
