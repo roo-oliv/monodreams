@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "5125532c5403",
+  "session_id": "ee9d02a7-db9c-4c35-b44b-5310fe8745ed",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T14:29:38.930423Z",
+  "branch": "issue-46",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "849aa3d5-86b8-4bd3-9e88-94e2349341c9",
+  "token_usage": {
+    "input_tokens": 98,
+    "cache_creation_tokens": 354785,
+    "cache_read_tokens": 7186834,
+    "output_tokens": 58520,
+    "api_call_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T14:29:38.560009Z",
+    "agent_lines": 0,
+    "human_added": 1566,
+    "human_modified": 219,
+    "human_removed": 0,
+    "total_committed": 1575,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-Users-rodrigooliveira--warp-worktrees-monodreams-issue-46/ee9d02a7-db9c-4c35-b44b-5310fe8745ed.jsonl"
+}

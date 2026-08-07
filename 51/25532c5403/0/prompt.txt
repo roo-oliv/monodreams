@@ -1,0 +1,112 @@
+Implement the issue #46. Don't deep plan or deep review, the issue has bounded scope so we don't need that, just do a simple planning, and then use Opus 5 agents to actually code and then you can verify what has been coded and open the PR referencing the issue so Github closes it when the PR is merged.
+
+---
+
+<task-notification>
+<task-id>acd3ebccc7151c047</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Write #46 tests and premises" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Both deliverables are in place. I never ran a build or test command — everything was verified by reading source.
+
+## Deliverable 1 — `MonoDreams.Tests/LevelEditor/TileGridPaintTests.cs` (new, 540 lines, 14 facts)
+
+Rig mirrors `PalettePlacementTests`: `SetCursor` (one-frame Pressed/Released edges), a `Stroke(...)` helper that drives press → held frames → release, `MakeGrid` (Transform + `TileGridComponent`, optionally a `SceneLayerComponent` Paint layer, optionally locked), `MakeGizmo` (`GizmoStateComponent.Default` with `Mode = GroundPaint`, `PaintValue`), `GameState` via `new GameState(new GameTime()) { RunMode = ... }`.
+
+| Fact | Intent |
+|---|---|
+| `FastDrag_InterpolatesTheWholeCellLine_LeavingNoHoles` | (0,0)→(10,7) in one frame jump: 11 cells, hole-free chain |
+| `WildDrag_PaintsTheSameContinuousLine_SoStrokesAreSpeedIndependent` | (0,0)→(37,−23) incl. negative cells: 38 cells, still one undo step |
+| `OneStroke_IsExactlyOneUndoStep_UndoRedoMoveTheWholeStroke` | 6-cell drag → `Count==1`; one Undo empties all; Redo restores all |
+| `ASecondStroke_UndoesAlone_LeavingTheFirstStrokesCellsPainted` | 6+4 cells, 2 entries; Undo removes only stroke 2 |
+| `Eraser_RemovesTheEntries_AndUndoRedoRoundTripsTheWholeErase` | value 0 **removes** keys (not zeros); undo/undo/redo/redo round-trip |
+| `REDACTED` | 0 cells, warning mentioning "lock", `CanUndo` false, `InTransaction` false |
+| `UnlockedAfterARefusal_TheNextStrokePaintsNormally` | the refusal is a guard, not a wedged state machine |
+| `PrefabContext_RefusesThePaint_Loudly_BecauseTerrainIsSceneContent` | Prefab tab + single `SceneObjectComponent` root beats a valid active layer |
+| `NoResolvableGrid_WarnsAndPaintsNothing` | two grids, no active layer → warn, never guess |
+| `LegacySingleGridScene_IsUpgradedToAPaintLayer_AndBecomesTheActiveLayer` | single grid gains `SceneLayerComponent{Order=0}`, `shell.ActiveLayer` set, paints |
+| `RepaintingTheSameValue_PushesNoCommand_SoTheStrokeCostsNoUndoStep` | before==after pushes nothing; empty commit records no entry |
+| `LeavingGroundPaintMidStroke_CommitsTheStroke_AndStopsPainting` | modality exit commits + goes inert |
+| `EnteringPlayMidStroke_CommitsTheStroke_AndStopsPainting` | same for `RunMode.Play` |
+| `PressOutsideTheViewport_StartsNoStroke` | chrome press never opens a transaction, and dragging in doesn't resurrect it |
+
+The interpolation assertion is **property-based, not a copy of the implementation's arithmetic**: `AssertHoleFreeStroke` requires exactly `max(|dx|,|dy|)+1` cells, both endpoints present, and — sorted along the dominant axis — every consecutive pair at Chebyshev distance 1. It therefore passes for the ref's round-lerp walk or any other correct line walk, and fails on any hole.
+
+## Deliverable 2 — `MonoDreams/level-editor/docs/premises.md`
+
+- **ADDED** (before `## See also`): *"The Paint tab arms a tile-grid brush; the paint VIEW shows logical colored blocks; strokes are one undo step"* — active-layer-driven shelf (value cards + Eraser + `+ New` via `AddPaintValueCommand`; **no** `panel:tab paint`), `GroundPaint`/`PaintValue` arming with 0 = eraser, ops `paint:&lt;valueName&gt;`/`paint:erase`/`paint:none`; the interpolated stroke → one coalesced undo step → `NotifyChanged` re-bake; **no auto-created `PaintGrid`** (refuse without a Paint layer, one self-heal upgrading a legacy single grid); loud + free refusals for locked layer / prefab context / unresolvable grid; the paint VIEW toggle; Autotile Rules workspace deferred to #47. Animated shelf previews / Refresh re-skinning stripped. `Tests:` names all 14 facts and honestly marks the overlay draw as untested.
+- **UPDATED** *"Viewport presses belong to exactly one tool family…"* — `GroundPaint` is now live (reserved list shrinks to Scatter/Road), `TileGridPaintSystem` named as its owner (Edit-only), Tests/Depends-on extended.
+- **UPDATED** *"The palette hold-drag multi-stamps at arc-length spacing…"* — added the pixel-art hunk (**with grid snap ON the stroke's spacing is `GridStep` itself; a drag paints tile-per-cell**), mirroring the reference wording; `Tests:` left honest with an explicit "no test yet" for the snap-driven spacing; Depends-on cross-refs the new paint premise.
+
+## Contract ambiguities / assumptions worth relaying to the builder
+
+1. **The `GridStep` spacing claim is not yet true locally.** `MonoDreams/level-editor/System/PalettePlacementSystem.cs:1034` still reads `var spacing = GetGizmoStateEntity().Get&lt;GizmoStateComponent&gt;().StampSpacing;`. The reference's pixel-art hunk is `var spacing = gizmo.SnapEnabled &amp;&amp; gizmo.GridStep &gt; 0f ? gizmo.GridStep : gizmo.StampSpacing;`. I wrote the premise sentence as instructed — **if the builder does not port that one line, the premise is stale on landing.**
+2. **Lock-check placement.** Every one of my tests keeps exactly one grid in the world, so the guard passes whether it sits on the resolved active layer or on the fallback grid. Warning wording is only asserted to contain "lock" (case-insensitive).
+3. **Assumed API surface** (unverifiable until the builder lands): `EditorToolMode.GroundPaint`, `public byte GizmoStateComponent.PaintValue`, ctor `(World, EditorHistory, EditorShellStateComponent? = null, Action&lt;string&gt;? = null)`, namespaces `MonoDreams.LevelEditor.System` / `.Undo`.
+4. **`AddPaintValueCommand`, `Tile/TileGridOverlay` and the `paint:*` ops are named in the premise but not covered by my tests** (the file only owns the paint system). If the `+ New` card or `AddPaintValueCommand` doesn't land in this issue, that sentence needs trimming.
+5. The prefab-refusal test needs `PrefabContextRoot.Resolve` to find exactly one parentless `SceneObjectComponent` root, so my grid entity deliberately carries none — the builder must not auto-tag grids `SceneObjectComponent` inside the paint path.
+6. Not verified: compilation. `dotnet` was never invoked, per instructions.</result>
+<usage><subagent_tokens>198659</subagent_tokens><tool_uses>64</tool_uses><duration_ms>793027</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abb411dbf931fc57e</task-id>
+<tool-use-id>toolu_01NRb5VMnwC6KBbqr7oy4ooe</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Agent "Port #46 paint tool code" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All builds green. Final summary of the work.
+
+## Files created (4)
+
+| File | Summary |
+|---|---|
+| `MonoDreams/level-editor/System/TileGridPaintSystem.cs` | The `GroundPaint` brush: press → `BeginTransaction`, drag interpolates the cell line (`steps = max(\|dx\|,\|dy\|)`), per-cell dedupe, `before == value` skip, release/mode-exit/Play/Dispose → commit. One stroke = one undo step. |
+| `MonoDreams/level-editor/Tile/TileGridOverlay.cs` | The paint view (composition infra, not an ECS system): one screen-baked mesh entity on `RenderTargetID.Editor` at `Depths.Grid + 0.01f`, translucent premultiplied quads per painted cell + a cursor-cell highlight, viewport-clipped, `MaxQuads` capped. Ported as-is. |
+| `MonoDreams/level-editor/Undo/TileGridPaintCommand.cs` | One cell edit (before/after; `0` removes); Apply/Revert both `NotifyChanged&lt;TileGridComponent&gt;()`. Ported as-is. |
+| `MonoDreams/level-editor/Undo/PaintValueCommands.cs` | `AddPaintValueCommand` only (the shelf's `+ New` card). `PaintValueEditCommand` deliberately not ported (#47). |
+
+## Files modified (9)
+
+`GizmoStateComponent` (`GroundPaint` member + `PaintValue` byte) · `EditorOverlayPrepSystem` (optional `tileGrid` param, `EmitCells` right after `EmitGrid`) · `EditorContextMenuModel` (`NewPaintLayerPath` + "New Indexed Layer" in the Entities background menu + "Indexed Layer" in `AddMenu`) · `EditorPanelSystem` (`(indexed)` label suffix taking precedence over `(hud)`, + the brush-related comment tweaks) · `PalettePlacementSystem` (`PaintCard`, `_paintCards`, paint layout keys, `PaintTabActive`/`ActivePaintLayer`/`ActivePaintValueCount`, Paint-tab click branch, `RebuildPaintCards`/`ArmPaint`/`ArmPaintByName`/`PaintArmed`, `PositionChrome` Paint branch + parking, `PlacePaintCard`, `ReflectState` swatch block, snap-aware `ContinueStroke` spacing, `Dispose`) · `EditorOverlay` (`TilePaint`, `_tileGridOverlay`, `createTileGrid`, `paintValues`, `NewIndexRequested` → `OpenNewRuleSetDialog` → `CreatePaintValue`, `IndexColors`, `CreateSceneLayer(bool paint)`, `paint:` headless op) · the three screens (weave + the `CreateTileGrid()` factory).
+
+## Deliberate divergences from the reference
+
+Spec-mandated: dropped `createDefaults` from the paint system's ctor; rewrote its stale "PaintGrid" class-doc paragraph to describe the real behavior; **added the locked-layer loud refusal** (`RefuseIfLocked`, covering both the active-layer and single-grid-fallback paths — the ref has no such guard); `ReflectState`'s swatch goes through a target-typed local (`Color swatch = new(...)`) instead of the ref's lint-illegal `new Color(...)`; `PaintValueCommands.cs` ships only `AddPaintValueCommand`; `CreatePaintValue` drops `RulesEditor.SelectValue` and notifies `"Added index '&lt;name&gt;'"`; everything WS/rules/tileset-picker/re-skin/animated-previews/band-retirement/`panel:tab paint` skipped.
+
+Mine, beyond the spec (2, both small):
+1. **The locked-layer `Logger.Warning` is gated by a per-stroke `_refusalLogged` flag.** A held drag calls the refusal every frame; without the gate it would spam the log at 60 Hz. The notification still fires each frame (same as the ref's other refusals — it just refreshes the status-bar message).
+2. **Applied the ref's one-line `AddMenuRequested` doc fix in `EditorPanelSystem`** ("Empty Entity / Entity Layer / **Indexed Layer**"). It's outside the spec's literal hunk list but the doc became stale the moment we added the item to `AddMenu()`.
+
+I also **skipped** the ref's `_strokeStamped.Clear()` in `PalettePlacementSystem.EndStroke` — the local already clears it in `BeginStroke`, so it's redundant and out of the spec's list.
+
+## Build results (all from a clean state)
+
+- `MonoDreams/MonoDreams.csproj` — **0 errors, 146 warnings** (= the pre-change baseline; I introduced 2 `CS1573`s for the new `tileGrid` / `paintValues` ctor params and fixed both by adding `&lt;param&gt;` tags).
+- `MonoDreams.Examples.Desktop` — 0 errors. `MonoDreams.Demos` — 0 errors. `MonoDreams.Tests` — 0 errors.
+- `dotnet build MonoDreams.sln -m:1` — **0 errors, 29 warnings**.
+- `MonoDreams/packages.lock.json` untouched (confirmed via `git status`).
+
+## For the orchestrator to double-check
+
+- **`dotnet build MonoDreams.sln -t:Rebuild` (parallel) fails** with `CS0006` on `MonoDreams/level-ldtk/vendor/LDtkMonogame/.../ref/LDtkMonogame.dll` — the known parallel-build race, not my change. `-m:1` is green. Worth using `-m:1` for the authoritative Release gate.
+- **The sibling's `TileGridPaintTests.cs` compiles against my API as-is** (its `new TileGridPaintSystem(world, history, shell, warnings.Add)` matches the pinned ctor; its locked-layer test asserts the warning contains "lock" — my message is `"Layer '&lt;name&gt;' is locked - unlock it to paint"`, and the refused stroke leaves `history.Count == 0` / `InTransaction == false` because `EditorHistory` explicitly commits nothing for an empty transaction). I did not run the suite.
+- **`PaintTabActive` is layer-driven, not tab-driven** — whenever the ACTIVE scene layer carries a `TileGridComponent`, the Assets shelf is replaced by the Paint view. That's the ref's design (the LDtk per-layer palette) but it means an existing scene whose active layer happens to hold a grid now shows a different shelf. Worth a glance in the pre-existing `PalettePlacementTests`.
+- **In `LevelSelectionScreen` / `DemoLauncherScreen` the `editor.tilePaint` weave lands before `cursorPosition`**, because `editor.palette` already sits there in those screens (pre-existing quirk). Both screens supply no `createTileGrid`, so the brush is inert there; on `LoadLevelExampleGameScreen` the weave is correctly after `cursorPosition`.</result>
+<usage><subagent_tokens>308058</subagent_tokens><tool_uses>152</tool_uses><duration_ms>1036641</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bq4kp9jrk</task-id>
+<tool-use-id>toolu_016ufUYfaZQ5cE5Xw4ubckDq</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run authoritative Release test gate on full solution" completed (exit code 0)</summary>
+</task-notification>

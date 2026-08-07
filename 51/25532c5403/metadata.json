@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "5125532c5403",
+  "strategy": "manual-commit",
+  "branch": "issue-46",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/LevelEditor/EditorContextMenuTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/51/25532c5403/0/metadata.json",
+      "transcript": "/51/25532c5403/0/full.jsonl",
+      "context": "/51/25532c5403/0/context.md",
+      "content_hash": "/51/25532c5403/0/content_hash.txt",
+      "prompt": "/51/25532c5403/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 98,
+    "cache_creation_tokens": 354785,
+    "cache_read_tokens": 7186834,
+    "output_tokens": 58520,
+    "api_call_count": 52
+  }
+}
