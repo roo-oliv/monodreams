@@ -145,8 +145,8 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     public Action<GameState>? AddComponentRequested { get; set; }
 
     /// <summary>Raised by the Entities panel toolbar's <b>+ Add</b> button (HP) with the button's
-    /// bounds — the overlay anchors the Add dropdown (Empty Entity / Entity Layer) below it.
-    /// Null → the button is inert. LeftTabs role only.</summary>
+    /// bounds — the overlay anchors the Add dropdown (Empty Entity / Entity Layer / Indexed Layer)
+    /// below it. Null → the button is inert. LeftTabs role only.</summary>
     public Action<GameState, Rectangle>? AddMenuRequested { get; set; }
 
     /// <summary>Raised by the Entities panel toolbar's <b>focus</b> (crosshair) button (HP) — the
@@ -527,7 +527,7 @@ public sealed class EditorPanelSystem : ISystem<GameState>
         layers.Reverse(); // top of the list = front of the draw
 
         // Heal the active layer (it may have died with an undo/restart): default to the top WORLD
-        // layer — a screen-space (HUD) grouping is never a placement target.
+        // layer — a screen-space (HUD) grouping is never a placement/paint target.
         if (!_shellState.ActiveLayer.IsAlive ||
             !_shellState.ActiveLayer.Has<MonoDreams.Component.Level.SceneLayerComponent>())
         {
@@ -566,17 +566,17 @@ public sealed class EditorPanelSystem : ISystem<GameState>
     }
 
     /// <summary>An entity's tree label: its <c>EntityInfoComponent</c> name (or type), else a stable
-    /// panel-local id. A LAYER row (HP) is its NAME + a kind suffix — <c>(hud)</c> for a screen-space
-    /// grouping — the state glyphs (active radio / eye / padlock) are MESHES in the leading slots
+    /// panel-local id. A LAYER row (HP) is its NAME + a kind suffix — <c>(indexed)</c> for a painted
+    /// layer — the state glyphs (active radio / eye / padlock) are MESHES in the leading slots
     /// (<see cref="SystemsPanelLayout.LayerToggleRect"/>), baked by <c>ConfigureVisual</c>, never
-    /// label text. (The painted-layer <c>(indexed)</c> suffix arrives with the tile-paint wave — it
-    /// keys off the grid component that wave introduces.)</summary>
+    /// label text.</summary>
     private string SceneLabel(Entity e)
     {
         if (e.Has<MonoDreams.Component.Level.SceneLayerComponent>())
         {
             var name = MonoDreams.System.Level.SceneLayerSystem.LayerName(e);
-            var kind = e.Get<MonoDreams.Component.Level.SceneLayerComponent>().ScreenSpace ? " (hud)" : "";
+            var kind = e.Has<MonoDreams.Component.Level.TileGridComponent>() ? " (indexed)"
+                : e.Get<MonoDreams.Component.Level.SceneLayerComponent>().ScreenSpace ? " (hud)" : "";
             return $"{name}{kind}";
         }
         if (e.Has<EntityInfoComponent>())
@@ -758,11 +758,11 @@ public sealed class EditorPanelSystem : ISystem<GameState>
             case PanelRowKind.SceneEntity:
                 if (onArrow) { ToggleTreeEntity(row.Entity); break; }
                 // Layer rows (HP): the leading glyph slots are the verbs — radio = make it the
-                // ACTIVE layer (placements target it), eye = visibility, padlock = lock. The row
-                // BODY selects (Inspector binding) AND activates a usable world layer — the
-                // intuitive "click the layer, then place into it" flow; the radio stays as the
-                // explicit activate-without-reselecting verb. Screen-space (HUD) and locked layers
-                // select without activating (never placement targets).
+                // ACTIVE layer (placements + the brush target it), eye = visibility, padlock =
+                // lock. The row BODY selects (Inspector binding) AND activates a usable world
+                // layer — the intuitive "click the layer, then paint/place into it" flow; the
+                // radio stays as the explicit activate-without-reselecting verb. Screen-space
+                // (HUD) and locked layers select without activating (never placement targets).
                 if (row.Entity.IsAlive && row.Entity.Has<MonoDreams.Component.Level.SceneLayerComponent>())
                 {
                     var layer = row.Entity.Get<MonoDreams.Component.Level.SceneLayerComponent>();

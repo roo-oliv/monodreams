@@ -2110,12 +2110,15 @@ cluster), "The editor shell's region sizes, tabs, and drag ownership live in one
 ## Viewport presses belong to exactly one tool family: `EditorToolMode` gates selection, gizmo, and placement
 
 The shared `GizmoStateComponent` carries a coarse `EditorToolMode` (`SelectTransform` default;
-`Place`; `Boundary` — island-authoring Slice 3; the brush modes Scatter/GroundPaint/Road are
-reserved names). `SelectionSystem` and `GizmoSystem` process viewport presses **only** in
+`Place`; `Boundary` — island-authoring Slice 3; `GroundPaint` — the tile-grid brush, live since the
+pixel-art wave; the brush modes Scatter/Road are the remaining reserved names).
+`SelectionSystem` and `GizmoSystem` process viewport presses **only** in
 `SelectTransform` (they early-out otherwise — the gizmo also cancels any in-flight drag, hides its
 overlays, and claims nothing); the palette's placement acts only in `Place`; the `BoundaryToolSystem`
 lays polyline vertices only in `Boundary` (a viewport click lays a vertex, Enter/double-click
-commits, Escape/right-click cancels). This composes with the finer `PressClaimed` click-ownership
+commits, Escape/right-click cancels); `TileGridPaintSystem` paints cells only in `GroundPaint` (and
+only in `RunMode.Edit` — leaving either mid-stroke commits the stroke and stops the brush). This
+composes with the finer `PressClaimed` click-ownership
 rule, which keeps resolving handle-vs-scene *within* `SelectTransform`. The toolbar's transform-tool
 buttons AND the boundary-tool button are a radio over the modes (each disarms the others — the
 `ToolBoundary` button disarms the palette then enters `Boundary`; a transform-tool button disarms
@@ -2145,10 +2148,15 @@ nothing armed mutes every tool family (the palette self-heals it back to `Select
 `MonoDreams.Tests/LevelEditor/SelectionTests.cs` (`ViewportRightClick_OnEntity_SelectsAndRequestsMenu`,
 `ViewportRightClick_OnEmpty_NoMenuNoClear`, `ViewportRightClick_OnAlreadySelected_KeepsItAndRequestsMenu`,
 `ViewportRightClick_InPlaceMode_NoMenu`, `ViewportRightClick_WhenGizmoClaimed_NoMenu`,
-`ViewportRightClick_InPlayMode_Inert` — the UX2-D right-click double-duty).
+`ViewportRightClick_InPlayMode_Inert` — the UX2-D right-click double-duty);
+`MonoDreams.Tests/LevelEditor/TileGridPaintTests.cs`
+(`LeavingGroundPaintMidStroke_CommitsTheStroke_AndStopsPainting`,
+`EnteringPlayMidStroke_CommitsTheStroke_AndStopsPainting` — the `GroundPaint` half of the modality).
 **Depends on:** this file — "Selection picks MAX final `LayerDepth` with a selection-owned
 tiebreak, target-aware" (the claim rule this composes with), "Editor context menus are a
-data-driven popup: one model, two anchors …" (the menu the right-click opens).
+data-driven popup: one model, two anchors …" (the menu the right-click opens), "The Paint tab arms a
+tile-grid brush; the paint VIEW shows logical colored blocks; strokes are one undo step" (the
+`GroundPaint` owner).
 
 ## Editor context menus are a data-driven popup: one model, two anchors, modal like the dialog
 
@@ -2519,7 +2527,9 @@ whole stroke as **exactly one** `CommitTransaction` history entry (one undo remo
 the drag). A **single click** (press then release with no drag) is the degenerate case: one stamp,
 one undo step. This is the plain embryo of the future scatter brush — no jitter, no seed; each stamp
 is an ordinary `CreateEntityCommand` (auto-tagged `SceneObjectComponent`, sub-graph snapshot). A
-non-positive `StampSpacing` disables multi-stamp (a click still places one). Stamps that
+non-positive `StampSpacing` disables multi-stamp (a click still places one). **Pixel-art wave:** with
+grid snap ON the stroke's spacing is `GridStep` itself (a drag paints tile-per-cell) — the same
+one-stamp-per-cell cadence the terrain brush gives painted cells. Stamps that
 snap-collapse onto the previous position (snap on + spacing < grid) are skipped, a per-stroke
 visited set drops re-entered positions (a wiggling/back-tracking drag never doubles a cell), and a
 CROSS-stroke duplicate guard skips a stamp whose cell already holds the identical prop (same asset
@@ -2544,9 +2554,13 @@ reverses whole; `PlacementTest_SingleClickIsOneUndoStepAutoSelectAndRepeat` — 
 places one, one undo step, auto-selected;
 `MultiStampTest_WobblingDragStampsOneCopyPerCell_NeverDoublesARevisitedCell` — the per-stroke
 visited set; `PlacementTest_ReClickingAFilledCellIsALoudNoOp_AcrossStrokes` — the cross-stroke
-duplicate guard, cell-scoped).
-**Depends on:** this file — "Bounded undo with drag-coalescing" (the transaction pattern) and
-"Viewport presses belong to exactly one tool family" (multi-stamp acts only in `Place`).
+duplicate guard, cell-scoped). The snap-driven spacing (`GridStep` when snap is on) has **no test
+yet** — the tile-per-cell cadence is only covered where the terrain brush owns it (see "The Paint tab
+arms a tile-grid brush …").
+**Depends on:** this file — "Bounded undo with drag-coalescing" (the transaction pattern),
+"Viewport presses belong to exactly one tool family" (multi-stamp acts only in `Place`) and "The
+Paint tab arms a tile-grid brush; the paint VIEW shows logical colored blocks; strokes are one undo
+step" (the terrain brush that shares the one-gesture-one-undo-step contract).
 
 ## `file:` AssetKeys load drop-folder art at runtime and graduate to content keys at ship
 
@@ -4179,6 +4193,94 @@ graduate to content keys at ship" (this premise is that premise's load path, spe
 "A scene is ship-ready iff it has zero `file:` AssetKeys" (the ladder is the safety net, the lint is
 the gate); level-loading — "Native `.mdscene` levels are bundled by an MGCB `/copy:` entry and read
 via `TitleContainer`" (the filesystem rung's packaged form is the same portable read seam).
+
+## The Paint tab arms a tile-grid brush; the paint VIEW shows logical colored blocks; strokes are one undo step
+
+The terrain brush is the human half of the tile grid (the pixel-art wave): a layer entity that
+carries a `TileGridComponent` IS a **Paint layer** (the kind is derived from what the layer carries —
+there is no kind enum), and while such a layer is ACTIVE the bottom shelf lists **that grid's**
+`TilePaintValue`s as color-swatch cards (fill = the value's color) in place of the asset cards, plus
+the **Eraser** and a trailing **+ New** index card that creates a paintable value in place through
+the undoable `AddPaintValueCommand`. So the palette follows the active layer — switching layers
+switches the palette (the LDtk per-layer palette) and there is **no** hardcoded Paint tab and no
+`panel:tab paint` op to desync from it. A card click arms `EditorToolMode.GroundPaint` with that
+value id on the shared `GizmoStateComponent.PaintValue` (**0 = the eraser**); ops:
+`paint:<valueName>` / `paint:erase` / `paint:none`.
+
+**The stroke.** While armed, `TileGridPaintSystem` owns viewport presses in `RunMode.Edit`: the press
+(inside the viewport) opens a coalescing transaction, and every held frame paints the cell under the
+cursor into the active grid — a fast drag **INTERPOLATES** the `max(|dx|,|dy|)`-step cell line from
+the previous frame's cell, so a confident swipe is an unbroken chain of cells rather than a dotted
+trail of orphans at real mouse speeds. Each newly-CHANGED cell is one `TileGridPaintCommand` pushed
+into the open transaction (a cell that already holds the armed value pushes nothing); the release
+commits **exactly one** undo step, and undo/redo re-apply through the command and republish
+`NotifyChanged<TileGridComponent>()`, so the debounced bake re-derives tiles + colliders after an
+undo exactly as after a live paint. Value 0 **removes** the dictionary entry rather than storing a
+zero — the cell map stays sparse, which is what the bake and the canonical serializer both assume.
+
+**Refusals are loud and free.** There is no auto-created `PaintGrid`: with no Paint layer active the
+brush warns and paints nothing, with the ONE self-heal that a scene holding exactly one grid entity
+is UPGRADED into a Paint layer (`SceneLayerComponent { Order = 0 }`) and made active on first paint,
+so a legacy pre-layers scene joins the layers model instead of dead-ending; two or more grids and no
+active layer never guesses. A **LOCKED** target layer refuses with a warning (the placement
+precedent — the Entities panel refuses to *activate* a locked layer, but a designer can padlock the
+layer that is already active, so the brush guards too), and painting inside a **prefab context** is
+refused loud (a prefab is a class; the scene's terrain is scene content). Every refusal costs **no**
+undo step and leaves **no** open transaction: the stroke's transaction commits empty, which records
+nothing, so the next `BeginTransaction` is still legal.
+
+**The paint VIEW.** `Tile/TileGridOverlay` (emitted by `editor.overlayPrep`, beneath the gizmos)
+draws each painted cell as a translucent quad in its value's color plus a stronger brush-preview quad
+on the cursor cell (the eraser reads warning-tinted) while a Paint layer is active or the brush is
+armed; leave that state and the logical blocks hide, so the world shows exactly what the player sees
+(the baked, autotiled art). That toggle is the workflow: "what I said" vs "what it looks like".
+Selection and the gizmo are dormant in `GroundPaint` (the `Place` precedent); Escape / right-click
+disarm. (The Autotile Rules **workspace** that binds tilesets and edits the rule DSL is a later wave
+— today a value's `TilesetKey`/`AutotileRules` are authored through the Inspector like any component
+data.)
+
+**Why:** this is the requested workflow — paint walls/dirt as colored LOGIC, let the rules pick the
+art and the bake derive the colliders, and keep iteration one action. The two lines of craft that
+separate "this tool feels right" from "this tool fights me" are exactly the interpolation and the
+one-stroke-one-undo-step coalescing; both are contracts this engine already had (the gizmo drag, the
+palette hold-drag), reused rather than reinvented.
+**Breaks:** an un-interpolated drag leaves stroke holes the designer must hand-fill; per-cell undo
+entries make Ctrl+Z useless on a 200-cell ridge (undo technically present, practically absent); a
+silent refusal (locked layer, no Paint layer, prefab tab) is indistinguishable from a dead tool; an
+abandoned open transaction on the shared history throws on the next stroke's `BeginTransaction`;
+storing an erased cell as 0 instead of removing it bakes phantom terrain and bloats the scene diff;
+a paint view that never hides makes the authored art un-reviewable; auto-creating a grid on first
+paint would resurrect a second, layer-less terrain model beside the layers one.
+**Tests:** `MonoDreams.Tests/LevelEditor/TileGridPaintTests.cs`
+(`FastDrag_InterpolatesTheWholeCellLine_LeavingNoHoles` and
+`WildDrag_PaintsTheSameContinuousLine_SoStrokesAreSpeedIndependent` — the stroke is a hole-free
+8-connected chain at any drag speed; `OneStroke_IsExactlyOneUndoStep_UndoRedoMoveTheWholeStroke`,
+`ASecondStroke_UndoesAlone_LeavingTheFirstStrokesCellsPainted` — the coalescing;
+`Eraser_RemovesTheEntries_AndUndoRedoRoundTripsTheWholeErase` — value 0 removes, and the erase
+round-trips; `LockedActiveLayer_RefusesThePaint_Loudly_AndCostsNoUndoStep`,
+`UnlockedAfterARefusal_TheNextStrokePaintsNormally`,
+`PrefabContext_RefusesThePaint_Loudly_BecauseTerrainIsSceneContent`,
+`NoResolvableGrid_WarnsAndPaintsNothing` — the loud, free refusals;
+`LegacySingleGridScene_IsUpgradedToAPaintLayer_AndBecomesTheActiveLayer` — the one self-heal;
+`RepaintingTheSameValue_PushesNoCommand_SoTheStrokeCostsNoUndoStep`,
+`PressOutsideTheViewport_StartsNoStroke`,
+`LeavingGroundPaintMidStroke_CommitsTheStroke_AndStopsPainting`,
+`EnteringPlayMidStroke_CommitsTheStroke_AndStopsPainting` — the no-op and modality edges). The paint
+VIEW itself (the overlay quads) has no test yet — it is verified on the demo host, like the other
+overlay draws.
+**Depends on:** level-loading — "The paint grid is authored cells + values; everything
+visible/collidable is a bake product" (the data this authors and the bake it triggers through
+`NotifyChanged`) and "Scene layers are entities; member draw order derives from (layer order,
+within-layer key)" (the layer entity whose derived kind makes it paintable); this file — "Bounded
+undo with drag-coalescing" (the transaction pattern the stroke reuses, and the empty-commit no-op the
+refusals rely on), "The palette hold-drag multi-stamps at arc-length spacing, coalesced into one undo
+step" (the sibling stroke contract), "Viewport presses belong to exactly one tool family:
+`EditorToolMode` gates selection, gizmo, and placement" (`GroundPaint` joins the modality), "The
+Entities panel IS the layers panel: layers list first, three glyph verbs, and placement targets the
+ACTIVE layer (HP)" (the ACTIVE-layer model the shelf and the brush both follow, and the locked-layer
+refusal precedent), "Tile sprites stream per chunk; colliders bake whole" (what the stroke's
+`NotifyChanged` re-derives), "The editor shell's region sizes, tabs, and drag ownership live in one
+shell-state component" (`ActiveLayer`'s home).
 
 ## See also
 

@@ -211,6 +211,34 @@ public class LoadLevelExampleGameScreen : IGameScreen
         }
     }
 
+    /// <summary>
+    /// The tile-paint defaults a new Indexed Layer is born with on THIS screen (the level-editor
+    /// module ships no game palette — the grid is ordinary component state the screen supplies).
+    /// A 32-unit cell matches the editor's default snap step, so a snapped drag paints cell-per-cell.
+    /// The values are deliberately collision-shaped and tileset-less: "Ground" bakes greedy-merged
+    /// solid colliders (all layers, passive world geometry — the same shape the LDtk walls have) and
+    /// "Water" is a pure-visual paint (no <c>ActiveLayers</c> ⇒ no colliders). Nothing here needs a
+    /// GraphicsDevice or a sheet; binding a tileset per value (and its autotile rules) is Inspector
+    /// work until the rules workspace lands.
+    /// </summary>
+    private static MonoDreams.Component.Level.TileGridComponent CreateTileGrid() => new()
+    {
+        CellSize = 32f,
+        Values =
+        {
+            new MonoDreams.Component.Level.TilePaintValue
+            {
+                Id = 1, Name = "Ground", Color = new Color(122, 92, 62),
+                ActiveLayers = new[] { -1 }, Passive = true,
+            },
+            new MonoDreams.Component.Level.TilePaintValue
+            {
+                Id = 2, Name = "Water", Color = new Color(60, 110, 170),
+                ActiveLayers = Array.Empty<int>(), Passive = true, LayerDepth = 0.15f,
+            },
+        },
+    };
+
     private SequentialSystem<GameState> CreateUpdateSystem()
     {
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
@@ -302,7 +330,12 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 paletteBands: paletteBands,
                 triggerTypes: triggerTypes,
                 projectContext: _projectContext,
-                session: _session);
+                session: _session,
+                // The tile-paint defaults a NEW Indexed Layer is born with (screen-supplied — the
+                // module ships no game palette). Collision-only for now: no tileset is bound, so
+                // the bake derives merged colliders and no sprites (the overlay's colored blocks
+                // ARE the paint view while editing).
+                createTileGrid: CreateTileGrid);
 
             // Game-component serializers (PS5): register the reference game's own component
             // serializers onto the editor's live registry so the in-editor Load/Save round-trips
@@ -585,6 +618,10 @@ public class LoadLevelExampleGameScreen : IGameScreen
             // The asset palette + placement — AFTER CursorPositionSystem so the ghost preview
             // follows THIS frame's cursor world position (no one-frame lag). Edit-guarded.
             p.Add("editor.palette", _editor.Palette, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+            // The tile-grid paint brush — right after the palette (same reason: it paints the cell
+            // under THIS frame's cursor world position). Edit-guarded inside its own Update.
+            p.Add("editor.tilePaint", _editor.TilePaint, EditTimeBehavior.RunNormally);
         if (_editor != null)
             // The freeform boundary tool — also after CursorPositionSystem so a lay click reads
             // this frame's cursor world position. Edit-guarded (its own Update checks the mode).

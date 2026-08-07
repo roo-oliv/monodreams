@@ -188,10 +188,27 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         public Rectangle Bounds;
     }
 
+    // A Paint-tab card (pixel-art wave): a TilePaintValue as a color-swatch card (the fill IS the
+    // value's color) + its name label; Id 0 is the eraser. Click arms the GroundPaint brush.
+    private sealed class PaintCard
+    {
+        public byte Id;
+        public required string Label;
+        public Microsoft.Xna.Framework.Color Swatch;
+        public Entity Button;
+        public Entity LabelEntity;
+        public (int Row, int X) Flowed;
+        public float HoverProgress;
+        /// <summary>The trailing <c>+ New</c> card: clicking it creates a new paintable index on the
+        /// active Indexed layer instead of arming the brush.</summary>
+        public bool IsNewCard;
+    }
+
     private readonly List<ItemButton> _items = new();
     private readonly List<TriggerButton> _triggerItems = new();
     private readonly List<BandButton> _bandButtons = new();
     private readonly List<PrefabCard> _prefabItems = new();
+    private readonly List<PaintCard> _paintCards = new();
     private readonly List<BottomTabButton> _bottomTabs = new();
     private readonly EditorShellStateComponent _shellState;
     private bool _leftDown; // cursor left-button held this frame (drives the "pressed" fill)
@@ -204,6 +221,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private int _scroll;
     private int _laidOutWidth, _laidOutHeight, _laidOutScroll = -1;
     private int _laidOutBottomHeightPt = -1;
+    private Entity _laidOutPaintLayer;          // the active PAINT layer is part of the layout key too
+    private int _laidOutPaintValueCount = -1;   // so a new/removed index re-lays the value cards
     private EditorBottomTab? _laidOutBottomTab; // the active tab is part of the layout key: a switch
                                                 // from ANY path (mouse, the panel:tab op, a prefab
                                                 // flow) must re-lay the shelf, not just the click
@@ -216,6 +235,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     private double _lastPrefabClickTime = double.NegativeInfinity; // double-click (= Edit) tracking
     private int _lastPrefabClickIndex = -1;
     private int _hoveredPrefab = -1; // ReflectState highlight for the Prefabs tab
+    private int _hoveredPaint = -1;  // ReflectState highlight for the Paint tab
+    private Func<IReadOnlyList<MonoDreams.Component.Level.TilePaintValue>>? _paintValues;
+    private Entity _paintEmptyHint;  // the Paint tab's "no values configured" message
+    private Action<Entity>? _newIndexRequested; // the "+ New" card's create flow (see NewIndexRequested)
     private int _hoveredTab = -1;    // ReflectState highlight for the bottom tab strip
     private int _bandIndex;
     private float _armedRotation; // the ghost's orientation (radians), set by Q/E; reset on disarm
@@ -245,6 +268,9 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// disarms).</param>
     /// <param name="bandConfig">The per-asset band marks (FW3). Null = in-memory only (no drop-folder
     /// root, or a unit test): marks work for the session but don't persist.</param>
+    /// <param name="paintValues">The Paint view's fallback value source (pixel-art wave) — the
+    /// screen-supplied tile-grid defaults, consulted when the ACTIVE layer is not a Paint layer.
+    /// Null = the Paint view has no content (it renders its "not configured" hint).</param>
     public PalettePlacementSystem(
         World world,
         AssetCatalog catalog,
@@ -265,7 +291,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         Action<string, Point>? prefabCardMenu = null,
         Action<Point>? prefabShelfMenu = null,
         Action<string, GameState>? editPrefab = null,
-        Func<string, PrefabData?>? prefabResolver = null)
+        Func<string, PrefabData?>? prefabResolver = null,
+        Func<IReadOnlyList<MonoDreams.Component.Level.TilePaintValue>>? paintValues = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -297,6 +324,10 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _prefabShelfMenu = prefabShelfMenu;
         _editPrefab = editPrefab;
         _prefabResolver = prefabResolver;
+        // Pixel-art wave — the Paint tab's value source: the live scene grid's values when one
+        // exists (Inspector edits show up), else the screen-supplied defaults; null = no Paint tab
+        // content (the tab renders its "not configured" hint).
+        _paintValues = paintValues;
 
         _cursorSet = world.GetEntities().With<CursorInputComponent>().AsSet();
         _gizmoStateSet = world.GetEntities().With<GizmoStateComponent>().AsSet();
@@ -643,7 +674,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (GetMode() == EditorToolMode.Place && _armedIndex < 0 && _armedTrigger < 0 && _armedPrefab == null)
                 SetMode(EditorToolMode.SelectTransform);
 
-            if (_cancelRequested?.Invoke(state) == true && (_armedIndex >= 0 || _armedTrigger >= 0 || _armedPrefab != null))
+            if (_cancelRequested?.Invoke(state) == true &&
+                (_armedIndex >= 0 || _armedTrigger >= 0 || _armedPrefab != null || PaintArmed))
                 Disarm();
 
             // Ghost rotate (Slice 4): Q/E rotate the armed sprite ghost before stamping (triggers
@@ -674,7 +706,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 _laidOutScroll != _scroll ||
                 _laidOutScale != scale ||
                 _laidOutBottomHeightPt != _shellState.BottomHeightPt ||
-                _laidOutBottomTab != _shellState.ActiveBottomTab)
+                _laidOutBottomTab != _shellState.ActiveBottomTab ||
+                _laidOutPaintLayer != ActivePaintLayer() ||
+                // A value added/removed on the active layer (the "+ New" flow, an Inspector edit,
+                // an undo) must re-lay the value cards — the count is part of the key.
+                _laidOutPaintValueCount != ActivePaintValueCount())
                 PositionChrome(strip, scale);
             ReflectState(state, hovered, editing);
             AnimatePreviews(state); // animated entries' cards cycle frames (pixel-art wave)
@@ -700,8 +736,35 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         return EditorChromeLayout.TabStrip(shelf, scale);
     }
 
-    /// <summary>The active bottom tab (Assets / Prefabs) — the shelf's body content switches on it.</summary>
+    /// <summary>The "+ New" paint card's click: the overlay wires the new-index name dialog for the
+    /// ACTIVE Indexed layer (a new paintable index). Null hides the card.</summary>
+    public Action<Entity>? NewIndexRequested
+    {
+        get => _newIndexRequested;
+        set => _newIndexRequested = value;
+    }
+
+    /// <summary>The active bottom tab (Assets / Prefabs / Paint) — the shelf's body content switches on it.</summary>
     private bool PrefabsTabActive => _shellState.ActiveBottomTab == EditorBottomTab.Prefabs;
+
+    /// <summary>Whether the shelf is in PAINT mode (layers wave): the ACTIVE scene layer is a
+    /// Paint layer — its value cards replace the asset cards, and the paint-view overlay lights up.
+    /// Selecting a Sprites layer flips the shelf back to assets (the LDtk per-layer palette).</summary>
+    public bool PaintTabActive => ActivePaintLayer().IsAlive;
+
+    /// <summary>The active layer when it is a Paint layer (has a tile grid), else a dead Entity.</summary>
+    private Entity ActivePaintLayer()
+    {
+        var active = _shellState.ActiveLayer;
+        return active.IsAlive && active.Has<MonoDreams.Component.Level.TileGridComponent>() ? active : default;
+    }
+
+    /// <summary>The active Paint layer's value count (part of the layout cache key), or -1.</summary>
+    private int ActivePaintValueCount()
+    {
+        var layer = ActivePaintLayer();
+        return layer.IsAlive ? layer.Get<MonoDreams.Component.Level.TileGridComponent>().Values.Count : -1;
+    }
 
     /// <summary>The on-screen rects of the two bottom tabs (Assets | Prefabs), left-to-right in the strip.</summary>
     private Rectangle[] BottomTabRects(Rectangle tabStrip, float scale)
@@ -722,10 +785,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             _leftDown = input.LeftButton; // drives the "pressed" fill in ReflectState
             _hoveredTab = -1;
             _hoveredPrefab = -1;
+            _hoveredPaint = -1;
 
             // Right-click disarms from anywhere (viewport or chrome) — the standard escape hatch (assets,
-            // triggers, and prefabs).
-            if (input.RightButtonPressed && (_armedIndex >= 0 || _armedPrefab != null))
+            // triggers, prefabs, and the paint brush).
+            if (input.RightButtonPressed && (_armedIndex >= 0 || _armedPrefab != null || PaintArmed))
                 Disarm();
 
             if (!_built) return (-1, -1);
@@ -791,6 +855,25 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                     return (-1, -1);
                 }
                 if (input.RightButtonPressed) _prefabShelfMenu?.Invoke(point);
+                return (-1, -1);
+            }
+
+            // Paint tab (pixel-art wave): a value-card click arms the GroundPaint brush; the
+            // trailing "+ New" card creates a new index on the active layer instead.
+            if (PaintTabActive)
+            {
+                for (var i = 0; i < _paintCards.Count; i++)
+                {
+                    if (!PaletteLayout.TryCardRect(strip, _paintCards[i].Flowed, _scroll, out var pr, scale)) continue;
+                    if (!pr.Contains(point)) continue;
+                    _hoveredPaint = i;
+                    if (input.LeftButtonReleased)
+                    {
+                        if (_paintCards[i].IsNewCard) _newIndexRequested?.Invoke(ActivePaintLayer());
+                        else ArmPaint(_paintCards[i].Id);
+                    }
+                    return (-1, -1);
+                }
                 return (-1, -1);
             }
 
@@ -1069,11 +1152,14 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// <summary>Stamps any additional props the cursor's travel since the last stamp has earned
     /// (arc-length spacing via <see cref="StrokeSampler"/>), inside the open stroke transaction. A
     /// non-positive <see cref="GizmoStateComponent.StampSpacing"/> disables multi-stamp (only the
-    /// press stamp lands — the classic single-click).</summary>
+    /// press stamp lands — the classic single-click). With grid snap ON the spacing is the grid
+    /// step itself — a drag paints tile-per-cell (the pixel-art brush; the per-stroke dedupe in
+    /// <see cref="StampAt"/> keeps diagonal or back-tracking drags from doubling a cell).</summary>
     private void ContinueStroke(AssetCatalogEntry entry, PaletteBand band, Vector2 cursorWorld,
         Microsoft.Xna.Framework.Graphics.Texture2D? texture)
     {
-        var spacing = GetGizmoStateEntity().Get<GizmoStateComponent>().StampSpacing;
+        ref readonly var gizmo = ref GetGizmoStateEntity().Get<GizmoStateComponent>();
+        var spacing = gizmo.SnapEnabled && gizmo.GridStep > 0f ? gizmo.GridStep : gizmo.StampSpacing;
         if (spacing <= 0f) return;
         var points = StrokeSampler.Sample(_lastStampWorld, cursorWorld, spacing);
         if (points.Count == 0) return;
@@ -1508,6 +1594,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             Tab = EditorBottomTab.Prefabs, Label = "Prefabs", Fill = CreateButton(prefabsLabel), LabelEntity = prefabsLabel,
         });
         _prefabEmptyHint = CreateLabel("No prefabs - Create Empty Prefab (right-click) or from a selection");
+        _paintEmptyHint = CreateLabel("No paint values - supply TilePaintValues to the editor overlay");
     }
 
     private void BuildPrefabCards()
@@ -1516,6 +1603,117 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         foreach (var id in _prefabLister())
             _prefabItems.Add(CreatePrefabCard(id));
     }
+
+    /// <summary>Rebuilds the Paint tab's cards from the value source: the ERASER first, then one
+    /// color-swatch card per <c>TilePaintValue</c>. Called at layout while the Paint tab is active
+    /// (the list is tiny), so Inspector edits to the grid's values show up on the next relayout.</summary>
+    private void RebuildPaintCards()
+    {
+        foreach (var card in _paintCards) DisposePaintCard(card);
+        _paintCards.Clear();
+        if (_paintValues == null && !ActivePaintLayer().IsAlive) return;
+
+        var eraserLabel = CreateLabel("Eraser");
+        _paintCards.Add(new PaintCard
+        {
+            Id = 0, Label = "Eraser", Swatch = EditorTheme.Bg3,
+            Button = CreateButton(eraserLabel), LabelEntity = eraserLabel,
+        });
+        // The ACTIVE Paint layer's own values (Inspector-editable per layer), else the provider.
+        var activeLayer = ActivePaintLayer();
+        var values = activeLayer.IsAlive
+            ? (IReadOnlyList<MonoDreams.Component.Level.TilePaintValue>)activeLayer
+                .Get<MonoDreams.Component.Level.TileGridComponent>().Values
+            : _paintValues?.Invoke() ?? Array.Empty<MonoDreams.Component.Level.TilePaintValue>();
+        foreach (var value in values)
+        {
+            if (value.Id == 0) continue;
+            var label = CreateLabel(value.Name);
+            _paintCards.Add(new PaintCard
+            {
+                Id = value.Id, Label = value.Name, Swatch = value.Color,
+                Button = CreateButton(label), LabelEntity = label,
+            });
+        }
+
+        // The trailing "+ New" card — a real ACTIVE layer's palette is editable in place (create an
+        // index here, then re-color / bind its collision in the Inspector).
+        if (activeLayer.IsAlive && _newIndexRequested != null)
+        {
+            var newLabel = CreateLabel("+ New");
+            _paintCards.Add(new PaintCard
+            {
+                Id = 0, IsNewCard = true, Label = "+ New", Swatch = EditorTheme.Bg2,
+                Button = CreateButton(newLabel), LabelEntity = newLabel,
+            });
+        }
+    }
+
+    private static void DisposePaintCard(PaintCard card)
+    {
+        if (card.Button.IsAlive) card.Button.Dispose();
+        if (card.LabelEntity.IsAlive) card.LabelEntity.Dispose();
+    }
+
+    /// <summary>Arms the paint brush with <paramref name="valueId"/> (0 = the eraser): the shared
+    /// mode flips to <see cref="EditorToolMode.GroundPaint"/> — <c>TileGridPaintSystem</c> owns the
+    /// viewport strokes, the paint-view overlay lights up, selection/gizmo go dormant. Mutually
+    /// exclusive with an armed asset / trigger / prefab.</summary>
+    public void ArmPaint(byte valueId)
+    {
+        _armedIndex = -1;
+        _armedTrigger = -1;
+        _armedPrefab = null;
+        DespawnGhost();
+        DespawnCrosshair();
+        ref var gizmo = ref GetGizmoStateEntity().Get<GizmoStateComponent>();
+        gizmo.Mode = EditorToolMode.GroundPaint;
+        gizmo.PaintValue = valueId;
+        Logger.Info($"[level-editor] Palette: armed paint value {valueId} (0 = eraser).");
+    }
+
+    /// <summary>Arms a paint value by NAME (the headless <c>paint:&lt;name&gt;</c> op; also
+    /// <c>erase</c> for the eraser and <c>none</c> to disarm). Loud false on an unknown name.</summary>
+    public bool ArmPaintByName(string name)
+    {
+        if (string.Equals(name, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            Disarm();
+            return true;
+        }
+        if (string.Equals(name, "erase", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "eraser", StringComparison.OrdinalIgnoreCase))
+        {
+            ArmPaint(0);
+            return true;
+        }
+        // The ACTIVE layer's own palette first (each Indexed layer owns its values), then the
+        // provider (the live single-grid fallback / screen defaults).
+        var activeLayer = ActivePaintLayer();
+        if (activeLayer.IsAlive)
+        {
+            foreach (var value in activeLayer.Get<MonoDreams.Component.Level.TileGridComponent>().Values)
+            {
+                if (!string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                ArmPaint(value.Id);
+                return true;
+            }
+        }
+        if (_paintValues != null)
+        {
+            foreach (var value in _paintValues())
+            {
+                if (!string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                ArmPaint(value.Id);
+                return true;
+            }
+        }
+        Logger.Warning($"[level-editor] Palette: no paint value '{name}'.");
+        return false;
+    }
+
+    /// <summary>Whether the paint brush is armed (the shared mode is GroundPaint).</summary>
+    public bool PaintArmed => GetMode() == EditorToolMode.GroundPaint;
 
     /// <summary>One prefab shelf card: the card body button, its id label, the prefab GLYPH mesh
     /// (<see cref="EditorIcons.EditorIcon.Prefab"/>) and an art thumbnail. The dominant sprite is resolved
@@ -1770,6 +1968,11 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             foreach (var card in _prefabItems) rows = Math.Max(rows, card.Flowed.Row + 1);
             return rows;
         }
+        if (PaintTabActive)
+        {
+            foreach (var card in _paintCards) rows = Math.Max(rows, card.Flowed.Row + 1);
+            return rows;
+        }
         foreach (var item in _items) rows = Math.Max(rows, item.Flowed.Row + 1);
         foreach (var trigger in _triggerItems) rows = Math.Max(rows, trigger.Flowed.Row + 1);
         return rows;
@@ -1786,11 +1989,13 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
 
         if (PrefabsTabActive)
         {
-            // Park every Assets-tab widget; lay out the prefab cards.
+            // Park every Assets-tab + Paint-tab widget; lay out the prefab cards.
             foreach (var b in _bandButtons) ParkButton(b.Button, b.Label);
             foreach (var item in _items) ParkItem(item);
             foreach (var trigger in _triggerItems) ParkButton(trigger.Button, trigger.Label);
             if (_emptyHint.IsAlive) Park(_emptyHint);
+            foreach (var card in _paintCards) ParkButton(card.Button, card.LabelEntity);
+            if (_paintEmptyHint.IsAlive) Park(_paintEmptyHint);
 
             var pflow = PaletteLayout.CardFlow(_prefabItems.Count, content.Width, scale);
             for (var i = 0; i < _prefabItems.Count; i++)
@@ -1808,11 +2013,41 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 else Park(_prefabEmptyHint);
             }
         }
-        else
+        else if (PaintTabActive)
         {
-            // Park the prefab cards + hint; lay out the Assets-tab chrome (bands + item/trigger cards).
+            // Park the Assets-tab + Prefabs-tab widgets; (re)build + lay out the paint value cards
+            // (rebuilt here so Inspector edits to the grid's values show on the next relayout).
+            foreach (var b in _bandButtons) ParkButton(b.Button, b.Label);
+            foreach (var item in _items) ParkItem(item);
+            foreach (var trigger in _triggerItems) ParkButton(trigger.Button, trigger.Label);
+            if (_emptyHint.IsAlive) Park(_emptyHint);
             foreach (var card in _prefabItems) ParkPrefabCard(card);
             if (_prefabEmptyHint.IsAlive) Park(_prefabEmptyHint);
+
+            RebuildPaintCards();
+            var pflow = PaletteLayout.CardFlow(_paintCards.Count, content.Width, scale);
+            for (var i = 0; i < _paintCards.Count; i++)
+            {
+                _paintCards[i].Flowed = pflow[i];
+                if (PaletteLayout.TryCardRect(strip, pflow[i], _scroll, out var rect, scale))
+                    PlacePaintCard(_paintCards[i], rect, labelHeight, scale);
+                else
+                    ParkButton(_paintCards[i].Button, _paintCards[i].LabelEntity);
+            }
+
+            if (_paintEmptyHint.IsAlive)
+            {
+                if (_paintCards.Count == 0) PlaceLabel(_paintEmptyHint, new Vector2(content.X, hintY), scale);
+                else Park(_paintEmptyHint);
+            }
+        }
+        else
+        {
+            // Park the prefab + paint cards + hints; lay out the Assets-tab chrome (bands + item/trigger cards).
+            foreach (var card in _prefabItems) ParkPrefabCard(card);
+            if (_prefabEmptyHint.IsAlive) Park(_prefabEmptyHint);
+            foreach (var card in _paintCards) ParkButton(card.Button, card.LabelEntity);
+            if (_paintEmptyHint.IsAlive) Park(_paintEmptyHint);
 
             var bandWidths = new int[_bandButtons.Count];
             for (var i = 0; i < _bandButtons.Count; i++)
@@ -1855,6 +2090,8 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         _laidOutScale = scale;
         _laidOutBottomHeightPt = _shellState.BottomHeightPt;
         _laidOutBottomTab = _shellState.ActiveBottomTab;
+        _laidOutPaintLayer = ActivePaintLayer();
+        _laidOutPaintValueCount = ActivePaintValueCount();
     }
 
     /// <summary>Positions the Assets | Prefabs tab strip (PF-D) in the shelf's tab band; records each
@@ -1868,6 +2105,16 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             _bottomTabs[i].Bounds = rects[i];
             PlaceButton(_bottomTabs[i].Fill, _bottomTabs[i].LabelEntity, rects[i], labelHeight, scale);
         }
+    }
+
+    /// <summary>Positions one Paint-tab card: the color-swatch body (the button fill IS the value's
+    /// color — see ReflectState) + the value-name label in the bottom row.</summary>
+    private void PlacePaintCard(PaintCard card, Rectangle rect, float labelHeight, float scale)
+    {
+        Place(card.Button, new Vector2(rect.X, rect.Y));
+        ref var visual = ref card.Button.Get<SimpleButtonComponent>();
+        visual.Size = new Vector2(rect.Width, rect.Height);
+        PlaceCardLabel(card.LabelEntity, card.Label, PaletteLayout.CardLabelRect(rect, scale), labelHeight, scale);
     }
 
     /// <summary>Positions one prefab card: the body button, its id label, and the prefab GLYPH mesh
@@ -2155,6 +2402,28 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 disabled: !editing, selected: armed, pressed: over && _leftDown, card.HoverProgress);
             visual.Color = armed ? EditorTheme.Accent : EditorTheme.BorderStrong;
         }
+
+        // Paint cards: the fill IS the value's color swatch (opaque — precomputed-opaque rule);
+        // the ARMED card reads Accent border, hover brightens the border. The "+ New" card is a
+        // plain hover-faded control (it creates, never arms).
+        var paintArmedValue = GetGizmoStateEntity().Get<GizmoStateComponent>().PaintValue;
+        var paintArmed = PaintArmed;
+        for (var i = 0; i < _paintCards.Count; i++)
+        {
+            var card = _paintCards[i];
+            var armed = !card.IsNewCard && paintArmed && card.Id == paintArmedValue;
+            var over = editing && _hoveredPaint == i;
+            card.HoverProgress = EditorTheme.AdvanceHover(card.HoverProgress, over, dt);
+            // The swatch renders OPAQUE (the mesh path composites premultiplied — a translucent
+            // fill would blow out); target-typed so the module's color lint stays satisfied.
+            Color swatch = new(card.Swatch.R, card.Swatch.G, card.Swatch.B, (byte)255);
+            ref var visual = ref card.Button.Get<SimpleButtonComponent>();
+            visual.FillColor = !editing
+                ? EditorTheme.BgDisabled
+                : card.IsNewCard ? Color.Lerp(EditorTheme.Bg2, EditorTheme.Bg3, card.HoverProgress)
+                : card.Id == 0 ? EditorTheme.Bg3 : swatch;
+            visual.Color = armed ? EditorTheme.Accent : over ? EditorTheme.Border : EditorTheme.BorderStrong;
+        }
     }
 
     // ---- Shared gizmo-state access (mirrors GizmoSystem's fallback) ----
@@ -2194,6 +2463,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             if (trigger.Label.IsAlive) trigger.Label.Dispose();
         }
         foreach (var card in _prefabItems) DisposePrefabCard(card);
+        foreach (var card in _paintCards) DisposePaintCard(card);
         foreach (var tab in _bottomTabs)
         {
             if (tab.Fill.IsAlive) tab.Fill.Dispose();
@@ -2201,12 +2471,14 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
         if (_emptyHint.IsAlive) _emptyHint.Dispose();
         if (_prefabEmptyHint.IsAlive) _prefabEmptyHint.Dispose();
+        if (_paintEmptyHint.IsAlive) _paintEmptyHint.Dispose();
         if (_scrollTrack.IsAlive) _scrollTrack.Dispose();
         if (_scrollThumb.IsAlive) _scrollThumb.Dispose();
         _bandButtons.Clear();
         _items.Clear();
         _triggerItems.Clear();
         _prefabItems.Clear();
+        _paintCards.Clear();
         _bottomTabs.Clear();
         _cursorSet.Dispose();
         _gizmoStateSet.Dispose();

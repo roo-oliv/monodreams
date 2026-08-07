@@ -95,9 +95,9 @@ public static class EditorContextMenuModel
     public const string PrefabDeletePathPrefix = "prefab-delete:";
 
     // Scene-layer paths (layers wave): create the designer's layers, rename, and reorder. Kind is
-    // DERIVED from what the layer entity carries (there is no kind enum) — today every layer is a
-    // Sprites/Entity layer; the painted "Indexed Layer" creator arrives with the tile-paint wave.
+    // derived from what the layer carries (a Paint layer is born WITH a tile grid).
     public const string NewSpritesLayerPath = "layer/new-sprites";
+    public const string NewPaintLayerPath = "layer/new-paint";
     public const string RenameLayerPath = "layer/rename";
     public const string LayerUpPath = "layer/up";
     public const string LayerDownPath = "layer/down";
@@ -195,27 +195,31 @@ public static class EditorContextMenuModel
         {
             Kind = EditorMenuItemKind.Action, Label = "Add Empty Entity", Path = AddEmptyPath,
         });
-        // The layer creator (layers wave): always available — the Entities tree IS the layers panel
-        // (the Figma model), so its background menu is where new layers are born. (The painted
-        // "New Indexed Layer" creator arrives with the tile-paint wave.)
+        // The layer creators (layers wave): always available — the Entities tree IS the layers
+        // panel (Figma model), so its background menu is where new layers are born.
         items.Add(Separator());
         items.Add(new EditorMenuItem
         {
             Kind = EditorMenuItemKind.Action, Label = "New Entity Layer", Path = NewSpritesLayerPath,
         });
+        items.Add(new EditorMenuItem
+        {
+            Kind = EditorMenuItemKind.Action, Label = "New Indexed Layer", Path = NewPaintLayerPath,
+        });
         return items;
     }
 
-    /// <summary>The Entities-panel toolbar's <b>+ Add</b> dropdown (HP — anchored below the + button):
-    /// what can be born into the scene — an empty entity, or an <b>Entity Layer</b> (holds placed
-    /// sprites/props). The kind choice lives right in the dropdown (one hop; the LDtk "what kind of
-    /// layer?" question answered at creation). The painted <b>Indexed Layer</b> entry lands with the
-    /// tile-paint wave, which brings the grid component a painted layer is defined by.</summary>
+    /// <summary>The Entities-panel header's <b>+ Add</b> dropdown (HP — anchored below the + button):
+    /// what can be born into the scene — an empty entity, or a layer by KIND (an <b>Entity Layer</b>
+    /// holds placed sprites/props; an <b>Indexed Layer</b> is painted — cells map to assets through
+    /// its paint values). The kind choice lives right in the dropdown (one hop; the LDtk "what kind of
+    /// layer?" question answered at creation).</summary>
     public static IReadOnlyList<EditorMenuItem> AddMenu() => new[]
     {
         new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Empty Entity", Path = AddEmptyPath },
         Separator(),
         new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Entity Layer", Path = NewSpritesLayerPath },
+        new EditorMenuItem { Kind = EditorMenuItemKind.Action, Label = "Indexed Layer", Path = NewPaintLayerPath },
     };
 
     /// <summary>The Scenes-panel context menu (UX2-D §4): <b>Create Empty Scene…</b> (opens the small

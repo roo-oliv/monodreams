@@ -278,6 +278,9 @@ public class DemoLauncherScreen : IGameScreen
             // Prefabs tabs too — empty assetRoots is legal (the Prefabs tab still works, no crash).
             if (_editor.Overlay.Palette != null)
                 p.Add("editor.palette", _editor.Overlay.Palette, EditTimeBehavior.RunNormally);
+            // The tile-grid paint brush, right after the palette. The demo supplies no paint
+            // defaults, so "New Indexed Layer" refuses loud — the brush is simply inert here.
+            p.Add("editor.tilePaint", _editor.Overlay.TilePaint, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
             EditTimeBehavior.RunNormally);

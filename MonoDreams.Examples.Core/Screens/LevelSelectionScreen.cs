@@ -429,6 +429,9 @@ public class LevelSelectionScreen : IGameScreen
             // though the menu supplies none) — so a menu gets the Assets + Prefabs tabs too.
             if (_editor.Palette != null)
                 p.Add("editor.palette", _editor.Palette, EditTimeBehavior.RunNormally);
+            // The tile-grid paint brush, right after the palette. This screen supplies no paint
+            // defaults, so "New Indexed Layer" refuses loud — the brush is simply inert here.
+            p.Add("editor.tilePaint", _editor.TilePaint, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);

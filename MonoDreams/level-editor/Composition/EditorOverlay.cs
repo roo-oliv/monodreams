@@ -21,6 +21,7 @@ using MonoDreams.LevelEditor.Input;
 using MonoDreams.LevelEditor.Message;
 using MonoDreams.LevelEditor.Serialization;
 using MonoDreams.LevelEditor.System;
+using MonoDreams.LevelEditor.Tile;
 using MonoDreams.LevelEditor.Transform;
 using MonoDreams.LevelEditor.UI;
 using MonoDreams.LevelEditor.Undo;
@@ -99,6 +100,8 @@ public sealed class EditorOverlay
     private readonly Entity _gizmoState;
     private readonly Entity _overlaySettings; // UX3-D: ShowGrid / OutlineSelected / ShowCameraGlyph
     private readonly CameraEntityOverlay _cameraOverlay;
+    private readonly TileGridOverlay _tileGridOverlay;
+    private readonly Func<MonoDreams.Component.Level.TileGridComponent>? _createTileGrid;
     private readonly EditorShellStateComponent _shellState = new();
     // The concrete reader (SceneReader is the ISystem view of it) — read SceneWasLoaded for the
     // empty-save guard.
@@ -164,6 +167,7 @@ public sealed class EditorOverlay
         EditorProjectContext? projectContext = null,
         EditorSession? session = null,
         FileAssetTextureLoader? assetTextures = null,
+        Func<MonoDreams.Component.Level.TileGridComponent>? createTileGrid = null,
         Action<Entity, MonoDreams.Component.Level.TilePaintValue>? configureTileCollider = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -172,6 +176,7 @@ public sealed class EditorOverlay
         if (input == null) throw new ArgumentNullException(nameof(input));
         _projectContext = projectContext;
         _session = session;
+        _createTileGrid = createTileGrid;
         _sceneId = ResolveSceneId(sceneId, projectContext);
 
         // The shared editor infrastructure. The registry ships the engine serializers; a game
@@ -304,6 +309,11 @@ public sealed class EditorOverlay
         _boundaryTool = boundaryTool;
         BoundaryTool = boundaryTool;
         BoundaryBake = new BoundaryBakeSystem(world);
+        // Pixel-art wave — the paintable tile grid's BRUSH: Paint-view-armed cell strokes, each drag
+        // one coalesced undo step. It targets the ACTIVE Paint layer's grid and refuses loud (through
+        // the notification channel) when there is none, when the layer is locked, or in a prefab tab.
+        TilePaint = new TileGridPaintSystem(world, History, shellState: _shellState,
+            notifyWarning: message => Notifications.Notify(message, EditorNotifySeverity.Warning));
         // The tile-grid bake — the same bake-never-evaluate pattern applied to the paint grid: painted
         // cells derive tile sprites (autotile-picked, streamed per chunk around the view) and
         // greedy-merged colliders as bake products. Runs in BOTH run modes, like the boundary bake.
@@ -321,7 +331,20 @@ public sealed class EditorOverlay
         var grid = new EditorGrid(world, camera, viewportManager,
             spacing: () => GridSpacing,
             visible: () => Settings.ShowGrid && Transport.ActiveContextKind != ViewportContextKind.Game);
-        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay, _cameraOverlay, grid);
+
+        // The colored-blocks paint VIEW: the logical cells rendered over the world while the shelf's
+        // Paint view is up (the ACTIVE layer is an Indexed layer) or the brush is armed. Both gates
+        // read lazily — Palette is assigned later in this ctor.
+        _tileGridOverlay = new TileGridOverlay(world, camera, viewportManager,
+            visible: () => (Palette?.PaintTabActive ?? ActiveLayerIsPaint()) || PaintArmed(),
+            armed: () =>
+            {
+                var state = ReadGizmoState();
+                return (state.Mode == EditorToolMode.GroundPaint, state.PaintValue);
+            });
+
+        OverlayPrep = new EditorOverlayPrepSystem(gizmo, proxySync, boundaryTool, triggerOverlay,
+            _cameraOverlay, grid, _tileGridOverlay);
         _cameraNav = new CameraNavSystem(world, camera);
         CameraNav = _cameraNav;
         _selection = new SelectionSystem(world, camera);
@@ -568,7 +591,15 @@ public sealed class EditorOverlay
                 editPrefab: (id, s) => OpenPrefabTab(id, s),
                 // PF-G: resolve a prefab id → its PrefabData so a card thumbnail + placement ghost can show
                 // the prefab's dominant sprite (the SAME source the reader/expander read from).
-                prefabResolver: PrefabSource);
+                prefabResolver: PrefabSource,
+                // Pixel-art wave — the Paint view's value source: the LIVE scene grid's values when
+                // one exists (Inspector edits show up on relayout), else the screen-supplied
+                // defaults; null keeps the view empty with its hint.
+                paintValues: createTileGrid == null
+                    ? null
+                    : () => LiveTileGridValues() ?? createTileGrid().Values);
+            // The shelf's "+ New" index card opens the new-index name dialog for the active layer.
+            Palette.NewIndexRequested = OpenNewRuleSetDialog;
         }
 
         // The headless editor-op channel (Wave 5): present only when a plan file exists — zero
@@ -626,6 +657,90 @@ public sealed class EditorOverlay
 
     /// <summary>The shared grid quantum (= the gizmo snap step) the grid draws at and the presets edit.</summary>
     private float GridSpacing => _gizmoState.IsAlive ? _gizmoState.Get<GizmoStateComponent>().GridStep : 0f;
+
+    /// <summary>The shared editor tool state (paint-view gates read the mode + armed paint value).</summary>
+    private GizmoStateComponent ReadGizmoState() =>
+        _gizmoState.IsAlive ? _gizmoState.Get<GizmoStateComponent>() : GizmoStateComponent.Default;
+
+    // ─── Paint values: create a paintable index on an Indexed layer ───────────────────────────────
+
+    /// <summary>The swatch cycle a NEW paint value takes (readable on the dark paint view; the
+    /// designer can re-color in the Inspector).</summary>
+    private static readonly Color[] IndexColors =
+    {
+        new(96, 112, 144), new(198, 60, 74), new(96, 160, 96), new(212, 160, 60),
+        new(150, 100, 190), new(70, 165, 175), new(200, 120, 160), new(140, 140, 90),
+    };
+
+    /// <summary>Opens the new-index name modal for <paramref name="paintLayer"/> (the shelf's
+    /// <c>+ New</c> card): a new paintable index on that layer's grid.</summary>
+    public void OpenNewRuleSetDialog(Entity paintLayer)
+    {
+        if (!paintLayer.IsAlive || !paintLayer.Has<MonoDreams.Component.Level.TileGridComponent>())
+        {
+            Notifications.Notify("Select an Indexed Layer first", EditorNotifySeverity.Warning);
+            return;
+        }
+        Dialog.OpenCreatePrefab("New Index", "index",
+            nameExists: n =>
+            {
+                if (!paintLayer.IsAlive) return false;
+                foreach (var v in paintLayer.Get<MonoDreams.Component.Level.TileGridComponent>().Values)
+                    if (string.Equals(v.Name, n, StringComparison.OrdinalIgnoreCase)) return true;
+                return false;
+            },
+            onCreate: (valueName, _) => CreatePaintValue(paintLayer, valueName));
+    }
+
+    /// <summary>Creates a new <see cref="MonoDreams.Component.Level.TilePaintValue"/> (a paintable
+    /// index) on <paramref name="paintLayer"/>'s grid — one undoable
+    /// <see cref="AddPaintValueCommand"/>: next free id, a cycled swatch color, no collision (make it
+    /// solid in the Inspector), 32px tiles, no tileset yet (#47's Autotile Rules workspace is what
+    /// binds one; until then the Inspector owns the value's fields).</summary>
+    public void CreatePaintValue(Entity paintLayer, string valueName)
+    {
+        if (string.IsNullOrWhiteSpace(valueName)) return;
+        if (!paintLayer.IsAlive || !paintLayer.Has<MonoDreams.Component.Level.TileGridComponent>())
+        {
+            Notifications.Notify("Select an Indexed Layer first", EditorNotifySeverity.Warning);
+            return;
+        }
+        var grid = paintLayer.Get<MonoDreams.Component.Level.TileGridComponent>();
+        var nextId = 1;
+        foreach (var v in grid.Values) nextId = Math.Max(nextId, v.Id + 1);
+        if (nextId > byte.MaxValue)
+        {
+            Notifications.Notify("This layer's palette is full (255 indexes)", EditorNotifySeverity.Danger);
+            return;
+        }
+        var value = new MonoDreams.Component.Level.TilePaintValue
+        {
+            Id = (byte)nextId,
+            Name = valueName,
+            Color = IndexColors[grid.Values.Count % IndexColors.Length],
+            Passive = true,
+            TileSize = 32,
+        };
+        History.Push(new AddPaintValueCommand(paintLayer, value));
+        Notifications.Notify($"Added index '{valueName}'", EditorNotifySeverity.Success);
+    }
+
+    /// <summary>The live scene grid's paint values, or null when no grid entity exists yet.</summary>
+    private IReadOnlyList<MonoDreams.Component.Level.TilePaintValue>? LiveTileGridValues()
+    {
+        using var grids = _world.GetEntities().With<MonoDreams.Component.Level.TileGridComponent>().AsSet();
+        foreach (var grid in grids.GetEntities())
+            return grid.Get<MonoDreams.Component.Level.TileGridComponent>().Values;
+        return null;
+    }
+
+    /// <summary>Whether the paint brush is the active tool (the paint view's always-on gate).</summary>
+    private bool PaintArmed() => ReadGizmoState().Mode == EditorToolMode.GroundPaint;
+
+    /// <summary>Whether the ACTIVE scene layer is a Paint layer (the palette-less fallback gate).</summary>
+    private bool ActiveLayerIsPaint() =>
+        _shellState.ActiveLayer.IsAlive
+        && _shellState.ActiveLayer.Has<MonoDreams.Component.Level.TileGridComponent>();
 
     /// <summary>The resolved project context (desktop-only, host-supplied), or null when none was
     /// supplied. Gates Save (the "no project root" cause) and, when resolved, its
@@ -817,6 +932,12 @@ public sealed class EditorOverlay
     /// <c>editor.palette</c> AFTER <c>CursorPositionSystem</c> (the ghost follows this frame's
     /// cursor world position).</summary>
     public PalettePlacementSystem? Palette { get; }
+
+    /// <summary>The tile-grid paint brush (pixel-art wave): paints cells of the ACTIVE Indexed
+    /// layer's <c>TileGridComponent</c> while the shelf's Paint view has a value armed, one undo
+    /// step per stroke. Weave as <c>editor.tilePaint</c> right after <c>editor.palette</c> (it reads
+    /// this frame's cursor world position).</summary>
+    public TileGridPaintSystem TilePaint { get; }
 
     /// <summary>The overlay-owned <c>CursorInputSystem</c> when the screen asked for a
     /// self-sufficient cursor pipeline (<c>provideCursorPipeline: true</c>), else null. Weave with
@@ -1299,8 +1420,9 @@ public sealed class EditorOverlay
             case EditorContextMenuModel.DeletePath: _editorCommands.DeleteSelection(state); break;
             case EditorContextMenuModel.AddEmptyPath: _editorCommands.AddEmptyEntity(state); break;
             case EditorContextMenuModel.CreateScenePath: Dialog.OpenCreateScene(); break;
-            // Scene-layer actions (layers wave): create / rename / reorder.
-            case EditorContextMenuModel.NewSpritesLayerPath: CreateSceneLayer(); break;
+            // Scene-layer actions (layers wave): create (by kind) / rename / reorder.
+            case EditorContextMenuModel.NewSpritesLayerPath: CreateSceneLayer(paint: false); break;
+            case EditorContextMenuModel.NewPaintLayerPath: CreateSceneLayer(paint: true); break;
             case EditorContextMenuModel.RenameLayerPath: OpenRenameLayerDialog(); break;
             case EditorContextMenuModel.LayerUpPath: MoveSelectedLayer(+1); break;
             case EditorContextMenuModel.LayerDownPath: MoveSelectedLayer(-1); break;
@@ -1473,9 +1595,18 @@ public sealed class EditorOverlay
     /// FRONT (highest order among the world layers — a screen-space HUD grouping stays above them
     /// all and is excluded from the count), makes it the ACTIVE layer, and selects it so the
     /// Inspector shows its settings. The <see cref="CreateEntityCommand"/> tags the created root
-    /// <c>SceneObjectComponent</c>, so the layer is a save-root and round-trips through Save.</summary>
-    public void CreateSceneLayer()
+    /// <c>SceneObjectComponent</c>, so the layer is a save-root and round-trips through Save. A
+    /// PAINT layer ("Indexed Layer") is born with the screen-supplied tile-grid defaults (its
+    /// values), which is what makes it a paint target — the kind is DERIVED from the grid it
+    /// carries, never a kind enum.</summary>
+    public void CreateSceneLayer(bool paint)
     {
+        if (paint && _createTileGrid == null)
+        {
+            Notifications.Notify("This screen supplies no paint-layer defaults", EditorNotifySeverity.Warning);
+            return;
+        }
+
         var nextOrder = 0;
         foreach (var layer in MonoDreams.System.Level.SceneLayerSystem.OrderedLayers(_world))
         {
@@ -1483,7 +1614,7 @@ public sealed class EditorOverlay
             if (sceneLayer.ScreenSpace) continue; // the HUD grouping stays above every world layer
             nextOrder = Math.Max(nextOrder, sceneLayer.Order + 1);
         }
-        var name = EntityNaming.UniqueName(_world, "Layer");
+        var name = EntityNaming.UniqueName(_world, paint ? "Indexed Layer" : "Layer");
 
         var created = default(Entity);
         History.Push(new CreateEntityCommand(_world, Serializer, w =>
@@ -1492,6 +1623,7 @@ public sealed class EditorOverlay
             created.Set(new EntityInfoComponent("Layer", name));
             created.Set(new TransformComponent(Vector2.Zero));
             created.Set(new MonoDreams.Component.Level.SceneLayerComponent { Order = nextOrder });
+            if (paint) created.Set(_createTileGrid!());
             return created;
         }));
 
@@ -1501,7 +1633,7 @@ public sealed class EditorOverlay
             created.Set(new SelectedComponent());
             _shellState.ActiveLayer = created;
         }
-        Notifications.Notify($"Created layer '{name}'", EditorNotifySeverity.Success);
+        Notifications.Notify($"Created {(paint ? "paint layer" : "layer")} '{name}'", EditorNotifySeverity.Success);
     }
 
     /// <summary>Opens the rename modal for the selected layer (the create-prefab name-dialog
@@ -2765,6 +2897,17 @@ public sealed class EditorOverlay
                 Logger.Warning($"[level-editor] Editor-op '{name}': expected asset-band:<entryId>:<band>.");
             else
                 Palette.SetAssetBand(rest.Substring(0, sep), rest.Substring(sep + 1));
+            return;
+        }
+
+        const string paintPrefix = "paint:";
+        if (name.StartsWith(paintPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // paint:<valueName> arms the brush (paint:erase = the eraser, paint:none disarms).
+            if (Palette == null)
+                Logger.Warning($"[level-editor] Editor-op '{name}': this screen composes no palette.");
+            else
+                Palette.ArmPaintByName(name.Substring(paintPrefix.Length).Trim());
             return;
         }
 
