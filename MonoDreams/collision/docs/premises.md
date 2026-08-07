@@ -263,8 +263,10 @@ is CENTERED on its collider entity's `WorldPosition` (there is no offset field),
 entity placed on the visible surface line puts the box's top face half a thickness ABOVE the
 art. The body is then stopped short of the pixels it should stand on, and — worse — while
 rising through the plate its feet are inside the box, which the falling-and-above test can read
-as a legitimate landing on the next descending frame. Offset the collider entity DOWN by
-`Size.Y / 2` so the top face is flush with the surface the player sees.
+as a legitimate landing on the next descending frame. Offset the collider entity DOWN by half
+the box's effective world-space thickness so the top face is flush with the surface the player
+sees — `Size.Y / 2` for an unscaled collider; `SATCollision.BoxWorldRect` multiplies `Size` by
+`WorldScale`, so a scaled plate drops by `Size.Y * WorldScale.Y / 2`.
 
 **Why:** one-way behaviour is a *policy* about which contacts count, not a new geometry or a
 new component, so it belongs in the resolver's message filter — the framework's

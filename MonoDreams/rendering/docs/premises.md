@@ -930,9 +930,13 @@ multiplied down toward zero; a raw file loader does not —
 `Texture2D.FromStream`, which leaves straight alpha. Write `(255,255,255,a)` over a
 premultiplied source and the transparent margin becomes an opaque white block; write
 `(a,a,a,a)` over a straight-alpha source and the flash comes out grey and
-semi-transparent. Decide from the texture's own pixels rather than from which loader
-you think ran — the working heuristic is that a premultiplied texture has no pixel
-whose max RGB channel exceeds its alpha.
+semi-transparent. Prefer deciding from the asset's actual route when it is known
+(which loader produced the texture). A pixel scan is one-way evidence only: any pixel
+whose max RGB channel exceeds its alpha PROVES straight alpha, but a texture with no
+such pixel is ambiguous — dark straight-alpha art passes the same test. Treating an
+ambiguous texture as premultiplied is the safer fallback: the residual error is
+confined to semi-transparent pixels (an opaque pixel's mask is white either way),
+where the other misclassification paints the opaque white block.
 
 **Why:** `SpriteBatch` offers exactly one per-draw colour input and it is a multiply;
 there is no additive or replace mode short of a custom effect, which the sole-renderer

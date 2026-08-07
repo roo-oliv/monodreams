@@ -24,7 +24,7 @@ Raw frames are named so the directory is self-describing and needs no manifest
 that could fall out of step with it. Verified against
 `MonoDreams/debug/System/ScreenshotCaptureSystem.cs`:
 
-```
+```text
 raw_{counter:D6}_{width}x{height}_{gametimeMs:D8}.rgba
 ```
 
@@ -113,10 +113,11 @@ Because the captures are sorted and the wanted times only move forward, this is 
 single walk over the list, not a scan per output frame.
 
 **A GIF aside that belongs with the sampling:** GIF stores frame delays in
-hundredths of a second, so only frame rates dividing 100 land on an exact delay —
-**50 / 25 / 20 / 10**. Anything else is silently rounded by every viewer, which
-makes playback speed subtly wrong and impossible to debug from the file. Say so
-rather than rounding quietly.
+hundredths of a second, so only frame rates dividing 100 land on an exact delay
+(100, 50, 25, 20, 10, 5, 4, 2, 1) — of which **50 / 25 / 20 / 10** are the
+useful clip rates and the reference tool's accepted set. Anything else is
+silently rounded by every viewer, which makes playback speed subtly wrong and
+impossible to debug from the file. Say so rather than rounding quietly.
 
 ## Usage sketch
 
@@ -128,6 +129,10 @@ mkdir -p "$SCRATCH"
 
 # 1. Capture. Release build, so the frame budget is the game's and not the
 #    debugger's. Always cap the frame count — 600 frames is ten seconds.
+#    The cap stops the CAPTURE, not the game: play the take, then quit the game
+#    normally (or drive it with an input replay, which auto-exits at the end).
+#    If you kill it mid-write instead, the assembler names the truncated final
+#    frame and refuses — delete that file and re-run.
 MONODREAMS_DEBUG_DIR="$SCRATCH" \
 MONODREAMS_SCREENSHOT=raw \
 MONODREAMS_SCREENSHOT_MAX_FRAMES=600 \
@@ -186,7 +191,8 @@ doing this without one.
 ## Reference implementation
 
 [`tools/frames-to-gif.py`](https://github.com/roo-oliv/gmtk-2026gj/blob/main/tools/frames-to-gif.py)
-in `roo-oliv/gmtk-2026gj`.
+in `roo-oliv/gmtk-2026gj` (recipe validated against commit `26d3729`; the link
+tracks `main`).
 
 This is the implementation to **copy and adapt**, not a dependency to install.
 The engine deliberately does not vendor the script — assembling a clip is a

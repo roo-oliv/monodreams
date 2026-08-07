@@ -79,7 +79,7 @@ File names are self-describing, so the directory needs no manifest that can fall
 - **Desktop** — pipe the raw frames to the **ffmpeg binary MGCB already bundles**, on a background thread. The engine's job ends at producing exact frames at full rate; muxing them is a tooling concern outside the frame loop.
 - **Web** — `canvas.captureStream()` + `MediaRecorder`. The browser encodes the canvas natively; an engine-side encoder would be strictly worse and would need a filesystem the platform doesn't have (which is also why the Demos host builds its env capture under `#if !MONODREAMS_WEB`).
 
-The documented recipe for the desktop half — parsing the raw filename contract and assembling the frames into an animated GIF, including the three artefacts (fractional-factor shimmer, per-frame palette crawl, index decimation) that make a naive assembler look wrong — is [`docs/recipes/frames-to-gif.md`](../../../docs/recipes/frames-to-gif.md).
+The documented recipe for the desktop half — parsing the raw filename contract and assembling the frames into an animated GIF, including the three artefacts (fractional-factor shimmer, per-frame palette crawl, index-decimation judder) that make a naive assembler look wrong — is [`docs/recipes/frames-to-gif.md`](../../../docs/recipes/frames-to-gif.md).
 
 ## Cross-module dependencies
 

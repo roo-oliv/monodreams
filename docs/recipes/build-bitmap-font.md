@@ -100,10 +100,13 @@ script with the threshold pass disabled.
   neighbour's edge column can bleed into a sampled glyph edge under any
   filtering.
 - **A character the face lacks must be reported, not shipped.** Rasterise a
-  private-use codepoint (U+E000 — no real face maps it) to get the face's
-  `.notdef` bitmap, then compare every requested character's mask against it and
-  skip + print the matches. Otherwise the atlas quietly ships tofu boxes that
-  only surface on screen, in a string nobody tested.
+  codepoint the face does not map to get its `.notdef` bitmap, then compare
+  every requested character's mask against it and skip + print the matches.
+  The reference tool probes with U+E000 — most text faces leave the private-use
+  area unmapped — but icon fonts and some pixel faces DO map it, so verify
+  against the face's cmap (e.g. with `fontTools`), or pick a codepoint the face
+  verifiably lacks, before trusting the probe. Otherwise the atlas quietly
+  ships tofu boxes that only surface on screen, in a string nobody tested.
 
 ## The web head takes the same pair
 
@@ -146,7 +149,9 @@ entity.Set(new DynamicTextComponent
 });
 ```
 
-**Dependencies:** Pillow (`python3 -m pip install Pillow`). Nothing else.
+**Dependencies:** Pillow (`python3 -m pip install Pillow`) — the generator
+itself needs nothing else. Building and loading the output is the game's
+normal content stack (MGCB, MonoGame/KNI).
 
 ## Adapt these
 
@@ -167,7 +172,8 @@ The reference script is written for one game. When you copy it:
 ## Reference implementation
 
 [`tools/build-bitmap-font.py`](https://github.com/roo-oliv/gmtk-2026gj/blob/main/tools/build-bitmap-font.py)
-in `roo-oliv/gmtk-2026gj`.
+in `roo-oliv/gmtk-2026gj` (recipe validated against commit `26d3729`; the link
+tracks `main`).
 
 This is the implementation to **copy and adapt**, not a dependency to install.
 The engine deliberately does not vendor the script: tooling of this shape ships

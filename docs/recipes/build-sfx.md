@@ -1,15 +1,16 @@
 # Recipe — deterministic sfxr-style sound effects
 
 > Synthesise a game's sound effects as short 16-bit mono WAVs from a script, so
-> the origin is known, the licence question never arises, and re-running the
-> script produces byte-identical files.
+> the origin is known, no third-party licence attaches to the audio, and
+> re-running the script produces byte-identical files.
 
 Placeholder audio has a sourcing problem, not a quality problem. "Only free
 sounds, and I need to know the origin so I can credit it" is a constraint that
 costs hours per sound to satisfy from asset packs, and third-party terms can
 change after shipping. Generating the sounds answers it completely and
 permanently: **the origin is the script**, there is nothing to attribute, and no
-external terms exist to change. It also makes every sound *tweakable* — if the
+external terms attach to the generated audio. (The adapted script itself is
+vendored code like any other — it keeps whatever terms its source grants.) It also makes every sound *tweakable* — if the
 coin is too bright, edit a number and re-run, which is not true of a downloaded
 clip.
 
@@ -37,10 +38,14 @@ wants — and small enough to read in one sitting:
   everything in RAM as `SoundEffect` (see below).
 
 **Determinism is the load-bearing property.** The noise generator is a tiny LCG
-**seeded per sound**, so "noise" is reproducible across runs and machines: two
-runs produce byte-identical WAVs and the repo sees no churn. Nothing reads the
-clock, `random` without a seed, or the filesystem. That is what makes the files
-safe to commit and the script safe to re-run.
+**seeded per sound**, so "noise" is reproducible run to run: on the same
+toolchain, two runs produce byte-identical WAVs and the repo sees no churn. (The
+LCG is pure integer math; the tone generators go through `math.sin` — the
+platform's libm — so byte-identity across *machines* holds in practice but is
+only guaranteed per toolchain. A quick hash comparison settles it where it
+matters.) Nothing reads the clock, unseeded randomness, or any input beyond the
+script itself. That is what makes the files safe to commit and the script safe
+to re-run.
 
 **One guard worth copying: a do-not-overwrite list.** Once a synthesised
 placeholder has been replaced by a licensed or recorded clip, re-running the
@@ -56,15 +61,16 @@ numpy to install.
 
 ## Feeding the engine
 
-The output is plain `.wav`, which is exactly what the
-[`audio`](../../MonoDreams/audio/docs/overview.md) module consumes. The module is
+The output is plain `.wav` — the source asset the content pipeline builds into
+the `SoundEffect` the [`audio`](../../MonoDreams/audio/docs/overview.md) module
+consumes at runtime. The module is
 `SoundEffect`-only — one XNA API that behaves identically on MonoGame DesktopGL
 and KNI/BlazorGL — and reaches it through `ContentAudioPlayer`, the default
 `IAudioPlayer` backed by `ContentManager.Load<SoundEffect>` and cached per key.
 
 1. **Add each WAV to `Content.mgcb`** with the sound-effect importer/processor:
 
-   ```
+   ```text
    #begin Sounds/hit.wav
    /importer:WavImporter
    /processor:SoundEffectProcessor
@@ -155,7 +161,8 @@ changed between two runs is the number you edited.
 ## Reference implementation
 
 [`tools/build-sfx.py`](https://github.com/roo-oliv/gmtk-2026gj/blob/main/tools/build-sfx.py)
-in `roo-oliv/gmtk-2026gj`.
+in `roo-oliv/gmtk-2026gj` (recipe validated against commit `26d3729`; the link
+tracks `main`).
 
 This is the implementation to **copy and adapt**, not a dependency to install.
 The engine deliberately does not vendor the script: a game's sound vocabulary,
