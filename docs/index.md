@@ -40,6 +40,19 @@ optional `Open questions`, `Aspirational direction`, and `Follow-up debt`
 sections at the bottom. See [`CORE_TENETS.md`](CORE_TENETS.md) §"Premises"
 for the full convention.
 
+## Recipes
+
+Asset- and capture-pipeline **tooling recipes**: procedures the engine documents
+but deliberately does not vendor as CLI commands or scripts. Each page states the
+problem, the traps, and a reference implementation to copy and adapt into your own
+game's `tools/`.
+
+| Recipe | What it's for |
+|---|---|
+| [`recipes/build-bitmap-font.md`](recipes/build-bitmap-font.md) | Turn a `.ttf` into the (`.png` + BMFont XML `.fnt`) pair the content pipeline builds — the only route to a `BitmapFont` the text path accepts, since `.spritefont` yields a `SpriteFont` nothing in the render path takes. |
+| [`recipes/frames-to-gif.md`](recipes/frames-to-gif.md) | Assemble a `MONODREAMS_SCREENSHOT=raw` capture into an animated GIF: the raw filename contract, whole-factor nearest-neighbour scaling, one shared palette, time-based sampling. |
+| [`recipes/build-sfx.md`](recipes/build-sfx.md) | Synthesise deterministic sfxr-style SFX as short mono WAVs — placeholder audio with a known origin, no third-party terms, byte-identical re-runs — and wire them through the `audio` module. |
+
 ## Review flows (lenses)
 
 One flow doc per module, under [`flows/`](flows/). Each reads like a
