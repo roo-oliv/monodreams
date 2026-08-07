@@ -30,7 +30,7 @@ This module is the engine's source of sound. It covers the four playback shapes 
 ### Seam
 
 - `IAudioPlayer` — the playback seam (`Play → handle`, `Stop`, `Pause`, `Resume`, `SetVolume/SetPitch/SetPan`, `IsPlaying`). Unit tests inject a fake; games normally never touch it
-- `ContentAudioPlayer` — default implementation backed by `ContentManager.Load<SoundEffect>` (cached per key). Degrades to a silent no-op (single `Logger.Warning`) when the machine has no audio backend — headless/CI safety
+- `ContentAudioPlayer` — default implementation backed by `ContentManager.Load<SoundEffect>` (cached per key). Degrades to a silent no-op (single `Logger.Warning`) when the machine has no audio backend — headless/CI safety. Its `Preload(IEnumerable<string>)` warms that cache from a loading moment, so no `Play` of a successfully warmed key pays the disk-read + PCM decode mid-frame (an unwarmed game hitches once per distinct sound, which reads as a gameplay bug). Warming is an optimisation and never a gate: a key that fails to load is logged and skipped, staying on the lazy path in `Play`, and backend absence short-circuits the whole warm. `Preload` is deliberately not on `IAudioPlayer` — it's a content-pipeline concern of this implementation, not part of the playback seam
 
 ## Pipeline wiring
 
@@ -39,7 +39,7 @@ var audioPlayer = new ContentAudioPlayer(content);
 pipeline.Add(new AudioSystem(world, audioPlayer));
 ```
 
-Position in the pipeline does not matter for correctness (the system only talks to the audio backend), but registering it after game logic means same-frame state changes are heard the frame they happen. In edit-capable screens register it with `EditTimeBehavior.Freeze` — audio is game logic. Note the Freeze boundary: it stops *reconciliation*, not already-live instances (an ambient loop keeps sounding in Edit) — see the premises for the full contract. The reference registration is the module demo (`demo/AudioDemoScreen.cs`).
+Registering the system is the load-bearing act: forget it and every `PlaySoundRequest` publishes into a world with no listener while every `AudioSourceComponent` sits inert — a silently mute game, with no exception and no log line to debug from (see the premises; DefaultEcs exposes no subscriber count, so there is no runtime tripwire for it). Position in the pipeline does not matter for correctness (the system only talks to the audio backend), but registering it after game logic means same-frame state changes are heard the frame they happen. In edit-capable screens register it with `EditTimeBehavior.Freeze` — audio is game logic. Note the Freeze boundary: it stops *reconciliation*, not already-live instances (an ambient loop keeps sounding in Edit) — see the premises for the full contract. The reference registration is the module demo (`demo/AudioDemoScreen.cs`).
 
 ## Cross-module dependencies
 
@@ -52,7 +52,7 @@ Position in the pipeline does not matter for correctness (the system only talks 
 
 ## Known limitations (v1)
 
-- **Long music is held in RAM** (~10 MB per minute of stereo 44.1 kHz): everything goes through `SoundEffect`, including music. Streaming via `Song`/`MediaPlayer` was deliberately not used (global single-track singleton, second-way-to-do-it) — a streaming path is a named follow-up.
+- **Long music is held in RAM** (~10 MB per minute of stereo 44.1 kHz): everything goes through `SoundEffect`, including music. Streaming via `Song`/`MediaPlayer` was deliberately not used (global single-track singleton, second-way-to-do-it) — a streaming path is a named follow-up. Before building one, read the premises entry "`MediaPlayer` is one stream": a failed `Song` load must stop the stream, or a failed track swap resurrects the previous track.
 - **`Loop` applies at start only** — XNA's `IsLooped` cannot change on a live instance. Stop and restart the source to change it.
 
 ## Demo
