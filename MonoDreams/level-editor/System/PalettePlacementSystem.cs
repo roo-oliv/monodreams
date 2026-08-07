@@ -581,11 +581,47 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
             _items.Add(CreateItem(entry));
 
         if (_catalog.Entries.Count == 0 && _triggerItems.Count == 0)
-            _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
+            _emptyHint = CreateLabel(EmptyPaletteHint());
 
         _scroll = 0;
         _laidOutScroll = -1; // force PositionChrome to re-run next Update
+
+        // Live re-skin (pixel-art wave — the Blender-material behavior): every already-placed
+        // `file:` sprite re-resolves its texture through the invalidated loader, so editing or
+        // replacing a PNG updates the placed world in place. Whole-texture sprites follow the new
+        // dimensions (unscaled ones keep rendering unscaled); region sprites keep their authored
+        // source rects (the sheet changed, the region grid didn't).
+        ReskinPlacedSprites();
+
         Logger.Info($"[level-editor] Palette refreshed: {_catalog.Entries.Count} item(s).");
+    }
+
+    /// <summary>Re-resolves the textures of every placed <c>file:</c>-keyed sprite (see
+    /// <see cref="Refresh"/>). The loader was just invalidated, so each key decodes fresh.</summary>
+    private void ReskinPlacedSprites()
+    {
+        var reskinned = 0;
+        foreach (var entity in _placedProps.GetEntities())
+        {
+            ref var sprite = ref entity.Get<SpriteInfoComponent>();
+            if (sprite.AssetKey is not { } key || !FileAssetKey.TryParse(key, out _, out _)) continue;
+            var old = sprite.SpriteSheet;
+            var texture = _textures.Load(key);
+            if (texture == null || ReferenceEquals(texture, old)) continue;
+
+            var wasWholeTexture = old != null && sprite.Source == old.Bounds;
+            var wasUnscaled = Math.Abs(sprite.Size.X - sprite.Source.Width) < 0.01f &&
+                              Math.Abs(sprite.Size.Y - sprite.Source.Height) < 0.01f;
+            sprite.SpriteSheet = texture;
+            if (wasWholeTexture)
+            {
+                sprite.Source = new Rectangle(0, 0, texture.Width, texture.Height);
+                if (wasUnscaled) sprite.Size = new Vector2(texture.Width, texture.Height);
+            }
+            reskinned++;
+        }
+        if (reskinned > 0)
+            Logger.Info($"[level-editor] Refresh re-skinned {reskinned} placed file: sprite(s).");
     }
 
     public void Update(GameState state)
@@ -641,6 +677,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
                 _laidOutBottomTab != _shellState.ActiveBottomTab)
                 PositionChrome(strip, scale);
             ReflectState(state, hovered, editing);
+            AnimatePreviews(state); // animated entries' cards cycle frames (pixel-art wave)
         }
     }
 
@@ -904,7 +941,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         // stamps a linked instance at the snapped cursor through placePrefab (an undoable command).
         if (_armedPrefab != null)
         {
-            UpdatePrefabGhostAndPlace();
+            UpdatePrefabGhostAndPlace(state.TotalTime);
             return;
         }
 
@@ -929,12 +966,17 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         var entry = _catalog.Entries[_armedIndex];
         var band = ResolveBand(entry); // marked band if set, else the global selector (FW3)
         var texture = _textures.Load(entry.AssetKey); // lazy + memoized; magenta when missing
+        // The GHOST of an animation-folder entry cycles its frames (previews are live); the STAMP
+        // below keeps the base (frame-0) texture — the placed entity's SpriteAnimation owns playback.
+        var ghostTexture = EntryFrameKey(entry, state.TotalTime) is { } frameKey
+            ? _textures.Load(frameKey) ?? texture
+            : texture;
 
         foreach (var cursor in _cursorSet.GetEntities())
         {
             ref readonly var input = ref cursor.Get<CursorInputComponent>();
 
-            EnsureGhost(entry, band, texture);
+            EnsureGhost(entry, band, ghostTexture);
             if (input.OutsideViewport)
             {
                 // The pointer is over chrome/margins: WorldPosition is stale there, so hide the
@@ -1210,12 +1252,17 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// (positioned exactly where the placed instance's sprite will land — root at the snapped cursor +
     /// the sprite's prefab-space offset) follows the cursor; a spriteless prefab (or missing art) shows a
     /// crosshair instead. A left-button press stamps a linked instance at the snapped cursor.</summary>
-    private void UpdatePrefabGhostAndPlace()
+    private void UpdatePrefabGhostAndPlace(double totalTime)
     {
         var preview = ArmedPrefabPreview();
         // A prefab WITH a sprite shows the sprite ghost (even if its art is missing → the magenta
         // placeholder, exactly like the asset ghost); a SPRITELESS prefab shows the crosshair.
-        var texture = preview is { } p ? _textures.Load(p.AssetKey) : null;
+        // An ANIMATED dominant sprite cycles its frames (pixel-art wave: previews are live).
+        var texture = preview is { } p
+            ? _textures.Load(p.SequenceFrames is { Count: > 1 } frames
+                ? frames[PreviewFrame(totalTime, frames.Count)]
+                : p.AssetKey)
+            : null;
 
         foreach (var cursor in _cursorSet.GetEntities())
         {
@@ -1352,7 +1399,7 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         }
 
         if (_catalog.Entries.Count == 0 && _triggerItems.Count == 0)
-            _emptyHint = CreateLabel("Palette empty - drop packs into Content/Island/ (see MANIFEST.md)");
+            _emptyHint = CreateLabel(EmptyPaletteHint());
 
         _scrollTrack = CreateScrollMesh();
         _scrollThumb = CreateScrollMesh();
@@ -1362,6 +1409,87 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
         BuildPrefabCards();
 
         _built = true;
+    }
+
+    /// <summary>Seconds per frame for shelf/ghost preview animation (the same default the placed
+    /// <c>SpriteAnimationComponent</c> uses).</summary>
+    private const float PreviewFrameSeconds = 0.12f;
+
+    /// <summary>The looping preview frame index at <paramref name="totalTime"/>.</summary>
+    private static int PreviewFrame(double totalTime, int count) =>
+        count <= 1 ? 0 : (int)(totalTime / PreviewFrameSeconds) % count;
+
+    /// <summary>The <c>file:</c> key of an animation-folder entry's CURRENT preview frame, or null
+    /// for a static entry.</summary>
+    private static string? EntryFrameKey(AssetCatalogEntry entry, double totalTime) =>
+        entry.SequenceFrames is { Count: > 1 } frames
+            ? FileAssetKey.Compose(frames[PreviewFrame(totalTime, frames.Count)], regionName: null)
+            : null;
+
+    /// <summary>
+    /// Animates the shelf previews (pixel-art wave): every VISIBLE card whose entry is an
+    /// animation folder — and every prefab card whose dominant sprite is animated — cycles its
+    /// thumbnail frames on the shared clock. Frame textures come from the same memoized loader the
+    /// static thumbnails use (all frames cached after one cycle); parked/scrolled-out cards and
+    /// static entries cost nothing.
+    /// </summary>
+    private void AnimatePreviews(GameState state)
+    {
+        if (_viewportManager == null) return;
+        var scale = _viewportManager.DevicePixelRatio;
+        var strip = PaletteStrip(scale);
+
+        if (PrefabsTabActive)
+        {
+            foreach (var card in _prefabItems)
+            {
+                if (card.Preview is not { SequenceFrames: { Count: > 1 } frames }) continue;
+                if (!PaletteLayout.TryCardRect(strip, card.Flowed, _scroll, out var rect, scale)) continue;
+                var texture = _textures.Load(frames[PreviewFrame(state.TotalTime, frames.Count)]);
+                if (texture == null || ReferenceEquals(texture, _textures.Placeholder)) continue;
+
+                var box = PaletteLayout.CardIconRect(rect, scale);
+                var dest = PaletteLayout.ThumbnailFit(box, texture.Width, texture.Height);
+                var draw = card.Thumbnail.Get<DrawComponent>();
+                draw.Texture = texture;
+                draw.SourceRectangle = new Rectangle(0, 0, texture.Width, texture.Height);
+                draw.Position = new Vector2(dest.X, dest.Y);
+                draw.Size = new Vector2(dest.Width, dest.Height);
+            }
+            return;
+        }
+
+        foreach (var item in _items)
+        {
+            if (EntryFrameKey(item.Entry, state.TotalTime) is not { } frameKey) continue;
+            if (!PaletteLayout.TryCardRect(strip, item.Flowed, _scroll, out var rect, scale)) continue;
+            var texture = _textures.Load(frameKey);
+            if (texture == null || ReferenceEquals(texture, _textures.Placeholder)) continue;
+
+            var box = PaletteLayout.CardIconRect(rect, scale);
+            var dest = PaletteLayout.ThumbnailFit(box, texture.Width, texture.Height);
+            var draw = item.Thumbnail.Get<DrawComponent>();
+            draw.Texture = texture;
+            draw.SourceRectangle = new Rectangle(0, 0, texture.Width, texture.Height);
+            draw.Position = new Vector2(dest.X, dest.Y);
+            draw.Size = new Vector2(dest.Width, dest.Height);
+        }
+    }
+
+    /// <summary>The empty-Assets-tab hint, naming the ACTUAL scan folder when the catalog knows it
+    /// (a rescannable catalog) so the designer learns where to drop art without reading docs.</summary>
+    private string EmptyPaletteHint() => _catalog.RootAbsolutePath is { } root
+        ? $"Palette empty - drop PNGs into {TailPath(root)} (toolbar Refresh rescans)"
+        : "Palette empty - no asset folder is configured for this screen";
+
+    /// <summary>The last two segments of <paramref name="path"/> — enough to identify the drop
+    /// folder without flooding the strip with an absolute path.</summary>
+    private static string TailPath(string path)
+    {
+        var trimmed = path.TrimEnd('/', '\\');
+        var parent = global::System.IO.Path.GetFileName(global::System.IO.Path.GetDirectoryName(trimmed) ?? string.Empty);
+        var name = global::System.IO.Path.GetFileName(trimmed);
+        return string.IsNullOrEmpty(parent) ? name : parent + "/" + name;
     }
 
     /// <summary>The double-click window (seconds) for a prefab card = Edit.</summary>
@@ -1471,10 +1599,13 @@ public sealed class PalettePlacementSystem : ISystem<GameState>
     /// glance amid the sprite items.</summary>
     public static string TriggerLabel(TriggerType type) => $"[T] {type.Label}";
 
-    /// <summary>An item's strip label: <c>folder/name</c> so the folder grouping reads at a
-    /// glance (entries are already sorted folder-first).</summary>
+    /// <summary>An item's CARD label — the shortest string that still distinguishes the card,
+    /// because the card width truncates from the right: a sliced/auto-grid region shows its region
+    /// name alone (<c>r00c01</c> — the sheet identity is the thumbnail + folder order; the old
+    /// <c>folder/stem#region</c> truncated into N identical labels), everything else its stem.
+    /// The full id stays on <see cref="AssetCatalogEntry.Label"/> (entity naming, dedupe, ops).</summary>
     public static string ItemLabel(AssetCatalogEntry entry) =>
-        string.IsNullOrEmpty(entry.Folder) ? entry.Label : $"{entry.Folder}/{entry.Label}";
+        entry.RegionName ?? entry.Label;
 
     /// <summary>The synthetic band every placement uses under the layers model: depth 0.5 is the
     /// WITHIN-LAYER key's midpoint (the layer's slice position comes from the scene-layer remap);

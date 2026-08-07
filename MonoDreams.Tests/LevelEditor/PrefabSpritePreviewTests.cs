@@ -11,6 +11,11 @@ namespace MonoDreams.Tests.LevelEditor;
 /// walk must descend), and its placement fields are the sprite's WORLD transform within the prefab so
 /// the ghost lands where the placed instance's sprite will. Names the premise "Prefab cards + placement
 /// ghost show the prefab's dominant sprite" in MonoDreams/level-editor/docs/premises.md.
+///
+/// <para>The drop-a-PNG wave adds the animated case: when that same entity also carries a
+/// <c>core.SpriteAnimation</c> with two or more keyed frames, the preview surfaces them as
+/// <c>SequenceFrames</c> (in play order) so the card and the ghost cycle; a static sprite — or a
+/// single-keyed-frame clip — resolves to null.</para>
 /// </summary>
 public class PrefabSpritePreviewTests
 {
@@ -114,5 +119,84 @@ public class PrefabSpritePreviewTests
     public void TryResolve_ReturnsFalse_ForNullPrefab()
     {
         Assert.False(PrefabSpritePreview.TryResolve(null, out _));
+    }
+
+    // ---- Animated previews (drop-a-PNG wave): the dominant sprite's frame keys ride along ----
+
+    [Fact]
+    public void TryResolve_ReadsSequenceFrames_FromTheDominantSpritesAnimation()
+    {
+        // A torch prefab built from a `.anim` folder: the dominant sprite entity carries BOTH the
+        // frame-0 SpriteInfo and the core.SpriteAnimation clip. The shelf card and the placement
+        // ghost cycle those frame keys, so the preview must surface them in play order.
+        const string animated = """
+        {
+          "version": 1,
+          "entities": [
+            {
+              "id": 0,
+              "components": {
+                "core.SpriteInfo": {
+                  "assetKey": "file:Island/fx/Torch.anim/1.png", "source": [0, 0, 16, 32],
+                  "origin": [8, 32], "target": 0, "layerDepth": 0.45
+                },
+                "core.SpriteAnimation": {
+                  "frames": [
+                    { "assetKey": "file:Island/fx/Torch.anim/1.png", "source": [0, 0, 0, 0], "duration": 0 },
+                    { "assetKey": "file:Island/fx/Torch.anim/2.png", "source": [0, 0, 0, 0], "duration": 0 },
+                    { "assetKey": "file:Island/fx/Torch.anim/10.png", "source": [0, 0, 0, 0], "duration": 0 }
+                  ],
+                  "defaultFrameDuration": 0.12, "loop": true, "speed": 1
+                },
+                "core.Transform": { "position": [0, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+              }
+            }
+          ]
+        }
+        """;
+
+        Assert.True(PrefabSpritePreview.TryResolve(Prefab("torch", animated), out var preview));
+
+        Assert.Equal("file:Island/fx/Torch.anim/1.png", preview.AssetKey); // frame 0 is still the base
+        Assert.NotNull(preview.SequenceFrames);
+        Assert.Equal(
+            new[]
+            {
+                "file:Island/fx/Torch.anim/1.png",
+                "file:Island/fx/Torch.anim/2.png",
+                "file:Island/fx/Torch.anim/10.png",
+            },
+            preview.SequenceFrames!);
+    }
+
+    [Fact]
+    public void TryResolve_SequenceFramesIsNull_ForAStaticSpriteOrASingleKeyedFrame()
+    {
+        // No animation at all: the card/ghost stay a still image.
+        Assert.True(PrefabSpritePreview.TryResolve(Prefab("house", HouseJson), out var still));
+        Assert.Null(still.SequenceFrames);
+
+        // A one-keyed-frame clip is not a sequence either — cycling one frame is a still image with
+        // extra work, and "SequenceFrames != null" is what the card reads as "animate me".
+        const string oneFrame = """
+        {
+          "version": 1,
+          "entities": [
+            {
+              "id": 0,
+              "components": {
+                "core.SpriteInfo": { "assetKey": "file:one.png", "source": [0, 0, 16, 16], "target": 0, "layerDepth": 0.2 },
+                "core.SpriteAnimation": {
+                  "frames": [ { "assetKey": "file:one.png", "source": [0, 0, 0, 0], "duration": 0 } ],
+                  "defaultFrameDuration": 0.12, "loop": true, "speed": 1
+                },
+                "core.Transform": { "position": [0, 0], "rotation": 0, "scale": [1, 1], "origin": [0, 0] }
+              }
+            }
+          ]
+        }
+        """;
+        Assert.True(PrefabSpritePreview.TryResolve(Prefab("one", oneFrame), out var single));
+        Assert.Null(single.SequenceFrames);
     }
 }

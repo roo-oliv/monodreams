@@ -2542,12 +2542,16 @@ duplicate guard, cell-scoped).
 
 A placed prop's `SpriteInfoComponent.AssetKey` may use the `file:` scheme
 (`"file:Island/props/tree01.png"`, optional `#region` suffix for a sliced-sheet entry): the
-texture is loaded at runtime — `Texture2D.FromStream` over `TitleContainer.OpenStream`, lazy and
-memoized per PNG (`FileAssetTextureLoader`) — from the gitignored asset drop folder
+texture is loaded at runtime — `Texture2D.FromStream` over the portable content stream, lazy and
+memoized per PNG (`FileAssetTextureLoader`; the full source-tree → build-output → content-key
+resolution order is its own premise, "The `file:` ladder degrades dev machine → packaged platform,
+and never assumes a filesystem", below) — from the gitignored asset drop folder
 (`Content/Island/`, copied raw to the output content dir; its committed `MANIFEST.md` names the
-packs). The catalog scan (`AssetCatalog.Scan`) reads **only** the directory listing + the
-`*.slices.json` sidecars, never a PNG (`TitleContainer` cannot enumerate, so the scan is
-host-filesystem — desktop-editor-first). A **missing file at load is a loud `Logger.Warning` plus
+packs). The catalog scan (`AssetCatalog.Scan`) reads **only** the directory listing, the
+`*.slices.json` sidecars, and — for a `(NxM)`-marked auto-grid sheet — that PNG's fixed-offset
+24-byte IHDR header; it **never DECODES a PNG** (`TitleContainer` cannot enumerate, so the scan is
+host-filesystem — desktop-editor-first). A **missing file at load, after every rung of the ladder
+misses, is a loud `Logger.Warning` plus
 the shared visible magenta placeholder texture, never an invisible entity**. The region suffix
 identifies the palette entry only — loading always opens the base PNG and the region's `Source`
 rect is serialized on the sprite itself, so scenes survive sidecar changes. When art finalizes,
@@ -2561,7 +2565,9 @@ be missing files, which must fail visibly, not silently).
 **Breaks:** silent-missing assets produce invisible entities that look like data loss; eager
 texture loads at scan turn startup O(catalog); shipping `file:` keys to web breaks (no directory
 scan there) — the graduation step is the exit.
-**Tests:** `MonoDreams.Tests/LevelEditor/AssetCatalogTests.cs` (scan/sidecars/lazy/missing),
+**Tests:** `MonoDreams.Tests/LevelEditor/AssetCatalogTests.cs` (scan/sidecars/lazy/missing, plus
+`AutoGridTest_NxMMarkerSlicesTheSheetFromItsIhdrHeader` — its fixtures are 24 header bytes and
+nothing else, so a passing grid proves the scan never decodes),
 `SceneRoundTripTests.cs` (`FileAssetKeyRoundTripTest`, `MissingFileAssetOnReloadTest`).
 **Depends on:** this file — "`SpriteInfoComponent` serializes an `AssetKey`, never the live
 `Texture2D`" (this premise extends the key's grammar); level-loading — "Native `.mdscene` levels are
@@ -4100,6 +4106,65 @@ camera entity's `WorldPosition` + `CameraComponent.Zoom` are the projected
 frame); rendering-text — "`TextPrepSystem` writes the world-transformed
 position"; foundation — "Edit-time behaviour is a per-system policy honoured by
 `GatedSystem`".
+
+## The `file:` ladder degrades dev machine → packaged platform, and never assumes a filesystem
+
+A placed sprite's `file:Art/…png` AssetKey resolves through an ordered **ladder that degrades from
+dev machine to packaged platform**, walked by `FileAssetTextureLoader.Load` and stopping at the first
+rung that produces a texture:
+
+1. **The filesystem rung** — the loader's configured content root joined with the key's relative path,
+   opened by `FileAssetTextureLoader.OpenContentStream`. Which *kind* of read that is follows from the
+   root the screen configured, and the function decides per call:
+   - a **source tree** root (ABSOLUTE — a screen may inject one so dropped art loads live with no
+     rebuild) is read with **direct file IO**, because `TitleContainer.OpenStream` throws on a rooted
+     path *by contract*. This is the dev-time live loop: re-export a PNG, press Refresh, and the
+     placed world re-skins in place;
+   - the default **build-output** root (relative, `Content/`) is read through **`TitleContainer`** —
+     the portable, enumerate-free content stream the scene reader already uses.
+2. **The MGCB content key for the same path minus its extension** —
+   `Island/props/tree01.png` → `Island/props/tree01`, i.e. the `.xnb` the pipeline built — served
+   through the loader's optional `resolveContentKey` seam (which also serves plain, non-`file:`
+   content keys directly, memoized identically). Only when this rung *also* misses does the loader log
+   a `Logger.Warning`, record the path in `MissingPaths`, and hand back the shared magenta placeholder.
+
+The **content-key rung is the portable floor, and it is the load-bearing one**. Browser, mobile,
+console and VR are
+all *packaged platforms*: there is no source tree, no drop folder, and no directory to enumerate —
+content ships through the pipeline or it does not ship. So **nothing in the asset loop may assume a
+filesystem exists at runtime**: every path goes through the platform abstraction and the ladder
+terminates in the one mechanism every platform has (`TitleContainer` / `ContentManager`). The
+authoring consequence is that a `file:` key is not a desktop-only key — it is a key that *prefers* the
+fast local loop and *degrades* to the shipped content, so graduating art at ship time is "add it to
+`Content.mgcb`", never "rewrite every key in every scene". (Shipping with zero `file:` keys is still
+the ship-ready lint — the ladder makes a stray one render correctly instead of magenta, it does not
+make the lint optional.) The whole ladder is memoized per key, so a miss costs one walk, not one
+per frame.
+
+**Why:** an editor-authored scene must render identically on every packaged platform — "what you edit
+is what ships" is meaningless if the art only resolves on the machine that authored it. The web build
+is what proved the content-key rung: the PNGs are simply not there to open in a browser, but their
+`.xnb` is, and the same scene, sheet and animation keys have to resolve against it unchanged.
+**Breaks:** without the content-key rung, scenes render magenta (or blank) the moment they leave the
+authoring machine, and every ship becomes a mechanical rewrite of every AssetKey in every scene and
+prefab — exactly the coupling the `file:` scheme exists to avoid. Without the rooted-path detection,
+`TitleContainer.OpenStream` throws on the editor's absolute content root and kills the editor on boot
+(the regression this premise was written after). Skipping the memoization turns a missing pack into a
+per-frame exception storm; recording the miss anywhere but `MissingPaths` loses the loud signal.
+**Tests:** `MonoDreams.Tests/LevelEditor/AssetCatalogTests.cs` —
+`FileLadderTest_FallsThroughToTheContentKeyWithTheExtensionStripped` (the filesystem rung disabled, as
+on a packaged platform: the extension-stripped content key is asked for, the miss is recorded once,
+and the whole walk is memoized),
+`ContentKeyServingTest_NonFileKeysGoStraightToTheResolver_Memoized`,
+`ContentKeyServingTest_WithoutAResolverTheLegacyPlaceholderBehaviorIsUnchanged`,
+`AbsoluteContentRootTest_OpensARealStreamInsteadOfThrowing` (the rooted-root regression).
+**Depends on:** this file — "`SpriteInfoComponent` serializes an `AssetKey`, never the live
+`Texture2D`" (the ladder is what turns that serialized key back into a texture, so the key must never
+have been a texture handle); this file — "`file:` AssetKeys load drop-folder art at runtime and
+graduate to content keys at ship" (this premise is that premise's load path, spelled out); this file —
+"A scene is ship-ready iff it has zero `file:` AssetKeys" (the ladder is the safety net, the lint is
+the gate); level-loading — "Native `.mdscene` levels are bundled by an MGCB `/copy:` entry and read
+via `TitleContainer`" (the filesystem rung's packaged form is the same portable read seam).
 
 ## See also
 

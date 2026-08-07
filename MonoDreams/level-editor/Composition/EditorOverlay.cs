@@ -163,6 +163,7 @@ public sealed class EditorOverlay
         IReadOnlyList<TriggerType>? triggerTypes = null,
         EditorProjectContext? projectContext = null,
         EditorSession? session = null,
+        FileAssetTextureLoader? assetTextures = null,
         Action<Entity, MonoDreams.Component.Level.TilePaintValue>? configureTileCollider = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -223,8 +224,12 @@ public sealed class EditorOverlay
 
         // The file-asset texture loader is always composed (a loaded scene can carry file: keys
         // whether or not this screen shows a palette); textures load lazily, and a missing file
-        // shows the magenta placeholder instead of an invisible sprite.
-        AssetTextures = new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content");
+        // shows the magenta placeholder instead of an invisible sprite. A screen may inject its
+        // own (e.g. rooted at the SOURCE content tree so dropped art loads live, no rebuild);
+        // the default opens the build-output content dir.
+        AssetTextures = assetTextures
+            ?? new FileAssetTextureLoader(graphicsDevice, content?.RootDirectory ?? "Content",
+                resolveContentKey: content != null ? key => content.Load<Texture2D>(key) : null);
 
         // Prefab resolution (PF-C): source-first via the project context in-editor, else bundled via
         // TitleContainer. The ONE PrefabExpander is shared by the scene reader (below — so a scene with

@@ -75,6 +75,25 @@ public static class SpritePropFactory
             Type = DrawElementType.Sprite,
             Target = RenderTargetID.Main,
         });
+
+        // An animation-folder entry (pixel-art wave) also carries the frame sequence: one
+        // SpriteAnimationComponent whose frames are the folder's PNGs as file: keys, each shown
+        // full-texture (Rectangle.Empty = "the whole frame texture", sizes resolve as frames
+        // load). SpriteAnimationSystem drives it; in Edit the system is Freeze-gated so the
+        // authored sprite holds frame 0.
+        if (entry.IsSequence)
+        {
+            var frames = new SpriteAnimationFrame[entry.SequenceFrames!.Count];
+            for (var i = 0; i < frames.Length; i++)
+                frames[i] = new SpriteAnimationFrame
+                {
+                    AssetKey = FileAssetKey.Compose(entry.SequenceFrames[i], regionName: null),
+                    Source = Rectangle.Empty,
+                    Duration = 0f, // component default
+                };
+            entity.Set(new SpriteAnimationComponent { Frames = frames });
+        }
+
         // No VisibleComponent here: CullingSystem owns it (adds it when the prop enters the
         // camera view, next draw frame). No SceneObjectComponent: the placement path's
         // CreateEntityCommand tags the root; the ghost must never carry it.
