@@ -132,6 +132,14 @@ dotnet run --project MonoDreams.Demos.Web/MonoDreams.Demos.Web.csproj -p:MonoDre
 > `bin/$(Config)/net8.0` output (see `Directory.Build.props`) — the Blazor boot
 > pipeline assumes it; only the shared engine/game libs relocate to `bin/web`.
 
+> **Publishing it is a different problem.** A build that runs fine here — served
+> from the root, uncompressed, off your own machine — can still 404 its way to a
+> black canvas once uploaded, because hosts like itch.io serve each build from a
+> per-build **subpath** and never negotiate `Content-Encoding`. Before your first
+> upload read [`recipes/shipping.md`](recipes/shipping.md): the six failures that
+> only exist in production, and the verify-before-push publish script that catches
+> them.
+
 ### Why the web head is excluded from the `.sln` build
 
 MSBuild `AdditionalProperties` on a `ProjectReference` **does not propagate

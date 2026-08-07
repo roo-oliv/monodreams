@@ -281,6 +281,9 @@ game.Run();
     intentionally excluded from the solution's default build so a plain `dotnet build` of the .sln
     does not try to build it without the property. Requires the `wasm-tools` dotnet workload
     (`dotnet workload install wasm-tools`).
+
+    BEFORE YOUR FIRST UPLOAD (itch.io, GitHub Pages, any static host), read MonoDreams'
+    docs/recipes/shipping.md — the shipping failures a green build cannot catch.
   -->
   <PropertyGroup>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -706,6 +709,9 @@ namespace {{projectName}}.Web.Pages
 
         This is safe because the page is a single canvas with no client-side routing. If you ever add
         real routes, revisit it deliberately rather than by reflex.
+
+        The base href is only the first upload trap — test the build AT a subpath, and prune Blazor's
+        .br/.gz twins for hosts that don't negotiate. See MonoDreams' docs/recipes/shipping.md.
     -->
     <base href="./" />
     <link href="css/app.css" rel="stylesheet" />
