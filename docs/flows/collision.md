@@ -20,13 +20,14 @@ contactPoint/normal/`contactTime`); anything involving a convex collider goes th
 publishes a `CollisionMessage` per shared layer. Detection writes nothing to the world but the
 messages.
 
-Resolution consumes those messages. The kinematic `TransformCollisionResolutionSystem` and the
-mass-aware `TransformPhysicalCollisionResolutionSystem` (a subclass filtering to
-`CollisionType.Physics`) both buffer the frame's collisions, **sort them by `ContactTime`** so the
-earliest contact resolves first, then re-validate each against current positions and correct
-`Transform`: box-vs-box snaps the axis with a non-zero normal (`SetPositionX/Y`) and zeros that
-component of `Velocity.Current`; SAT pushes out along the MTV (`Translate(-normal * penetration)`)
-and removes the velocity component moving into the contact. This is where the **coupling to
+Resolution consumes those messages. `TransformCollisionResolutionSystem` and
+`TransformPhysicalCollisionResolutionSystem` (the same resolution, in a subclass whose only
+override filters to `CollisionType.Physics`) both buffer the frame's collisions, **sort them by
+`ContactTime`** so the earliest contact resolves first, then re-validate each against current
+positions and correct `Transform`: box-vs-box snaps the axis with a non-zero normal
+(`SetPositionX/Y`) and zeros that component of `Velocity.Current`; SAT pushes out along the MTV
+(`Translate(-normal * penetration)`) and removes the velocity component moving into the contact.
+Neither system applies an impulse and neither reads `Mass`. This is where the **coupling to
 `physics`** lives — hard at compile time (resolution and `ColliderBody` open
 `MonoDreams.Component.Physics`, so `collision` declares `physics` in its `module.json`), soft at
 runtime: resolution reads/writes `Velocity.Current` *if present* (no `VelocityComponent` →

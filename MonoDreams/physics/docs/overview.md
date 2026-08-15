@@ -39,7 +39,7 @@ For motion *without* collision: install only this module. `VelocitySystem` write
 
 - **Custom gravity sources.** Write a system that reads `RigidBodyComponent` and adds to `VelocityComponent.Current` before `VelocitySystem` runs (e.g., wind, magnetism, planetary gravity). The single rule: write to `VelocityComponent.Current`, not `Transform.LocalPosition` directly.
 - **Per-entity drag / damping.** Same pattern — a system that runs before `VelocitySystem` scales `Current` down by a damping coefficient.
-- **New `RigidBodyComponent` fields.** Mass is currently consumed by `TransformPhysicalCollisionResolutionSystem`; nothing prevents game systems from reading mass for knockback strength, AI weight classes, etc.
+- **New `RigidBodyComponent` fields.** Mass is consumed by no system today — collision resolution corrects positions without a mass term — so it is free real estate: nothing prevents game systems from reading mass for knockback strength, AI weight classes, etc.
 
 ## See also
 

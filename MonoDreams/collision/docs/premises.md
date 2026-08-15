@@ -243,6 +243,39 @@ re-annotated).
 **Depends on:** this file — "Overlapping bodies depenetrate; only separated ones sweep";
 "Multi-collider bodies are legal; resolution accumulates sequentially with re-validation".
 
+## `TransformPhysicalCollisionResolutionSystem` gates on the message TYPE, not on physics components
+
+The "Physical" resolution system is a subclass of `TransformCollisionResolutionSystem<CollisionMessage>`
+whose *only* difference is its `On` override: it admits a message when
+`CollisionMessage.Type == CollisionType.Physics` and drops every other type. The resolution math it
+then runs is the base class's, unchanged — a positional correction (swept snap, or shortest-exit
+depenetration when the pair already overlaps) plus zeroing the velocity component moving into the
+contact when the body has a `VelocityComponent`. There is **no impulse solver and no mass term**:
+`RigidBodyComponent` is never read by resolution at all (only by `ColliderBody.Resolve`, to pick the
+body), and `RigidBodyComponent.Mass` is not read anywhere in this module. The type is stamped
+upstream by the game's `CreateCollisionMessageDelegate` and defaults to `CollisionType.Generic`, so a
+game that never classifies its contacts gets *nothing* resolved by this system.
+
+**Why:** the split is a policy filter, not a second solver — which is what makes the same detection
+pass serve blocking contacts and non-blocking triggers (a `Dialogue`-typed zone contact reaches the
+game's trigger system and is ignored by resolution, so the zone senses without blocking). Documenting
+it as "impulse/mass resolution that acts on bodies carrying `RigidBodyComponent` + `VelocityComponent`"
+was false on both halves and shipped in `monodreams add collision`'s output (issue #82 review).
+**Breaks:** a dev who believes the gate is component-based attaches `RigidBodyComponent` and waits for
+blocking that never comes (their messages are still `Generic`); one who believes mass is honored tunes
+`Mass` for heavier pushback and sees no effect. Conversely, registering BOTH resolution systems over
+one entity stack corrects each `Physics`-typed contact twice — the filter is what keeps them disjoint,
+so it only works if exactly one of the two is registered per stack.
+**Tests:** `MonoDreams.Tests/Collision/PhysicalResolutionFilterTests.cs` (a fully equipped
+RigidBody+Velocity body is ignored at `Generic`/`Collectible`/`Dialogue` and resolved at `Physics`; a
+`Physics` contact resolves identically with no `RigidBodyComponent` and at any `Mass`);
+`MonoDreams.Tests/Collision/CollisionConsumerAuditTests.cs` —
+`RealPipeline_PlayerBodyWithColliderChild_EntersZone_DialogueFires_AndZoneDoesNotBlock` (the
+sense-without-blocking consequence over the shipping pipeline).
+**Depends on:** this file — "Each collision message is handled exactly once per resolution system"
+(the `[Subscribe]`-free override that carries the filter); physics — "`RigidBodyComponent.IsKinematic`
+selects the resolution path" (which system a stack is subject to is a registration choice).
+
 ## A one-way platform is a resolution FILTER plus a half-thickness collider drop
 
 The engine has no one-way-platform primitive and needs none: the seam already exists as the
@@ -417,10 +450,13 @@ grid replaced the all-pairs loop.
 
 ## The collision module compiles against `physics`, and `module.json` declares it
 
-`collision` has a **hard, compile-time** dependency on the `physics` module:
-`ColliderBody.cs` and `TransformCollisionResolutionSystem.cs` both open
-`MonoDreams.Component.Physics` for `RigidBodyComponent` and `VelocityComponent` — the
-markers body resolution walks for and the fields resolution writes back to. So
+`collision` has a **hard, compile-time** dependency on the `physics` module: two files open
+`MonoDreams.Component.Physics`. `ColliderBody.cs` reads `RigidBodyComponent` and
+`VelocityComponent` as the markers body resolution walks for, and
+`TransformCollisionResolutionSystem.cs` reads `VelocityComponent` to zero the velocity of the
+body it just corrected. That is the entire surface — no collision code reads
+`RigidBodyComponent` outside `ColliderBody`, and none reads `RigidBodyComponent.Mass` at all —
+but two `using` directives are already enough to break the build. So
 `MonoDreams/collision/module.json` lists `physics` in `dependencies`, and `monodreams add
 collision` installs `physics` with it. The coupling is *compile*-time, not *pipeline*-time:
 installing `physics` does not mean registering `GravitySystem`/`VelocitySystem`. A

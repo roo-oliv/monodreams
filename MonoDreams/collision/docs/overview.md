@@ -4,7 +4,7 @@ AABB and SAT collision: tag entities with `BoxColliderComponent` or `ConvexColli
 
 ## Purpose
 
-This module adds spatial collision detection and resolution to entities. Two collider types share the same query target (`ColliderTagComponent`) so detection can broadphase-filter both polymorphically; the narrowphase dispatches to AABB-vs-AABB, SAT, or AABB-vs-SAT as needed. Detection emits `CollisionMessage`, and two resolution systems consume them: one for kinematic (move-and-stop) responses and one for physical (mass + velocity) responses. Game systems also subscribe to `CollisionMessage` for trigger logic — pickups, doorways, dialogue zones — so the same detection serves both physical and trigger collision without forking the pipeline.
+This module adds spatial collision detection and resolution to entities. Two collider types share the same query target (`ColliderTagComponent`) so detection can broadphase-filter both polymorphically; the narrowphase dispatches to AABB-vs-AABB, SAT, or AABB-vs-SAT as needed. Detection emits `CollisionMessage`, and two resolution systems consume them — the same move-and-stop correction, differing only in *which* messages each admits: one takes every message, the other only those tagged `CollisionType.Physics`. Game systems also subscribe to `CollisionMessage` for trigger logic — pickups, doorways, dialogue zones — so the same detection serves both physical and trigger collision without forking the pipeline.
 
 ## What ships
 
@@ -18,8 +18,8 @@ This module adds spatial collision detection and resolution to entities. Two col
 ### Systems
 
 - `TransformCollisionDetectionSystem` — single-threaded; queries `ColliderTagComponent`, broadphase-filters on layers + AABB, narrowphase-tests with AABB or SAT, emits `CollisionMessage` per pair. Generic on the message type via `CreateCollisionMessageDelegate`
-- `TransformCollisionResolutionSystem` — kinematic (trigger-style) resolution: positions adjust to honor contacts without impulse
-- `TransformPhysicalCollisionResolutionSystem` — physical resolution with impulse/mass; acts only on bodies that carry `RigidBodyComponent` + `VelocityComponent`
+- `TransformCollisionResolutionSystem` — resolves every `CollisionMessage` it receives: corrects the **body's** position (swept snap, or shortest-exit depenetration when the pair already overlaps) and zeros the velocity moving into the contact when that body has a `VelocityComponent`. No impulses, no `Mass`
+- `TransformPhysicalCollisionResolutionSystem` — the same resolution narrowed by message *type*: a subclass whose only override admits a message when `CollisionMessage.Type == CollisionType.Physics`. The type is game-set in the `CreateCollisionMessageDelegate` (default `CollisionType.Generic`, which this system ignores), so "Physical" names the filter, not a different solver
 
 ### Messages
 
@@ -38,8 +38,8 @@ This module adds spatial collision detection and resolution to entities. Two col
 1. Attach `BoxColliderComponent` or `ConvexColliderComponent` to the entity. The `ColliderTagComponent` marker is auto-applied; don't add or remove it manually.
 2. In your update pipeline, register these in order **after** `VelocitySystem` (from `physics`) and **before** `TransformCommitSystem` (from `foundation`):
    - **`TransformCollisionDetectionSystem`** — queries colliders, computes overlaps, publishes `CollisionMessage`.
-   - **`TransformCollisionResolutionSystem`** — applies trigger/kinematic resolution.
-   - **`TransformPhysicalCollisionResolutionSystem`** — applies impulse resolution (acts only on bodies carrying `RigidBodyComponent` + `VelocityComponent`).
+   - **`TransformCollisionResolutionSystem`** — corrects positions and clips velocity for every message.
+   - **`TransformPhysicalCollisionResolutionSystem`** — the same correction, admitting only `CollisionType.Physics` messages. Register **one** of the two per entity stack, not both: each handles a given message once, so a `Physics`-tagged contact reaching both is corrected twice.
 3. In game systems, subscribe to `CollisionMessage` for trigger logic — pickups, doorways, dialogue zones.
 
 The reference pipeline order is **Movement → Velocity → Detection → Resolution → Commit**; skipping or reordering silently degrades collision quality (most commonly: missing `TransformCommitSystem` produces no `Transform.Delta`, so swept tests miss fast-moving contacts).
@@ -49,7 +49,7 @@ Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderCo
 ## Cross-module dependencies
 
 - `foundation` — reads `TransformComponent.Position` for AABB world bounds and `Transform.Delta` for swept (CCD-style) tests.
-- `physics` — a **hard, compile-time** dependency, declared in `module.json`. `ColliderBody.Resolve` and `TransformCollisionResolutionSystem` both `using MonoDreams.Component.Physics` (`RigidBodyComponent`, `VelocityComponent`) to find and correct a collider's body, so the collision source does not compile without the `physics` module present. Installing it is not the same as running it: a trigger-only game registers no physics system and pays only the dormant source.
+- `physics` — a **hard, compile-time** dependency, declared in `module.json`. Two files `using MonoDreams.Component.Physics`: `ColliderBody.Resolve` reads `RigidBodyComponent` and `VelocityComponent` as the markers that pick a collider's body, and `TransformCollisionResolutionSystem` reads `VelocityComponent` to zero the velocity of the body it just corrected. That is the whole surface — no collision code reads `RigidBodyComponent` outside `ColliderBody`, and none reads `Mass` at all — but it is enough that the collision source does not compile without the `physics` module present. Installing it is not the same as running it: a trigger-only game registers no physics system and pays only the dormant source.
 
 ## Extension points
 

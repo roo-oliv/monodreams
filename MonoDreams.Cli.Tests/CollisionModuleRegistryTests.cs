@@ -43,6 +43,25 @@ public class CollisionModuleRegistryTests
         Assert.Contains("physics", description, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// <c>postInstallNotes</c> is printed straight into the terminal by <c>monodreams add collision</c>,
+    /// so a wrong claim there is shipped documentation. It used to say
+    /// <c>TransformPhysicalCollisionResolutionSystem</c> "applies impulse separation" and "acts only on
+    /// bodies that carry <c>RigidBodyComponent</c> and <c>VelocityComponent</c>" — both false: the
+    /// subclass's only override admits a message when <c>Type == CollisionType.Physics</c> and then runs
+    /// the base class's positional correction. This pins the notes to naming that real gate; the
+    /// behaviour itself is pinned by
+    /// <c>MonoDreams.Tests/Collision/PhysicalResolutionFilterTests.cs</c>.
+    /// </summary>
+    [Fact]
+    public void PostInstallNotes_NameTheRealGateOnPhysicalResolution()
+    {
+        var notes = LoadRegistry().GetModule("collision").PostInstallNotes;
+
+        Assert.NotNull(notes);
+        Assert.Contains("CollisionType.Physics", notes, StringComparison.Ordinal);
+    }
+
     // Platform is internal to the CLI assembly, so no [Theory] parameter — one Fact per backend.
     [Fact]
     public void Resolver_ResolvesCollisionForDesktop_WithPhysicsFirst() => AssertCollisionResolves(Platform.Desktop);
