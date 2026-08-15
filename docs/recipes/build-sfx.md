@@ -113,7 +113,8 @@ since audio is game logic. See the module's
 **On the web head**, a `.wav` in the `.mgcb` means the KNI content build shells
 out to `ffmpeg`/`ffprobe`, which the KNI builder package does not ship for any
 OS — the build fails with `Failed to open file <name> … not DRM protected` until
-they are staged. See
+they are staged. A head scaffolded by `monodreams init --platform web|multi`
+already stages them; the in-repo heads do it in `PrepareKniContentNativeShim`. See
 [`docs/web-targeting.md`](../web-targeting.md) § "macOS / Linux native-lib shim",
 step 5.
 
