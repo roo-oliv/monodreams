@@ -80,6 +80,15 @@ project. Namespaces stay aligned because C# namespaces are file-path
 independent — the file at `MonoDreams/cursor/Component/CursorController.cs`
 still declares `namespace MonoDreams.Component.Cursor`.
 
+Two things inside a module directory are **not** copied: `demo/` (see
+"Module demos" below) and any `bin/` or `obj/` directory. A registry is
+normally a source checkout, and a module may hold a buildable project of its
+own — `level-ldtk/vendor/LDtkMonogame` ships the vendored LDtk sources with
+their `.csproj` — so a local build leaves build outputs inside the module.
+Copied into a user's project, a generated `AssemblyInfo.cs` lands in their
+compile glob and their first `dotnet build` fails with CS0579 (duplicate
+assembly attributes).
+
 ### Worked example
 
 [`cursor/module.json`](./cursor/module.json) — the smallest
@@ -135,3 +144,52 @@ ajv validate -s MonoDreams/module.schema.json -d 'MonoDreams/*/module.json'
 ```
 
 The CLI also runs validation before any install.
+
+## Manifest honesty
+
+Schema validation proves a manifest is well-formed, not that it is *true*.
+The check that a manifest declares everything its source actually needs is
+[`MonoDreams.Cli.Tests/ManifestHonestyTests.cs`](../MonoDreams.Cli.Tests/ManifestHonestyTests.cs):
+for every module in the registry it cooks the recipe a fresh user follows —
+`monodreams init` → `monodreams add <module>` → `dotnet build` in a temp
+project — and requires the result to compile. `add` installs the module plus
+its **declared** transitive dependencies and nothing else, so a module whose
+source imports a namespace no declared dependency owns (or needs a NuGet
+package no `nugetDependencies` entry names) fails there.
+
+Nothing else in this repo can catch that: `MonoDreams.csproj` compiles all 14
+modules together and every checkout has all of them on disk, so the missing
+ingredient is always in the pantry. The failure only appears on a fresh user's
+first build — the worst person to find it, at the worst moment.
+
+```bash
+# Every module (each case is a real restore + build)
+MONODREAMS_MANIFEST_HONESTY=1 dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+
+# One module
+MONODREAMS_MANIFEST_HONESTY=1 MONODREAMS_HONESTY_MODULE=collision \
+  dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+```
+
+The suite is opt-in (the env var) so `dotnet test` stays fast; CI runs it as
+one job per module — the matrix is read from `MonoDreams/*/module.json`, so a
+new module is covered the day it lands — on every PR that touches
+`MonoDreams/` or `MonoDreams.Cli/`
+([`.github/workflows/manifest-honesty.yml`](../.github/workflows/manifest-honesty.yml)).
+
+Two things in that file are worth knowing before you add a module:
+
+- **The compile floor.** `init` installs `foundation`, and a foundation-only
+  project does not compile yet (`ScreenController` takes `rendering`'s
+  `ViewportManager` + `Camera`; `rendering` in turn reads `rendering-text`'s
+  `DynamicTextComponent.DefaultLineSpacing`). Neither can be declared without a
+  dependency cycle — both need the coupling moved in code — so every case
+  installs the smallest set that compiles (`rendering-text`'s closure) on top
+  of the module under test. The floor's own members are checked strictly, so
+  the gaps that cause it stay visible.
+- **The known-gap list.** Modules that do not compile from their declared
+  dependencies *today* are listed with the diagnostic that proves it is still
+  the same gap. An entry is a promise, not an excuse: the check fails if the
+  module starts building (fix landed → delete the entry) and fails if it breaks
+  for a different reason (a new gap hiding behind a known one). Everything not
+  listed must build.
