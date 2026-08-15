@@ -5,13 +5,25 @@ using Microsoft.Xna.Framework;
 using MonoDreams.Component;
 using MonoDreams.Component.Draw;
 using MonoDreams.State;
+using MonoDreams.Text;
+using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.System.Draw;
 
 [With(typeof(DynamicTextComponent), typeof(TransformComponent))] // Ensures entities have these + DrawComponent (from base)
-public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AEntitySetSystem<GameState>(world)
+public sealed class TextPrepSystem(World world, bool pixelPerfectRendering, TextFacePolicyRegistry facePolicies = null)
+    : AEntitySetSystem<GameState>(world)
 {
     private readonly bool _pixelPerfectRendering = pixelPerfectRendering;
+
+    /// <summary>
+    /// The per-face fold + missing-glyph policies this system applies (see
+    /// <see cref="TextFacePolicyRegistry"/>). A screen that passes none gets a private registry with
+    /// no folds — which still WARNS, once per face + character, whenever a face is about to drop a
+    /// glyph. Pass ONE registry to every screen's prep system to fold consistently and to dedupe the
+    /// warnings across screens.
+    /// </summary>
+    public TextFacePolicyRegistry FacePolicies { get; } = facePolicies ?? new TextFacePolicyRegistry();
     // Set useParallel = true if desired and safe
 
      protected override void Update(GameState state, in Entity entity)
@@ -32,7 +44,12 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AE
         // (non-revealing) text renders its FULL content regardless of the count, so a pooled / reassigned
         // chrome label whose TextContent changed while TextUpdateSystem was Freeze-gated (the editor)
         // never truncates or blanks on a stale count. Genuinely empty/null content renders nothing.
-        if (!TryGetVisibleText(text.RevealingSpeed, text.VisibleCharacterCount, text.TextContent, out var visibleText))
+        //
+        // The face's FOLD runs first, on the full content: what the reveal slices and what the font
+        // measures must be the same string the renderer draws (see the rendering-text premise
+        // "Per-face folds run before the reveal slice and before layout").
+        if (!TryGetVisibleText(FacePolicies, text.Font, text.RevealingSpeed, text.VisibleCharacterCount,
+                text.TextContent, out var visibleText))
         {
             // Clear any stale text on the DrawComponent so MasterRenderSystem renders nothing this frame.
             if (entity.Has<DrawComponent>())
@@ -42,6 +59,11 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AE
             }
             return;
         }
+
+        // Loud by default: whatever the fold did NOT cover is about to vanish mid-word in the bitmap
+        // draw path. Warn once per face + character (never per frame); a face whose policy opted into
+        // SilentDrop skips both the warning and this scan.
+        FacePolicies.WarnOnMissingGlyphs(text.Font, visibleText);
 
         var layerDepth = text.LayerDepth;
 
@@ -72,6 +94,22 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering) : AE
          // position, source rect, texture, etc. for each glyph, and add
          // a DrawElement of Type = Sprite for each one.
      }
+
+    /// <summary>
+    /// Resolves the string <see cref="TextPrepSystem"/> renders this frame for a given FACE: the
+    /// face's fold (from <paramref name="facePolicies"/>) applied to the full content, then the
+    /// reveal slice. Folding first — not after the slice — is what keeps the typewriter, the
+    /// measured size and the drawn glyphs talking about the same string; the cost is that a
+    /// length-changing fold (<c>'…'</c> → <c>"..."</c>) makes the reveal, whose character budget
+    /// <c>TextUpdateSystem</c> derives from the RAW content, reveal the tail of a longer folded
+    /// string slightly early. Pure and world-free, like the overload it delegates to.
+    /// </summary>
+    public static bool TryGetVisibleText(TextFacePolicyRegistry facePolicies, BitmapFont font,
+        float revealingSpeed, int visibleCharacterCount, string textContent, out string visibleText)
+    {
+        var folded = facePolicies == null ? textContent : facePolicies.Fold(font, textContent);
+        return TryGetVisibleText(revealingSpeed, visibleCharacterCount, folded, out visibleText);
+    }
 
     /// <summary>
     /// Resolves the substring <see cref="TextPrepSystem"/> renders this frame — pure and font-free, so

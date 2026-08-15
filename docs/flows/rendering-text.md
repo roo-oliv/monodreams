@@ -14,7 +14,9 @@ stages, each consuming the previous stage's output. `TextUpdateSystem` (logic ph
 RevealStartTime) * RevealingSpeed)`, clamped to the content length — and flips `IsRevealed =
 true` once the whole string is shown; revealed or instant-reveal entries early-exit with the
 counter saturated to the full length. `TextPrepSystem` (render-prep phase, after
-`HierarchySystem`) then *slices* `TextContent[..VisibleCharacterCount]`, reads the entity's
+`HierarchySystem`) then *folds* the content through the face's `TextFacePolicy` (a per-face
+`string → string` transform registered on the `TextFacePolicyRegistry` it was constructed with),
+*slices* `foldedContent[..VisibleCharacterCount]`, reads the entity's
 **world** transform, and writes a single `DrawComponent` of `Type = Text` carrying that visible
 substring, the `BitmapFont`, world position/rotation, the combined scale, the underline flag,
 and the resolved `LineSpacing`. Finally `MasterRenderSystem` (in `rendering`) renders that text
@@ -58,6 +60,11 @@ the ones this flow's ordering leans on:
 - `Font` is a MonoGame.Extended `BitmapFont`, not a `SpriteFont`; prep measures and slices through it.
 - Multi-line leading is the engine's job, applied identically in prep (carries `LineSpacing` onto
   the `DrawComponent`, `≤ 0` → `DefaultLineSpacing`) and in `MasterRenderSystem` (per-line advance).
+- The per-face fold runs **before** the reveal slice and before `MeasureString`, so the typewriter,
+  the measured size and the drawn glyphs all describe the same string; policies are keyed by
+  `BitmapFont.Face` (a name, not an instance) so they survive a per-screen content reload.
+- Whatever the fold left uncovered is warned about once per **face + character** — never per frame —
+  unless that face's policy opted into `SilentDrop`.
 
 ## Load-bearing quantities
 
@@ -85,3 +92,8 @@ the ones this flow's ordering leans on:
   vertical stacking (e.g. dialogue options), desyncs the advance and lines collide or gap.
 - **Wrong font type** — assigning a `SpriteFont` to `Font` fails to compile; loosening the type
   without updating both the measure and the draw seams breaks layout silently.
+- **Word that loses a letter** — the face has no glyph for a character ("São Paulo" → "So Paulo").
+  The bitmap draw path skips it: no crash, no tofu box, correct-looking layout. Now audible as a
+  one-per-face+character `Logger.Warning`; fixable with a fold; suppressible only by an explicit
+  `SilentDrop` policy. A per-frame warning (dropping the warn-once ledger, or building a fresh
+  registry per screen instead of sharing one) floods the log and the web head's console sink.

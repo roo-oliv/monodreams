@@ -161,6 +161,105 @@ of the text.
 **Depends on:** "Multi-line text is laid out by the engine, not the font backend;
 `LineSpacing` sets leading".
 
+## A face's glyph coverage is queryable
+
+A `BitmapFont` renders only the characters its `.fnt` was exported with, and the bitmap draw path
+renders anything else as **nothing at all** — no crash, no tofu box, no gap of the right width. That
+character table is exposed through `MonoDreams.Text.GlyphCoverage`: `HasGlyph(font, c)`,
+`Covers(font, text)`, `TryFindMissing(font, text, startIndex, …)` (allocation-free, the form the
+per-frame path uses) and `MissingCodepoints(font, text)` (distinct, first-appearance order).
+Queries walk full Unicode codepoints, so an astral character counts once rather than as two
+surrogate halves, and they never report the characters the ENGINE lays out — `'\n'` and the `'\r'`
+before it (`GlyphCoverage.IsLayoutCharacter`). All of it is pure and needs no `GraphicsDevice`, so
+content checks and tests can ask the same question the renderer asks.
+
+**Why:** partial coverage is the norm for bitmap faces (a pixel face with no diacritics, a mono face
+with no em-dash, a caps-only face with no lowercase), and the resulting bug is invisible at dev
+time: test strings happen to be covered, and real content — a name, a translation, an ellipsis —
+silently loses letters ("São Paulo" → "So Paulo"). A question nobody can ask is a bug nobody can
+find.
+**Breaks:** reporting `'\n'` as a missing glyph makes every multi-line label warn forever (the
+engine splits lines itself — see the multi-line premise). Walking `char` instead of codepoints
+reports one astral character twice, as two undecodable halves.
+**Tests:** `MonoDreams.Tests/Rendering/GlyphCoverageTests.cs`.
+**Depends on:** this file — "Text uses `BitmapFont`, not `SpriteFont`"; "Multi-line text is laid out
+by the engine, not the font backend".
+
+## Folds are pure, deterministic and identity-preserving
+
+The shipped fold building blocks in `MonoDreams.Text.TextFold` — `Dashes` (every Unicode dash → `-`),
+`Ellipsis` (`…` → `...`), `Ordinals` (`º`/`ª` → `o`/`a`), `StripDiacritics` (Latin-1 Supplement +
+Latin Extended-A → base letters) and `Upcase` (invariant) — are `string → string` functions that
+**never look at a font**. Composing them is `TextFold.Chain(...)`, which copies its array. Two
+properties are contractual: a fold produces the same output on every platform (the diacritic tables
+are hardcoded rather than derived from `string.Normalize`, which needs ICU that a size-trimmed WASM
+head may not ship), and a fold that changes nothing returns **the same string instance** it was
+given. `StripDiacritics` folds accents only; letters that are not an accented ASCII letter (`Æ`, `Ð`,
+`Þ`, `ß`, `Œ`, `Ŋ`) are left alone rather than transliterated.
+
+**Why:** binding coverage into the fold would make the same string render differently per face and
+per platform — impossible to diff, impossible to reason about; the face binding belongs in the
+policy, not in the fold. And `TextPrepSystem` folds every text entity **every frame**, so a fold
+that allocated unconditionally would churn one string per label per frame; scanning first and
+returning the original keeps the steady state allocation-free.
+**Breaks:** a fold that consults the font (or the current culture — `ToUpper()` in a Turkish locale
+turns `i` into `İ` and loses the glyph) makes text non-reproducible. A fold that always allocates
+adds per-frame garbage proportional to the number of labels on screen. Transliterating `ß` → `ss`
+inside `StripDiacritics` would silently change string lengths and hide a genuinely missing glyph.
+**Tests:** `MonoDreams.Tests/Rendering/TextFoldTests.cs`.
+**Depends on:** —
+
+## Per-face folds run before the reveal slice and before layout
+
+`TextPrepSystem` holds a `TextFacePolicyRegistry` (`FacePolicies`, optional third constructor
+argument) that maps a **face name** — `BitmapFont.Face`, not the font instance — to a
+`TextFacePolicy` (a fold plus a `SilentDrop` flag). Per entity, per frame, the system folds the FULL
+`TextContent` through that face's fold first, and only then applies the reveal slice, the
+`MeasureString` and the write into `DrawComponent.Text` — so the typewriter, the measured size and
+the drawn glyphs all describe the same string. The composed decision is the pure static
+`TextPrepSystem.TryGetVisibleText(facePolicies, font, revealingSpeed, visibleCharacterCount,
+textContent, out visibleText)`. Keying by face name (not instance) is what lets a policy survive a
+content reload, since every screen loads its own `BitmapFont` object from the same `.fnt`.
+
+**Why:** folding after the slice would measure and draw a string the reveal never saw, and folding
+after layout would measure glyphs that are not the ones rendered. Registering policies per face
+rather than per entity means a game states its font's limits once, at boot, instead of at every
+label.
+**Breaks:** a length-changing fold (`…` → `...`) shifts the reveal, whose character budget
+`TextUpdateSystem` derives from the RAW `TextContent`: a folded string that grew reveals its tail
+slightly early (a shorter one finishes with the count clamped). That is the accepted cost of folding
+first; a game that needs an exact typewriter over expanded content should pre-fold its
+`TextContent`. For the same reason, game-side code that measures the RAW `TextContent` itself —
+`DialogueSystem.WrapText`, any hand-rolled column fitting — measures a string the renderer may not
+draw, so with a length-changing fold its wrap points drift by a character; pre-fold before wrapping
+when exact wrapping matters. Keying policies by `BitmapFont` instance instead of face name loses
+them on the second screen that loads the same font.
+**Tests:** `MonoDreams.Tests/Rendering/TextFacePolicyTests.cs`.
+**Depends on:** this file — "The reveal gate is scoped to revealing text"; "Text pipeline order:
+`TextUpdateSystem` → `TextPrepSystem` → `MasterRenderSystem`".
+
+## A dropped glyph is reported once per face + character; silence is opt-in
+
+When `TextPrepSystem` is about to hand the renderer a string the face cannot fully render, it calls
+`TextFacePolicyRegistry.WarnOnMissingGlyphs`, which logs one `Logger.Warning` per **face +
+codepoint** — naming the face, the character and its `U+XXXX` codepoint, and quoting the string it
+first appeared in. Never once per frame: the registry remembers what it already said (`HasWarned`,
+`ResetWarnings`), so a missing glyph costs one line per session, not sixty per second. Silence is an
+**explicit opt-in**: `new TextFacePolicy(fold, silentDrop: true)` suppresses both the warning and
+the per-frame coverage scan for that face, and is the way a game states "these drops are deliberate
+and tested". A face with no registered policy is loud.
+
+**Why:** the old behavior was silence by accident. A logged warning is also machine-checkable — an
+agent running `GameTestRunner` can assert on it — whereas a missing pixel inside a word is not.
+**Breaks:** warning per frame floods the log and the console sink (which the web head writes to
+unconditionally) and makes the log unreadable at 60 lines/second per label. Making silence the
+default restores the original invisible-corruption bug. Sharing one registry across screens is what
+keeps "once" meaning once per session: a screen that constructs its own `TextPrepSystem` without
+passing the shared registry gets its own warn-once ledger and repeats the line.
+**Tests:** `MonoDreams.Tests/Rendering/TextFacePolicyTests.cs` (warn-once across 60 frames, per-face
+keying, the `SilentDrop` opt-in, and the line that actually reaches the `Logger` sinks).
+**Depends on:** foundation — the `Logger` contract (`[wallclock] [GT gametime] [LEVEL] message`).
+
 ## Open questions
 
 - **Per-glyph layout** — `TextPrepSystem` currently submits the whole
