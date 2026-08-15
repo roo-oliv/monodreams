@@ -54,7 +54,7 @@ public sealed record RenderLayer(
     /// Screen-space HUD layer: aspect-fit into the letterboxed viewport (the same
     /// <see cref="ViewportManager.DestinationRectangle"/> as Main/UI), point filtered. HUD content —
     /// including the cursor — is authored in virtual coordinates and positioned via
-    /// <see cref="ViewportManager.ScaleMouseToVirtualCoordinates"/>, which inverts the aspect-fit
+    /// <see cref="ViewportManager.MapMouse"/>, which inverts the aspect-fit
     /// transform; drawing the layer to the SAME rectangle is what keeps the cursor locked to the
     /// mouse and the HUD undistorted. Stretching it to the whole screen instead scales HUD content
     /// non-uniformly on a non-virtual aspect ratio and desyncs the cursor from the pointer (they
@@ -65,8 +65,9 @@ public sealed record RenderLayer(
         _ => SamplerState.PointClamp);
 
     /// Sub-rectangle layer (minimap / CCTV / picture-in-picture). The bounds are in HUD
-    /// virtual coordinates (0..VirtualWidth, 0..VirtualHeight) and mapped to the screen the
-    /// same way the HUD layer is, so the layer aligns with HUD chrome drawn at those bounds.
+    /// AUTHORING coordinates (0..LayoutWidth, 0..LayoutHeight) and mapped to the screen the
+    /// same way the HUD layer is, so the layer aligns with HUD chrome drawn at those bounds —
+    /// and an overlay box keeps its authored numbers when the render resolution changes.
     public static RenderLayer Overlay(RenderTarget2D target, Rectangle virtualBounds, SamplerState? sampler = null) => new(
         target,
         vm => MapVirtualToScreen(virtualBounds, vm),
@@ -74,13 +75,15 @@ public sealed record RenderLayer(
 
     private static Rectangle MapVirtualToScreen(Rectangle bounds, ViewportManager vm)
     {
-        // Map HUD-virtual coordinates into the letterboxed viewport (the same aspect-fit
+        // Map HUD AUTHORING coordinates into the letterboxed viewport (the same aspect-fit
         // DestinationRectangle the HUD layer draws to), so an overlay aligns with HUD chrome drawn
-        // at those coordinates. At a matching aspect ratio DestinationRectangle fills the screen, so
-        // this reduces to the full-screen mapping.
+        // at those coordinates. Dividing by the LAYOUT size (not the render size) is what keeps an
+        // authored overlay box in place across a render-resolution move; in a single-space game the
+        // two are equal. At a matching aspect ratio DestinationRectangle fills the screen, so this
+        // reduces to the full-screen mapping.
         var dest = vm.DestinationRectangle;
-        var sx = dest.Width / (float)vm.VirtualWidth;
-        var sy = dest.Height / (float)vm.VirtualHeight;
+        var sx = dest.Width / (float)vm.LayoutWidth;
+        var sy = dest.Height / (float)vm.LayoutHeight;
         return new Rectangle(
             dest.X + (int)(bounds.X * sx), dest.Y + (int)(bounds.Y * sy),
             (int)(bounds.Width * sx), (int)(bounds.Height * sy));

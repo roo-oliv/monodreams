@@ -458,9 +458,9 @@ public class LevelSelectionScreen : IGameScreen
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
         var uiPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]);
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI], _viewportManager.LayoutCamera);
         var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD], _viewportManager.LayoutCamera);
 
         var renderLayers = new List<RenderLayer>
         {

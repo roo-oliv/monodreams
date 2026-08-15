@@ -9,7 +9,7 @@ namespace MonoDreams.Tests.Rendering;
 /// Protects the rendering premise "The viewport inset moves compositing and mouse mapping
 /// together" (Wave 7 editor shell). The <see cref="ViewportManager"/> is the single source of
 /// truth for the aspect-fit game viewport: <c>SetViewportInset</c> reserves chrome margins and
-/// BOTH the final-draw destination rectangle AND <c>ScaleMouseToVirtualCoordinates</c> follow the
+/// BOTH the final-draw destination rectangle AND <c>MapMouse</c> follow the
 /// same inset rectangle; zero inset must be byte-identical to the historical full-window
 /// letterbox. Pure CPU math — the <c>Game</c> ctor argument is never dereferenced, so tests pass
 /// null (no GraphicsDevice).
@@ -55,13 +55,13 @@ public class ViewportInsetTests
         var vm = Manager(1600, 900);
 
         // Inside the letterboxed viewport: (800, 450) is the screen centre → virtual centre.
-        var centre = vm.ScaleMouseToVirtualCoordinates(new Vector2(800, 450));
+        var centre = vm.MapMouse(new Vector2(800, 450));
         Assert.NotNull(centre);
         Assert.Equal(400f, centre.Value.X, 3);
         Assert.Equal(300f, centre.Value.Y, 3);
 
         // In the pillarbox bar (x < 200): no mapping.
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(100, 450)));
+        Assert.Null(vm.MapMouse(new Vector2(100, 450)));
     }
 
     [Fact]
@@ -117,13 +117,13 @@ public class ViewportInsetTests
         var dest = vm.DestinationRectangle; // (105, 44, 1109, 832)
 
         // The inset viewport's top-left corner maps to virtual (0, 0)...
-        var corner = vm.ScaleMouseToVirtualCoordinates(new Vector2(dest.X, dest.Y));
+        var corner = vm.MapMouse(new Vector2(dest.X, dest.Y));
         Assert.NotNull(corner);
         Assert.Equal(0f, corner.Value.X, 3);
         Assert.Equal(0f, corner.Value.Y, 3);
 
         // ...and its centre to the virtual centre (400, 300).
-        var centre = vm.ScaleMouseToVirtualCoordinates(
+        var centre = vm.MapMouse(
             new Vector2(dest.X + dest.Width / 2f, dest.Y + dest.Height / 2f));
         Assert.NotNull(centre);
         Assert.Equal(400f, centre.Value.X, 1);
@@ -136,9 +136,9 @@ public class ViewportInsetTests
         var vm = Manager(1600, 900);
         vm.SetViewportInset(0, Top, Right, Bottom);
 
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(10, 10)));      // top bar
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(1500, 400)));   // right panel
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(800, 890)));    // bottom strip
+        Assert.Null(vm.MapMouse(new Vector2(10, 10)));      // top bar
+        Assert.Null(vm.MapMouse(new Vector2(1500, 400)));   // right panel
+        Assert.Null(vm.MapMouse(new Vector2(800, 890)));    // bottom strip
     }
 
     // ---- Pixel-perfect mode computes its integer-scaled rect inside the same available area ----

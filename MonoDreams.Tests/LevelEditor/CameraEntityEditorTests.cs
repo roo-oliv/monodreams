@@ -59,10 +59,10 @@ public class CameraEntityEditorTests
     // ─────────────────────────── CameraEntityGlyph pure math ───────────────────────────
 
     [Fact]
-    public void FrustumWorldCorners_AreVirtualSizeOverZoom_CenteredOnTheCamera()
+    public void FrustumWorldCorners_AreLayoutSizeOverZoom_CenteredOnTheCamera()
     {
-        // center (100,50), zoom 2, virtual 800×600 → half extents 200×150.
-        var c = CameraEntityGlyph.FrustumWorldCorners(new Vector2(100, 50), zoom: 2f, virtualWidth: 800, virtualHeight: 600);
+        // center (100,50), zoom 2, authoring 800×600 → half extents 200×150.
+        var c = CameraEntityGlyph.FrustumWorldCorners(new Vector2(100, 50), zoom: 2f, layoutWidth: 800, layoutHeight: 600);
         Assert.Equal(new Vector2(-100, -100), c[0]); // TL
         Assert.Equal(new Vector2(300, -100), c[1]);  // TR
         Assert.Equal(new Vector2(300, 200), c[2]);   // BR
@@ -72,7 +72,7 @@ public class CameraEntityEditorTests
     [Fact]
     public void FrustumWorldCorners_NonPositiveZoom_DegradesToOne()
     {
-        var c = CameraEntityGlyph.FrustumWorldCorners(Vector2.Zero, zoom: 0f, virtualWidth: 800, virtualHeight: 600);
+        var c = CameraEntityGlyph.FrustumWorldCorners(Vector2.Zero, zoom: 0f, layoutWidth: 800, layoutHeight: 600);
         Assert.Equal(new Vector2(-400, -300), c[0]); // as if zoom 1
         Assert.Equal(new Vector2(400, 300), c[2]);
     }

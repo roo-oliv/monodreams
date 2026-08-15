@@ -85,6 +85,62 @@ camera demo, `MonoDreams/camera/demo/CameraDemoScreen.cs`).
 **Depends on:** "A render pass's camera virtual resolution matches its
 destination".
 
+## Authoring space and render space are distinct; the scale lives only in the cameras
+
+A game has TWO coordinate spaces, both owned by `ViewportManager`.
+**Authoring (layout) space** — `LayoutWidth`×`LayoutHeight` — is where every
+game number is written: entity and UI coordinates, HUD/overlay boxes,
+`Camera.Zoom`, culling extents, and the point `MapMouse` returns.
+**Render (virtual) space** — `VirtualWidth`×`VirtualHeight` — is the pixel size
+of the per-pass render targets and of the back buffer. `RenderScale` is the one
+ratio between them (`VirtualWidth / LayoutWidth`; the two aspect ratios must
+match, and a mismatch throws), and it is applied in **exactly one place: the
+per-pass render cameras** — `Camera.RenderScale` multiplies `Zoom` inside the
+view transform. Nothing else in the engine multiplies a coordinate by it.
+World passes take `ViewportManager.CreateCamera()`; screen-space passes (UI,
+HUD, Scroll, …) take `ViewportManager.LayoutCamera` (or `CreateLayoutCamera` for
+a sub-target) **instead of a null camera**, which is what scales authored UI
+coordinates onto a larger target. Sizing a render target that must hold a
+layout-sized region is the one legitimate hand use of `RenderScale`.
+
+The two spaces default to being EQUAL (`RenderScale == 1`) — the single-space
+game — and at that scale `LayoutCamera`'s view matrix is **exactly**
+`Matrix.Identity`, so passing it everywhere changes no pixel. The model is
+therefore opt-in: a game opts in by giving `ViewportManager` a layout size that
+differs from its virtual size, and then a render-resolution move (720p → 1080p)
+touches the head's two numbers and nothing else — no game coordinate, no UI
+number, and no coordinate-carrying test moves. Bitmap text is re-rasterized
+through the camera at the new resolution, so it gains real fidelity from the
+same font masters.
+
+**Why:** hardcoding final-resolution coordinates (buttons at 1720,980; tests
+asserting pixel positions) makes a resolution change a full recalibration. The
+`ViewportManager` used to half-support this — one space with a letterbox — which
+is the worst state: close enough that people assume the second space exists,
+incomplete enough that the gaps surface mid-project. Keeping the scale in the
+cameras (rather than sprinkling it over prep systems, layout, and picking) is
+what makes the opt-in free and the invariant checkable.
+**Breaks:** applying `RenderScale` a second time anywhere (a prep system, UI
+layout, a mouse mapping) double-scales that content — visible only once a game
+actually uses two spaces, so it lands silently. Leaving a screen-space pass on a
+`null` camera renders authored UI 1:1 into a bigger target: content shrinks into
+the top-left corner. Reading `VirtualWidth` where an authored number belongs
+(UI layout roots, HUD/overlay boxes, fit-zoom, frustum outlines) makes that
+number move with the render resolution — the exact bug the split exists to
+prevent. Non-matching aspect ratios would need two scales, so the manager
+refuses them.
+**Tests:** `MonoDreams.Tests/Rendering/RenderSpaceTests.cs` (single-space is
+identity; scale derivation + validation; `MapMouse` returns authoring
+coordinates unchanged across a render-resolution move and follows resize /
+letterbox; layout and world cameras map authoring → render pixels; pointer →
+world and the culling extent are identical at any render resolution) plus the
+live render at 1.5× in
+`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`
+(`HeadlessUiDemo_AtAHigherRenderResolution_…`).
+**Depends on:** "A render pass's camera virtual resolution matches its
+destination"; "`Camera.VirtualResolution` is immutable"; cursor — "Cursor
+`TransformComponent.Position` depends on render target".
+
 ## A render pass's camera virtual resolution matches its destination
 
 A `MasterRenderSystem` pass derives its mesh `BasicEffect` projection from
@@ -97,15 +153,23 @@ giving its second camera the same virtual resolution as the main camera and
 a full-virtual-resolution target, then letting `FinalDrawSystem` shrink
 that target into the on-screen box.
 
+A camera's `RenderScale` is orthogonal to this: it says how many render pixels
+one authoring unit is worth, while the virtual resolution still has to equal the
+destination. `ViewportManager.CreateCamera()` / `LayoutCamera` /
+`CreateLayoutCamera(w, h)` build cameras that satisfy both by construction.
+
 **Why:** projection maps destination pixels → NDC; the camera centers world
 content at `(VirtualWidth/2, VirtualHeight/2)`. A mismatch puts the centered
 content somewhere other than the target's middle and scales meshes wrongly.
-Deriving projection from the destination (not the camera) is what lets
-screen-space passes carry no camera at all.
+Deriving projection from the destination (not the camera) is what lets a pass
+that needs no view transform (a single-space screen-space pass) carry no camera
+at all.
 **Breaks:** a camera whose virtual resolution differs from its destination
 renders off-center and mis-scaled in that pass.
-**Tests:** none yet.
-**Depends on:** "`Camera.VirtualResolution` is immutable".
+**Tests:** `MonoDreams.Tests/Rendering/RenderSpaceTests.cs`
+(`CreateLayoutCamera_DoesTheSameForASubTarget`, `WorldCamera_ZoomStaysAnAuthoringNumber`).
+**Depends on:** "`Camera.VirtualResolution` is immutable"; "Authoring space and
+render space are distinct; the scale lives only in the cameras".
 
 ## `FinalDrawSystem` composites an explicit, ordered layer list
 
@@ -140,10 +204,10 @@ overlay in the camera demo).
 The HUD render layer is composited to the aspect-fit
 `ViewportManager.DestinationRectangle`, exactly like Main and UI — never
 stretched to the raw back-buffer rectangle `(0,0,ScreenWidth,ScreenHeight)`.
-HUD-space content is authored in virtual coordinates, and the cursor (a
-`RenderTargetID.HUD` entity) is positioned by `CursorPositionSystem` via
-`ViewportManager.ScaleMouseToVirtualCoordinates`, which inverts the aspect-fit
-transform. The layer must be drawn back through that *same* transform, or the
+HUD-space content is authored in AUTHORING (layout) coordinates, and the cursor
+(a `RenderTargetID.HUD` entity) is positioned by `CursorPositionSystem` via
+`ViewportManager.MapMouse`, which inverts the aspect-fit transform into that
+same authoring space (identical to the virtual space in a single-space game). The layer must be drawn back through that *same* transform, or the
 cursor's render and its position math disagree.
 
 **Why:** when the screen aspect ratio differs from the virtual one (any
@@ -286,7 +350,7 @@ aspect-fit).
 margins (the editor shell) around the game viewport: the aspect-fit
 `DestinationRectangle` — and the pixel-perfect rectangle — are computed
 inside the remaining centered sub-rectangle, and
-`ScaleMouseToVirtualCoordinates` inverts that **same** rectangle. Because the
+`MapMouse` inverts that **same** rectangle. Because the
 `ViewportManager` is the single source of truth, the final-draw compositing
 and the cursor's virtual/world mapping can never disagree: a click inside the
 inset viewport maps to the correct virtual point with no extra math, and a
@@ -303,7 +367,7 @@ to `DevicePixelRatio` (default 1): when a host renders a device-resolution
 backbuffer behind a logically-scaled window (macOS Retina under the editor
 run flag — the level-editor module's `EditorHiDpi`), `ScreenWidth/Height`
 are DEVICE pixels and `CursorInputSystem` multiplies the raw (logical) mouse
-by this ratio, so `ScaleMouseToVirtualCoordinates` keeps inverting the same
+by this ratio, so `MapMouse` keeps inverting the same
 space it composites in — at DPR 1 everything is byte-identical.
 
 **Why:** the Wave-7 editor shell renders the game scaled-down in the center
@@ -776,12 +840,16 @@ possibly entity ID — but that's a framework change, not a workaround.
 
 ## `Camera.VirtualResolution` is immutable; the `Camera` is a render adapter (CM)
 
-`Camera.VirtualWidth` and `Camera.VirtualHeight` are readonly properties
-set in the constructor (the `Camera` class lives at
+`Camera.VirtualWidth`, `Camera.VirtualHeight` and `Camera.RenderScale` are
+readonly properties set in the constructor (the `Camera` class lives at
 `MonoDreams/rendering/Camera.cs` because it is a hard dependency of the
 draw stack — `MasterRenderSystem` reads its position, zoom, and view
 matrix every frame). Only zoom, position, and rotation are mutable on a
-live `Camera`.
+live `Camera`. `RenderScale` belongs to the same contract: it is the
+authoring→render factor (see "Authoring space and render space are distinct"),
+so changing the render resolution means asking the `ViewportManager` for a NEW
+camera, not mutating one — which is exactly what `ViewportManager.SetResolution`
+does (it drops its cached `LayoutCamera`).
 
 **Under CM the `Camera` is a render ADAPTER, and rendering is unchanged.** The
 authored camera is a scene ENTITY (`camera` module — `CameraComponent` + the
@@ -1073,7 +1141,6 @@ The following premises currently have **Tests: none yet**:
 - `DrawComponent` is the only render component
 - `MasterRenderSystem` is the sole render *implementation*
 - One `MasterRenderSystem` instance is one render pass
-- A render pass's camera virtual resolution matches its destination
 - `FinalDrawSystem` composites an explicit, ordered layer list
 - Renderable entity stack on the Main target
 - `VisibleComponent` is owned exclusively by `CullingSystem`

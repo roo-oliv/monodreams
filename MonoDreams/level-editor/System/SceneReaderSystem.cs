@@ -371,7 +371,7 @@ public sealed class SceneReaderSystem : ISystem<GameState>
 
         _camera!.Position = CameraNav.Center(aabb);
         if (aabb.Width > 0 && aabb.Height > 0)
-            _camera.Zoom = CameraNav.FitZoom(aabb, _camera.VirtualWidth, _camera.VirtualHeight,
+            _camera.Zoom = CameraNav.FitZoom(aabb, _camera.LayoutWidth, _camera.LayoutHeight,
                 FrameMargin, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
 
         Logger.Info(

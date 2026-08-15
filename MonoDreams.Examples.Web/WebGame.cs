@@ -50,8 +50,10 @@ namespace MonoDreams.Examples.Web
             // keeps ScreenWidth matched to the actual back buffer.
             _graphics.ApplyChanges();
 
-            _viewportManager = new ViewportManager(this, _settings.VirtualWidth, _settings.VirtualHeight);
-            _camera = new Camera(_settings.VirtualWidth, _settings.VirtualHeight);
+            // Both spaces from settings; the camera from the ViewportManager (see the desktop head).
+            _viewportManager = new ViewportManager(this, _settings.VirtualWidth, _settings.VirtualHeight,
+                _settings.LayoutWidth, _settings.LayoutHeight);
+            _camera = _viewportManager.CreateCamera();
         }
 
         protected override void Initialize()

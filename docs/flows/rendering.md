@@ -46,12 +46,15 @@ Authoritative list in [`MonoDreams/rendering/docs/premises.md`](../../MonoDreams
 - `LayerDepth` has exactly three ordered writers; a fourth writer between or after `YSortSystem` makes sort order undefined.
 - One `MasterRenderSystem` instance = one pass; it clears its `destination` on entry, so two passes sharing a target erase each other. The draw set is built once per instance, never per frame.
 - A pass's `camera.VirtualWidth/Height` must equal its `destination` size (projection derives from the destination, the camera centers the view there).
+- Authoring (layout) space and render (virtual) space are distinct, and the ratio between them (`ViewportManager.RenderScale`) is applied in **exactly one place: the per-pass cameras** (`Camera.RenderScale` multiplies `Zoom` in the view matrix). Screen-space passes take `ViewportManager.LayoutCamera`, not a null camera. The two spaces are equal by default, where the layout camera is exactly `Matrix.Identity`.
 
 ## Load-bearing quantities
 
 - `DrawComponent.LayerDepth` — sort key, `float` in `[0, 1]` (0 = back, 1 = front). `MasterRenderSystem` orders ascending; same-depth ties fall through to insertion index (no other tiebreaker but the parent-child `1e-6f` bias).
-- `Camera.VirtualWidth/VirtualHeight` — virtual resolution in pixels, **immutable after construction** (default 800×600); defines world-units-per-pixel. A render pass's destination size must equal these.
-- `Camera.GetViewTransformationMatrix()` — the Main pass transform: translate by `-Position`, rotate, scale by `Zoom` (clamped ≥ `0.1`), recenter at `(VirtualWidth/2, VirtualHeight/2)`. Null camera ⇒ `Matrix.Identity` (screen-space).
+- `Camera.VirtualWidth/VirtualHeight` — RENDER resolution in pixels, **immutable after construction** (default 800×600). A render pass's destination size must equal these.
+- `Camera.RenderScale` — render pixels per AUTHORING unit, **immutable after construction** (default 1 = single-space); `Camera.LayoutWidth/Height` is the destination size divided by it — the authoring extent world code reasons in.
+- `ViewportManager.LayoutWidth/LayoutHeight` / `RenderScale` / `MapMouse(screen)` — the authoring canvas, the one scale, and the screen→authoring pointer mapping (inverts the present `DestinationRectangle`; `null` outside the viewport).
+- `Camera.GetViewTransformationMatrix()` — the Main pass transform: translate by `-Position`, rotate, scale by `Zoom × RenderScale` (zoom clamped ≥ `0.1`), recenter at `(VirtualWidth/2, VirtualHeight/2)`. Null camera ⇒ `Matrix.Identity` (screen-space, single-space only).
 - Sprite-quad run cap — `SpriteBatchFlush.MaxSpritesPerBatch`, strictly below the Reach 16-bit-index limit of 5461 quads per `SpriteBatch.Begin`; text counts one quad per glyph.
 
 ## Failure modes
@@ -60,5 +63,7 @@ Authoritative list in [`MonoDreams/rendering/docs/premises.md`](../../MonoDreams
 - **Wrong render target** — a Main-space entity tagged `UI`/`HUD` renders unscaled at world coords (no camera transform); a UI entity on Main gets culled away when the camera moves.
 - **Game-set `VisibleComponent` on Main** — `CullingSystem` overwrites it next frame; the entity flickers in and out as the two fight.
 - **Late `LayerDepth` write** — a system writes depth after `YSortSystem`; entities depth-fight or render behind/in front of where Y-sort placed them.
+- **UI shrinks into a corner after a render-resolution move** — a screen-space pass left on a `null` camera draws authoring coordinates 1:1 into a bigger target. Give UI/HUD/Scroll passes `ViewportManager.LayoutCamera` (harmless at scale 1).
+- **An authored number read from `VirtualWidth`** — a UI root, HUD box, overlay rect, fit-zoom or frustum outline sized from the render resolution moves when that resolution changes; those all belong in `LayoutWidth/Height`.
 - **Two passes, one target** — a second `MasterRenderSystem` instance shares a `destination`; each clears on entry, so the second erases the first's frame (give every pass its own target, overlap via `FinalDrawSystem`).
 - **Web-only crash on a dense scene** — removing/raising the sprite-run flush past 5461 quads pushes a batch into 32-bit indices, which the Reach profile rejects; paints on desktop (HiDef), throws on web.

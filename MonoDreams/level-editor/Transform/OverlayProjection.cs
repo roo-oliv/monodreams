@@ -17,8 +17,8 @@ namespace MonoDreams.LevelEditor.Transform;
 /// virtual-space point (a <c>UI</c>/<c>HUD</c>/<c>Scroll</c>-target entity's coordinates) skips
 /// the camera and takes only the aspect-fit step.
 ///
-/// <para><b>Sizes stay in virtual pixels.</b> Handle radii / line thicknesses are authored in
-/// virtual pixels (the same constants as before this projection existed) and scaled by
+/// <para><b>Sizes stay in authoring pixels.</b> Handle radii / line thicknesses are authored in
+/// layout pixels (the same constants as before this projection existed) and scaled by
 /// <see cref="ToScreenSize"/> — the aspect-fit factor only, <b>never</b> the camera zoom. That
 /// preserves the exact apparent size the old world-space <c>1/Zoom</c>-compensated overlays had
 /// (world × zoom × fit == virtual × fit), while the geometry now rasterizes directly at device
@@ -37,18 +37,25 @@ public readonly struct OverlayProjection
     private readonly Matrix _toVirtual;
     private readonly float _scale;
     private readonly Vector2 _offset;
+    // Render pixels per authoring unit (rendering — "Authoring space and render space are
+    // distinct"): 1 in a single-space game. Sizes are authored in LAYOUT units, so ToScreenSize
+    // lifts them into render space before the aspect-fit factor; the world path needs no extra
+    // factor because the camera's view matrix already carries it.
+    private readonly float _renderScale;
 
     /// <summary>The screen-space rectangle of the game viewport (the aspect-fit destination) —
     /// the bounds overlay geometry is clipped to so it never draws over the chrome margins or the
     /// letterbox bars (see <see cref="OverlayMeshClip"/>).</summary>
     public Rectangle Viewport { get; }
 
-    private OverlayProjection(Matrix toVirtual, float scale, Vector2 offset, Rectangle viewport)
+    private OverlayProjection(Matrix toVirtual, float scale, Vector2 offset, Rectangle viewport,
+        float renderScale)
     {
         _toVirtual = toVirtual;
         _scale = scale;
         _offset = offset;
         Viewport = viewport;
+        _renderScale = renderScale;
     }
 
     /// <summary>
@@ -61,19 +68,24 @@ public readonly struct OverlayProjection
     /// </summary>
     public static OverlayProjection For(RenderTargetID space, Camera camera, ViewportManager? viewportManager)
     {
+        // Main: world → render pixels through the view matrix (which already carries the render
+        // scale). Screen-space targets: authoring → render pixels is the render scale alone — the
+        // same mapping ViewportManager.LayoutCamera applies to those passes. Identity when the game
+        // is single-space.
         var toVirtual = space == RenderTargetID.Main
             ? camera.GetViewTransformationMatrix()
-            : Matrix.Identity;
+            : Matrix.CreateScale(camera.RenderScale, camera.RenderScale, 1f);
         if (viewportManager == null)
             return new OverlayProjection(
                 toVirtual, 1f, Vector2.Zero,
-                new Rectangle(0, 0, camera.VirtualWidth, camera.VirtualHeight));
+                new Rectangle(0, 0, camera.VirtualWidth, camera.VirtualHeight), camera.RenderScale);
 
         var destination = viewportManager.DestinationRectangle;
         // Aspect-fit preserves the ratio, so X and Y scale are equal (up to the destination
         // rectangle's integer rounding); a single uniform factor keeps strokes isotropic.
         var scale = destination.Width / (float)viewportManager.VirtualWidth;
-        return new OverlayProjection(toVirtual, scale, new Vector2(destination.X, destination.Y), destination);
+        return new OverlayProjection(toVirtual, scale, new Vector2(destination.X, destination.Y),
+            destination, viewportManager.RenderScale);
     }
 
     /// <summary>Maps a point of the source space (world or virtual — per the factory) to screen
@@ -81,7 +93,9 @@ public readonly struct OverlayProjection
     public Vector2 ToScreen(Vector2 point)
         => Vector2.Transform(point, _toVirtual) * _scale + _offset;
 
-    /// <summary>Maps a size authored in virtual pixels (handle radius, stroke thickness) to
-    /// screen pixels: the aspect-fit factor only — camera zoom never changes emitted sizes.</summary>
-    public float ToScreenSize(float virtualPixels) => virtualPixels * _scale;
+    /// <summary>Maps a size authored in AUTHORING pixels (handle radius, stroke thickness) to
+    /// screen pixels: the render scale and the aspect-fit factor only — camera zoom never changes
+    /// emitted sizes. In a single-space game the render scale is 1, so this is the aspect-fit factor
+    /// alone, exactly as before.</summary>
+    public float ToScreenSize(float virtualPixels) => virtualPixels * _renderScale * _scale;
 }

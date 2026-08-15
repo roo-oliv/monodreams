@@ -75,7 +75,8 @@ public class SplashScreen : IGameScreen
         var pixelPerfect = SettingsManager.Instance.Settings.PixelPerfectRendering;
         DrawSystem = new SequentialSystem<GameState>(
             new SpritePrepSystem(_world, graphicsDevice, pixelPerfect),
-            new MasterRenderSystem(spriteBatch, graphicsDevice, _world, RenderTargetID.UI, _uiTarget),
+            new MasterRenderSystem(spriteBatch, graphicsDevice, _world, RenderTargetID.UI, _uiTarget,
+                viewportManager.LayoutCamera),
             new FinalDrawSystem(spriteBatch, graphicsDevice, viewportManager,
                 new List<RenderLayer> { RenderLayer.UI(_uiTarget) }),
             screenshotSystem);
@@ -89,8 +90,8 @@ public class SplashScreen : IGameScreen
     {
         _screenController = screenController;
 
-        var vw = _viewportManager.VirtualWidth;
-        var vh = _viewportManager.VirtualHeight;
+        var vw = _viewportManager.LayoutWidth;
+        var vh = _viewportManager.LayoutHeight;
 
         // Opaque black backdrop over the whole virtual viewport (layer 0 = back).
         _backdropPixel = new Texture2D(_graphicsDevice, 1, 1);

@@ -913,7 +913,7 @@ the center region's **Scene panel header** band, so the game-viewport **top inse
 (`EditorChromeRenderSystem`), composited 1:1 over the whole window via `RenderLayer.Native`, with
 opaque dark panel backgrounds so it reads over any level. The inset lives on the `ViewportManager`
 (`SetViewportInset` / `ClearViewportInset`) — the **single source of truth** — so FinalDraw
-compositing and `ScaleMouseToVirtualCoordinates` follow the same rectangle **including the left
+compositing and `MapMouse` follow the same rectangle **including the left
 margin and the Scene-header top inset** (the Scene header is chrome margin now, so a press on it is
 `OutsideViewport` — it never leaks to a viewport tool — exactly like the toolbar bar; pre-mortem #6:
 one inset source, never a second rect): clicks inside the inset viewport map to correct world

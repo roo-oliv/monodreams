@@ -172,8 +172,10 @@ public class UiDemoScreen : IGameScreen
     private Entity _openDialogButton;    // the "Open dialog" trigger; hidden while the dialog is open
     private Entity _openDialogLabel;     // its label child
 
-    // Scroll plumbing: a dedicated render target + its overlay rect; driven by ScrollViewComponent.
+    // Scroll plumbing: a dedicated render target + its screen-space camera + its overlay rect;
+    // driven by ScrollViewComponent.
     private RenderTarget2D? _scrollTarget;
+    private MonoDreams.Component.Camera? _scrollCamera;
     private Entity _scrollView;          // carries ScrollViewComponent
     private Rectangle _scrollVirtualBounds;
 
@@ -201,15 +203,19 @@ public class UiDemoScreen : IGameScreen
         };
         _font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
 
-        // Scroll viewport render target — sized exactly to the on-screen viewport box (no camera;
-        // the Scroll pass derives its projection from this target's pixel size).
-        _scrollTarget = new RenderTarget2D(graphicsDevice, ScrollViewW, ScrollViewH);
-        // Overlay virtual rect = Main world box rect + (VirtualWidth/2, VirtualHeight/2) (camera at
-        // origin, zoom 1). Computed here (deterministic) so CreateDrawSystem can capture it. Must match
-        // the box position in BuildScrollView.
+        // Scroll viewport render target — the authored box size lifted into RENDER pixels, so the
+        // sub-target holds the same fidelity as the rest of the frame at any render scale (it is 1:1
+        // in a single-space game). Its pass takes the matching screen-space camera below.
+        _scrollTarget = new RenderTarget2D(graphicsDevice,
+            (int)(ScrollViewW * viewportManager.RenderScale),
+            (int)(ScrollViewH * viewportManager.RenderScale));
+        _scrollCamera = viewportManager.CreateLayoutCamera(_scrollTarget.Width, _scrollTarget.Height);
+        // Overlay rect (AUTHORING coords) = Main world box rect + (LayoutWidth/2, LayoutHeight/2)
+        // (camera at origin, zoom 1). Computed here (deterministic) so CreateDrawSystem can capture it.
+        // Must match the box position in BuildScrollView.
         _scrollVirtualBounds = new Rectangle(
-            (int)(ScrollBoxWorldPos.X + viewportManager.VirtualWidth / 2f),
-            (int)(ScrollBoxWorldPos.Y + viewportManager.VirtualHeight / 2f),
+            (int)(ScrollBoxWorldPos.X + viewportManager.LayoutWidth / 2f),
+            (int)(ScrollBoxWorldPos.Y + viewportManager.LayoutHeight / 2f),
             ScrollViewW, ScrollViewH);
 
         camera.Position = Vector2.Zero;
@@ -526,9 +532,9 @@ public class UiDemoScreen : IGameScreen
 
         // Content-area chrome: the bounds checkbox sits TOP-LEFT (left edge, just under the tab bar),
         // with the numeric Gap field directly below it. The camera is centred at the origin, so the
-        // left edge is -VirtualWidth/2; leave a margin in from the edge / down from the tab bar.
+        // left edge is -LayoutWidth/2; leave a margin in from the edge / down from the tab bar.
         const float edgeMargin = 24f;
-        var leftX = -_viewportManager.VirtualWidth / 2f + edgeMargin;
+        var leftX = -_viewportManager.LayoutWidth / 2f + edgeMargin;
 
         var (check, _) = MakeCheckbox("chk.bounds", "show layout bounds", _showBounds,
             tabIndex: 10, contentTab: TabLayout);
@@ -892,8 +898,8 @@ public class UiDemoScreen : IGameScreen
         // The dialog itself: backdrop + panel + title + OK/Cancel. Not tab-tagged — DialogSystem
         // toggles it by IsOpen so it can open over any tab.
         var content = new List<Entity>();
-        var vw = _viewportManager.VirtualWidth;
-        var vh = _viewportManager.VirtualHeight;
+        var vw = _viewportManager.LayoutWidth;
+        var vh = _viewportManager.LayoutHeight;
 
         // Full-screen opaque backdrop (world rect centred at origin spans [-vw/2..vw/2]).
         var backdrop = _world.CreateEntity();
@@ -1488,13 +1494,14 @@ public class UiDemoScreen : IGameScreen
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
         p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         // Scroll pass: renders every Scroll-target entity (the rows under ContentRoot) into the
-        // scroll render target. No camera (screen-space, identity); projection from the target size.
+        // scroll render target, through the screen-space camera sized to THAT target (identity in a
+        // single-space game); projection from the target size.
         p.Add("renderScroll", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.Scroll, _scrollTarget!), EditTimeBehavior.RunNormally);
+            RenderTargetID.Scroll, _scrollTarget!, _scrollCamera), EditTimeBehavior.RunNormally);
         if (_editor != null)
             p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
         p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),

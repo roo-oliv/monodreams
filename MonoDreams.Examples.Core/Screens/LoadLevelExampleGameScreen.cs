@@ -572,8 +572,8 @@ public class LoadLevelExampleGameScreen : IGameScreen
                 _content.Load<BitmapFont>("Fonts/PPMondwest-Regular-fnt"),
                 _content.Load<Texture2D>("Dialouge UI/dialog box character finished talking click to continue indicator - spritesheet")
                     .Crop(new Rectangle(96, 0, 16, 16), _graphicsDevice),
-                _viewportManager.VirtualWidth,
-                _viewportManager.VirtualHeight,
+                _viewportManager.LayoutWidth,
+                _viewportManager.LayoutHeight,
                 _layers.GetDepth(GameDrawLayer.DialogueUI),
                 InputState.Interact,
                 InputState.Up,
@@ -660,9 +660,9 @@ public class LoadLevelExampleGameScreen : IGameScreen
         var mainPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera);
         var uiPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]);
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI], _viewportManager.LayoutCamera);
         var hudPass = new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]);
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD], _viewportManager.LayoutCamera);
 
         // Final system composites the render targets onto the back buffer. With the editor
         // composed, the native-resolution chrome layer goes on top — it resolves to null (and is

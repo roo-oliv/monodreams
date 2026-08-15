@@ -172,10 +172,12 @@ public sealed class EditorGrid
     /// outside the true viewport are clipped by <see cref="OverlayMeshClip"/>).</summary>
     private (float Left, float Top, float Right, float Bottom) VisibleWorldAabb()
     {
+        // The corners are AUTHORING-space screen corners (VirtualScreenToWorld takes layout
+        // coordinates) — LayoutWidth/Height, which equal the virtual size in a single-space game.
         var c0 = _camera.VirtualScreenToWorld(new Vector2(0f, 0f));
-        var c1 = _camera.VirtualScreenToWorld(new Vector2(_camera.VirtualWidth, 0f));
-        var c2 = _camera.VirtualScreenToWorld(new Vector2(_camera.VirtualWidth, _camera.VirtualHeight));
-        var c3 = _camera.VirtualScreenToWorld(new Vector2(0f, _camera.VirtualHeight));
+        var c1 = _camera.VirtualScreenToWorld(new Vector2(_camera.LayoutWidth, 0f));
+        var c2 = _camera.VirtualScreenToWorld(new Vector2(_camera.LayoutWidth, _camera.LayoutHeight));
+        var c3 = _camera.VirtualScreenToWorld(new Vector2(0f, _camera.LayoutHeight));
         var left = MathF.Min(MathF.Min(c0.X, c1.X), MathF.Min(c2.X, c3.X));
         var right = MathF.Max(MathF.Max(c0.X, c1.X), MathF.Max(c2.X, c3.X));
         var top = MathF.Min(MathF.Min(c0.Y, c1.Y), MathF.Min(c2.Y, c3.Y));

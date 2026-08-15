@@ -69,6 +69,31 @@ parent link means children render at world origin.
 **Tests:** none yet.
 **Depends on:** —
 
+## UI lays out in AUTHORING space, not render pixels
+
+`AutoLayoutSystem`'s screen root is `ViewportManager.LayoutWidth`×`LayoutHeight`
+(and `AutoLayoutBuilder` exposes those as `LayoutWidth`/`LayoutHeight`), never
+the render resolution. Every UI number a game writes — root sizes, anchors,
+paddings, the screen-anchor offsets — is therefore in authoring units, and the
+UI/HUD render passes must be given `ViewportManager.LayoutCamera` so those units
+land on the right render pixels. In a single-space game the two resolutions are
+equal and this reads exactly like the old "virtual screen" wording.
+
+**Why:** the whole point of the two-space model is that a render-resolution move
+costs no authored number (rendering — "Authoring space and render space are
+distinct; the scale lives only in the cameras"). UI is where hardcoded
+final-resolution coordinates concentrate, so it is the layer that must be sized
+in the space that never moves.
+**Breaks:** sizing the layout root from `VirtualWidth` makes every anchored root
+jump when the render resolution changes (a top-right button leaves the screen at
+a lower render scale, and floats inside it at a higher one) — and, paired with a
+`null`-camera UI pass, the whole UI renders quarter-size in a corner.
+**Tests:** none yet directly; the space contract is covered by
+`MonoDreams.Tests/Rendering/RenderSpaceTests.cs` and the live 1.5× render of the
+UI demo in `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+**Depends on:** rendering — "Authoring space and render space are distinct; the
+scale lives only in the cameras".
+
 ## `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
 
 The flexbox solver works on the `LayoutNodeComponent` tree (held by

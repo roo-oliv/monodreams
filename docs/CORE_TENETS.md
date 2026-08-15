@@ -190,9 +190,25 @@ to their parent's depth band. Same-layer entities with the same world Y
 fall through to insertion order — no other tiebreaker exists; if
 flicker becomes a problem, that's where to look.
 
-**Camera.** A `Camera` instance owns its virtual resolution
-(immutable after construction) and exposes mutable zoom, position, and
-rotation. Multiple cameras at once are explicitly supported — local
+**Two coordinate spaces (opt-in).** `ViewportManager` owns an **authoring
+(layout)** resolution — where every game number is written: entity and UI
+coordinates, HUD/overlay boxes, camera zoom, culling extents, and the point
+`MapMouse` returns — and a **render (virtual)** resolution: the pixel size of the
+render targets and back buffer. They default to being EQUAL, and a game opts in
+by giving the manager a different layout size. The ratio (`RenderScale`) is
+applied in **exactly one place — the per-pass render cameras**: world passes take
+`ViewportManager.CreateCamera()`, screen-space passes take
+`ViewportManager.LayoutCamera` (exactly `Matrix.Identity` when the two spaces are
+equal, which is why adopting it changes nothing in a single-space game). Moving a
+game from 720p to 1080p is then a two-number diff in the head, with no coordinate
+— and no coordinate-carrying test — recalibrated. `ViewportManager.MapMouse` is
+the one screen→game pointer mapping; it inverts the present
+`DestinationRectangle`, so it is robust to resize, letterboxing and the editor's
+viewport inset for free. Details: the `rendering` premises.
+
+**Camera.** A `Camera` instance owns its virtual (destination) resolution and its
+render scale (both immutable after construction) and exposes mutable zoom,
+position, and rotation. Multiple cameras at once are explicitly supported — local
 multiplayer or CCTV-style views. `CameraFollowSystem` is *optional*:
 fixed-camera games or custom camera systems are valid; just don't
 register `CameraFollowSystem` and `CullingSystem` will still read
