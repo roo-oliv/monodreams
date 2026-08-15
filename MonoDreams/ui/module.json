@@ -4,7 +4,8 @@
   "description": "Flexbox-style layout, builders, slots, and interactive button primitives",
   "dependencies": [
     "foundation",
-    "rendering"
+    "rendering",
+    "rendering-text"
   ],
   "platforms": ["desktop", "web"],
   "nugetDependencies": [],

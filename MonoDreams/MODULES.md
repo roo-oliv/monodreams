@@ -186,10 +186,16 @@ Two things in that file are worth knowing before you add a module:
   dependency cycle — both need the coupling moved in code — so every case
   installs the smallest set that compiles (`rendering-text`'s closure) on top
   of the module under test. The floor's own members are checked strictly, so
-  the gaps that cause it stay visible.
+  the gaps that cause it stay visible. Its cost: a module that uses a floor
+  module without declaring it still compiles here, so **declare the floor
+  modules you use** — `ui` reads `rendering-text`'s `DynamicTextComponent` and
+  had to declare it (the check could not have told you).
 - **The known-gap list.** Modules that do not compile from their declared
-  dependencies *today* are listed with the diagnostic that proves it is still
-  the same gap. An entry is a promise, not an excuse: the check fails if the
-  module starts building (fix landed → delete the entry) and fails if it breaks
-  for a different reason (a new gap hiding behind a known one). Everything not
-  listed must build.
+  dependencies *today* are listed with the symbols their diagnostics name. An
+  entry is a promise, not an excuse: the check fails if the module starts
+  building (fix landed → delete the entry), if one of the listed symbols stops
+  being reported (the gap shrank → narrow the entry), and if the build emits
+  **any** diagnostic the entry does not name — a new gap hiding behind a known
+  one. That last one is why the entry lists symbols instead of skipping the
+  module, and why the markers are matched against the set of diagnostics rather
+  than against the log as a whole. Everything not listed must build.

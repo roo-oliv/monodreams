@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MonoDreams.Cli.Commands;
 using MonoDreams.Cli.Manifest;
 using MonoDreams.Cli.Resolver;
@@ -59,42 +60,66 @@ public class ManifestHonestyTests
     private const string FloorModule = "rendering-text";
 
     /// <summary>
-    /// Modules that do NOT compile from their declared dependencies today, with the diagnostic that proves
-    /// it is still the same gap. Each entry is a promise, not an excuse: the case fails if the build now
-    /// succeeds (the gap was fixed → delete the entry) and it fails if the build breaks for any other reason
-    /// (a NEW gap hiding behind a known one). Nothing else in the registry is allowed to fail.
+    /// Modules that do NOT compile from their declared dependencies today, each listed with the symbols its
+    /// gap makes the compiler complain about. An entry is a promise, not an excuse — the case fails when:
+    /// <list type="bullet">
+    /// <item>the build now succeeds (the gap was fixed → delete the entry);</item>
+    /// <item>a marker stops appearing (part of the gap was fixed → narrow the entry);</item>
+    /// <item><b>any</b> diagnostic the build emits is explained by no marker — a NEW gap hiding behind a
+    /// known one, which is the only reason to spell the gap out instead of skipping the module.</item>
+    /// </list>
+    /// That last one is why the markers are matched against the <i>set of diagnostics</i>
+    /// (<see cref="ErrorDiagnostics"/>) rather than against the raw log: finding a marker somewhere in the
+    /// log proves the known error is still emitted, never that it is the only one. Nothing else in the
+    /// registry is allowed to fail.
+    ///
+    /// <para>One limit is the compiler's, not the check's: Roslyn stops after the declaration phase once it
+    /// has errors, so while a module is listed here a new gap reachable only from a <i>method body</i> is
+    /// not compiled and therefore not reported. Gaps in declarations (field, parameter, base and return
+    /// types — where an undeclared module dependency almost always shows up first) are caught immediately.
+    /// The listed module's own build is the only place this applies; every unlisted module compiles fully.</para>
     ///
     /// Every entry here is a real bug a user hits on <c>monodreams add &lt;module&gt;</c>; they are catalogued
     /// in issue #83 for follow-up fixes (the manifest ones are one-line manifest edits, the cyclic ones need
     /// the coupling moved in code).
+    ///
+    /// <para>A marker is the symbol <b>as the compiler quotes it</b> (<c>"'Camera'"</c>, not <c>"Camera"</c>),
+    /// so it matches the type the gap is about and not every longer name containing it; drop the closing
+    /// quote to cover a family (<c>"'ContentImporter"</c> spans <c>ContentImporter</c>,
+    /// <c>ContentImporter&lt;&gt;</c>, <c>ContentImporterAttribute</c>, <c>ContentImporterContext</c>).</para>
     /// </summary>
     private static readonly Dictionary<string, KnownGap> KnownGaps = new(StringComparer.Ordinal)
     {
         ["foundation"] = new(
             Why: "ScreenController takes ViewportManager + Camera (owned by `rendering`), which foundation "
                  + "cannot declare without a cycle — the coupling has to move in code.",
-            Markers: new[] { "ViewportManager" }),
+            Markers: new[] { "'ViewportManager'", "'Camera'", "'Renderer'" }),
 
         ["rendering"] = new(
             Why: "DrawComponent + MasterRenderSystem read DynamicTextComponent.DefaultLineSpacing (owned by "
                  + "`rendering-text`, which depends on rendering) — the constant has to move in code.",
-            Markers: new[] { "DynamicTextComponent" }),
+            Markers: new[] { "'DynamicTextComponent'" }),
 
         ["ui"] = new(
             Why: "ui source opens MonoDreams.Component.Cursor (CursorInputComponent / CursorType) but "
-                 + "module.json declares only foundation + rendering. Acyclic: declaring `cursor` fixes it.",
-            Markers: new[] { "CursorInputComponent" }),
+                 + "module.json does not declare `cursor`. Acyclic: declaring it fixes it.",
+            Markers: new[] { "'Cursor'", "'CursorType'", "'CursorInputComponent'" }),
 
         ["dialogue"] = new(
             Why: "two gaps — the same undeclared `cursor` dependency it inherits through ui, plus the "
                  + "YarnSpinner content-pipeline importer, which needs the MonoGame.Framework.Content.Pipeline "
                  + "package no nugetDependencies entry declares.",
-            Markers: new[] { "CursorInputComponent", "ContentImporter" }),
+            Markers: new[]
+            {
+                "'Cursor'", "'CursorType'", "'CursorInputComponent'",              // via ui
+                "'Pipeline'", "'TargetPlatform'", "'ContentImporter", "'ContentProcessor",
+                "'ContentTypeWriter", "'ContentWriter'",                           // the importer's base types
+            }),
 
         ["level-editor"] = new(
             Why: "editor systems use CameraComponent / CameraFollowTargetComponent (owned by `camera`), which "
                  + "module.json does not declare. Acyclic: declaring `camera` fixes it.",
-            Markers: new[] { "CameraComponent" }),
+            Markers: new[] { "'CameraComponent'", "'CameraFollowTargetComponent'" }),
     };
 
     /// <summary>Every module the registry publishes — the check covers the registry, not a hand-kept list.</summary>
@@ -153,13 +178,78 @@ public class ManifestHonestyTests
                 + $"alone. The gap is fixed — delete its entry from {nameof(KnownGaps)} so the check guards it "
                 + "from now on.");
 
+            var diagnostics = ErrorDiagnostics(output);
+            if (diagnostics.Count == 0)
+            {
+                var emptyLog = CliTestSupport.DumpBuildLog($"honesty-{module}", module, output);
+                Assert.Fail(
+                    $"'{module}' is listed as a known manifest gap and the build did fail (exit {exitCode}), but "
+                    + "the log carries no compiler diagnostic to match the gap against — it broke before "
+                    + $"compiling (restore, timeout, tooling). Full log: {emptyLog}\n{CliTestSupport.Tail(output, 6000)}");
+            }
+
+            // EVERY diagnostic has to be one of the known gap's, not merely SOME of them: a build that still
+            // reports the known error AND a new one is a new gap hiding behind a known one.
+            var unexplained = Unexplained(diagnostics, gap.Markers);
+            if (unexplained.Count > 0)
+            {
+                var log = CliTestSupport.DumpBuildLog($"honesty-{module}", module, output);
+                Assert.Fail(
+                    $"'{module}' fails for MORE than its known gap ({gap.Why}) — {unexplained.Count} of "
+                    + $"{diagnostics.Count} diagnostics are explained by no marker in its {nameof(KnownGaps)} "
+                    + "entry. A new gap is hiding behind the known one: fix it, or — if it is genuinely part of "
+                    + $"the known gap — add the symbol it names to Markers. Full log: {log}\n  "
+                    + string.Join("\n  ", unexplained));
+            }
+
             foreach (var marker in gap.Markers)
-                Assert.True(output.Contains(marker, StringComparison.Ordinal),
-                    $"'{module}' failed for a DIFFERENT reason than the known gap ({gap.Why}): the build output "
-                    + $"never mentions '{marker}'. A new gap is hiding behind the known one — investigate "
-                    + $"before touching {nameof(KnownGaps)}.\n{CliTestSupport.Tail(output, 6000)}");
+                Assert.True(diagnostics.Any(d => d.Contains(marker, StringComparison.Ordinal)),
+                    $"'{module}' no longer fails on {marker}, so its known gap ({gap.Why}) has shrunk: that "
+                    + $"part is fixed while the rest is not. Narrow the {nameof(KnownGaps)} entry to what still "
+                    + $"breaks.\nDiagnostics:\n  {string.Join("\n  ", diagnostics)}");
         }
         finally { CliTestSupport.TryDeleteWorkDir(projectDir); }
+    }
+
+    /// <summary>
+    /// Cheap, always-on guard on the matching rule the known-gap list rests on: a gap entry only excuses the
+    /// diagnostics it names, so a build that emits the known error <b>plus</b> a new one is still a failure.
+    /// Asserting "the known marker appears somewhere in the log" would pass that build — the very hole this
+    /// covers — and the expensive suite is opt-in, so the rule is proven here instead, in every
+    /// <c>dotnet test</c>.
+    /// </summary>
+    [Fact]
+    public void ANewGapHidingBehindAKnownOne_IsNotExplainedByTheKnownMarker()
+    {
+        const string missing = "error CS0246: The type or namespace name '{0}' could not be found "
+                               + "(are you missing a using directive or an assembly reference?)";
+        var log = string.Join('\n', new[]
+        {
+            // A real log: absolute temp paths in front, MSBuild's [project] behind, and every diagnostic
+            // printed twice — once where it happens, once in the end-of-build summary.
+            $"  /tmp/md/HonestyUi/Ui.cs(70,13): {string.Format(missing, "CursorInputComponent")} [/tmp/md/HonestyUi/HonestyUi.csproj]",
+            $"  /tmp/md/HonestyUi/Text.cs(9,5): {string.Format(missing, "DynamicTextComponent")} [/tmp/md/HonestyUi/HonestyUi.csproj]",
+            "  Build FAILED.",
+            $"  /tmp/md/HonestyUi/Ui.cs(70,13): {string.Format(missing, "CursorInputComponent")} [/tmp/md/HonestyUi/HonestyUi.csproj]",
+            $"  /tmp/md/HonestyUi/Text.cs(9,5): {string.Format(missing, "DynamicTextComponent")} [/tmp/md/HonestyUi/HonestyUi.csproj]",
+            "      2 Error(s)",
+        });
+
+        var diagnostics = ErrorDiagnostics(log);
+
+        // Path prefix and [project] suffix dropped, the summary repeat collapsed onto the original.
+        Assert.Equal(2, diagnostics.Count);
+        Assert.All(diagnostics, d => Assert.StartsWith("CS0246: ", d, StringComparison.Ordinal));
+
+        // The known gap ('cursor') no longer explains the whole build: the new one is reported.
+        var hidden = Unexplained(diagnostics, new[] { "'CursorInputComponent'" });
+        Assert.Contains("'DynamicTextComponent'", Assert.Single(hidden), StringComparison.Ordinal);
+
+        // Naming both leaves nothing unexplained — the state a gap entry has to be kept in.
+        Assert.Empty(Unexplained(diagnostics, new[] { "'CursorInputComponent'", "'DynamicTextComponent'" }));
+
+        // And a marker is matched as the compiler quotes the symbol, so it cannot spill onto a longer name.
+        Assert.Equal(2, Unexplained(diagnostics, new[] { "'Cursor'", "'DynamicText'" }).Count);
     }
 
     /// <summary>
@@ -181,6 +271,42 @@ public class ManifestHonestyTests
     }
 
     // ---- helpers ------------------------------------------------------------------------------
+
+    /// <summary>Matches one MSBuild/compiler error line, from the code onwards — the <c>file(line,col):</c>
+    /// prefix in front of it is a temp path that says nothing about the gap.</summary>
+    private static readonly Regex ErrorLine =
+        new(@"\berror\s+(?<code>[A-Za-z]+[0-9]+)\s*:\s*(?<message>.+)$", RegexOptions.Compiled);
+
+    /// <summary>MSBuild appends the originating project to every diagnostic it forwards: <c>… [/tmp/X.csproj]</c>.</summary>
+    private static readonly Regex ProjectSuffix = new(@"\s*\[[^\]]*\]\s*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Every distinct error in a build log, normalised to <c>CODE: message</c>. The path prefix and MSBuild's
+    /// trailing <c>[project]</c> are dropped, so the same error — printed once where it happens and again in
+    /// the end-of-build summary — collapses into one entry, and two runs in different temp directories
+    /// produce the same set. Non-compiler errors (restore, MSB…) are kept: a known gap does not excuse them.
+    /// </summary>
+    private static List<string> ErrorDiagnostics(string buildOutput)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in buildOutput.Split('\n'))
+        {
+            var match = ErrorLine.Match(line.TrimEnd());
+            if (!match.Success) continue;
+            var message = ProjectSuffix.Replace(match.Groups["message"].Value.Trim(), string.Empty).Trim();
+            var diagnostic = $"{match.Groups["code"].Value}: {message}";
+            if (seen.Add(diagnostic)) ordered.Add(diagnostic);
+        }
+        return ordered;
+    }
+
+    /// <summary>
+    /// The diagnostics none of <paramref name="markers"/> accounts for — what turns "the known error is still
+    /// there" into "the known error is all there is".
+    /// </summary>
+    private static List<string> Unexplained(IEnumerable<string> diagnostics, IReadOnlyList<string> markers) =>
+        diagnostics.Where(d => !markers.Any(m => d.Contains(m, StringComparison.Ordinal))).ToList();
 
     /// <summary>What the module under test gets installed on top of: the floor, unless it IS the floor.</summary>
     private static bool NeedsFloor(string repo, string module) =>
@@ -211,6 +337,11 @@ public class ManifestHonestyTests
         return true;
     }
 
-    /// <summary>A module that does not build from its declared dependencies yet, and the proof it is still that gap.</summary>
+    /// <summary>
+    /// A module that does not build from its declared dependencies yet.
+    /// <paramref name="Why"/> is the gap in one sentence; <paramref name="Markers"/> are the symbols its
+    /// diagnostics name — <b>every</b> error the build emits must contain one of them, so the set has to be
+    /// complete, not illustrative (see <see cref="KnownGaps"/>).
+    /// </summary>
     private sealed record KnownGap(string Why, string[] Markers);
 }
