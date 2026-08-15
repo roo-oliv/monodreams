@@ -415,6 +415,36 @@ grid replaced the all-pairs loop.
 **Depends on:** "Swept collision reads `TransformComponent.Delta`";
 "`TransformCollisionDetectionSystem` is single-threaded by design".
 
+## The collision module compiles against `physics`, and `module.json` declares it
+
+`collision` has a **hard, compile-time** dependency on the `physics` module:
+`ColliderBody.cs` and `TransformCollisionResolutionSystem.cs` both open
+`MonoDreams.Component.Physics` for `RigidBodyComponent` and `VelocityComponent` — the
+markers body resolution walks for and the fields resolution writes back to. So
+`MonoDreams/collision/module.json` lists `physics` in `dependencies`, and `monodreams add
+collision` installs `physics` with it. The coupling is *compile*-time, not *pipeline*-time:
+installing `physics` does not mean registering `GravitySystem`/`VelocitySystem`. A
+trigger-only game registers neither, carries the physics source dormant, and still compiles —
+which is why the split into two modules stays worth having.
+
+**Why:** the engine ships shadcn-style, so a manifest is a recipe a stranger cooks on a
+machine that has nothing else installed. Every dev machine has all 14 modules present, so an
+undeclared cross-module `using` can never fail locally — it fails on a fresh user's first
+`dotnet build`, with an error naming a namespace from a module they never installed. This
+manifest claimed `foundation` only and its `description` advertised a "soft" couple to
+physics, so `monodreams add collision` produced a project that did not compile (issue #82).
+**Breaks:** dropping `physics` from `dependencies` (or adding a new cross-module `using` to
+collision source without adding the module that owns it) silently reintroduces the same
+first-run build failure — invisible in this repo, fatal for a user.
+**Tests:** `MonoDreams.Cli.Tests/CollisionModuleRegistryTests.cs` (declared deps, resolver
+order, and a source scan asserting every engine namespace collision imports is covered by a
+declared dependency) and
+`MonoDreams.Cli.Tests/ScaffolderBuildTests.cs::Init_ThenAddCollision_InstallsPhysicsAndBuilds`
+(scaffold + `add collision` + `dotnet build`).
+**Depends on:** physics — "`GravitySystem` affects only entities with `RigidBodyComponent` +
+`VelocityComponent`" (the body markers); this file — "A collider's body is resolved via
+`ColliderBody.Resolve`".
+
 ## Collision today couples to `TransformComponent` directly
 
 `TransformCollisionDetectionSystem` and the resolution systems read

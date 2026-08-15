@@ -66,8 +66,8 @@ foundation              required base — installed by `monodreams init`
 │   ├── level-ldtk      load LDtk-exported levels
 │   └── ui              flexbox layout, builders, button primitives
 │       └── dialogue    YarnSpinner integration
-├── physics             velocity + gravity, decoupled from collision
-├── collision           AABB + SAT detection, message-based responses
+├── physics             velocity + gravity, usable without collision
+│   └── collision       AABB + SAT detection, message-based responses
 ├── level-loading       LoadLevelRequest, EntitySpawnRequest plumbing
 ├── level-editor        in-game Edit run mode over the real pipeline (scaffold)
 └── audio               one-shot SFX, loops, interruptible sources (desktop + web)

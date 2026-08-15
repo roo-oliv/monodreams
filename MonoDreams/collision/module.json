@@ -1,14 +1,15 @@
 {
   "$schema": "../module.schema.json",
   "name": "collision",
-  "description": "AABB + SAT collision detection, resolution, messaging; soft-couples to physics",
+  "description": "AABB + SAT collision detection, resolution, messaging; needs physics (a collider's body is a RigidBody/Velocity owner)",
   "dependencies": [
-    "foundation"
+    "foundation",
+    "physics"
   ],
   "platforms": ["desktop", "web"],
   "nugetDependencies": [],
   "csprojProperties": {},
   "mgcbEntries": [],
-  "postInstallNotes": "## collision installed\n\nAttach `BoxColliderComponent` (AABB) or `ConvexColliderComponent` (SAT) plus the `ColliderTagComponent` marker to entities you want to collide. Both collider types feed the same detection system polymorphically.\n\nPipeline:\n1. `TransformCollisionDetectionSystem` queries `ColliderTagComponent` entities, computes overlaps, publishes `CollisionMessage` per pair.\n2. `TransformCollisionResolutionSystem` applies trigger-style responses (no impulse \u2014 message-only).\n3. `TransformPhysicalCollisionResolutionSystem` applies impulse separation \u2014 **only useful when the `physics` module is also installed** (it reads `RigidBodyComponent` and `VelocityComponent`).\n\nSubscribe to `CollisionMessage` in your game systems for trigger logic (pickups, doorways, dialogue zones).\n\n**Premises:** `docs/premises.md`",
+  "postInstallNotes": "## collision installed\n\nAttach `BoxColliderComponent` (AABB) or `ConvexColliderComponent` (SAT) plus the `ColliderTagComponent` marker to entities you want to collide. Both collider types feed the same detection system polymorphically.\n\n`physics` was installed alongside this module: collision resolves a collider's **body** through `RigidBodyComponent`/`VelocityComponent` (`ColliderBody.Resolve`), so the source does not compile without it. Registering `GravitySystem`/`VelocitySystem` in your pipeline stays your call \u2014 a trigger-only game can leave both out and still compile.\n\nPipeline:\n1. `TransformCollisionDetectionSystem` queries `ColliderTagComponent` entities, computes overlaps, publishes `CollisionMessage` per pair.\n2. `TransformCollisionResolutionSystem` applies trigger-style responses (no impulse \u2014 message-only).\n3. `TransformPhysicalCollisionResolutionSystem` applies impulse separation \u2014 it acts only on bodies that actually carry `RigidBodyComponent` and `VelocityComponent`.\n\nSubscribe to `CollisionMessage` in your game systems for trigger logic (pickups, doorways, dialogue zones).\n\n**Premises:** `docs/premises.md`",
   "premisesRef": "docs/premises.md"
 }

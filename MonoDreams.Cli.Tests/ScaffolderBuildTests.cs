@@ -69,6 +69,33 @@ public class ScaffolderBuildTests
     }
 
     /// <summary>
+    /// Issue #82, end-to-end: a fresh <c>init</c> plus <c>add collision</c> compiles. <c>collision</c> opens
+    /// <c>MonoDreams.Component.Physics</c>, so before the manifest declared <c>physics</c> this build failed
+    /// with CS0234 on a namespace from a module the user never asked for — the birth test for the fix.
+    ///
+    /// <c>collision</c> is added ALONE (the CLI pulls <c>physics</c> in itself); the rendering trio rides
+    /// along only because a foundation-only Core does not compile on its own — see the class remarks for
+    /// that pre-existing module-graph gap, which is orthogonal to this test's subject.
+    /// </summary>
+    [Fact]
+    public async Task Init_ThenAddCollision_InstallsPhysicsAndBuilds()
+    {
+        if (SkipOnWindows()) return;
+        var (projectDir, _) = await InitAndAdd("desktop", "BuildCollision", "collision");
+        try
+        {
+            // `add collision` never mentioned physics — the manifest's declared dep is what installs it.
+            var engineRoot = Path.Combine(projectDir, "BuildCollision.Core", "MonoDreams");
+            Assert.True(File.Exists(Path.Combine(engineRoot, "physics", "Component", "RigidBodyComponent.cs")),
+                "add collision must install the physics module its source compiles against");
+            Assert.True(File.Exists(Path.Combine(engineRoot, "collision", "System", "ColliderBody.cs")));
+
+            AssertBuild(Path.Combine(projectDir, "BuildCollision.sln"), platformArg: null);
+        }
+        finally { TryDelete(projectDir); }
+    }
+
+    /// <summary>
     /// Multi target: the desktop solution (Core + Desktop head, web head excluded) builds end-to-end, and
     /// the Core carries both backend-conditioned package groups so the web head resolves KNI while the
     /// desktop head resolves MonoGame. (The Blazor web-head build itself is the manual/CI proof — see the
@@ -99,7 +126,7 @@ public class ScaffolderBuildTests
 
     // ---- helpers ------------------------------------------------------------------------------
 
-    private static async Task<(string ProjectDir, string Repo)> InitAndAdd(string platform, string name)
+    private static async Task<(string ProjectDir, string Repo)> InitAndAdd(string platform, string name, params string[] extraModules)
     {
         var repo = CliTestSupport.FindRepoRoot();
         var workDir = CliTestSupport.NewTempDir("scaffold-build");
@@ -108,7 +135,8 @@ public class ScaffolderBuildTests
         await Runner.RunInitAsync(name, projectDir, platform, repo);
         Assert.True(File.Exists(Path.Combine(projectDir, $"{name}.sln")), "init did not produce the .sln");
 
-        await Runner.RunAddAsync(CompilableModules, presetName: null, projectPath: projectDir, dryRun: false, registryPath: repo);
+        var modules = CompilableModules.Concat(extraModules).ToArray();
+        await Runner.RunAddAsync(modules, presetName: null, projectPath: projectDir, dryRun: false, registryPath: repo);
         return (projectDir, repo);
     }
 

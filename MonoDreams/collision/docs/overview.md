@@ -1,6 +1,6 @@
 # collision — overview
 
-AABB and SAT collision: tag entities with `BoxColliderComponent` or `ConvexColliderComponent`, install the detection system, and pairs of overlapping colliders publish `CollisionMessage` for resolution and game systems to consume. Soft-couples to `physics` — works standalone for triggers, gains impulse resolution when both modules are installed.
+AABB and SAT collision: tag entities with `BoxColliderComponent` or `ConvexColliderComponent`, install the detection system, and pairs of overlapping colliders publish `CollisionMessage` for resolution and game systems to consume. Depends on `physics` at compile time — a collider's *body* is a `RigidBodyComponent`/`VelocityComponent` owner, so `monodreams add collision` installs `physics` too. Which physics *systems* you register stays a pipeline choice: a trigger-only game can skip `GravitySystem`/`VelocitySystem` entirely.
 
 ## Purpose
 
@@ -19,7 +19,7 @@ This module adds spatial collision detection and resolution to entities. Two col
 
 - `TransformCollisionDetectionSystem` — single-threaded; queries `ColliderTagComponent`, broadphase-filters on layers + AABB, narrowphase-tests with AABB or SAT, emits `CollisionMessage` per pair. Generic on the message type via `CreateCollisionMessageDelegate`
 - `TransformCollisionResolutionSystem` — kinematic (trigger-style) resolution: positions adjust to honor contacts without impulse
-- `TransformPhysicalCollisionResolutionSystem` — physical resolution with impulse/mass; useful only when `physics` is installed (reads `RigidBodyComponent` + `VelocityComponent`)
+- `TransformPhysicalCollisionResolutionSystem` — physical resolution with impulse/mass; acts only on bodies that carry `RigidBodyComponent` + `VelocityComponent`
 
 ### Messages
 
@@ -39,7 +39,7 @@ This module adds spatial collision detection and resolution to entities. Two col
 2. In your update pipeline, register these in order **after** `VelocitySystem` (from `physics`) and **before** `TransformCommitSystem` (from `foundation`):
    - **`TransformCollisionDetectionSystem`** — queries colliders, computes overlaps, publishes `CollisionMessage`.
    - **`TransformCollisionResolutionSystem`** — applies trigger/kinematic resolution.
-   - **`TransformPhysicalCollisionResolutionSystem`** — applies impulse resolution (only useful if `physics` is installed and entities have `RigidBodyComponent` + `VelocityComponent`).
+   - **`TransformPhysicalCollisionResolutionSystem`** — applies impulse resolution (acts only on bodies carrying `RigidBodyComponent` + `VelocityComponent`).
 3. In game systems, subscribe to `CollisionMessage` for trigger logic — pickups, doorways, dialogue zones.
 
 The reference pipeline order is **Movement → Velocity → Detection → Resolution → Commit**; skipping or reordering silently degrades collision quality (most commonly: missing `TransformCommitSystem` produces no `Transform.Delta`, so swept tests miss fast-moving contacts).
@@ -49,7 +49,7 @@ Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderCo
 ## Cross-module dependencies
 
 - `foundation` — reads `TransformComponent.Position` for AABB world bounds and `Transform.Delta` for swept (CCD-style) tests.
-- Soft-couples to `physics` — `TransformPhysicalCollisionResolutionSystem` reads `RigidBodyComponent` + `VelocityComponent` for impulse math. Without `physics`, install only the kinematic resolution.
+- `physics` — a **hard, compile-time** dependency, declared in `module.json`. `ColliderBody.Resolve` and `TransformCollisionResolutionSystem` both `using MonoDreams.Component.Physics` (`RigidBodyComponent`, `VelocityComponent`) to find and correct a collider's body, so the collision source does not compile without the `physics` module present. Installing it is not the same as running it: a trigger-only game registers no physics system and pays only the dormant source.
 
 ## Extension points
 
@@ -61,4 +61,4 @@ Layer-based filtering on `BoxColliderComponent.ActiveLayers` / `ConvexColliderCo
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants for this module (`ColliderTagComponent` canonical query, swept-collision `Delta` dependency, single-threaded detection, the reference pipeline order)
-- Related modules: `physics` (writes velocity and reads freeze flags; physical resolution requires it), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging)
+- Related modules: `physics` (declared dependency — supplies the `RigidBodyComponent`/`VelocityComponent` body markers this module compiles against), `foundation` (provides `Transform.Delta` via `TransformCommitSystem`), `debug` (`ColliderDebugSystem` overlays the collider shapes for visual debugging)

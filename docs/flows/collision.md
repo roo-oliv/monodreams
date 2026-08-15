@@ -26,8 +26,10 @@ mass-aware `TransformPhysicalCollisionResolutionSystem` (a subclass filtering to
 earliest contact resolves first, then re-validate each against current positions and correct
 `Transform`: box-vs-box snaps the axis with a non-zero normal (`SetPositionX/Y`) and zeros that
 component of `Velocity.Current`; SAT pushes out along the MTV (`Translate(-normal * penetration)`)
-and removes the velocity component moving into the contact. This is where the **soft-couple to
-`physics`** lives: resolution reads/writes `Velocity.Current` if present (no `VelocityComponent` →
+and removes the velocity component moving into the contact. This is where the **coupling to
+`physics`** lives — hard at compile time (resolution and `ColliderBody` open
+`MonoDreams.Component.Physics`, so `collision` declares `physics` in its `module.json`), soft at
+runtime: resolution reads/writes `Velocity.Current` *if present* (no `VelocityComponent` →
 position-only correction, fine for trigger colliders), and publishes `RigidBodyTouchMessage` for
 grounded-state and audio. `TransformCommitSystem` then closes the frame so next frame's `Delta` is
 meaningful again.
