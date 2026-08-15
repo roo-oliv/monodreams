@@ -44,4 +44,4 @@ For motion *without* collision: install only this module. `VelocitySystem` write
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants for this module (`VelocitySystem` is the primary mover, `Delta` semantics, freeze flag authority)
-- Related modules: `collision` (consumes `Transform.Delta` for swept tests; reads `RigidBodyComponent` for impulse resolution), `foundation` (provides `Transform` and the commit/hierarchy systems physics integrates with)
+- Related modules: `collision` (declares this module in its `module.json` and compiles against it: `ColliderBody.Resolve` reads `RigidBodyComponent`/`VelocityComponent` to pick a collider's body, resolution zeros `Velocity.Current` into a contact it corrects, and detection consumes `Transform.Delta` for swept tests — no impulse and no `Mass` anywhere), `foundation` (provides `Transform` and the commit/hierarchy systems physics integrates with)

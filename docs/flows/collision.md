@@ -25,7 +25,8 @@ Resolution consumes those messages. `TransformCollisionResolutionSystem` and
 override filters to `CollisionType.Physics`) both buffer the frame's collisions, **sort them by
 `ContactTime`** so the earliest contact resolves first, then re-validate each against current
 positions and correct `Transform`: box-vs-box snaps the axis with a non-zero normal
-(`SetPositionX/Y`) and zeros that component of `Velocity.Current`; SAT pushes out along the MTV
+(`TranslateX/Y` onto the swept contact point) and zeros that component of `Velocity.Current`; an
+already-overlapping box pair depenetrates along the shortest exit instead; SAT pushes out along the MTV
 (`Translate(-normal * penetration)`) and removes the velocity component moving into the contact.
 Neither system applies an impulse and neither reads `Mass`. This is where the **coupling to
 `physics`** lives — hard at compile time (resolution and `ColliderBody` open
