@@ -216,20 +216,31 @@ argument) that maps a **face name** — `BitmapFont.Face`, not the font instance
 `TextFacePolicy` (a fold plus a `SilentDrop` flag). Per entity, per frame, the system folds the FULL
 `TextContent` through that face's fold first, and only then applies the reveal slice, the
 `MeasureString` and the write into `DrawComponent.Text` — so the typewriter, the measured size and
-the drawn glyphs all describe the same string. The composed decision is the pure static
-`TextPrepSystem.TryGetVisibleText(facePolicies, font, revealingSpeed, visibleCharacterCount,
-textContent, out visibleText)`. Keying by face name (not instance) is what lets a policy survive a
-content reload, since every screen loads its own `BitmapFont` object from the same `.fnt`.
+the drawn glyphs all describe the same string. The two ends of the reveal therefore measure
+different strings — `TextUpdateSystem` advances `VisibleCharacterCount` against the RAW
+`TextContent.Length` and **clamps it there** (latching `IsRevealed` at the cap), while prep slices
+the FOLDED string — so the count is re-expressed in folded characters before the slice by
+`TextPrepSystem.ScaleRevealCount`: proportional mid-reveal, **saturating to the whole folded string
+once the raw reveal is finished** (count ≥ raw length — which is also exactly what
+`DialogueSystem`'s skip-reveal assigns), and never zero once the reveal has started. The composed
+decision is the pure static `TextPrepSystem.TryGetVisibleText(facePolicies, font, revealingSpeed,
+visibleCharacterCount, textContent, out visibleText)`. Keying by face name (not instance) is what
+lets a policy survive a content reload, since every screen loads its own `BitmapFont` object from
+the same `.fnt`.
 
 **Why:** folding after the slice would measure and draw a string the reveal never saw, and folding
 after layout would measure glyphs that are not the ones rendered. Registering policies per face
 rather than per entity means a game states its font's limits once, at boot, instead of at every
-label.
-**Breaks:** a length-changing fold (`…` → `...`) shifts the reveal, whose character budget
-`TextUpdateSystem` derives from the RAW `TextContent`: a folded string that grew reveals its tail
-slightly early (a shorter one finishes with the count clamped). That is the accepted cost of folding
-first; a game that needs an exact typewriter over expanded content should pre-fold its
-`TextContent`. For the same reason, game-side code that measures the RAW `TextContent` itself —
+label. The count map exists because the raw count is CAPPED at the raw length: without it, a fold
+that grows the string could never reach that string's end.
+**Breaks:** slicing the folded string with the RAW count truncates a grown string **permanently**,
+not early. `Ellipsis` — the one shipped fold that changes length, and it only ever grows — folds
+`"carregando…"` (11) to `"carregando..."` (13); `TextUpdateSystem` stops the count at 11 and latches
+`IsRevealed`, so the label renders `"carregando."` for the rest of its life. Mid-reveal the map is
+still an approximation (a proportional one), so a typewriter over expanded content types its extra
+characters a touch unevenly; a game that needs an exact typewriter over expanded content should
+pre-fold its `TextContent`. For the same reason, game-side code that measures the RAW `TextContent`
+itself —
 `DialogueSystem.WrapText`, any hand-rolled column fitting — measures a string the renderer may not
 draw, so with a length-changing fold its wrap points drift by a character; pre-fold before wrapping
 when exact wrapping matters. Keying policies by `BitmapFont` instance instead of face name loses

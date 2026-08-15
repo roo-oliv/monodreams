@@ -63,6 +63,9 @@ the ones this flow's ordering leans on:
 - The per-face fold runs **before** the reveal slice and before `MeasureString`, so the typewriter,
   the measured size and the drawn glyphs all describe the same string; policies are keyed by
   `BitmapFont.Face` (a name, not an instance) so they survive a per-screen content reload.
+- `VisibleCharacterCount` is produced in RAW characters (and clamped at the raw length) but spent on
+  the FOLDED string, so prep re-expresses it with `TextPrepSystem.ScaleRevealCount` — otherwise a
+  length-growing fold (`…` → `...`) leaves the tail permanently unrevealed.
 - Whatever the fold left uncovered is warned about once per **face + character** — never per frame —
   unless that face's policy opted into `SilentDrop`.
 

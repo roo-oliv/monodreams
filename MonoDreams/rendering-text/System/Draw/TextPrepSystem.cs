@@ -47,7 +47,10 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering, Text
         //
         // The face's FOLD runs first, on the full content: what the reveal slices and what the font
         // measures must be the same string the renderer draws (see the rendering-text premise
-        // "Per-face folds run before the reveal slice and before layout").
+        // "Per-face folds run before the reveal slice and before layout"). Because TextUpdateSystem
+        // measures — and CLAMPS — the reveal count in RAW characters, the count is re-expressed in
+        // FOLDED characters before the slice (ScaleRevealCount), so a fold that grows the string
+        // ('…' → '...') still finishes fully revealed instead of stopping short forever.
         if (!TryGetVisibleText(FacePolicies, text.Font, text.RevealingSpeed, text.VisibleCharacterCount,
                 text.TextContent, out var visibleText))
         {
@@ -98,17 +101,45 @@ public sealed class TextPrepSystem(World world, bool pixelPerfectRendering, Text
     /// <summary>
     /// Resolves the string <see cref="TextPrepSystem"/> renders this frame for a given FACE: the
     /// face's fold (from <paramref name="facePolicies"/>) applied to the full content, then the
-    /// reveal slice. Folding first — not after the slice — is what keeps the typewriter, the
-    /// measured size and the drawn glyphs talking about the same string; the cost is that a
-    /// length-changing fold (<c>'…'</c> → <c>"..."</c>) makes the reveal, whose character budget
-    /// <c>TextUpdateSystem</c> derives from the RAW content, reveal the tail of a longer folded
-    /// string slightly early. Pure and world-free, like the overload it delegates to.
+    /// reveal slice — taken with the count re-expressed in FOLDED characters by
+    /// <see cref="ScaleRevealCount"/>, because <c>TextUpdateSystem</c> measures and clamps it in RAW
+    /// ones. Folding first — not after the slice — is what keeps the typewriter, the measured size
+    /// and the drawn glyphs talking about the same string. Pure and world-free, like the overload it
+    /// delegates to.
     /// </summary>
     public static bool TryGetVisibleText(TextFacePolicyRegistry facePolicies, BitmapFont font,
         float revealingSpeed, int visibleCharacterCount, string textContent, out string visibleText)
     {
         var folded = facePolicies == null ? textContent : facePolicies.Fold(font, textContent);
-        return TryGetVisibleText(revealingSpeed, visibleCharacterCount, folded, out visibleText);
+        return TryGetVisibleText(revealingSpeed,
+            ScaleRevealCount(visibleCharacterCount, textContent, folded), folded, out visibleText);
+    }
+
+    /// <summary>
+    /// Re-expresses a reveal count measured in RAW characters as a count in FOLDED characters.
+    /// <c>TextUpdateSystem</c> advances <c>VisibleCharacterCount</c> against
+    /// <c>TextContent.Length</c> and CLAMPS it there (flipping <c>IsRevealed</c> at the cap), while
+    /// <see cref="TextPrepSystem"/> slices the FOLDED string — so a fold that grows the content
+    /// (<c>'…'</c> → <c>"..."</c>: 11 characters become 13) would otherwise stop at 11 and render
+    /// "carregando." for the rest of the line's life. The map is proportional and saturating: a
+    /// finished raw reveal (count ≥ raw length — including the skip-reveal that assigns the raw
+    /// length outright) yields the WHOLE folded string, a started one never yields zero characters,
+    /// and an unchanged fold (the same instance, or the same length) is returned untouched. Pure;
+    /// no font, no world.
+    /// </summary>
+    public static int ScaleRevealCount(int visibleCharacterCount, string rawText, string foldedText)
+    {
+        if (ReferenceEquals(rawText, foldedText) || visibleCharacterCount <= 0) return visibleCharacterCount;
+
+        var rawLength = rawText?.Length ?? 0;
+        var foldedLength = foldedText?.Length ?? 0;
+        if (rawLength == 0 || rawLength == foldedLength) return visibleCharacterCount;
+        if (visibleCharacterCount >= rawLength) return foldedLength; // the reveal finished: show it all
+
+        // A started reveal shows at least one character, so a shrinking fold cannot blank the label.
+        var scaled = (int)Math.Round(visibleCharacterCount * (double)foldedLength / rawLength,
+            MidpointRounding.AwayFromZero);
+        return Math.Max(1, scaled);
     }
 
     /// <summary>

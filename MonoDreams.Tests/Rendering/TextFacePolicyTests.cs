@@ -190,16 +190,83 @@ public class TextFacePolicyTests
     [Fact]
     public void PrepFoldsBeforeTheRevealSlice()
     {
-        // "carregando…" is 11 characters raw and 13 folded. A reveal at 12 characters proves the
-        // ORDER: folding first yields 12 characters of the FOLDED string ("carregando.."); slicing
-        // first would have yielded the whole raw string, folded to 13 characters.
+        // "carregando…" is 11 characters raw and 13 folded, and TextUpdateSystem measures the reveal
+        // in RAW characters. A mid-reveal count of 6 proves the ORDER: folding first slices the
+        // FOLDED string, at the count re-expressed in folded characters (6/11 of 13 → 7,
+        // "carrega"); slicing first would have folded a 6-character raw prefix into "carreg".
         var font = AsciiFont();
         var faces = new TextFacePolicyRegistry()
             .Register(font, new TextFacePolicy(TextFold.Ellipsis));
 
         Assert.True(TextPrepSystem.TryGetVisibleText(faces, font, revealingSpeed: 20f,
-            visibleCharacterCount: 12, "carregando…", out var visible));
-        Assert.Equal("carregando..", visible);
+            visibleCharacterCount: 6, "carregando…", out var visible));
+        Assert.Equal("carrega", visible);
+    }
+
+    [Theory]
+    [InlineData(11)]          // TextUpdateSystem's clamp: maxChars == the RAW length, where IsRevealed latches
+    [InlineData(13)]          // a hypothetical count in folded space is equally saturating
+    [InlineData(int.MaxValue)] // the int.MaxValue saturation used by static chrome labels
+    public void AGrowingFold_StillFinishesFullyRevealed(int visibleCharacterCount)
+    {
+        // The regression: TextUpdateSystem caps VisibleCharacterCount at the RAW length (11) and
+        // latches IsRevealed there — the count NEVER reaches 13. Slicing the folded string with the
+        // raw count therefore rendered "carregando." forever, not "slightly early". The count is
+        // mapped into folded space, so a finished raw reveal shows the whole folded string.
+        var font = AsciiFont();
+        var faces = new TextFacePolicyRegistry()
+            .Register(font, new TextFacePolicy(TextFold.Ellipsis));
+
+        Assert.True(TextPrepSystem.TryGetVisibleText(faces, font, revealingSpeed: 20f,
+            visibleCharacterCount, "carregando…", out var visible));
+        Assert.Equal("carregando...", visible);
+    }
+
+    [Fact]
+    public void TheRevealUnderAGrowingFold_NeverBlanksAndNeverGoesBackwards()
+    {
+        // DialogueSystem reveals at RevealingSpeed = 20, so every count from 1 to the raw length is
+        // a frame someone sees: each must show at least one character, never fewer than the frame
+        // before, and the last one must be the whole folded string.
+        var font = AsciiFont();
+        var faces = new TextFacePolicyRegistry()
+            .Register(font, new TextFacePolicy(TextFold.Ellipsis));
+        const string raw = "carregando…";
+
+        var previous = 0;
+        for (var count = 1; count <= raw.Length; count++)
+        {
+            Assert.True(TextPrepSystem.TryGetVisibleText(faces, font, revealingSpeed: 20f,
+                visibleCharacterCount: count, raw, out var visible));
+            Assert.InRange(visible.Length, Math.Max(1, previous), "carregando...".Length);
+            previous = visible.Length;
+        }
+
+        Assert.Equal("carregando...".Length, previous);
+    }
+
+    [Fact]
+    public void AFoldThatChangesNothing_LeavesTheRevealCountAlone()
+    {
+        // The common case: no fold applied (or a fold that matched nothing) must slice exactly where
+        // the raw count says, with no scaling arithmetic in the way.
+        var font = AsciiFont();
+        var faces = new TextFacePolicyRegistry()
+            .Register(font, new TextFacePolicy(TextFold.StripDiacritics));
+
+        Assert.True(TextPrepSystem.TryGetVisibleText(faces, font, revealingSpeed: 20f,
+            visibleCharacterCount: 3, "carregando", out var visible));
+        Assert.Equal("car", visible);
+        Assert.Equal(3, TextPrepSystem.ScaleRevealCount(3, "carregando", "carregando"));
+    }
+
+    [Fact]
+    public void AShrinkingFold_MapsDownWithoutBlankingAStartedReveal()
+    {
+        // No shipped fold shrinks a string, but a game-supplied one may. The map must not return 0
+        // for a reveal that has started (which TryGetVisibleText would render as nothing at all).
+        Assert.Equal(1, TextPrepSystem.ScaleRevealCount(1, "abcdefghij", "ab"));
+        Assert.Equal(2, TextPrepSystem.ScaleRevealCount(10, "abcdefghij", "ab"));
     }
 
     [Fact]

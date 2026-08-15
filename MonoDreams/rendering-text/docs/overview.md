@@ -58,7 +58,7 @@ GlyphCoverage.Covers(font, "São Paulo");            // false — this string wo
 GlyphCoverage.MissingCodepoints(font, copy);        // distinct, in first-appearance order
 ```
 
-**2. Fold content into what the face can render.** Compose the shipped blocks once per face and register them; `TextPrepSystem` applies the fold before layout, so nothing at the call sites changes:
+**2. Fold content into what the face can render.** Compose the shipped blocks once per face and register them; `TextPrepSystem` applies the fold before layout (and re-expresses the reveal count in folded characters, so a length-growing fold like `…` → `...` still types all the way to the end), so nothing at the call sites changes:
 
 ```csharp
 var faces = new TextFacePolicyRegistry()
