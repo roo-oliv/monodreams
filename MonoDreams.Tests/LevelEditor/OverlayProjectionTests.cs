@@ -20,8 +20,9 @@ namespace MonoDreams.Tests.LevelEditor;
 
 /// <summary>
 /// Protects the native-resolution editor overlays (the "sharp overlays" directive): the pure
-/// world/virtual → screen mapping (<see cref="OverlayProjection"/> — camera view matrix +
-/// aspect-fit destination, sizes scaled by the fit factor and NEVER the camera zoom), the
+/// world/authoring → screen mapping (<see cref="OverlayProjection"/> — camera view matrix (world)
+/// or the camera's render scale alone (screen-space) + the aspect-fit destination, sizes scaled by
+/// the render scale × the fit factor and NEVER the camera zoom), the
 /// viewport clipping (<see cref="OverlayMeshClip"/>), and the emission contract of
 /// <c>GizmoSystem.EmitOverlays</c> / <c>ProxySyncSystem.EmitOverlays</c>: screen-baked meshes on
 /// <c>RenderTargetID.Editor</c>, constant on-screen handle/stroke size at any zoom, geometry
@@ -84,15 +85,39 @@ public class OverlayProjectionTests
     }
 
     [Fact]
-    public void VirtualProjection_IgnoresTheCamera()
+    public void ScreenSpaceProjection_IgnoresTheCameraPose()
     {
-        // A camera looking somewhere else entirely: a UI/HUD-space point must not care.
+        // A camera looking somewhere else entirely: a UI/HUD-space point must not care about its
+        // position, zoom or rotation (it DOES take its render scale — see the two-space test).
         var camera = new GameCamera(800, 600) { Zoom = 3f, Position = new Vector2(9000, 9000) };
         var vm = Vm(1600, 1200);
 
         var projection = OverlayProjection.For(RenderTargetID.HUD, camera, vm);
 
         Assert.Equal(new Vector2(200, 100), projection.ToScreen(new Vector2(100, 50)));
+    }
+
+    [Fact]
+    public void TwoSpaceGame_ScalesGeometryAndSizesByTheRenderScale_OnBothPaths()
+    {
+        // Authored at 800×600, rendered at 1200×900 (render scale 1.5), composited 1:1 into a
+        // 1200×900 window (fit factor 1). Overlay geometry and sizes are BOTH authored in layout
+        // pixels, so both must cross into render space — a projection that dropped the render scale
+        // would emit two-thirds-size handles, misplaced by the same factor.
+        var camera = new GameCamera(1200, 900, renderScale: 1.5f) { Zoom = 1f, Position = Vector2.Zero };
+        var vm = new ViewportManager(null, 1200, 900, 800, 600) { ScreenWidth = 1200, ScreenHeight = 900 };
+        Assert.Equal(1.5f, vm.RenderScale, 4);
+
+        // Screen-space path: authoring (100,50) → render (150,75) → screen (fit factor 1).
+        var hud = OverlayProjection.For(RenderTargetID.HUD, camera, vm);
+        Assert.Equal(new Vector2(150, 75), hud.ToScreen(new Vector2(100, 50)));
+        Assert.Equal(3f, hud.ToScreenSize(2f));
+
+        // World path: the view matrix already carries the render scale, so world (100,50) lands at
+        // the render centre + 100×1.5 — and sizes take the same factor exactly once.
+        var main = OverlayProjection.For(RenderTargetID.Main, camera, vm);
+        Assert.Equal(new Vector2(600 + 150, 450 + 75), main.ToScreen(new Vector2(100, 50)));
+        Assert.Equal(3f, main.ToScreenSize(2f));
     }
 
     [Fact]

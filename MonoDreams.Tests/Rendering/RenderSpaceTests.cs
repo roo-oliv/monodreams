@@ -98,8 +98,32 @@ public class RenderSpaceTests
         Assert.Throws<ArgumentOutOfRangeException>(() => Manager(1600, 900, 0, 1080));
         Assert.Throws<ArgumentOutOfRangeException>(() => Manager(1600, 900, 1920, 1080, -1, 720));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            Manager(1600, 900, 1920, 1080).SetResolution(1920, 1080, 0, 720));
+            Manager(1600, 900, 1920, 1080).SetResolution(1920, 1080, -1, 720));
         Assert.Throws<ArgumentOutOfRangeException>(() => new MonoDreams.Component.Camera(1920, 1080, renderScale: 0f));
+    }
+
+    [Fact]
+    public void ALayoutDimensionOfZero_MeansTheRenderDimension_InBothEntryPoints()
+    {
+        // 0 is the single-space marker (an unset GameSettings.LayoutWidth/Height), and it must mean
+        // the SAME thing whether the game configures its spaces at construction or later — a
+        // settings-driven SetResolution forwards the very same pair the constructor took.
+        var constructed = Manager(1600, 900, 1920, 1080, 0, 0);
+        Assert.Equal(1920, constructed.LayoutWidth);
+        Assert.Equal(1080, constructed.LayoutHeight);
+        Assert.Equal(1f, constructed.RenderScale);
+
+        var reconfigured = Manager(1600, 900, 1280, 720, 1280, 720);
+        reconfigured.SetResolution(1920, 1080, 0, 0);
+        Assert.Equal(1920, reconfigured.LayoutWidth);
+        Assert.Equal(1080, reconfigured.LayoutHeight);
+        Assert.Equal(1f, reconfigured.RenderScale);
+
+        // A half-specified pair is a mismatched aspect ratio (1920x720 authored into 1920x1080),
+        // not a "0 = single space" case — and it is refused identically by both entry points.
+        Assert.Throws<ArgumentException>(() => Manager(1600, 900, 1920, 1080, 0, 720));
+        Assert.Throws<ArgumentException>(() =>
+            Manager(1600, 900, 1920, 1080).SetResolution(1920, 1080, 0, 720));
     }
 
     [Fact]

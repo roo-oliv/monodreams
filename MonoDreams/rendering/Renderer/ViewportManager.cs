@@ -32,16 +32,20 @@ public class ViewportManager
 {
     /// <summary>
     /// Sets the RENDER resolution (the render targets and back buffer) and, optionally, the
-    /// AUTHORING resolution. Passing no layout size keeps the two spaces equal — the single-space
-    /// game, where this is just "change the resolution". Passing one opts into the two-space model:
-    /// the render resolution moves while every authored coordinate stays put.
+    /// AUTHORING resolution. Takes exactly the constructor's arguments, with the same convention:
+    /// a layout dimension of <b>0</b> (the default) means "same as the render dimension", so
+    /// omitting it — or forwarding a settings object whose layout size is unset — keeps the two
+    /// spaces equal (the single-space game, where this is just "change the resolution"). Passing a
+    /// layout size opts into the two-space model: the render resolution moves while every authored
+    /// coordinate stays put.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">A non-positive dimension.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A non-positive render dimension, or a negative
+    /// layout dimension.</exception>
     /// <exception cref="ArgumentException">Layout and virtual aspect ratios differ (the scale would
     /// not be uniform).</exception>
-    public void SetResolution(int virtualWidth, int virtualHeight, int? layoutWidth = null, int? layoutHeight = null)
+    public void SetResolution(int virtualWidth, int virtualHeight, int layoutWidth = 0, int layoutHeight = 0)
     {
-        ApplyResolution(virtualWidth, virtualHeight, layoutWidth ?? virtualWidth, layoutHeight ?? virtualHeight);
+        ApplyResolution(virtualWidth, virtualHeight, layoutWidth, layoutHeight);
         MarkDirty();
     }
 
@@ -111,9 +115,7 @@ public class ViewportManager
         int layoutWidth = 0, int layoutHeight = 0)
     {
         _game = game;
-        ApplyResolution(virtualWidth, virtualHeight,
-            layoutWidth == 0 ? virtualWidth : layoutWidth,
-            layoutHeight == 0 ? virtualHeight : layoutHeight);
+        ApplyResolution(virtualWidth, virtualHeight, layoutWidth, layoutHeight);
 
         // Initialize screen size (should be updated if window resized)
         ScreenWidth = 800;
@@ -191,14 +193,23 @@ public class ViewportManager
     /// </summary>
     public Camera CreateCamera() => new(VirtualWidth, VirtualHeight, RenderScale);
 
+    // The ONE place the resolution convention is expressed, shared by the constructor and
+    // SetResolution so 0 never means two things: a layout dimension of 0 is "same as the render
+    // dimension" (the single-space game — what an unset GameSettings.LayoutWidth/Height means),
+    // a negative one is a caller bug, and a half-specified pair (0 with a real height) resolves to
+    // a mismatched aspect ratio and throws below, in both entry points alike.
     private void ApplyResolution(int virtualWidth, int virtualHeight, int layoutWidth, int layoutHeight)
     {
         if (virtualWidth <= 0 || virtualHeight <= 0)
             throw new ArgumentOutOfRangeException(nameof(virtualWidth),
                 $"Render resolution must be positive (got {virtualWidth}x{virtualHeight}).");
-        if (layoutWidth <= 0 || layoutHeight <= 0)
+        if (layoutWidth < 0 || layoutHeight < 0)
             throw new ArgumentOutOfRangeException(nameof(layoutWidth),
-                $"Authoring resolution must be positive (got {layoutWidth}x{layoutHeight}).");
+                $"Authoring resolution must be non-negative, 0 meaning \"same as the render " +
+                $"resolution\" (got {layoutWidth}x{layoutHeight}).");
+
+        if (layoutWidth == 0) layoutWidth = virtualWidth;
+        if (layoutHeight == 0) layoutHeight = virtualHeight;
 
         var scaleX = virtualWidth / (float)layoutWidth;
         var scaleY = virtualHeight / (float)layoutHeight;

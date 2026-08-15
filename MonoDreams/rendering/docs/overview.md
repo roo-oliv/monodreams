@@ -53,9 +53,12 @@ This module defines how things appear on screen. It owns the entire draw path â€
 
 They default to being equal â€” the single-space game, where nothing about this
 section is observable. A game opts into two spaces by passing a layout size to
-the constructor (or `SetResolution`), and then a render-resolution move costs a
-two-number diff in the head: `RenderScale` reaches the frame through the
-cameras and nowhere else.
+the constructor (or `SetResolution`, which takes the same arguments), and then a
+render-resolution move costs a two-number diff in the head: `RenderScale` reaches
+the frame through the cameras and nowhere else. Both entry points read a layout
+dimension of **0** as "same as the render dimension", so a settings object whose
+layout size is unset (`GameSettings.LayoutWidth`/`LayoutHeight` default to 0) can
+be forwarded to either one and simply stays single-space.
 
 ```csharp
 // Head: author at 1280x720, render at 1920x1080.

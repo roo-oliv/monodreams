@@ -7,21 +7,26 @@ using MonoDreams.Renderer;
 namespace MonoDreams.LevelEditor.Transform;
 
 /// <summary>
-/// The pure world/virtual → <b>screen</b> mapping the editor overlays (gizmo handles, selection
+/// The pure world/authoring → <b>screen</b> mapping the editor overlays (gizmo handles, selection
 /// outline, collider-proxy outlines) are emitted through. The overlays render on the
 /// native-resolution <c>RenderTargetID.Editor</c> layer (composited 1:1 with the window, in
 /// device pixels), so their geometry must be baked in screen pixels: a world point goes through
-/// the camera's view matrix into virtual coordinates, then through the same aspect-fit mapping
+/// the camera's view matrix into render coordinates, then through the same aspect-fit mapping
 /// <c>FinalDrawSystem</c> composites the game targets with —
-/// <c>screen = virtual × (Destination.Size / VirtualSize) + Destination.Location</c>. A
-/// virtual-space point (a <c>UI</c>/<c>HUD</c>/<c>Scroll</c>-target entity's coordinates) skips
-/// the camera and takes only the aspect-fit step.
+/// <c>screen = render × (Destination.Size / VirtualSize) + Destination.Location</c>. An
+/// authoring-space point (a <c>UI</c>/<c>HUD</c>/<c>Scroll</c>-target entity's coordinates) skips
+/// the camera's POSE (position, zoom, rotation) and takes its
+/// <see cref="Camera.RenderScale"/> — the authoring → render factor
+/// <c>ViewportManager.LayoutCamera</c> applies to those very passes, and exactly identity in a
+/// single-space game — before the same aspect-fit step.
 ///
 /// <para><b>Sizes stay in authoring pixels.</b> Handle radii / line thicknesses are authored in
 /// layout pixels (the same constants as before this projection existed) and scaled by
-/// <see cref="ToScreenSize"/> — the aspect-fit factor only, <b>never</b> the camera zoom. That
-/// preserves the exact apparent size the old world-space <c>1/Zoom</c>-compensated overlays had
-/// (world × zoom × fit == virtual × fit), while the geometry now rasterizes directly at device
+/// <see cref="ToScreenSize"/> — the render scale (authoring px → render px) and the aspect-fit
+/// factor (render px → screen px), <b>never</b> the camera zoom. In a single-space game the render
+/// scale is 1, so that is the fit factor alone. That preserves the exact apparent size the old
+/// world-space <c>1/Zoom</c>-compensated overlays had (world × zoom × renderScale × fit ==
+/// authoring × renderScale × fit), while the geometry now rasterizes directly at device
 /// resolution instead of being drawn at virtual resolution and upscaled — which is the whole
 /// point: zooming the camera moves/points the geometry but never fattens or thins the lines, and
 /// a HiDPI backbuffer (see <c>EditorHiDpi</c>) sharpens them for free because
@@ -61,7 +66,8 @@ public readonly struct OverlayProjection
     /// <summary>
     /// The projection for the coordinate space of <paramref name="space"/>: <c>Main</c>-target
     /// entities are world-space (project through <paramref name="camera"/>'s view matrix, then
-    /// aspect-fit); every other scene target is virtual-space (aspect-fit only). A null
+    /// aspect-fit); every other scene target is authoring-space (the camera's render scale — NOT
+    /// its pose — then aspect-fit; in a single-space game that is the aspect fit alone). A null
     /// <paramref name="viewportManager"/> (world-free unit tests) degrades to the identity
     /// aspect-fit — screen == virtual, viewport = the camera's virtual bounds — so the code path
     /// is identical, only the mapping is trivial.

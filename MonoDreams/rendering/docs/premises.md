@@ -113,6 +113,15 @@ number, and no coordinate-carrying test moves. Bitmap text is re-rasterized
 through the camera at the new resolution, so it gains real fidelity from the
 same font masters.
 
+The two entry points that configure the spaces — the `ViewportManager`
+constructor and `SetResolution` — take the same layout arguments under **one
+convention**: a layout dimension of `0` means "same as the render dimension"
+(which is what an unset `GameSettings.LayoutWidth`/`LayoutHeight` is), a negative
+one throws, and a half-specified pair (`0` beside a real height) resolves to a
+mismatched aspect ratio and throws as such. `0` never means "single space" in one
+of them and "invalid" in the other, so a settings object can be forwarded to
+either.
+
 **Why:** hardcoding final-resolution coordinates (buttons at 1720,980; tests
 asserting pixel positions) makes a resolution change a full recalibration. The
 `ViewportManager` used to half-support this — one space with a letterbox — which
@@ -128,12 +137,15 @@ the top-left corner. Reading `VirtualWidth` where an authored number belongs
 (UI layout roots, HUD/overlay boxes, fit-zoom, frustum outlines) makes that
 number move with the render resolution — the exact bug the split exists to
 prevent. Non-matching aspect ratios would need two scales, so the manager
-refuses them.
+refuses them. A `SetResolution` that read `0` as "invalid" rather than "same as
+the render dimension" would crash any game that forwards its (default) settings
+to it, while the identical constructor call booted fine.
 **Tests:** `MonoDreams.Tests/Rendering/RenderSpaceTests.cs` (single-space is
-identity; scale derivation + validation; `MapMouse` returns authoring
-coordinates unchanged across a render-resolution move and follows resize /
-letterbox; layout and world cameras map authoring → render pixels; pointer →
-world and the culling extent are identical at any render resolution) plus the
+identity; scale derivation + validation, incl. `0` meaning the render dimension
+in both entry points; `MapMouse` returns authoring coordinates unchanged across a
+render-resolution move and follows resize / letterbox; layout and world cameras
+map authoring → render pixels; pointer → world and the culling extent are
+identical at any render resolution) plus the
 live render at 1.5× in
 `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`
 (`HeadlessUiDemo_AtAHigherRenderResolution_…`).
