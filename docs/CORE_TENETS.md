@@ -506,6 +506,26 @@ exposes log-assertion helpers (`AssertLogContains`,
 today are `SATCollisionTests` (pure-logic), `BlenderLevelTests`
 (native scene boot), and `InfiniteRunnerTests` (integration).
 
+**Test isolation is enforced, not trusted.** The whole assembly runs in
+one process, so the engine's process-wide mutables — the sockets
+(`Logger.LineSink`, `GatedSystem.TimingSink`,
+`MasterRenderSystem.RenderedTargetSink`), the static switches
+(`SystemProfiler`, the debug-overlay flags, `FinalDrawSystem`'s colours)
+and the two singletons (`PlatformServices.Current`, the `Logger` session)
+— are shared by every test. `MonoDreams.Tests` returns all of them to
+their shipped defaults **after every single test**
+(`ProcessWideStateGuardAttribute`, declared once at assembly scope) and
+runs its classes in a **deterministic order**
+(`DeterministicCollectionOrderer`). xUnit's default order is hash-seeded,
+so it differs on every run: an order-dependent failure surfaces once and
+hides for the next three, and "it passes in isolation" tells you nothing
+(issue #114). Pinning the order makes such a failure either always there
+or never there; `MONODREAMS_TEST_SEED=<n>` shuffles reproducibly when you
+want to go looking, and `MONODREAMS_TEST_LAST=<substring>` forces a class
+to run last. Add any new engine-level static to `ProcessWideState` in the
+same PR that introduces it. See the foundation premise "A process-wide
+socket is restored by whoever installs it — tests included".
+
 **No architectural tests today.** ArchUnit-style assertions
 ("`MonoDreams/Component/*.cs` must contain only data") do not exist
 yet. Most premises in `docs/{domain}/premises.md` start their `Tests:`

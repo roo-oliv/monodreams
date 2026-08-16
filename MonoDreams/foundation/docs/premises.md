@@ -477,6 +477,48 @@ for the rest of the process.
 `Dispose_ReleasesTheLoggerTap` pins the install/uninstall contract).
 **Depends on:** debug — "A pointer plan gates on observables, times out, and drains into an exit".
 
+## A process-wide socket is restored by whoever installs it — tests included
+
+The engine deliberately keeps a handful of **process-wide mutables**: the sockets
+(`Logger.LineSink`, `GatedSystem.TimingSink`, `MasterRenderSystem.RenderedTargetSink`), the
+static switches (`SystemProfiler.Enabled` / `ReportInterval`, the four debug-overlay flags,
+`FinalDrawSystem`'s clear/letterbox colours) and the two singletons
+(`PlatformServices.Current` and the `Logger` session, whose `MinimumLevel` only a fresh
+`Initialize` can move). Each is single-owner: an owner installs it and **restores the shipped
+default when it is done**, and that duty is not lifted for a test. A test process runs the
+whole assembly in ONE process, so a test that installs a socket and returns without restoring
+it hands the leak to whichever test runs next — and xUnit's default class order is
+hash-seeded, so "next" is a different test on every run. `MonoDreams.Tests` therefore enforces
+the rule instead of trusting it: `ProcessWideStateGuardAttribute`, declared once at assembly
+scope, resets every entry of `ProcessWideState` after **every** test, and
+`DeterministicCollectionOrderer` pins the class order so an order-dependent failure is
+reproducible rather than random (`MONODREAMS_TEST_SEED` shuffles deliberately,
+`MONODREAMS_TEST_LAST` forces a class to run last — both replayable). **A new process-wide
+mutable must be added to `ProcessWideState` in the PR that introduces it.**
+
+**Why:** issue #114 — a full-suite Release run failed 32 tests, three consecutive runs of the
+same tree were green, and every named failure passed in isolation. That signature (a victim
+chosen by the run's hash seed) costs hours per sighting because the failing test is never the
+guilty one. Resetting after every test makes a leaked socket unable to travel at all, and
+pinning the order makes whatever order-dependence remains reproducible instead of seasonal —
+that ordering knob is what turned #114's ghost into a seed that fails the same way every time.
+(The failure that seed exposed turned out to live one layer down, in a corrupted DefaultEcs
+`EntitySet`, not in a socket — which is precisely why the sockets had to be ruled out
+structurally rather than by inspection.)
+**Breaks:** a leaked `Logger.LineSink` keeps a dead object receiving every line for the rest of
+the process; a raised `Logger.MinimumLevel` silently suppresses every later test's log
+assertions (and skips the interpolation holes behind them); a leaked `PlatformServices.Current`
+points every later file read at another test's fake; a leaked `RenderedTargetSink` or
+`TimingSink` calls into a disposed system. All of them fail somewhere else, later, and only
+sometimes.
+**Tests:** `MonoDreams.Tests/Foundation/ProcessWideStateHygieneTests.cs` — one test leaks every
+socket and the next asserts it starts from the shipped defaults; it fails (naming what leaked)
+when the guard is switched off with `MONODREAMS_TEST_NO_RESET=1`.
+**Depends on:** "`Logger.LineSink` is a single-owner tap that must not log"; "`GatedSystem`'s
+timing sink keeps the profiler out of foundation"; "Engine source is backend/OS-agnostic —
+non-portable calls go through `IPlatformServices`"; rendering — "A render pass publishes its
+destination through a null-by-default socket".
+
 ## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) are the survivors of a screen switch
 
 `ScreenController.RegisterScreen` has two overloads: the historical `(name, creator)` (which records a
