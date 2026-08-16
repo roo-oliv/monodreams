@@ -43,6 +43,26 @@ internal static class ProjectScaffolder
     internal const string WasmShimVersion = "8.0.11";
 
     /// <summary>
+    /// The <c>KNI.Extended</c> family version the web head's content build uses for the extended
+    /// pipeline (<c>KNI.Extended.Content.Pipeline</c>, which owns the BitmapFont importer/processor) and
+    /// for the <c>KNI.Extended.dll</c> runtime assembly it stages next to MGCB. MUST equal the
+    /// <c>KNI.Extended</c> version the <c>rendering</c> module manifest injects into Core for the web
+    /// platform: the pipeline that WRITES a <c>.xnb</c> and the runtime that READS it are the same
+    /// package pair, and a mismatch surfaces only at runtime as a content-type-load failure.
+    /// </summary>
+    internal const string KniExtendedVersion = "6.0.0";
+
+    /// <summary>
+    /// The desktop MonoGame MGCB tool (<c>dotnet-mgcb</c>) version the web head's content build borrows
+    /// its cross-platform native libraries from. KNI's MGCB NuGet ships Windows-only
+    /// <c>FreeImage</c>/<c>freetype</c> and NO <c>ffmpeg</c>/<c>ffprobe</c> for any OS, so the emitted
+    /// shim target copies those out of this package (see docs/web-targeting.md, "macOS / Linux
+    /// native-lib shim"). The emitted csproj both <c>PackageDownload</c>s this version and builds the
+    /// borrow paths from it, so the two can never drift apart.
+    /// </summary>
+    internal const string MonoGameMgcbToolVersion = "3.8.4";
+
+    /// <summary>
     /// The virtual resolution a scaffolded game is authored against. Stamped into BOTH
     /// <c>GameRoot.VirtualWidth</c>/<c>VirtualHeight</c> (Core) and <c>GAME_WIDTH</c>/<c>GAME_HEIGHT</c>
     /// in the web head's <c>index.html</c>, so the canvas backbuffer starts exactly 1:1 with the game's
@@ -70,6 +90,7 @@ internal static class ProjectScaffolder
 
         WriteCoreCsproj(coreDir, coreName, projectName);
         WriteCoreGameRoot(coreDir, projectName);
+        WriteCoreContentMgcb(coreDir);
 
         if (includeDesktop) WriteDesktopHead(projectDir, projectName);
         if (includeWeb) WriteWebHead(projectDir, projectName);
@@ -214,6 +235,50 @@ public class GameRoot : Game
 """);
     }
 
+    /// <summary>
+    /// Emits the shared content project (<c>&lt;Name&gt;.Core/Content/Content.mgcb</c>) — ONE <c>.mgcb</c>
+    /// for every head. The content project is not platform-specific: the same file builds for either
+    /// backend and the platform is supplied to MGCB at build time by the head (DesktopGL via
+    /// <c>MonoGame.Content.Builder.Task</c>, BlazorGL via KNI's builder), which is why the
+    /// <c>/platform:</c> line below is only a default for the standalone MGCB editor. It lives in Core
+    /// because that is where <c>monodreams add</c> appends a module's <c>mgcbEntries</c>.
+    /// </summary>
+    private static void WriteCoreContentMgcb(string coreDir)
+    {
+        var contentDir = Path.Combine(coreDir, "Content");
+        Directory.CreateDirectory(contentDir);
+        File.WriteAllText(Path.Combine(contentDir, "Content.mgcb"), """
+#----------------------------- Global Properties ----------------------------#
+# The SHARED content project: every head builds THIS file, each for its own backend.
+# /platform: below is only the default the MGCB editor opens with — each head passes its own
+# (/platform:DesktopGL from the desktop head, /platform:BlazorGL from the web head), and the
+# command line wins. `monodreams add <module>` appends module content lines at the end.
+#
+# Add an asset by dropping the file under this Content/ folder and adding a block for it, e.g.
+#
+#   #begin player.png
+#   /importer:TextureImporter
+#   /processor:TextureProcessor
+#   /build:player.png
+#
+# then load it with Content.Load<Texture2D>("player").
+
+/outputDir:bin
+/intermediateDir:obj
+/platform:DesktopGL
+/config:
+/profile:HiDef
+/compress:False
+
+#-------------------------------- References --------------------------------#
+
+
+#---------------------------------- Content ---------------------------------#
+
+
+""");
+    }
+
     // ---- Desktop head --------------------------------------------------------------------------
 
     private static void WriteDesktopHead(string projectDir, string projectName)
@@ -225,8 +290,13 @@ public class GameRoot : Game
         File.WriteAllText(Path.Combine(headDir, $"{headName}.csproj"), $$"""
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    {{headName}} — the DesktopGL head. Thin: owns the entry point only; all game logic lives in
-    {{projectName}}.Core (referenced as a desktop backend build, the Directory.Build.props default).
+    {{headName}} — the DesktopGL head. Thin: owns the entry point and the desktop content build;
+    all game logic lives in {{projectName}}.Core (referenced as a desktop backend build, the
+    Directory.Build.props default).
+
+    Content is built from the SAME Content.mgcb that lives in {{projectName}}.Core, here via
+    MonoGame.Content.Builder.Task at /platform:DesktopGL. A web head builds the identical .mgcb
+    through KNI's builder at /platform:BlazorGL — one content source, one platform per head.
   -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -246,6 +316,15 @@ public class GameRoot : Game
   <ItemGroup>
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4" />
     <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The shared Content.mgcb (lives in {{projectName}}.Core). MonoGameContentReference builds it
+         via MonoGame.Content.Builder.Task and copies the XNB into this head's output Content/ dir.
+         The Link's directory name becomes that output folder. -->
+    <MonoGameContentReference Include="..\{{projectName}}.Core\Content\Content.mgcb">
+      <Link>Content\Content.mgcb</Link>
+    </MonoGameContentReference>
   </ItemGroup>
 </Project>
 
@@ -359,17 +438,121 @@ game.Run();
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.11" PrivateAssets="all" />
   </ItemGroup>
 
-  <!--
-    CONTENT BUILD (not wired here on purpose): this starter head boots the empty GameRoot, which loads
-    NO content, so it runs with no content pipeline. The MOMENT you `monodreams add` a module that builds
-    content for web (fonts via rendering-text, level-ldtk, dialogue/Yarn), this head needs KNI's web
-    content-build wiring — the desktop head's MonoGame.Content.Builder.Task has no web equivalent here.
-    The web recipe is non-trivial and OS-dependent (KNI's MGCB builder ships Windows-only native libs, so
-    macOS/Linux needs a FreeImage/freetype shim, plus per-backend /reference: dlls). Copy the working set
-    of targets from MonoDreams.Examples.Web.csproj (BuildWebContentPipelineDlls + PrepareKniContentNativeShim,
-    nkast.Xna.Framework.Content.Pipeline.Builder, KniContentReference) and read docs/web-targeting.md
-    ("Content build (the same .mgcb, two backends)") before adding a content-using module on web.
-  -->
+  <!-- =====================================================================================
+       CONTENT BUILD (BlazorGL). The SAME {{projectName}}.Core/Content/Content.mgcb the desktop
+       head builds with MonoGame.Content.Builder.Task, here built for /platform:BlazorGL by KNI's
+       builder — one content source, the platform supplied per head. Drop an asset into
+       {{projectName}}.Core/Content/, add its block to the .mgcb, rebuild: the .xnb lands in this
+       head's wwwroot/Content/ and Content.Load<T>("name") finds it over HTTP. No csproj editing.
+
+       Everything below is boilerplate — the same block every MonoDreams web head carries, emitted
+       here so you never have to port it. It exists because KNI's MGCB NuGet is Windows-only in
+       three places, and each gap is patched here:
+         1. it ships a Windows MGCB.exe        -> run the managed MGCB.dll through `dotnet`;
+         2. it ships Windows FreeImage/freetype -> borrow the macOS/Linux natives from dotnet-mgcb;
+         3. it ships no ffmpeg/ffprobe at all   -> borrow those too, or every .wav fails.
+       Plus KNI.Extended's BitmapFont importer, whose dependency probe only looks in the builder's
+       own tools dir — hence the staging copies. See docs/web-targeting.md ("macOS / Linux
+       native-lib shim").
+
+       NEEDS A SOURCE-BUILT PIPELINE DLL? Games whose content uses a custom importer/processor
+       compiled from source (an engine or vendored content pipeline, not a prebuilt NuGet) add ONE
+       more target on top of this block — see docs/web-targeting.md, "Escape hatch: source-built
+       content-pipeline dlls". The prebuilt KNI.Extended importers below need none of that.
+       ===================================================================================== -->
+  <PropertyGroup>
+    <KniBuilderPkg>$(NuGetPackageRoot)nkast.xna.framework.content.pipeline.builder/{{KniPackageVersion}}</KniBuilderPkg>
+    <KniBuilderToolsDir>$(KniBuilderPkg)/tools</KniBuilderToolsDir>
+    <MonoGameMgcbToolDir>$(NuGetPackageRoot)dotnet-mgcb/{{MonoGameMgcbToolVersion}}/tools/net8.0/any/runtimes/osx/native</MonoGameMgcbToolDir>
+    <MonoGameMgcbToolDirLinux>$(NuGetPackageRoot)dotnet-mgcb/{{MonoGameMgcbToolVersion}}/tools/net8.0/any/runtimes/linux-x64/native</MonoGameMgcbToolDirLinux>
+    <!-- Run MGCB cross-platform via the managed entrypoint instead of the bundled Windows .exe. -->
+    <KniContentBuilderExe Condition="'$(OS)' != 'Windows_NT'">dotnet</KniContentBuilderExe>
+  </PropertyGroup>
+
+  <!-- The KNI content-builder + extended pipeline are dev-time only (run MGCB on the dev's
+       desktop); reference them for the restore + tools, but keep their assets out of the bundle. -->
+  <ItemGroup>
+    <PackageReference Include="nkast.Xna.Framework.Content.Pipeline.Builder" Version="{{KniPackageVersion}}"
+                      ExcludeAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="KNI.Extended.Content.Pipeline" Version="{{KniExtendedVersion}}"
+                      ExcludeAssets="all" GeneratePathProperty="true" />
+    <!-- The desktop MonoGame MGCB tool, DOWNLOADED (not referenced — it is a DotnetTool package,
+         which PackageReference rejects) purely so the shim target below can borrow its
+         macOS/Linux native libs + ffmpeg/ffprobe out of
+         $(NuGetPackageRoot)dotnet-mgcb/{{MonoGameMgcbToolVersion}}/. Every borrow below is
+         Exists()-guarded, so without this download they all silently no-op on a machine that never
+         built desktop content — and the first texture/.wav then fails the content build with
+         DllNotFoundException / "not DRM protected". -->
+    <PackageDownload Include="dotnet-mgcb" Version="[{{MonoGameMgcbToolVersion}}]" />
+  </ItemGroup>
+
+  <!-- Import the KNI content-builder targets (CollectContentReferences / RunContentBuilder /
+       IncludeContent). The .targets auto-globs **/*.mgcb under THIS project; ours lives in
+       {{projectName}}.Core, so we add it explicitly as a KniContentReference below. -->
+  <Import Project="$(KniBuilderPkg)/build/nkast.Xna.Framework.Content.Pipeline.Builder.targets"
+          Condition="Exists('$(KniBuilderPkg)/build/nkast.Xna.Framework.Content.Pipeline.Builder.targets')" />
+
+  <ItemGroup>
+    <!-- The shared Content.mgcb (lives in {{projectName}}.Core). The Link's directory name becomes
+         the ContentFolder, so output lands in wwwroot/Content/ for the BlazorGL platform. -->
+    <KniContentReference Include="..\{{projectName}}.Core\Content\Content.mgcb">
+      <Link>Content\Content.mgcb</Link>
+    </KniContentReference>
+  </ItemGroup>
+
+  <!-- Stage the cross-platform native libs + set the /reference: args before MGCB runs. -->
+  <Target Name="PrepareKniContentNativeShim" BeforeTargets="RunContentBuilder">
+    <PropertyGroup>
+      <_ExtendedPipelineDll>$(PkgKNI_Extended_Content_Pipeline)/lib/net8.0/KNI.Extended.Content.Pipeline.dll</_ExtendedPipelineDll>
+      <_ExtendedRuntimeDll>$(NuGetPackageRoot)kni.extended/{{KniExtendedVersion}}/lib/net8.0/KNI.Extended.dll</_ExtendedRuntimeDll>
+      <_AutofacDll>$(NuGetPackageRoot)autofac/5.2.0/lib/netstandard2.1/Autofac.dll</_AutofacDll>
+      <!-- Run the managed MGCB.dll on non-Windows; the .targets default is the Windows MGCB.exe. -->
+      <KniContentBuilderArguments Condition="'$(OS)' != 'Windows_NT'">"$(KniBuilderToolsDir)/MGCB.dll" /quiet /reference:"$(_ExtendedPipelineDll)"</KniContentBuilderArguments>
+      <KniContentBuilderArguments Condition="'$(OS)' == 'Windows_NT'">/quiet /reference:"$(_ExtendedPipelineDll)"</KniContentBuilderArguments>
+    </PropertyGroup>
+
+    <!-- The KNI builder's importer-dependency probing loads referenced assemblies from the
+         tools dir; stage KNI.Extended runtime + Autofac there so the BitmapFont importer resolves. -->
+    <Copy SourceFiles="$(_ExtendedRuntimeDll)" DestinationFolder="$(KniBuilderToolsDir)"
+          SkipUnchangedFiles="true" Condition="Exists('$(_ExtendedRuntimeDll)')" />
+    <Copy SourceFiles="$(_ExtendedPipelineDll)" DestinationFolder="$(KniBuilderToolsDir)"
+          SkipUnchangedFiles="true" Condition="Exists('$(_ExtendedPipelineDll)')" />
+    <Copy SourceFiles="$(_AutofacDll)" DestinationFolder="$(KniBuilderToolsDir)"
+          SkipUnchangedFiles="true" Condition="Exists('$(_AutofacDll)')" />
+
+    <!-- macOS/Linux native-lib shim for the TextureImporter (FreeImage/freetype). The KNI builder
+         package ships only Windows DLLs; borrow the matching native libs from the desktop MonoGame
+         MGCB tool (dotnet-mgcb), renamed to the names the KNI P/Invoke probes (FreeImage / freetype6). -->
+    <Copy SourceFiles="$(MonoGameMgcbToolDir)/libfreeimage.dylib" DestinationFiles="$(KniBuilderToolsDir)/FreeImage.dylib"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDir)/libfreeimage.dylib')" />
+    <Copy SourceFiles="$(MonoGameMgcbToolDir)/libfreetype.dylib" DestinationFiles="$(KniBuilderToolsDir)/freetype6.dylib"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDir)/libfreetype.dylib')" />
+    <Copy SourceFiles="$(MonoGameMgcbToolDirLinux)/libfreeimage.so" DestinationFiles="$(KniBuilderToolsDir)/FreeImage.so"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbToolDirLinux)/libfreeimage.so')" />
+
+    <!-- Audio shim (same borrow, different tool): KNI's WavImporter/SoundEffectProcessor shell out
+         to ffprobe/ffmpeg via ExternalTool, which probes the builder's per-OS subdir next to
+         MGCB.dll (osx/, linux-x64/, linux/, win-x64/, win-x86/) and then PATH — and the KNI builder
+         package ships NO ffmpeg for any OS. Borrow the binaries the desktop MonoGame MGCB tool
+         bundles (dotnet-mgcb tools/net8.0/any/<os>/) into the subdir KNI probes, or every .wav
+         fails with "Failed to open file ... not DRM protected". The Windows copy follows the exact
+         same pattern but is untested on a real Windows host; if the borrow misses, ffmpeg/ffprobe
+         on PATH is the fallback KNI probes (docs/web-targeting.md, shim step 5). -->
+    <PropertyGroup>
+      <MonoGameMgcbFfDirOsx>$(NuGetPackageRoot)dotnet-mgcb/{{MonoGameMgcbToolVersion}}/tools/net8.0/any/osx</MonoGameMgcbFfDirOsx>
+      <MonoGameMgcbFfDirLinux>$(NuGetPackageRoot)dotnet-mgcb/{{MonoGameMgcbToolVersion}}/tools/net8.0/any/linux-x64</MonoGameMgcbFfDirLinux>
+      <MonoGameMgcbFfDirWin>$(NuGetPackageRoot)dotnet-mgcb/{{MonoGameMgcbToolVersion}}/tools/net8.0/any/windows-x64</MonoGameMgcbFfDirWin>
+    </PropertyGroup>
+    <Copy SourceFiles="$(MonoGameMgcbFfDirOsx)/ffmpeg;$(MonoGameMgcbFfDirOsx)/ffprobe"
+          DestinationFolder="$(KniBuilderToolsDir)/osx"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirOsx)/ffprobe')" />
+    <Copy SourceFiles="$(MonoGameMgcbFfDirLinux)/ffmpeg;$(MonoGameMgcbFfDirLinux)/ffprobe"
+          DestinationFolder="$(KniBuilderToolsDir)/linux-x64"
+          SkipUnchangedFiles="true" Condition="'$(OS)' != 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirLinux)/ffprobe')" />
+    <Copy SourceFiles="$(MonoGameMgcbFfDirWin)/ffmpeg.exe;$(MonoGameMgcbFfDirWin)/ffprobe.exe"
+          DestinationFolder="$(KniBuilderToolsDir)/win-x64"
+          SkipUnchangedFiles="true" Condition="'$(OS)' == 'Windows_NT' AND Exists('$(MonoGameMgcbFfDirWin)/ffprobe.exe')" />
+  </Target>
 </Project>
 
 """);
@@ -1285,6 +1468,10 @@ bin/
 obj/
 debug/
 *.user
+
+# Built content. The desktop head's XNB lands under the Core project's bin/ (covered above); the
+# web head's BlazorGL output is written straight into its wwwroot so the browser can fetch it.
+*.Web/wwwroot/Content/
 
 """);
     }
