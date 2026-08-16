@@ -913,7 +913,7 @@ the center region's **Scene panel header** band, so the game-viewport **top inse
 (`EditorChromeRenderSystem`), composited 1:1 over the whole window via `RenderLayer.Native`, with
 opaque dark panel backgrounds so it reads over any level. The inset lives on the `ViewportManager`
 (`SetViewportInset` / `ClearViewportInset`) — the **single source of truth** — so FinalDraw
-compositing and `ScaleMouseToVirtualCoordinates` follow the same rectangle **including the left
+compositing and `MapMouse` follow the same rectangle **including the left
 margin and the Scene-header top inset** (the Scene header is chrome margin now, so a press on it is
 `OutsideViewport` — it never leaks to a viewport tool — exactly like the toolbar bar; pre-mortem #6:
 one inset source, never a second rect): clicks inside the inset viewport map to correct world
@@ -946,8 +946,11 @@ non-editor / non-mac / kill-switched run, `MONODREAMS_EDITOR_HIDPI=0`) is byte-i
 pre-DPR behavior. The **editor overlays** (gizmo handles, selection outline, collider-proxy
 outlines) share the shell's native-resolution Editor target instead of the virtual-resolution
 Main target: `EditorOverlayPrepSystem` (draw-pipeline entry `editor.overlayPrep`, after
-`editor.selection`) projects their world/virtual geometry to screen pixels through the pure
-`OverlayProjection` (camera view matrix → aspect-fit destination; sizes scale by the fit factor,
+`editor.selection`) projects their world/authoring geometry to screen pixels through the pure
+`OverlayProjection` (world geometry: camera view matrix → aspect-fit destination; screen-space
+geometry: the camera's `RenderScale` — authoring → render pixels, the same factor
+`ViewportManager.LayoutCamera` applies to those passes, identity in a single-space game — then the
+same aspect fit; sizes are authored in LAYOUT pixels and scale by `RenderScale × the fit factor`,
 **never** the camera zoom — replacing the old `1/Zoom` compensation with the same apparent size)
 and clips every mesh to the game viewport rectangle (`OverlayMeshClip`); they occupy the low
 depth band (proxy 0.02 < gizmo 0.04 < panels 0.1) so the opaque chrome panels cover them over
@@ -966,8 +969,11 @@ the margin offsets; chrome on the virtual-resolution HUD is upscaled and blurry 
 inset (no dispose restore) squeezes the next screen into a corner; `VisibleComponent` on chrome
 double-offsets the panel meshes; unscaled chrome metrics at DPR 2 halve the toolbar's physical
 size and desync every chrome hit-test from the pointer; overlay sizes scaled by zoom fatten or
-vanish the handles as the camera zooms; unclipped overlays draw gizmo lines over the letterbox
-bars.
+vanish the handles as the camera zooms; an overlay that drops `RenderScale` (emitting authored
+sizes as if they were render pixels, or projecting screen-space geometry without it) draws
+`1/RenderScale`-sized handles at the wrong place the moment a game authors at a smaller canvas
+than it renders — 1.5× render scale ⇒ two-thirds-size handles; unclipped overlays draw gizmo
+lines over the letterbox bars.
 **Tests:** `MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (inset math centered/aspect-correct,
 zero-inset = legacy letterbox byte-identical, set+clear restores, resize recomputes, mouse maps
 inside / nulls in margins, pixel-perfect uses the available area);
@@ -978,10 +984,12 @@ relayout on resize, the shell stays composed while Playing + dispose restore, `O
 never picks; DPR: scale-2 metrics double incl. left + Scene header, scale-1 is the pre-DPR layout,
 chrome hit-test space == chrome render space at DPR 2);
 `MonoDreams.Tests/LevelEditor/OverlayProjectionTests.cs` (world→screen through camera + inset
-destination, virtual space ignores the camera, zoom moves geometry but never emitted sizes,
-viewport clipping, gizmo handle size constant across zoom on the Editor target, proxy outline
-screen-baked at the expected pixels).
+destination, screen-space geometry takes the camera's render scale but never its pose or zoom,
+zoom moves geometry but never emitted sizes, a two-space game scales both geometry and emitted
+sizes by `RenderScale` on either path, viewport clipping, gizmo handle size constant across zoom
+on the Editor target, proxy outline screen-baked at the expected pixels).
 **Depends on:** rendering — "The viewport inset moves compositing and mouse mapping together",
+"Authoring space and render space are distinct; the scale lives only in the cameras",
 "Three render targets, two behaviors" (+ `ViewportManager.DevicePixelRatio`); cursor —
 `CursorInputSystem` (ScreenPosition × DPR) and `CursorPositionSystem` (sets `OutsideViewport`);
 foundation — "Default RunMode=Play" (the flag-off/Play path must stay byte-identical).

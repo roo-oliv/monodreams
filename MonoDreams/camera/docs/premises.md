@@ -63,7 +63,16 @@ is fine, but must run AFTER the sync and never feed back into the entity.
 (`Sync_CopiesEntityPositionRotationZoom_IntoTheAdapter`,
 `Sync_FrozenInEdit_NeverWritesTheAdapter_ButRunsInPlay`).
 **Depends on:** foundation — "`GatedSystem` freezes a child in `Edit`"; rendering
-— "`Camera.VirtualResolution` is immutable".
+— "`Camera.VirtualResolution` is immutable"; rendering — "Authoring space and
+render space are distinct; the scale lives only in the cameras".
+
+> **Zoom is an AUTHORING number.** `CameraComponent.Zoom` (and the adapter's
+> `Camera.Zoom`) converts world units to AUTHORING units — it never carries the
+> render resolution. Under a two-space game the adapter's immutable
+> `Camera.RenderScale` supplies authoring → render pixels inside the view matrix,
+> so a render-resolution move leaves every authored zoom, every fit-zoom
+> computation (`CameraNav.FitZoom` divides `Camera.LayoutWidth/Height`) and every
+> serialized camera entity untouched. Never fold a render scale into a zoom.
 
 ## `pixelSnap` is one of two first-class pixel-art styles — the failure mode is the mix
 

@@ -2,7 +2,9 @@
 
 > Technical invariants the engine assumes about the debug overlays
 > module: `ColliderDebugSystem`, `SpriteDebugSystem`,
-> `ScreenshotCaptureSystem`, and `SystemProfiler` (per-system frame
+> `ScreenshotCaptureSystem`, `KeepAwake` (the opt-in macOS
+> power-management assertion for unattended runs — not a system either),
+> and `SystemProfiler` (per-system frame
 > timing — not a pipeline system, a plug into `foundation`'s socket).
 > (The `Logger` and the input-replay
 > scaffold live in `foundation` because they're useful in production;
@@ -168,16 +170,21 @@ backbuffer".
 
 `ScreenshotCaptureSystem.FromEnvironment(graphicsDevice, outputDirectory)` is the
 only code in the repo that reads `MONODREAMS_SCREENSHOT`,
-`MONODREAMS_SCREENSHOT_INTERVAL`, or `MONODREAMS_SCREENSHOT_MAX_FRAMES`. It maps
-the whole protocol — mode (`1`/`png` → `CaptureFormat.Png` at 0.5s; `raw`/`rgba`
-→ `CaptureFormat.Raw` every frame; `0`/`off`/unset → nothing; anything else →
-`Logger.Error` + nothing), the invariant-culture interval override, and the frame
-cap — onto either a ready-to-run instance with `IsEnabled = true` or `null`. A
-host wires the capture in exactly one line (`_capture =
+`MONODREAMS_SCREENSHOT_INTERVAL`, `MONODREAMS_SCREENSHOT_MAX_FRAMES`, or
+`MONODREAMS_SCREENSHOT_TARGET`. It maps the whole protocol — mode (`1`/`png` →
+`CaptureFormat.Png` at 0.5s; `raw`/`rgba` → `CaptureFormat.Raw` every frame;
+`0`/`off`/unset → nothing; anything else → `Logger.Error` + nothing), the
+invariant-culture interval override, the frame cap, and the capture source
+(unset/`window` → the backbuffer; a `RenderTargetID` **name**, case-insensitive →
+that target; anything else → `Logger.Error` + nothing) — onto either a
+ready-to-run instance with `IsEnabled = true` or `null`. A host wires the capture
+in exactly one line (`_capture =
 ScreenshotCaptureSystem.FromEnvironment(GraphicsDevice, debugDir)`) and decides
 nothing itself; it reads no capture env var of its own. All env access goes
 through `PlatformServices.Current.GetEnvironmentVariable`, never
-`Environment.GetEnvironmentVariable`.
+`Environment.GetEnvironmentVariable`. The effective mode, interval, cap **and
+source** are reported on one init log line, which is the only record a directory
+of frames has of what it is a picture of.
 
 **Why:** it is one environment protocol, and a second reader of it would be a
 second dialect of it. The variables are typed by convention only (a float in one,
@@ -194,12 +201,72 @@ with what the run actually captured. Reading the env directly (bypassing
 environment, and makes the contract untestable without real env mutation.
 **Tests:** `MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs` (the full
 protocol against a fake `IPlatformServices`: off/invalid → null, format
-selection, invariant-culture interval override, frame-cap parse);
-`MonoDreams.Tests/IntegrationTests/RawFrameCaptureTests.cs` (the contract end to
-end through the real desktop env into the Demos host).
+selection, invariant-culture interval override, frame-cap parse, source
+selection including the name-only target parse);
+`MonoDreams.Tests/IntegrationTests/RawFrameCaptureTests.cs` and
+`RenderTargetCaptureTests.cs` (the contract end to end through the real desktop
+env into the Demos host).
 **Depends on:** foundation — "`Logger` requires `Initialize` before any write"
 (the factory's rejection path logs); "Debug output respects
 `MONODREAMS_DEBUG_DIR`" (the output directory the host hands the factory).
+
+## Target capture reads a fixed-resolution render target, resolved from the passes that ran
+
+`MONODREAMS_SCREENSHOT_TARGET` (or the `captureTarget` constructor argument) makes
+`ScreenshotCaptureSystem` read a named `RenderTargetID`'s target instead of the window
+backbuffer, at **that target's own resolution** — so the file geometry is independent of
+window size, of a mid-run resize, and of letter/pillarboxing, and a single layer (just
+`UI`) can be captured on its own. The target is not registered anywhere: screens own their
+targets privately, so a capture with a named target subscribes to
+`MasterRenderSystem.RenderedTargetSink` (a null-by-default socket owned by `rendering`) and
+takes the **first live** target published for that id since its last read, clearing the slot
+after every read. Subscribing happens only when a target was named, and `Dispose`
+unsubscribes. A latched target the screen has since **disposed** counts as no target on both
+sides of the slot: the publish path replaces it with the next pass's target (a plain `??=`
+would refuse the replacement), and the read path drops it and re-resolves from the next pass.
+When no pass has drawn that id — a screen without such a pass — the capture writes
+**nothing** that tick (no counter consumed, no fallback to the window) and logs one warning
+until a pass appears; a target that cannot be read back at all stops the capture with an
+error rather than throwing out of `Draw` every frame. Capture still runs after the composite,
+which is also what leaves the target unbound and readable. An unset target is the window
+backbuffer, byte for byte the pre-existing behaviour.
+
+**Why:** a backbuffer capture is a photograph of a window, so the same frame on another
+machine (or after a resize) lands at another size and every pixel coordinate an agent noted
+becomes wrong; the stable-evidence property is the whole feature. Reading the passes
+instead of a registry is what makes it work with zero screen changes: no screen has to
+announce a teardown, because a dead target simply loses to the next publisher. The
+disposed check is the whole of that protocol, and it is **not** covered by clearing the
+slot after a read: an interval capture (PNG's default 0.5s) latches a target and reads it
+some thirty frames later, and a screen switch or a window resize — the editor chrome
+rebuilds its target on one — happens in between. First-publisher-wins picks the primary pass
+when a screen renders one id twice (the camera demo's world pass, then its minimap pass) —
+the order screens composite in. Refusing to capture rather than falling back to the window is
+the same rule the mode parse follows: evidence at the wrong geometry looks right and compares
+with nothing.
+**Breaks:** falling back to the backbuffer when a target is missing silently reintroduces
+window-sized files in the middle of a target-sized set. Keeping the resolved target across
+frames (not clearing after a read) makes last-publisher-wins read the minimap. Latching with
+`??=` (or returning from the read path without clearing a disposed latch) pins the capture to
+a dead target the first time a screen switches or the window resizes, and the run captures
+nothing from there on — silently, since a warning is logged once. Leaving the sink subscribed
+after `Dispose` keeps a dead screen's targets — and the capture — alive through a static
+delegate for the rest of the process. Running the capture before `FinalDrawSystem` reads a
+bound target, which throws.
+**Tests:** `MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs`
+(`WindowCapture_NeverTouchesTheRenderSocket`,
+`TargetCapture_PlugsIntoTheRenderSocket_AndUnplugsOnDispose`,
+`ResolvedTarget_IsReplaced_WhenTheLatchedOneWasDisposed`,
+`ResolvedTarget_IsDropped_WhenItWasDisposedWithoutAReplacement`,
+`ResolvedTarget_KeepsTheFirstPublisher_WhileItIsAlive`,
+`ResolvedTarget_WarnsOncePerGap_WhenNoPassEverDrawsTheTarget`, plus the source-parse
+theories); `MonoDreams.Tests/IntegrationTests/RenderTargetCaptureTests.cs` — a headless UI
+demo run capturing `Scroll` (360x220) while the backbuffer is 1280x720, asserting the frame
+names, the byte sizes and the untouched window-mode instance.
+**Depends on:** rendering — "A render pass publishes its destination through a
+null-by-default socket"; "`FinalDrawSystem` composites an explicit, ordered layer list" (it
+is what unbinds the targets); "`ScreenshotCaptureSystem.CaptureNow` is the synchronous,
+deterministic capture path" (the same source resolution serves it).
 
 ## Raw capture writes synchronously on the main thread and never allocates per frame
 
@@ -253,7 +320,10 @@ backbuffer, and runs the full prep→`MasterRenderSystem`
 reads that composited backbuffer. The backbuffer must stay at the virtual
 resolution (not 1×1) or the read-back is meaningless. The window is never
 relied on for presentation and is **hidden via `HeadlessWindow.Hide`**
-(`SDL_HideWindow` on the live SDL window — the GL context and backbuffer
+(`SDL_HideWindow` on the live SDL window, resolved through `foundation`'s
+`SdlNative` — the engine's single owner of "call an SDL export MonoGame
+never bound", so this module carries no SDL library-probing of its own;
+the GL context and backbuffer
 stay renderable): the old `(-2000, -2000)` position move alone is kept
 only as the fallback, because macOS clamps off-screen positions back onto
 the display, leaving visible windows a user could accidentally click
@@ -280,7 +350,9 @@ to 1×1, makes every captured PNG blank and hides render-path memory
 behaviour — the leak class #27 documents becomes unobservable again.
 **Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
 **Depends on:** rendering — "`MasterRenderSystem` is the sole renderer";
-"Rendering systems run last in the pipeline".
+"Rendering systems run last in the pipeline"; foundation — "`WindowFit` is
+opt-in, and it is the ONLY thing allowed to size a game's window" (the same
+`SdlNative` seam this hide path resolves through).
 
 ## Headless heap samples measure the live set, not transient churn
 
@@ -324,6 +396,43 @@ attributed to the wrong run.
 indirectly).
 **Depends on:** foundation — "`Logger` requires `Initialize` before any
 write".
+
+## Keep-awake is opt-in, macOS-only, and never fatal
+
+`KeepAwake.FromEnvironment()` holds an `NSProcessInfo` activity
+(`NSActivityUserInitiated | NSActivityIdleDisplaySleepDisabled` — the in-process
+`caffeinate -disu`) for as long as the returned token lives, and returns `null`
+when `MONODREAMS_KEEP_AWAKE` is unset/`0`/`off`. It is the only reader of that
+variable, through `PlatformServices.Current.GetEnvironmentVariable`. Off macOS it
+returns `null` after logging that it is a no-op; if the Objective-C runtime cannot
+be reached it logs a warning and returns `null`. It **never throws** — the
+Objective-C entry points are resolved through `NativeLibrary`/`GetDelegateForFunctionPointer`
+(the `HeadlessWindow` idiom), not `DllImport`, so a platform without libobjc is a
+caught miss rather than an unresolved import, and a WASM publish has nothing to
+bind. The activity token is `retain`ed on begin and `release`d on end, and
+`Dispose` is idempotent. Hosts hold it for the process lifetime and dispose it
+before `Logger.Shutdown` so both lines land in the run's own log.
+
+**Why:** an unattended macOS run is suspended by App Nap (every headless run has a
+hidden window) or by display/idle sleep, and the failure is invisible — a
+three-hour run was found hung inside `Cocoa_GL_SwapWindow` with no log line and a
+frame set that just stops. Opt-in is the boundary: a game must not assert anything
+about a user's power management because it happens to link this module. Not
+throwing is the other half — a keep-awake is a comfort, the run is the point, so
+an unavailable runtime must degrade to a logged no-op.
+**Breaks:** making it default-on quietly overrides the power settings of everyone
+who installs `debug`. Returning an autoreleased token without `retain` ends the
+activity at the next run-loop turn — silently, so the run looks protected and is
+not. Throwing (or a `DllImport` that fails to resolve) takes down a run that would
+otherwise have completed, and would surface first on the platform that cannot
+possibly support the feature.
+**Tests:** `MonoDreams.Tests/Debug/KeepAwakeTests.cs` (off-by-default, off/invalid
+values, macOS holds a real activity while other platforms log the no-op, idempotent
+release); `MonoDreams.Tests/IntegrationTests/KeepAwakeHostTests.cs` (the host
+wiring: held before the run and released after it, and silent when unasked).
+**Depends on:** foundation — "`Logger` requires `Initialize` before any write"
+(hosts call this straight after `Logger.Initialize`, and dispose it before
+`Logger.Shutdown`).
 
 ## The profiler hooks the one seam every pipeline entry passes through
 

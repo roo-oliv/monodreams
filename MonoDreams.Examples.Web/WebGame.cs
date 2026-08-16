@@ -50,8 +50,17 @@ namespace MonoDreams.Examples.Web
             // keeps ScreenWidth matched to the actual back buffer.
             _graphics.ApplyChanges();
 
-            _viewportManager = new ViewportManager(this, _settings.VirtualWidth, _settings.VirtualHeight);
-            _camera = new Camera(_settings.VirtualWidth, _settings.VirtualHeight);
+            // Both spaces from settings; the camera from the ViewportManager (see the desktop head).
+            _viewportManager = new ViewportManager(this, _settings.VirtualWidth, _settings.VirtualHeight,
+                _settings.LayoutWidth, _settings.LayoutHeight)
+            {
+                // …and the same presentation policy as desktop, from the same settings key: on web
+                // the back buffer IS the canvas the host page sized, so the present scale is
+                // whatever the browser window implies — exactly the conflict the policy declares an
+                // answer to.
+                Policy = _settings.ResolvePresentation(),
+            };
+            _camera = _viewportManager.CreateCamera();
         }
 
         protected override void Initialize()

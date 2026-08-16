@@ -190,9 +190,38 @@ to their parent's depth band. Same-layer entities with the same world Y
 fall through to insertion order — no other tiebreaker exists; if
 flicker becomes a problem, that's where to look.
 
-**Camera.** A `Camera` instance owns its virtual resolution
-(immutable after construction) and exposes mutable zoom, position, and
-rotation. Multiple cameras at once are explicitly supported — local
+**Two coordinate spaces (opt-in).** `ViewportManager` owns an **authoring
+(layout)** resolution — where every game number is written: entity and UI
+coordinates, HUD/overlay boxes, camera zoom, culling extents, and the point
+`MapMouse` returns — and a **render (virtual)** resolution: the pixel size of the
+render targets and back buffer. They default to being EQUAL, and a game opts in
+by giving the manager a different layout size. The ratio (`RenderScale`) is
+applied in **exactly one place — the per-pass render cameras**: world passes take
+`ViewportManager.CreateCamera()`, screen-space passes take
+`ViewportManager.LayoutCamera` (exactly `Matrix.Identity` when the two spaces are
+equal, which is why adopting it changes nothing in a single-space game). Moving a
+game from 720p to 1080p is then a two-number diff in the head, with no coordinate
+— and no coordinate-carrying test — recalibrated. `ViewportManager.MapMouse` is
+the one screen→game pointer mapping; it inverts the present
+`DestinationRectangle`, so it is robust to resize, letterboxing and the editor's
+viewport inset for free. Details: the `rendering` premises.
+
+**Presentation scaling is declared, not improvised.** How the frame reaches a
+window that is not the render resolution is a policy the game declares
+(`ViewportManager.Policy`), resolved in one place and tried in one order:
+**overscan** to a clean scale (the camera reveals a sliver more world, bounded by
+a gamedev-set tolerance) → **letter/pillarbox** at a clean scale → **stretch**.
+Whichever step wins produces the single `DestinationRectangle` that
+`FinalDrawSystem` composites into and `MapMouse` inverts — a layer that computes
+its own destination desyncs the pointer from the picture. Sampling is a separate,
+per-layer question (`RenderLayer.Sampler`: `Auto` = point at an integer scale,
+linear otherwise), resolved against that layer's own scale. The engine default is
+`Stretch` (the historical framing); a scaffolded game declares
+`PresentationPolicy.Default`.
+
+**Camera.** A `Camera` instance owns its virtual (destination) resolution and its
+render scale (both immutable after construction) and exposes mutable zoom,
+position, and rotation. Multiple cameras at once are explicitly supported — local
 multiplayer or CCTV-style views. `CameraFollowSystem` is *optional*:
 fixed-camera games or custom camera systems are valid; just don't
 register `CameraFollowSystem` and `CullingSystem` will still read
@@ -424,11 +453,26 @@ synchronous memcpy dump sustaining full frame rate, ~3.5 MiB per frame
 at 1280x720). Off by default. Env-driven capture goes through
 `ScreenshotCaptureSystem.FromEnvironment`, the single owner of the
 `MONODREAMS_SCREENSHOT=1|png|raw` / `MONODREAMS_SCREENSHOT_INTERVAL` /
-`MONODREAMS_SCREENSHOT_MAX_FRAMES` contract; the replay-gated pattern
-(`"screenshots": true` in `input_replay.json`) still drives
-PNG-interval capture. See the `debug` module's `docs/overview.md`
-§ Frame capture for the disk-cost table and the raw-vs-encoded
-rationale.
+`MONODREAMS_SCREENSHOT_MAX_FRAMES` / `MONODREAMS_SCREENSHOT_TARGET`
+contract; the replay-gated pattern (`"screenshots": true` in
+`input_replay.json`) still drives PNG-interval capture.
+`MONODREAMS_SCREENSHOT_TARGET=Main|UI|HUD|Scroll|Editor` reads that
+render target at its own fixed resolution instead of the window
+backbuffer (default `window`), so captured evidence keeps the same
+geometry across machines, resizes and letterboxing — the target is
+resolved from the passes that ran, through
+`MasterRenderSystem.RenderedTargetSink`. See the `debug` module's
+`docs/overview.md` § Frame capture for the disk-cost table and the
+raw-vs-encoded rationale.
+
+**Unattended runs.** `MONODREAMS_KEEP_AWAKE=1` makes a host hold a macOS
+`NSProcessInfo` activity for the run (`KeepAwake.FromEnvironment`) — the
+in-process `caffeinate -disu`. Without it, App Nap (every headless run
+has a hidden window) or display sleep can suspend a long agentic run,
+which shows up as a process that stops making progress rather than one
+that fails. Opt-in, macOS-only, a logged no-op elsewhere; see the
+`debug` module's `docs/overview.md` § Unattended runs for what the flag
+does not cover.
 
 **Headless mode — two hosts, two contracts.** There are two headless
 paths and they do *not* do the same thing:
@@ -720,7 +764,25 @@ code".
   that the Examples mode is still named "headless" despite not rendering,
   and the two paths could eventually share one host abstraction.
 - **No architectural tests** (§8). Most premises lack programmatic
-  protection; review and discipline are the only enforcement today.
+  protection; review and discipline are the only enforcement today. The
+  one exception is the **manifest-honesty check** (issue #83,
+  `MonoDreams.Cli.Tests/ManifestHonestyTests.cs`): every module is
+  scaffolded, `add`ed and built against its *declared* dependencies alone,
+  in CI, per module.
+- **Module manifests that under-declare** (§1, tooling). Surfaced by the
+  manifest-honesty check and listed there as known gaps — each one is a
+  project that does not compile after `monodreams add <module>`:
+  `ui` and `level-editor` omit modules they import (`cursor`, `camera`
+  respectively — both acyclic, one-line manifest fixes); `dialogue` omits
+  both `cursor` and the `MonoGame.Framework.Content.Pipeline` package its
+  YarnSpinner importer needs; `foundation` (`ScreenController` takes
+  `rendering`'s `ViewportManager`/`Camera`) and `rendering`
+  (`DrawComponent`/`MasterRenderSystem` read `rendering-text`'s
+  `DynamicTextComponent.DefaultLineSpacing`) cannot declare their way out —
+  both would be cycles, so the coupling has to move in code. Until
+  `foundation` + `rendering` are fixed, the check installs a compile floor
+  and every scaffolded game inherits the same two modules whether it wants
+  them or not.
 - **Declarative system dependencies** (§2, §7). A future API would let
   a system declare "I expect X to have run this frame" at registration
   time, replacing implicit-order discipline with explicit assertions.

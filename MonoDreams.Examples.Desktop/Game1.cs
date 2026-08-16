@@ -41,6 +41,10 @@ public class Game1 : Game
     // it never runs in a normal launch (the field is null unless the flag is present).
     private readonly string _exportSceneId;
     private bool _exported;
+    /// <summary>The macOS power-management assertion (<c>MONODREAMS_KEEP_AWAKE=1</c>), held for the
+    /// process lifetime — null unless the environment asked. A long replay run left alone is exactly
+    /// what App Nap and display sleep suspend. See <c>MonoDreams.Debug.KeepAwake</c>.</summary>
+    private global::System.IDisposable _keepAwake;
 #if DEBUG
     private ImGuiRenderer _imGuiRenderer;
     private DebugInspector _debugInspector;
@@ -94,9 +98,12 @@ public class Game1 : Game
         }
         _graphics.ApplyChanges();
 
-        // Initialize with virtual resolution from settings
-        _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight);
-        _camera = new(_settings.VirtualWidth, _settings.VirtualHeight);
+        // Both coordinate spaces come from settings, and the camera comes from the ViewportManager —
+        // so the authoring→render scale lives in exactly one place (rendering premise "Authoring space
+        // and render space are distinct"). Layout 0 ⇒ single space (the shipped default).
+        _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight,
+            _settings.LayoutWidth, _settings.LayoutHeight);
+        _camera = _viewportManager.CreateCamera();
 
         // Window resize handling is a desktop concern; a web head sizes the canvas
         // from the host page, so the OS-window event is gated out there.
@@ -148,6 +155,11 @@ public class Game1 : Game
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
 
+        // Opt-in keep-awake, straight after the logger so its line lands in the run's log: an
+        // unattended replay run is otherwise at the mercy of macOS App Nap and display sleep. No-op on
+        // every other platform, and off unless asked.
+        _keepAwake = MonoDreams.Debug.KeepAwake.FromEnvironment();
+
         if (_headless)
         {
             // Hiding the OS window is a desktop-only headless trick. SDL_HideWindow keeps the
@@ -164,13 +176,10 @@ public class Game1 : Game
 
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
 
-        // Apply scaling mode from settings
-        _viewportManager.CurrentScalingMode = _settings.ScalingMode switch
-        {
-            "PixelPerfect" => ViewportManager.ScalingMode.PixelPerfect,
-            "Smooth" => ViewportManager.ScalingMode.Smooth,
-            _ => ViewportManager.ScalingMode.KeepAspectRatio
-        };
+        // Apply the presentation scaling policy from settings — the same mapping the web head uses,
+        // so both present identically from one settings file. The reference game declares the
+        // recommended chain (overscan → letterbox → stretch).
+        _viewportManager.Policy = _settings.ResolvePresentation();
 
         GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
         GraphicsDevice.BlendState = BlendState.AlphaBlend;
@@ -438,6 +447,8 @@ public class Game1 : Game
     protected override void Dispose(bool disposing)
     {
         _screenController.Dispose();
+        // Before Logger.Shutdown so the release line lands in this run's log.
+        _keepAwake?.Dispose();
         Logger.Shutdown();
         _runner.Dispose();
         _spriteBatch.Dispose();

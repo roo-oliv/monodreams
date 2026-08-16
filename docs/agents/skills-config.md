@@ -33,6 +33,13 @@ dependency), so the core dll must already exist or the content build fails with
     rendering/content paths. Install the workload with `dotnet workload install wasm-tools`;
     **skip this step entirely if it is not installed** — it hard-fails without the workload and
     is deliberately kept out of the core Full gate so Full never fails on a missing workload.
+- **Manifest honesty (run when the change touches `MonoDreams/<module>/` or the CLI):**
+  `MONODREAMS_MANIFEST_HONESTY=1 dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty`
+  - Scaffolds a temp project per module, runs `monodreams add <module>`, and builds it — proving each
+    manifest declares everything its source needs. Opt-in (the env var) because each case is a real
+    restore + build; add `MONODREAMS_HONESTY_MODULE=<name>` to check one module. CI runs it per module
+    on PRs touching `MonoDreams/` or `MonoDreams.Cli/`. See `MonoDreams/MODULES.md` › "Manifest honesty"
+    for the compile floor and the known-gap list.
 - **Incremental** (faster, scoped per-wave — desktop only, skips the heavy web build):
   `dotnet build MonoDreams/MonoDreams.csproj && dotnet test MonoDreams.Tests/`
   - Use `dotnet test MonoDreams.Cli.Tests/` instead when the change is CLI-only.

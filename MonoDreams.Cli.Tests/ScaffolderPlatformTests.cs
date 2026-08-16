@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using MonoDreams.Cli.Installer;
 using MonoDreams.Cli.Manifest;
@@ -103,6 +104,109 @@ public class ScaffolderPlatformTests
             // injects them platform-tagged via CsprojEditor — otherwise they would be duplicated).
             Assert.Contains("'$(MonoDreamsPlatform)' == 'web'", core);
             Assert.DoesNotContain("PackageReference", core);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    // ---- issue #84: emitted C# never spells `Game` bare ---------------------------------------
+
+    /// <summary>
+    /// Every emitted C# file refers to MonoGame's Game type as <c>Microsoft.Xna.Framework.Game</c>, never as
+    /// the bare identifier <c>Game</c>. The moment a scaffolded game puts code under a
+    /// <c>&lt;RootNamespace&gt;.Game</c> namespace — the most natural folder name in a game project — the
+    /// bare identifier resolves to THAT namespace (C# walks the enclosing namespaces before it consults
+    /// using-directives, and a namespace member always wins), and files the CLI itself emitted stop
+    /// compiling with CS0118 in a project whose owner wrote none of them. A <c>global using</c> alias does
+    /// not fix it; full qualification is the only fix.
+    ///
+    /// <para>This scans the whole emitted tree rather than the two known sites, because the trap is
+    /// re-diggable by any future template edit — and it bit the same project twice (GameRoot.cs, then the
+    /// web head's Index.razor.cs weeks later, since the web head is excluded from the default .sln build).
+    /// The end-to-end proof that a <c>&lt;Root&gt;.Game</c> namespace still compiles lives in
+    /// <see cref="ScaffolderBuildTests"/> (desktop; the web head's build is the manual/CI proof — see the
+    /// note there).</para>
+    /// </summary>
+    [Fact]
+    public void Scaffold_Multi_EmittedCSharpFullyQualifiesGame()
+    {
+        var root = NewTempDir();
+        try
+        {
+            ProjectScaffolder.Scaffold(Path.Combine(root, "Tmp"), "Tmp", Platforms.All);
+
+            var bare = Directory
+                .EnumerateFiles(Path.Combine(root, "Tmp"), "*.cs", SearchOption.AllDirectories)
+                .SelectMany(BareGameIdentifiers)
+                .ToList();
+
+            Assert.True(bare.Count == 0,
+                "Emitted C# uses the bare identifier `Game` — CS0118 in any game with a <Root>.Game " +
+                "namespace. Write Microsoft.Xna.Framework.Game instead:\n  " + string.Join("\n  ", bare));
+
+            // The two sites the trap has actually bitten, pinned by name so a rewrite that drops the
+            // qualification is reported as itself and not just as "some file regressed".
+            Assert.Contains("public class GameRoot : Microsoft.Xna.Framework.Game",
+                File.ReadAllText(Path.Combine(root, "Tmp", "Tmp.Core", "GameRoot.cs")));
+            Assert.Contains("private Microsoft.Xna.Framework.Game _game;",
+                File.ReadAllText(Path.Combine(root, "Tmp", "Tmp.Web", "Pages", "Index.razor.cs")));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>
+    /// Lines of <paramref name="file"/> that use <c>Game</c> as a bare identifier, as
+    /// <c>&lt;file&gt;:&lt;line&gt;: &lt;text&gt;</c>. String literals and <c>//</c> comments are stripped
+    /// first: the emitted templates discuss this very trap in prose, and the emitted C# has no multi-line
+    /// string literals for a line-at-a-time strip to mis-handle. The pattern rejects a preceding <c>.</c>
+    /// (qualified — the whole point) and any adjacent identifier character (<c>GameTime</c>,
+    /// <c>GameRoot</c>, <c>WebGame</c>).
+    /// </summary>
+    private static IEnumerable<string> BareGameIdentifiers(string file)
+    {
+        var lines = File.ReadAllLines(file);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = Regex.Replace(lines[i], "\"(?:[^\"\\\\]|\\\\.)*\"", "\"\"");
+            var comment = code.IndexOf("//", StringComparison.Ordinal);
+            if (comment >= 0) code = code[..comment];
+
+            if (Regex.IsMatch(code, @"(?<![\w.])Game(?![\w])"))
+                yield return $"{Path.GetFileName(file)}:{i + 1}: {lines[i].Trim()}";
+        }
+    }
+
+    /// <summary>
+    /// Issue #86: the scaffolded desktop branch must adopt <c>WindowFit</c> instead of pinning the
+    /// backbuffer to the virtual resolution — a fixed window larger than the display is not clamped by
+    /// macOS, so the bottom of a scaffolded game would render offscreen with no crash and no log. The
+    /// web branch must stay untouched (the host page owns the canvas size there), and the logger must be
+    /// up before the fit runs or its one boot line is silently dropped.
+    /// </summary>
+    [Fact]
+    public void Scaffold_GameRoot_DesktopBranchFitsTheWindow_WebBranchUntouched()
+    {
+        var root = NewTempDir();
+        try
+        {
+            ProjectScaffolder.Scaffold(Path.Combine(root, "Tmp"), "Tmp", Platforms.All);
+            var gameRoot = File.ReadAllText(Path.Combine(root, "Tmp", "Tmp.Core", "GameRoot.cs"));
+
+            Assert.Contains("WindowFit.Apply(_graphics, VirtualWidth, VirtualHeight, Window);", gameRoot);
+            // The old unconditional pin is what opened the window offscreen; it must be gone.
+            Assert.DoesNotContain("_graphics.PreferredBackBufferWidth", gameRoot);
+            Assert.DoesNotContain("_graphics.PreferredBackBufferHeight", gameRoot);
+
+            // Both the fit and the Reach profile stay inside the platform gate, and the fit is on the
+            // desktop (#else) side of it.
+            var webBranch = gameRoot.IndexOf("#if MONODREAMS_WEB", StringComparison.Ordinal);
+            var desktopBranch = gameRoot.IndexOf("#else", StringComparison.Ordinal);
+            var endif = gameRoot.IndexOf("#endif", StringComparison.Ordinal);
+            var fit = gameRoot.IndexOf("WindowFit.Apply", StringComparison.Ordinal);
+            Assert.True(webBranch >= 0 && desktopBranch > webBranch && endif > desktopBranch);
+            Assert.InRange(fit, desktopBranch, endif);
+
+            // Logger.Initialize must precede the fit, or WindowFit's boot log line no-ops.
+            Assert.True(gameRoot.IndexOf("Logger.Initialize(", StringComparison.Ordinal) < fit);
         }
         finally { Directory.Delete(root, recursive: true); }
     }

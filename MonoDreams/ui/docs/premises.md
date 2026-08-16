@@ -69,6 +69,31 @@ parent link means children render at world origin.
 **Tests:** none yet.
 **Depends on:** —
 
+## UI lays out in AUTHORING space, not render pixels
+
+`AutoLayoutSystem`'s screen root is `ViewportManager.LayoutWidth`×`LayoutHeight`
+(and `AutoLayoutBuilder` exposes those as `LayoutWidth`/`LayoutHeight`), never
+the render resolution. Every UI number a game writes — root sizes, anchors,
+paddings, the screen-anchor offsets — is therefore in authoring units, and the
+UI/HUD render passes must be given `ViewportManager.LayoutCamera` so those units
+land on the right render pixels. In a single-space game the two resolutions are
+equal and this reads exactly like the old "virtual screen" wording.
+
+**Why:** the whole point of the two-space model is that a render-resolution move
+costs no authored number (rendering — "Authoring space and render space are
+distinct; the scale lives only in the cameras"). UI is where hardcoded
+final-resolution coordinates concentrate, so it is the layer that must be sized
+in the space that never moves.
+**Breaks:** sizing the layout root from `VirtualWidth` makes every anchored root
+jump when the render resolution changes (a top-right button leaves the screen at
+a lower render scale, and floats inside it at a higher one) — and, paired with a
+`null`-camera UI pass, the whole UI renders quarter-size in a corner.
+**Tests:** none yet directly; the space contract is covered by
+`MonoDreams.Tests/Rendering/RenderSpaceTests.cs` and the live 1.5× render of the
+UI demo in `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+**Depends on:** rendering — "Authoring space and render space are distinct; the
+scale lives only in the cameras".
+
 ## `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
 
 The flexbox solver works on the `LayoutNodeComponent` tree (held by
@@ -441,6 +466,25 @@ to compute the topmost-open group and pass to `UIFocusSystem`'s
 `activeGroup`. Group ids by convention: dialog = `100`, dropdown = `200`,
 combobox-dropdown = `300` (base UI is group `0`).
 
+This pattern is scoped to **overlays that open over the screen** (a modal
+dialog, a popup list) and to `TabSystem`'s flat per-entity tagging. It is
+**not** the way to switch a set of mutually exclusive PANELS: those park (see
+"Exclusive panel groups PARK their inactive members; they never hide them")
+— `PanelGroupComponent` / `PanelGroupSystem` is the sanctioned
+implementation, and a new tabbed/paged/wizard surface should reach for it
+rather than growing another hide-based switcher.
+
+When both are in one pipeline, **`PanelGroupSystem` runs after `TabSystem`
+and is authoritative for the focusables under its members**: `TabSystem`
+gates everything tagged `TabContentComponent` (headers, pager chrome, and —
+knowing nothing about panels — a parked panel's controls too), then the
+panel gate refines its own members back down to the active panel. Two
+consequences: chrome that is on the tab but in no group is gated by
+`TabSystem` alone, and a panel group living inside a tab must be **closed**
+(`Active = None`) while that tab is off, or the panel gate re-enables its
+active panel's controls on a tab the player cannot see. The ui demo's
+Panels tab does exactly that.
+
 **Why:** on the Main target `VisibleComponent` is the show/hide toggle (the
 demo runs no `CullingSystem`, so the tag is the visibility switch), and
 gating focus with `FocusableComponent.Disabled` keeps hidden controls out of
@@ -454,12 +498,119 @@ Tab still lands on. An overlay system that tried to set the active group
 itself would fight other overlays when more than one is open — only the
 screen sees the whole stack. Using these on a UI/HUD target (which ignores
 `VisibleComponent`) would fail to hide — those targets need the
-empty-the-mesh toggle instead (see the caret / toggle premises).
+empty-the-mesh toggle instead (see the caret / toggle premises), which is
+also why an exclusive-panel switcher must park instead of hide.
 **Depends on:** rendering — "Three render targets, two behaviors";
 "`UIFocusSystem` is the single focus owner"; "`FocusableComponent.Disabled`
 (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are
-separate".
-**Tests:** none yet.
+separate"; "Exclusive panel groups PARK their inactive members; they never
+hide them".
+**Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
+(`ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies`
+covers `TabSystem`'s focus gate — on out-of-group chrome, where nothing else
+writes it — and its composition with the panel gate; the `VisibleComponent`
+half and the dialog/dropdown systems are untested).
+
+## Exclusive panel groups PARK their inactive members; they never hide them
+
+A set of mutually exclusive panels — tab bodies, settings pages, wizard
+steps, an inventory/character/map switcher — is one primitive:
+`PanelGroupComponent` (pure data: `Members`, the `Active` index, a
+`ParkOffset`) plus `PanelGroupSystem`. The active member sits at its own
+position; every other member is **parked** — translated by `ParkOffset`
+(default `(-100000, -100000)`, the magnitude the editor chrome parks at) so
+it renders outside any viewport while staying fully alive: nothing is
+removed, no `VisibleComponent` is toggled, the subtree comes along through
+the transform hierarchy, and switching back restores the member's position
+verbatim. `Active = PanelGroupComponent.None` (`-1`, and any out-of-range
+index) is first class and parks every member — a closed menu is a panel
+group with no active member, not a special case. Focus follows the same
+rule: every `FocusableComponent` whose transform chain reaches a parked
+member is `Disabled`, and the active member's are re-enabled. **Groups
+nest** — a wizard step containing a sub-tab bar, a settings page containing
+a paged sub-menu — and the gate walks the WHOLE transform chain, not just up
+to the nearest member: a focusable is reachable only when *every* member
+above it is active, so a parked outer step keeps an inner group's active
+body out of navigation (the inner body is still restored at its own local
+position; it simply rides the parked ancestor off-screen). **Game code
+only ever writes `Active`;** the parking dance is never hand-written.
+
+**Why:** hiding is the instinct and it is wrong here. `VisibleComponent`
+only hides on the Main target (UI/HUD/Scroll render regardless — see
+rendering's "Three render targets, two behaviors"), and where it does work
+it un-preps the panel (`SpritePrepSystem` / `TextPrepSystem` /
+`MeshPrepSystem` / `YSortSystem` all query `[With(VisibleComponent)]`), so
+the panel goes cold and comes back as a frame of stale or re-solving
+content. Parking works identically on every target and keeps the panel warm
+— measured, laid out, its widget state intact — so the switch back is a
+single transform write. Game-side hand-rolled versions of this dance were
+where the bug lived (NFs, Please! window tabs), which is why the mechanism
+ships as a primitive instead of a documented convention.
+**Breaks:** hiding a panel instead of parking it silently does nothing on
+UI/HUD/Scroll and produces a first-frame flicker of stale prep on Main;
+parking by hand (`position += offset` per frame) compounds the offset until
+the panel is unreachable; skipping the focus gate leaves invisible-but-
+focusable controls that Tab still lands on inside a panel the player cannot
+see; gating only at the NEAREST member ancestor breaks the same way one
+level down — an inner group re-enables its active body's controls while the
+outer step is parked, and Tab walks off-screen; parking a panel whose
+content is NOT parented under the member root leaves that content on screen.
+**Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
+(`SwitchAwayAndBack_RestoresEveryTransformIdentically` and
+`LayoutDrivenPanel_SwitchesAwayAndBack_WithoutDriftingOrCompounding` — the
+round trip is exact, local and world;
+`ParkedPanel_KeepsItsComponents_AndItsSubtreeMovesOffScreen` — moved, not
+hidden; `ParkingIsIdempotent_AcrossManyFrames`;
+`CustomParkOffset_IsHonored_AndChangingItReParksFromTheSameHome`;
+`NoneActive_ParksEveryMember_AndReopeningRestoresThePage`;
+`OutOfRangeActiveIndex_ParksEveryMember`;
+`FocusablesUnderAParkedPanel_AreDisabled_AndReEnabledOnSwitchBack`;
+`NestedGroups_AParkedOuterMemberGatesTheInnerGroupsActivePanel` — the
+nesting rule;
+`ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies`;
+`DeadOrTransformlessMembers_AreSkipped`). The reference usages are the ui
+demo's Panels tab: a sub-tab bar and a paged settings menu on the same
+component.
+**Depends on:** rendering — "Three render targets, two behaviors";
+foundation — the `TransformComponent` parent chain (the park moves a
+subtree); this file — "`UIFocusSystem` is the single focus owner",
+"`PanelGroupSystem` runs after every writer of a member's position and
+before `HierarchySystem`".
+
+## `PanelGroupSystem` runs after every writer of a member's position and before `HierarchySystem`
+
+`PanelGroupSystem` re-derives the park from the member's CURRENT position
+every frame instead of remembering an absolute one: it stashes
+`PanelParkedComponent { Home, Parked }` when it parks, and on later frames
+re-parks only if the position differs from the `Parked` value it last wrote
+— in which case the fresher value is the new `Home` (another system owns
+that position). So the pipeline must place it **after** everything that
+writes member positions (`AutoLayoutSystem` rewrites every root slot's
+position from scratch each frame; a screen tick may re-centre a panel) and
+**before** `HierarchySystem`, so a park reaches the panel's descendants in
+the same frame. `PanelParkedComponent` is engine-owned bookkeeping present
+only while a member is parked — never authored, never serialized.
+
+**Why:** a layout-driven panel is the common case, and a park that assumed
+it owned the position would either be overwritten by the solver (the panel
+snaps back on screen) or compound the offset every frame. Re-deriving from
+the live position is what lets a member be an auto-layout root, a
+hand-placed card, or a screen-driven panel without the primitive knowing
+which. Running before `HierarchySystem` matches the same rule the demo's
+other position writers follow.
+**Breaks:** registered before `AutoLayoutSystem`, the solver overwrites the
+park and the "hidden" panel renders on top of the active one; registered
+after `HierarchySystem`, children lag the park by a frame (a visible tear on
+switch); writing `PanelParkedComponent` by hand corrupts the stash and the
+panel restores to the wrong home.
+**Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
+(`LayoutDrivenPanel_SwitchesAwayAndBack_WithoutDriftingOrCompounding` runs
+the real `IntrinsicSizingSystem` → `AutoLayoutSystem` → `PanelGroupSystem` →
+`HierarchySystem` order; `ParkingIsIdempotent_AcrossManyFrames`).
+**Depends on:** foundation — "`TransformComponent.IsDirty` cascades through
+the parent chain" (`HierarchySystem` propagation); this file —
+"`IntrinsicSizingSystem` runs before `AutoLayoutSystem`", "Exclusive panel
+groups PARK their inactive members; they never hide them".
 
 ## A combobox is a `TextInputComponent` driving a `DropdownComponent`'s filter
 
@@ -524,6 +675,16 @@ a silent no-op footgun.
   but not flex-shrink, flex-basis, wrap, or absolute positioning. Which
   of those become premises (must-have) vs aspirations (nice-to-have) is
   unsettled.
+- **`TabBarComponent` / `TabSystem` vs `PanelGroupComponent`** — `TabSystem`
+  predates the panel-group primitive and switches tab bodies by tagging every
+  content entity (`TabContentComponent`) and toggling `VisibleComponent`,
+  which only works on the Main target. The header bar (active-header
+  highlight, `UIFocusActivated` → active index) is a genuinely separate
+  concern from panel switching, so the intended end-state is: `TabBarComponent`
+  keeps the headers and delegates the bodies to a `PanelGroupComponent`,
+  `TabContentComponent` disappears, and the ui demo's own top-level tabs move
+  onto it (they are flat-tagged today, so the migration means giving each tab
+  a panel root). Until then, new surfaces use `PanelGroupComponent`.
 - **Re-measuring on content change** — `NeedsRemeasure` is set to true
   at construction and to false after measuring; nothing today flips it
   back to true when content changes. Dynamic text that grows
@@ -556,9 +717,14 @@ The following premises currently have **Tests: none yet**:
 - The module owns the focus + visual MECHANISM and publishes `UIFocusActivated`; the ACTION stays game-side
 - `UIFocusSystem` is the single focus owner; pointer steals focus only on mouse move; nav is group-scoped
 - `FocusableComponent.Disabled` (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav
-- Tab / Dialog / Dropdown systems show/hide on the Main target via `VisibleComponent` and gate focus via `FocusableComponent.Disabled`
 - A combobox is a `TextInputComponent` driving a `DropdownComponent`'s filter
 - Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution
 - Text-input focus is game-owned; key capture is the module's job (the *focus* half only — the
   key-capture half is now covered by the pointer-replay `type` test)
 - The text-input caret is a game-supplied mesh entity the system positions and toggles
+
+Partially covered: "Tab / Dialog / Dropdown systems show/hide on the Main
+target …" — `TabSystem`'s focus-gate half is tested via the panel-group
+composition test, asserted on chrome that sits outside every panel group so
+the write under test is `TabSystem`'s own; the `VisibleComponent` half and
+the dialog / dropdown systems are not.
