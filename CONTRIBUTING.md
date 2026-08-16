@@ -100,6 +100,8 @@ dotnet test MonoDreams.Tests/
 
 The integration tests use the **headless replay** harness in `MonoDreams.Tests/IntegrationTests/`. Each test writes an `InputReplayPlan`, spawns the example game in headless mode with a temporary debug directory, waits for it to exit, and asserts on the resulting log. See `GameTestRunner.cs` for the runner and the existing tests (LDtk, infinite-runner) for patterns.
 
+**Process-wide state.** The whole assembly runs in one process, so the engine's statics — the sockets (`Logger.LineSink`, `GatedSystem.TimingSink`, `MasterRenderSystem.RenderedTargetSink`), the switches (`SystemProfiler`, the debug-overlay flags, `FinalDrawSystem`'s colours) and the singletons (`PlatformServices.Current`, the `Logger` session) — are shared by every test. `MonoDreams.Tests/ProcessWideState.cs` lists them and resets them after **every** test, and `MonoDreams.Tests/TestOrdering.cs` pins the class order so an order-dependent failure is reproducible instead of seasonal. Two rules follow: **add any new engine-level static to `ProcessWideState`** in the PR that introduces it, and keep restoring state in your own `try`/`finally` — the guard is a net, not a licence. Hunting an order-dependent failure: `MONODREAMS_TEST_SEED=<n>` shuffles the class order reproducibly, `MONODREAMS_TEST_LAST=<substring>` forces matching classes to run last, `MONODREAMS_TEST_REPORT_LEAKS=1` prints what each test still had installed, and `MONODREAMS_TEST_NO_RESET=1` turns the net off.
+
 ## Repo layout
 
 ```
