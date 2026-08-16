@@ -197,9 +197,13 @@ contract is `ResolveRenderSize`, and it does so legitimately — by choosing the
 resolution before the targets and cameras are built from it.
 
 Two things ride on top of the resolved rectangle, and neither is allowed a second opinion.
-`MapMouse` inverts **that** rectangle, so the pointer follows whichever step won for free
-(under overscan it covers the whole window, so `MapMouse` never returns null there; under a
-box the bars map to null exactly like an aspect-ratio bar). And each `RenderLayer` carries a
+`MapMouse` inverts **that** rectangle, so the pointer follows whichever step won for free: under
+a box the bars map to null exactly like an aspect-ratio bar, and under overscan the frame covers
+the axis that BOUND the fit while the other axis is covered only when the window's aspect is
+within the tolerance the step spent — so **overscan does not abolish the null case** (a 2000×1029
+window on a 1920×1080 frame overscans to 1× at `(40, -25, 1920, 1080)`: cropped top and bottom,
+40-pixel pillarbars left and right, and a pointer in a bar still maps to null). And each
+`RenderLayer` carries a
 `SamplerPolicy` — `Auto` (point at an integer scale of 1× or more, linear otherwise),
 `Point`, or `Linear` — resolved by `FinalDrawSystem` against **that layer's own**
 destination-over-target ratio, so a minimap overlay is judged by its scale and the editor's
@@ -210,9 +214,15 @@ game that declares nothing is framed exactly as before. `PresentationPolicy.Defa
 (overscan 5% → letterbox 25% → stretch) is the **scaffold default** — what a new game
 should declare, and what `MonoDreams.Examples` declares via `GameSettings.Presentation`.
 `Crisp` (never stretch) and `PixelPerfect` (whole steps only, no overscan, no stretch) are
-the two opinionated presets; `PixelPerfect` is exactly what the retired
-`ViewportManager.ScalingMode.PixelPerfect` + `PixelPerfectDestinationRectangle` did, which
-is why both are gone: one policy, one destination rectangle, one mouse inverse.
+the two opinionated presets; `PixelPerfect` takes over from the retired
+`ViewportManager.ScalingMode.PixelPerfect` + `PixelPerfectDestinationRectangle`, which is why
+both are gone: one policy, one destination rectangle, one mouse inverse. It reproduces that
+mode exactly for a window at least as large as the render resolution in both axes (both are
+`floor(fit)`), and **diverges below 1× on purpose**: the old mode clamped its integer scale to
+a floor of 1 and cropped the frame off-screen (1920×1080 in a 1600×900 window: 1920×1080 at
+(-160, -90)), whereas a policy with overscan off may not crop and keeps descending the
+reciprocal ladder (960×540 centered, with bars). Cropping is the overscan step's business, and
+that step is bounded by a declared tolerance — a preset does not get to crop for free.
 
 **Why:** the engine presented every layer `PointClamp` at whatever fractional scale the
 window implied, so UI text shimmered and crawled on any window smaller than the render
@@ -234,8 +244,13 @@ tolerances: `OverscanTolerance` is measured in *frame edges lost* (or world gain
 pixels of blur, so raising it to "make it crisp" quietly crops authored UI.
 **Tests:** `MonoDreams.Tests/Rendering/PresentationPolicyTests.cs` (the ladder in both
 granularities; each step winning and being refused past its tolerance; `Crisp` never
-stretching; an already-clean fit untouched by every preset; `MapMouse` inverting the
-overscanned and the boxed rectangle, in authoring space, and nulling only in real bars; the
+stretching; an already-clean fit untouched by every preset; `PixelPerfect` matching the retired
+mode at or above 1× and shrinking in whole steps below it rather than cropping
+(`PixelPerfectPolicy_MatchesTheRetiredMode_AtOrAboveOneX`,
+`PixelPerfectPolicy_ShrinksInWholeSteps_WhereTheRetiredModeCropped`); `MapMouse` inverting the
+overscanned and the boxed rectangle, in authoring space, nulling in real bars — including the
+bars that SURVIVE an overscan on a mismatched aspect
+(`MapMouse_StillNullsInABar_WhenOverscanOnlyCoversTheBindingAxis`); the
 inset veto and its restoration; `ResolveRenderSize` growing the render resolution to a
 zero-crop clean present, refusing past tolerance, never shrinking the design and not
 ratcheting; `Auto`/`Point`/`Linear` resolution and the layer factories' defaults) plus

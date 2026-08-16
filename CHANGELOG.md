@@ -22,13 +22,20 @@ stops shimmering at a fractional present (and pixel art stops being bilinear-blu
 - **`ViewportManager.ScalingMode`, `CurrentScalingMode`, `PixelPerfectDestinationRectangle`
   and `IntegerScale` are gone.** The three modes were the policy question asked in three
   incomplete ways, and the pixel-perfect rectangle was a second destination rectangle the
-  mouse never inverted. `PresentationPolicy.PixelPerfect` reproduces
-  `ScalingMode.PixelPerfect` exactly (whole steps, centered, with bars) — through the one
-  `DestinationRectangle`, so picking now follows it. `Smooth` is subsumed by the per-layer
-  sampler policy, and `KeepAspectRatio` is `PresentationPolicy.Stretch`.
+  mouse never inverted. `PresentationPolicy.PixelPerfect` takes over `ScalingMode.PixelPerfect`
+  (whole steps, centered, with bars) — through the one `DestinationRectangle`, so picking now
+  follows it. It matches the old mode exactly for any window at least as large as the render
+  resolution in both axes; **below 1× it deliberately diverges**, because the old mode clamped
+  its integer scale to a floor of 1 and cropped the frame off-screen (1920×1080 in a 1600×900
+  window: 1920×1080 at (-160, -90)), while a no-overscan policy may not crop and keeps
+  descending the ladder instead (960×540 centered, with bars). `Smooth` is subsumed by the
+  per-layer sampler policy, and `KeepAspectRatio` is `PresentationPolicy.Stretch`.
   *Migration:* `viewport.CurrentScalingMode = ViewportManager.ScalingMode.PixelPerfect`
   becomes `viewport.Policy = PresentationPolicy.PixelPerfect`; read
-  `viewport.DestinationRectangle` where you read `PixelPerfectDestinationRectangle`.
+  `viewport.DestinationRectangle` where you read `PixelPerfectDestinationRectangle`. If your
+  game relied on the old crop, the crop is now an explicit, bounded decision: enable the
+  overscan step (`PixelPerfect with { AllowOverscan = true, OverscanTolerance = 0.25f }` reaches
+  1× from a fit down to 0.8) and set the tolerance to the frame edge you are willing to lose.
 
 - **`RenderLayer.Sampler` is a `SamplerPolicy` (`Auto` / `Point` / `Linear`), not a
   `Func<ViewportManager, SamplerState>`**, and `RenderLayer.Overlay`'s optional

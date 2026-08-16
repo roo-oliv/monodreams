@@ -106,7 +106,7 @@ is a declared policy (`ViewportManager.Policy`), tried in this order:
 | `Stretch` | stretch only | the ENGINE default — framed exactly as before the policy existed |
 | `Default` | overscan 5% → letterbox 25% → stretch | the **scaffold default**: what a new game should declare |
 | `Crisp` | overscan → letterbox (unbounded) | never resample at a fractional ratio, however wide the bars |
-| `PixelPerfect` | whole steps, letterbox (unbounded) | the retired `ScalingMode.PixelPerfect` |
+| `PixelPerfect` | whole steps, letterbox (unbounded) | the retired `ScalingMode.PixelPerfect` — identical at or above 1×; below it this shrinks in whole steps (1/2, 1/3, …) where the old mode clamped to 1× and cropped |
 
 ```csharp
 _viewportManager.Policy = PresentationPolicy.Default;

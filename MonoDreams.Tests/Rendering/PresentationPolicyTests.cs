@@ -132,6 +132,48 @@ public class PresentationPolicyTests
     }
 
     [Fact]
+    public void PixelPerfectPolicy_MatchesTheRetiredMode_AtOrAboveOneX()
+    {
+        // The retired ScalingMode.PixelPerfect was: scale = max(1, min(avail/virtual)) floored to a
+        // whole number, centered. Above 1× the floor never binds, so policy and mode agree exactly.
+        foreach (var (w, h) in new[] { (1920, 1080), (2560, 1440), (4000, 2160), (5760, 3240) })
+        {
+            var vm = Manager(w, h, policy: PresentationPolicy.PixelPerfect);
+            var oldScale = Math.Max(1, Math.Min(w / 1920, h / 1080));
+            var oldRect = new Rectangle((w - 1920 * oldScale) / 2, (h - 1080 * oldScale) / 2,
+                1920 * oldScale, 1080 * oldScale);
+            Assert.Equal(oldRect, vm.DestinationRectangle);
+        }
+    }
+
+    [Fact]
+    public void PixelPerfectPolicy_ShrinksInWholeSteps_WhereTheRetiredModeCropped()
+    {
+        // Below 1× the two DIVERGE, deliberately. The old mode clamped its integer scale to a floor
+        // of 1, presenting 1920×1080 at (-160,-90) in a 1600×900 window — the frame's edges cropped
+        // off-screen. A policy with overscan OFF may not crop, so the ladder keeps descending:
+        // 1/2 of the frame, centered, with bars. (Cropping is the overscan step's business, and it
+        // is bounded by a declared tolerance.)
+        var vm = Manager(1600, 900, policy: PresentationPolicy.PixelPerfect);
+        Assert.Equal(PresentationMode.Letterbox, vm.Presentation);
+        Assert.Equal(0.5f, vm.PresentScale, 4);
+        Assert.Equal(new Rectangle(320, 180, 960, 540), vm.DestinationRectangle);
+
+        // …and being a real letterbox, the bars map to null — where the old mode's crop had no bars
+        // at all and the pointer over an off-screen frame edge was simply unmappable.
+        Assert.Null(vm.MapMouse(new Vector2(100, 450)));
+
+        // The whole ladder below 1× is reciprocal whole steps, never the old floor of 1.
+        foreach (var (w, h, scale) in new[] { (1280, 720, 0.5f), (700, 400, 1f / 3f), (500, 280, 0.25f) })
+        {
+            var below = Manager(w, h, policy: PresentationPolicy.PixelPerfect);
+            Assert.Equal(scale, below.PresentScale, 3);
+            Assert.True(below.DestinationRectangle.Width <= w && below.DestinationRectangle.Height <= h,
+                $"{below.DestinationRectangle} must fit inside {w}x{h} — a no-overscan policy never crops");
+        }
+    }
+
+    [Fact]
     public void AnAlreadyCleanFit_IsPresentedAsIs()
     {
         // Window == render resolution: nothing to trade, and no policy can move it.
@@ -151,14 +193,16 @@ public class PresentationPolicyTests
     // ---- 3. MapMouse inverts whichever step won ----
 
     [Fact]
-    public void MapMouse_InvertsTheOverscannedDestination_AndNeverFallsOutsideIt()
+    public void MapMouse_InvertsTheOverscannedDestination_WhenItCoversTheWindow()
     {
         var vm = Manager(1830, 1029, 1920, 1080);
         var dest = vm.DestinationRectangle;
         Assert.Equal(PresentationMode.Overscan, vm.Presentation);
 
-        // The frame covers the whole window, so no window pixel is "outside the game" — including
-        // the corners, which under a letterbox would land in a bar.
+        // This window's aspect is close enough to the frame's that the grown rectangle covers BOTH
+        // axes, so no window pixel is "outside the game" — including the corners, which under a
+        // letterbox would land in a bar. (That is a property of this window, not of overscan — see
+        // MapMouse_StillNullsInABar_WhenOverscanOnlyCoversTheBindingAxis.)
         foreach (var screen in new[] { new Vector2(0, 0), new Vector2(1829, 1028), new Vector2(915, 514) })
             Assert.NotNull(vm.MapMouse(screen));
 
@@ -173,6 +217,28 @@ public class PresentationPolicyTests
         var corner = vm.MapMouse(new Vector2(0, 0))!.Value;
         Assert.Equal(45f, corner.X, 2);
         Assert.Equal(25f, corner.Y, 2);
+    }
+
+    [Fact]
+    public void MapMouse_StillNullsInABar_WhenOverscanOnlyCoversTheBindingAxis()
+    {
+        // Overscan grows the frame past the aspect-fit rectangle, so it always covers the axis that
+        // BOUND the fit — but only that one. A 2000×1029 window is bound by its height (fit 0.9528,
+        // 1× costs 4.96%, inside the 5% tolerance), so the 1920×1080 frame overscans vertically and
+        // is CROPPED top and bottom — while horizontally 1920 < 2000 leaves 40px pillarbars.
+        var vm = Manager(2000, 1029, 1920, 1080);
+        Assert.Equal(PresentationMode.Overscan, vm.Presentation);
+        Assert.Equal(new Rectangle(40, -25, 1920, 1080), vm.DestinationRectangle);
+
+        // The pointer in a surviving bar is NOT over the game, overscan or not.
+        Assert.Null(vm.MapMouse(new Vector2(10, 500)));
+        Assert.Null(vm.MapMouse(new Vector2(1990, 500)));
+
+        // The cropped axis behaves the other way round: the top window row maps INSIDE authoring
+        // space by the 25 rows that left the screen, and the frame's own edge is unreachable.
+        var top = vm.MapMouse(new Vector2(1000, 0))!.Value;
+        Assert.Equal(25f, top.Y, 2);
+        Assert.Equal(0f, vm.MapMouse(new Vector2(40, 500))!.Value.X, 2);
     }
 
     [Fact]

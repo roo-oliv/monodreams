@@ -351,8 +351,15 @@ public class ViewportManager
     /// window resize, to the editor's chrome margins, and to whichever presentation step won, for
     /// free: overscan and boxing both move and resize the destination, and the pointer follows it.
     /// Returns <c>null</c> when the position falls outside that rectangle (the bars or the chrome
-    /// margins), which callers read as "the pointer is not over the game" — under overscan the
-    /// rectangle covers the whole window, so nothing is outside it and the result is never null.
+    /// margins), which callers read as "the pointer is not over the game".
+    ///
+    /// <para>Overscan does NOT make the null case go away. The grown frame always covers the axis
+    /// that BOUND the aspect fit, but the other axis is covered only when the window's aspect is
+    /// within the tolerance the step actually spent — on a window far enough off the render aspect,
+    /// bars survive an overscan and the pointer over them still maps to <c>null</c>. A 2000×1029
+    /// window on a 1920×1080 frame under <see cref="PresentationPolicy.Default"/> overscans to 1×
+    /// and lands at <c>(40, -25, 1920, 1080)</c>: cropped top and bottom, 40-pixel pillarbars left
+    /// and right. Never treat the result as non-null because a policy allows overscan.</para>
     ///
     /// <para>The result is in authoring space, NOT render space: a render-resolution move leaves
     /// every mapped coordinate (and every test asserting on one) unchanged. Feed it straight to

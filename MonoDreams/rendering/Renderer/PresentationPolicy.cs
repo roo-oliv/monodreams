@@ -181,9 +181,19 @@ public sealed record PresentationPolicy
     };
 
     /// <summary>
-    /// Integer scales only, no overscan, no stretch — the largest whole multiple of the render
-    /// resolution that fits, centered, with bars around it. This is what the retired
-    /// <c>ViewportManager.ScalingMode.PixelPerfect</c> did, expressed as a policy.
+    /// Integer scales only, no overscan, no stretch — the largest whole step of the render
+    /// resolution that fits, centered, with bars around it. This is the retired
+    /// <c>ViewportManager.ScalingMode.PixelPerfect</c> expressed as a policy, and it matches that
+    /// mode exactly for every window at least as large as the render resolution in both axes
+    /// (where both are <c>floor(fit)</c>).
+    ///
+    /// <para><b>Below 1× the two DIVERGE, deliberately.</b> The old mode clamped its integer scale
+    /// to a floor of 1, so a smaller window got the frame at 1× with its edges cropped off-screen
+    /// (1920×1080 in a 1600×900 window: 1920×1080 at (-160, -90)). A no-overscan policy may not
+    /// crop, so the ladder keeps descending through the reciprocal steps instead: 1/2, 1/3, …
+    /// (the same case resolves to 960×540 centered, with bars). Half the picture with bars beats
+    /// silently eating the authored edges — but a game that was relying on the old crop will frame
+    /// differently on any window under the render resolution.</para>
     /// </summary>
     public static readonly PresentationPolicy PixelPerfect = new()
     {
