@@ -32,12 +32,16 @@ public class CliOptionParsingTests
         Assert.DoesNotContain("Module '--projekt' not found", stderr);
     }
 
+    /// <summary>This exact invocation is the example README.md prints — keep the two in step. A typo only
+    /// earns a hint inside the edit-distance tolerance: `--drun` (distance 3 from `--dry-run`, over the
+    /// tolerance of 2 for a 6-character token) is still named, just without a "did you mean".</summary>
     [Fact]
     public async Task Add_UnknownOption_SuggestsTheClosestKnownOption()
     {
         var (exit, _, stderr) = await RunAsync("add", "rendering", "--dryrun");
 
         Assert.Equal(2, exit);
+        Assert.Contains("unknown option '--dryrun' for `monodreams add`.", stderr);
         Assert.Contains("Did you mean '--dry-run'?", stderr);
     }
 
@@ -103,6 +107,33 @@ public class CliOptionParsingTests
 
         Assert.Equal(0, exit);
         Assert.Contains("--dir", stdout);
+    }
+
+    [Fact]
+    public async Task Version_IsAcceptedAtTheRoot()
+    {
+        var (exit, _, stderr) = await RunAsync("--version");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("error:", stderr);
+    }
+
+    /// <summary>
+    /// The parser installs `--version` on the ROOT command only, so under a subcommand it is just another
+    /// unrecognized option — and used to be swallowed by the nearest positional exactly like `--dir` was.
+    /// </summary>
+    [Theory]
+    [InlineData("add", "Module '--version' not found")]
+    [InlineData("migrate", "Path not found: '--version'")]
+    public async Task Version_UnderASubcommand_IsRejected_AndIsNotTreatedAsAPositional(
+        string command, string oldFailure)
+    {
+        var (exit, _, stderr) = await RunAsync(command, "--version");
+
+        Assert.Equal(2, exit);
+        Assert.Contains("'--version'", stderr);
+        Assert.Contains($"`monodreams {command}`", stderr);
+        Assert.DoesNotContain(oldFailure, stderr);
     }
 
     // ---- one canonical --dir, with --project as a hidden alias ---------------------------------

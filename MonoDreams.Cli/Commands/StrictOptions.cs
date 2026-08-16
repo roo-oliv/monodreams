@@ -28,10 +28,23 @@ internal static class StrictOptions
     /// <summary>
     /// Aliases the invocation pipeline provides rather than the command tree — they never appear in
     /// <see cref="Command.Options"/>, so they must be whitelisted explicitly or `--help` would be rejected.
+    /// These are installed on EVERY command, so they are accepted at every level.
     /// </summary>
     private static readonly HashSet<string> ParserProvidedAliases = new(StringComparer.Ordinal)
     {
-        "--help", "-h", "-?", "--version",
+        "--help", "-h", "-?",
+    };
+
+    /// <summary>
+    /// Parser-provided aliases the pipeline installs on the ROOT command only. Accepting them at every level
+    /// would re-open the very swallowing bug this class exists to close, one command down: the parser has no
+    /// such option on a subcommand, so it binds the token to the nearest positional —
+    /// <c>monodreams add --version</c> answered "Module '--version' not found" and
+    /// <c>monodreams migrate --version</c> took it as the scene path.
+    /// </summary>
+    private static readonly HashSet<string> RootOnlyParserAliases = new(StringComparer.Ordinal)
+    {
+        "--version",
     };
 
     /// <summary>
@@ -77,6 +90,12 @@ internal static class StrictOptions
                 }
 
                 if (ParserProvidedAliases.Contains(name)) continue;
+
+                if (RootOnlyParserAliases.Contains(name))
+                {
+                    if (commandPath.Count == 0) continue;
+                    return RootOnlyOptionMessage(name, commandPath);
+                }
 
                 return UnknownOptionMessage(name, known, commandPath);
             }
@@ -141,6 +160,15 @@ internal static class StrictOptions
         return $"error: option '{name}' for `{invocation}` expects a value, but the next token is '{next}'." +
                Environment.NewLine +
                $"       Write `{name}=<value>` if the value itself starts with a dash.";
+    }
+
+    /// <summary>The option exists, but one level up: say where it lives instead of calling it unknown.</summary>
+    private static string RootOnlyOptionMessage(string name, List<string> commandPath)
+    {
+        var invocation = Invocation(commandPath);
+        return $"error: option '{name}' belongs to `{ToolName}` itself, not to `{invocation}`." +
+               Environment.NewLine +
+               $"       Run `{ToolName} {name}`, or `{invocation} --help` for the options it accepts.";
     }
 
     private static string UnknownOptionMessage(string name, Dictionary<string, Option> known, List<string> commandPath)

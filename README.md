@@ -55,8 +55,13 @@ dotnet run
 
 Both `init` and `add` spell "which project" the same way — `--dir <path>` (`--project` still
 works as a deprecated alias). Unrecognized options are rejected by name rather than mistaken
-for a module: `monodreams add rendering --drun` answers `unknown option '--drun'. Did you mean
-'--dry-run'?`.
+for a module or a path:
+
+```console
+$ monodreams add rendering --dryrun
+error: unknown option '--dryrun' for `monodreams add`. Did you mean '--dry-run'?
+       Run `monodreams add --help` for the options it accepts.
+```
 
 ## The 14 modules
 
