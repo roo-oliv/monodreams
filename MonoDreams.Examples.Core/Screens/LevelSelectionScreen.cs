@@ -41,11 +41,20 @@ namespace MonoDreams.Examples.Screens;
 /// With the flag off nothing editor-related is constructed and the pipeline is behaviourally
 /// identical to the pre-editor screen (RunMode never leaves Play; the gates are pass-throughs).
 ///
-/// <para><b>Menu-specific edit policies:</b> <c>ui.interaction</c> (the button click →
+/// <para><b>Pointer model (issue #115).</b> The menu picks through the <c>ui</c> module: its
+/// buttons carry <see cref="FocusableComponent"/>, <see cref="UIFocusSystem"/> is the single owner
+/// of the pointer pick / focus / activation, and this screen's <c>ButtonInteractionSystem</c> only
+/// reacts to it. That is what lets the buttons carry a <see cref="TooltipComponent"/> (the label
+/// rides the same pick) and what keeps the click, the hover colour and the tooltip from ever
+/// disagreeing — see the ui premise "One click, one owner".</para>
+///
+/// <para><b>Menu-specific edit policies:</b> <c>ui.interaction</c> (the pick + the button click →
 /// screen-transition system) is <c>Freeze</c> — while the transport is Paused a click belongs to
 /// the editor (selection / gizmo / chrome), so menu buttons must not fire mid-editing; press the
 /// toolbar's Play transport button to use the menu, or re-enable the entry live from the systems
-/// panel. <c>layout</c> stays <c>RunNormally</c>:
+/// panel. <c>ui.tooltip</c> freezes with it (it despawns its label through
+/// <c>ISuspendableSystem</c>, so nothing is stranded on the never-frozen HUD pass).
+/// <c>layout</c> stays <c>RunNormally</c>:
 /// the auto-layout solver is the menu's content placement (the analogue of the game screen's level
 /// parsers, which also run in Edit) — freezing it would boot an unlaid-out menu under
 /// <c>--editor</c>. A menu button is layout slot CONTENT (its root is a <c>ChildOf</c> child of the
@@ -56,6 +65,12 @@ namespace MonoDreams.Examples.Screens;
 /// </summary>
 public class LevelSelectionScreen : IGameScreen
 {
+    // ── Lofi palette, shared by the menu's widgets and by its tooltip style ───────────────────────
+    private static readonly Color DarkBrown = new(60, 50, 45);     // main text
+    private static readonly Color Terracotta = new(200, 120, 80);  // hover / accent
+    private static readonly Color MutedBrown = new(150, 140, 130); // disabled
+    private static readonly Color Parchment = new(238, 230, 216);  // tooltip panel fill (opaque!)
+
     /// <summary>The scene id this screen is bound to (UX-C): its editor Save writes
     /// <c>level_selection.mdscene</c>, and on boot its optional-scene-load brings that scene up under
     /// the code-built menu UI. Referenced by the host's <see cref="ScreenInfo"/> so the binding is
@@ -191,13 +206,9 @@ public class LevelSelectionScreen : IGameScreen
 
     private void CreateLevelSelectionUI()
     {
-        // Lofi color palette
-        var darkBrown = new Color(60, 50, 45);        // Main text color
-        var terracotta = new Color(200, 120, 80);     // Hover/accent color
-        var mutedBrown = new Color(150, 140, 130);    // Disabled color
-
-        // Create button style
-        var buttonStyle = ButtonStyle.WithColors(darkBrown, terracotta, mutedBrown);
+        // Create button style from the lofi palette (the class-level fields — the tooltip style,
+        // built where the pipeline is assembled, shares them).
+        var buttonStyle = ButtonStyle.WithColors(DarkBrown, Terracotta, MutedBrown);
 
         // Create entities first. Play buttons only — the editor is entered exclusively through the
         // --editor / MONODREAMS_EDITOR=1 run configuration (the transport model), never via a menu
@@ -206,9 +217,25 @@ public class LevelSelectionScreen : IGameScreen
         // the runner is a screen, not a level file. The LDtk Level_0 is not migrated yet (its ~21k
         // per-tile entities need a native tile-layer batching primitive — a PS6 item), so it is not
         // offered here: booting it native-only would fail loud.
-        var titleEntity = CreateTextEntity("Select Level", _font, darkBrown, scale: 0.3f, _layers.GetDepth(DrawLayer.Title));
-        var play1 = CreateButtonEntity("Level 1", _font, 0, "Blender_Level", true, buttonStyle);
-        var play2 = CreateButtonEntity("Runner", _font, 1, null, true, buttonStyle, ScreenName.InfiniteRunner);
+        var titleEntity = CreateTextEntity("Select Level", _font, DarkBrown, scale: 0.3f, _layers.GetDepth(DrawLayer.Title));
+        var play1 = CreateButtonEntity("Level 1", _font, 0, "Blender_Level", true, buttonStyle,
+            tooltip: "Native scene: Blender_Level.mdscene");
+        var play2 = CreateButtonEntity("Runner", _font, 1, null, true, buttonStyle, ScreenName.InfiniteRunner,
+            tooltip: "A screen, not a level file");
+
+        // "Start here": the generic attention primitive (HighlightComponent + HighlightSystem)
+        // pointing at the default choice. One component, no bespoke glow art and no per-frame
+        // bookkeeping — the system derives the outline from whatever the button DRAWS, re-derives
+        // its depth every frame, and disposes it with the button. Removing the component (or the
+        // button) removes the hint; nothing else has to know it existed.
+        play1.container.Set(new HighlightComponent
+        {
+            Color = Terracotta,
+            Padding = 6f,
+            Thickness = 2f,
+            PulseSpeed = 0.6f,
+            PulseMinIntensity = 0.4f,
+        });
 
         // Create UI using auto layout with slots
         var layout = new AutoLayoutBuilder(_world, _viewportManager);
@@ -259,7 +286,8 @@ public class LevelSelectionScreen : IGameScreen
         string levelName,
         bool isClickable,
         ButtonStyle style,
-        string targetScreen = null)
+        string targetScreen = null,
+        string tooltip = null)
     {
         // Measure text to determine button size
         var textSize = font.MeasureString(text) * style.TextScale;
@@ -301,6 +329,22 @@ public class LevelSelectionScreen : IGameScreen
             TextEntity = buttonTextEntity,
             Target = RenderTargetID.Main
         });
+        // The button is PICKABLE: one component makes it visible to UIFocusSystem, which is the
+        // single owner of "what is the pointer over?" — hover, keyboard focus, press and the
+        // activation edge ButtonInteractionSystem acts on, plus the PointerPickComponent every
+        // hover consumer rides. Target=Main because the menu draws in world space (the pick then
+        // compares the cursor's WorldPosition), and the size is the button's own box.
+        buttonEntity.Set(new FocusableComponent
+        {
+            TabIndex = levelIndex,
+            Group = 0,
+            Disabled = !isClickable,
+            Size = buttonSize,
+            Target = RenderTargetID.Main,
+        });
+        // "Hover to learn": pure data on the pickable entity. TooltipSystem owns the floating label
+        // end-to-end (dwell, placement, edge flip, teardown) — the screen writes one string.
+        if (!string.IsNullOrEmpty(tooltip)) buttonEntity.Set(new TooltipComponent { Text = tooltip });
         buttonEntity.Set(new LevelSelector
         {
             LevelIndex = levelIndex,
@@ -386,18 +430,22 @@ public class LevelSelectionScreen : IGameScreen
         p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
         if (pointerReplaySystem != null)
             p.Add("pointerReplay", pointerReplaySystem, EditTimeBehavior.RunNormally);
+        // The game's ONE keyboard mapping, composed on the menu too (it used to be editor-only):
+        // UIFocusSystem below navigates the menu from these actions, so the menu is keyboard-usable
+        // — WASD/arrow keys to move between buttons, Tab / Shift-Tab to cycle, Space to activate —
+        // and the editor gets the key surface its modal suppression needs from the same instance.
+        var keys = new InputMappingSystem(_world);
         if (_editor != null)
         {
-            // The menu runs no game keyboard mapping of its own; the editor needs a key surface for
-            // its modal-suppression wiring (the editor global shortcuts are the raw-keyboard chord
-            // table now — UX3-E — not this mapping) — composed only under the flag.
-            var editorKeys = new InputMappingSystem(_world);
             // Modal capture (keyboard half): the editor/game keyboard (incl. Escape-to-exit) stands
             // down while a Save/Load dialog owns the keys; the mouse half is the dialog consuming the
             // cursor edges.
-            editorKeys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive
+            keys.ShouldSuppressInput = () => _editor.Dialog.IsOpen || _editor.Menu.IsOpen || _editor.Modal.IsActive
                 || _editor.InspectorOwnsKeyboard || _editor.RulesEditor.IsOpen;
-            p.Add("editor.keys", editorKeys, EditTimeBehavior.RunNormally);
+        }
+        p.Add("input.keys", keys, EditTimeBehavior.RunNormally);
+        if (_editor != null)
+        {
             // Native-scene loading (LoadSceneRequest) — the toolbar's Load button needs a handler.
             p.Add("editor.sceneReader", _editor.SceneReader, EditTimeBehavior.RunNormally);
             p.Add("editor.dialog", _editor.Dialog, EditTimeBehavior.RunNormally);
@@ -423,10 +471,20 @@ public class LevelSelectionScreen : IGameScreen
         });
         // Menu button interaction FREEZES while Paused (Edit): a click there belongs to the editor
         // (selection / gizmo / chrome), never to a screen transition. The toolbar's Play transport
-        // button or the systems panel re-arms it.
-        p.Add("ui.interaction", new ButtonInteractionSystem(_world), EditTimeBehavior.Freeze);
-        // The button meshes keep rebuilding in Edit — the menu must keep rendering while edited.
-        p.Add("ui.buttonMeshPrep", new ButtonMeshPrepSystem(_world), EditTimeBehavior.RunNormally);
+        // button or the systems panel re-arms it. ONE gate on the whole group, so the pick and the
+        // action it feeds can never be half-frozen.
+        p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
+        {
+            // The single owner of "what is the pointer over?" — it resolves the topmost focusable
+            // under the cursor once, drives hover/press/activation from it, and publishes it as
+            // PointerPickComponent for the hover consumers (the tooltip below). Nav actions come
+            // from the game's own key mapping ("input.keys" above), so the menu is keyboard-usable;
+            // the ACTION stays game-side, in ButtonInteractionSystem's UIFocusActivated handler.
+            g.Add("focus", new UIFocusSystem(_world,
+                InputState.Up, InputState.Down, InputState.Left, InputState.Right,
+                InputState.MenuNext, InputState.MenuPrevious, InputState.Jump));
+            g.Add("buttons", new ButtonInteractionSystem(_world));
+        });
         if (_editor != null)
         {
             // Delete/undo/redo, then the gizmo — BEFORE HierarchySystem so a transform edit
@@ -460,6 +518,18 @@ public class LevelSelectionScreen : IGameScreen
             p.Add("editor.tilePaint", _editor.TilePaint, EditTimeBehavior.RunNormally);
         }
         p.Add("cursorPosition", cursorLateUpdateSystem, EditTimeBehavior.RunNormally);
+        // The floating label rides the pick published by "ui.interaction/focus" AND the pointer's
+        // FRESH virtual position, so it sits after both. Freeze is safe even though it OWNS entities:
+        // TooltipSystem implements ISuspendableSystem, so the gate despawns the live label on the
+        // Play → Pause edge instead of stranding it on the (never-frozen) HUD pass.
+        p.Add("ui.tooltip", new TooltipSystem(_world, _viewportManager, _font, new TooltipStyle
+        {
+            Delay = 0.35f,
+            TextScale = 0.14f,
+            TextColor = Parchment,
+            Fill = DarkBrown,      // opaque: the mesh path composites premultiplied alpha
+            Outline = Terracotta,
+        }), EditTimeBehavior.Freeze);
         p.Add("cursorDrawPrep", new CursorDrawPrepSystem(_world), EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
@@ -519,6 +589,21 @@ public class LevelSelectionScreen : IGameScreen
                 g.Add("ySort", new YSortSystem(_world, _camera, _layers));
             }
             g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering));
+            // Local-space meshes (the tooltip panel TooltipSystem spawns is one) get their world
+            // matrix here — in the DRAW stage, so a panel created late in the update pipeline is
+            // positioned on the very frame it appears rather than a frame later at the origin.
+            g.Add("meshPrep", new MeshPrepSystem(_world));
+            // …and the button outlines, whose vertices are already baked in world space, take the
+            // opposite contract: they must overwrite MeshPrepSystem's matrix with the identity, so
+            // they run immediately AFTER it (ui premise "ButtonMeshPrepSystem bakes world coords and
+            // must run AFTER MeshPrepSystem whenever both are in the pipeline"). The menu keeps
+            // rebuilding them in Edit — it must go on rendering while it is edited.
+            g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+            // LAST in draw prep, by contract: the highlight outline is derived from what its target
+            // is ABOUT to draw (here the button mesh the line above just baked) and its depth is
+            // re-read from that same component every frame, so it can never sink under the thing it
+            // points at.
+            g.Add("highlight", new HighlightSystem(_world));
         });
         if (_editor != null)
         {

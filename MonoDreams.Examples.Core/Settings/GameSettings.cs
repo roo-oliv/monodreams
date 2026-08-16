@@ -11,18 +11,17 @@ namespace MonoDreams.Examples.Settings;
 public class GameSettings
 {
     /// <summary>
-    /// Window width in pixels.
-    /// </summary>
-    public int WindowWidth { get; set; } = 1920;
-
-    /// <summary>
-    /// Window height in pixels.
-    /// </summary>
-    public int WindowHeight { get; set; } = 1080;
-
-    /// <summary>
     /// Whether to run in fullscreen mode.
     /// </summary>
+    /// <remarks>
+    /// There is deliberately NO window width/height here any more (issue #115). A windowed desktop
+    /// run is sized by <c>WindowFit.Apply</c> from the display's usable area — the engine's single
+    /// owner of "how big is this game's window" (foundation premise "<c>WindowFit</c> is opt-in, and
+    /// it is the ONLY thing allowed to size a game's window") — with <c>MONODREAMS_WINDOW=WxH</c> as
+    /// the explicit override for scripted runs. A second window-size dial in this file could only
+    /// disagree with it: the pinned 1920x1080 that used to live here is exactly what rendered the
+    /// bottom of the menu below the physical screen on a smaller laptop.
+    /// </remarks>
     public bool IsFullscreen { get; set; } = false;
 
     /// <summary>

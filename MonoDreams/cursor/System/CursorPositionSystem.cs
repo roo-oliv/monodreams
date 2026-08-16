@@ -38,7 +38,7 @@ public class CursorPositionSystem(World world, MonoDreams.Component.Camera camer
 
         if (virtualPosition.HasValue)
         {
-            // Always calculate world position for systems that need it (e.g., ButtonInteractionSystem),
+            // Always calculate world position for systems that need it (e.g. ui's UIFocusSystem),
             // and place the transform per render target — both through the shared pose rule, which an
             // injection channel (PointerReplaySystem) calls with the positions IT authored.
             MonoDreams.Cursor.Cursor.ApplyPose(entity, virtualPosition.Value,

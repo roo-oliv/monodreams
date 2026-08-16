@@ -337,7 +337,12 @@ call `HeadlessWindow.PreventFocusSteal()` **before the `Game` is constructed**
 app that never interrupts the user's typing. And because a hidden,
 never-activated window makes `Game.IsActive` false, both heads zero
 `InactiveSleepTime` in headless mode — MonoGame's inactive throttle (20ms/frame
-≈ 50fps) would otherwise quietly break the headless max-speed contract.
+≈ 50fps) would otherwise quietly break the headless max-speed contract. For the same
+reason a headless branch **never calls `WindowFit.Apply`**: fitting the window to the
+display would resize the very backbuffer this contract pins (to the virtual resolution
+here, to 1×1 in the Examples host), and `MONODREAMS_WINDOW` would then silently
+re-geometry every captured frame. Window fitting belongs to the windowed branch only,
+and a headless run logs that it skipped it.
 
 **Why:** the entire point of the headless observe path (issue #28) is to
 let an agent verify visual/runtime claims without a human. A no-op `Draw`
@@ -519,7 +524,10 @@ reintroduces the consumed-click bug the cursor module's edge premise exists to p
 `Wheel_PulsesTheDeltaForOneFrame_AndAccumulatesTheValue`);
 `MonoDreams.Tests/IntegrationTests/PointerReplayTests.cs`
 (`ScriptedClick_OnAMenuButton_DrivesTheRealInteractionPipeline` — a spawned run where the injected
-release edge reaches `ButtonInteractionSystem` and really changes screens).
+release edge travels the menu's real pick → `UIFocusActivated` → `ButtonInteractionSystem` path and
+really changes screens); `MonoDreams.Tests/IntegrationTests/ExamplesAdoptionTests.cs`
+(`PointerDwellOnALevelButton_ShowsItsTooltip_AndTheClickLoadsTheLevel` — the injected pointer also
+RESTS, so the ui module's dwell-gated tooltip appears for it exactly as for a hand on the mouse).
 **Depends on:** cursor — "`SkipDerivation` lets an injection channel own the cursor's derived
 positions"; cursor — "Button press/release edges derive from CursorInputSystem's own
 previous-state, immune to consumers clearing the level fields"; cursor — "Cursor

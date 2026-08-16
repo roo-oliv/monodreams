@@ -4,7 +4,7 @@ Flexbox-style layout with a fluent builder API (`AutoLayoutBuilder` → `Contain
 
 ## Purpose
 
-This module is a flexbox-ish solver for UI. The flexbox solver positions children inside containers based on direction, justify, align, gap, padding, and margin; intrinsic sizes (the dimensions of text, sprites, buttons) come from per-slot callbacks so the solver doesn't need to introspect content types it doesn't know about. The module is deliberately scoped to *visuals and layout* — `ButtonInteractionSystem` (hover detection, click dispatch, screen transitions) lives in `MonoDreams.Examples/` because click dispatch is necessarily game-specific. Games copy that pattern; the framework provides the layout primitives.
+This module is a flexbox-ish solver for UI. The flexbox solver positions children inside containers based on direction, justify, align, gap, padding, and margin; intrinsic sizes (the dimensions of text, sprites, buttons) come from per-slot callbacks so the solver doesn't need to introspect content types it doesn't know about. The module is deliberately scoped to *visuals, layout and picking* — hover detection is `UIFocusSystem`'s, here in the module (it owns the one pointer pick, the focus state and the `UIFocusActivated` edge), while what an activation MEANS is necessarily game-specific, so `ButtonInteractionSystem` (label colour from `FocusableComponent.IsFocused`, screen transition on `UIFocusActivated`) lives in `MonoDreams.Examples/`. Games copy that pattern; the framework provides the layout primitives and the pick.
 
 ## What ships
 
@@ -77,7 +77,7 @@ layout.CreatePinnedRoot(Vector2.Zero, ScreenAnchor.BottomCenter)  // a taskbar o
 1. **`IntrinsicSizingSystem`** — measure content via callbacks.
 2. **`AutoLayoutSystem`** — compute and apply positions.
 3. **`PinnedLayoutRootSystem`** — place the pinned roots. Must sit here: after the solver, before `HierarchySystem` and any world-position consumer.
-4. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`) — or `UIFocusSystem`, which also publishes the pointer pick.
+4. **`UIFocusSystem`** — the one pointer pick, focus, press and the `UIFocusActivated` edge — plus **your own action system** subscribing to it (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`, which reads `FocusableComponent.IsFocused` for the hover colour and routes the activation to a screen transition).
 5. **Pick consumers** — `CursorHoverSystem`, `TooltipSystem`. Both must run **after** `UIFocusSystem` (the pick's publisher); `TooltipSystem` additionally wants the cursor's fresh virtual position, so put it after `CursorPositionSystem` too.
 6. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
 7. **`HighlightSystem`** (optional) — pulsing outlines; register it at the END of the draw-prep stage (after `SpritePrepSystem` / `YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before `MasterRenderSystem`) so it reads the bounds and depths those systems just wrote.

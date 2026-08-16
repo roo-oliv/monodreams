@@ -7,6 +7,47 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
+### Changed — the reference heads adopt the wave ([#115](https://github.com/roo-oliv/monodreams/issues/115))
+
+The engine's own games — the code every newcomer copies — still predated #86/#88/#89/#93/#95.
+No engine feature is added here; the reference heads and the reference menu now use them.
+
+- **`WindowFit` in both desktop heads** (`MonoDreams.Examples.Desktop`, `MonoDreams.Demos`): a
+  windowed run opens the largest aspect-correct window that FITS the display instead of pinning
+  the backbuffer to the render resolution, honours `MONODREAMS_WINDOW=WxH`, and logs the one boot
+  line. Each head's `Logger.Initialize` moved into its constructor so that line is not dropped.
+  Headless runs deliberately skip it (their backbuffer is their contract) and log the skip.
+  Web/KNI heads are untouched — there, JS owns the canvas size.
+
+  *Breaking (Examples only):* `GameSettings.WindowWidth` / `WindowHeight` are **gone** (a second
+  window-size dial could only disagree with `WindowFit`; the pinned 1920x1080 that lived there is
+  exactly what rendered the menu's buttons below the screen on a smaller laptop), and
+  `Game1.ApplyResolutionSettings` with them. Delete those keys from a copied `settings.json`;
+  window size now comes from the display, with `MONODREAMS_WINDOW` as the explicit override.
+
+- **`PresentationPolicy` declared by every head**, including where it is the default:
+  `MonoDreams.Demos` + `MonoDreams.Demos.Web` now declare `PresentationPolicy.Default` (they were
+  inheriting the engine's historical `Stretch`), and both Examples heads keep declaring it from
+  `GameSettings.Presentation`. Each head also logs its declared policy and its two spaces
+  (`Render space: authoring=…, render=…, scale=…`).
+
+- **The level-selection menu picks through `ui`**: its buttons carry `FocusableComponent`, so
+  `UIFocusSystem` owns the pointer pick, the hover state and the activation edge, and
+  `ButtonInteractionSystem` — which hit-tested the cursor itself — now reads
+  `FocusableComponent.IsFocused` and subscribes to `UIFocusActivated`. One picking layer, so the
+  click, the hover colour and the tooltip cannot disagree ("One click, one owner"). The menu also
+  gained keyboard navigation for free (WASD, Tab / Shift-Tab, Space), with two new mapped actions
+  (`InputState.MenuNext` / `MenuPrevious`).
+- **`TooltipComponent` on the menu's buttons** and a `HighlightComponent` "start here" hint on the
+  default one. `MeshPrepSystem` joins the menu's draw prep (the tooltip panel is a local-space
+  mesh) immediately before `ButtonMeshPrepSystem`, which moved from the update pipeline into the
+  same draw-prep group — the order the `ui` premises require.
+- **`MONODREAMS_SCREENSHOT*` wired in the Examples head** (windowed runs only — its headless
+  `Draw` renders nothing), so evidence can be captured from a NAMED render target at its own fixed
+  resolution now that the window size follows the player's display.
+- `GameTestRunner.RunAsync(…, headless: false)` runs the head in a real window, for the few
+  assertions that only exist there.
+
 ### Added — `ui` tooltips, riding one shared pointer pick ([#95](https://github.com/roo-oliv/monodreams/issues/95))
 
 - `TooltipComponent` — "hover me and read this" on any pickable entity (anything with a

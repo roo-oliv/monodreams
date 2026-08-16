@@ -206,11 +206,13 @@ by `Id`. This is the "configurable action-by-callback" the old Aspirational
 direction named, realized as a message seam rather than an installed
 callback. The split is deliberate: the framework owns "which control is
 focused and that it was activated", the game owns "what activation means".
-The games' own `DemoButtonInteractionSystem` (in `MonoDreams.Demos`) and
-`MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs` remain a
-legacy / coexisting path — a game may still hand-roll hit-test + dispatch
-instead of subscribing to `UIFocusActivated`, but new screens should prefer
-the message seam.
+`MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs` is the reference
+consumer of that seam: since issue #115 the level-selection menu runs no
+hit-test of its own — it reads `FocusableComponent.IsFocused` for the hover
+colour and acts on `UIFocusActivated` — so a screen can be copied from it
+verbatim. A game may still hand-roll hit-test + dispatch (the demos'
+`DemoButtonInteractionSystem` does, for HUD chrome that is not focusable),
+but new screens should prefer the message seam.
 
 **Why:** click dispatching needs to know what the click does, which is
 necessarily game-specific — but *detecting* focus / hover / activation and
@@ -429,10 +431,16 @@ never reopens (disabled on a condition that stays true, or an active group with 
 focusables in it) leaves the UI inert — buttons hover but never activate — which is
 equally silent. Registering the gate **after** `UIFocusSystem` gates next frame's
 click, not this one.
-**Tests:** none yet — and not testable from inside the module. The arbitration lives
-in game code by construction (the screen owns pipeline assembly and knows the z-order
-between its own entities and the UI; CORE_TENETS §2), so `ui` can only name the
-invariant, not enforce it.
+**Tests:** not testable from inside the module — the arbitration lives in game code by
+construction (the screen owns pipeline assembly and knows the z-order between its own
+entities and the UI; CORE_TENETS §2), so `ui` can only name the invariant, not enforce
+it. It is exercised end-to-end from the reference game instead:
+`MonoDreams.Tests/IntegrationTests/ExamplesAdoptionTests.cs` +
+`PointerReplayTests.cs` drive the level-selection menu with a scripted pointer. That
+menu shows the case where no arbitration is needed because there is only ONE picking
+layer: its `ButtonInteractionSystem` hit-tested the cursor itself until issue #115 and
+now reads `FocusableComponent.IsFocused` and acts on `UIFocusActivated`, so the click,
+the hover colour and the tooltip cannot disagree.
 **Depends on:** "`UIFocusSystem` is the single focus owner; pointer steals focus only
 on mouse move; nav is group-scoped"; "Tab / Dialog / Dropdown systems show/hide on the
 Main target via `VisibleComponent` and gate focus via `FocusableComponent.Disabled`";

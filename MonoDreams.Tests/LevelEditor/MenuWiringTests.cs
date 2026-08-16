@@ -8,6 +8,7 @@ using MonoDreams.Examples.Message;
 using MonoDreams.Examples.Screens;
 using MonoDreams.Examples.System.UI;
 using MonoDreams.State;
+using MonoDreams.Tests.Ui;
 using MonoDreams.UI;
 using Xunit;
 
@@ -21,6 +22,12 @@ namespace MonoDreams.Tests.LevelEditor;
 /// driven by the transport (see <c>EditorTransportTests</c>). The per-level "Edit" buttons and
 /// <c>ScreenName.LevelEditor</c> are gone; their absence is compile-enforced (the constant no
 /// longer exists), and this file keeps the generalized transition path covered.
+///
+/// <para>Since issue #115 the transition is driven by the <c>ui</c> module: the button is a
+/// <see cref="FocusableComponent"/>, <see cref="UIFocusSystem"/> resolves the pick and publishes
+/// <c>UIFocusActivated</c>, and <see cref="ButtonInteractionSystem"/> turns that into the request.
+/// The tests drive that real pair (<see cref="MenuInteraction"/>), so they cover the arbitration
+/// too — there is exactly one system hit-testing the cursor.</para>
 /// </summary>
 public class MenuWiringTests
 {
@@ -29,7 +36,10 @@ public class MenuWiringTests
         var transform = new TransformComponent(Vector2.Zero);
         var button = world.CreateEntity();
         button.Set(transform);
-        button.Set(new SimpleButtonComponent { Size = new Vector2(100, 40), Target = RenderTargetID.Main });
+        var size = new Vector2(100, 40);
+        button.Set(new SimpleButtonComponent { Size = size, Target = RenderTargetID.Main });
+        // The pickable surface the menu gives every button: same box, same target.
+        button.Set(new FocusableComponent { Size = size, Target = RenderTargetID.Main });
         button.Set(new LevelSelector
         {
             LevelName = levelName,
@@ -47,6 +57,7 @@ public class MenuWiringTests
         cursor.Set(new CursorInputComponent
         {
             WorldPosition = new Vector2(10, 10), // inside the 100×40 button at origin
+            Delta = new Vector2(1, 1),           // the pointer MOVED onto it (that is when focus follows)
             LeftButtonReleased = true,           // the click fires on release
         });
         return cursor;
@@ -62,8 +73,9 @@ public class MenuWiringTests
         ScreenTransitionRequest? published = null;
         world.Subscribe((in ScreenTransitionRequest r) => published = r);
 
+        using var focus = MenuInteraction.Focus(world);
         using var system = new ButtonInteractionSystem(world);
-        system.Update(new GameState(new GameTime()));
+        MenuInteraction.Tick(focus, system, new GameState(new GameTime()));
 
         Assert.NotNull(published);
         Assert.Equal(ScreenName.Game, published!.Value.ScreenName);
@@ -82,10 +94,33 @@ public class MenuWiringTests
         ScreenTransitionRequest? published = null;
         world.Subscribe((in ScreenTransitionRequest r) => published = r);
 
+        using var focus = MenuInteraction.Focus(world);
         using var system = new ButtonInteractionSystem(world);
-        system.Update(new GameState(new GameTime()));
+        MenuInteraction.Tick(focus, system, new GameState(new GameTime()));
 
         Assert.NotNull(published);
         Assert.Equal(ScreenName.InfiniteRunner, published!.Value.ScreenName);
+    }
+
+    /// <summary>
+    /// The arbitration itself: with no <see cref="UIFocusSystem"/> in the pipeline there is no pick,
+    /// so the game system dispatches NOTHING — it has no hit-test of its own to fall back on. That
+    /// is the intended degradation (the same one the tooltip and the hover cursor have), and it is
+    /// what proves the menu has a single picking layer rather than two agreeing ones.
+    /// </summary>
+    [Fact]
+    public void WithoutTheFocusSystem_NoPickMeansNoDispatch()
+    {
+        using var world = new World();
+        MakeButton(world, levelName: "Level_0", targetScreen: null);
+        MakeCursorOverButton(world);
+
+        ScreenTransitionRequest? published = null;
+        world.Subscribe((in ScreenTransitionRequest r) => published = r);
+
+        using var system = new ButtonInteractionSystem(world);
+        system.Update(new GameState(new GameTime()));
+
+        Assert.Null(published);
     }
 }
