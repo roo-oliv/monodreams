@@ -100,18 +100,15 @@ public class ManifestHonestyTests
                  + "`rendering-text`, which depends on rendering) — the constant has to move in code.",
             Markers: new[] { "'DynamicTextComponent'" }),
 
-        ["ui"] = new(
-            Why: "ui source opens MonoDreams.Component.Cursor (CursorInputComponent / CursorType) but "
-                 + "module.json does not declare `cursor`. Acyclic: declaring it fixes it.",
-            Markers: new[] { "'Cursor'", "'CursorType'", "'CursorInputComponent'" }),
+        // ["ui"] was a known gap (undeclared `cursor` dependency) until PR #112 declared it —
+        // the module now compiles from its declared dependencies alone and the check guards it.
 
         ["dialogue"] = new(
-            Why: "two gaps — the same undeclared `cursor` dependency it inherits through ui, plus the "
-                 + "YarnSpinner content-pipeline importer, which needs the MonoGame.Framework.Content.Pipeline "
-                 + "package no nugetDependencies entry declares.",
+            Why: "the YarnSpinner content-pipeline importer needs the MonoGame.Framework.Content.Pipeline "
+                 + "package, which no nugetDependencies entry declares. (Its second gap — the `cursor` "
+                 + "dependency inherited through ui — closed when PR #112 declared `cursor` on ui.)",
             Markers: new[]
             {
-                "'Cursor'", "'CursorType'", "'CursorInputComponent'",              // via ui
                 "'Pipeline'", "'TargetPlatform'", "'ContentImporter", "'ContentProcessor",
                 "'ContentTypeWriter", "'ContentWriter'",                           // the importer's base types
             }),
