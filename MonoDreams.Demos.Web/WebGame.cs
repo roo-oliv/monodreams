@@ -47,8 +47,10 @@ public class WebGame : Game
         // keeps ScreenWidth matched to the actual back buffer.
         _graphics.ApplyChanges();
 
+        // Single-space (authoring == render) on the web head; the camera still comes from the
+        // ViewportManager so the scale has one owner.
         _viewportManager = new ViewportManager(this, VirtualWidth, VirtualHeight);
-        _camera = new Camera(VirtualWidth, VirtualHeight);
+        _camera = _viewportManager.CreateCamera();
     }
 
     protected override void Initialize()

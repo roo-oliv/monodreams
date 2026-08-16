@@ -151,6 +151,25 @@ print('all manifests valid')
 "
 ```
 
+Check the manifest is *honest* — that the module compiles from the
+dependencies it declares and nothing else. This is what a user gets from
+`monodreams add <module>` on a machine that has none of the other modules; it
+can never fail in this repo, where every checkout has all 14 on disk:
+
+```bash
+# Every module: scaffold a temp project, `add` the module, `dotnet build`.
+# Opt-in (the env var) because each case is a real restore + build.
+MONODREAMS_MANIFEST_HONESTY=1 dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+
+# Just the module you touched
+MONODREAMS_MANIFEST_HONESTY=1 MONODREAMS_HONESTY_MODULE=collision \
+  dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+```
+
+CI runs the same check as one job per module on every PR touching `MonoDreams/`
+or `MonoDreams.Cli/`. See [`MonoDreams/MODULES.md`](./MonoDreams/MODULES.md) ›
+"Manifest honesty" for the compile floor and the known-gap list.
+
 End-to-end test the change:
 
 ```bash
@@ -159,7 +178,7 @@ End-to-end test the change:
 # platform with --platform desktop|web|multi (default desktop).
 rm -rf .sandbox
 dotnet run --project MonoDreams.Cli -- init Sandbox --dir .sandbox/Sandbox --platform desktop
-dotnet run --project MonoDreams.Cli -- add --preset infinite-runner --project .sandbox/Sandbox
+dotnet run --project MonoDreams.Cli -- add --preset infinite-runner --dir .sandbox/Sandbox
 dotnet build .sandbox/Sandbox/Sandbox.sln
 # For a web/multi project, build the web head explicitly:
 #   dotnet build .sandbox/Sandbox/Sandbox.Web/Sandbox.Web.csproj -p:MonoDreamsPlatform=web
@@ -172,6 +191,7 @@ dotnet build .sandbox/Sandbox/Sandbox.sln
 - **Messages** flow through the ECS world via publish-subscribe (e.g. `CollisionMessage`, `LoadLevelRequest`).
 - **Namespaces are file-path independent.** A file at `MonoDreams/cursor/Component/CursorControllerComponent.cs` still declares `namespace MonoDreams.Component.Cursor`. This lets us reorganize files into module directories without breaking downstream code.
 - **Core has no implicit `using`s.** When moving files in, add explicit `using System;`, `using System.Collections.Generic;`, `using System.Linq;` where needed.
+- **CLI options: one name per concept.** The same idea gets the same option name in every `monodreams` command (`--dir` is *the* "which project" option for both `init` and `add`; `--project` survives only as a hidden, deprecated alias — see `MonoDreams.Cli/Commands/DirOption.cs`). New commands get strict parsing for free: `StrictOptions` rejects any unrecognized `--option` by name — with a did-you-mean hint — before binding, so an option token can never be swallowed as a positional argument.
 
 ## Engine invariants
 

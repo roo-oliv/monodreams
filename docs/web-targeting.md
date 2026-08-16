@@ -102,6 +102,32 @@ The target platform(s) are recorded in `monodreams.json`. `monodreams add
 (e.g. `MonoGame.Extended` for desktop, `KNI.Extended` for web) and warns when
 a module is unsupported on one of the project's platforms.
 
+### The scaffolded content build
+
+`init` also emits the **shared content project**, `MyGame.Core/Content/Content.mgcb`
+— one `.mgcb` for every head, which is also where `monodreams add <module>`
+appends a module's content lines. Each head wires it for its own backend, and
+both wirings ship in the template:
+
+| Head | Wiring | Output lands in |
+|---|---|---|
+| `MyGame.Desktop` | `MonoGameContentReference` + `MonoGame.Content.Builder.Task` (`/platform:DesktopGL`) | the head's `bin/.../Content/` |
+| `MyGame.Web` | `KniContentReference` + the full BlazorGL block below (`/platform:BlazorGL`) | the head's `wwwroot/Content/` (served over HTTP) |
+
+So the loop on either platform is: drop the asset under `MyGame.Core/Content/`,
+add its block to `Content.mgcb`, rebuild, `Content.Load<T>("name")`. **No csproj
+editing** — the web head is scaffolded with the whole KNI content build
+(`KniContentBuilderExe=dotnet`, the FreeImage/freetype shim, the
+`KNI.Extended(.Content.Pipeline)` + `Autofac` staging, the ffmpeg/ffprobe
+staging, the `KniContentReference`), not a "port it from the engine repo"
+placeholder. That block is kept in lockstep with `MonoDreams.Demos.Web.csproj`
+(its single source of truth) by
+`MonoDreams.Cli.Tests/WebContentBuildTemplateTests.cs`, which fails on any
+structural drift between the two.
+
+The generated `MyGame.Web/wwwroot/Content/` is build output — the scaffolded
+`.gitignore` already excludes it.
+
 ## Building & running the web head
 
 ```bash
@@ -208,6 +234,9 @@ A custom processor must link the pipeline assemblies matching the *output*
 backend — a desktop processor cannot emit BlazorGL `.xnb` and vice versa.
 This is the "content built per-platform" premise (`level-loading`).
 
+Both wirings are what `monodreams init` emits (see "The scaffolded content
+build" above); the rest of this section is what that emitted MSBuild does.
+
 ### macOS / Linux native-lib shim (required)
 
 KNI's MGCB builder package ships **only Windows-native** `FreeImage` /
@@ -215,6 +244,12 @@ KNI's MGCB builder package ships **only Windows-native** `FreeImage` /
 `DllNotFoundException`. The working cross-platform recipe (implemented in
 `MonoDreams.Examples.Web.csproj`, targets `BuildWebContentPipelineDlls` +
 `PrepareKniContentNativeShim`):
+
+> **You do not have to hand-port this into a scaffolded game.** `monodreams
+> init --platform web|multi` emits steps 1–3 and 5 verbatim in the web head
+> (step 4 is the escape hatch below, which prebuilt importers do not need).
+> This section is the explanation of what that block does and why — read it
+> when it breaks, not before you can load a PNG.
 
 1. Run the **managed** `MGCB.dll` via `dotnet` instead of the bundled Windows
    `MGCB.exe` (`KniContentBuilderExe = dotnet` on non-Windows).
@@ -249,6 +284,46 @@ too: KNI ships no `ffmpeg.exe`. The same `Demos.Web.csproj` target stages the
 pattern verified on macOS/Linux but is itself unverified on a real Windows
 host — if the borrow misses, ffmpeg/ffprobe on `PATH` is the fallback KNI
 probes.
+
+> **Where `dotnet-mgcb` comes from.** Every borrow above is `Exists()`-guarded
+> against `$(NuGetPackageRoot)dotnet-mgcb/3.8.4/…`, so on a machine that never
+> built desktop content the whole shim silently no-ops and the first texture
+> fails anyway. Each web head therefore `PackageDownload`s the tool
+> (`<PackageDownload Include="dotnet-mgcb" Version="[3.8.4]" />` — a
+> `PackageReference` is rejected for a `DotnetTool` package), which puts the
+> package in the cache without adding a single byte to the WASM bundle. The
+> scaffolded head carries the same line.
+
+### Escape hatch: source-built content-pipeline dlls
+
+The scaffolded block covers the common case: content whose importers/processors
+come from **prebuilt NuGet packages** (KNI's built-in `TextureImporter` /
+`WavImporter`, `KNI.Extended.Content.Pipeline`'s BitmapFont pair). That is what
+a shipped game needed, verbatim, with zero deviation.
+
+A game whose content needs a custom importer/processor **compiled from source**
+— the engine's own Yarn importer, the vendored LDtk content pipeline, or one of
+your own — needs one more thing, because a content processor runs *inside* the
+builder process and must therefore be compiled against the *same backend* the
+builder emits (the `level-loading` premise "Content is built per-platform …").
+Add ONE target on top of the scaffolded block:
+
+1. Build each pipeline project **for web** into an isolated output dir with a
+   nested `dotnet build … -p:MonoDreamsPlatform=web --output <dir>`, run
+   `BeforeTargets="PrepareKniContentNativeShim"`. The nested `dotnet build`
+   (not a plain in-process MSBuild `Build` target) is load-bearing: an
+   in-process build reuses the desktop `project.assets.json` and silently emits
+   a **desktop** dll, which the KNI MGCB then fails to bind with a
+   `NullReferenceException`. The isolated `--output` keeps that web dll from
+   colliding with the project's desktop one.
+2. Append a `/reference:"<that dll>"` to **both** `KniContentBuilderArguments`
+   branches (Windows and non-Windows) in `PrepareKniContentNativeShim`.
+
+`MonoDreams.Examples.Web.csproj` is the worked example — its
+`BuildWebContentPipelineDlls` target does exactly this for `MonoDreams.dll`
+(the Yarn importer) and the vendored `LDtk.ContentPipeline.dll`. Copy that
+target, swap in your own project paths, and leave the rest of the scaffolded
+block untouched.
 
 ### Shaders (`.fx`) — status
 

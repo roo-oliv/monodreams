@@ -181,7 +181,7 @@ public class DialogueDemoScreen : IGameScreen
             dialogBoxTexture: null,
             _font,
             indicatorTexture: null,
-            _viewportManager.VirtualWidth, _viewportManager.VirtualHeight,
+            _viewportManager.LayoutWidth, _viewportManager.LayoutHeight,
             layerDepth: 0.9f,
             _interact, _up, _down,
             new[] { CompileYarn(YarnSource) },
@@ -208,7 +208,7 @@ public class DialogueDemoScreen : IGameScreen
             dialogBoxTexture: null,
             _font,
             indicatorTexture: null,
-            _viewportManager.VirtualWidth, _viewportManager.VirtualHeight,
+            _viewportManager.LayoutWidth, _viewportManager.LayoutHeight,
             layerDepth: 0.7f,
             _interact, _up, _down,
             new[] { CompileYarn(BirdYarnSource) },
@@ -729,9 +729,9 @@ public class DialogueDemoScreen : IGameScreen
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
         p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         if (_editor != null)
             p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
         p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),

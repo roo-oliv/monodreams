@@ -40,13 +40,17 @@ namespace MonoDreams.Demo.Ui;
 /// hovering any of them floats a label by the cursor (instantly on the unlabeled icon cap);
 /// <b>Windows</b> shows a dropdown, a type-to-filter combobox, and a mouse-wheel scroll view (a
 /// dedicated Scroll render target composited by <c>RenderLayer.Overlay</c>); <b>Dialogs</b> opens a
-/// modal dialog whose group-100 focus trap is driven by the screen's active-group accessor.
+/// modal dialog whose group-100 focus trap is driven by the screen's active-group accessor;
+/// <b>Panels</b> shows the exclusive panel-group primitive twice on one component
+/// (<see cref="PanelGroupComponent"/>) — a sub-tab bar and a paged settings menu — whose inactive
+/// panels are PARKED off-screen by <see cref="PanelGroupSystem"/> rather than hidden.
 public class UiDemoScreen : IGameScreen
 {
     private const int TabLayout = 0;
     private const int TabButtons = 1;
     private const int TabWindows = 2;
     private const int TabDialogs = 3;
+    private const int TabPanels = 4;
 
     private const float TabBarY = -250f;   // world Y of the tab header row (just under the HUD header)
     private const float ContentTop = -150f; // world Y where each tab's body begins
@@ -105,6 +109,19 @@ public class UiDemoScreen : IGameScreen
     private const float ItemPadX = 16f;           // popup option horizontal padding (matches MakeButton)
     private const float ChevronSize = 12f;        // down-chevron icon size (issue 14)
     private const float ChevronGap = 8f;          // gap between the trigger label and the chevron
+
+    // ── Panels tab (exclusive panel groups) ─────────────────────────────────────────────────────
+    // Two PanelGroupComponents stacked vertically: a sub-tab bar (headers + three overlapping
+    // panels) on top, a paged settings menu (prev/next/close + three overlapping pages) below.
+    // Every panel of a group sits at the SAME position — only one is ever on screen; the rest are
+    // parked off-screen by PanelGroupSystem, alive and fully laid out.
+    private const float PanelsHeaderY = ContentTop - 10f;   // sub-tab header row
+    private const int PanelCardW = 440, PanelCardH = 160;
+    private static readonly Vector2 PanelCardPos = new(-PanelCardW / 2f, ContentTop + 50f);
+    private const float PanelsPagerY = ContentTop + 260f;    // prev / next / close row (label above it)
+    private const int PanelPageW = 440, PanelPageH = 150;
+    private static readonly Vector2 PanelPagePos = new(-PanelPageW / 2f, PanelsPagerY + 60f);
+    private const int PanelPageCount = 3;
 
     /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
     /// <c>ui-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
@@ -174,8 +191,23 @@ public class UiDemoScreen : IGameScreen
     private Entity _openDialogButton;    // the "Open dialog" trigger; hidden while the dialog is open
     private Entity _openDialogLabel;     // its label child
 
-    // Scroll plumbing: a dedicated render target + its overlay rect; driven by ScrollViewComponent.
+    // Panels-tab widgets: TWO exclusive panel groups on the same component (a sub-tab bar and a
+    // paged settings menu). The screen only ever writes PanelGroupComponent.Active — PanelGroupSystem
+    // owns the parking. The selected index of each group is remembered here so leaving the Panels tab
+    // (Active = None, the closed-menu state) and coming back restores the same panel.
+    private Entity _panelTabs;           // carries PanelGroupComponent (sub-tab bar)
+    private Entity[] _panelTabHeaders = [];
+    private int _panelTabIndex;          // remembered sub-tab selection
+    private Entity _settingsPages;       // carries PanelGroupComponent (paged settings menu)
+    private Entity _settingsPageLabel;   // "Page 2 / 3" (or "Menu closed")
+    private Entity _settingsToggleLabel; // the Close/Open button's label
+    private int _settingsPageIndex;      // remembered page
+    private bool _settingsMenuOpen = true;
+
+    // Scroll plumbing: a dedicated render target + its screen-space camera + its overlay rect;
+    // driven by ScrollViewComponent.
     private RenderTarget2D? _scrollTarget;
+    private MonoDreams.Component.Camera? _scrollCamera;
     private Entity _scrollView;          // carries ScrollViewComponent
     private Rectangle _scrollVirtualBounds;
 
@@ -203,15 +235,19 @@ public class UiDemoScreen : IGameScreen
         };
         _font = content.Load<BitmapFont>("Fonts/UAV-OSD-Sans-Mono-72-White-fnt");
 
-        // Scroll viewport render target — sized exactly to the on-screen viewport box (no camera;
-        // the Scroll pass derives its projection from this target's pixel size).
-        _scrollTarget = new RenderTarget2D(graphicsDevice, ScrollViewW, ScrollViewH);
-        // Overlay virtual rect = Main world box rect + (VirtualWidth/2, VirtualHeight/2) (camera at
-        // origin, zoom 1). Computed here (deterministic) so CreateDrawSystem can capture it. Must match
-        // the box position in BuildScrollView.
+        // Scroll viewport render target — the authored box size lifted into RENDER pixels, so the
+        // sub-target holds the same fidelity as the rest of the frame at any render scale (it is 1:1
+        // in a single-space game). Its pass takes the matching screen-space camera below.
+        _scrollTarget = new RenderTarget2D(graphicsDevice,
+            (int)(ScrollViewW * viewportManager.RenderScale),
+            (int)(ScrollViewH * viewportManager.RenderScale));
+        _scrollCamera = viewportManager.CreateLayoutCamera(_scrollTarget.Width, _scrollTarget.Height);
+        // Overlay rect (AUTHORING coords) = Main world box rect + (LayoutWidth/2, LayoutHeight/2)
+        // (camera at origin, zoom 1). Computed here (deterministic) so CreateDrawSystem can capture it.
+        // Must match the box position in BuildScrollView.
         _scrollVirtualBounds = new Rectangle(
-            (int)(ScrollBoxWorldPos.X + viewportManager.VirtualWidth / 2f),
-            (int)(ScrollBoxWorldPos.Y + viewportManager.VirtualHeight / 2f),
+            (int)(ScrollBoxWorldPos.X + viewportManager.LayoutWidth / 2f),
+            (int)(ScrollBoxWorldPos.Y + viewportManager.LayoutHeight / 2f),
             ScrollViewW, ScrollViewH);
 
         camera.Position = Vector2.Zero;
@@ -266,7 +302,7 @@ public class UiDemoScreen : IGameScreen
         }
     }
 
-    /// <summary>Builds (or rebuilds) the demo's code-owned content — the header + the four tabs — which the
+    /// <summary>Builds (or rebuilds) the demo's code-owned content — the header + the five tabs — which the
     /// sweep disposes (the cursor survives). Runs once from <c>Load</c> and again as the TD
     /// <see cref="EditorTransport.RebuildCodeContent"/>. Each <c>Build*</c> reassigns the screen's entity
     /// fields, so the field-reading systems re-wire to the fresh entities on a rebuild.</summary>
@@ -286,6 +322,7 @@ public class UiDemoScreen : IGameScreen
         BuildButtonsTab();
         BuildWindowsTab();
         BuildDialogsTab();
+        BuildPanelsTab();
 
         _tabBar.Get<TabBarComponent>().Active = _tabIndex;
     }
@@ -308,10 +345,10 @@ public class UiDemoScreen : IGameScreen
     }
 
     /// Per-frame screen tick: drives the layout-bounds overlay (only on the Layout tab, when the
-    /// toggle is on), recentres the layout-root in the content area, applies the shared gap from the
-    /// numeric field, and animates both example containers' cross-axis alignment in a 1.5s loop.
-    /// Called by <see cref="UiDemoTickSystem"/> (after AutoLayoutSystem, before HierarchySystem, so
-    /// transform/layout writes here propagate to children this frame).
+    /// toggle is on), applies the shared gap from the numeric field, and animates both example
+    /// containers' cross-axis alignment in a 1.5s loop. Called by <see cref="UiDemoTickSystem"/>
+    /// (after AutoLayoutSystem, before HierarchySystem, so layout writes here propagate to children
+    /// this frame).
     public void Tick(GameState state)
     {
         LayoutDebugSystem.Enabled = ActiveTab == TabLayout && _showBounds;
@@ -330,6 +367,8 @@ public class UiDemoScreen : IGameScreen
             if (_dropdown.IsAlive) _dropdown.Get<DropdownComponent>().IsOpen = false;
             if (_comboDropdown.IsAlive) _comboDropdown.Get<DropdownComponent>().IsOpen = false;
         }
+
+        TickPanelsTab();
 
         // Hide the "Open dialog" trigger while the dialog is open so the modal scrim covers a clean
         // screen. Runs after TabSystem (which re-shows tab content each frame), so this override wins.
@@ -356,6 +395,49 @@ public class UiDemoScreen : IGameScreen
         }
     }
 
+    /// The whole Panels tab, from the screen's side: write each group's active member and paint the
+    /// pager's captions. Nothing here moves a panel — <see cref="PanelGroupSystem"/> (registered right
+    /// after this tick, before <c>HierarchySystem</c>) parks the inactive members and restores the
+    /// active one. Leaving the tab sets both groups to <see cref="PanelGroupComponent.None"/>, so
+    /// every panel parks and no focusable inside one survives as a keyboard-nav target; the
+    /// remembered indices bring the same panels back on return.
+    private void TickPanelsTab()
+    {
+        var onPanels = ActiveTab == TabPanels;
+
+        if (_panelTabs.IsAlive)
+        {
+            _panelTabs.Get<PanelGroupComponent>().Active = onPanels ? _panelTabIndex : PanelGroupComponent.None;
+            for (var i = 0; i < _panelTabHeaders.Length; i++)
+            {
+                var header = _panelTabHeaders[i];
+                if (header.IsAlive && header.Has<ButtonStateComponent>())
+                    header.Get<ButtonStateComponent>().IsActive = i == _panelTabIndex;
+            }
+        }
+
+        if (!_settingsPages.IsAlive) return;
+
+        _settingsPages.Get<PanelGroupComponent>().Active =
+            onPanels && _settingsMenuOpen ? _settingsPageIndex : PanelGroupComponent.None;
+        SetCenteredText(_settingsPageLabel, _settingsMenuOpen
+            ? $"Page {_settingsPageIndex + 1} / {PanelPageCount}"
+            : "Menu closed (no active member)", PanelsPagerY - 34f);
+        SetTriggerLabel(_settingsToggleLabel, _settingsMenuOpen ? "Close menu" : "Open menu");
+    }
+
+    /// Sets an unparented label's text and re-centres it on the screen's vertical midline (world
+    /// x = 0), so a caption that changes width stays centred.
+    private void SetCenteredText(Entity entity, string text, float y)
+    {
+        if (!entity.IsAlive || !entity.Has<DynamicTextComponent>()) return;
+        ref var label = ref entity.Get<DynamicTextComponent>();
+        if (label.TextContent == text) return;
+        label.TextContent = text;
+        entity.Get<TransformComponent>().Position =
+            new Vector2(-_font.MeasureString(text).Width * label.Scale / 2f, y);
+    }
+
     private static void SetVisible(Entity e, bool show)
     {
         if (!e.IsAlive) return;
@@ -364,10 +446,10 @@ public class UiDemoScreen : IGameScreen
         else if (!show && has) e.Remove<VisibleComponent>();
     }
 
-    /// Layout-tab per-frame drivers (centre, gap, alignment animation). Runs every frame but only
-    /// mutates the layout entities, which are inert off-tab (TabSystem hides them). AutoLayoutSystem
-    /// has already laid out this frame; HierarchySystem runs after Tick, so the root transform we set
-    /// here cascades to the children before they render.
+    /// Layout-tab per-frame drivers (gap, alignment animation). Runs every frame but only mutates
+    /// the layout entities, which are inert off-tab (TabSystem hides them). AutoLayoutSystem has
+    /// already laid out this frame; the node tuning below therefore lands on the NEXT frame's solve.
+    /// Placement of the root is no longer done here — it is pinned (see BuildLayoutTab).
     private void TickLayoutTab(GameState state)
     {
         // (Issue 4) Animate cross-axis alignment in a 1.5s-per-step, 3-step loop (4.5s full cycle):
@@ -393,19 +475,9 @@ public class UiDemoScreen : IGameScreen
         ApplyContainerTuning(_layoutRowContainer, align, _layoutGap);
         ApplyContainerTuning(_layoutColContainer, align, _layoutGap);
 
-        // (Issue 2) Re-centre the layout-root in the content area (below the tab bar): horizontally
-        // on screen centre, vertically between ContentTop and the bottom edge. AutoLayoutSystem wrote
-        // the root transform this frame; we override it (HierarchySystem then propagates to children).
-        if (_layoutRoot.IsAlive && _layoutRoot.Has<LayoutSlotComponent>() && _layoutRoot.Has<TransformComponent>())
-        {
-            ref readonly var slot = ref _layoutRoot.Get<LayoutSlotComponent>();
-            var w = slot.ComputedWidth;
-            var h = slot.ComputedHeight;
-            // Centre on the screen's vertical midline (world y = 0; camera at the origin) so the demo
-            // sits at the centre of the screen, not just below it (issue 2).
-            const float centerY = 0f;
-            _layoutRoot.Get<TransformComponent>().Position = new Vector2(-w / 2f, centerY - h / 2f);
-        }
+        // (Issue 2) Centring the layout-root on screen used to be an ad-hoc transform override right
+        // here. It is now declarative: the root is built with CreatePinnedRoot(Vector2.Zero,
+        // ScreenAnchor.Center) and placed by PinnedLayoutRootSystem (see BuildLayoutTab).
     }
 
     private static void ApplyContainerTuning(Entity container, CrossAxisAlignment align, int gap)
@@ -422,7 +494,6 @@ public class UiDemoScreen : IGameScreen
 
     private void BuildTabBar()
     {
-        var labels = new[] { "Layout", "Buttons", "Windows", "Dialogs" };
         // One tooltip per tab header — the cheapest affordance there is: it explains without
         // occupying space (see TooltipComponent / TooltipSystem).
         var tips = new[]
@@ -432,6 +503,7 @@ public class UiDemoScreen : IGameScreen
             "Dropdown, type-to-filter combobox and a scroll view",
             "A modal dialog that traps focus in its own group",
         };
+        var labels = new[] { "Layout", "Buttons", "Windows", "Dialogs", "Panels" };
         var made = new (Entity entity, Vector2 size)[labels.Length];
         var total = 0f;
         const float gap = 14f;
@@ -500,8 +572,13 @@ public class UiDemoScreen : IGameScreen
         // leaves room for the Start/Center/End animation to read as left/center/right.
         const float colFixedWidth = 170f + 12f * 2f + 60f; // widest box + padding + slack
 
+        // PINNED root (issue 94): this panel must sit at the centre of the content area on its own,
+        // independent of the screen's other roots (the HUD header is one). A plain CreateRoot would
+        // stack it under them in the implicit solver container — which is exactly why this screen
+        // used to re-write the root's transform by hand every frame. CreatePinnedRoot + the
+        // PinnedLayoutRootSystem in the pipeline (after autoLayout, before hierarchy) replaces that.
         _layoutRoot = new AutoLayoutBuilder(_world, _viewportManager)
-            .CreateRoot(ScreenAnchor.Center, RenderTargetID.Main)
+            .CreatePinnedRoot(Vector2.Zero, ScreenAnchor.Center, RenderTargetID.Main)
             .Name("layout-root")
             .Direction(LayoutDirection.Horizontal)
             .Gap(48)
@@ -537,9 +614,9 @@ public class UiDemoScreen : IGameScreen
 
         // Content-area chrome: the bounds checkbox sits TOP-LEFT (left edge, just under the tab bar),
         // with the numeric Gap field directly below it. The camera is centred at the origin, so the
-        // left edge is -VirtualWidth/2; leave a margin in from the edge / down from the tab bar.
+        // left edge is -LayoutWidth/2; leave a margin in from the edge / down from the tab bar.
         const float edgeMargin = 24f;
-        var leftX = -_viewportManager.VirtualWidth / 2f + edgeMargin;
+        var leftX = -_viewportManager.LayoutWidth / 2f + edgeMargin;
 
         var (check, _) = MakeCheckbox("chk.bounds", "show layout bounds", _showBounds,
             tabIndex: 10, contentTab: TabLayout);
@@ -583,11 +660,24 @@ public class UiDemoScreen : IGameScreen
         var link = MakeButton("btn.link", "Link", ButtonVariant.Link, 23, TabButtons,
             tooltip: "Link — text only, with a hand cursor");
         // The Link variant reads as a hyperlink: underline its label and show the hand cursor on hover.
-        if (_lastButtonText.IsAlive && _lastButtonText.Has<DynamicTextComponent>())
-            _lastButtonText.Get<DynamicTextComponent>().Underline = true;
+        var linkLabel = _lastButtonText;
+        if (linkLabel.IsAlive && linkLabel.Has<DynamicTextComponent>())
+            linkLabel.Get<DynamicTextComponent>().Underline = true;
         link.entity.Get<FocusableComponent>().HoverCursor = CursorType.Hand;
 
         PlaceRow(new[] { primary, secondary, tertiary, link }, centerX: 0f, y: ContentTop, gap: 18f);
+
+        // The generic "look HERE" overlay (HighlightComponent + HighlightSystem): a pulsing outline
+        // that rides the target's DRAWN bounds, re-derives its depth every frame and dies with the
+        // target. Attached to two different draw types on purpose — a BUTTON (whose mesh
+        // ButtonMeshPrepSystem bakes) and a TEXT label — to show it is not button-specific and needs
+        // no per-target asset. Both are tab-gated, so switching tabs hides the glow with its target.
+        primary.entity.Set(new HighlightComponent { Padding = 5f, Thickness = 2f });
+        if (linkLabel.IsAlive)
+            linkLabel.Set(new HighlightComponent
+            {
+                Color = DemoPalette.TextSelected, Padding = 4f, Thickness = 1.5f, PulseSpeed = 1.4f,
+            });
 
         // Row 2: a disabled button plus an icon button and an icon-only button, centred together as
         // ONE row with a consistent gap (no skewed gap between left and right groups).
@@ -910,8 +1000,8 @@ public class UiDemoScreen : IGameScreen
         // The dialog itself: backdrop + panel + title + OK/Cancel. Not tab-tagged — DialogSystem
         // toggles it by IsOpen so it can open over any tab.
         var content = new List<Entity>();
-        var vw = _viewportManager.VirtualWidth;
-        var vh = _viewportManager.VirtualHeight;
+        var vw = _viewportManager.LayoutWidth;
+        var vh = _viewportManager.LayoutHeight;
 
         // Full-screen opaque backdrop (world rect centred at origin spans [-vw/2..vw/2]).
         var backdrop = _world.CreateEntity();
@@ -971,6 +1061,129 @@ public class UiDemoScreen : IGameScreen
 
         _dialog = _world.CreateEntity();
         _dialog.Set(new DialogComponent { IsOpen = false, Group = GroupDialog, Content = content.ToArray() });
+    }
+
+    // ─── Panels tab (exclusive panel groups: a tab bar AND a paged settings menu) ─
+
+    /// Builds the Panels tab: TWO <see cref="PanelGroupComponent"/>s — a sub-tab bar (three
+    /// overlapping cards) and a paged settings menu (three pages plus a Close action that leaves NO
+    /// member active) — proving one primitive covers both shapes. Every member of a group is built at
+    /// the SAME position, which is only legible because exactly one of them is ever on screen: the
+    /// others are PARKED off-screen by <see cref="PanelGroupSystem"/>, still laid out, still
+    /// measured, still carrying their widget state. The screen never moves a panel itself; it only
+    /// writes <see cref="PanelGroupComponent.Active"/> (from <see cref="Tick"/>).
+    private void BuildPanelsTab()
+    {
+        // ── (a) a tab bar: three headers switching three stacked cards ────────────────────────────
+        string[] tabLabels = ["Overview", "Details", "Notes"];
+        string[][] tabBody =
+        [
+            ["Three cards live at this exact position.", "Only this one is on screen."],
+            ["The other two are PARKED off-screen:", "moved, never hidden or torn down."],
+            ["So switching back is one transform write.", "No re-layout, no first-frame flicker."],
+        ];
+
+        var headers = new (Entity entity, Vector2 size)[tabLabels.Length];
+        var cards = new Entity[tabLabels.Length];
+        for (var i = 0; i < tabLabels.Length; i++)
+        {
+            headers[i] = MakeButton($"panel.tab.{i}", tabLabels[i], ButtonVariant.Tertiary,
+                tabIndex: 60 + i, contentTab: TabPanels);
+
+            cards[i] = MakePanelCard(tabLabels[i], tabBody[i], PanelCardPos, PanelCardW, PanelCardH);
+            // A focusable inside the card: parked panels are inert, so keyboard nav can never walk
+            // into the two cards the player cannot see (PanelGroupSystem gates them).
+            var (action, actionSize) = MakeButton($"panel.act.{i}", $"{tabLabels[i]} action",
+                ButtonVariant.Secondary, tabIndex: 63 + i, contentTab: TabPanels);
+            action.SetParent(cards[i]);
+            action.Get<TransformComponent>().Position =
+                new Vector2(PanelCardW - actionSize.X - 20f, PanelCardH - actionSize.Y - 18f);
+        }
+
+        PlaceRow(headers, centerX: 0f, y: PanelsHeaderY, gap: 14f);
+
+        _panelTabHeaders = new Entity[headers.Length];
+        for (var i = 0; i < headers.Length; i++) _panelTabHeaders[i] = headers[i].entity;
+
+        _panelTabs = _world.CreateEntity();
+        _panelTabs.Set(new PanelGroupComponent { Members = cards, Active = _panelTabIndex });
+
+        // ── (b) a paged settings menu on the SAME component ───────────────────────────────────────
+        // Prev/Next walk the pages; Close/Open sets Active = None — a closed menu is a panel group
+        // with no active member, not a special case (every page parks, the pager row stays live).
+        string[] pageTitles = ["General", "Audio", "Video"];
+        string[] pageOptions = ["remember window size", "mute when unfocused", "vertical sync"];
+        var pages = new Entity[PanelPageCount];
+        for (var i = 0; i < PanelPageCount; i++)
+        {
+            pages[i] = MakePanelCard($"{pageTitles[i]} settings",
+                ["This page keeps its state while parked —", "tick a box, leave, come back."],
+                PanelPagePos, PanelPageW, PanelPageH);
+
+            var (option, optionSize) = MakeCheckbox($"settings.opt.{i}", pageOptions[i],
+                initiallyOn: i == 0, tabIndex: 74 + i, contentTab: TabPanels);
+            option.SetParent(pages[i]);
+            option.Get<TransformComponent>().Position =
+                new Vector2(PanelPageW - optionSize.X - 20f, PanelPageH - optionSize.Y - 14f);
+        }
+
+        _settingsPages = _world.CreateEntity();
+        _settingsPages.Set(new PanelGroupComponent { Members = pages, Active = _settingsPageIndex });
+
+        // Pager chrome: NOT members — it must stay on screen while every page is parked.
+        var prev = MakeButton("settings.prev", "Prev", ButtonVariant.Secondary, 70, TabPanels);
+        var next = MakeButton("settings.next", "Next", ButtonVariant.Secondary, 71, TabPanels);
+        // Built with the wider of the two captions so swapping the text never overflows the box.
+        var toggle = MakeButton("settings.toggle", "Close menu", ButtonVariant.Primary, 72, TabPanels);
+        _settingsToggleLabel = _lastButtonText;
+        PlaceRow([prev, next, toggle], centerX: 0f, y: PanelsPagerY, gap: 18f);
+
+        _settingsPageLabel = MakePanelText($"Page 1 / {PanelPageCount}", default,
+            new Vector2(0f, PanelsPagerY - 34f), 0.18f, DemoPalette.TextSelected);
+    }
+
+    /// One panel of a group: a root entity carrying nothing but a transform (what the park moves)
+    /// with the card mesh + its text parented under it, so the whole panel rides one position.
+    private Entity MakePanelCard(string title, string[] lines, Vector2 position, int width, int height)
+    {
+        var root = _world.CreateEntity();
+        root.Set(new TransformComponent(position));
+
+        var card = _world.CreateEntity();
+        card.Set(new TransformComponent(Vector2.Zero));
+        card.SetParent(root);
+        var draw = new DrawComponent { Type = DrawElementType.Mesh, Target = RenderTargetID.Main, LayerDepth = 0.50f };
+        draw.SetMeshData(new CompositeMeshGenerator()
+            .Add(new FilledRoundedRectangleMeshGenerator(new Rectangle(0, 0, width, height), 12f, DemoPalette.DarkBgSecondary))
+            .Add(new RoundedRectangleOutlineMeshGenerator(new Rectangle(0, 0, width, height), 12f, 2f, DemoPalette.TextLight)));
+        card.Set(draw);
+        card.Set(new TabContentComponent { TabIndex = TabPanels });
+
+        MakePanelText(title, root, new Vector2(20f, 16f), 0.22f, DemoPalette.TextSelected);
+        for (var i = 0; i < lines.Length; i++)
+            MakePanelText(lines[i], root, new Vector2(20f, 52f + i * 22f), 0.15f, DemoPalette.TextLight);
+
+        return root;
+    }
+
+    /// A Panels-tab label. With a live <paramref name="parent"/> the position is local to that panel
+    /// (so it parks with it); without one the label is screen chrome and <paramref name="position"/>
+    /// is a world position whose X centres the text.
+    private Entity MakePanelText(string text, Entity parent, Vector2 position, float scale, Color color)
+    {
+        var entity = _world.CreateEntity();
+        var placed = parent.IsAlive
+            ? position
+            : new Vector2(position.X - _font.MeasureString(text).Width * scale / 2f, position.Y);
+        entity.Set(new TransformComponent(placed));
+        if (parent.IsAlive) entity.SetParent(parent);
+        entity.Set(new DynamicTextComponent
+        {
+            Target = RenderTargetID.Main, LayerDepth = 0.60f, TextContent = text, Font = _font,
+            Color = color, Scale = scale, IsRevealed = true, VisibleCharacterCount = int.MaxValue,
+        });
+        entity.Set(new TabContentComponent { TabIndex = TabPanels });
+        return entity;
     }
 
     // ─── widget builders ─────────────────────────────────────────────────────────
@@ -1268,6 +1481,33 @@ public class UiDemoScreen : IGameScreen
         else if ((msg.Id == "dialog-confirm" || msg.Id == "dialog-cancel") && _dialog.IsAlive)
             _dialog.Get<DialogComponent>().IsOpen = false;
 
+        // ── Panel groups (Panels tab) ───────────────────────────────────────────────
+        // The click handler only remembers WHICH member should be active; TickPanelsTab writes it
+        // onto the PanelGroupComponent and PanelGroupSystem does the parking. No screen code ever
+        // moves, hides, or rebuilds a panel — that is the whole point of the primitive.
+        const string panelTabPrefix = "panel.tab.";
+        if (msg.Id != null && msg.Id.StartsWith(panelTabPrefix, StringComparison.Ordinal)
+            && int.TryParse(msg.Id[panelTabPrefix.Length..], out var panelIndex)
+            && panelIndex >= 0 && panelIndex < _panelTabHeaders.Length)
+        {
+            _panelTabIndex = panelIndex;
+        }
+
+        switch (msg.Id)
+        {
+            case "settings.prev":
+                _settingsPageIndex = (_settingsPageIndex + PanelPageCount - 1) % PanelPageCount;
+                _settingsMenuOpen = true;
+                break;
+            case "settings.next":
+                _settingsPageIndex = (_settingsPageIndex + 1) % PanelPageCount;
+                _settingsMenuOpen = true;
+                break;
+            case "settings.toggle":
+                _settingsMenuOpen = !_settingsMenuOpen;
+                break;
+        }
+
         // ── Dropdown (Windows tab) ──────────────────────────────────────────────────
         if (_dropdown.IsAlive)
         {
@@ -1413,6 +1653,9 @@ public class UiDemoScreen : IGameScreen
         {
             g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
             g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+            // Places the pinned roots (the Layout tab's showcase panel) at anchor + offset. The slot
+            // is load-bearing: AFTER the solver sized them, BEFORE HierarchySystem propagates.
+            g.Add("pinnedRoots", new PinnedLayoutRootSystem(_world, _viewportManager));
         });
         // The whole widget interaction block freezes in Edit: a click/keystroke belongs to the
         // editor (selection / gizmo / chrome), never to focus nav, text input, tabs, or the
@@ -1429,6 +1672,11 @@ public class UiDemoScreen : IGameScreen
             g.Add("textInput", new TextInputSystem(_world));
             g.Add("tabs", new TabSystem(_world));
             g.Add("tick", new UiDemoTickSystem(this)); // sets ScrollViewComponent.Enabled before ScrollViewSystem reads it
+            // Exclusive panel groups: AFTER the tick that writes each group's active member and
+            // AFTER TabSystem (whose per-tab focus gate this refines for the panels' own
+            // focusables), and — via the group's position in the pipeline — before HierarchySystem,
+            // so a park reaches the panel's children in the same frame.
+            g.Add("panelGroups", new PanelGroupSystem(_world));
             // Overlay widget systems (show/hide + focus-gate): mirror TabSystem; modal focus is the
             // ComputeActiveGroup accessor above, not these systems.
             g.Add("dialogs", new DialogSystem(_world));
@@ -1513,6 +1761,9 @@ public class UiDemoScreen : IGameScreen
             g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
             g.Add("meshPrep", new MeshPrepSystem(_world));
             g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+            // Last in the prep stage: it outlines the bounds AND re-derives the depth the systems
+            // above just wrote, so anything earlier would outline last frame's state.
+            g.Add("highlight", new HighlightSystem(_world));
         });
         if (_editor != null)
         {
@@ -1522,13 +1773,14 @@ public class UiDemoScreen : IGameScreen
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
         p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         // Scroll pass: renders every Scroll-target entity (the rows under ContentRoot) into the
-        // scroll render target. No camera (screen-space, identity); projection from the target size.
+        // scroll render target, through the screen-space camera sized to THAT target (identity in a
+        // single-space game); projection from the target size.
         p.Add("renderScroll", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.Scroll, _scrollTarget!), EditTimeBehavior.RunNormally);
+            RenderTargetID.Scroll, _scrollTarget!, _scrollCamera), EditTimeBehavior.RunNormally);
         if (_editor != null)
             p.Add("editor.renderChrome", _editor.Overlay.ChromeRender, EditTimeBehavior.RunNormally);
         p.Add("finalDraw", new FinalDrawSystem(_spriteBatch, _graphicsDevice, _viewportManager, renderLayers),

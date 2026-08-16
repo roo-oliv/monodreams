@@ -7,9 +7,9 @@ sensitive: false
 
 # Debug overlays & capture
 
-This module observes the running game and never changes it. Three systems opt in at the
-screen's discretion — none is required, and each one is a pure read of state another module
-owns. `ColliderDebugSystem` walks every entity carrying `ColliderTagComponent` +
+This module observes the running game — and, in exactly one place, *drives* it. The observers
+opt in at the screen's discretion; none is required, and each is a pure read of state another
+module owns. `ColliderDebugSystem` walks every entity carrying `ColliderTagComponent` +
 `TransformComponent`, reads the `BoxColliderComponent` / `ConvexColliderComponent` the
 `collision` module wrote, and emits ephemeral mesh outlines (red = active, green = passive,
 gray = disabled). `SpriteDebugSystem` reads the `DrawComponent` data that `SpritePrepSystem`
@@ -17,10 +17,23 @@ just populated (`Position`, `Origin`, `Size`, `SourceRectangle`) and emits a tra
 bounds rect, an origin marker, and an origin-to-center line. Both render *through the same
 pipeline as everything else* — they create transient `DrawComponent { Type = Mesh }` entities
 at a high `LayerDepth` and let `MasterRenderSystem` draw them; they never touch `SpriteBatch`.
-`ScreenshotCaptureSystem` is the capture leg: it reads back the composited backbuffer after
+`ScreenshotCaptureSystem` is the capture leg: it reads back the composited frame after
 `FinalDrawSystem` and writes a PNG, either on a time interval (`Update`, opt-in) or on a chosen
-frame (`CaptureNow`, deterministic). The whole module is off by default and adds zero cost to a
-screen that registers none of it.
+frame (`CaptureNow`, deterministic). The source is the window backbuffer by default, or — when
+`MONODREAMS_SCREENSHOT_TARGET` names a `RenderTargetID` — that pass's fixed-resolution target,
+resolved from `MasterRenderSystem.RenderedTargetSink` so the file geometry stops following the
+window. `KeepAwake` is the module's other non-system piece: an opt-in
+(`MONODREAMS_KEEP_AWAKE=1`) macOS activity assertion a host holds for the run, so an unattended
+one is not suspended by App Nap or display sleep. The whole module is off by default and adds
+zero cost to a screen that registers none of it.
+
+`PointerReplaySystem` is the one **driver** here, and it is the module's exception to
+read-only: it consumes a `PointerReplayPlan` (`debug/pointer_replay.json` — move / click /
+wheel / type / waitUntil / label) and writes the `cursor` module's `CursorInputComponent` each
+frame, so a scripted mouse drives the game's real picking / focus / UI path. It writes exactly
+one component (plus the cursor's own transform, through `Cursor.ApplyPose`) and calls into no
+game system; the screen stands the hardware path down (`SkipHardwareRead` + `SkipDerivation`)
+so there is one writer, not two.
 
 ## Entities & lifecycle
 
@@ -37,10 +50,12 @@ The overlay systems own a short-lived set of *debug entities*, recreated every f
 4. **Render** — `MasterRenderSystem`, running later the same frame, draws them. Next frame
    returns to step 1.
 
-`ScreenshotCaptureSystem` owns no entities. It reads the backbuffer into a reused
-`_pixelBuffer` + `_stagingTexture`, encodes a PNG, and writes it to `_outputDirectory`. The
-async `Update` path fires the write on `PlatformServices.RunBackground` (best-effort);
-`CaptureNow` writes synchronously and returns the non-blank verdict before returning.
+`ScreenshotCaptureSystem` owns no entities. It reads its source — the backbuffer, or the named
+render target last published by a pass — into a reused `_pixelBuffer` + `_stagingTexture`,
+encodes a PNG, and writes it to `_outputDirectory`. The async `Update` path fires the write on
+`PlatformServices.RunBackground` (best-effort); `CaptureNow` writes synchronously and returns
+the non-blank verdict before returning. In target mode a tick whose target no pass has drawn
+writes nothing at all (one warning, no counter, no fallback to the window).
 
 ## Invariants
 
@@ -54,8 +69,17 @@ Authoritative list in [`MonoDreams/debug/docs/premises.md`](../../MonoDreams/deb
   and *before* `MasterRenderSystem` (so the transient entities exist when the renderer iterates).
 - `ScreenshotCaptureSystem.Update` is gated by `IsEnabled` (set from `"screenshots": true` in
   `input_replay.json`); `CaptureNow` bypasses both `IsEnabled` and the interval gate.
+- Target capture subscribes to the render socket only when a target was named and unsubscribes
+  on `Dispose`; it takes the first target published for that id since its last read, and
+  refuses (rather than falling back to the window) when nothing has published one.
+- `KeepAwake` is opt-in, macOS-only and never throws — an unavailable Objective-C runtime is a
+  logged no-op, not a failed run.
 - All debug output honors `MONODREAMS_DEBUG_DIR`, falling back to `<BaseDirectory>/debug` — the
   load-bearing case is parallel test isolation.
+- `PointerReplaySystem` injects into the real `CursorInputComponent` (never calls a handler),
+  addresses **authoring space** and counts **frames**, gates stages on observables with a
+  timeout, drains into a single `requestExit`, and is file-gated + single-owner (including the
+  `Logger.LineSink` tap it must release on dispose).
 
 ## Load-bearing quantities
 
@@ -71,8 +95,8 @@ Authoritative list in [`MonoDreams/debug/docs/premises.md`](../../MonoDreams/deb
 
 ## Failure modes
 
-- **A debug system mutates the simulation** — the cardinal sin. These systems are read-only
-  observers; they `Get` collider/draw/transform data and only ever create their own throwaway
+- **A debug system mutates the simulation** — the cardinal sin for the OBSERVERS. These systems
+  are read-only; they `Get` collider/draw/transform data and only ever create their own throwaway
   entities. A debug system that wrote back to a collider, velocity, or the inspected
   `DrawComponent` would make bugs appear or vanish depending on whether debugging was on — the
   worst kind of heisenbug. Their only world mutation is creating/disposing entities they alone own.
@@ -89,3 +113,14 @@ Authoritative list in [`MonoDreams/debug/docs/premises.md`](../../MonoDreams/deb
 - **Overlay coordinate mismatch** — wrong origin scaling or reading `WorldPosition` before
   `HierarchySystem` runs draws outlines offset from what they describe; the overlay then lies
   about the very offset it exists to expose.
+- **A scripted pointer that only half-stands-down the hardware path** — with
+  `SkipHardwareRead` set but `SkipDerivation` left false, `CursorPositionSystem` recomputes the
+  derived positions from the injected `ScreenPosition` and marks the pointer
+  `OutsideViewport`, so every scripted click is silently discarded as "over chrome". The
+  symptom (nothing happens, no error) looks like a game bug, not a wiring bug.
+- **Two pointer channels in one run** — the pointer replay and the editor-op channel both stamp
+  the same cursor entity; last writer wins on both position and edges, producing clicks that
+  land nowhere. Run one per session.
+- **A pointer script that races the game** — a `click` scheduled before the frame that laid the
+  target out hits empty space. That is what `waitUntil` is for; a plan without stage gating is
+  a flaky test waiting to happen.

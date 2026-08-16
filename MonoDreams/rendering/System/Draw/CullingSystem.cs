@@ -50,11 +50,13 @@ public class CullingSystem(World world, MonoDreams.Component.Camera camera) : AE
                 _debugEntity.Value.Set<VisibleComponent>();
             }
 
-            // HUD uses Matrix.Identity — DebugMargin is already in screen pixels
+            // The HUD pass is authored in layout space — DebugMargin is already in those units, and
+            // the outline spans the authoring canvas (LayoutWidth/Height, == the virtual size in a
+            // single-space game), so it keeps framing the view at any render resolution.
             var debugRect = new Rectangle(
                 DebugMargin, DebugMargin,
-                camera.VirtualWidth - DebugMargin * 2,
-                camera.VirtualHeight - DebugMargin * 2);
+                camera.LayoutWidth - DebugMargin * 2,
+                camera.LayoutHeight - DebugMargin * 2);
 
             var generator = new RectangleOutlineMeshGenerator(debugRect, 2f, Color.Lime);
             _debugEntity.Value.Get<DrawComponent>().SetMeshData(generator);

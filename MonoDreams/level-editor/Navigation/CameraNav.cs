@@ -75,18 +75,20 @@ public static class CameraNav
         => new(bounds.X + bounds.Width * 0.5f, bounds.Y + bounds.Height * 0.5f);
 
     /// <summary>
-    /// The zoom that fits <paramref name="bounds"/> inside a <paramref name="virtualWidth"/> ×
-    /// <paramref name="virtualHeight"/> viewport with a margin (e.g. 0.9 = 10% padding), clamped to
+    /// The zoom that fits <paramref name="bounds"/> inside a <paramref name="layoutWidth"/> ×
+    /// <paramref name="layoutHeight"/> viewport (in AUTHORING units — <c>Camera.LayoutWidth/Height</c>) with a margin (e.g. 0.9 = 10% padding), clamped to
     /// <paramref name="min"/>..<paramref name="max"/>. Degenerate (zero-size) bounds keep the current
     /// zoom unchanged via the caller (here it returns <paramref name="max"/> so a point doesn't zoom to
     /// infinity, but the system only applies fit-zoom when the AABB has area).
     /// </summary>
-    public static float FitZoom(Rectangle bounds, int virtualWidth, int virtualHeight, float margin,
+    public static float FitZoom(Rectangle bounds, int layoutWidth, int layoutHeight, float margin,
         float min, float max)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0) return Math.Clamp(max, min, max);
-        var zx = virtualWidth / (float)bounds.Width;
-        var zy = virtualHeight / (float)bounds.Height;
+        // Zoom is an AUTHORING-space number (world units → layout units); the render scale is the
+        // camera's business, so the fit divides the LAYOUT size — identical in a single-space game.
+        var zx = layoutWidth / (float)bounds.Width;
+        var zy = layoutHeight / (float)bounds.Height;
         var fit = MathF.Min(zx, zy) * margin;
         return Math.Clamp(fit, min, max);
     }

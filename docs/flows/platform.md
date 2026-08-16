@@ -60,7 +60,12 @@ The targeting path, head → output, in order:
    (`/platform:DesktopGL`); web uses KNI's builder (`/platform:BlazorGL`) with custom processors
    recompiled against the KNI pipeline assemblies and surfaced via `/reference:`. Off-Windows the
    KNI MGCB needs the native-lib shim (`BuildWebContentPipelineDlls` + `PrepareKniContentNativeShim`
-   in `MonoDreams.Examples.Web.csproj`).
+   in `MonoDreams.Examples.Web.csproj`). A **scaffolded** game gets both wirings from the CLI —
+   `ProjectScaffolder` emits the shared `<Name>.Core/Content/Content.mgcb`, the desktop head's
+   `MonoGameContentReference`, and the web head's full BlazorGL block (shim + ffmpeg staging +
+   `KniContentReference`), the latter pinned to `MonoDreams.Demos.Web.csproj` by
+   `MonoDreams.Cli.Tests/WebContentBuildTemplateTests.cs`. Only a **source-built** pipeline dll
+   still needs a hand-added target (docs/web-targeting.md, "Escape hatch").
 6. **Output relocated per platform.** Web builds of the *shared* libs go to `obj/web` + `bin/web`
    so they never clobber the desktop build at the default `bin/$(Config)/net8.0`. The `*.Web`
    heads and `MonoDreams.Web.Hosting` are **excluded** from that relocation (their Blazor

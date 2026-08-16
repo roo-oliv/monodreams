@@ -89,6 +89,14 @@
                       ExcludeAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="KNI.Extended.Content.Pipeline" Version="6.0.0"
                       ExcludeAssets="all" GeneratePathProperty="true" />
+    <!-- The desktop MonoGame MGCB tool, DOWNLOADED (not referenced — it is a DotnetTool package,
+         which PackageReference rejects) purely so the shim target below can borrow its
+         macOS/Linux native libs + ffmpeg/ffprobe out of $(NuGetPackageRoot)dotnet-mgcb/3.8.4/.
+         Every borrow below is Exists()-guarded, so without this download they all silently no-op
+         on a machine that never built desktop content — and the first texture/.wav then fails the
+         content build with DllNotFoundException / "not DRM protected". Keep the version equal to
+         the dotnet-mgcb/<version> path literals above and in the target below. -->
+    <PackageDownload Include="dotnet-mgcb" Version="[3.8.4]" />
   </ItemGroup>
 
   <!-- Import the KNI content-builder targets (CollectContentReferences / RunContentBuilder /
