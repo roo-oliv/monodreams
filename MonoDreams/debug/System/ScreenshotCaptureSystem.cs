@@ -66,8 +66,11 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
 
     /// <summary>The render target last announced for <see cref="_captureTarget"/> by
     /// <c>MasterRenderSystem.RenderedTargetSink</c>, or null until a pass for that id has run since
-    /// the previous capture. Only ever written by <see cref="OnTargetRendered"/> and only ever read
-    /// on the main thread, in the same frame the pass published it.</summary>
+    /// the previous capture. Written by <see cref="OnTargetRendered"/> (latch) and by the read path
+    /// (cleared after every read, and dropped by <see cref="ResolveSourceTarget"/> when the screen has
+    /// disposed it); touched only on the main thread. It can outlive the frame that published it —
+    /// an interval capture reads it many frames later — which is exactly why both sides treat a
+    /// disposed target as no target.</summary>
     private RenderTarget2D? _resolvedTarget;
 
     /// <summary>Whether the "no pass rendered that target" warning has already been logged — the
@@ -346,14 +349,53 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     /// <para>The FIRST publisher since the last read wins, because a screen may run several passes
     /// for one id — the camera demo renders <c>Main</c> twice, once for the world and once for the
     /// minimap — and the first is the primary pass every screen lists first in its composite. The
-    /// slot is cleared after each read so the next capture re-resolves from that frame's passes: a
-    /// screen switch, a resize-recreated target and a retarget therefore need no invalidation
-    /// protocol at all.</para>
+    /// slot is cleared after each read so the next capture re-resolves from that frame's passes.</para>
+    ///
+    /// <para><b>A latched target that has since been DISPOSED is not a publisher, it is a corpse, and
+    /// it loses to the next one.</b> Between two reads — every frame of the 0.5s a PNG interval waits,
+    /// for instance — a screen switch or a window resize tears the latched target down and builds a
+    /// new one; a plain <c>??=</c> would refuse every replacement and pin the capture to the dead
+    /// object for the rest of the run. This check is what keeps "the slot is re-resolved from the
+    /// passes that ran" true across a target's lifetime, not just across a frame.</para>
     /// </summary>
     private void OnTargetRendered(RenderTargetID id, RenderTarget2D target)
     {
         if (id != _captureTarget) return;
-        _resolvedTarget ??= target;
+        if (_resolvedTarget is null or { IsDisposed: true }) _resolvedTarget = target;
+    }
+
+    /// <summary>
+    /// The target the next read should use, or <c>null</c> when there is none to read this tick —
+    /// having logged why, at most once per gap.
+    ///
+    /// <para>Dropping a disposed latch is the second half of the invalidation protocol
+    /// <see cref="OnTargetRendered"/> starts: a target torn down AFTER the last publish of the frame
+    /// (a screen switch, or the resize that makes the editor chrome rebuild its target) would
+    /// otherwise be read dead. Clearing the slot rather than merely refusing it is what lets the next
+    /// pass latch a fresh one — the read path and the publish path must agree that a disposed target
+    /// is no target at all, or the capture stalls permanently.</para>
+    /// </summary>
+    internal RenderTarget2D? ResolveSourceTarget()
+    {
+        if (_resolvedTarget is { IsDisposed: true })
+        {
+            _resolvedTarget = null;
+            // Debug, not Warning: this is a normal, self-healing event (one skipped capture at most) —
+            // the next pass that draws the id republishes and the capture resumes.
+            Logger.Debug($"Frame capture: the {_captureTarget} render target was torn down (a screen " +
+                         "switch or a resize) — re-resolving from the next pass that draws it.");
+            return null;
+        }
+
+        if (_resolvedTarget == null && !_missingTargetWarned)
+        {
+            _missingTargetWarned = true;
+            Logger.Warning($"Frame capture: no render pass has drawn the {_captureTarget} target " +
+                           "— capturing nothing until one does. Either the current screen has no " +
+                           $"{_captureTarget} pass, or the capture runs before it.");
+        }
+
+        return _resolvedTarget;
     }
 
     /// <summary>
@@ -374,20 +416,11 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
 
         if (_captureTarget != null)
         {
-            target = _resolvedTarget;
-            // Disposed = a screen tore its targets down and no pass has published a replacement (a
-            // screen whose pipeline has no pass for this id never will).
-            if (target == null || target.IsDisposed)
-            {
-                if (!_missingTargetWarned)
-                {
-                    _missingTargetWarned = true;
-                    Logger.Warning($"Frame capture: no render pass has drawn the {_captureTarget} target " +
-                                   "— capturing nothing until one does. Either the current screen has no " +
-                                   $"{_captureTarget} pass, or the capture runs before it.");
-                }
-                return null;
-            }
+            // Null = no pass has published a live target for this id (a screen whose pipeline has no
+            // pass for it never will), or the latched one was torn down and the slot has just been
+            // dropped so the next pass can refill it. Either way: nothing to read this tick.
+            target = ResolveSourceTarget();
+            if (target == null) return null;
             width = target.Width;
             height = target.Height;
         }

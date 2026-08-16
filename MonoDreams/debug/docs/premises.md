@@ -219,35 +219,47 @@ window size, of a mid-run resize, and of letter/pillarboxing, and a single layer
 `UI`) can be captured on its own. The target is not registered anywhere: screens own their
 targets privately, so a capture with a named target subscribes to
 `MasterRenderSystem.RenderedTargetSink` (a null-by-default socket owned by `rendering`) and
-takes the **first** target published for that id since its last read, clearing the slot
+takes the **first live** target published for that id since its last read, clearing the slot
 after every read. Subscribing happens only when a target was named, and `Dispose`
-unsubscribes. When no pass has drawn that id — a screen without such a pass, or a
-torn-down/disposed target — the capture writes **nothing** that tick (no counter consumed,
-no fallback to the window) and logs one warning until a pass appears; a target that cannot
-be read back at all stops the capture with an error rather than throwing out of `Draw` every
-frame. Capture still runs after the composite, which is also what leaves the target unbound
-and readable. An unset target is the window backbuffer, byte for byte the pre-existing
-behaviour.
+unsubscribes. A latched target the screen has since **disposed** counts as no target on both
+sides of the slot: the publish path replaces it with the next pass's target (a plain `??=`
+would refuse the replacement), and the read path drops it and re-resolves from the next pass.
+When no pass has drawn that id — a screen without such a pass — the capture writes
+**nothing** that tick (no counter consumed, no fallback to the window) and logs one warning
+until a pass appears; a target that cannot be read back at all stops the capture with an
+error rather than throwing out of `Draw` every frame. Capture still runs after the composite,
+which is also what leaves the target unbound and readable. An unset target is the window
+backbuffer, byte for byte the pre-existing behaviour.
 
 **Why:** a backbuffer capture is a photograph of a window, so the same frame on another
 machine (or after a resize) lands at another size and every pixel coordinate an agent noted
 becomes wrong; the stable-evidence property is the whole feature. Reading the passes
-instead of a registry is what makes it work with zero screen changes and no invalidation
-protocol: a screen switch or a resize-recreated target simply publishes a different object
-next frame. First-publisher-wins picks the primary pass when a screen renders one id twice
-(the camera demo's world pass, then its minimap pass) — the order screens composite in.
-Refusing to capture rather than falling back to the window is the same rule the mode parse
-follows: evidence at the wrong geometry looks right and compares with nothing.
+instead of a registry is what makes it work with zero screen changes: no screen has to
+announce a teardown, because a dead target simply loses to the next publisher. The
+disposed check is the whole of that protocol, and it is **not** covered by clearing the
+slot after a read: an interval capture (PNG's default 0.5s) latches a target and reads it
+some thirty frames later, and a screen switch or a window resize — the editor chrome
+rebuilds its target on one — happens in between. First-publisher-wins picks the primary pass
+when a screen renders one id twice (the camera demo's world pass, then its minimap pass) —
+the order screens composite in. Refusing to capture rather than falling back to the window is
+the same rule the mode parse follows: evidence at the wrong geometry looks right and compares
+with nothing.
 **Breaks:** falling back to the backbuffer when a target is missing silently reintroduces
 window-sized files in the middle of a target-sized set. Keeping the resolved target across
-frames (not clearing after a read) makes a capture read a disposed target after a screen
-switch, or last-publisher-wins makes it read the minimap. Leaving the sink subscribed after
-`Dispose` keeps a dead screen's targets — and the capture — alive through a static
+frames (not clearing after a read) makes last-publisher-wins read the minimap. Latching with
+`??=` (or returning from the read path without clearing a disposed latch) pins the capture to
+a dead target the first time a screen switches or the window resizes, and the run captures
+nothing from there on — silently, since a warning is logged once. Leaving the sink subscribed
+after `Dispose` keeps a dead screen's targets — and the capture — alive through a static
 delegate for the rest of the process. Running the capture before `FinalDrawSystem` reads a
 bound target, which throws.
 **Tests:** `MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs`
 (`WindowCapture_NeverTouchesTheRenderSocket`,
-`TargetCapture_PlugsIntoTheRenderSocket_AndUnplugsOnDispose`, plus the source-parse
+`TargetCapture_PlugsIntoTheRenderSocket_AndUnplugsOnDispose`,
+`ResolvedTarget_IsReplaced_WhenTheLatchedOneWasDisposed`,
+`ResolvedTarget_IsDropped_WhenItWasDisposedWithoutAReplacement`,
+`ResolvedTarget_KeepsTheFirstPublisher_WhileItIsAlive`,
+`ResolvedTarget_WarnsOncePerGap_WhenNoPassEverDrawsTheTarget`, plus the source-parse
 theories); `MonoDreams.Tests/IntegrationTests/RenderTargetCaptureTests.cs` — a headless UI
 demo run capturing `Scroll` (360x220) while the backbuffer is 1280x720, asserting the frame
 names, the byte sizes and the untouched window-mode instance.

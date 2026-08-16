@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component.Draw;
 using MonoDreams.Platform;
@@ -475,6 +477,159 @@ public class ScreenshotCaptureSystemTests : IDisposable
         {
             MasterRenderSystem.RenderedTargetSink = previousSink;
         }
+    }
+
+    // ── the latched target's lifetime (screen switches, resizes) ─────────────────────────────────
+
+    /// <summary>
+    /// A stand-in <see cref="RenderTarget2D"/>. The latch only ever stores the reference and asks
+    /// whether it is disposed — it dereferences nothing until a capture reads pixels, which needs a
+    /// <c>GraphicsDevice</c> no unit test has. Same ctor-less trick as <c>SpriteFlipTests.StubTexture</c>,
+    /// with the finalizer suppressed (it would dereference the null graphics device and take the test
+    /// host down from the finalizer thread).
+    /// </summary>
+    private static RenderTarget2D StubTarget()
+    {
+        var target = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        GC.SuppressFinalize(target);
+        return target;
+    }
+
+    /// <summary>
+    /// Makes a target report <c>IsDisposed</c> — what a screen switch or a window resize does to a real
+    /// one. <c>Dispose()</c> itself is not an option on a device-less stub (it dereferences the null
+    /// device), so the backing flag is set directly and the result is asserted: if a MonoGame/KNI
+    /// version renames the field, this fails loudly here rather than silently turning the regressions
+    /// below into tests of nothing.
+    /// </summary>
+    private static RenderTarget2D MarkDisposed(RenderTarget2D target)
+    {
+        for (var type = (Type?)target.GetType(); type != null && !target.IsDisposed; type = type.BaseType)
+        {
+            var field = type.GetField("disposed", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field?.FieldType == typeof(bool)) field.SetValue(target, true);
+        }
+
+        Assert.True(target.IsDisposed,
+            "could not mark a stub RenderTarget2D disposed — GraphicsResource's backing field was " +
+            "renamed, so this fixture (not the capture system) needs updating.");
+        return target;
+    }
+
+    /// <summary>
+    /// Publishes through the real socket, exactly as <c>MasterRenderSystem</c> does at the top of a
+    /// pass — the capture's handler is private on purpose, and this is the only door into it.
+    /// </summary>
+    private static void PublishPass(RenderTargetID id, RenderTarget2D target) =>
+        MasterRenderSystem.RenderedTargetSink!(id, target);
+
+    /// Runs a body with the render socket empty, restoring whatever was installed before.
+    private static void WithEmptyRenderSocket(Action body)
+    {
+        var previousSink = MasterRenderSystem.RenderedTargetSink;
+        try
+        {
+            MasterRenderSystem.RenderedTargetSink = null;
+            body();
+        }
+        finally
+        {
+            MasterRenderSystem.RenderedTargetSink = previousSink;
+        }
+    }
+
+    [Fact]
+    public void ResolvedTarget_IsReplaced_WhenTheLatchedOneWasDisposed()
+    {
+        WithEmptyRenderSocket(() => WithEnvironment(new FakeEnvironment(), _ =>
+        {
+            using var system = new ScreenshotCaptureSystem((GraphicsDevice)null!, 0.5f, OutputDir,
+                CaptureFormat.Png, maxFrames: 0, captureTarget: RenderTargetID.UI);
+
+            // Frame 1: the current screen's UI pass publishes, and the capture latches it.
+            var doomed = StubTarget();
+            PublishPass(RenderTargetID.UI, doomed);
+            Assert.Same(doomed, system.ResolveSourceTarget());
+
+            // …then the screen switches (or the window is resized): the latched target is torn down and
+            // the new screen's pass publishes a fresh one. An interval capture reads MANY frames after
+            // the latch, so this whole exchange happens between two reads.
+            MarkDisposed(doomed);
+            var replacement = StubTarget();
+            PublishPass(RenderTargetID.UI, replacement);
+
+            // THE regression: a `??=` latch refuses every replacement once a dead target sits in the
+            // slot, so the capture writes nothing for the rest of the run.
+            Assert.Same(replacement, system.ResolveSourceTarget());
+        }));
+    }
+
+    [Fact]
+    public void ResolvedTarget_IsDropped_WhenItWasDisposedWithoutAReplacement()
+    {
+        WithEmptyRenderSocket(() => WithEnvironment(new FakeEnvironment(), fake =>
+        {
+            using var system = new ScreenshotCaptureSystem((GraphicsDevice)null!, 0.5f, OutputDir,
+                CaptureFormat.Png, maxFrames: 0, captureTarget: RenderTargetID.UI);
+
+            // A target torn down after the last publish of the frame (the resize that makes the editor
+            // chrome rebuild its target, with the read landing before the next pass): nothing to read…
+            var doomed = StubTarget();
+            PublishPass(RenderTargetID.UI, doomed);
+            MarkDisposed(doomed);
+            Assert.Null(system.ResolveSourceTarget());
+            Assert.Contains(fake.ConsoleLines,
+                l => l.Contains("[DEBUG]") && l.Contains("was torn down"));
+            // …and it is a self-healing gap, not the "this screen has no such pass" dead end.
+            Assert.DoesNotContain(fake.ConsoleLines, l => l.Contains("no render pass has drawn"));
+
+            // …and the slot was CLEARED, not merely refused, so the next pass can fill it.
+            var replacement = StubTarget();
+            PublishPass(RenderTargetID.UI, replacement);
+            Assert.Same(replacement, system.ResolveSourceTarget());
+        }));
+    }
+
+    [Fact]
+    public void ResolvedTarget_KeepsTheFirstPublisher_WhileItIsAlive()
+    {
+        WithEmptyRenderSocket(() => WithEnvironment(new FakeEnvironment(), fake =>
+        {
+            using var system = new ScreenshotCaptureSystem((GraphicsDevice)null!, 0.5f, OutputDir,
+                CaptureFormat.Png, maxFrames: 0, captureTarget: RenderTargetID.Main);
+
+            // One screen, two passes for the same id (the camera demo's world pass, then its minimap):
+            // the FIRST is the primary one, and a live latch is never displaced.
+            var worldPass = StubTarget();
+            var minimapPass = StubTarget();
+            PublishPass(RenderTargetID.Main, worldPass);
+            PublishPass(RenderTargetID.Main, minimapPass);
+
+            Assert.Same(worldPass, system.ResolveSourceTarget());
+
+            // A pass for another id is not this capture's business either.
+            PublishPass(RenderTargetID.UI, StubTarget());
+            Assert.Same(worldPass, system.ResolveSourceTarget());
+            Assert.DoesNotContain(fake.ConsoleLines, l => l.Contains("was torn down"));
+        }));
+    }
+
+    [Fact]
+    public void ResolvedTarget_WarnsOncePerGap_WhenNoPassEverDrawsTheTarget()
+    {
+        WithEmptyRenderSocket(() => WithEnvironment(new FakeEnvironment(), fake =>
+        {
+            using var system = new ScreenshotCaptureSystem((GraphicsDevice)null!, 0.5f, OutputDir,
+                CaptureFormat.Png, maxFrames: 0, captureTarget: RenderTargetID.Editor);
+
+            // A screen with no Editor pass: the capture writes nothing and says so — once, not sixty
+            // times a second.
+            Assert.Null(system.ResolveSourceTarget());
+            Assert.Null(system.ResolveSourceTarget());
+
+            Assert.Single(fake.ConsoleLines,
+                l => l.Contains("[ WARN]") && l.Contains("no render pass has drawn the Editor target"));
+        }));
     }
 
     [Fact]

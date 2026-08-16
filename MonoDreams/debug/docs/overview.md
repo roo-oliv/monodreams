@@ -87,10 +87,13 @@ How the target is found is worth knowing, because nothing registers it: screens 
 privately. Each `MasterRenderSystem` pass announces `(source id, destination)` through
 `MasterRenderSystem.RenderedTargetSink` — a null-by-default socket in `rendering` that this module
 plugs into *only* when a target was named — so the passes that actually ran this frame are the
-lookup. A screen switch, a resize-recreated target, or a retarget therefore need no invalidation
-protocol; when a screen runs several passes for one id (the camera demo renders `Main` twice, world
-then minimap), the first pass of the frame wins, which is the primary one every screen composites
-first.
+lookup. No screen has to announce a teardown: a resolved target that has since been **disposed**
+(a screen switch, or the window resize that makes the editor chrome rebuild its target) loses to
+the next pass's target, and the read path drops it rather than reading it dead — that check is the
+whole invalidation protocol, and it is what keeps an interval capture, which reads its target many
+frames after resolving it, alive across a switch. When a screen runs several passes for one id
+(the camera demo renders `Main` twice, world then minimap), the first live pass of the frame wins,
+which is the primary one every screen composites first.
 
 Two practical notes:
 
