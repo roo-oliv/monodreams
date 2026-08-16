@@ -38,7 +38,8 @@ This module defines how things appear on screen. It owns the entire draw path �
 ### Non-ECS types
 
 - `Camera` (class, in this module) — view matrix, virtual (destination) resolution, render scale, zoom, position, rotation
-- `ViewportManager` — owns the two coordinate spaces (authoring/layout vs render/virtual), the letterbox/pillarbox mapping to the window, `MapMouse`, and the cameras (`CreateCamera` / `LayoutCamera` / `CreateLayoutCamera`)
+- `ViewportManager` — owns the two coordinate spaces (authoring/layout vs render/virtual), the presentation policy that maps the frame onto the window, `MapMouse`, and the cameras (`CreateCamera` / `LayoutCamera` / `CreateLayoutCamera`)
+- `PresentationPolicy` — the declared answer to "the window is not the render resolution": overscan to a clean scale → letter/pillarbox at a clean scale → stretch, plus the `SamplerPolicy` each `RenderLayer` carries
 - `DrawLayerMap` — utility for ordering layers
 
 ## The two coordinate spaces
@@ -79,6 +80,49 @@ var worldPoint = layoutPoint is { } p ? _camera.VirtualScreenToWorld(p) : (Vecto
 render resolution from `MONODREAMS_RENDER_SCALE` (unset ⇒ 1). See the premise
 "Authoring space and render space are distinct; the scale lives only in the
 cameras".
+
+## The presentation scaling policy
+
+The window is rarely exactly the render resolution. How that conflict is resolved
+is a declared policy (`ViewportManager.Policy`), tried in this order:
+
+1. **Overscan to a clean scale** — spend up to `OverscanTolerance` (5% by
+   default) of extra scale to land on a clean step; the frame then overflows the
+   window and its edges leave the screen. The zero-crop way to spend that budget
+   is to render more world instead: `policy.ResolveRenderSize(designW, designH,
+   windowW, windowH)` returns the render resolution at which the clean present
+   fills the window exactly — a boot-time decision, before the screens allocate
+   their render targets.
+2. **Letter/pillarbox at a clean scale** — drop to the clean step below, padding
+   with bars, while the drop costs no more than `LetterboxTolerance` (25%).
+3. **Stretch** — the exact aspect-fit rectangle at a fractional scale (the
+   historical present).
+
+"Clean" is `CleanScaleSteps.Half` (…, 1/1.5, 1, 1.5, 2, …) or `.Integer`
+(…, 1/2, 1, 2, …). The presets:
+
+| Policy | Chain | For |
+|---|---|---|
+| `Stretch` | stretch only | the ENGINE default — framed exactly as before the policy existed |
+| `Default` | overscan 5% → letterbox 25% → stretch | the **scaffold default**: what a new game should declare |
+| `Crisp` | overscan → letterbox (unbounded) | never resample at a fractional ratio, however wide the bars |
+| `PixelPerfect` | whole steps, letterbox (unbounded) | the retired `ScalingMode.PixelPerfect` — identical at or above 1×; below it this shrinks in whole steps (1/2, 1/3, …) where the old mode clamped to 1× and cropped |
+
+```csharp
+_viewportManager.Policy = PresentationPolicy.Default;
+// …or tune the trade: more extra view, no bars, never soft.
+_viewportManager.Policy = PresentationPolicy.Default with
+{
+    OverscanTolerance = 0.08f, AllowStretch = false,
+};
+```
+
+Whichever step wins produces the ONE `DestinationRectangle` that `FinalDrawSystem`
+composites into and `MapMouse` inverts, so the pointer follows the framing for
+free. Independently, every `RenderLayer` carries a `SamplerPolicy` — `Auto` (point
+at an integer scale, linear otherwise), `Point` or `Linear` — resolved per layer
+against its own destination-over-target scale. See the premise "Presentation
+scaling is a declared policy, resolved in one place".
 
 ## Pipeline wiring
 

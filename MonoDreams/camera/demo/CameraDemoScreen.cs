@@ -1027,7 +1027,7 @@ public class CameraDemoScreen : IGameScreen
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
             RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-            RenderLayer.Overlay(_minimapTarget, MinimapDestination(), SamplerState.LinearClamp),
+            RenderLayer.Overlay(_minimapTarget, MinimapDestination(), SamplerPolicy.Linear),
         };
         if (_editor != null)
             renderLayers.Add(_editor.Overlay.ChromeLayer);

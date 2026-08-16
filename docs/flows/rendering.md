@@ -47,6 +47,7 @@ Authoritative list in [`MonoDreams/rendering/docs/premises.md`](../../MonoDreams
 - One `MasterRenderSystem` instance = one pass; it clears its `destination` on entry, so two passes sharing a target erase each other. The draw set is built once per instance, never per frame.
 - A pass's `camera.VirtualWidth/Height` must equal its `destination` size (projection derives from the destination, the camera centers the view there).
 - Authoring (layout) space and render (virtual) space are distinct, and the ratio between them (`ViewportManager.RenderScale`) is applied in **exactly one place: the per-pass cameras** (`Camera.RenderScale` multiplies `Zoom` in the view matrix). Screen-space passes take `ViewportManager.LayoutCamera`, not a null camera. The two spaces are equal by default, where the layout camera is exactly `Matrix.Identity`.
+- Presentation scaling is a declared policy (`ViewportManager.Policy`) resolved in ONE place: overscan to a clean scale → letter/pillarbox at a clean scale → stretch, each bounded by a tolerance. It produces the one `DestinationRectangle` the compositor draws into and `MapMouse` inverts; overscan is vetoed while a viewport inset is active. Per-layer sampling is `RenderLayer.Sampler` (`Auto`/`Point`/`Linear`), resolved against that layer's own present scale.
 
 ## Load-bearing quantities
 
@@ -54,6 +55,8 @@ Authoritative list in [`MonoDreams/rendering/docs/premises.md`](../../MonoDreams
 - `Camera.VirtualWidth/VirtualHeight` — RENDER resolution in pixels, **immutable after construction** (default 800×600). A render pass's destination size must equal these.
 - `Camera.RenderScale` — render pixels per AUTHORING unit, **immutable after construction** (default 1 = single-space); `Camera.LayoutWidth/Height` is the destination size divided by it — the authoring extent world code reasons in.
 - `ViewportManager.LayoutWidth/LayoutHeight` / `RenderScale` / `MapMouse(screen)` — the authoring canvas, the one scale, and the screen→authoring pointer mapping (inverts the present `DestinationRectangle`; `null` outside the viewport).
+- `ViewportManager.PresentScale` / `Presentation` — screen pixels per RENDER pixel in the present pass (`DestinationRectangle.Width / VirtualWidth`) and which policy step produced it (`Overscan` / `Letterbox` / `Stretch`). Not `RenderScale`, which is authoring → render.
+- `PresentationPolicy.OverscanTolerance` — extra scale (default `0.05`) overscan may spend; measured in frame edges LOST off the window, or in extra world GAINED when the head sized its targets with `ResolveRenderSize`. `LetterboxTolerance` (default `0.25`) is the matching bound on the bars.
 - `Camera.GetViewTransformationMatrix()` — the Main pass transform: translate by `-Position`, rotate, scale by `Zoom × RenderScale` (zoom clamped ≥ `0.1`), recenter at `(VirtualWidth/2, VirtualHeight/2)`. Null camera ⇒ `Matrix.Identity` (screen-space, single-space only).
 - Sprite-quad run cap — `SpriteBatchFlush.MaxSpritesPerBatch`, strictly below the Reach 16-bit-index limit of 5461 quads per `SpriteBatch.Begin`; text counts one quad per glyph.
 
@@ -66,4 +69,6 @@ Authoritative list in [`MonoDreams/rendering/docs/premises.md`](../../MonoDreams
 - **UI shrinks into a corner after a render-resolution move** — a screen-space pass left on a `null` camera draws authoring coordinates 1:1 into a bigger target. Give UI/HUD/Scroll passes `ViewportManager.LayoutCamera` (harmless at scale 1).
 - **An authored number read from `VirtualWidth`** — a UI root, HUD box, overlay rect, fit-zoom or frustum outline sized from the render resolution moves when that resolution changes; those all belong in `LayoutWidth/Height`.
 - **Two passes, one target** — a second `MasterRenderSystem` instance shares a `destination`; each clears on entry, so the second erases the first's frame (give every pass its own target, overlap via `FinalDrawSystem`).
+- **UI text shimmers / crawls as things move** — a screen-space layer point-sampled at a fractional present scale. `SamplerPolicy.Auto` (the factory default) filters it; a layer hardcoded to `Point` opts back into the crawl.
+- **Authored UI cut off at the window edges** — the overscan step grew the frame past the window. Either lower `OverscanTolerance` / disable overscan, or size the render targets with `ResolveRenderSize` so the extra scale buys extra world instead of cropped edges.
 - **Web-only crash on a dense scene** — removing/raising the sprite-run flush past 5461 quads pushes a batch into 32-bit indices, which the Reach profile rejects; paints on desktop (HiDef), throws on web.

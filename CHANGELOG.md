@@ -7,6 +7,64 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
+### Breaking — presentation scaling is a declared policy ([#89](https://github.com/roo-oliv/monodreams/issues/89))
+
+How the frame reaches a window that is not the render resolution is now declared once, on
+`ViewportManager.Policy`, and resolved in one place: **overscan** to a clean scale →
+**letter/pillarbox** at a clean scale → **stretch**, each step bounded by a gamedev-set
+tolerance. The winner produces the single `DestinationRectangle` the compositor draws into
+and `MapMouse` inverts. The engine default is `PresentationPolicy.Stretch` — the historical
+aspect-fit present, so framing is unchanged until a game declares otherwise;
+`PresentationPolicy.Default` is what a new game should declare. What DOES change by default
+is filtering: layers now sample point at an integer scale and linear otherwise, so UI text
+stops shimmering at a fractional present (and pixel art stops being bilinear-blurred at 2×).
+
+- **`ViewportManager.ScalingMode`, `CurrentScalingMode`, `PixelPerfectDestinationRectangle`
+  and `IntegerScale` are gone.** The three modes were the policy question asked in three
+  incomplete ways, and the pixel-perfect rectangle was a second destination rectangle the
+  mouse never inverted. `PresentationPolicy.PixelPerfect` takes over `ScalingMode.PixelPerfect`
+  (whole steps, centered, with bars) — through the one `DestinationRectangle`, so picking now
+  follows it. It matches the old mode exactly for any window at least as large as the render
+  resolution in both axes; **below 1× it deliberately diverges**, because the old mode clamped
+  its integer scale to a floor of 1 and cropped the frame off-screen (1920×1080 in a 1600×900
+  window: 1920×1080 at (-160, -90)), while a no-overscan policy may not crop and keeps
+  descending the ladder instead (960×540 centered, with bars). `Smooth` is subsumed by the
+  per-layer sampler policy, and `KeepAspectRatio` is `PresentationPolicy.Stretch`.
+  *Migration:* `viewport.CurrentScalingMode = ViewportManager.ScalingMode.PixelPerfect`
+  becomes `viewport.Policy = PresentationPolicy.PixelPerfect`; read
+  `viewport.DestinationRectangle` where you read `PixelPerfectDestinationRectangle`. If your
+  game relied on the old crop, the crop is now an explicit, bounded decision: enable the
+  overscan step (`PixelPerfect with { AllowOverscan = true, OverscanTolerance = 0.25f }` reaches
+  1× from a fit down to 0.8) and set the tolerance to the frame edge you are willing to lose.
+
+- **`RenderLayer.Sampler` is a `SamplerPolicy` (`Auto` / `Point` / `Linear`), not a
+  `Func<ViewportManager, SamplerState>`**, and `RenderLayer.Overlay`'s optional
+  `SamplerState?` parameter is a `SamplerPolicy` (default `Auto`). `FinalDrawSystem`
+  resolves it per layer against that layer's own destination-over-target scale.
+  *Migration:* `RenderLayer.Overlay(target, bounds, SamplerState.LinearClamp)` becomes
+  `RenderLayer.Overlay(target, bounds, SamplerPolicy.Linear)`; a custom layer's
+  `_ => SamplerState.PointClamp` becomes `SamplerPolicy.Point`.
+
+- **`MonoDreams.Examples`' `GameSettings.ScalingMode` (string) is now
+  `GameSettings.Presentation`**, taking `Default` (the shipped value) / `Crisp` /
+  `PixelPerfect` / `Stretch`.
+  *Migration:* rename the key in your `settings.json`; `"KeepAspectRatio"` becomes
+  `"Stretch"` and `"Smooth"` is no longer a thing (the sampler policy covers it).
+
+### Added — the presentation knobs ([#89](https://github.com/roo-oliv/monodreams/issues/89))
+
+- `PresentationPolicy` (+ `PresentationMode`, `CleanScaleSteps`, `SamplerPolicy`) — the
+  policy record, its four presets (`Stretch`, `Default`, `Crisp`, `PixelPerfect`), the
+  clean-scale ladder (`CleanScaleAtOrBelow` / `CleanScaleAtOrAbove` / `IsClean`), and
+  `Resolve(window, render)`, which is pure math and unit-testable on its own.
+- `PresentationPolicy.ResolveRenderSize(designW, designH, windowW, windowH)` — the other end
+  of the overscan dial: the render resolution at which the clean present fills the window
+  with NO crop, so the tolerance buys extra world instead of lost frame edges. Call it at
+  boot, before the screens allocate their render targets.
+- `ViewportManager.Presentation` / `PresentScale` — which step won, and screen pixels per
+  render pixel in the present pass (distinct from `RenderScale`, which is authoring →
+  render). The manager also logs one line per presentation change.
+
 ### Breaking — authoring space and render space are distinct ([#88](https://github.com/roo-oliv/monodreams/issues/88))
 
 `ViewportManager` now owns **two** resolutions: the RENDER (virtual) resolution — the

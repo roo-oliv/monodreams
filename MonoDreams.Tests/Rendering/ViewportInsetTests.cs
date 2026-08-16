@@ -141,22 +141,52 @@ public class ViewportInsetTests
         Assert.Null(vm.MapMouse(new Vector2(800, 890)));    // bottom strip
     }
 
-    // ---- Pixel-perfect mode computes its integer-scaled rect inside the same available area ----
+    // ---- The pixel-perfect POLICY computes its integer-scaled rect inside the same available area
+    // (this used to be ScalingMode.PixelPerfect + a second rectangle; it is now one destination
+    // rectangle resolved by PresentationPolicy.PixelPerfect, and the inset still bounds it) ----
 
     [Fact]
-    public void PixelPerfect_UsesTheAvailableArea()
+    public void PixelPerfectPolicy_UsesTheAvailableArea()
     {
         var vm = Manager(1600, 900);
-        vm.CurrentScalingMode = ViewportManager.ScalingMode.PixelPerfect;
+        vm.Policy = PresentationPolicy.PixelPerfect;
 
         // Full window: integer scale = min(1600/800, 900/600) = 1 → 800×600 centered on screen.
-        Assert.Equal(new Rectangle(400, 150, 800, 600), vm.PixelPerfectDestinationRectangle);
+        Assert.Equal(new Rectangle(400, 150, 800, 600), vm.DestinationRectangle);
+        Assert.Equal(1f, vm.PresentScale, 4);
+        Assert.Equal(PresentationMode.Letterbox, vm.Presentation);
 
         // With the inset: available (0, 44, 1320, 832) → scale still 1, centered in the available
         // area → ((1320-800)/2, 44 + (832-600)/2) = (260, 160).
         vm.SetViewportInset(0, Top, Right, Bottom);
-        Assert.Equal(new Rectangle(260, 160, 800, 600), vm.PixelPerfectDestinationRectangle);
-        Assert.Equal(1, vm.IntegerScale);
+        Assert.Equal(new Rectangle(260, 160, 800, 600), vm.DestinationRectangle);
+
+        // …and the mouse inverts THAT rectangle, so a click in the integer-scaled frame maps and a
+        // click in the bars around it does not.
+        var centre = vm.MapMouse(new Vector2(260 + 400, 160 + 300));
+        Assert.NotNull(centre);
+        Assert.Equal(400f, centre!.Value.X, 3);
+        Assert.Equal(300f, centre.Value.Y, 3);
+        Assert.Null(vm.MapMouse(new Vector2(100, 400)));
+    }
+
+    // ---- The default policy is the historical present: every rectangle above is unchanged ----
+
+    [Fact]
+    public void DefaultPolicy_IsTheHistoricalStretch()
+    {
+        // 1600×900 over an 800×600 frame fits at exactly 1.5× — already a clean step, so the
+        // aspect-fit rectangle IS the clean-scale one and the mode reports the clean step.
+        var vm = Manager(1600, 900);
+        Assert.Same(PresentationPolicy.Stretch, vm.Policy);
+        Assert.Equal(PresentationMode.Letterbox, vm.Presentation);
+        Assert.Equal(new Rectangle(200, 0, 1200, 900), vm.DestinationRectangle);
+
+        // A window whose fit scale is fractional (890/600 = 1.4833) stretches, byte-identically to
+        // the pre-policy engine: height-bound, width = round(890 * 4/3), centered.
+        var fractional = Manager(1600, 890);
+        Assert.Equal(PresentationMode.Stretch, fractional.Presentation);
+        Assert.Equal(new Rectangle(206, 0, 1187, 890), fractional.DestinationRectangle);
     }
 
     // ---- Guardrails ----
