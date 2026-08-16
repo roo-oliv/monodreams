@@ -101,3 +101,9 @@ the ones this flow's ordering leans on:
   the outline drifts from its label by the layout-computed top-left.
 - **Flex-grow no-op** — setting `FlexGrow` on a child that isn't a main-axis fill child:
   silently does nothing; the row doesn't expand as intended.
+- **Pointer double-dispatch** — a screen that also picks in world space (a draggable
+  object over a tab bar) with no arbitration: `UIFocusSystem` and the game's own picking
+  both answer the same click, so the control *behind* the dragged object activates too.
+  Silent — no error, no log. The screen must gate one layer (disable the focus system,
+  swallow the cursor edges, or move the active group) on the frames the other owns the
+  pointer; see the premise "One click, one owner".
