@@ -41,6 +41,86 @@ pipeline.Add(new AudioSystem(world, audioPlayer));
 
 Registering the system is the load-bearing act: forget it and every `PlaySoundRequest` publishes into a world with no listener while every `AudioSourceComponent` sits inert — a silently mute game, with no exception and no log line to debug from (see the premises; DefaultEcs exposes no subscriber count, so there is no runtime tripwire for it). Position in the pipeline does not matter for correctness (the system only talks to the audio backend), but registering it after game logic means same-frame state changes are heard the frame they happen. In edit-capable screens register it with `EditTimeBehavior.Freeze` — audio is game logic. Note the Freeze boundary: it stops *reconciliation*, not already-live instances (an ambient loop keeps sounding in Edit) — see the premises for the full contract. The reference registration is the module demo (`demo/AudioDemoScreen.cs`).
 
+## Recommended wiring: one `AudioCueSystem`, zero `Play` calls in gameplay
+
+Publishing `PlaySoundRequest` is legal from anywhere, but the wiring this module is *designed*
+for — and the one that keeps audio disposable — is a **single game-side cue system that
+subscribes to the gameplay messages the game already publishes** and maps them to sounds.
+Gameplay systems keep publishing exactly what they published before; none of them mentions
+audio. It is the film-scoring model: the composer watches the finished cut, the actors never
+play instruments on set.
+
+```csharp
+/// Game-side (not part of the module): the ONLY place in the game that knows
+/// what things sound like. Subscribes to gameplay messages that already exist
+/// and turns them into PlaySoundRequests.
+public sealed class AudioCueSystem : ISystem<GameState>
+{
+    public bool IsEnabled { get; set; } = true;
+
+    private readonly World _world;
+    private readonly List<IDisposable> _subscriptions = [];
+
+    public AudioCueSystem(World world)
+    {
+        _world = world;
+        // Messages the game/engine already publishes for their own reasons.
+        _subscriptions.Add(world.Subscribe<UIFocusActivated>(OnActivated));
+        _subscriptions.Add(world.Subscribe<CollisionMessage>(OnCollision));
+        // …and the game's own: PaperStamped, DrawerOpened, …
+    }
+
+    private void OnActivated(in UIFocusActivated msg) =>
+        _world.Publish(new PlaySoundRequest("Sounds/click", 0.6f));
+
+    private void OnCollision(in CollisionMessage msg)
+    {
+        if (msg.Type != CollisionType.Collectible) return;
+        _world.Publish(new PlaySoundRequest("Sounds/pickup"));
+    }
+
+    // Nothing per-frame: cues are message-driven. (An entity-scoped cue — an ambience
+    // that follows a machine — is an AudioSourceComponent this system adds instead.)
+    public void Update(GameState state) { }
+
+    public void Dispose()
+    {
+        foreach (var subscription in _subscriptions) subscription.Dispose();
+    }
+}
+```
+
+Register it like any other game system, with `Freeze` in edit-capable screens (cues are game
+logic):
+
+```csharp
+p.Add("audio.cues", new AudioCueSystem(_world), EditTimeBehavior.Freeze);
+p.Add("audio", new AudioSystem(_world, _audioPlayer), EditTimeBehavior.Freeze);
+```
+
+Order relative to `AudioSystem` does not matter for one-shots: `PlaySoundRequest` is handled by
+the subscription `AudioSystem`'s constructor opens, synchronously at publish time, so a cue
+sounds the instant it is published no matter which system ran first. It matters only for the
+entity-scoped case — an `AudioSourceComponent` a cue adds or mutates is picked up by the next
+`AudioSystem.Update`, so registering the cue system ahead of it starts that source the same
+frame instead of the next one.
+
+Why this shape rather than a `Play` call inside each gameplay system:
+
+- **Audio is a pure observer.** Mute the game, retheme it, or delete the audio module
+  entirely, and no gameplay system changes — you delete one system and its registration.
+- **Every sound is in one file.** "Which sounds does this game make, and when?" is answered by
+  reading `AudioCueSystem`, not by grepping for `PlaySoundRequest` across the codebase.
+- **The trigger already exists.** A gameplay system that publishes a message for its own
+  reasons needs no audio-shaped edit; if a cue has no message to hang on, that is usually a
+  missing gameplay message rather than a reason to reach for the audio API in place.
+- **Testing stays honest.** Gameplay tests never touch the audio seam, and cue mapping is
+  testable on its own: publish the gameplay message into a `World` and assert the
+  `PlaySoundRequest` that comes out.
+
+The shipped reference game (*NFs, Please!*) ran this way end to end: one cue system, zero `Play`
+calls inside gameplay systems.
+
 ## Cross-module dependencies
 
 - `foundation` — `GameState` (the system's update contract) and `Logger` (the degraded-mode warning).
@@ -48,7 +128,7 @@ Registering the system is the load-bearing act: forget it and every `PlaySoundRe
 ## Extension points
 
 - **Custom backends.** Implement `IAudioPlayer` (streaming, a mixer, a different engine) and hand it to `AudioSystem` — the reconciliation logic is backend-agnostic.
-- **Game-side triggers.** Publish `PlaySoundRequest` from any game system (collision handlers, UI interaction systems); no audio-module changes needed.
+- **Game-side triggers.** Publish `PlaySoundRequest` from game code; no audio-module changes needed. Route them through one `AudioCueSystem` subscribed to the gameplay messages you already publish rather than sprinkling publishes through gameplay systems — see *Recommended wiring* above.
 
 ## Known limitations (v1)
 

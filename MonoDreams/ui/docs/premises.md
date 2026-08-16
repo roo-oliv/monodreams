@@ -373,6 +373,72 @@ guarantee the way a second `IsFocused` writer would.
 mouse move; nav is group-scoped".
 **Tests:** none yet.
 
+## One click, one owner: pointer input needs explicit arbitration between picking layers
+
+A screen that mixes **world-space picking** (a game system that hit-tests its own
+entities against the cursor — a draggable paper, a token on a board, a clickable
+prop) with this module's `UIFocusSystem` has **two** systems reading the same
+`CursorInputComponent` and answering the same click, and neither knows the other
+exists. `UIFocusSystem` hit-tests every `FocusableComponent` in the active group
+against the cursor position and publishes `UIFocusActivated` on the release edge —
+it has no notion of anything drawn *in front of* a control, because occlusion is
+not data it can see (`FocusableComponent` carries `Size` and `Target`, not a z-order
+against non-UI entities). Arbitrating who owns the pointer this frame is therefore
+the **screen's** job, and it has to be explicit; there is no implicit "topmost wins"
+anywhere in the engine. Two shapes work, and a game usually wants both:
+
+1. **Focus groups scope what is reachable at all.** `FocusableComponent.Group` plus
+   the `activeGroup()` accessor `UIFocusSystem` reads each frame decide which
+   controls the pointer and keyboard can even see (the same mechanism modals and
+   dropdowns use to trap focus). Controls that belong to a pane the physical layer
+   is currently covering live in their own group, so raising / lowering the active
+   group takes them out of contention as data, not as a special case.
+2. **A gate system resolves the per-frame race.** A game-side system registered
+   **before** `UIFocusSystem` in the pipeline decides whether the physical layer
+   owns the pointer this frame (a drag is in progress, or the cursor is over a
+   pickable that overlaps UI) and, when it does, either disables the focus system
+   (`focusSystem.IsEnabled = false`) or swallows the pointer edges on the
+   `CursorInputComponent` before the module reads them — the same
+   consume-the-edges move `EditorDialogSystem.ConsumeCursor` and
+   `AutotileRuleEditorSystem` already make when an editor overlay owns the pointer.
+   Consuming stays safe frame-to-frame because `CursorInputSystem` derives its
+   edges from its own previous-state fields, not from the mutable level fields
+   (see the cursor premise).
+
+The two arbitration moves are not interchangeable: `IsEnabled = false` early-returns
+out of `UIFocusSystem.Update` entirely, so while the gate is closed the per-entity
+flags it owns (`IsFocused`, `FocusVisible`, `ButtonStateComponent.IsPressed`, and the
+mirrored `TextInputComponent.Focused`) keep **last frame's** values — the hover fill
+under a dragged paper stays lit until the gate reopens. Swallowing the edges (or
+switching the active group) leaves the system running, so it keeps writing those flags
+and the visuals settle; prefer it when the frozen-visual artifact matters.
+
+**Why:** the shipped reference game (*NFs, Please!*) put draggable papers on top of a
+UI tab bar. Clicking a paper picked it up **and** switched the tab underneath, because
+the game's physical-layer picking and `UIFocusSystem` both answered that one click —
+two waiters taking the same table's order. The failure is completely silent: no
+exception, no log line, nothing in the click path that could notice a second consumer;
+just a tab that changed when it shouldn't have. Every game that mixes world-space
+picking with this module hits it, and it is cheaper to name the invariant than to
+rediscover it.
+**Breaks:** without arbitration, every click that lands on both layers dispatches
+twice — the world-space action *and* the UI activation — which surfaces as a UI
+control reacting to a click the player aimed at something in front of it (and, for a
+drag, on every release over UI). Over-correcting is the mirror failure: a gate that
+never reopens (disabled on a condition that stays true, or an active group with no
+focusables in it) leaves the UI inert — buttons hover but never activate — which is
+equally silent. Registering the gate **after** `UIFocusSystem` gates next frame's
+click, not this one.
+**Tests:** none yet — and not testable from inside the module. The arbitration lives
+in game code by construction (the screen owns pipeline assembly and knows the z-order
+between its own entities and the UI; CORE_TENETS §2), so `ui` can only name the
+invariant, not enforce it.
+**Depends on:** "`UIFocusSystem` is the single focus owner; pointer steals focus only
+on mouse move; nav is group-scoped"; "Tab / Dialog / Dropdown systems show/hide on the
+Main target via `VisibleComponent` and gate focus via `FocusableComponent.Disabled`";
+cursor — "Button press/release edges derive from CursorInputSystem's own
+previous-state, immune to consumers clearing the level fields".
+
 ## `SimpleButtonComponent.LayerDepth` configures the button mesh depth; 0 means the 0.95 default
 
 `ButtonMeshPrepSystem` writes the button's outline + fill mesh at
@@ -938,6 +1004,8 @@ The following premises currently have **Tests: none yet**:
 - `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
 - The module owns the focus + visual MECHANISM and publishes `UIFocusActivated`; the ACTION stays game-side
 - `UIFocusSystem` is the single focus owner; pointer steals focus only on mouse move; nav is group-scoped
+- One click, one owner: pointer input needs explicit arbitration between picking layers
+  (not testable from inside the module — the arbitration is game-side)
 - `FocusableComponent.Disabled` (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav
 - A combobox is a `TextInputComponent` driving a `DropdownComponent`'s filter
 - Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution
