@@ -53,6 +53,15 @@ public class Game1 : Game
     /// <see cref="ScreenshotCaptureSystem.FromEnvironment"/>, the single owner of that contract.
     /// </summary>
     private ScreenshotCaptureSystem? _envFrameCapture;
+
+    /// <summary>
+    /// The macOS power-management assertion (<c>MONODREAMS_KEEP_AWAKE=1</c>), held for the process
+    /// lifetime — null unless the environment asked. An unattended run is exactly the run macOS App
+    /// Nap and display sleep suspend, which shows up as a game that stops making progress rather than
+    /// one that fails. See <see cref="KeepAwake"/>.
+    /// </summary>
+    private IDisposable? _keepAwake;
+
     private int _frame;
     private float _perfTimer;
 
@@ -144,6 +153,11 @@ public class Game1 : Game
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
+
+        // Opt-in keep-awake, straight after the logger so its own line lands in the run's log: a run
+        // left alone for hours (the agentic case) is otherwise at the mercy of App Nap and display
+        // sleep on macOS. No-op on every other platform, and off unless asked.
+        _keepAwake = KeepAwake.FromEnvironment();
 
         // MONODREAMS_PROFILE=1 turns on per-system frame timing (SystemProfiler) — the way to find
         // out which system is eating the frame, identically on desktop and in the browser (where
@@ -349,6 +363,9 @@ public class Game1 : Game
         _screenshotCapture?.Dispose();
         // Before Logger.Shutdown: a raw run logs its byte/frame summary from Dispose.
         _envFrameCapture?.Dispose();
+        // Likewise the keep-awake release line — and the assertion should end with the run, not linger
+        // until the process is reaped.
+        _keepAwake?.Dispose();
         Logger.Shutdown();
         _runner.Dispose();
         _spriteBatch.Dispose();

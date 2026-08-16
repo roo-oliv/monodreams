@@ -21,20 +21,19 @@ internal static class AddCommand
             description: "Install all modules in a preset (see `monodreams list` for available presets).");
         cmd.AddOption(presetOption);
 
-        var projectOption = new Option<string?>(
-            name: "--project",
-            description: "Path to the project directory. Defaults to cwd.");
-        cmd.AddOption(projectOption);
+        // Same option name as `init` — `--project` survives as a hidden alias (see DirOption).
+        var (dirOption, deprecatedDirOption) = DirOption.AddTo(cmd, "Path to the project directory. Defaults to cwd.");
 
         var dryRunOption = new Option<bool>(
             name: "--dry-run",
             description: "Resolve and print the install plan without copying any files.");
         cmd.AddOption(dryRunOption);
 
-        cmd.SetHandler(async (modules, preset, project, dryRun, registry) =>
+        cmd.SetHandler(async (modules, preset, dir, deprecatedDir, dryRun, registry) =>
         {
-            await Runner.RunAddAsync(modules, preset, project, dryRun, registry);
-        }, modulesArg, presetOption, projectOption, dryRunOption, registryOption);
+            if (!DirOption.TryResolve(dir, deprecatedDir, out var projectDir)) return;
+            await Runner.RunAddAsync(modules, preset, projectDir, dryRun, registry);
+        }, modulesArg, presetOption, dirOption, deprecatedDirOption, dryRunOption, registryOption);
 
         return cmd;
     }

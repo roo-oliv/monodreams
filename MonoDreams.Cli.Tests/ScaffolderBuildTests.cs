@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using MonoDreams.Cli.Commands;
 
 namespace MonoDreams.Cli.Tests;
@@ -69,6 +68,33 @@ public class ScaffolderBuildTests
     }
 
     /// <summary>
+    /// Issue #82, end-to-end: a fresh <c>init</c> plus <c>add collision</c> compiles. <c>collision</c> opens
+    /// <c>MonoDreams.Component.Physics</c>, so before the manifest declared <c>physics</c> this build failed
+    /// with CS0234 on a namespace from a module the user never asked for — the birth test for the fix.
+    ///
+    /// <c>collision</c> is added ALONE (the CLI pulls <c>physics</c> in itself); the rendering trio rides
+    /// along only because a foundation-only Core does not compile on its own — see the class remarks for
+    /// that pre-existing module-graph gap, which is orthogonal to this test's subject.
+    /// </summary>
+    [Fact]
+    public async Task Init_ThenAddCollision_InstallsPhysicsAndBuilds()
+    {
+        if (SkipOnWindows()) return;
+        var (projectDir, _) = await InitAndAdd("desktop", "BuildCollision", "collision");
+        try
+        {
+            // `add collision` never mentioned physics — the manifest's declared dep is what installs it.
+            var engineRoot = Path.Combine(projectDir, "BuildCollision.Core", "MonoDreams");
+            Assert.True(File.Exists(Path.Combine(engineRoot, "physics", "Component", "RigidBodyComponent.cs")),
+                "add collision must install the physics module its source compiles against");
+            Assert.True(File.Exists(Path.Combine(engineRoot, "collision", "System", "ColliderBody.cs")));
+
+            AssertBuild(Path.Combine(projectDir, "BuildCollision.sln"), platformArg: null);
+        }
+        finally { TryDelete(projectDir); }
+    }
+
+    /// <summary>
     /// Multi target: the desktop solution (Core + Desktop head, web head excluded) builds end-to-end, and
     /// the Core carries both backend-conditioned package groups so the web head resolves KNI while the
     /// desktop head resolves MonoGame. (The Blazor web-head build itself is the manual/CI proof — see the
@@ -95,11 +121,11 @@ public class ScaffolderBuildTests
 
     // The desktop end-to-end build is launched through `env -i` (Unix) to decouple from the test host's
     // MSBuild/SDK process context; on Windows that mechanism is unavailable, so it is skipped there.
-    private static bool SkipOnWindows() => OperatingSystem.IsWindows();
+    private static bool SkipOnWindows() => !CliTestSupport.CanBuildScaffoldedProjects();
 
     // ---- helpers ------------------------------------------------------------------------------
 
-    private static async Task<(string ProjectDir, string Repo)> InitAndAdd(string platform, string name)
+    private static async Task<(string ProjectDir, string Repo)> InitAndAdd(string platform, string name, params string[] extraModules)
     {
         var repo = CliTestSupport.FindRepoRoot();
         var workDir = CliTestSupport.NewTempDir("scaffold-build");
@@ -108,102 +134,21 @@ public class ScaffolderBuildTests
         await Runner.RunInitAsync(name, projectDir, platform, repo);
         Assert.True(File.Exists(Path.Combine(projectDir, $"{name}.sln")), "init did not produce the .sln");
 
-        await Runner.RunAddAsync(CompilableModules, presetName: null, projectPath: projectDir, dryRun: false, registryPath: repo);
+        var modules = CompilableModules.Concat(extraModules).ToArray();
+        await Runner.RunAddAsync(modules, presetName: null, projectPath: projectDir, dryRun: false, registryPath: repo);
         return (projectDir, repo);
     }
 
+    // The build incantation (pristine `env -i` environment, single MSBuild node, serialised restore) lives in
+    // CliTestSupport so this suite and ManifestHonestyTests drive builds exactly the same way.
     private static void AssertBuild(string projectOrSln, string? platformArg)
     {
-        // Wipe every obj/bin under the project tree first. The shared Core library builds once per backend;
-        // a desktop-built Core obj left from an earlier build (e.g. the multi test's desktop .sln build, or
-        // a transitive restore) is reused by a subsequent web-head build and the KNI/Razor compilation
-        // resolves against the wrong backend (surfacing as a spurious Razor base-class error). A from-scratch
-        // user build has no such obj; cleaning makes the test match that. (See ledger: web build must not
-        // pick up a desktop-built Core.)
-        var projectRoot = Directory.GetParent(Path.GetDirectoryName(Path.GetFullPath(projectOrSln))!)!.FullName;
-        foreach (var d in Directory.EnumerateDirectories(projectRoot, "obj", SearchOption.AllDirectories)
-                     .Concat(Directory.EnumerateDirectories(projectRoot, "bin", SearchOption.AllDirectories))
-                     .ToList())
-        {
-            try { Directory.Delete(d, recursive: true); } catch { /* best effort */ }
-        }
+        var (exitCode, output) = CliTestSupport.BuildScaffoldedProject(projectOrSln, platformArg);
+        if (exitCode == 0) return;
 
-        // -m:1 + /nodeReuse:false: single-node, no persistent MSBuild server. The persistent node keeps
-        // its stdout/stderr pipes open after the build logically finishes, which deadlocks a synchronous
-        // ReadToEnd(); disabling node reuse lets the child exit cleanly. -m:1 also avoids the obj-lock race
-        // on the WASM intermediate output the ledger documented for parallel web builds.
-        // -p:UseSharedCompilation=false: do not connect to a shared Roslyn build server (VBCSCompiler). The
-        // test host keeps a build server alive whose Razor source-generator state is bound to its own build
-        // context; a child build reusing it fails to compile the .razor component base (Index.OnAfterRender
-        // override error) even though a standalone build succeeds. A private compilation avoids that.
-        // RestoreDisableParallel: the .sln restores Core once as a member and once as the Desktop head's
-        // ProjectReference; NuGet's parallel restore then races both writes of Core/obj/project.nuget.cache
-        // ("the file … already exists" → build exit 1), a flaky gate independent of -m:1 (which only serialises
-        // the build, not restore's own parallelism). Serialising the restore removes the race.
-        var args = $"build \"{projectOrSln}\" -c Debug --nologo -m:1 /nodeReuse:false -p:UseSharedCompilation=false -p:RestoreDisableParallel=true";
-        if (platformArg is not null) args += $" -p:MonoDreamsPlatform={platformArg}";
-
-        var workDir = Path.GetDirectoryName(Path.GetFullPath(projectOrSln))!;
-
-        // VSTest's testhost injects MSBuild/SDK build-context env vars (MSBuildSDKsPath, MSBuildExtensionsPath,
-        // …) and MSBuild server/assembly-resolver state pinned to the SDK running the tests. A `dotnet build`
-        // spawned in-process inherits enough of that context that the BlazorWebAssembly Razor source
-        // generator mis-resolves and the .razor component base silently fails to compile (Index.OnAfterRender
-        // override error) — though the identical build succeeds from a developer shell. Running through
-        // `env -i` with only the minimal vars a build needs gives the child a genuinely pristine environment,
-        // matching a shell build. (Unix-only; the cross-platform proof runs on a Unix host. On Windows the
-        // test would need a different decoupling and is skipped — see the OperatingSystem.IsWindows guard
-        // in the callers.)
-        var keep = new (string Key, string? Val)[]
-        {
-            ("PATH", Environment.GetEnvironmentVariable("PATH")),
-            ("HOME", Environment.GetEnvironmentVariable("HOME")),
-            ("DOTNET_ROOT", Environment.GetEnvironmentVariable("DOTNET_ROOT")),
-            ("TMPDIR", Environment.GetEnvironmentVariable("TMPDIR")),
-            ("LANG", Environment.GetEnvironmentVariable("LANG")),
-        };
-        var envPrefix = string.Join(" ", keep.Where(k => k.Val is not null).Select(k => $"{k.Key}=\"{k.Val}\""))
-                        + " MSBUILDDISABLENODEREUSE=1 DOTNET_CLI_TELEMETRY_OPTOUT=1";
-
-        var psi = new ProcessStartInfo("/usr/bin/env", $"-i {envPrefix} dotnet {args}")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            // Build from the project's own folder (outside the repo) so the MSBuild directory walk-up
-            // matches a developer building the scaffolded project, not the test host's CWD inside the repo.
-            WorkingDirectory = workDir,
-        };
-
-        using var proc = Process.Start(psi)!;
-        // Drain both pipes asynchronously so a full pipe buffer on one stream can never block the other.
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-        var stderrTask = proc.StandardError.ReadToEndAsync();
-        var exited = proc.WaitForExit(milliseconds: 8 * 60 * 1000);
-        if (!exited)
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            Assert.Fail($"dotnet build did not finish within 8 minutes for {projectOrSln}");
-        }
-
-        var stdout = stdoutTask.GetAwaiter().GetResult();
-        var stderr = stderrTask.GetAwaiter().GetResult();
-        if (proc.ExitCode != 0)
-        {
-            var log = Path.Combine(Path.GetTempPath(), $"md-build-fail-{Path.GetFileNameWithoutExtension(projectOrSln)}.log");
-            try { File.WriteAllText(log, $"ARGS: dotnet {args}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"); } catch { }
-            Assert.Fail($"dotnet build failed (exit {proc.ExitCode}) for {projectOrSln}; full log: {log}\n{Tail(stdout, 4000)}\n{Tail(stderr, 2000)}");
-        }
+        var log = CliTestSupport.DumpBuildLog(Path.GetFileNameWithoutExtension(projectOrSln), projectOrSln, output);
+        Assert.Fail($"dotnet build failed (exit {exitCode}) for {projectOrSln}; full log: {log}\n{CliTestSupport.Tail(output, 6000)}");
     }
 
-    private static string Tail(string s, int n) => s.Length <= n ? s : s.Substring(s.Length - n);
-
-    private static void TryDelete(string dir)
-    {
-        if (Environment.GetEnvironmentVariable("MD_KEEP_TEMP") == "1") return; // diagnostics escape hatch
-        // Delete the parent temp work dir (projectDir's parent) for a clean wipe.
-        var work = Directory.GetParent(dir)?.FullName;
-        try { if (work != null && Directory.Exists(work)) Directory.Delete(work, recursive: true); }
-        catch { /* best effort */ }
-    }
+    private static void TryDelete(string dir) => CliTestSupport.TryDeleteWorkDir(dir);
 }

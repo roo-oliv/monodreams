@@ -41,6 +41,10 @@ public class Game1 : Game
     // it never runs in a normal launch (the field is null unless the flag is present).
     private readonly string _exportSceneId;
     private bool _exported;
+    /// <summary>The macOS power-management assertion (<c>MONODREAMS_KEEP_AWAKE=1</c>), held for the
+    /// process lifetime — null unless the environment asked. A long replay run left alone is exactly
+    /// what App Nap and display sleep suspend. See <c>MonoDreams.Debug.KeepAwake</c>.</summary>
+    private global::System.IDisposable _keepAwake;
 #if DEBUG
     private ImGuiRenderer _imGuiRenderer;
     private DebugInspector _debugInspector;
@@ -150,6 +154,11 @@ public class Game1 : Game
         var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
+
+        // Opt-in keep-awake, straight after the logger so its line lands in the run's log: an
+        // unattended replay run is otherwise at the mercy of macOS App Nap and display sleep. No-op on
+        // every other platform, and off unless asked.
+        _keepAwake = MonoDreams.Debug.KeepAwake.FromEnvironment();
 
         if (_headless)
         {
@@ -438,6 +447,8 @@ public class Game1 : Game
     protected override void Dispose(bool disposing)
     {
         _screenController.Dispose();
+        // Before Logger.Shutdown so the release line lands in this run's log.
+        _keepAwake?.Dispose();
         Logger.Shutdown();
         _runner.Dispose();
         _spriteBatch.Dispose();
