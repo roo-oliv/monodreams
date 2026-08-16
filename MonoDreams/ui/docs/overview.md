@@ -4,7 +4,7 @@ Flexbox-style layout with a fluent builder API (`AutoLayoutBuilder` → `Contain
 
 ## Purpose
 
-This module is a flexbox-ish solver for UI. The flexbox solver positions children inside containers based on direction, justify, align, gap, padding, and margin; intrinsic sizes (the dimensions of text, sprites, buttons) come from per-slot callbacks so the solver doesn't need to introspect content types it doesn't know about. The module is deliberately scoped to *visuals and layout* — `ButtonInteractionSystem` (hover detection, click dispatch, screen transitions) lives in `MonoDreams.Examples/` because click dispatch is necessarily game-specific. Games copy that pattern; the framework provides the layout primitives.
+This module is a flexbox-ish solver for UI. The flexbox solver positions children inside containers based on direction, justify, align, gap, padding, and margin; intrinsic sizes (the dimensions of text, sprites, buttons) come from per-slot callbacks so the solver doesn't need to introspect content types it doesn't know about. The module is deliberately scoped to *visuals, layout and picking* — hover detection is `UIFocusSystem`'s, here in the module (it owns the one pointer pick, the focus state and the `UIFocusActivated` edge), while what an activation MEANS is necessarily game-specific, so `ButtonInteractionSystem` (label colour from `FocusableComponent.IsFocused`, screen transition on `UIFocusActivated`) lives in `MonoDreams.Examples/`. Games copy that pattern; the framework provides the layout primitives and the pick.
 
 ## What ships
 

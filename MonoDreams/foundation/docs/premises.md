@@ -606,7 +606,7 @@ own size. Snapping the derived HEIGHT as well as the width would distort the asp
 **Tests:** `MonoDreams.Tests/Foundation/WindowFitTests.cs` (the fit geometry, the 1:1 cap, the
 snap, the title-bar reservation, mode selection, the `WxH` parser, and the fallback probe);
 `MonoDreams.Tests/IntegrationTests/ExamplesAdoptionTests.cs`
-(`WindowedRun_FitsTheWindow_AndCapturesTheTargetAtItsOwnResolution` — a real windowed run of the
+(`WindowedRun_FitsTheWindow_AndCapturesTheTooltipLayerAtItsOwnResolution` — a real windowed run of the
 reference head honours `MONODREAMS_WINDOW` and logs the boot line;
 `TheDesktopHead_LogsItsRenderSpaceAndPresentationPolicy` — a headless run logs the skip instead
 and never calls it);

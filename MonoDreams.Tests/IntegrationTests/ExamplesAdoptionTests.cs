@@ -29,6 +29,18 @@ public class ExamplesAdoptionTests
     /// </summary>
     private const int TooltipTimeoutFrames = 60000;
 
+    /// <summary>
+    /// The same gates in a WINDOWED run, where the head keeps MonoGame's fixed timestep: a frame is
+    /// 1/60 s, so ten seconds is ~600 frames — generous for a 0.35 s dwell and for a 1.5 s capture
+    /// interval, and short enough that a broken run fails with a diagnosable <c>ERROR</c> line
+    /// instead of hanging until the process timeout.
+    /// </summary>
+    private const int WindowedGateTimeoutFrames = 1200;
+
+    /// <summary>The capture channel's per-file line, written only AFTER the PNG is on disk. Both a
+    /// pointer gate and an assertion key off it, so it lives in one place.</summary>
+    private const string ScreenshotSavedLine = "Screenshot saved:";
+
     /// <summary>The menu itself runs no <c>InputReplaySystem</c>, so this plan only matters once the
     /// click has moved the session onto the game screen — where it drains and exits.</summary>
     private static InputReplayPlan MenuBoot(string description) => new()
@@ -147,9 +159,18 @@ public class ExamplesAdoptionTests
     /// fixed 1920x1080 geometry even though the window is 800x600. That last inequality is the point:
     /// once the window follows the player's display, a window-sized screenshot is not comparable
     /// across machines, and a target-sized one is.
+    ///
+    /// <para>The target captured is <b>HUD</b>, and that choice is load-bearing rather than
+    /// incidental: <c>TooltipSystem</c> draws its panel and label on a screen-space target (HUD by
+    /// default) and <c>MasterRenderSystem</c> renders only the entities whose
+    /// <c>DrawComponent.Target</c> equals the pass's own id, so the tooltip is in the HUD target and
+    /// in NO other. A <c>Main</c> capture would picture the menu's buttons, labels and the
+    /// <c>HighlightComponent</c> outline — all of which are Main-target — and could not, by
+    /// construction, contain the #95 primitive this issue adopted. Capturing HUD, after the plan has
+    /// gated on the tooltip existing, is what makes the file evidence OF the tooltip.</para>
     /// </summary>
     [Fact]
-    public async Task WindowedRun_FitsTheWindow_AndCapturesTheTargetAtItsOwnResolution()
+    public async Task WindowedRun_FitsTheWindow_AndCapturesTheTooltipLayerAtItsOwnResolution()
     {
         const int windowWidth = 800;
         const int windowHeight = 600;
@@ -157,27 +178,44 @@ public class ExamplesAdoptionTests
         const int targetHeight = 1080;
 
         var result = await GameTestRunner.RunAsync(
-            MenuBoot("Windowed menu boot: fit the window, capture the Main target"),
+            MenuBoot("Windowed menu boot: fit the window, capture the HUD target with the tooltip up"),
             timeoutSeconds: 180,
             environment: new Dictionary<string, string>
             {
                 ["MONODREAMS_WINDOW"] = $"{windowWidth}x{windowHeight}",
                 ["MONODREAMS_SCREENSHOT"] = "png",
-                ["MONODREAMS_SCREENSHOT_INTERVAL"] = "0.05",
-                ["MONODREAMS_SCREENSHOT_MAX_FRAMES"] = "2",
-                ["MONODREAMS_SCREENSHOT_TARGET"] = "Main",
+                // ONE shot, taken late enough to be of the tooltip: the capture clock starts with the
+                // run, and at 60 fps (a windowed run keeps MonoGame's fixed timestep) the plan's
+                // 20-frame settle plus the 0.35 s dwell put the tooltip on screen by ~0.7 s. The
+                // clock ticks in Draw, so it can only LAG game time, never lead it.
+                ["MONODREAMS_SCREENSHOT_INTERVAL"] = "1.5",
+                ["MONODREAMS_SCREENSHOT_MAX_FRAMES"] = "1",
+                ["MONODREAMS_SCREENSHOT_TARGET"] = "HUD",
             },
             pointerPlan: new PointerReplayPlan
             {
-                // The pointer plan owns the exit (the menu runs no InputReplaySystem). Enough frames
-                // for the render passes to fill the Main target and the captures to land.
-                Description = "hover Level 1 in a real window, then drain and exit",
+                // The pointer plan owns the exit (the menu runs no InputReplaySystem).
+                Description = "hover Level 1 in a real window until its tooltip is captured",
                 TailFrames = 5,
                 Commands =
                 [
                     new PointerCommand { Kind = PointerCommandKind.WaitUntil, Frames = 20 },
                     new PointerCommand { Kind = PointerCommandKind.Move, X = Level1ButtonX, Y = Level1ButtonY },
-                    new PointerCommand { Kind = PointerCommandKind.WaitUntil, Frames = 90 },
+                    new PointerCommand
+                    {
+                        Kind = PointerCommandKind.WaitUntil,
+                        Entity = "Tooltip",
+                        TimeoutFrames = WindowedGateTimeoutFrames,
+                    },
+                    new PointerCommand { Kind = PointerCommandKind.Label, Text = "tooltip-visible" },
+                    // Wait for the FILE, not for a frame count: the capture writes its line after the
+                    // PNG is on disk, so the run cannot exit mid-write and leave a truncated shot.
+                    new PointerCommand
+                    {
+                        Kind = PointerCommandKind.WaitUntil,
+                        Log = ScreenshotSavedLine,
+                        TimeoutFrames = WindowedGateTimeoutFrames,
+                    },
                 ],
             },
             headless: false);
@@ -200,7 +238,16 @@ public class ExamplesAdoptionTests
             // (c) the capture channel recorded what its files are pictures of…
             Assert.Contains(result.LogLines, line =>
                 line.Contains("ScreenshotCaptureSystem initialized")
-                && line.Contains("source: Main render target"));
+                && line.Contains("source: HUD render target"));
+
+            // (d) …the shot was taken while the tooltip was up (the gate opened first), and the HUD
+            // layer it read was not empty — a tooltip-less HUD pass clears to transparent, which is
+            // exactly the blank frame this metric reports.
+            result.AssertLogContainsInOrder("[pointer] label: tooltip-visible", ScreenshotSavedLine);
+            Assert.Contains(result.LogLines, line =>
+                line.Contains(ScreenshotSavedLine) && line.Contains("nonBlank=True"));
+            Assert.DoesNotContain(result.LogLines,
+                line => line.Contains("TIMED OUT", StringComparison.OrdinalIgnoreCase));
 
             // …and every file is the TARGET's resolution, never the window's.
             Assert.NotEmpty(shots);

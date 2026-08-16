@@ -515,9 +515,11 @@ public sealed class SelectionSystem : ISystem<GameState>
     /// as a sprite: rank = the button's <c>Target</c> composite rank, depth = its final draw
     /// <c>DrawComponent.LayerDepth</c> (ButtonMeshPrepSystem's baked value, treating unset as the 0.95
     /// default), tested with the button's own axis-aligned quad (world top-left origin + <c>Size</c> —
-    /// the same rect <c>ButtonInteractionSystem</c> hover-tests) in the target's space (Main →
-    /// <see cref="CursorInputComponent.WorldPosition"/>, UI/HUD → <c>VirtualPosition</c>). The editor's
-    /// OWN toolbar / tab-strip / panel buttons are NEVER candidates — they live on the
+    /// the same quad the button's own hover pick uses, whether that is <c>UIFocusSystem</c>'s
+    /// <c>FocusableComponent.Size</c> or a hand-rolled test like Demos' <c>DemoButtonInteractionSystem</c>)
+    /// in the target's space (Main → <see cref="CursorInputComponent.WorldPosition"/>, UI/HUD →
+    /// <c>VirtualPosition</c>). The editor's OWN toolbar / tab-strip / panel buttons are NEVER
+    /// candidates — they live on the
     /// <see cref="RenderTargetID.Editor"/> target (rank &lt; 0) AND carry
     /// <see cref="EditorInfrastructureComponent"/>; both gates are checked so a stray editor button on a
     /// scene target still can't be scene-selected (the chrome rule).

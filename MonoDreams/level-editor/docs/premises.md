@@ -531,7 +531,10 @@ must still border-pick proxies and click-empty clear).
 a `DynamicText` label and **no** `SpriteInfoComponent`, so it never entered the sprite candidate set —
 the reason level-selection / demo-launcher buttons read as "unclickable" in Edit. Buttons now join the
 pick as their own source (like collider entities and the camera entity): hit-tested with the button's own
-axis-aligned quad (world top-left origin + `Size` — the SAME rect `ButtonInteractionSystem` hover-tests)
+axis-aligned quad (world top-left origin + `SimpleButtonComponent.Size` — the SAME quad the button's own
+hover pick uses: `UIFocusSystem`'s `FocusableComponent.Size` for a focusable button like the
+level-selection menu's, which the screen sets to that same box, and Demos' hand-rolled
+`DemoButtonInteractionSystem` test for a launcher button that carries no `FocusableComponent`)
 in the button's `Target` space (Main → `WorldPosition`, UI/HUD → `VirtualPosition`), ranked by the same
 composite-`TargetRank` + MAX-final-`DrawComponent.LayerDepth` (a button's baked 0.95 default when unset)
 + `EditorIdComponent` tiebreak. The editor's OWN toolbar / tab-strip / panel buttons are NEVER
@@ -621,14 +624,18 @@ the claim protects).
 ## Menu buttons are one root entity with a label child; a manual move sticks because the button is layout slot CONTENT (TB-B)
 
 A menu button (Examples' level-selection buttons, Demos' launcher buttons) is built as ONE **root
-entity** — `TransformComponent` (the select/move/gizmo handle) + `SimpleButtonComponent` (the pickable
-+ interaction surface, whose outline mesh `ButtonMeshPrepSystem` draws) + the game behavior
-(`LevelSelector` / `DemoButtonComponent`) — with the text **label as a `ChildOf` child**. There is no
+entity** — `TransformComponent` (the select/move/gizmo handle) + `SimpleButtonComponent` (the interaction
+surface, whose outline mesh `ButtonMeshPrepSystem` draws) + the game behavior
+(`LevelSelector` / `DemoButtonComponent`) — with the text **label as a `ChildOf` child**. Examples' menu
+buttons carry `FocusableComponent` on that same root as well (issue #115): it is what makes them
+pickable, since `UIFocusSystem` — not the game system — resolves the pointer pick there. There is no
 separate container entity and no shared-`TransformComponent` hack: selecting / moving / `G` / `S` /
 gizmo operate on the root, and the label follows through the ordinary hierarchy. This is the SINGLE
 button shape across Examples + Demos (the no-duplicate-ways tenet); the button systems
-(`ButtonInteractionSystem` / `DemoButtonInteractionSystem` / `ButtonMeshPrepSystem`) are unchanged
-because their `SimpleButtonComponent` + `TransformComponent` (+ behavior) query is all on the root.
+(`ButtonInteractionSystem` — now `LevelSelector` + `FocusableComponent` + `SimpleButtonComponent` —
+`DemoButtonInteractionSystem` and `ButtonMeshPrepSystem` — both still `SimpleButtonComponent` +
+`TransformComponent` + behavior) are unchanged by the shape because every component each of them
+queries is on the root.
 
 The layout-vs-manual-placement decision is **(b) the manual move sticks** (not (a) refuse). A button is
 attached to an `AutoLayout` slot as CONTENT — `SlotBuilder` parents the button root under the slot
@@ -643,9 +650,10 @@ button's transform in the first place.
 slot, so its transform was never solver-owned. Making the root carry the pickable surface + behavior
 keeps every button system single-path; making the label a child is what lets one edit move the whole
 button. Sticking (rather than refusing) matches the mental model and needs no new detach machinery.
-**Breaks:** putting `SimpleButtonComponent` on a child while the behavior stays on the root would fork
-every button query into two entities; attaching the button AS a slot (not as content) would let
-`AutoLayoutSystem` overwrite a manual move every frame (snap-back). If the label were a matrix-only
+**Breaks:** putting `SimpleButtonComponent` or `FocusableComponent` on a child while the behavior stays
+on the root would fork every button query into two entities (and the editor would then select a
+different entity than the one the pointer pick hovers); attaching the button AS a slot (not as content)
+would let `AutoLayoutSystem` overwrite a manual move every frame (snap-back). If the label were a matrix-only
 sibling sharing the root transform again (the old hack), a modal `G` would move the mesh but freeze the
 label whenever a `WorldPosition` reader runs before `HierarchySystem` (the divergence the foundation fix
 closes).
@@ -656,7 +664,9 @@ closes).
 `NewShapeButton_HoverRecolorsLabelChild_AndClickDispatches_InPlay`);
 `MonoDreams.Tests/LevelEditor/MenuWiringTests.cs` (the Play transition path).
 **Depends on:** ui — "`AutoLayoutBuilder` is the canonical entry point", "`LayoutNodeComponent` is a pure
-C# tree, not an ECS hierarchy" (slot vs content); foundation — "`TransformComponent.IsDirty` cascades
+C# tree, not an ECS hierarchy" (slot vs content), "`UIFocusSystem` is the single focus owner; pointer
+steals focus only on mouse move; nav is group-scoped" (the pick that reads the root's
+`FocusableComponent`); foundation — "`TransformComponent.IsDirty` cascades
 through the parent chain" (the label-follows-root propagation); this file — "Selection picks MAX final
 `LayerDepth` …" (the button candidate source that makes the root pickable).
 
@@ -2384,8 +2394,11 @@ them; `RunNormally`, self-guarded to `RunMode.Edit` (a modal cannot survive into
 **Children follow a modal edit exactly as under a gizmo drag (TB-B parity).** Both paths write the SAME
 `TransformEditCommand` (position/rotation/scale by-ref, marking the transform dirty), so a moved entity's
 `ChildOf` descendants — e.g. a menu button's label under its root — track the edit identically. This held
-only after the foundation fix: `ModalTransformSystem` is woven EARLY (`editor.modal`, before the layout /
-`ui.buttonMeshPrep` weave), so it edits the transform BEFORE a `WorldPosition` reader clears the
+only after the foundation fix: `ModalTransformSystem` is woven EARLY (`editor.modal`, before the `layout`
+group and before EVERY `ButtonMeshPrepSystem` in the screen — the editor toolbar's own
+`editor.toolbar/meshPrep`, still in the update pipeline, and a screen's own button prep, which since
+issue #115 sits in the DRAW-prep group as `drawPrep/buttonMeshPrep`, after the whole update pipeline),
+so it edits the transform BEFORE a `WorldPosition` reader clears the
 matrix-cache dirty bit; `HierarchySystem` now propagates off a read-stable signal
 (`TransformComponent.NeedsHierarchyUpdate`), so that intervening read no longer drops the child. Before
 the fix, a modal `G` moved the button mesh (the root, re-read by `ButtonMeshPrepSystem`) but froze the
