@@ -52,7 +52,9 @@ measurer is null.
 UI hierarchies are built via the fluent
 `AutoLayoutBuilder → ContainerBuilder → SlotBuilder` chain.
 `builder.CreateRoot(anchor)` returns a `ContainerBuilder` that emits a
-root `LayoutSlotComponent` with `IsRoot = true`; `.AddSlot(...)` and
+root `LayoutSlotComponent` with `IsRoot = true` (and
+`builder.CreatePinnedRoot(position, anchor)` the same plus a
+`PinnedLayoutRootComponent` — see the pinned-root premise); `.AddSlot(...)` and
 `.AddContainer(...)` add children; `.Build()` finalizes the tree and
 creates the entities. Game code should not hand-roll
 `LayoutSlotComponent` entities by setting components directly — the
@@ -667,6 +669,47 @@ a silent no-op footgun.
 "`AutoLayoutBuilder` is the canonical entry point".
 **Tests:** none yet.
 
+## A pinned root is out of the solver's flow, and `PinnedLayoutRootSystem` runs between `AutoLayoutSystem` and `HierarchySystem`
+
+Every root built with `AutoLayoutBuilder.CreateRoot(anchor)` is a child of one
+implicit screen container, so the screen's roots **stack** — a second root
+anchored `Center` starts where the first one ended. A root built with
+`AutoLayoutBuilder.CreatePinnedRoot(position, anchor)` carries
+`PinnedLayoutRootComponent` (data: `Anchor` + `Offset`) and is treated
+differently in two steps that must happen in this order:
+`AutoLayoutSystem` leaves it **out of** the implicit container (it solves that
+root's subtree standalone against the virtual screen, so N pinned roots never
+push each other — or an anchored root — around), and `PinnedLayoutRootSystem`
+then writes the root transform to `anchor offset + Offset`, resolving the
+anchor against the root's **solved** size with the same math anchored roots use
+(`AutoLayoutSystem.GetScreenAnchorOffset`, including the HUD top-left-origin
+translation). The pin system's pipeline slot is the feature: **after**
+`AutoLayoutSystem` (whose own per-frame transform write would overwrite an
+earlier placement) and **before** `HierarchySystem` and every other
+world-position consumer (`ButtonMeshPrepSystem`, `LayoutDebugSystem`,
+`CullingSystem`, the draw stack) so descendants and baked meshes see the pinned
+position in the same frame. The write is absolute and recomputed each frame, so
+it survives a resize or a re-measure. The division of labour is: the solver owns
+layout *within* a root, the pin owns *where the solved root sits*.
+
+**Why:** multi-panel screens (HUD + inventory + minimap, a desk/dashboard
+layout, a toolbar pinned to an edge) have no vocabulary in a single stacking
+container, and the workaround — re-writing the root's transform by hand after
+every layout pass — lived unnamed in the engine's own `ui` demo. Splitting
+"solve" from "place" keeps one solver authoritative and makes placement
+declarative data on the root.
+**Breaks:** registering the pin system *before* `AutoLayoutSystem` makes the
+solver overwrite the placement (the root falls back to its bare anchor, offset
+silently dropped). Registering it *after* `HierarchySystem` (or after mesh prep)
+leaves those consumers a frame behind — button outlines and debug overlays bake
+the un-pinned position. Putting `PinnedLayoutRootComponent` on a non-root slot
+is ignored by design (its position belongs to its parent container). A pinned
+root solved standalone has no parent to fill, so `SizingMode.FillContainer` on
+its own axes degrades to hug-contents — give it a fixed size instead.
+**Depends on:** "`AutoLayoutBuilder` is the canonical entry point";
+"`IntrinsicSizingSystem` runs before `AutoLayoutSystem`"; foundation —
+"`ChildOfComponent` and `TransformComponent.Parent` are two intentional links".
+**Tests:** `MonoDreams.Tests/Ui/PinnedLayoutRootTests.cs`.
 ## A highlight FOLLOWS its target's drawn bounds, RE-DERIVES its depth every frame, and DIES with its target
 
 `HighlightComponent` is a pure-data request ("draw attention here"); `HighlightSystem`

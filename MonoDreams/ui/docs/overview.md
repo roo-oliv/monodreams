@@ -12,6 +12,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 
 - `LayoutNodeComponent` — the flexbox solver's tree node (direction, justify, align, gap, padding, margin, computed bounds). A pure-C# tree maintained in parallel with `TransformComponent` hierarchy
 - `LayoutSlotComponent` — per-slot data: `SizeMeasurer` callback, `IsRoot`, `NeedsRemeasure`, attached content entity
+- `PinnedLayoutRootComponent` — pins a ROOT slot at an arbitrary screen position (`Anchor` + `Offset`) instead of stacking it in the implicit solver container. Several independent panels — a HUD widget, a toolbar, a sticky note — each get their own root
 - `UIElementComponent` — marker for UI entities (used by game-side interaction systems for hit-testing)
 - `SimpleButtonComponent` — button state (idle / hover / pressed) and visual style
 - `HighlightComponent` — "draw attention to this entity": pulse speed, colour, thickness, padding, depth offset. Add it to ANY entity (sprite, text label, button, icon, or a bare hotspot with an explicit `Size`) and `HighlightSystem` keeps a pulsing outline on it; remove it and the outline goes away
@@ -20,7 +21,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 
 ### Builders (fluent API)
 
-- `AutoLayoutBuilder` — entry point: `new AutoLayoutBuilder(world, viewportManager).CreateRoot(anchor)...`
+- `AutoLayoutBuilder` — entry point: `new AutoLayoutBuilder(world, viewportManager).CreateRoot(anchor)...`, or `.CreatePinnedRoot(position, anchor)...` for a root placed at a position of its own
 - `ContainerBuilder` — `.Direction(...)`, `.Gap(...)`, `.Padding(...)`, `.AddSlot(...)`, `.AddContainer(...)`
 - `SlotBuilder` — `.Attach(entity).MeasureWith(measurer)`
 
@@ -28,6 +29,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 
 - `IntrinsicSizingSystem` — invokes each slot's `SizeMeasurer` callback, writes results into `LayoutNodeComponent.Width/Height`. Runs first
 - `AutoLayoutSystem` — the flexbox solver: computes positions from the measured-size tree, writes to `TransformComponent`. Runs after `IntrinsicSizingSystem`
+- `PinnedLayoutRootSystem` — places every `PinnedLayoutRootComponent` root at `anchor + offset`, resolved against the root's solved size. Runs **after `AutoLayoutSystem` and before `HierarchySystem`** — that ordering is load-bearing (see premises)
 - `ButtonMeshPrepSystem` — paints button outlines via `rendering` based on `SimpleButtonComponent` state
 - `HighlightSystem` — owns one overlay entity per `HighlightComponent`: it rebuilds a pulsing outline from the target's *drawn* bounds, re-derives the overlay's layer depth from the target's every frame (so a z restack never buries it), inherits its render target + visibility, and disposes it with the target. Runs **last in the draw-prep stage**, after every prep system and before `MasterRenderSystem`
 - `TextInputSystem` — inserts masked characters at the caret (and handles Backspace / Delete / Left / Right / Home / End) into focused `TextInputComponent`s, mirrors the value onto the linked text entity, publishes `TextInputChanged`, and — when a `CaretEntity` is set — positions and shows a white vertical caret line at the insertion point. Reads the keyboard directly (edge-triggered); it only *consumes* the `Focused` flag — game code decides which field is focused
@@ -53,14 +55,28 @@ layout.CreateRoot(ScreenAnchor.Center)
     .Build();
 ```
 
+**Several independent panels**, each at its own spot — anchored roots share one implicit solver container and therefore stack, so pin them instead:
+```csharp
+layout.CreatePinnedRoot(new Vector2(32, 32))                      // 32 px in from the top-left
+    .Direction(LayoutDirection.Vertical)
+    .AddSlot(...)
+    .Build();
+
+layout.CreatePinnedRoot(Vector2.Zero, ScreenAnchor.BottomCenter)  // a taskbar on the bottom edge
+    .Direction(LayoutDirection.Horizontal)
+    .AddSlot(...)
+    .Build();
+```
+
 **Pipeline order** (within a screen's update pipeline):
 
 1. **`IntrinsicSizingSystem`** — measure content via callbacks.
 2. **`AutoLayoutSystem`** — compute and apply positions.
-3. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`).
-4. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
-5. **`HighlightSystem`** (optional) — pulsing outlines; register it at the END of the draw-prep stage (after `SpritePrepSystem` / `YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before `MasterRenderSystem`) so it reads the bounds and depths those systems just wrote.
-6. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
+3. **`PinnedLayoutRootSystem`** — place the pinned roots. Must sit here: after the solver, before `HierarchySystem` and any world-position consumer.
+4. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`).
+5. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
+6. **`HighlightSystem`** (optional) — pulsing outlines; register it at the END of the draw-prep stage (after `SpritePrepSystem` / `YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before `MasterRenderSystem`) so it reads the bounds and depths those systems just wrote.
+7. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
 
 **Highlight anything** — one line, no per-target asset, no new render path:
 ```csharp
@@ -101,5 +117,5 @@ The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberate
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, parallel `LayoutNodeComponent` + `TransformComponent` trees, exclusive panel groups park rather than hide, `ButtonInteractionSystem` deliberately out of module)
+- [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, pinned roots out of flow with the pin pass between `AutoLayoutSystem` and `HierarchySystem`, parallel `LayoutNodeComponent` + `TransformComponent` trees, exclusive panel groups park rather than hide, `ButtonInteractionSystem` deliberately out of module)
 - Related modules: `rendering` (button outlines and debug overlays draw via `IMeshGenerator` shapes from this module), `rendering-text` (text labels in UI slots), `cursor` (provides `CursorInputComponent.WorldPosition` for hit-testing in your game's interaction system), `dialogue` (does not use this module yet — uses hand-rolled offsets; aspirational to migrate)

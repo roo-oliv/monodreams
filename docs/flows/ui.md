@@ -21,7 +21,11 @@ is set, it invokes the slot's `SizeMeasurer(Content)` callback and writes the re
 solver: it re-parents every `IsRoot` slot's node under a screen-sized `_screenRoot`, calls
 `CalculateLayout`, and writes each node's computed `LayoutX/LayoutY` back onto the owning
 entity's `TransformComponent.Position` (roots also get the `ScreenAnchor` → screen-offset
-applied). Downstream, `ButtonMeshPrepSystem` reads each button's `transform.WorldPosition`
+applied). Roots carrying `PinnedLayoutRootComponent` are the exception: they stay OUT of
+`_screenRoot` (so they never stack with the other roots), are solved standalone against the
+virtual screen, and are then placed by `PinnedLayoutRootSystem` at `anchor + Offset` — a
+pass that must sit after `AutoLayoutSystem` and before `HierarchySystem`.
+Downstream, `ButtonMeshPrepSystem` reads each button's `transform.WorldPosition`
 and `SimpleButtonComponent.Size` to bake the outline/fill mesh, and text/sprite content
 entities (parented under their slot) render at the slot's resolved position. Layout writes
 positions; rendering reads them — the seam is `TransformComponent`.
@@ -69,6 +73,9 @@ the ones this flow's ordering leans on:
   space only after its own size is final, so the tree must solve root-to-leaf.
 - `AutoLayoutBuilder` is the canonical entry point; root slots need `IsRoot = true` or
   `AutoLayoutSystem` never picks them up.
+- `PinnedLayoutRootSystem` runs strictly between `AutoLayoutSystem` and `HierarchySystem`:
+  earlier and the solver's own write overwrites the placement, later and hierarchy /
+  mesh-prep / debug overlays bake the un-pinned position.
 - `ButtonMeshPrepSystem` bakes world coords and must run *after* `MeshPrepSystem` when both
   are present (it sets `WorldMatrix = Identity`); button geometry reads the post-layout
   `WorldPosition`, so it must run after `AutoLayoutSystem` too.
@@ -116,6 +123,10 @@ the ones this flow's ordering leans on:
   the outline drifts from its label by the layout-computed top-left.
 - **Flex-grow no-op** — setting `FlexGrow` on a child that isn't a main-axis fill child:
   silently does nothing; the row doesn't expand as intended.
+- **Roots stacking unintentionally** — several `CreateRoot` panels expected to sit at
+  different places share the one implicit container and pile up vertically; the fix is
+  `CreatePinnedRoot` + `PinnedLayoutRootSystem`, not a hand-written transform override
+  after the layout pass (the workaround this primitive replaced).
 - **Highlight drift / sink / orphan** — the three failure modes the highlight overlay
   exists to prevent, each re-appearing if its invariant is broken: an overlay posed once
   (instead of re-derived) drifts off a moving or re-laid-out target; an overlay with a
