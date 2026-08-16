@@ -90,13 +90,20 @@ public sealed class AudioCueSystem : ISystem<GameState>
 }
 ```
 
-Register it like any other game system, ahead of `AudioSystem` so a cue published this frame is
-heard this frame, and `Freeze` in edit-capable screens (cues are game logic):
+Register it like any other game system, with `Freeze` in edit-capable screens (cues are game
+logic):
 
 ```csharp
 p.Add("audio.cues", new AudioCueSystem(_world), EditTimeBehavior.Freeze);
 p.Add("audio", new AudioSystem(_world, _audioPlayer), EditTimeBehavior.Freeze);
 ```
+
+Order relative to `AudioSystem` does not matter for one-shots: `PlaySoundRequest` is handled by
+the subscription `AudioSystem`'s constructor opens, synchronously at publish time, so a cue
+sounds the instant it is published no matter which system ran first. It matters only for the
+entity-scoped case — an `AudioSourceComponent` a cue adds or mutates is picked up by the next
+`AudioSystem.Update`, so registering the cue system ahead of it starts that source the same
+frame instead of the next one.
 
 Why this shape rather than a `Play` call inside each gameplay system:
 
