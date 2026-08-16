@@ -85,6 +85,50 @@ camera demo, `MonoDreams/camera/demo/CameraDemoScreen.cs`).
 **Depends on:** "A render pass's camera virtual resolution matches its
 destination".
 
+## A render pass publishes its destination through a null-by-default socket
+
+`MasterRenderSystem.RenderedTargetSink` is a `static Action<RenderTargetID,
+RenderTarget2D>?`, default `null`, invoked at the very top of every pass's
+`Update` — before the empty-pass early return, so a pass with nothing to
+draw still announces the target it just cleared. It is an **observation
+channel only**: a subscriber may read the target it is handed and must not
+draw into it, retarget it, or dispose it. The handle is good for the frame
+it is published in and no longer — the screen that owns it may dispose it on
+a screen switch or rebuild it on a window resize — so a subscriber that
+keeps the reference across frames owns that lifetime question and must
+recheck `IsDisposed` before both reading it and preferring it to a newer
+publish. Nothing in `rendering` subscribes and nothing here knows who might;
+the `debug` module plugs `ScreenshotCaptureSystem` in when
+`MONODREAMS_SCREENSHOT_TARGET` names a target, and unplugs on `Dispose`.
+
+**Why:** screens own their render targets privately — there is no registry
+mapping a `RenderTargetID` to a live `RenderTarget2D`, and adding one would
+put a lifetime problem (screen switches, resize-recreated targets,
+retargeting) in a second place. The passes that actually ran this frame ARE
+that lookup, published for free. The direction is the one `GatedSystem`'s
+`TimingSink` established: the core module owns the socket and the optional
+module owns the plug, so a sensitive module never depends on a debug one
+and, with nothing installed, no observer exists in the object graph at all
+— just one null check per pass per frame.
+**Breaks:** calling into `debug` from here inverts the module dependency
+and drags capture code into every shipped game. Publishing *after* the
+early return hides idle passes, so a capture of a momentarily-empty layer
+silently reads nothing. A subscriber that draws into (or disposes) the
+target it is handed corrupts the frame the pass just rendered — the socket
+is not a second renderer, and "`MasterRenderSystem` is the sole render
+implementation" still holds. A subscriber that stores the handle and never
+rechecks `IsDisposed` reads a dead target, or pins itself to one and ignores
+every later publish, from the first screen switch or resize onward.
+**Tests:** `MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs`
+(subscribe-only-when-asked, unsubscribe on dispose);
+`MonoDreams.Tests/IntegrationTests/RenderTargetCaptureTests.cs` (a headless
+run resolves the `Scroll` target through the socket and captures it at
+360x220 while the backbuffer is 1280x720).
+**Depends on:** "One `MasterRenderSystem` instance is one render pass" (one
+publish per pass per frame is what makes first-publisher-wins meaningful);
+debug — "Target capture reads a fixed-resolution render target, resolved
+from the passes that ran".
+
 ## A render pass's camera virtual resolution matches its destination
 
 A `MasterRenderSystem` pass derives its mesh `BasicEffect` projection from

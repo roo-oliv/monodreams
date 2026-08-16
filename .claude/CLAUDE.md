@@ -122,7 +122,14 @@ modules into real game screens — start at
   `input_replay.json` (PNG interval) or the env contract owned by
   `ScreenshotCaptureSystem.FromEnvironment`: `MONODREAMS_SCREENSHOT=1|png|raw`,
   `MONODREAMS_SCREENSHOT_INTERVAL`, `MONODREAMS_SCREENSHOT_MAX_FRAMES` (raw
-  is ~3.5 MiB/frame — always cap it). See `MonoDreams/debug/docs/overview.md`.
+  is ~3.5 MiB/frame — always cap it), `MONODREAMS_SCREENSHOT_TARGET=window|Main|
+  UI|HUD|Scroll|Editor` (default `window`; a named target captures at ITS fixed
+  resolution, so the file size no longer follows the window). See
+  `MonoDreams/debug/docs/overview.md`.
+- **Unattended runs** — `MONODREAMS_KEEP_AWAKE=1` makes the host hold a macOS
+  `NSProcessInfo` activity for the run (in-process `caffeinate -disu`), so App Nap
+  and display sleep can't suspend a long agentic run. Opt-in, macOS-only, logged
+  no-op elsewhere (`MonoDreams.Debug.KeepAwake`).
 - **Running a test session** — write `input_replay.json`, run
   `dotnet run --project MonoDreams.Examples.Desktop`, check `debug/` for log +
   screenshots. (Examples is now a shared `.Core` lib + per-platform heads;
