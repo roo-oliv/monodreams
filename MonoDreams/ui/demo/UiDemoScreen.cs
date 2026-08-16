@@ -567,11 +567,24 @@ public class UiDemoScreen : IGameScreen
         var tertiary = MakeButton("btn.tertiary", "Tertiary", ButtonVariant.Tertiary, 22, TabButtons);
         var link = MakeButton("btn.link", "Link", ButtonVariant.Link, 23, TabButtons);
         // The Link variant reads as a hyperlink: underline its label and show the hand cursor on hover.
-        if (_lastButtonText.IsAlive && _lastButtonText.Has<DynamicTextComponent>())
-            _lastButtonText.Get<DynamicTextComponent>().Underline = true;
+        var linkLabel = _lastButtonText;
+        if (linkLabel.IsAlive && linkLabel.Has<DynamicTextComponent>())
+            linkLabel.Get<DynamicTextComponent>().Underline = true;
         link.entity.Get<FocusableComponent>().HoverCursor = CursorType.Hand;
 
         PlaceRow(new[] { primary, secondary, tertiary, link }, centerX: 0f, y: ContentTop, gap: 18f);
+
+        // The generic "look HERE" overlay (HighlightComponent + HighlightSystem): a pulsing outline
+        // that rides the target's DRAWN bounds, re-derives its depth every frame and dies with the
+        // target. Attached to two different draw types on purpose — a BUTTON (whose mesh
+        // ButtonMeshPrepSystem bakes) and a TEXT label — to show it is not button-specific and needs
+        // no per-target asset. Both are tab-gated, so switching tabs hides the glow with its target.
+        primary.entity.Set(new HighlightComponent { Padding = 5f, Thickness = 2f });
+        if (linkLabel.IsAlive)
+            linkLabel.Set(new HighlightComponent
+            {
+                Color = DemoPalette.TextSelected, Padding = 4f, Thickness = 1.5f, PulseSpeed = 1.4f,
+            });
 
         // Row 2: a disabled button plus an icon button and an icon-only button, centred together as
         // ONE row with a consistent gap (no skewed gap between left and right groups).
@@ -1479,6 +1492,9 @@ public class UiDemoScreen : IGameScreen
             g.Add("textPrep", new TextPrepSystem(_world, pixelPerfectRendering: false));
             g.Add("meshPrep", new MeshPrepSystem(_world));
             g.Add("buttonMeshPrep", new ButtonMeshPrepSystem(_world));
+            // Last in the prep stage: it outlines the bounds AND re-derives the depth the systems
+            // above just wrote, so anything earlier would outline last frame's state.
+            g.Add("highlight", new HighlightSystem(_world));
         });
         if (_editor != null)
         {
