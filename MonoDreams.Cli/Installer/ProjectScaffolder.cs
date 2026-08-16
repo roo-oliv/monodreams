@@ -147,6 +147,16 @@ internal static class ProjectScaffolder
         // DefaultEcs world each frame — the user grows it by adding screens/systems from the modules they
         // install. GraphicsProfile and window setup are gated for the web backend (MONODREAMS_WEB) so the
         // same source compiles to Reach/WebGL under a web head (foundation portability premise).
+        //
+        // The base class is written FULLY QUALIFIED (Microsoft.Xna.Framework.Game), and every emitted C#
+        // file must do the same — see WriteWebRazor for the web head's twin of this line. A game that puts
+        // code under a `<RootNamespace>.Game.*` namespace (the most natural folder name there is) makes the
+        // bare identifier `Game` resolve to THAT namespace: C# walks the enclosing namespaces before it
+        // consults using-directives, so a sibling namespace member always wins over Microsoft.Xna.Framework
+        // and the file the CLI itself emitted stops compiling with CS0118 ("'Game' is a namespace but is
+        // used like a type"). A `global using Game = Microsoft.Xna.Framework.Game;` alias does NOT fix it
+        // (verified empirically — the namespace still wins). Full qualification is the only fix.
+        //
         // The desktop branch adopts foundation's WindowFit by default (issue #86), so a scaffolded game
         // is immune from day one to the "window bigger than the display renders offscreen" break; the
         // web branch is untouched (JS owns the canvas size there).
@@ -160,11 +170,17 @@ using MonoDreams.State;
 namespace {{projectName}};
 
 /// <summary>
-/// The MonoGame <see cref="Game"/> for {{projectName}}. The per-platform heads
+/// The MonoGame <see cref="Microsoft.Xna.Framework.Game"/> for {{projectName}}. The per-platform heads
 /// ({{projectName}}.Desktop / {{projectName}}.Web) construct and run this; all shared game logic
 /// lives here in the Core library so both backends share one code path.
 /// </summary>
-public class GameRoot : Game
+/// <remarks>
+/// The base class is spelled out in full ON PURPOSE. Put any code under a <c>{{projectName}}.Game</c>
+/// namespace — the most natural folder name in a game project — and the bare identifier <c>Game</c>
+/// resolves to THAT namespace instead of Microsoft.Xna.Framework's type, and this file (which you did
+/// not write) stops compiling with CS0118. Keep every <c>Game</c> reference fully qualified.
+/// </remarks>
+public class GameRoot : Microsoft.Xna.Framework.Game
 {
     /// <summary>
     /// The virtual resolution this game is authored against — the size of the image the game renders,
@@ -848,7 +864,12 @@ namespace {{projectName}}.Web.Pages
     // proof the game is actually up.
     public partial class Index
     {
-        private Game _game;
+        // Fully qualified ON PURPOSE — the twin of {{projectName}}.Core's GameRoot base class. A
+        // `{{projectName}}.Game` namespace anywhere in the reference graph (Core counts) makes the bare
+        // identifier `Game` resolve to that namespace from here too, and this file stops compiling with
+        // CS0118. The web head is excluded from the solution's default build, so the break would surface
+        // one web build later than the Core one — long after the change that caused it.
+        private Microsoft.Xna.Framework.Game _game;
 
         protected override void OnAfterRender(bool firstRender)
         {

@@ -7,6 +7,7 @@ namespace MonoDreams.Cli.Tests;
 /// buildable projects; add injects correct per-platform packages"). Drives the real init + add flow through
 /// <see cref="Runner"/> into a temp dir, then runs <c>dotnet build</c> on the emitted projects:
 ///   - desktop: the .sln (Core + Desktop head) builds.
+///   - desktop + a &lt;Root&gt;.Game namespace: the .sln still builds (issue #84's CS0118 trap).
 ///   - web: the web head builds with -p:MonoDreamsPlatform=web (KNI/BlazorGL backend; needs wasm-tools).
 ///   - multi: the .sln builds desktop (web head excluded), and the web head builds explicitly.
 ///
@@ -30,6 +31,49 @@ public class ScaffolderBuildTests
         try
         {
             AssertBuild(Path.Combine(projectDir, "BuildDesk.sln"), platformArg: null);
+        }
+        finally { TryDelete(projectDir); }
+    }
+
+    /// <summary>
+    /// Issue #84 guard: a scaffolded project that organizes its own code under a
+    /// <c>&lt;RootNamespace&gt;.Game.*</c> namespace — the most natural folder name in a game project —
+    /// still builds. The bare identifier <c>Game</c> resolves to that sibling namespace before any
+    /// using-directive is consulted, so a template that does not fully qualify
+    /// <c>Microsoft.Xna.Framework.Game</c> hands the user CS0118 in <c>GameRoot.cs</c>, a file the CLI
+    /// wrote and the user did not. Dropping a real <c>&lt;Root&gt;.Game.*</c> file into Core and building
+    /// is the only check that catches it — the emitted source compiles fine on its own.
+    ///
+    /// <para><b>Desktop only.</b> The web head's <c>Pages/Index.razor.cs</c> carries the identical trap
+    /// (<c>private Microsoft.Xna.Framework.Game _game;</c>) and is the reason it bit twice, but a
+    /// BlazorWebAssembly build cannot be driven from inside the VSTest host here — see
+    /// <see cref="Init_Web_ThenAdd_WiresKniBackendAndWebHost"/>. The web template is pinned textually
+    /// instead by <c>ScaffolderPlatformTests.Scaffold_Multi_EmittedCSharpFullyQualifiesGame</c>, which
+    /// scans every emitted C# file; the web build with a <c>&lt;Root&gt;.Game</c> namespace present was
+    /// verified from a shell (<c>dotnet build … -p:MonoDreamsPlatform=web</c>, wasm-tools installed).</para>
+    /// </summary>
+    [Fact]
+    public async Task Init_Desktop_WithGameSubNamespace_StillBuilds()
+    {
+        if (SkipOnWindows()) return;
+        var (projectDir, _) = await InitAndAdd("desktop", "GameNs");
+        try
+        {
+            // User code in the namespace the emitted GameRoot.cs has to survive. Any depth works — the
+            // name that shadows the type is the FIRST segment after the root namespace.
+            var dir = Path.Combine(projectDir, "GameNs.Core", "Game", "Systems");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "Placeholder.cs"), """
+namespace GameNs.Game.Systems;
+
+/// <summary>Stands in for the game code a real project keeps under its `Game` folder.</summary>
+public sealed class Placeholder
+{
+}
+
+""");
+
+            AssertBuild(Path.Combine(projectDir, "GameNs.sln"), platformArg: null);
         }
         finally { TryDelete(projectDir); }
     }
