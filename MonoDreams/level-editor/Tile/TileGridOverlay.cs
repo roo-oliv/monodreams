@@ -180,10 +180,11 @@ public sealed class TileGridOverlay
 
     private (float Left, float Top, float Right, float Bottom) VisibleWorldAabb()
     {
+        // Authoring-space screen corners (see EditorGrid.VisibleWorldAabb).
         var c0 = _camera.VirtualScreenToWorld(new Vector2(0f, 0f));
-        var c1 = _camera.VirtualScreenToWorld(new Vector2(_camera.VirtualWidth, 0f));
-        var c2 = _camera.VirtualScreenToWorld(new Vector2(_camera.VirtualWidth, _camera.VirtualHeight));
-        var c3 = _camera.VirtualScreenToWorld(new Vector2(0f, _camera.VirtualHeight));
+        var c1 = _camera.VirtualScreenToWorld(new Vector2(_camera.LayoutWidth, 0f));
+        var c2 = _camera.VirtualScreenToWorld(new Vector2(_camera.LayoutWidth, _camera.LayoutHeight));
+        var c3 = _camera.VirtualScreenToWorld(new Vector2(0f, _camera.LayoutHeight));
         return (
             MathF.Min(MathF.Min(c0.X, c1.X), MathF.Min(c2.X, c3.X)),
             MathF.Min(MathF.Min(c0.Y, c1.Y), MathF.Min(c2.Y, c3.Y)),

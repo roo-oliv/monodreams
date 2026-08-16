@@ -32,16 +32,18 @@ public static class CameraEntityGlyph
 
     /// <summary>
     /// The four world-space corners (TL, TR, BR, BL) of the scene camera's frustum: a
-    /// <paramref name="virtualWidth"/> × <paramref name="virtualHeight"/> box scaled by
+    /// <paramref name="layoutWidth"/> × <paramref name="layoutHeight"/> (authoring) box scaled by
     /// <c>1 / <paramref name="zoom"/></c> and centred on <paramref name="center"/>. A non-positive zoom
     /// degrades to 1 (never divides by zero). The corner order matches
     /// <c>ProxyGeometry.BoxWorldCorners</c> so downstream stroke/pick code treats it identically.
     /// </summary>
-    public static Vector2[] FrustumWorldCorners(Vector2 center, float zoom, int virtualWidth, int virtualHeight)
+    public static Vector2[] FrustumWorldCorners(Vector2 center, float zoom, int layoutWidth, int layoutHeight)
     {
         var z = zoom > 0f ? zoom : 1f;
-        var halfW = virtualWidth / z * 0.5f;
-        var halfH = virtualHeight / z * 0.5f;
+        // AUTHORING extent ÷ zoom = world extent (Camera.LayoutWidth/Height; == the virtual size in a
+        // single-space game). The render scale never enters — it is the camera's, not the frustum's.
+        var halfW = layoutWidth / z * 0.5f;
+        var halfH = layoutHeight / z * 0.5f;
         return new[]
         {
             new Vector2(center.X - halfW, center.Y - halfH), // TL

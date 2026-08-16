@@ -490,7 +490,7 @@ public sealed class SelectionSystem : ISystem<GameState>
             if (!camera.IsAlive) continue;
             var corners = CameraEntityGlyph.FrustumWorldCorners(
                 camera.Get<TransformComponent>().WorldPosition, camera.Get<CameraComponent>().Zoom,
-                _camera.VirtualWidth, _camera.VirtualHeight);
+                _camera.LayoutWidth, _camera.LayoutHeight);
             if (!ProxyGeometry.BorderContains(corners, _worldPoint, tolerance)) continue;
 
             if (!camera.Has<EditorIdComponent>())

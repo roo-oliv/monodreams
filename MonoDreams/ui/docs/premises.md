@@ -52,7 +52,9 @@ measurer is null.
 UI hierarchies are built via the fluent
 `AutoLayoutBuilder → ContainerBuilder → SlotBuilder` chain.
 `builder.CreateRoot(anchor)` returns a `ContainerBuilder` that emits a
-root `LayoutSlotComponent` with `IsRoot = true`; `.AddSlot(...)` and
+root `LayoutSlotComponent` with `IsRoot = true` (and
+`builder.CreatePinnedRoot(position, anchor)` the same plus a
+`PinnedLayoutRootComponent` — see the pinned-root premise); `.AddSlot(...)` and
 `.AddContainer(...)` add children; `.Build()` finalizes the tree and
 creates the entities. Game code should not hand-roll
 `LayoutSlotComponent` entities by setting components directly — the
@@ -68,6 +70,31 @@ to it. Hand-rolling skips one of those and the layout silently breaks.
 parent link means children render at world origin.
 **Tests:** none yet.
 **Depends on:** —
+
+## UI lays out in AUTHORING space, not render pixels
+
+`AutoLayoutSystem`'s screen root is `ViewportManager.LayoutWidth`×`LayoutHeight`
+(and `AutoLayoutBuilder` exposes those as `LayoutWidth`/`LayoutHeight`), never
+the render resolution. Every UI number a game writes — root sizes, anchors,
+paddings, the screen-anchor offsets — is therefore in authoring units, and the
+UI/HUD render passes must be given `ViewportManager.LayoutCamera` so those units
+land on the right render pixels. In a single-space game the two resolutions are
+equal and this reads exactly like the old "virtual screen" wording.
+
+**Why:** the whole point of the two-space model is that a render-resolution move
+costs no authored number (rendering — "Authoring space and render space are
+distinct; the scale lives only in the cameras"). UI is where hardcoded
+final-resolution coordinates concentrate, so it is the layer that must be sized
+in the space that never moves.
+**Breaks:** sizing the layout root from `VirtualWidth` makes every anchored root
+jump when the render resolution changes (a top-right button leaves the screen at
+a lower render scale, and floats inside it at a higher one) — and, paired with a
+`null`-camera UI pass, the whole UI renders quarter-size in a corner.
+**Tests:** none yet directly; the space contract is covered by
+`MonoDreams.Tests/Rendering/RenderSpaceTests.cs` and the live 1.5× render of the
+UI demo in `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
+**Depends on:** rendering — "Authoring space and render space are distinct; the
+scale lives only in the cameras".
 
 ## `LayoutNodeComponent` is a pure C# tree, not an ECS hierarchy
 
@@ -217,6 +244,14 @@ caret on focus, so a game that pre-fills `Text` should set `CaretPosition = Text
 when it creates the field (otherwise editing starts at the front, index 0). The system
 always clamps `CaretPosition` into `[0, Text.Length]`.
 
+The hardware read behind that key capture is **injectable**:
+`TextInputSystem.KeyboardStateProvider` (a `Func<KeyboardState>`, defaulting to
+`Keyboard.GetState`) is the same seam `KeyChordTracker`, `EditorShortcutSystem` and
+`CursorInputSystem.MouseStateProvider` expose. A scripted driver — the `debug` module's
+`PointerReplaySystem`, whose `type` command synthesizes key presses — sets it, so typed text
+reaches a field through THIS system's real per-frame diff (mask, caret, `TextInputChanged`
+included) rather than by a driver writing `Text` behind the system's back.
+
 **Why:** focus policy is UX-specific (click-to-focus, tab order, single vs multiple
 focus, blur on outside click, where the caret lands on focus). Baking one policy into
 the module would force every game to accept or suppress it. Keeping the flag as the seam
@@ -230,9 +265,13 @@ it); two fields left `Focused` at once both consume the same keystrokes. The
 edge-triggered keyboard diff is shared per frame, so multi-focus is undefined by
 design. A pre-filled field left at `CaretPosition = 0` inserts typed characters before
 the existing value.
-**Tests:** none yet (exercised by the physics demo: the `TextInputChanged` →
-rebuild path is wired there).
-**Depends on:** "`ButtonInteractionSystem` is deliberately NOT in this module".
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`Type_ReachesARealTextInputSystem_ThroughTheKeyboardSeam` — a scripted `type` lands its text
+through the injected keyboard seam and the system's own diff). The focus half has no test yet
+(exercised by the physics demo: the `TextInputChanged` → rebuild path is wired there).
+**Depends on:** "`ButtonInteractionSystem` is deliberately NOT in this module";
+debug — "`PointerReplaySystem` injects into the real cursor component; it never simulates a click"
+(the same injection-not-simulation rule, applied to the keyboard).
 
 ## The text-input caret is a game-supplied mesh entity the system positions and toggles
 
@@ -430,26 +469,34 @@ A focusable opts into a custom hover cursor purely as data:
 `Hand` for a link). A mesh cursor opts into swapping by carrying a
 `CursorMeshLibraryComponent` (`Dictionary<CursorType, MeshData>`, with the `Default` entry
 being the resting arrow). `CursorHoverSystem` (in `ui`, which already depends on `cursor`)
-runs after `CursorPositionSystem`: it hit-tests every focusable with a non-Default
-`HoverCursor` (mirroring `DropdownSystem.ContainsCursor` — `Rectangle(WorldPosition,
-FocusableComponent.Size)` vs the cursor's world/virtual position by the focusable's
-`Target`), picks the topmost hovered one, writes its `CursorType` onto
-`CursorControllerComponent.Type`, and — only when the type changes — swaps the cursor
-entity's mesh `DrawComponent` to the matching library entry (falling back to `Default`).
+runs after `UIFocusSystem` and reads **the pointer pick** off the cursor entity
+(`PointerPickComponent` — it runs no hit-test of its own, see "There is ONE pointer
+pick"): it takes the picked entity's `HoverCursor` (`Default` when nothing is picked),
+writes it onto `CursorControllerComponent.Type`, and — only when the type changes — swaps
+the cursor entity's mesh `DrawComponent` to the matching library entry (falling back to
+`Default`).
 
 **Why:** "show a hand over links" is a reusable, mechanical UI behavior that should not
 be hand-rolled per screen, and it generalizes to any focusable + any cursor type. Keeping
 the request on the focusable (data) and the silhouettes in a library (data) lets the one
 system own the swap, mirroring how `ButtonVisualSystem` owns the focus visual. A textured
 cursor (no `CursorMeshLibraryComponent`) is left untouched, so the mechanism is additive.
+Deriving the swap from the shared pick (rather than a private hit-test) is what keeps the
+hand cursor and the click on the same entity: the system inherits the pick's group and
+disabled filters, so a link trapped under an open dialog no longer paints a hand for a
+click that can't reach it.
 **Breaks:** registering the system but giving the mesh cursor no library records the
-`CursorType` but never swaps the mesh (silent no-op). Running it before
-`CursorPositionSystem` hit-tests against last frame's cursor position. A focusable whose
-`Size` is zero never hovers.
-**Depends on:** cursor — "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`";
-"Cursor `TransformComponent.Position` depends on render target"; "`UIFocusSystem` is the
-single focus owner" (the hit-test bounds convention).
-**Tests:** none yet (exercised by the `ui` demo's Link button).
+`CursorType` but never swaps the mesh (silent no-op). Registering it without the pick's
+owner (`UIFocusSystem`) leaves the cursor on the resting arrow — the documented graceful
+degradation, not a crash. A focusable whose `Size` is zero never hovers.
+**Depends on:** "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers
+read it"; cursor — "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`";
+"`CursorMeshLibraryComponent` holds the per-`CursorType` silhouettes a mesh cursor swaps
+between".
+**Tests:** `MonoDreams.Tests/Ui/PointerPickTests.cs`
+(`PickedFocusableRequestingAHand_SwapsTheCursorTypeAndMesh`,
+`FocusableOutsideTheActiveGroup_DoesNotSwapTheCursor`,
+`NoPickPublished_LeavesTheCursorUntouched`).
 
 ## `FocusableComponent.Disabled` (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav
 
@@ -495,6 +542,25 @@ to compute the topmost-open group and pass to `UIFocusSystem`'s
 `activeGroup`. Group ids by convention: dialog = `100`, dropdown = `200`,
 combobox-dropdown = `300` (base UI is group `0`).
 
+This pattern is scoped to **overlays that open over the screen** (a modal
+dialog, a popup list) and to `TabSystem`'s flat per-entity tagging. It is
+**not** the way to switch a set of mutually exclusive PANELS: those park (see
+"Exclusive panel groups PARK their inactive members; they never hide them")
+— `PanelGroupComponent` / `PanelGroupSystem` is the sanctioned
+implementation, and a new tabbed/paged/wizard surface should reach for it
+rather than growing another hide-based switcher.
+
+When both are in one pipeline, **`PanelGroupSystem` runs after `TabSystem`
+and is authoritative for the focusables under its members**: `TabSystem`
+gates everything tagged `TabContentComponent` (headers, pager chrome, and —
+knowing nothing about panels — a parked panel's controls too), then the
+panel gate refines its own members back down to the active panel. Two
+consequences: chrome that is on the tab but in no group is gated by
+`TabSystem` alone, and a panel group living inside a tab must be **closed**
+(`Active = None`) while that tab is off, or the panel gate re-enables its
+active panel's controls on a tab the player cannot see. The ui demo's
+Panels tab does exactly that.
+
 **Why:** on the Main target `VisibleComponent` is the show/hide toggle (the
 demo runs no `CullingSystem`, so the tag is the visibility switch), and
 gating focus with `FocusableComponent.Disabled` keeps hidden controls out of
@@ -508,12 +574,119 @@ Tab still lands on. An overlay system that tried to set the active group
 itself would fight other overlays when more than one is open — only the
 screen sees the whole stack. Using these on a UI/HUD target (which ignores
 `VisibleComponent`) would fail to hide — those targets need the
-empty-the-mesh toggle instead (see the caret / toggle premises).
+empty-the-mesh toggle instead (see the caret / toggle premises), which is
+also why an exclusive-panel switcher must park instead of hide.
 **Depends on:** rendering — "Three render targets, two behaviors";
 "`UIFocusSystem` is the single focus owner"; "`FocusableComponent.Disabled`
 (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are
-separate".
-**Tests:** none yet.
+separate"; "Exclusive panel groups PARK their inactive members; they never
+hide them".
+**Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
+(`ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies`
+covers `TabSystem`'s focus gate — on out-of-group chrome, where nothing else
+writes it — and its composition with the panel gate; the `VisibleComponent`
+half and the dialog/dropdown systems are untested).
+
+## Exclusive panel groups PARK their inactive members; they never hide them
+
+A set of mutually exclusive panels — tab bodies, settings pages, wizard
+steps, an inventory/character/map switcher — is one primitive:
+`PanelGroupComponent` (pure data: `Members`, the `Active` index, a
+`ParkOffset`) plus `PanelGroupSystem`. The active member sits at its own
+position; every other member is **parked** — translated by `ParkOffset`
+(default `(-100000, -100000)`, the magnitude the editor chrome parks at) so
+it renders outside any viewport while staying fully alive: nothing is
+removed, no `VisibleComponent` is toggled, the subtree comes along through
+the transform hierarchy, and switching back restores the member's position
+verbatim. `Active = PanelGroupComponent.None` (`-1`, and any out-of-range
+index) is first class and parks every member — a closed menu is a panel
+group with no active member, not a special case. Focus follows the same
+rule: every `FocusableComponent` whose transform chain reaches a parked
+member is `Disabled`, and the active member's are re-enabled. **Groups
+nest** — a wizard step containing a sub-tab bar, a settings page containing
+a paged sub-menu — and the gate walks the WHOLE transform chain, not just up
+to the nearest member: a focusable is reachable only when *every* member
+above it is active, so a parked outer step keeps an inner group's active
+body out of navigation (the inner body is still restored at its own local
+position; it simply rides the parked ancestor off-screen). **Game code
+only ever writes `Active`;** the parking dance is never hand-written.
+
+**Why:** hiding is the instinct and it is wrong here. `VisibleComponent`
+only hides on the Main target (UI/HUD/Scroll render regardless — see
+rendering's "Three render targets, two behaviors"), and where it does work
+it un-preps the panel (`SpritePrepSystem` / `TextPrepSystem` /
+`MeshPrepSystem` / `YSortSystem` all query `[With(VisibleComponent)]`), so
+the panel goes cold and comes back as a frame of stale or re-solving
+content. Parking works identically on every target and keeps the panel warm
+— measured, laid out, its widget state intact — so the switch back is a
+single transform write. Game-side hand-rolled versions of this dance were
+where the bug lived (NFs, Please! window tabs), which is why the mechanism
+ships as a primitive instead of a documented convention.
+**Breaks:** hiding a panel instead of parking it silently does nothing on
+UI/HUD/Scroll and produces a first-frame flicker of stale prep on Main;
+parking by hand (`position += offset` per frame) compounds the offset until
+the panel is unreachable; skipping the focus gate leaves invisible-but-
+focusable controls that Tab still lands on inside a panel the player cannot
+see; gating only at the NEAREST member ancestor breaks the same way one
+level down — an inner group re-enables its active body's controls while the
+outer step is parked, and Tab walks off-screen; parking a panel whose
+content is NOT parented under the member root leaves that content on screen.
+**Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
+(`SwitchAwayAndBack_RestoresEveryTransformIdentically` and
+`LayoutDrivenPanel_SwitchesAwayAndBack_WithoutDriftingOrCompounding` — the
+round trip is exact, local and world;
+`ParkedPanel_KeepsItsComponents_AndItsSubtreeMovesOffScreen` — moved, not
+hidden; `ParkingIsIdempotent_AcrossManyFrames`;
+`CustomParkOffset_IsHonored_AndChangingItReParksFromTheSameHome`;
+`NoneActive_ParksEveryMember_AndReopeningRestoresThePage`;
+`OutOfRangeActiveIndex_ParksEveryMember`;
+`FocusablesUnderAParkedPanel_AreDisabled_AndReEnabledOnSwitchBack`;
+`NestedGroups_AParkedOuterMemberGatesTheInnerGroupsActivePanel` — the
+nesting rule;
+`ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies`;
+`DeadOrTransformlessMembers_AreSkipped`). The reference usages are the ui
+demo's Panels tab: a sub-tab bar and a paged settings menu on the same
+component.
+**Depends on:** rendering — "Three render targets, two behaviors";
+foundation — the `TransformComponent` parent chain (the park moves a
+subtree); this file — "`UIFocusSystem` is the single focus owner",
+"`PanelGroupSystem` runs after every writer of a member's position and
+before `HierarchySystem`".
+
+## `PanelGroupSystem` runs after every writer of a member's position and before `HierarchySystem`
+
+`PanelGroupSystem` re-derives the park from the member's CURRENT position
+every frame instead of remembering an absolute one: it stashes
+`PanelParkedComponent { Home, Parked }` when it parks, and on later frames
+re-parks only if the position differs from the `Parked` value it last wrote
+— in which case the fresher value is the new `Home` (another system owns
+that position). So the pipeline must place it **after** everything that
+writes member positions (`AutoLayoutSystem` rewrites every root slot's
+position from scratch each frame; a screen tick may re-centre a panel) and
+**before** `HierarchySystem`, so a park reaches the panel's descendants in
+the same frame. `PanelParkedComponent` is engine-owned bookkeeping present
+only while a member is parked — never authored, never serialized.
+
+**Why:** a layout-driven panel is the common case, and a park that assumed
+it owned the position would either be overwritten by the solver (the panel
+snaps back on screen) or compound the offset every frame. Re-deriving from
+the live position is what lets a member be an auto-layout root, a
+hand-placed card, or a screen-driven panel without the primitive knowing
+which. Running before `HierarchySystem` matches the same rule the demo's
+other position writers follow.
+**Breaks:** registered before `AutoLayoutSystem`, the solver overwrites the
+park and the "hidden" panel renders on top of the active one; registered
+after `HierarchySystem`, children lag the park by a frame (a visible tear on
+switch); writing `PanelParkedComponent` by hand corrupts the stash and the
+panel restores to the wrong home.
+**Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
+(`LayoutDrivenPanel_SwitchesAwayAndBack_WithoutDriftingOrCompounding` runs
+the real `IntrinsicSizingSystem` → `AutoLayoutSystem` → `PanelGroupSystem` →
+`HierarchySystem` order; `ParkingIsIdempotent_AcrossManyFrames`).
+**Depends on:** foundation — "`TransformComponent.IsDirty` cascades through
+the parent chain" (`HierarchySystem` propagation); this file —
+"`IntrinsicSizingSystem` runs before `AutoLayoutSystem`", "Exclusive panel
+groups PARK their inactive members; they never hide them".
 
 ## A combobox is a `TextInputComponent` driving a `DropdownComponent`'s filter
 
@@ -541,6 +714,99 @@ with `DropdownComponent.Items` filters the wrong rows.
 **Depends on:** "Tab / Dialog / Dropdown systems show/hide on the Main
 target …"; "Text-input focus is game-owned; key capture is the module's job".
 **Tests:** none yet.
+
+## There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers read it
+
+The question "what is the pointer over?" is answered **once per frame, in one place**.
+`UIFocusSystem`'s pointer pass already resolves the topmost `FocusableComponent` under the
+cursor to drive hover-focus, press and activation; it now also **publishes** that answer on
+the **cursor entity** as `PointerPickComponent` — the picked `Entity` (`default` for
+"nothing") plus the `GameState.TotalTime` at which that entity *became* the picked one.
+Every system that reacts to what the pointer is over — `TooltipSystem` and
+`CursorHoverSystem` today — **reads that component and never hit-tests again**. Because the
+pick is the same resolution focus and click act on, it carries the same filters for free
+(in the active group, not tab-gated via `FocusableComponent.Disabled`, not control-disabled
+via `ButtonStateComponent.IsDisabled`), and a hover affordance can never disagree with what
+a click would do. The component is written only when the picked entity *changes*, so
+`HoverStartTime` keeps running while the pointer rests and a consumer's dwell is one
+subtraction (`state.TotalTime - pick.HoverStartTime`) with no private timer. A consumer must
+still treat `Hovered` as untrusted — the pick is only refreshed while its owner runs, so it
+re-checks `IsAlive` (a picked entity can be disposed the same frame).
+
+**Why:** every "react to the hovered thing" feature (tooltip, hand cursor, hover sound,
+highlight) is otherwise re-derived by its own `Rectangle(WorldPosition, Size)` sweep. Those
+copies drift: they disagree on the topmost-wins rule, on which target's coordinates to
+compare, and — the silent one — on the disabled / active-group filters, so a tooltip or a
+hand cursor appears for a control a click cannot reach. One publisher and N readers makes
+the agreement structural instead of a convention each new system has to remember. Putting
+the pick on the *cursor* entity (rather than a world singleton) keeps it per-pointer, so it
+survives a future second cursor.
+**Breaks:** a consumer that runs its own hit-test reintroduces the drift the pick exists to
+remove (that was `CursorHoverSystem` before this premise: group-blind, so it painted a hand
+over a link trapped under an open dialog). A second writer of `PointerPickComponent` races
+the dwell clock and makes every delay non-deterministic. Re-`Set`ting the component every
+frame (instead of only on change) resets `HoverStartTime` continuously, so a dwell-gated
+consumer never fires. Registering a consumer without `UIFocusSystem` yields no pick at all —
+the consumer stands down (no tooltip, resting arrow), which is the intended degradation, not
+a fallback hit-test.
+**Depends on:** "`UIFocusSystem` is the single focus owner; pointer steals focus only on
+mouse move; nav is group-scoped"; "`FocusableComponent.Disabled` (tab-gating) and
+`ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav";
+cursor — "Cursor `TransformComponent.Position` depends on render target" (the pick compares
+against `CursorInputComponent`'s virtual/world position by the focusable's `Target`, never
+the cursor's own transform).
+**Tests:** `MonoDreams.Tests/Ui/PointerPickTests.cs` (publication, topmost-wins, dwell clock,
+the disabled / out-of-group filters, and `CursorHoverSystem` deriving its swap from the pick);
+`MonoDreams.Tests/Ui/TooltipTests.cs` (`Tooltip_FollowsThePick_NotItsOwnHitTest`,
+`PointerInsideADisabledControl_ShowsNoTooltip` — the two halves of "no second hit-test").
+
+## The tooltip is a transient, system-owned, screen-space label that despawns with its pick
+
+`TooltipComponent` is pure data on any **pickable** entity (anything carrying
+`FocusableComponent`, on any render target): the label text plus an optional per-entity
+`Delay` (`null` = use `TooltipStyle.Delay`, `0` = instant). `TooltipSystem` owns everything
+else. It shows the picked entity's label once the dwell has elapsed, and the label entities
+are **its own**: it creates them on show, repositions them every frame, rebuilds them when
+the picked entity or its text changes, and disposes them on hover-out, on target death, when
+the system is disabled or **stopped by its gate** (it implements `ISuspendableSystem`, so a
+screen may register it `Freeze` without stranding a live label in `RunMode.Edit`), and on its
+own `Dispose`. They are never parented to the hovered entity (the system runs after
+`HierarchySystem`, so a parent-relative label would render at a stale world position on the
+frame it appears) and they carry no scene-serialization marker, so a transient tooltip never
+lands in a saved scene. The label renders on a **screen-space** target (HUD by default; UI
+allowed, world-space targets are refused in the constructor) at the style's `LayerDepth` —
+below the cursor's `1.0` — and its top-left comes from the pure `TooltipPlacement.Place`,
+which offsets from the pointer and **flips to the opposite side of the pointer** on
+whichever axis would otherwise push it past the screen margin, clamping (never overflowing)
+a label too big to fit either way.
+
+**Why:** a tooltip is defined by *not* occupying layout space: it must float above
+everything, follow the pointer, and vanish without the screen having to bookkeep it. That
+only works if exactly one owner controls its lifetime — a game-created label would have to
+be shown, hidden, re-measured, re-positioned and torn down by every screen that wants one,
+which is the fiddly re-implementation this primitive exists to delete. The edge flip is the
+non-obvious half: without it the tooltip of the right-most icon — precisely the one a user
+hovers to discover — slides off screen. Keeping the placement pure (no world, no font, no
+`GraphicsDevice`) is what makes that behavior testable at all.
+**Breaks:** a game that creates or mutates the tooltip entities fights the system and races
+them each frame. Placing the label on a world-space target puts the camera transform between
+the pointer and the label, so the "edge" it flips at is not the screen's. Parenting it to the
+hovered entity resurrects the stale-world-position frame and, worse, makes
+`HierarchySystem.DisposeOrphans` cascade into it. Giving it a `LayerDepth` above the cursor
+draws the label over the pointer. Dropping the `ISuspendableSystem` teardown while the demo
+(or any editor-capable screen) registers the system `Freeze` strands the panel + label on the
+never-frozen HUD pass the moment the transport pauses: nothing else in the engine knows those
+entities exist, so nothing else can dispose them.
+**Depends on:** "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers
+read it"; foundation — "A gated system that owns transient entities tears them down through
+`ISuspendableSystem`"; rendering — "Three render targets, two behaviors"; "`MeshPrepSystem`
+writes the world matrix once per frame" (the panel carries `VisibleComponent` so its world
+matrix is written the frame it appears); rendering-text — "`TextPrepSystem` writes the
+world-transformed position".
+**Tests:** `MonoDreams.Tests/Ui/TooltipTests.cs` (dwell + per-entity override, hover-out and
+target-death despawn, rebuild-on-retarget, dispose, disable and `Freeze`-gate teardown
+(`FreezingTheSystem_DespawnsTheTooltip`), the world-space-target refusal, and the
+edge-flip / clamp matrix on `TooltipPlacement.Place`).
 
 ## Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution
 
@@ -570,6 +836,118 @@ a silent no-op footgun.
 "`AutoLayoutBuilder` is the canonical entry point".
 **Tests:** none yet.
 
+## A pinned root is out of the solver's flow, and `PinnedLayoutRootSystem` runs between `AutoLayoutSystem` and `HierarchySystem`
+
+Every root built with `AutoLayoutBuilder.CreateRoot(anchor)` is a child of one
+implicit screen container, so the screen's roots **stack** — a second root
+anchored `Center` starts where the first one ended. A root built with
+`AutoLayoutBuilder.CreatePinnedRoot(position, anchor)` carries
+`PinnedLayoutRootComponent` (data: `Anchor` + `Offset`) and is treated
+differently in two steps that must happen in this order:
+`AutoLayoutSystem` leaves it **out of** the implicit container (it solves that
+root's subtree standalone against the virtual screen, so N pinned roots never
+push each other — or an anchored root — around), and `PinnedLayoutRootSystem`
+then writes the root transform to `anchor offset + Offset`, resolving the
+anchor against the root's **solved** size with the same math anchored roots use
+(`AutoLayoutSystem.GetScreenAnchorOffset`, including the HUD top-left-origin
+translation). The pin system's pipeline slot is the feature: **after**
+`AutoLayoutSystem` (whose own per-frame transform write would overwrite an
+earlier placement) and **before** `HierarchySystem` and every other
+world-position consumer (`ButtonMeshPrepSystem`, `LayoutDebugSystem`,
+`CullingSystem`, the draw stack) so descendants and baked meshes see the pinned
+position in the same frame. The write is absolute and recomputed each frame, so
+it survives a resize or a re-measure. The division of labour is: the solver owns
+layout *within* a root, the pin owns *where the solved root sits*.
+
+**Why:** multi-panel screens (HUD + inventory + minimap, a desk/dashboard
+layout, a toolbar pinned to an edge) have no vocabulary in a single stacking
+container, and the workaround — re-writing the root's transform by hand after
+every layout pass — lived unnamed in the engine's own `ui` demo. Splitting
+"solve" from "place" keeps one solver authoritative and makes placement
+declarative data on the root.
+**Breaks:** registering the pin system *before* `AutoLayoutSystem` makes the
+solver overwrite the placement (the root falls back to its bare anchor, offset
+silently dropped). Registering it *after* `HierarchySystem` (or after mesh prep)
+leaves those consumers a frame behind — button outlines and debug overlays bake
+the un-pinned position. Putting `PinnedLayoutRootComponent` on a non-root slot
+is ignored by design (its position belongs to its parent container). A pinned
+root solved standalone has no parent to fill, so `SizingMode.FillContainer` on
+its own axes degrades to hug-contents — give it a fixed size instead.
+**Depends on:** "`AutoLayoutBuilder` is the canonical entry point";
+"`IntrinsicSizingSystem` runs before `AutoLayoutSystem`"; foundation —
+"`ChildOfComponent` and `TransformComponent.Parent` are two intentional links".
+**Tests:** `MonoDreams.Tests/Ui/PinnedLayoutRootTests.cs`.
+## A highlight FOLLOWS its target's drawn bounds, RE-DERIVES its depth every frame, and DIES with its target
+
+`HighlightComponent` is a pure-data request ("draw attention here"); `HighlightSystem`
+owns an overlay entity per highlighted target and rebuilds it from scratch every frame.
+Three properties are the whole point of the primitive, and each one is a bug that an
+ad-hoc per-target glow re-discovers:
+
+1. **Follow** — the outline geometry is derived each frame from the target's *prepared*
+   `DrawComponent` (`HighlightSystem.DrawnQuad`): the sprite quad
+   `MasterRenderSystem.ComputeSpriteScale` is about to draw, a label's measured extent
+   (`DrawComponent.Size × Scale`), or a mesh's vertices under its world matrix — which is
+   why one derivation covers sprites, text, nine-patches and buttons with no per-type
+   branch at the call site, and why the glow tracks moves, scale, rotation, layout
+   changes and a button's press "pop" for free. `HighlightComponent.Size` overrides the
+   derivation for an entity that draws nothing (an invisible hotspot), anchored top-left
+   at its `WorldPosition` like `FocusableComponent.Size`.
+2. **Depth** — the overlay's `DrawComponent.LayerDepth` is the target's *current* depth
+   plus `LayerDepthOffset` (default `0.001`), re-read every frame, so a z restack (Y-sort
+   re-order, papers shuffling on a desk, a scene-layer remap) can never leave the glow
+   under its own target. It also inherits the target's `DrawComponent.Target` and mirrors
+   its `VisibleComponent`, so it composites in the same pass and hides with a culled or
+   tab-parked target.
+3. **Lifetime** — the overlay is `ChildOfComponent`-parented to its target (so
+   `HierarchySystem`'s orphan cascade reaps it) *and* swept by the system itself at the
+   top of every `Update` when the target dies or loses its `HighlightComponent` — the
+   belt that holds in a screen that never registers `HierarchySystem`. `Dispose()` clears
+   every overlay, so a screen swap leaves nothing pulsing.
+
+The overlay is a bare mesh entity — `DrawComponent` + `ChildOfComponent` +
+`EntityInfoComponent("Highlight")` — with **no `TransformComponent`**: its geometry is
+derived in world space and its `WorldMatrix` is `Matrix.Identity` (the
+`ButtonMeshPrepSystem` contract), so a transform would only be a second, conflicting
+source of truth. The missing transform also keeps the overlay outside `MeshPrepSystem`'s
+query, so no pipeline-ordering accident can overwrite that identity matrix. Register
+`HighlightSystem` **last in the draw-prep stage** — after `SpritePrepSystem` /
+`YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before
+`MasterRenderSystem`. The outline colour is always **opaque**: the pulse scales the RGB
+channels between `PulseMinIntensity` and full, never the alpha.
+
+**Why:** "point at THIS" is needed by every tutorial, onboarding flow, quest hint and
+debug session, and the naive alternative is a glowing art variant per possible target.
+The three invariants are the ones an overlay silently gets wrong in an ECS: an overlay
+posed once drifts off its target, an overlay with a baked depth sinks under a sibling the
+first time something re-sorts, and an overlay that outlives its target pulses over empty
+space. Deriving from the prepared `DrawComponent` (rather than from `SpriteInfoComponent`
+/ `SimpleButtonComponent` / `DynamicTextComponent` per type) is what keeps it one code
+path, one module dependency (`rendering`), and correct for draw types added later.
+**Breaks:** running the system before the prep stage outlines last frame's bounds and
+last frame's depth. Giving the overlay a `TransformComponent` puts it back in
+`MeshPrepSystem`'s set, which overwrites the identity matrix and double-transforms the
+world-baked vertices (the outline drifts by the target's world position). Leaving
+`LayerDepthOffset` at exactly the target's depth falls through to insertion order — the
+same fragility `SimpleButtonComponent.LayerDepth` exists to avoid. Encoding the pulse in
+the alpha channel makes the outline *brighter* at the trough, because the mesh path
+composites premultiplied alpha.
+**Depends on:** rendering — "`MeshPrepSystem` writes the world matrix once per frame";
+"Layer-depth ownership pipeline"; "A sprite's drawn quad honors `Transform.WorldScale`
+exactly once"; "Main-target TEXT (and bare meshes) get `VisibleComponent` from whoever
+spawns them"; "The mesh render path uses premultiplied alpha — UI fills must be opaque";
+foundation — "`ChildOfComponent` and `TransformComponent.Parent` are two intentional
+links"; "Children are disposed with their parents"; "A value-predicate `EntitySet`
+re-evaluates only when the component is published"; "`ButtonMeshPrepSystem` bakes world
+coords and must run AFTER `MeshPrepSystem`" (this file).
+**Tests:** `MonoDreams.Tests/Ui/HighlightSystemTests.cs` (the outline hugs a sprite's,
+a label's, a button's and an explicit-`Size` hotspot's bounds; it follows a move + a
+scale; the depth is re-derived after a restack; target and visibility are inherited;
+the overlay dies with the target, with the component's removal, through the
+`ChildOfComponent` cascade and on `Dispose`; a target that draws nothing empties the
+outline instead of leaving a stale one; the pulse moves RGB and never alpha; unset
+fields fall back to the defaults).
+
 ## Open questions
 
 - **Flexbox parity** — the solver supports flex-direction, justify,
@@ -578,6 +956,23 @@ a silent no-op footgun.
   but not flex-shrink, flex-basis, wrap, or absolute positioning. Which
   of those become premises (must-have) vs aspirations (nice-to-have) is
   unsettled.
+- **Tooltips on unpickable controls** — riding the pick means a disabled control
+  (`ButtonStateComponent.IsDisabled`) and one gated out of the active group
+  (`FocusableComponent.Disabled`) have no tooltip, because the pick skips them —
+  yet "why is this greyed out?" is one of the tooltip's best uses. Whether the
+  pick should carry a second, filter-free `HoveredAny` slot for exactly this (and
+  what a hand cursor or a click-sound consumer should read) is unsettled; a
+  second private hit-test in `TooltipSystem` is explicitly NOT the answer.
+- **`TabBarComponent` / `TabSystem` vs `PanelGroupComponent`** — `TabSystem`
+  predates the panel-group primitive and switches tab bodies by tagging every
+  content entity (`TabContentComponent`) and toggling `VisibleComponent`,
+  which only works on the Main target. The header bar (active-header
+  highlight, `UIFocusActivated` → active index) is a genuinely separate
+  concern from panel switching, so the intended end-state is: `TabBarComponent`
+  keeps the headers and delegates the bodies to a `PanelGroupComponent`,
+  `TabContentComponent` disappears, and the ui demo's own top-level tabs move
+  onto it (they are flat-tagged today, so the migration means giving each tab
+  a panel root). Until then, new surfaces use `PanelGroupComponent`.
 - **Re-measuring on content change** — `NeedsRemeasure` is set to true
   at construction and to false after measuring; nothing today flips it
   back to true when content changes. Dynamic text that grows
@@ -612,8 +1007,14 @@ The following premises currently have **Tests: none yet**:
 - One click, one owner: pointer input needs explicit arbitration between picking layers
   (not testable from inside the module — the arbitration is game-side)
 - `FocusableComponent.Disabled` (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav
-- Tab / Dialog / Dropdown systems show/hide on the Main target via `VisibleComponent` and gate focus via `FocusableComponent.Disabled`
 - A combobox is a `TextInputComponent` driving a `DropdownComponent`'s filter
 - Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution
-- Text-input focus is game-owned; key capture is the module's job
+- Text-input focus is game-owned; key capture is the module's job (the *focus* half only — the
+  key-capture half is now covered by the pointer-replay `type` test)
 - The text-input caret is a game-supplied mesh entity the system positions and toggles
+
+Partially covered: "Tab / Dialog / Dropdown systems show/hide on the Main
+target …" — `TabSystem`'s focus-gate half is tested via the panel-group
+composition test, asserted on chrome that sits outside every panel group so
+the write under test is `TabSystem`'s own; the `VisibleComponent` half and
+the dialog / dropdown systems are not.

@@ -71,7 +71,7 @@ camera (`CameraFollowSystem` from the `camera` module, or game-specific
 camera control) must run before `CursorPositionSystem`.
 
 **Why:** the camera's view transform is the projection that turns
-virtual-screen coords into world coords. Running `CursorPositionSystem`
+authoring-screen coords into world coords. Running `CursorPositionSystem`
 before the camera moves means the cursor's world position lags by one
 frame — visible as click/hover offset during camera motion.
 **Breaks:** during scrolling or camera-shake, world-space hit-testing
@@ -100,26 +100,53 @@ sprites. Rendering on UI puts it under HUD elements.
 **Tests:** none yet.
 **Depends on:** rendering — "Three render targets, two behaviors".
 
-## Cursor `TransformComponent.Position` depends on render target
+## Cursor `TransformComponent.Position` depends on render target, and `Cursor.ApplyPose` is the one place that rule lives
 
-`CursorPositionSystem` sets `TransformComponent.Position` differently
-based on `DrawComponent.Target`: HUD target uses virtual-screen coords
-plus `HotSpot` (no camera transform applied), Main target uses
-world coords plus `HotSpot` (camera transform will be applied at draw
-time). `CursorInputComponent.WorldPosition` is always populated
-regardless of target, so game systems (hit-testing, button hover) can
-read world coordinates without caring how the cursor is rendered.
+A cursor's `TransformComponent.Position` follows its `DrawComponent.Target`:
+HUD target uses AUTHORING (layout) screen coords plus `HotSpot` (no camera transform
+applied), every other target uses world coords plus `HotSpot` (the camera
+transform is applied at draw time). `CursorInputComponent.WorldPosition` is
+always populated regardless of target, so game systems (hit-testing, button
+hover) can read world coordinates without caring how the cursor is rendered.
+**That branch is written once, in `Cursor.ApplyPose(entity, virtualPosition,
+worldPosition)`.** `CursorPositionSystem` calls it after mapping a real mouse
+through the viewport; an injection channel that owns the derivation (the
+`debug` module's `PointerReplaySystem`, running under `SkipDerivation`) calls
+it with the positions it authored. Neither re-implements the rule.
+
+`ViewportManager.MapMouse` — the one screen→game mapping — returns that
+authoring point, and `CursorInputComponent.VirtualPosition` carries it. In a
+single-space game authoring space IS the virtual resolution (the historical
+reading of the name); in a two-space game the value is the LAYOUT one, which is
+why a render-resolution move never moves a hover box, a click target or a test
+that asserts on a cursor coordinate. The HUD render pass must be given
+`ViewportManager.LayoutCamera` for the rendered cursor to sit where that number
+says (rendering — "Authoring space and render space are distinct").
 
 **Why:** the cursor entity participates in the same draw pipeline as
 everything else, so its `TransformComponent.Position` must already be
 in the coordinate space that target expects. Decoupling `WorldPosition`
-from the rendered position lets the game logic stay target-agnostic.
+from the rendered position lets the game logic stay target-agnostic. And a
+second copy of the branch is a second place it can be *slightly* wrong: a
+scripted pointer whose cursor renders a hot-spot off, or in the wrong space,
+looks like a picking bug rather than a duplication bug.
 **Breaks:** if a game system reads `transform.Position` for hit-testing
 and the cursor is on HUD, the hit-test runs against screen coords and
 fails. Always read `CursorInputComponent.WorldPosition` for world-space
-checks.
-**Tests:** none yet.
-**Depends on:** —
+checks. An injection channel that skips the shared helper and writes the
+transform itself drifts from the real-mouse placement the first time the rule
+changes (a new render target, a different hot-spot convention). Multiplying a
+cursor coordinate by the render scale by hand double-scales it — the cameras
+already did it.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`Move_WritesVirtualWorldAndTransform_ThroughTheRealPoseRule` and
+`Move_OnAMainTargetCursor_PlacesTheTransformInWorldSpace` pin both branches
+through the shared helper); `MonoDreams.Tests/Cursor/CursorPositionSystemTests.cs`
+(`WithoutSkipDerivation_MappedScreenPosition_RecomputesVirtualWorldAndTransform`
+pins the real-mouse path through the same helper).
+**Depends on:** debug — "`PointerReplaySystem` injects into the real cursor
+component; it never simulates a click"; rendering — "Authoring space and render
+space are distinct; the scale lives only in the cameras".
 
 ## Cursor is a single entity, created via the `Cursor.Create` factory
 
@@ -174,9 +201,13 @@ frame"; rendering — "Three render targets, two behaviors" (HUD always renders)
 whose other entries (e.g. `Hand`) are alternate silhouettes. It is pure data — the *swap*
 is owned by a consumer system (today the `ui` module's `CursorHoverSystem`, see the ui
 premises), which sets `CursorControllerComponent.Type` and, on a change, fills the cursor
-entity's mesh `DrawComponent` from the matching library entry. A mesh cursor without this
-component simply never swaps; the textured cursor path (`CursorTexturesComponent` +
-`CursorDrawPrepSystem`) is the parallel mechanism for image cursors and is unaffected.
+entity's mesh `DrawComponent` from the matching library entry. *Which* entry it picks is
+decided by the `ui` module's pointer pick — a `PointerPickComponent` that `UIFocusSystem`
+publishes **on this same cursor entity** (see the ui premise "There is ONE pointer pick");
+the cursor module itself neither writes nor requires it, so a screen without `ui` is
+unaffected. A mesh cursor without this component simply never swaps; the textured cursor
+path (`CursorTexturesComponent` + `CursorDrawPrepSystem`) is the parallel mechanism for
+image cursors and is unaffected.
 
 **Why:** the engine is mesh-capable, so a hover-cursor change is "pick a different mesh",
 exactly mirroring how `CursorTexturesComponent` lets the textured path "pick a different
@@ -186,14 +217,18 @@ keeps the mechanism reusable for any cursor type and any consumer.
 back to (the cursor keeps whatever mesh it last had). Mutating the cursor's mesh
 `DrawComponent` from elsewhere races the swap system the same way two writers race any
 shared component.
-**Tests:** none yet (exercised by the `ui` demo's Link-button hand cursor).
-**Depends on:** "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`".
+**Tests:** `MonoDreams.Tests/Ui/PointerPickTests.cs`
+(`PickedFocusableRequestingAHand_SwapsTheCursorTypeAndMesh` swaps to the `Hand` entry and back
+to `Default`; `NoPickPublished_LeavesTheCursorUntouched` pins the no-consumer degradation).
+**Depends on:** "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`";
+ui — "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers read it".
 
 ## `SkipDerivation` lets an injection channel own the cursor's derived positions
 
 `CursorPositionSystem.SkipDerivation` is the derivation-half twin of
 `CursorInputSystem.SkipHardwareRead`. A channel that **injects** cursor state rather than
-reading a mouse — the editor-op replay channel, an input-replay plan, a headless test — sets
+reading a mouse — the `debug` module's `PointerReplaySystem` (the shipped consumer of this
+pair), the editor-op replay channel, a headless test — sets
 both: `SkipHardwareRead` stops the hardware read from overwriting the injected
 `CursorInputComponent`, and `SkipDerivation` stops the per-frame screen→virtual→world
 derivation from recomputing `VirtualPosition` / `WorldPosition` / `OutsideViewport` /
@@ -203,13 +238,17 @@ downstream consumers read. A real-mouse session leaves it `false` (the default),
 existing screen is byte-identical.
 
 **Why:** an injection channel authors world-space intent (`WorldPosition` / `VirtualPosition`),
-not a window pixel, so the injected `ScreenPosition` is not a mappable in-viewport coordinate.
-Live derivation feeds that un-mapped `ScreenPosition` to
-`ViewportManager.ScaleMouseToVirtualCoordinates`, gets `null`, and clobbers the injection with
+not a window pixel. The editor-op channel's `ScreenPosition` is therefore not a mappable
+in-viewport coordinate at all; live derivation feeds it to
+`ViewportManager.MapMouse`, gets `null`, and clobbers the injection with
 `OutsideViewport = true` (and, whenever the injected screen position *does* happen to map,
 overwrites the injected virtual/world positions and the cursor transform with values derived
 from it). `SkipHardwareRead` alone therefore cannot deliver an injected cursor: the very next
-system in the canonical order undoes it.
+system in the canonical order undoes it. A channel that *does* keep `ScreenPosition` in its
+contractual space (`PointerReplaySystem`, which maps its authored point forward) still sets the
+flag: re-deriving through the float round-trip is at best a no-op and at worst drifts, and an
+authored point on the viewport edge round-trips to `null` — i.e. back to `OutsideViewport = true`
+on a click that was authored to be inside.
 **Breaks:** replay / editor-op cursor injection silently produces `OutsideViewport = true` plus
 stale or recomputed world coordinates — every world-space consumer treats the click as "over
 chrome, ignore it", picking and gizmo drags never fire, and mouse input replay is structurally
@@ -226,6 +265,35 @@ fields are likewise not read when `SkipHardwareRead` is set; the injection chann
 button edges the way `SkipDerivation` hands it the positions); "Cursor system order: input →
 position → draw prep" (the derivation this flag disables is stage two).
 
+## `CursorInputComponent.ScreenPosition` is backbuffer pixels, on the injected path too
+
+`ScreenPosition` has exactly one meaning engine-wide: **backbuffer pixels**. `CursorInputSystem`
+multiplies the raw OS mouse position (window points) by `ViewportManager.DevicePixelRatio` to hold
+that — 1 on an ordinary run, 2 behind a device-resolution backbuffer (macOS Retina under the editor
+run flag; see `level-editor`'s `EditorHiDpi`) — and everything that hit-tests *screen* space rather
+than world space reads the field raw: the editor's toolbar, panels, tab strips, dialogs and
+tooltips, plus `ViewportManager.MapMouse` itself. A channel that **injects** a
+cursor owes the field that same space: the `debug` module's `PointerReplaySystem` authors in virtual
+space and therefore maps forward through `ViewportManager.ScaleVirtualToScreenCoordinates` (the
+exact inverse of the mouse mapping) before writing it.
+
+**Why:** the field is the only shared space between the game's letterboxed viewport and the chrome
+drawn around it, so a single consistent unit is what lets one hit-test rule serve a real mouse, a
+scripted pointer and any window/DPI configuration. Two spaces in one field cannot be detected by a
+consumer — it just clicks the wrong thing.
+**Breaks:** writing a virtual-resolution point into `ScreenPosition` puts a chrome hit-test at half
+the intended position the moment `DevicePixelRatio` is 2, and at ratio 1 it silently lets a
+game-space click land on whatever chrome sits at the same numbers. (The `level-editor`'s
+`EditorOpReplaySystem` injects world coordinates there by design — it drives the editor by *op*, not
+by chrome hit-test — so its `ScreenPosition` is explicitly not a chrome coordinate.)
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`ScreenPosition_IsMappedIntoBackbufferPixels_NotTheAuthoredVirtualPoint`);
+`MonoDreams.Tests/Rendering/ViewportInsetTests.cs`
+(`VirtualToScreen_IsTheInverseOfTheMouseMapping`,
+`VirtualToScreen_FollowsADeviceResolutionBackbuffer`).
+**Depends on:** "`SkipDerivation` lets an injection channel own the cursor's derived positions";
+debug — "Pointer coordinates are authoring space, and time is frames".
+
 ## Open questions
 
 - **Multiple cursors** — the systems iterate an entity set, so two
@@ -234,7 +302,7 @@ position → draw prep" (the derivation this flag disables is stage two).
   multiplayer with split inputs would need an input-source field on
   `CursorInputComponent`.
 - **Cursor when mouse leaves the window** — `CursorPositionSystem`
-  keeps the previous position when `ScaleMouseToVirtualCoordinates`
+  keeps the previous position when `MapMouse`
   returns null (mouse in letterbox/pillarbox). Whether that's the
   desired behavior or whether the cursor should hide itself is
   unsettled.
@@ -254,5 +322,4 @@ The following premises currently have **Tests: none yet**:
 - Cursor system order: input → position → draw prep
 - `CursorPositionSystem` must run after the camera updates
 - Cursor renders on the HUD target by default
-- Cursor `TransformComponent.Position` depends on render target
 - Cursor is a single entity, created via the `Cursor.Create` factory

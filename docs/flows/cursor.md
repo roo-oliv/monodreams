@@ -12,8 +12,9 @@ entity composed by `Cursor.Create` (textured) or `Cursor.CreateMesh` (mesh). `Cu
 polls `Mouse.GetState()` and writes the raw `ScreenPosition`, the per-frame `Delta`, and
 button/scroll edge state into `CursorInputComponent`; it does **not** touch world coords.
 `CursorPositionSystem` then turns that screen position into game space in two hops —
-`ViewportManager.ScaleMouseToVirtualCoordinates` undoes letterbox/pillarbox scaling to get
-virtual-resolution coords, and `camera.VirtualScreenToWorld` inverts the camera view matrix to
+`ViewportManager.MapMouse` undoes letterbox/pillarbox scaling to get
+AUTHORING (layout) coords — the virtual resolution in a single-space game — and
+`camera.VirtualScreenToWorld` inverts the camera view matrix to
 get world coords — populating `VirtualPosition` and `WorldPosition` and writing
 `TransformComponent.Position` in the space the cursor's render target expects. Finally
 `CursorDrawPrepSystem` (textured path only) reads `CursorControllerComponent.Type` and copies the

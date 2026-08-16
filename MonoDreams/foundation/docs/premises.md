@@ -373,6 +373,48 @@ fake runs in `Play` and is skipped in `Edit`; a `RunNormally`-wrapped fake runs 
 both; the gate honours its own `IsEnabled`).
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
+## A gated system that owns transient entities tears them down through `ISuspendableSystem`
+
+Skipping a system's `Update` removes its *behaviour*, not its *output*. For a system
+that OWNS entities — a tooltip label, a drag ghost, a damage number, a hover
+highlight — those two are different things: once the gate stops forwarding, that
+system never gets another `Update` in which to dispose what it created, while the
+draw stack (`RunNormally` by policy, since a frozen renderer is a black screen)
+keeps rendering it for the rest of the session. `GatedSystem` therefore calls
+`ISuspendableSystem.Suspend(state)` on the child **exactly once, on the running →
+not-running edge** — for either reason a gate can stop: the policy excluding the
+current `RunMode`, or the gate's own `IsEnabled` being switched off (the systems
+panel's master toggle). A gate that has never forwarded suspends nothing, a frozen
+gate does not call it again every frame, and a later resume + stop calls it again.
+`Suspend` is a teardown, never a kill switch: implementations must be idempotent
+and leave the system ready to rebuild on its next `Update`. A system that owns
+transient entities is therefore only safe to `Freeze` if it implements the
+interface — and must be registered as **its own entry**, since the gate reaches
+only its immediate child (a DefaultEcs composite does not expose its children, so a
+suspendable system buried inside a gated *group* is never reached).
+
+**Why:** the policy stays data on the gate (previous premise) precisely so systems
+know nothing about run modes — but that leaves nobody to clean up when a system
+stops. Handing the child a mode-agnostic "you are no longer being run" callback
+keeps the policy on the gate AND gives the owner its one chance to tear down; the
+alternative (each system reading `GameState.RunMode` itself) would bake one game's
+editor policy into an engine system type.
+**Breaks:** `TooltipSystem` gated `Freeze` in the ui demo, before the hook existed:
+Play → Pause with a tooltip on screen stranded its panel + label on the HUD pass —
+`Update` never ran again to hide them, and nothing else in the engine knows they
+exist (they are deliberately unparented and scene-marker-free). Same shape for any
+future transient-owning system, and for the systems panel switching a running entry
+off. A non-idempotent `Suspend` (one that assumes it is called once ever) breaks on
+the second freeze; a `Suspend` that also disables the system turns a pause into a
+permanent stand-down.
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs`
+(`Freeze_SuspendsTheChild_OnceOnEachPlayToEditEdge`, `AGateThatNeverRan_SuspendsNothing`,
+`DisablingTheGate_SuspendsTheChild`, `ANonSuspendableChild_IsSkippedSilently`);
+`MonoDreams.Tests/Ui/TooltipTests.cs::FreezingTheSystem_DespawnsTheTooltip` (the
+real system through a real `Freeze` gate).
+**Depends on:** ui — "The tooltip is a transient, system-owned, screen-space label
+that despawns with its pick" (the first implementer).
+
 ## `GatedSystem`'s timing sink keeps the profiler out of foundation
 
 `GatedSystem.TimingSink` — a static `Action<string, long>?` (profile name, elapsed
@@ -406,6 +448,34 @@ an uninstall between the two reads null-reference mid-frame.
 source scan asserting foundation never references `MonoDreams.Debug`).
 **Depends on:** debug — "The profiler hooks the one seam every pipeline entry
 passes through".
+
+## `Logger.LineSink` is a single-owner tap that must not log
+
+`Logger.LineSink` — a static `Action<LogLevel, string>?` defaulting to `null` — is the only
+observation hook on the logger, and, exactly like `GatedSystem.TimingSink`, it is a **socket, not
+an implementation**: `foundation` never names a consumer and the plug comes from the optional
+`debug` module (`PointerReplaySystem` needs to see log lines in-process to satisfy a
+`waitUntil log` predicate, without tailing a file that does not exist on web). It receives the RAW
+message — no timestamp, no level prefix — and is invoked **after** the line has been written and
+**outside** the writer lock. Three rules bind a sink: it is single-owner (assignment replaces, so
+an owner installs on construction and restores `null` on dispose), it must be thread-safe (the
+logger is written from background work too), and it must **never log**.
+
+**Why:** the pointer channel's stage gating is only as good as what it can observe, and the log is
+the one universal observable every module already produces. But `foundation` is a sensitive domain
+every game depends on, so it must not reference an optional debug module to be observable — the
+injected socket keeps the arrow pointing `debug → foundation` and costs one null check per
+surviving line when nobody is plugged in. Invoking outside the lock is what keeps a slow or
+blocking sink from serialising every logging thread behind it.
+**Breaks:** invoking the sink inside the lock puts third-party code on the critical section every
+thread contends for. A sink that logs re-enters `Write` and recurses without bound. A sink that is
+not thread-safe corrupts its own state the first time a background task (the screenshot encoder)
+logs. An owner that fails to clear the sink on dispose leaves a dead object receiving every line
+for the rest of the process.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`WaitUntilLog_IsSatisfiedByALineWrittenWhileTheDriverRuns` exercises the tap end to end;
+`Dispose_ReleasesTheLoggerTap` pins the install/uninstall contract).
+**Depends on:** debug — "A pointer plan gates on observables, times out, and drains into an exit".
 
 ## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) are the survivors of a screen switch
 
@@ -486,6 +556,83 @@ op channels are protected by `MonoDreams.Tests/LevelEditor/EditorShortcutTests.c
 engine source" (why the OS fact is injected); level-editor — "The editor's keyboard shortcuts are ONE chord
 table, gated by a single viewport context" (the first consumer).
 
+## `WindowFit` is opt-in, and it is the ONLY thing allowed to size a game's window
+
+`WindowFit` (in `MonoDreams.Platform`) computes and applies the largest **aspect-correct**
+window that fits inside the display's **usable** bounds — the area left after the OS chrome
+(macOS menu bar + dock, Windows taskbar, Linux panels) — snapped DOWN to a multiple of
+`WindowFit.SnapTo` (16), with `WindowFit.ReservedChromeHeight` (28) points of usable height
+held back for the window's own title bar, and **capped at the render resolution** (1:1 is the
+sharpest a game can present; magnifying only blurs). `MONODREAMS_WINDOW=WxH` overrides the
+computation **verbatim** — no fit, no snap, no cap — and is the only mode that leaves the
+window non-resizable, because a scripted run asked for an exact size. Every call emits exactly
+**one** `Logger.Info` line carrying render / display / usable / window / mode; that line is the
+feature's entire observable and is what turns "the buttons are off-screen" into a diagnosable
+report. The helper is **strictly opt-in**: nothing in the engine calls it, it has no system, no
+component and no pipeline presence, so a game that never calls `WindowFit.Apply` keeps whatever
+backbuffer it set, byte-for-byte. Because the boot line is written from the constructor, a head
+that adopts it must call `Logger.Initialize` **before** `WindowFit.Apply` (see "`Logger`
+requires `Initialize` before any write"); the CLI's scaffolded desktop head does exactly that.
+Usable bounds come from `SDL_GetDisplayUsableBounds` through `SdlNative` — the engine's single
+owner of "call an SDL export MonoGame never bound" — with a fixed-margin fallback
+(`FallbackMarginWidth` / `FallbackMarginHeight`) when the export is missing, and an
+`Unmeasured` mode that applies the render resolution unchanged when the display cannot be read
+at all.
+
+**Why:** MonoGame 3.8.4 DesktopGL does **not** let macOS clamp a *fixed* window (a resizable one
+it does), so `PreferredBackBuffer = 1920x1080` on a 1512x982-point MacBook opens a window taller
+than the screen: nothing crashes, nothing logs, and the bottom strip of the game — where the
+Start button usually lives — renders below the physical display. Players do not report this
+class of bug; they close the game. MonoGame never bound `SDL_GetDisplayUsableBounds` either
+(only `GetBounds` / `GetCurrentDisplayMode`), so through the public API a game cannot even ask
+for the menu-bar-aware area. Opt-in is what makes adding this to a sensitive module safe: a
+game that does not call it is provably unchanged, exactly like the `RunMode = Play` default.
+**Breaks:** setting `PreferredBackBufferWidth/Height` after `WindowFit.Apply` silently undoes
+the fit and restores the offscreen window. Calling it before `Logger.Initialize` drops the boot
+line, and the feature becomes unobservable — the failure it prevents returns to being
+undiagnosable from a log. Making it non-opt-in (an engine system, or a call inside
+`ScreenController`) would resize the window of every existing game that deliberately picked its
+own size. Snapping the derived HEIGHT as well as the width would distort the aspect by up to
+15 points instead of a rounding pixel.
+**Tests:** `MonoDreams.Tests/Foundation/WindowFitTests.cs` (the fit geometry, the 1:1 cap, the
+snap, the title-bar reservation, mode selection, the `WxH` parser, and the fallback probe);
+`MonoDreams.Cli.Tests/ScaffolderPlatformTests.cs::Scaffold_GameRoot_DesktopBranchFitsTheWindow_WebBranchUntouched`
+(the scaffolded desktop head adopts it, the web branch is untouched, and the logger comes up first);
+`MonoDreams.Cli.Tests/ScaffolderBuildTests.cs::Init_Desktop_ThenAdd_ProducesBuildableSolution`
+(the scaffolded game with the call in it actually builds).
+**Depends on:** this file — "`Logger` requires `Initialize` before any write"; "The platform
+(backend + OS services) is selected by the head project, never by engine source" (the helper is
+called by a head, inside its desktop branch, never by a module).
+
+## On macOS DesktopGL every window number is in points — there is no Retina conversion in this path
+
+Display mode (`GraphicsAdapter.DefaultAdapter.CurrentDisplayMode`), `SDL_GetDisplayUsableBounds`,
+the SDL window, `Game.Window.ClientBounds`, and the GL backbuffer that `PreferredBackBufferWidth`
+/ `Height` sizes are **all in logical points** on macOS DesktopGL — the same unit, end to end.
+A 1512x982 "1512x982-point" MacBook display reports 1512x982 everywhere in this path even though
+the panel is 3024x1964 physical pixels. Nothing in `WindowFit` multiplies or divides by a
+backing scale factor, and nothing should: MonoGame creates its SDL window **without**
+`SDL_WINDOW_ALLOW_HIGHDPI`, so the GL drawable is allocated at the window's point size and the
+OS upscales it. The one place device pixels enter the engine is the level editor's opt-in
+`EditorHiDpi`, which deliberately re-backs the surface at device resolution and reports the
+scale so the editor's own chrome can render sharp — and even there the *window* stays in points.
+
+**Why:** empirical, and expensive to re-derive. Every "should I multiply by the DPR here?"
+question in windowing code has the same answer in this path — no — and getting it wrong once
+produces a window twice the intended size (or half), which looks like a completely different
+bug. Writing the unit down is what stops a future change from "fixing" a non-existent Retina
+conversion.
+**Breaks:** scaling the fitted window by `backingScaleFactor` opens a window ~2× the display on
+Retina (the exact failure `WindowFit` exists to prevent, inverted); dividing by it opens a
+postage stamp. Mixing the two spaces silently misplaces the mouse, since SDL reports pointer
+coordinates in window points.
+**Tests:** none yet (the unit is a platform fact, not a code path; `WindowFitTests` asserts the
+arithmetic is scale-free by construction — no DPR term appears in it).
+**Depends on:** rendering — "The viewport inset moves compositing and mouse mapping together"
+(where `ViewportManager.DevicePixelRatio` enters); level-editor — "The editor shell insets the
+game viewport and renders its chrome at native resolution" (`EditorHiDpi`, the one documented
+device-pixel exception).
+
 ## A value-predicate `EntitySet` re-evaluates only when the component is published
 
 DefaultEcs lets a query filter on a component's VALUE, not only on its presence, and
@@ -556,6 +703,9 @@ documented but not programmatically protected:
 - `WorldMatrix` is cached and computed lazily
 - `Logger` requires `Initialize` before any write
 - A value-predicate `EntitySet` re-evaluates only when the component is published
+- On macOS DesktopGL every window number is in points — there is no Retina
+  conversion in this path (a platform fact, not a code path; only assertable
+  indirectly, by the absence of any DPR term in `WindowFit`)
 
 Architectural tests (ArchUnit-style) protecting these are on the engine
 backlog.

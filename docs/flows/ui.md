@@ -21,7 +21,11 @@ is set, it invokes the slot's `SizeMeasurer(Content)` callback and writes the re
 solver: it re-parents every `IsRoot` slot's node under a screen-sized `_screenRoot`, calls
 `CalculateLayout`, and writes each node's computed `LayoutX/LayoutY` back onto the owning
 entity's `TransformComponent.Position` (roots also get the `ScreenAnchor` → screen-offset
-applied). Downstream, `ButtonMeshPrepSystem` reads each button's `transform.WorldPosition`
+applied). Roots carrying `PinnedLayoutRootComponent` are the exception: they stay OUT of
+`_screenRoot` (so they never stack with the other roots), are solved standalone against the
+virtual screen, and are then placed by `PinnedLayoutRootSystem` at `anchor + Offset` — a
+pass that must sit after `AutoLayoutSystem` and before `HierarchySystem`.
+Downstream, `ButtonMeshPrepSystem` reads each button's `transform.WorldPosition`
 and `SimpleButtonComponent.Size` to bake the outline/fill mesh, and text/sprite content
 entities (parented under their slot) render at the slot's resolved position. Layout writes
 positions; rendering reads them — the seam is `TransformComponent`.
@@ -45,6 +49,13 @@ positions; rendering reads them — the seam is `TransformComponent`.
 - **Content entities** (text, sprite, button) — game-created, attached via
   `SlotBuilder.Attach`, parented under the slot. They carry their own `DrawComponent`;
   layout never touches their draw data, only the slot transform they ride on.
+- **Highlight overlays** — created and destroyed by `HighlightSystem`, one per entity
+  carrying a `HighlightComponent`. A bare mesh entity (`DrawComponent` +
+  `ChildOfComponent` + `EntityInfoComponent("Highlight")`, no `TransformComponent`)
+  rebuilt every frame from the target's *prepared* `DrawComponent`: bounds, layer depth,
+  render target and `VisibleComponent` are all re-derived, never cached. It dies with its
+  target (the system's own sweep plus `HierarchySystem`'s orphan cascade) and on
+  `HighlightSystem.Dispose()`.
 
 ## Invariants
 
@@ -62,9 +73,26 @@ the ones this flow's ordering leans on:
   space only after its own size is final, so the tree must solve root-to-leaf.
 - `AutoLayoutBuilder` is the canonical entry point; root slots need `IsRoot = true` or
   `AutoLayoutSystem` never picks them up.
+- `PinnedLayoutRootSystem` runs strictly between `AutoLayoutSystem` and `HierarchySystem`:
+  earlier and the solver's own write overwrites the placement, later and hierarchy /
+  mesh-prep / debug overlays bake the un-pinned position.
 - `ButtonMeshPrepSystem` bakes world coords and must run *after* `MeshPrepSystem` when both
   are present (it sets `WorldMatrix = Identity`); button geometry reads the post-layout
   `WorldPosition`, so it must run after `AutoLayoutSystem` too.
+- **There is ONE pointer pick.** `UIFocusSystem` resolves "what is the pointer over?" once
+  per frame and publishes it on the cursor entity as `PointerPickComponent` (picked entity +
+  the time that hover began). Hover consumers — `TooltipSystem`, `CursorHoverSystem` — read
+  it and run **no hit-test of their own**, so they inherit the same active-group / disabled
+  filters focus and click use and can never disagree with them. They must be ordered after
+  `UIFocusSystem`; without it there is no pick and they stand down.
+- `HighlightSystem` runs **last in the draw-prep stage**: it derives its outline from the
+  target's prepared `DrawComponent` and re-derives its layer depth from the target's every
+  frame, so anything earlier outlines last frame's bounds and depth.
+- Mutually exclusive panels (tabs, settings pages, wizard steps) **park, they never hide**:
+  `PanelGroupSystem` translates every inactive member of a `PanelGroupComponent` off-screen
+  and restores the active one verbatim. It re-derives the park from the member's live
+  position, so it must run *after* every writer of that position (`AutoLayoutSystem`, a
+  screen tick) and *before* `HierarchySystem`. Game code writes only `Active`.
 
 ## Load-bearing quantities
 
@@ -107,3 +135,32 @@ the ones this flow's ordering leans on:
   Silent — no error, no log. The screen must gate one layer (disable the focus system,
   swallow the cursor edges, or move the active group) on the frames the other owns the
   pointer; see the premise "One click, one owner".
+- **A second hit-test for "what is hovered"** — a new hover feature sweeping focusables
+  itself instead of reading `PointerPickComponent`. It drifts from the pick on the filters
+  nobody remembers (active group, `FocusableComponent.Disabled`,
+  `ButtonStateComponent.IsDisabled`), so an affordance appears for a control a click cannot
+  reach. Silent — it looks right until an overlay is open.
+- **Pick consumer ordered before its publisher** — `TooltipSystem` / `CursorHoverSystem`
+  registered ahead of `UIFocusSystem`: they act on last frame's pick, so hover affordances
+  lag the pointer by a frame (and show nothing at all on the first).
+- **A frozen owner of transient entities** — a hover feature that CREATES entities (the
+  tooltip's panel + label) registered `EditTimeBehavior.Freeze` without implementing
+  `ISuspendableSystem`: the editor's Pause stops its `Update`, so it never disposes them,
+  while the prep + render pass keeps drawing them on the screen-space target forever. The
+  gate's teardown callback is what makes freezing such a system safe.
+- **Roots stacking unintentionally** — several `CreateRoot` panels expected to sit at
+  different places share the one implicit container and pile up vertically; the fix is
+  `CreatePinnedRoot` + `PinnedLayoutRootSystem`, not a hand-written transform override
+  after the layout pass (the workaround this primitive replaced).
+- **Highlight drift / sink / orphan** — the three failure modes the highlight overlay
+  exists to prevent, each re-appearing if its invariant is broken: an overlay posed once
+  (instead of re-derived) drifts off a moving or re-laid-out target; an overlay with a
+  baked depth sinks under a sibling the first time something re-sorts; an overlay that
+  outlives its target pulses over empty space. Giving the overlay a `TransformComponent`
+  re-admits it to `MeshPrepSystem`'s set, which overwrites its identity world matrix and
+  double-transforms the world-baked vertices.
+- **Panel switching by hiding** — dropping `VisibleComponent` to "close" a panel: a silent
+  no-op on UI/HUD/Scroll (those targets ignore the tag) and a cold panel on Main (the prep
+  systems skip it, so the switch back shows stale draw data). Hand-rolled parking has its
+  own failure — `position += offset` every frame compounds until the panel never comes back.
+  Use `PanelGroupComponent`.

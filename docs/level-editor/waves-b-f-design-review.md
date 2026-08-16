@@ -284,7 +284,7 @@ tool systems subscribe — and the whole stroke is one undo step.
 - **Cursor:** `CursorInputComponent.WorldPosition` + `LeftButton`/`LeftButtonPressed`/
   `LeftButtonReleased` + `OutsideViewport` are everything a sampler needs; the
   viewport-inset mouse mapping already nulls margin clicks
-  (`ViewportManager.ScaleMouseToVirtualCoordinates` → `OutsideViewport`), so brush
+  (`ViewportManager.MapMouse` → `OutsideViewport`), so brush
   strokes can't leak into the chrome.
 - **Registrar/overlay:** the sampler is one new update-pipeline entry,
   `editor.brushStroke`, constructed by `EditorOverlay` and exposed as a hook

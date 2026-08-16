@@ -31,6 +31,23 @@ public static class Logger
     /// field read; the interpolated-message handlers below branch on it before they allocate.</summary>
     public static bool IsEnabled(LogLevel level) => level >= MinimumLevel;
 
+    /// <summary>
+    /// Optional in-process tap on every message that survives <see cref="MinimumLevel"/>, invoked with
+    /// the RAW message (no timestamp/level prefix) <b>after</b> the line has been written and
+    /// <b>outside</b> the writer lock. `foundation` owns only the socket — it defaults to null, so an
+    /// untapped run pays one null check per surviving line — and the plug lives in the optional `debug`
+    /// module (<c>PointerReplaySystem</c>'s <c>waitUntil</c>-on-log predicate needs to observe log lines
+    /// in-process, without tailing the file). Same inversion as <c>GatedSystem.TimingSink</c> /
+    /// <c>SystemProfiler</c>: a sensitive core module must never reference an optional debug module just
+    /// to be observable.
+    ///
+    /// <para>Contract for a sink: it is a <b>single-owner</b> socket (assigning replaces, so an owner
+    /// installs on construction and restores null on dispose), it must be thread-safe (background work
+    /// such as the screenshot encoder logs too), and it must <b>never log</b> — <see cref="Write"/>
+    /// would re-enter it without bound.</para>
+    /// </summary>
+    public static Action<LogLevel, string> LineSink { get; set; }
+
     public static void Initialize(string outputDirectory, LogLevel minimumLevel = LogLevel.Debug)
     {
         lock (Lock)
@@ -130,6 +147,11 @@ public static class Logger
             PlatformServices.Current.WriteLineToConsole(line);
             _writer?.WriteLine(line);
         }
+
+        // Outside the lock on purpose: a sink is third-party code (today the pointer-replay
+        // waitUntil-on-log predicate), and holding the writer lock across it would serialise every
+        // logging thread behind it — and make a sink that logs recurse under a lock it already owns.
+        LineSink?.Invoke(level, message);
     }
 
     /// <summary>

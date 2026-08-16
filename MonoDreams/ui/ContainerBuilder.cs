@@ -20,6 +20,7 @@ public class ContainerBuilder
     private readonly bool _isRoot;
     private readonly ScreenAnchor _anchor;
     private readonly RenderTargetID _renderTarget;
+    private readonly Vector2? _pinOffset;
 
     // Layout properties with defaults
     private LayoutDirection _direction = LayoutDirection.Vertical;
@@ -44,13 +45,15 @@ public class ContainerBuilder
         ContainerBuilder? parentBuilder,
         bool isRoot,
         ScreenAnchor anchor,
-        RenderTargetID renderTarget)
+        RenderTargetID renderTarget,
+        Vector2? pinOffset = null)
     {
         _world = world;
         _parentBuilder = parentBuilder;
         _isRoot = isRoot;
         _anchor = anchor;
         _renderTarget = renderTarget;
+        _pinOffset = pinOffset;
     }
 
     /// <summary>
@@ -246,6 +249,18 @@ public class ContainerBuilder
         };
         ConfigureLayoutNode(_layoutSlot.Node);
         _entity.Value.Set(_layoutSlot);
+
+        // A pinned root opts out of the implicit solver container's stacking; PinnedLayoutRootSystem
+        // places it at anchor + offset. The slot keeps the same Anchor, so dropping the component
+        // degrades this back to an ordinary anchored root instead of a mystery position.
+        if (_isRoot && _pinOffset.HasValue)
+        {
+            _entity.Value.Set(new PinnedLayoutRootComponent
+            {
+                Anchor = _anchor,
+                Offset = _pinOffset.Value,
+            });
+        }
 
         // Build all children
         foreach (var childAction in _pendingChildren)

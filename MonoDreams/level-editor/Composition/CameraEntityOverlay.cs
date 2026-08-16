@@ -140,7 +140,7 @@ public sealed class CameraEntityOverlay
 
         var projection = OverlayProjection.For(RenderTargetID.Main, _camera, _viewportManager);
         var world = CameraEntityGlyph.FrustumWorldCorners(
-            cameraPos, cameraZoom, _camera.VirtualWidth, _camera.VirtualHeight);
+            cameraPos, cameraZoom, _camera.LayoutWidth, _camera.LayoutHeight);
         var s = new Vector2[4];
         for (var i = 0; i < 4; i++) s[i] = projection.ToScreen(world[i]);
         var thickness = projection.ToScreenSize(GlyphPixelThickness);
