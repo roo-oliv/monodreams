@@ -85,6 +85,229 @@ camera demo, `MonoDreams/camera/demo/CameraDemoScreen.cs`).
 **Depends on:** "A render pass's camera virtual resolution matches its
 destination".
 
+## Authoring space and render space are distinct; the scale lives only in the cameras
+
+A game has TWO coordinate spaces, both owned by `ViewportManager`.
+**Authoring (layout) space** — `LayoutWidth`×`LayoutHeight` — is where every
+game number is written: entity and UI coordinates, HUD/overlay boxes,
+`Camera.Zoom`, culling extents, and the point `MapMouse` returns.
+**Render (virtual) space** — `VirtualWidth`×`VirtualHeight` — is the pixel size
+of the per-pass render targets and of the back buffer. `RenderScale` is the one
+ratio between them (`VirtualWidth / LayoutWidth`; the two aspect ratios must
+match, and a mismatch throws), and it is applied in **exactly one place: the
+per-pass render cameras** — `Camera.RenderScale` multiplies `Zoom` inside the
+view transform. Nothing else in the engine multiplies a coordinate by it.
+World passes take `ViewportManager.CreateCamera()`; screen-space passes (UI,
+HUD, Scroll, …) take `ViewportManager.LayoutCamera` (or `CreateLayoutCamera` for
+a sub-target) **instead of a null camera**, which is what scales authored UI
+coordinates onto a larger target. Sizing a render target that must hold a
+layout-sized region is the one legitimate hand use of `RenderScale`.
+
+The two spaces default to being EQUAL (`RenderScale == 1`) — the single-space
+game — and at that scale `LayoutCamera`'s view matrix is **exactly**
+`Matrix.Identity`, so passing it everywhere changes no pixel. The model is
+therefore opt-in: a game opts in by giving `ViewportManager` a layout size that
+differs from its virtual size, and then a render-resolution move (720p → 1080p)
+touches the head's two numbers and nothing else — no game coordinate, no UI
+number, and no coordinate-carrying test moves. Bitmap text is re-rasterized
+through the camera at the new resolution, so it gains real fidelity from the
+same font masters.
+
+The two entry points that configure the spaces — the `ViewportManager`
+constructor and `SetResolution` — take the same layout arguments under **one
+convention**: a layout dimension of `0` means "same as the render dimension"
+(which is what an unset `GameSettings.LayoutWidth`/`LayoutHeight` is), a negative
+one throws, and a half-specified pair (`0` beside a real height) resolves to a
+mismatched aspect ratio and throws as such. `0` never means "single space" in one
+of them and "invalid" in the other, so a settings object can be forwarded to
+either.
+
+**Why:** hardcoding final-resolution coordinates (buttons at 1720,980; tests
+asserting pixel positions) makes a resolution change a full recalibration. The
+`ViewportManager` used to half-support this — one space with a letterbox — which
+is the worst state: close enough that people assume the second space exists,
+incomplete enough that the gaps surface mid-project. Keeping the scale in the
+cameras (rather than sprinkling it over prep systems, layout, and picking) is
+what makes the opt-in free and the invariant checkable.
+**Breaks:** applying `RenderScale` a second time anywhere (a prep system, UI
+layout, a mouse mapping) double-scales that content — visible only once a game
+actually uses two spaces, so it lands silently. Leaving a screen-space pass on a
+`null` camera renders authored UI 1:1 into a bigger target: content shrinks into
+the top-left corner. Reading `VirtualWidth` where an authored number belongs
+(UI layout roots, HUD/overlay boxes, fit-zoom, frustum outlines) makes that
+number move with the render resolution — the exact bug the split exists to
+prevent. Non-matching aspect ratios would need two scales, so the manager
+refuses them. A `SetResolution` that read `0` as "invalid" rather than "same as
+the render dimension" would crash any game that forwards its (default) settings
+to it, while the identical constructor call booted fine.
+**Tests:** `MonoDreams.Tests/Rendering/RenderSpaceTests.cs` (single-space is
+identity; scale derivation + validation, incl. `0` meaning the render dimension
+in both entry points; `MapMouse` returns authoring coordinates unchanged across a
+render-resolution move and follows resize / letterbox; layout and world cameras
+map authoring → render pixels; pointer → world and the culling extent are
+identical at any render resolution) plus the
+live render at 1.5× in
+`MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`
+(`HeadlessUiDemo_AtAHigherRenderResolution_…`).
+**Depends on:** "A render pass's camera virtual resolution matches its
+destination"; "`Camera.VirtualResolution` is immutable"; cursor — "Cursor
+`TransformComponent.Position` depends on render target".
+
+## Presentation scaling is a declared policy, resolved in one place
+
+How the window-vs-render-resolution conflict is resolved is a **declared policy**
+(`ViewportManager.Policy`, a `PresentationPolicy`), not per-game plumbing and not a
+per-layer improvisation. `ViewportManager.Recalculate` runs its chain — in the declared
+preference order — over the area left for the game viewport (the window minus any
+viewport inset), and the winner produces the ONE `DestinationRectangle` that
+`FinalDrawSystem` composites into and `MapMouse` inverts:
+
+1. **Overscan to a clean scale** (`AllowOverscan`) — spend up to `OverscanTolerance` of
+   extra scale to reach the clean step ABOVE the aspect-fit scale. The frame then
+   overflows the window and its edges leave the screen, which is why that tolerance is a
+   GAMEPLAY dial: the honest way to spend it is to render that much more world, and
+   `PresentationPolicy.ResolveRenderSize(design, window)` is the other end of the same dial
+   — it returns the render resolution at which the clean present has ZERO overflow, so the
+   extra scale becomes extra view. That resolution is a boot-time decision (render targets,
+   per-pass cameras and the back buffer all follow `VirtualWidth`/`VirtualHeight`), never a
+   per-frame one.
+2. **Letter/pillarbox at a clean scale** (`AllowLetterbox`) — drop to the clean step BELOW
+   the aspect-fit scale and pad with bars, as long as the drop costs no more than
+   `LetterboxTolerance`.
+3. **Stretch** (`AllowStretch`) — the exact aspect-fit rectangle at a fractional scale: the
+   historical present, and the only step that resamples at an arbitrary ratio.
+
+"Clean" is the ladder `CleanScaleSteps` names: whole steps (…, 1/3, 1/2, 1, 2, 3, …), or
+whole **and half** steps (…, 1/1.5, 1, 1.5, 2, …) — a half step repeats a fixed 1-2-1-2
+pixel pattern rather than an arbitrary one. A fit scale that is already clean is presented
+as-is (reported as `Letterbox`; bars only from an aspect mismatch). The chain always
+terminates: with `AllowStretch` off the last resort is the clean step below, bars and all.
+**Overscan is vetoed while a viewport inset is active** — a frame grown past the game
+viewport would paint over the editor chrome reserved around it — but the rest of the chain
+still applies inside the inset area.
+
+**The policy never touches a camera.** It moves and resizes the DESTINATION the finished
+render targets are composited into — after every pass has already drawn. A pass's camera
+virtual resolution must still equal its destination target's size (see "A render pass's
+camera virtual resolution matches its destination"), and the authoring→render ratio is
+still `RenderScale`, applied only in the cameras. `PresentScale` (destination width over
+`VirtualWidth`) is a THIRD, later number: the two compose as `RenderScale × PresentScale`
+authoring units per screen pixel. The one place the policy reaches back into the camera
+contract is `ResolveRenderSize`, and it does so legitimately — by choosing the render
+resolution before the targets and cameras are built from it.
+
+Two things ride on top of the resolved rectangle, and neither is allowed a second opinion.
+`MapMouse` inverts **that** rectangle, so the pointer follows whichever step won for free: under
+a box the bars map to null exactly like an aspect-ratio bar, and under overscan the frame covers
+the axis that BOUND the fit while the other axis is covered only when the window's aspect is
+within the tolerance the step spent — so **overscan does not abolish the null case** (a 2000×1029
+window on a 1920×1080 frame overscans to 1× at `(40, -25, 1920, 1080)`: cropped top and bottom,
+40-pixel pillarbars left and right, and a pointer in a bar still maps to null). And each
+`RenderLayer` carries a
+`SamplerPolicy` — `Auto` (point at an integer scale of 1× or more, linear otherwise),
+`Point`, or `Linear` — resolved by `FinalDrawSystem` against **that layer's own**
+destination-over-target ratio, so a minimap overlay is judged by its scale and the editor's
+native chrome layer by its 1:1.
+
+The engine default is `PresentationPolicy.Stretch`: the historical aspect-fit present, so a
+game that declares nothing is framed exactly as before. `PresentationPolicy.Default`
+(overscan 5% → letterbox 25% → stretch) is the **scaffold default** — what a new game
+should declare, and what `MonoDreams.Examples` declares via `GameSettings.Presentation`.
+`Crisp` (never stretch) and `PixelPerfect` (whole steps only, no overscan, no stretch) are
+the two opinionated presets; `PixelPerfect` takes over from the retired
+`ViewportManager.ScalingMode.PixelPerfect` + `PixelPerfectDestinationRectangle`, which is why
+both are gone: one policy, one destination rectangle, one mouse inverse. It reproduces that
+mode exactly for a window at least as large as the render resolution in both axes (both are
+`floor(fit)`), and **diverges below 1× on purpose**: the old mode clamped its integer scale to
+a floor of 1 and cropped the frame off-screen (1920×1080 in a 1600×900 window: 1920×1080 at
+(-160, -90)), whereas a policy with overscan off may not crop and keeps descending the
+reciprocal ladder (960×540 centered, with bars). Cropping is the overscan step's business, and
+that step is bounded by a declared tolerance — a preset does not get to crop for free.
+
+**Why:** the engine presented every layer `PointClamp` at whatever fractional scale the
+window implied, so UI text shimmered and crawled on any window smaller than the render
+resolution — and the reference game had to rebuild the whole present pass game-side to
+choose "point at 1×, linear otherwise". Shimmer is the symptom; being forced to present at
+an arbitrary fractional scale at all is the disease, and the cure is a declared trade
+(extra view vs bars vs soft scale) rather than a per-game one. Keeping the trade inside
+`ViewportManager` is what keeps compositing and pointer mapping from ever disagreeing —
+the same single-source-of-truth argument as the viewport inset.
+**Breaks:** a layer that computes its own destination rectangle (rather than reading
+`DestinationRectangle`) desyncs from `MapMouse` — under overscan by the cropped margin,
+under a box by the bar width — which is the cursor-drift bug the aspect-fit HUD premise
+already names, reintroduced through a different door. Resolving `Auto` against the frame's
+present scale instead of the layer's makes a minimap point-sampled at a heavy downscale.
+Letting overscan run under a viewport inset paints game pixels over the editor chrome.
+Moving the render resolution per frame (rather than at boot) composites stale targets
+through a rectangle computed for the new size. And a policy is only as good as its
+tolerances: `OverscanTolerance` is measured in *frame edges lost* (or world gained), not in
+pixels of blur, so raising it to "make it crisp" quietly crops authored UI.
+**Tests:** `MonoDreams.Tests/Rendering/PresentationPolicyTests.cs` (the ladder in both
+granularities; each step winning and being refused past its tolerance; `Crisp` never
+stretching; an already-clean fit untouched by every preset; `PixelPerfect` matching the retired
+mode at or above 1× and shrinking in whole steps below it rather than cropping
+(`PixelPerfectPolicy_MatchesTheRetiredMode_AtOrAboveOneX`,
+`PixelPerfectPolicy_ShrinksInWholeSteps_WhereTheRetiredModeCropped`); `MapMouse` inverting the
+overscanned and the boxed rectangle, in authoring space, nulling in real bars — including the
+bars that SURVIVE an overscan on a mismatched aspect
+(`MapMouse_StillNullsInABar_WhenOverscanOnlyCoversTheBindingAxis`); the
+inset veto and its restoration; `ResolveRenderSize` growing the render resolution to a
+zero-crop clean present, refusing past tolerance, never shrinking the design and not
+ratcheting; `Auto`/`Point`/`Linear` resolution and the layer factories' defaults) plus
+`MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (`PixelPerfectPolicy_UsesTheAvailableArea`,
+`DefaultPolicy_IsTheHistoricalStretch`).
+**Depends on:** "The viewport inset moves compositing and mouse mapping together" (the same
+single-source-of-truth rectangle, and the area the chain resolves inside); "The HUD layer is
+aspect-fit, not screen-stretched (cursor depends on it)"; "`FinalDrawSystem` composites an
+explicit, ordered layer list" (where the per-layer sampler is resolved); "Authoring space
+and render space are distinct; the scale lives only in the cameras" (`PresentScale` is the
+present-time scale, `RenderScale` the authoring→render one — two different numbers);
+cursor — "Cursor `TransformComponent.Position` depends on render target".
+
+## A render pass publishes its destination through a null-by-default socket
+
+`MasterRenderSystem.RenderedTargetSink` is a `static Action<RenderTargetID,
+RenderTarget2D>?`, default `null`, invoked at the very top of every pass's
+`Update` — before the empty-pass early return, so a pass with nothing to
+draw still announces the target it just cleared. It is an **observation
+channel only**: a subscriber may read the target it is handed and must not
+draw into it, retarget it, or dispose it. The handle is good for the frame
+it is published in and no longer — the screen that owns it may dispose it on
+a screen switch or rebuild it on a window resize — so a subscriber that
+keeps the reference across frames owns that lifetime question and must
+recheck `IsDisposed` before both reading it and preferring it to a newer
+publish. Nothing in `rendering` subscribes and nothing here knows who might;
+the `debug` module plugs `ScreenshotCaptureSystem` in when
+`MONODREAMS_SCREENSHOT_TARGET` names a target, and unplugs on `Dispose`.
+
+**Why:** screens own their render targets privately — there is no registry
+mapping a `RenderTargetID` to a live `RenderTarget2D`, and adding one would
+put a lifetime problem (screen switches, resize-recreated targets,
+retargeting) in a second place. The passes that actually ran this frame ARE
+that lookup, published for free. The direction is the one `GatedSystem`'s
+`TimingSink` established: the core module owns the socket and the optional
+module owns the plug, so a sensitive module never depends on a debug one
+and, with nothing installed, no observer exists in the object graph at all
+— just one null check per pass per frame.
+**Breaks:** calling into `debug` from here inverts the module dependency
+and drags capture code into every shipped game. Publishing *after* the
+early return hides idle passes, so a capture of a momentarily-empty layer
+silently reads nothing. A subscriber that draws into (or disposes) the
+target it is handed corrupts the frame the pass just rendered — the socket
+is not a second renderer, and "`MasterRenderSystem` is the sole render
+implementation" still holds. A subscriber that stores the handle and never
+rechecks `IsDisposed` reads a dead target, or pins itself to one and ignores
+every later publish, from the first screen switch or resize onward.
+**Tests:** `MonoDreams.Tests/Debug/ScreenshotCaptureSystemTests.cs`
+(subscribe-only-when-asked, unsubscribe on dispose);
+`MonoDreams.Tests/IntegrationTests/RenderTargetCaptureTests.cs` (a headless
+run resolves the `Scroll` target through the socket and captures it at
+360x220 while the backbuffer is 1280x720).
+**Depends on:** "One `MasterRenderSystem` instance is one render pass" (one
+publish per pass per frame is what makes first-publisher-wins meaningful);
+debug — "Target capture reads a fixed-resolution render target, resolved
+from the passes that ran".
+
 ## A render pass's camera virtual resolution matches its destination
 
 A `MasterRenderSystem` pass derives its mesh `BasicEffect` projection from
@@ -97,24 +320,32 @@ giving its second camera the same virtual resolution as the main camera and
 a full-virtual-resolution target, then letting `FinalDrawSystem` shrink
 that target into the on-screen box.
 
+A camera's `RenderScale` is orthogonal to this: it says how many render pixels
+one authoring unit is worth, while the virtual resolution still has to equal the
+destination. `ViewportManager.CreateCamera()` / `LayoutCamera` /
+`CreateLayoutCamera(w, h)` build cameras that satisfy both by construction.
+
 **Why:** projection maps destination pixels → NDC; the camera centers world
 content at `(VirtualWidth/2, VirtualHeight/2)`. A mismatch puts the centered
 content somewhere other than the target's middle and scales meshes wrongly.
-Deriving projection from the destination (not the camera) is what lets
-screen-space passes carry no camera at all.
+Deriving projection from the destination (not the camera) is what lets a pass
+that needs no view transform (a single-space screen-space pass) carry no camera
+at all.
 **Breaks:** a camera whose virtual resolution differs from its destination
 renders off-center and mis-scaled in that pass.
-**Tests:** none yet.
-**Depends on:** "`Camera.VirtualResolution` is immutable".
+**Tests:** `MonoDreams.Tests/Rendering/RenderSpaceTests.cs`
+(`CreateLayoutCamera_DoesTheSameForASubTarget`, `WorldCamera_ZoomStaysAnAuthoringNumber`).
+**Depends on:** "`Camera.VirtualResolution` is immutable"; "Authoring space and
+render space are distinct; the scale lives only in the cameras".
 
 ## `FinalDrawSystem` composites an explicit, ordered layer list
 
 `FinalDrawSystem` takes an ordered `RenderLayer` list and draws each
 target onto the back buffer in order (later = on top). `RenderLayer.Main`
 / `UI` / `HUD` are factories for the standard full-frame layers — all three
-draw to the aspect-fit `ViewportManager.DestinationRectangle` (with their
-own samplers), so they share one letterboxed viewport and never stretch or
-spill into the bars; `RenderLayer.Overlay` places a target in a
+draw to the policy-resolved `ViewportManager.DestinationRectangle`, so they
+share one viewport and never stretch or spill into the bars;
+`RenderLayer.Overlay` places a target in a
 sub-rectangle given in HUD virtual coordinates, mapped into that same
 `DestinationRectangle` — so an overlay aligns with HUD chrome drawn at
 those coordinates; `RenderLayer.Native` composites a provider-resolved
@@ -123,6 +354,14 @@ editor shell's chrome layer), skipping the layer when the provider returns
 null (how chrome contributes nothing outside Edit). The screen owns the
 list, so it decides which targets exist, their order, and where each lands.
 
+Each layer also carries a `SamplerPolicy` (`Auto` — the factories' default —
+`Point`, or `Linear`), and `FinalDrawSystem` resolves it per layer against that
+layer's OWN present scale: its resolved destination width over its target's
+width. `Auto` is point at an integer scale of 1× or more and linear otherwise,
+so the standard layers stay crisp where crispness is achievable and stop
+shimmering where it is not, a minimap overlay is judged by its own heavy
+downscale, and the native chrome layer is always exactly 1:1 (point).
+
 **Why:** the compositor is the natural seam for screen layout — overlays
 (minimap, CCTV), and eventually tiled splitscreen — without touching the
 renderer. Driving it from an explicit list (rather than a hardcoded
@@ -130,20 +369,30 @@ Main→UI→HUD sequence) makes those layouts data, not code forks.
 **Breaks:** omitting a layer silently drops that target from the screen
 (its render pass still ran and cleared its target — wasted work, blank
 result). An overlay rect given in screen pixels instead of HUD virtual
-coords misaligns with HUD chrome under non-1:1 scaling.
-**Tests:** none yet (exercised by every demo/example screen and the minimap
-overlay in the camera demo).
-**Depends on:** —
+coords misaligns with HUD chrome under non-1:1 scaling. Resolving a layer's
+sampler against the frame's present scale instead of its own point-samples a
+minimap at a heavy downscale; hardcoding `Point` on a screen-space layer
+brings back the crawling 1-px text stems the sampler policy exists to fix.
+**Tests:** the sampler half is
+`MonoDreams.Tests/Rendering/PresentationPolicyTests.cs`
+(`AutoSampler_IsPointAtAnIntegerScale_LinearOtherwise`,
+`ExplicitSamplers_IgnoreTheScale`,
+`StandardLayers_DefaultToAuto_AndTheEditorChromeLayerToPoint`); the ordering
+and placement halves are exercised by every demo/example screen and the
+minimap overlay in the camera demo.
+**Depends on:** "Presentation scaling is a declared policy, resolved in one
+place" (the destination rectangle these layers land on, and the scale their
+`Auto` samplers are resolved against).
 
 ## The HUD layer is aspect-fit, not screen-stretched (cursor depends on it)
 
 The HUD render layer is composited to the aspect-fit
 `ViewportManager.DestinationRectangle`, exactly like Main and UI — never
 stretched to the raw back-buffer rectangle `(0,0,ScreenWidth,ScreenHeight)`.
-HUD-space content is authored in virtual coordinates, and the cursor (a
-`RenderTargetID.HUD` entity) is positioned by `CursorPositionSystem` via
-`ViewportManager.ScaleMouseToVirtualCoordinates`, which inverts the aspect-fit
-transform. The layer must be drawn back through that *same* transform, or the
+HUD-space content is authored in AUTHORING (layout) coordinates, and the cursor
+(a `RenderTargetID.HUD` entity) is positioned by `CursorPositionSystem` via
+`ViewportManager.MapMouse`, which inverts the aspect-fit transform into that
+same authoring space (identical to the virtual space in a single-space game). The layer must be drawn back through that *same* transform, or the
 cursor's render and its position math disagree.
 
 **Why:** when the screen aspect ratio differs from the virtual one (any
@@ -283,10 +532,10 @@ aspect-fit).
 ## The viewport inset moves compositing and mouse mapping together
 
 `ViewportManager.SetViewportInset(left, top, right, bottom)` reserves chrome
-margins (the editor shell) around the game viewport: the aspect-fit
-`DestinationRectangle` — and the pixel-perfect rectangle — are computed
+margins (the editor shell) around the game viewport: the `DestinationRectangle`
+the presentation policy resolves is computed
 inside the remaining centered sub-rectangle, and
-`ScaleMouseToVirtualCoordinates` inverts that **same** rectangle. Because the
+`MapMouse` inverts that **same** rectangle. Because the
 `ViewportManager` is the single source of truth, the final-draw compositing
 and the cursor's virtual/world mapping can never disagree: a click inside the
 inset viewport maps to the correct virtual point with no extra math, and a
@@ -294,16 +543,18 @@ click in the margins maps to `null` (`CursorPositionSystem` then flags
 `CursorInputComponent.OutsideViewport`; chrome consumes the click in screen
 space). An all-zero inset (the default, and `ClearViewportInset`) is
 **byte-identical** to the historical full-window letterbox, so every screen
-that never sets an inset is untouched. `IntegerScale` and
-`PixelPerfectDestinationRectangle` recalculate lazily like
-`DestinationRectangle` (a read after a resize/inset change is never stale) —
-and `Recalculate` must assign their backing fields directly (reading the lazy
-properties inside it recurses). The same single-source-of-truth rule extends
+that never sets an inset is untouched. `Presentation` and `PresentScale`
+recalculate lazily like `DestinationRectangle` (a read after a resize/inset
+change is never stale) — and `Recalculate` must assign their backing fields
+directly (reading the lazy properties inside it recurses). An inset also
+vetoes the presentation policy's overscan step, since a frame grown past the
+game viewport would paint over the chrome the margins reserve. The same
+single-source-of-truth rule extends
 to `DevicePixelRatio` (default 1): when a host renders a device-resolution
 backbuffer behind a logically-scaled window (macOS Retina under the editor
 run flag — the level-editor module's `EditorHiDpi`), `ScreenWidth/Height`
 are DEVICE pixels and `CursorInputSystem` multiplies the raw (logical) mouse
-by this ratio, so `ScaleMouseToVirtualCoordinates` keeps inverting the same
+by this ratio, so `MapMouse` keeps inverting the same
 space it composites in — at DPR 1 everything is byte-identical.
 
 **Why:** the Wave-7 editor shell renders the game scaled-down in the center
@@ -313,13 +564,14 @@ exact class of bug the aspect-fit HUD premise exists for.
 **Breaks:** an inset applied to `DestinationRectangle` but not to the mouse
 inverse shifts all picking by (left, top); a non-restored inset (screen swap
 without cleanup) letterboxes the next screen into a corner; a stale
-`PixelPerfectDestinationRectangle` composites the Main layer one
-resize/inset behind.
+`Presentation`/`PresentScale` reports the framing of one resize/inset ago.
 **Tests:** `MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (zero-inset =
 legacy rect + legacy mouse mapping; set+clear restores; inset rect centered
 and aspect-correct in the available area; mouse maps inside / nulls in the
-margins; resize recomputes; pixel-perfect uses the available area; negative
-margins throw; oversized margins clamp).
+margins; resize recomputes; the pixel-perfect POLICY uses the available area;
+negative margins throw; oversized margins clamp) plus
+`MonoDreams.Tests/Rendering/PresentationPolicyTests.cs`
+(`ViewportInset_VetoesOverscan_ButNotTheRestOfTheChain`).
 **Depends on:** "The HUD layer is aspect-fit, not screen-stretched (cursor
 depends on it)"; level-editor — "The editor shell insets the game viewport
 and renders its chrome at native resolution".
@@ -776,12 +1028,16 @@ possibly entity ID — but that's a framework change, not a workaround.
 
 ## `Camera.VirtualResolution` is immutable; the `Camera` is a render adapter (CM)
 
-`Camera.VirtualWidth` and `Camera.VirtualHeight` are readonly properties
-set in the constructor (the `Camera` class lives at
+`Camera.VirtualWidth`, `Camera.VirtualHeight` and `Camera.RenderScale` are
+readonly properties set in the constructor (the `Camera` class lives at
 `MonoDreams/rendering/Camera.cs` because it is a hard dependency of the
 draw stack — `MasterRenderSystem` reads its position, zoom, and view
 matrix every frame). Only zoom, position, and rotation are mutable on a
-live `Camera`.
+live `Camera`. `RenderScale` belongs to the same contract: it is the
+authoring→render factor (see "Authoring space and render space are distinct"),
+so changing the render resolution means asking the `ViewportManager` for a NEW
+camera, not mutating one — which is exactly what `ViewportManager.SetResolution`
+does (it drops its cached `LayoutCamera`).
 
 **Under CM the `Camera` is a render ADAPTER, and rendering is unchanged.** The
 authored camera is a scene ENTITY (`camera` module — `CameraComponent` + the
@@ -1073,7 +1329,6 @@ The following premises currently have **Tests: none yet**:
 - `DrawComponent` is the only render component
 - `MasterRenderSystem` is the sole render *implementation*
 - One `MasterRenderSystem` instance is one render pass
-- A render pass's camera virtual resolution matches its destination
 - `FinalDrawSystem` composites an explicit, ordered layer list
 - Renderable entity stack on the Main target
 - `VisibleComponent` is owned exclusively by `CullingSystem`

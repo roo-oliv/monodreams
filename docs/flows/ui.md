@@ -65,6 +65,11 @@ the ones this flow's ordering leans on:
 - `ButtonMeshPrepSystem` bakes world coords and must run *after* `MeshPrepSystem` when both
   are present (it sets `WorldMatrix = Identity`); button geometry reads the post-layout
   `WorldPosition`, so it must run after `AutoLayoutSystem` too.
+- Mutually exclusive panels (tabs, settings pages, wizard steps) **park, they never hide**:
+  `PanelGroupSystem` translates every inactive member of a `PanelGroupComponent` off-screen
+  and restores the active one verbatim. It re-derives the park from the member's live
+  position, so it must run *after* every writer of that position (`AutoLayoutSystem`, a
+  screen tick) and *before* `HierarchySystem`. Game code writes only `Active`.
 
 ## Load-bearing quantities
 
@@ -101,3 +106,8 @@ the ones this flow's ordering leans on:
   the outline drifts from its label by the layout-computed top-left.
 - **Flex-grow no-op** — setting `FlexGrow` on a child that isn't a main-axis fill child:
   silently does nothing; the row doesn't expand as intended.
+- **Panel switching by hiding** — dropping `VisibleComponent` to "close" a panel: a silent
+  no-op on UI/HUD/Scroll (those targets ignore the tag) and a cold panel on Main (the prep
+  systems skip it, so the switch back shows stale draw data). Hand-rolled parking has its
+  own failure — `position += offset` every frame compounds until the panel never comes back.
+  Use `PanelGroupComponent`.

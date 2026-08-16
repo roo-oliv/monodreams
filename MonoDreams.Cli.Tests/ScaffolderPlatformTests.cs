@@ -175,6 +175,42 @@ public class ScaffolderPlatformTests
         }
     }
 
+    /// <summary>
+    /// Issue #86: the scaffolded desktop branch must adopt <c>WindowFit</c> instead of pinning the
+    /// backbuffer to the virtual resolution — a fixed window larger than the display is not clamped by
+    /// macOS, so the bottom of a scaffolded game would render offscreen with no crash and no log. The
+    /// web branch must stay untouched (the host page owns the canvas size there), and the logger must be
+    /// up before the fit runs or its one boot line is silently dropped.
+    /// </summary>
+    [Fact]
+    public void Scaffold_GameRoot_DesktopBranchFitsTheWindow_WebBranchUntouched()
+    {
+        var root = NewTempDir();
+        try
+        {
+            ProjectScaffolder.Scaffold(Path.Combine(root, "Tmp"), "Tmp", Platforms.All);
+            var gameRoot = File.ReadAllText(Path.Combine(root, "Tmp", "Tmp.Core", "GameRoot.cs"));
+
+            Assert.Contains("WindowFit.Apply(_graphics, VirtualWidth, VirtualHeight, Window);", gameRoot);
+            // The old unconditional pin is what opened the window offscreen; it must be gone.
+            Assert.DoesNotContain("_graphics.PreferredBackBufferWidth", gameRoot);
+            Assert.DoesNotContain("_graphics.PreferredBackBufferHeight", gameRoot);
+
+            // Both the fit and the Reach profile stay inside the platform gate, and the fit is on the
+            // desktop (#else) side of it.
+            var webBranch = gameRoot.IndexOf("#if MONODREAMS_WEB", StringComparison.Ordinal);
+            var desktopBranch = gameRoot.IndexOf("#else", StringComparison.Ordinal);
+            var endif = gameRoot.IndexOf("#endif", StringComparison.Ordinal);
+            var fit = gameRoot.IndexOf("WindowFit.Apply", StringComparison.Ordinal);
+            Assert.True(webBranch >= 0 && desktopBranch > webBranch && endif > desktopBranch);
+            Assert.InRange(fit, desktopBranch, endif);
+
+            // Logger.Initialize must precede the fit, or WindowFit's boot log line no-ops.
+            Assert.True(gameRoot.IndexOf("Logger.Initialize(", StringComparison.Ordinal) < fit);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     // ---- CsprojEditor: platform-aware package injection --------------------------------------
 
     [Fact]

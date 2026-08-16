@@ -16,7 +16,7 @@ namespace MonoDreams.System.Cursor;
 /// (macOS Retina under the editor run flag; see the level-editor module's <c>EditorHiDpi</c>).
 /// This keeps the single-space invariant every consumer depends on: chrome hit-tests
 /// (<c>ToolbarSystem</c>/<c>SystemsPanelSystem</c> bounds) and the letterbox inverse mapping
-/// (<c>ViewportManager.ScaleMouseToVirtualCoordinates</c>) both operate in backbuffer pixels, so
+/// (<c>ViewportManager.MapMouse</c>) both operate in backbuffer pixels, so
 /// <c>ScreenPosition</c> must be too. A null <paramref name="viewportManager"/> (the pre-DPR
 /// signature) behaves as ratio 1.
 /// </summary>

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MonoDreams.Platform;
+using MonoDreams.Renderer;
 
 namespace MonoDreams.Examples.Settings;
 
@@ -25,14 +26,28 @@ public class GameSettings
     public bool IsFullscreen { get; set; } = false;
 
     /// <summary>
-    /// Virtual resolution width (game canvas).
+    /// RENDER resolution width — the pixel size of the render targets and back buffer.
     /// </summary>
     public int VirtualWidth { get; set; } = 1920;
 
     /// <summary>
-    /// Virtual resolution height (game canvas).
+    /// RENDER resolution height.
     /// </summary>
     public int VirtualHeight { get; set; } = 1080;
+
+    /// <summary>
+    /// AUTHORING (layout) resolution width — the space every game coordinate is written in.
+    /// 0 (the default) means "same as <see cref="VirtualWidth"/>": the single-space game, where the
+    /// two-space model is inert. Set it to author at a fixed canvas (say 1280x720) while rendering
+    /// at a higher resolution — the aspect ratios must match, and NO game coordinate, UI number or
+    /// coordinate-carrying test moves when <see cref="VirtualWidth"/> does.
+    /// </summary>
+    public int LayoutWidth { get; set; }
+
+    /// <summary>
+    /// AUTHORING (layout) resolution height; 0 means "same as <see cref="VirtualHeight"/>".
+    /// </summary>
+    public int LayoutHeight { get; set; }
 
     /// <summary>
     /// Camera zoom level. 1.0 = 1:1 view of virtual canvas.
@@ -40,12 +55,29 @@ public class GameSettings
     public float CameraZoom { get; set; } = 1.0f;
 
     /// <summary>
-    /// Resolution scaling mode: PixelPerfect, Smooth, or KeepAspectRatio.
-    /// PixelPerfect uses integer scaling for crisp pixel art.
-    /// Smooth uses bilinear filtering for UI/text.
-    /// KeepAspectRatio maintains aspect ratio with fractional scaling.
+    /// The presentation scaling policy — how the window-vs-render-resolution conflict is resolved:
+    /// <c>Default</c> (overscan to a clean scale within 5% → letter/pillarbox at a clean scale
+    /// within 25% → stretch — the recommended policy for a new game), <c>Crisp</c> (never resample
+    /// at a fractional ratio, however wide the bars get), <c>PixelPerfect</c> (whole scales only,
+    /// centered, with bars) or <c>Stretch</c> (the historical aspect-fit present). Whichever wins,
+    /// every layer still samples point at an integer scale and linear otherwise.
     /// </summary>
-    public string ScalingMode { get; set; } = "KeepAspectRatio";
+    public string Presentation { get; set; } = "Default";
+
+    /// <summary>
+    /// <see cref="Presentation"/> as the policy object to hand
+    /// <c>ViewportManager.Policy</c> — a method, not a property, so it never lands in the
+    /// serialized settings file. Both heads call it, so desktop and web present the same way from
+    /// the same settings; an unknown name falls back to the recommended policy rather than to the
+    /// historical stretch, so a typo cannot silently downgrade the framing.
+    /// </summary>
+    public PresentationPolicy ResolvePresentation() => Presentation switch
+    {
+        "PixelPerfect" => PresentationPolicy.PixelPerfect,
+        "Crisp" => PresentationPolicy.Crisp,
+        "Stretch" => PresentationPolicy.Stretch,
+        _ => PresentationPolicy.Default,
+    };
 
     /// <summary>
     /// When true, sprite and text positions are snapped to integer coordinates at render time.

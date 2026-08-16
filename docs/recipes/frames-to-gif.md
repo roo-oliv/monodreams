@@ -31,7 +31,7 @@ raw_{counter:D6}_{width}x{height}_{gametimeMs:D8}.rgba
 | Field | Meaning |
 |---|---|
 | `counter` | zero-based, six digits, zero-padded. Incremented **only after a successful write**, so the sequence is contiguous — a gap means frames were lost, not merely renamed. |
-| `width`x`height` | the backbuffer geometry of *that* frame. It can change mid-run if the window is resized. |
+| `width`x`height` | the source geometry of *that* frame — the backbuffer by default, which can change mid-run if the window is resized. Set `MONODREAMS_SCREENSHOT_TARGET=Main` (or `UI`/`HUD`/`Scroll`) to capture a render target instead: the geometry is then that target's fixed resolution and never varies, which also keeps the assembler's scale factor whole for the whole take. |
 | `gametimeMs` | total game time as an **integer millisecond count**, eight digits, zero-padded (`(int)MathF.Round(gameTime * 1000f)`). Integer rather than a formatted float on purpose: a decimal separator is culture-dependent and would make any indexing tool machine-specific. |
 | contents | exactly `width * height * 4` bytes, RGBA8888, no header. |
 

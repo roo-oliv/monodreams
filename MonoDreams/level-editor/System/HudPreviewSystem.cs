@@ -69,7 +69,7 @@ public sealed class HudPreviewSystem : ISystem<GameState>
 
         var hasCamera = TryGetCameraFrame(out var camCenter, out var zoom);
         var preview = state.RunMode == RunMode.Edit && hasCamera;
-        var virtualSize = new Vector2(_viewportManager.VirtualWidth, _viewportManager.VirtualHeight);
+        var virtualSize = new Vector2(_viewportManager.LayoutWidth, _viewportManager.LayoutHeight);
 
         foreach (var member in _members.GetEntities())
         {

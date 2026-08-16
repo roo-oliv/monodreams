@@ -53,7 +53,7 @@ public static class DemoHeader
         new AutoLayoutBuilder(world, viewport)
             .CreateRoot(ScreenAnchor.TopCenter, RenderTargetID.HUD)
             .Direction(LayoutDirection.Horizontal)
-            .Width(viewport.VirtualWidth)
+            .Width(viewport.LayoutWidth)
             .Padding(8 /* top */, 12 /* right */, 12 /* bottom */, 12 /* left */)
             .AlignMain(MainAxisAlignment.SpaceBetween)
             .AlignCross(CrossAxisAlignment.Start)

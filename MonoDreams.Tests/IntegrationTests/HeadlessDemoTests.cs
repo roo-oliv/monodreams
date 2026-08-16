@@ -106,4 +106,35 @@ public class HeadlessDemoTests
         Assert.Contains(result.LogLines,
             line => line.Contains("TexturedMeshUVCheck") && line.Contains("pass=True"));
     }
+
+    /// The live proof of the two-space model (issue #88): the SAME UI demo — same screen, same
+    /// authoring coordinates, same widget code — rendered into a 1920×1080 render space over its
+    /// unchanged 1280×720 authoring space. Nothing in the demo, the `ui` module or the render
+    /// pipeline is told about the move except the one env knob the head reads into the
+    /// ViewportManager; the scale reaches the frame solely through the per-pass cameras.
+    /// A non-blank capture proves the whole stack (UI layout, screen-space passes, the scroll
+    /// sub-target, the compositor) still produced a frame at the higher render resolution — the
+    /// failure mode this guards is content laid out in layout units but drawn 1:1 into a bigger
+    /// target (a quarter-size image in the corner, or nothing at all).
+    [Fact]
+    public async Task HeadlessUiDemo_AtAHigherRenderResolution_RendersFromUnchangedAuthoringCoordinates()
+    {
+        var result = await GameTestRunner.RunDemosAsync(
+            screen: "ui",
+            frames: 180,
+            captureEvery: 60,
+            sampleEvery: 60,
+            timeoutSeconds: 120,
+            environment: new Dictionary<string, string> { ["MONODREAMS_RENDER_SCALE"] = "1.5" });
+
+        Assert.Equal(0, result.ExitCode);
+
+        // The head logs both spaces: authoring unchanged, render space scaled.
+        result.AssertLogContains("Render space: authoring=1280x720, render=1920x1080, scale=1.5");
+        result.AssertLogContainsInOrder(
+            "Headless run: screen='demos.ui'",
+            "Headless run complete");
+
+        result.AssertScreenshotNonBlank();
+    }
 }

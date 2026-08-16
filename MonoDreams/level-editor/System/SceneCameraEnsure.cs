@@ -82,7 +82,7 @@ public static class SceneCameraEnsure
             {
                 position = CameraNav.Center(aabb);
                 if (camera != null && aabb.Width > 0 && aabb.Height > 0)
-                    zoom = CameraNav.FitZoom(aabb, camera.VirtualWidth, camera.VirtualHeight,
+                    zoom = CameraNav.FitZoom(aabb, camera.LayoutWidth, camera.LayoutHeight,
                         FrameMargin, CameraNavSystem.DefaultMinZoom, CameraNavSystem.DefaultMaxZoom);
             }
         }
