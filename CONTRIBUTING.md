@@ -151,6 +151,25 @@ print('all manifests valid')
 "
 ```
 
+Check the manifest is *honest* — that the module compiles from the
+dependencies it declares and nothing else. This is what a user gets from
+`monodreams add <module>` on a machine that has none of the other modules; it
+can never fail in this repo, where every checkout has all 14 on disk:
+
+```bash
+# Every module: scaffold a temp project, `add` the module, `dotnet build`.
+# Opt-in (the env var) because each case is a real restore + build.
+MONODREAMS_MANIFEST_HONESTY=1 dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+
+# Just the module you touched
+MONODREAMS_MANIFEST_HONESTY=1 MONODREAMS_HONESTY_MODULE=collision \
+  dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+```
+
+CI runs the same check as one job per module on every PR touching `MonoDreams/`
+or `MonoDreams.Cli/`. See [`MonoDreams/MODULES.md`](./MonoDreams/MODULES.md) ›
+"Manifest honesty" for the compile floor and the known-gap list.
+
 End-to-end test the change:
 
 ```bash

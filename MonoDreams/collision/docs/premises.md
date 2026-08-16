@@ -476,7 +476,9 @@ first-run build failure — invisible in this repo, fatal for a user.
 order, and a source scan asserting every engine namespace collision imports is covered by a
 declared dependency) and
 `MonoDreams.Cli.Tests/ScaffolderBuildTests.cs::Init_ThenAddCollision_InstallsPhysicsAndBuilds`
-(scaffold + `add collision` + `dotnet build`).
+(scaffold + `add collision` + `dotnet build`). The same recipe now runs for **every** module in
+CI — `MonoDreams.Cli.Tests/ManifestHonestyTests.cs` (issue #83), one job per module — so this
+premise is guarded generically, not just for collision.
 **Depends on:** physics — "`GravitySystem` affects only entities with `RigidBodyComponent` +
 `VelocityComponent`" (the body markers); this file — "A collider's body is resolved via
 `ColliderBody.Resolve`".

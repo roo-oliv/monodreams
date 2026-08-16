@@ -707,7 +707,25 @@ code".
   that the Examples mode is still named "headless" despite not rendering,
   and the two paths could eventually share one host abstraction.
 - **No architectural tests** (§8). Most premises lack programmatic
-  protection; review and discipline are the only enforcement today.
+  protection; review and discipline are the only enforcement today. The
+  one exception is the **manifest-honesty check** (issue #83,
+  `MonoDreams.Cli.Tests/ManifestHonestyTests.cs`): every module is
+  scaffolded, `add`ed and built against its *declared* dependencies alone,
+  in CI, per module.
+- **Module manifests that under-declare** (§1, tooling). Surfaced by the
+  manifest-honesty check and listed there as known gaps — each one is a
+  project that does not compile after `monodreams add <module>`:
+  `ui` and `level-editor` omit modules they import (`cursor`, `camera`
+  respectively — both acyclic, one-line manifest fixes); `dialogue` omits
+  both `cursor` and the `MonoGame.Framework.Content.Pipeline` package its
+  YarnSpinner importer needs; `foundation` (`ScreenController` takes
+  `rendering`'s `ViewportManager`/`Camera`) and `rendering`
+  (`DrawComponent`/`MasterRenderSystem` read `rendering-text`'s
+  `DynamicTextComponent.DefaultLineSpacing`) cannot declare their way out —
+  both would be cycles, so the coupling has to move in code. Until
+  `foundation` + `rendering` are fixed, the check installs a compile floor
+  and every scaffolded game inherits the same two modules whether it wants
+  them or not.
 - **Declarative system dependencies** (§2, §7). A future API would let
   a system declare "I expect X to have run this frame" at registration
   time, replacing implicit-order discipline with explicit assertions.

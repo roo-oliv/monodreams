@@ -77,6 +77,7 @@ The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberate
 
 - `foundation` — slots are entities with `TransformComponent`; the builder wires `TransformComponent.Parent` for the rendered hierarchy.
 - `rendering` — `ButtonMeshPrepSystem` and `LayoutDebugSystem` draw outlines via the `IMeshGenerator` primitives shipped by `rendering`.
+- `rendering-text` — `ButtonVisualSystem` and `TextInputSystem` read and write the linked label's `DynamicTextComponent` (colour, `TextContent`, measurement), so the module does not compile without it.
 
 ## Extension points
 
