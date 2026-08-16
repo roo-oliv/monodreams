@@ -36,6 +36,25 @@ public class RunStateGatingTest
         public void Dispose() => DisposeCount++;
     }
 
+    /// <summary>A child that OWNS transient entities: it counts the teardown calls the gate hands it
+    /// (<see cref="ISuspendableSystem"/>) as well as its updates.</summary>
+    private sealed class SuspendableSystem : ISystem<GameState>, ISuspendableSystem
+    {
+        public int UpdateCount { get; private set; }
+        public int SuspendCount { get; private set; }
+        public bool IsEnabled { get; set; } = true;
+
+        public void Update(GameState state)
+        {
+            if (!IsEnabled) return;
+            UpdateCount++;
+        }
+
+        public void Suspend(GameState state) => SuspendCount++;
+
+        public void Dispose() { }
+    }
+
     private static GameState NewState(RunMode mode)
     {
         var state = new GameState(new GameTime());
@@ -139,6 +158,78 @@ public class RunStateGatingTest
         gate.Update(NewState(RunMode.Play)); // gate + policy admit, but the child is disabled
 
         Assert.Equal(0, child.UpdateCount);
+    }
+
+    // ---- Stopping a child that owns transient entities (ISuspendableSystem) ----
+
+    /// <summary>
+    /// Skipping <c>Update</c> is not enough for a system that owns entities: it never gets another
+    /// update in which to dispose them, and the draw stack (RunNormally) keeps rendering them. The
+    /// gate therefore hands the child ONE Suspend on the running → not-running edge — not one per
+    /// frozen frame — and another one after it has resumed and stopped again.
+    /// </summary>
+    [Fact]
+    public void Freeze_SuspendsTheChild_OnceOnEachPlayToEditEdge()
+    {
+        var child = new SuspendableSystem();
+        var gate = new GatedSystem(child, EditTimeBehavior.Freeze);
+
+        gate.Update(NewState(RunMode.Play));
+        Assert.Equal(0, child.SuspendCount); // running: nothing to tear down
+
+        gate.Update(NewState(RunMode.Edit));
+        Assert.Equal(1, child.SuspendCount); // the Play → Pause edge
+
+        gate.Update(NewState(RunMode.Edit));
+        Assert.Equal(1, child.SuspendCount); // still frozen: not once per frame
+
+        gate.Update(NewState(RunMode.Play)); // resumed — Suspend is a teardown, not a kill switch
+        gate.Update(NewState(RunMode.Edit));
+        Assert.Equal(2, child.UpdateCount);
+        Assert.Equal(2, child.SuspendCount);
+    }
+
+    /// <summary>A gate that has never forwarded has nothing to tear down — a screen booting straight
+    /// into Edit must not call Suspend on a child that has not run yet.</summary>
+    [Fact]
+    public void AGateThatNeverRan_SuspendsNothing()
+    {
+        var child = new SuspendableSystem();
+        var gate = new GatedSystem(child, EditTimeBehavior.Freeze);
+
+        gate.Update(NewState(RunMode.Edit));
+
+        Assert.Equal(0, child.SuspendCount);
+    }
+
+    /// <summary>The systems panel's master toggle stops the child in both modes, so it is the same
+    /// edge: switching a running entry off tears its transient state down.</summary>
+    [Fact]
+    public void DisablingTheGate_SuspendsTheChild()
+    {
+        var child = new SuspendableSystem();
+        var gate = new GatedSystem(child, EditTimeBehavior.RunNormally);
+
+        gate.Update(NewState(RunMode.Play));
+        gate.IsEnabled = false;
+        gate.Update(NewState(RunMode.Play));
+
+        Assert.Equal(1, child.UpdateCount);
+        Assert.Equal(1, child.SuspendCount);
+    }
+
+    /// <summary>A plain child (the overwhelming majority) is unaffected: the gate never looks for a
+    /// teardown it does not implement.</summary>
+    [Fact]
+    public void ANonSuspendableChild_IsSkippedSilently()
+    {
+        var child = new CountingSystem();
+        var gate = new GatedSystem(child, EditTimeBehavior.Freeze);
+
+        gate.Update(NewState(RunMode.Play));
+        gate.Update(NewState(RunMode.Edit));
+
+        Assert.Equal(1, child.UpdateCount);
     }
 
     // ---- Dispose forwards to the child ----

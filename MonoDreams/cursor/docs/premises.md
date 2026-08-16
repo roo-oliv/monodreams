@@ -201,9 +201,13 @@ frame"; rendering — "Three render targets, two behaviors" (HUD always renders)
 whose other entries (e.g. `Hand`) are alternate silhouettes. It is pure data — the *swap*
 is owned by a consumer system (today the `ui` module's `CursorHoverSystem`, see the ui
 premises), which sets `CursorControllerComponent.Type` and, on a change, fills the cursor
-entity's mesh `DrawComponent` from the matching library entry. A mesh cursor without this
-component simply never swaps; the textured cursor path (`CursorTexturesComponent` +
-`CursorDrawPrepSystem`) is the parallel mechanism for image cursors and is unaffected.
+entity's mesh `DrawComponent` from the matching library entry. *Which* entry it picks is
+decided by the `ui` module's pointer pick — a `PointerPickComponent` that `UIFocusSystem`
+publishes **on this same cursor entity** (see the ui premise "There is ONE pointer pick");
+the cursor module itself neither writes nor requires it, so a screen without `ui` is
+unaffected. A mesh cursor without this component simply never swaps; the textured cursor
+path (`CursorTexturesComponent` + `CursorDrawPrepSystem`) is the parallel mechanism for
+image cursors and is unaffected.
 
 **Why:** the engine is mesh-capable, so a hover-cursor change is "pick a different mesh",
 exactly mirroring how `CursorTexturesComponent` lets the textured path "pick a different
@@ -213,8 +217,11 @@ keeps the mechanism reusable for any cursor type and any consumer.
 back to (the cursor keeps whatever mesh it last had). Mutating the cursor's mesh
 `DrawComponent` from elsewhere races the swap system the same way two writers race any
 shared component.
-**Tests:** none yet (exercised by the `ui` demo's Link-button hand cursor).
-**Depends on:** "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`".
+**Tests:** `MonoDreams.Tests/Ui/PointerPickTests.cs`
+(`PickedFocusableRequestingAHand_SwapsTheCursorTypeAndMesh` swaps to the `Hand` entry and back
+to `Default`; `NoPickPublished_LeavesTheCursorUntouched` pins the no-consumer degradation).
+**Depends on:** "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`";
+ui — "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers read it".
 
 ## `SkipDerivation` lets an injection channel own the cursor's derived positions
 

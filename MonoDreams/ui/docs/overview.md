@@ -15,6 +15,8 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 - `PinnedLayoutRootComponent` — pins a ROOT slot at an arbitrary screen position (`Anchor` + `Offset`) instead of stacking it in the implicit solver container. Several independent panels — a HUD widget, a toolbar, a sticky note — each get their own root
 - `UIElementComponent` — marker for UI entities (used by game-side interaction systems for hit-testing)
 - `SimpleButtonComponent` — button state (idle / hover / pressed) and visual style
+- `TooltipComponent` — "hover me and read this" on any pickable entity (anything with a `FocusableComponent`): the label text plus an optional per-entity hover `Delay` (`null` = the system's default dwell, `0` = instant). Everything else — spawning, placement, edge-flip, teardown — belongs to `TooltipSystem`
+- `PointerPickComponent` — THE pointer pick, published on the *cursor* entity by `UIFocusSystem`: which focusable the pointer is over and when that hover began. Read by every system that reacts to what the pointer is over (`TooltipSystem`, `CursorHoverSystem`) so none of them hit-tests again (see premises)
 - `HighlightComponent` — "draw attention to this entity": pulse speed, colour, thickness, padding, depth offset. Add it to ANY entity (sprite, text label, button, icon, or a bare hotspot with an explicit `Size`) and `HighlightSystem` keeps a pulsing outline on it; remove it and the outline goes away
 - `PanelGroupComponent` — a group of mutually exclusive panels (tab bodies, settings pages, wizard steps): the member root entities, the active index (or `PanelGroupComponent.None` — "no member active", e.g. a closed menu), and the park offset. Pure data; game code only ever writes `Active`. `PanelParkedComponent` is the system's own bookkeeping on a parked member — never authored
 - `TextInputComponent` — a minimal editable single-line text field: current value, character mask (`TextInputMask.None` / `Numeric`), max length, a `Focused` flag, the linked text entity that displays the value, a `CaretPosition` insertion index, and an optional `CaretEntity` the system draws a white caret line into. Focus is game-owned (see premises); formatting / placeholder / error states are intentionally out of scope and can be layered on later
@@ -33,6 +35,8 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 - `ButtonMeshPrepSystem` — paints button outlines via `rendering` based on `SimpleButtonComponent` state
 - `HighlightSystem` — owns one overlay entity per `HighlightComponent`: it rebuilds a pulsing outline from the target's *drawn* bounds, re-derives the overlay's layer depth from the target's every frame (so a z restack never buries it), inherits its render target + visibility, and disposes it with the target. Runs **last in the draw-prep stage**, after every prep system and before `MasterRenderSystem`
 - `TextInputSystem` — inserts masked characters at the caret (and handles Backspace / Delete / Left / Right / Home / End) into focused `TextInputComponent`s, mirrors the value onto the linked text entity, publishes `TextInputChanged`, and — when a `CaretEntity` is set — positions and shows a white vertical caret line at the insertion point. Reads the keyboard directly (edge-triggered); it only *consumes* the `Focused` flag — game code decides which field is focused
+- `TooltipSystem` — floats a label next to the pointer for whatever the pointer is over. It reads the pick (`PointerPickComponent`) rather than hit-testing, waits out the entity's hover delay, rides the cursor, flips away from the screen edges, draws on a screen-space target above everything, and despawns on hover-out or target death. Look and feel come from a `TooltipStyle`; the placement math is the pure, unit-tested `TooltipPlacement.Place`. Because it owns entities it also implements `ISuspendableSystem`: a screen may register it `EditTimeBehavior.Freeze` (it is a play-only pointer cosmetic) and the gate despawns the live label when the editor pauses, instead of stranding it on the HUD
+- `CursorHoverSystem` — swaps a mesh cursor's silhouette from the picked focusable's `FocusableComponent.HoverCursor` (e.g. a hand over a link), using the same pick
 - `PanelGroupSystem` — parks every inactive member of a `PanelGroupComponent` at the park offset (alive, laid out, off-screen) and restores the active one to the exact position it left, gating the focusables under each panel accordingly (groups nest: a focusable is navigable only when *every* panel above it is active). Run it after everything that writes a member's position (notably `AutoLayoutSystem`) and before `HierarchySystem` — and after `TabSystem` when both are present, since the panel gate is the finer one
 - `LayoutDebugSystem` — optional outline visualization (toggle `LayoutDebugSystem.Enabled`)
 
@@ -73,10 +77,11 @@ layout.CreatePinnedRoot(Vector2.Zero, ScreenAnchor.BottomCenter)  // a taskbar o
 1. **`IntrinsicSizingSystem`** — measure content via callbacks.
 2. **`AutoLayoutSystem`** — compute and apply positions.
 3. **`PinnedLayoutRootSystem`** — place the pinned roots. Must sit here: after the solver, before `HierarchySystem` and any world-position consumer.
-4. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`).
-5. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
-6. **`HighlightSystem`** (optional) — pulsing outlines; register it at the END of the draw-prep stage (after `SpritePrepSystem` / `YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before `MasterRenderSystem`) so it reads the bounds and depths those systems just wrote.
-7. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
+4. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`) — or `UIFocusSystem`, which also publishes the pointer pick.
+5. **Pick consumers** — `CursorHoverSystem`, `TooltipSystem`. Both must run **after** `UIFocusSystem` (the pick's publisher); `TooltipSystem` additionally wants the cursor's fresh virtual position, so put it after `CursorPositionSystem` too.
+6. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
+7. **`HighlightSystem`** (optional) — pulsing outlines; register it at the END of the draw-prep stage (after `SpritePrepSystem` / `YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before `MasterRenderSystem`) so it reads the bounds and depths those systems just wrote.
+8. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
 
 **Highlight anything** — one line, no per-target asset, no new render path:
 ```csharp
@@ -106,6 +111,7 @@ The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberate
 - `foundation` — slots are entities with `TransformComponent`; the builder wires `TransformComponent.Parent` for the rendered hierarchy.
 - `rendering` — `ButtonMeshPrepSystem`, `HighlightSystem` and `LayoutDebugSystem` draw outlines via the `IMeshGenerator` primitives shipped by `rendering`; `HighlightSystem` also measures its target from the prepared `DrawComponent` (the same data `MasterRenderSystem` submits), which is what lets one derivation cover sprites, text, nine-patches and meshes.
 - `rendering-text` — `ButtonVisualSystem` and `TextInputSystem` read and write the linked label's `DynamicTextComponent` (colour, `TextContent`, measurement), so the module does not compile without it.
+- `cursor` — the pointer half of the module: `UIFocusSystem` hit-tests against `CursorInputComponent` and publishes the pick **on the cursor entity**; `CursorHoverSystem` and `TooltipSystem` read it back from there.
 
 ## Extension points
 

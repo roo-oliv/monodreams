@@ -28,6 +28,13 @@ namespace MonoDreams.UI;
 /// code: pass an <c>activeGroup</c> accessor (a dialog/dropdown raises it to trap focus) and
 /// subscribe to <see cref="UIFocusActivated"/>. This is the configurable, game-owned dispatch the
 /// ui premises call for — the system provides the mechanism, not the action.</para>
+///
+/// <para>It is also the owner of THE pointer pick: the pointer pass resolves the topmost focusable
+/// under the cursor once and publishes it (plus when the hover started) on the cursor entity as
+/// <see cref="PointerPickComponent"/>. Systems that react to what the pointer is over —
+/// <see cref="TooltipSystem"/> and <see cref="CursorHoverSystem"/> — read that instead of
+/// hit-testing again, so they can never disagree with what focus and click think is hovered. See
+/// the ui premise "There is ONE pointer pick".</para>
 /// </summary>
 public sealed class UIFocusSystem : ISystem<GameState>
 {
@@ -65,7 +72,11 @@ public sealed class UIFocusSystem : ISystem<GameState>
         if (!IsEnabled) return;
 
         var focusables = _focusables.GetEntities();
-        if (focusables.Length == 0) return;
+        if (focusables.Length == 0)
+        {
+            PublishPick(default, state); // nothing focusable ⇒ nothing is under the pointer
+            return;
+        }
 
         var group = _activeGroup?.Invoke() ?? 0;
 
@@ -73,12 +84,16 @@ public sealed class UIFocusSystem : ISystem<GameState>
         Entity pressed = default;
 
         // ── Pointer pass ────────────────────────────────────────────────────────
+        // Resolves the pick ONCE — the topmost (last in iteration order) focusable under the pointer
+        // — and drives hover-focus, press and activation from it, then publishes it for the systems
+        // that react to what the pointer is over (tooltips).
         var cursorEntities = _cursors.GetEntities();
         if (cursorEntities.Length > 0)
         {
             ref readonly var cursor = ref cursorEntities[0].Get<CursorInputComponent>();
             var moved = cursor.Delta != Vector2.Zero;
 
+            Entity hovered = default;
             foreach (var e in focusables)
             {
                 ref readonly var f = ref e.Get<FocusableComponent>();
@@ -89,10 +104,17 @@ public sealed class UIFocusSystem : ISystem<GameState>
                 var bounds = new Rectangle((int)wp.X, (int)wp.Y, (int)f.Size.X, (int)f.Size.Y);
                 if (!bounds.Contains(pos)) continue;
 
-                if (moved) SetFocus(e, fromKeyboard: false); // mouse only steals focus when it actually moves (hover, no ring)
-                if (cursor.LeftButton) pressed = e; // held → press animation
-                if (cursor.LeftButtonReleased) activation = e;
+                hovered = e;
             }
+
+            if (hovered.IsAlive)
+            {
+                if (moved) SetFocus(hovered, fromKeyboard: false); // mouse only steals focus when it actually moves (hover, no ring)
+                if (cursor.LeftButton) pressed = hovered; // held → press animation
+                if (cursor.LeftButtonReleased) activation = hovered;
+            }
+
+            PublishPick(hovered, state);
         }
 
         // ── Keyboard pass ───────────────────────────────────────────────────────
@@ -152,6 +174,24 @@ public sealed class UIFocusSystem : ISystem<GameState>
                 _world.Publish(new UIFocusActivated(activation, id ?? string.Empty));
             }
         }
+    }
+
+    /// Publishes THE pointer pick on the cursor entity: which focusable the pointer is over and, when
+    /// that changes, when the hover started (so a consumer's dwell is one subtraction — see
+    /// <see cref="PointerPickComponent"/>). Holding the same entity deliberately leaves the component
+    /// untouched, so <c>HoverStartTime</c> keeps running and a consumer may subscribe to the
+    /// component's Changed notification without a per-frame storm.
+    private void PublishPick(Entity hovered, GameState state)
+    {
+        var cursorEntities = _cursors.GetEntities();
+        if (cursorEntities.Length == 0) return;
+
+        var cursorEntity = cursorEntities[0];
+        if (cursorEntity.Has<PointerPickComponent>() &&
+            cursorEntity.Get<PointerPickComponent>().Hovered == hovered)
+            return; // same thing under the pointer ⇒ the dwell clock keeps running
+
+        cursorEntity.Set(new PointerPickComponent { Hovered = hovered, HoverStartTime = state.TotalTime });
     }
 
     private bool InGroup(Entity e, int group) =>

@@ -35,7 +35,9 @@ namespace MonoDreams.Demo.Ui;
 ///
 /// Sections (tabs): <b>Layout</b> visualizes auto-layout containers (toggle the bounds overlay);
 /// <b>Buttons</b> shows primary/secondary/tertiary/link + disabled buttons, a text input with a
-/// placeholder, a checkbox and a toggle, all navigable with WASD/arrows + Tab and the mouse;
+/// placeholder, a checkbox and a toggle, all navigable with WASD/arrows + Tab and the mouse — and
+/// the tab headers, the four variants and the icon caps carry <see cref="TooltipComponent"/>s, so
+/// hovering any of them floats a label by the cursor (instantly on the unlabeled icon cap);
 /// <b>Windows</b> shows a dropdown, a type-to-filter combobox, and a mouse-wheel scroll view (a
 /// dedicated Scroll render target composited by <c>RenderLayer.Overlay</c>); <b>Dialogs</b> opens a
 /// modal dialog whose group-100 focus trap is driven by the screen's active-group accessor;
@@ -492,6 +494,16 @@ public class UiDemoScreen : IGameScreen
 
     private void BuildTabBar()
     {
+        // One tooltip per tab header — the cheapest affordance there is: it explains without
+        // occupying space (see TooltipComponent / TooltipSystem).
+        var tips = new[]
+        {
+            "The auto-layout solver: containers, gaps, alignment",
+            "Button variants, states, text input, checkbox & toggle",
+            "Dropdown, type-to-filter combobox and a scroll view",
+            "A modal dialog that traps focus in its own group",
+            "Exclusive panel groups: tabs & a paged menu that park, not hide",
+        };
         var labels = new[] { "Layout", "Buttons", "Windows", "Dialogs", "Panels" };
         var made = new (Entity entity, Vector2 size)[labels.Length];
         var total = 0f;
@@ -499,7 +511,7 @@ public class UiDemoScreen : IGameScreen
         for (var i = 0; i < labels.Length; i++)
         {
             made[i] = MakeButton($"tab.{i}", labels[i], ButtonVariant.Tertiary,
-                tabIndex: i, contentTab: -1, alwaysVisible: true);
+                tabIndex: i, contentTab: -1, alwaysVisible: true, tooltip: tips[i]);
             total += made[i].size.X + (i > 0 ? gap : 0);
         }
 
@@ -638,11 +650,16 @@ public class UiDemoScreen : IGameScreen
 
     private void BuildButtonsTab()
     {
-        // Row 1: the four variants.
-        var primary = MakeButton("btn.primary", "Primary", ButtonVariant.Primary, 20, TabButtons);
-        var secondary = MakeButton("btn.secondary", "Secondary", ButtonVariant.Secondary, 21, TabButtons);
-        var tertiary = MakeButton("btn.tertiary", "Tertiary", ButtonVariant.Tertiary, 22, TabButtons);
-        var link = MakeButton("btn.link", "Link", ButtonVariant.Link, 23, TabButtons);
+        // Row 1: the four variants. Each carries a TooltipComponent — the reference usage of the
+        // tooltip primitive: hover one and the label materializes by the cursor after the dwell.
+        var primary = MakeButton("btn.primary", "Primary", ButtonVariant.Primary, 20, TabButtons,
+            tooltip: "Primary — the solid call-to-action");
+        var secondary = MakeButton("btn.secondary", "Secondary", ButtonVariant.Secondary, 21, TabButtons,
+            tooltip: "Secondary — an outlined alternative");
+        var tertiary = MakeButton("btn.tertiary", "Tertiary", ButtonVariant.Tertiary, 22, TabButtons,
+            tooltip: "Tertiary — a quiet ghost button");
+        var link = MakeButton("btn.link", "Link", ButtonVariant.Link, 23, TabButtons,
+            tooltip: "Link — text only, with a hand cursor");
         // The Link variant reads as a hyperlink: underline its label and show the hand cursor on hover.
         var linkLabel = _lastButtonText;
         if (linkLabel.IsAlive && linkLabel.Has<DynamicTextComponent>())
@@ -667,9 +684,11 @@ public class UiDemoScreen : IGameScreen
         // ONE row with a consistent gap (no skewed gap between left and right groups).
         var disabled = MakeButton("btn.disabled", "Disabled", ButtonVariant.Primary, 24, TabButtons, disabled: true);
         var iconBtn = MakeIconButton("btn.icon", "Starred", ButtonVariant.Secondary, 28, TabButtons,
-            DemoPalette.TextSelected, iconSize: 22f, iconOnly: false);
+            DemoPalette.TextSelected, iconSize: 22f, iconOnly: false,
+            tooltip: "Icon + label — the same SimpleButton, one extra mesh child");
         var iconOnly = MakeIconButton("btn.icononly", "", ButtonVariant.Tertiary, 29, TabButtons,
-            DemoPalette.TextSelected, iconSize: 24f, iconOnly: true);
+            DemoPalette.TextSelected, iconSize: 24f, iconOnly: true,
+            tooltip: "Add to favourites", tooltipDelay: 0f); // unlabeled cap ⇒ instant tooltip
         PlaceRow(new[] { disabled, iconBtn, iconOnly }, centerX: 0f, y: ContentTop + 70f, gap: 18f);
 
         // Row 3: text input with placeholder.
@@ -1176,7 +1195,8 @@ public class UiDemoScreen : IGameScreen
     /// for their tab and shown/hidden by TabSystem. Returns the button entity and its size.
     private (Entity entity, Vector2 size) MakeButton(
         string id, string label, ButtonVariant variant, int tabIndex, int contentTab,
-        bool disabled = false, bool alwaysVisible = false, int group = 0, bool tag = true)
+        bool disabled = false, bool alwaysVisible = false, int group = 0, bool tag = true,
+        string tooltip = null)
     {
         const float scale = ButtonTextScale;
         const float padX = ButtonPadX, padY = ButtonPadY;
@@ -1218,6 +1238,11 @@ public class UiDemoScreen : IGameScreen
             TabIndex = tabIndex, Group = group, Disabled = false, Size = size, Target = RenderTargetID.Main,
         });
 
+        // "Hover to learn": one component, no per-screen show/hide wiring — TooltipSystem floats the
+        // label beside the pointer once the pick rests here (see the ui premise "There is ONE
+        // pointer pick").
+        if (!string.IsNullOrEmpty(tooltip)) entity.Set(new TooltipComponent { Text = tooltip });
+
         // Overlay/dialog content (tag = false) opts out of TabSystem tagging — its visibility and
         // focus-gate are owned by the Dropdown/Dialog systems instead.
         if (tag) Tag(entity, text, contentTab, alwaysVisible);
@@ -1236,7 +1261,7 @@ public class UiDemoScreen : IGameScreen
     /// state). Tagged for its tab like the other content widgets.
     private (Entity entity, Vector2 size) MakeIconButton(
         string id, string label, ButtonVariant variant, int tabIndex, int contentTab,
-        Color iconColor, float iconSize, bool iconOnly)
+        Color iconColor, float iconSize, bool iconOnly, string tooltip = null, float? tooltipDelay = null)
     {
         const float scale = 0.18f, padX = 16f, padY = 10f, gap = 8f;
         var labelMeasured = _font.MeasureString(label) * scale;
@@ -1278,6 +1303,11 @@ public class UiDemoScreen : IGameScreen
         });
         entity.Set(new ButtonStateComponent { Id = id, Variant = variant, VisualScale = 1f });
         entity.Set(new FocusableComponent { TabIndex = tabIndex, Group = 0, Size = size, Target = RenderTargetID.Main });
+
+        // An icon-ONLY cap has no label at all, so its tooltip is the only thing naming it — hence
+        // the per-entity delay override (0 = show instantly) the component carries.
+        if (!string.IsNullOrEmpty(tooltip))
+            entity.Set(new TooltipComponent { Text = tooltip, Delay = tooltipDelay });
 
         entity.Set(new TabContentComponent { TabIndex = contentTab });
         icon.Set(new TabContentComponent { TabIndex = contentTab });
@@ -1682,10 +1712,15 @@ public class UiDemoScreen : IGameScreen
         }
         p.Add("cursorPosition", new CursorPositionSystem(_world, _camera, _viewportManager),
             EditTimeBehavior.RunNormally);
-        // After CursorPositionSystem (needs the cursor's fresh world/virtual position) and before
-        // the draw pipeline: swaps the cursor mesh to the hand over a Link button, arrow otherwise.
-        // Play-only cursor cosmetics (in Edit the OS pointer is the visible pointer).
+        // Both of the following ride the ONE pointer pick "focus" published above (neither runs a
+        // hit-test of its own) and both are play-only cursor cosmetics — in Edit the OS pointer is
+        // the visible pointer. The swap turns the cursor mesh into a hand over a Link button.
         p.Add("cursorHover", new CursorHoverSystem(_world), EditTimeBehavior.Freeze);
+        // The tooltip additionally needs the pointer's FRESH virtual position to ride, so it sits
+        // after CursorPositionSystem as well. It is safe to Freeze even though it OWNS entities:
+        // it implements ISuspendableSystem, so the gate despawns the live label on the Play → Pause
+        // edge instead of stranding it on the (never-frozen) HUD pass.
+        p.Add("tooltip", new TooltipSystem(_world, _viewportManager, _font), EditTimeBehavior.Freeze);
         // Escape/shortcut handling would tear the screen down mid-editing — Play only.
         p.Add("demoShortcuts", new UiDemoShortcutSystem(this), EditTimeBehavior.Freeze);
         if (_editor != null)
