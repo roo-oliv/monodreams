@@ -13,6 +13,9 @@ namespace MonoDreams.UI;
 /// System that calculates auto-layout for UI elements
 /// and applies the computed positions to TransformComponent components.
 /// Must run AFTER IntrinsicSizingSystem and BEFORE HierarchySystem.
+/// <para>Ordinary roots share one implicit screen container and therefore STACK; a root carrying
+/// <see cref="PinnedLayoutRootComponent"/> is left out of that flow and solved standalone, with
+/// <see cref="PinnedLayoutRootSystem"/> (registered right after this system) placing it.</para>
 /// </summary>
 public class AutoLayoutSystem : ISystem<GameState>
 {
@@ -57,11 +60,22 @@ public class AutoLayoutSystem : ISystem<GameState>
 
         // Find all root slots and build their trees
         var roots = new List<(Entity entity, ScreenAnchor anchor)>();
+        var pinnedRoots = new List<Entity>();
 
         foreach (var entity in _slotEntities.GetEntities())
         {
             ref readonly var slot = ref entity.Get<LayoutSlotComponent>();
             if (!slot.IsRoot) continue;
+
+            // A PINNED root is OUT OF FLOW: it is never added to the implicit screen container
+            // (which stacks its children), so N pinned roots never push each other — or an
+            // ordinary anchored root — around. Its own subtree is solved standalone below, and
+            // PinnedLayoutRootSystem writes its final position afterwards.
+            if (entity.Has<PinnedLayoutRootComponent>())
+            {
+                pinnedRoots.Add(entity);
+                continue;
+            }
 
             // Add this root to the screen root
             _screenRoot.AddChild(slot.Node);
@@ -77,26 +91,48 @@ public class AutoLayoutSystem : ISystem<GameState>
             var screenOffset = GetScreenAnchorOffset(anchor, rootEntity);
             ApplyLayout(rootEntity, screenOffset, isRoot: true);
         }
+
+        // Solve each pinned root's subtree on its own, against the full virtual screen. Its node
+        // has no parent, so CalculateLayout leaves it at local (0,0) and only its descendants get
+        // positions — the placement itself belongs to PinnedLayoutRootSystem. The anchor offset is
+        // still applied here so a screen that forgets to register that system degrades to a plain
+        // anchored (un-offset) root instead of collapsing everything onto the origin.
+        foreach (var rootEntity in pinnedRoots)
+        {
+            ref readonly var slot = ref rootEntity.Get<LayoutSlotComponent>();
+            slot.Node.CalculateLayout(_viewport.VirtualWidth, _viewport.VirtualHeight);
+            ApplyLayout(rootEntity, GetScreenAnchorOffset(slot.Anchor, rootEntity), isRoot: true);
+        }
+    }
+
+    private Vector2 GetScreenAnchorOffset(ScreenAnchor anchor, Entity rootEntity)
+    {
+        ref readonly var slot = ref rootEntity.Get<LayoutSlotComponent>();
+        return GetScreenAnchorOffset(
+            _viewport, anchor, slot.ComputedWidth, slot.ComputedHeight, slot.Target);
     }
 
     /// <summary>
-    /// Calculates the screen offset based on the anchor position.
+    /// Calculates the screen offset that places a root of size
+    /// <paramref name="rootWidth"/> × <paramref name="rootHeight"/> at <paramref name="anchor"/>.
     /// Layout uses top-left origin with Y increasing downward.
     /// For Main/UI targets, MonoDreams uses center-origin world coordinates
     /// (the camera transform shifts them to screen coordinates at draw time).
     /// For HUD targets, no camera transform is applied — entities render with
     /// the same top-left-origin screen coordinates that the cursor uses, so we
     /// translate the layout offset accordingly.
+    /// <para>Shared with <see cref="PinnedLayoutRootSystem"/>, which places pinned roots against
+    /// the same anchor grid — one implementation of the anchor math for both.</para>
     /// </summary>
-    private Vector2 GetScreenAnchorOffset(ScreenAnchor anchor, Entity rootEntity)
+    public static Vector2 GetScreenAnchorOffset(
+        ViewportManager viewport,
+        ScreenAnchor anchor,
+        float rootWidth,
+        float rootHeight,
+        RenderTargetID target)
     {
-        var halfWidth = _viewport.VirtualWidth / 2f;
-        var halfHeight = _viewport.VirtualHeight / 2f;
-
-        // Get the root's computed size to center it properly
-        ref var slot = ref rootEntity.Get<LayoutSlotComponent>();
-        var rootWidth = slot.ComputedWidth;
-        var rootHeight = slot.ComputedHeight;
+        var halfWidth = viewport.VirtualWidth / 2f;
+        var halfHeight = viewport.VirtualHeight / 2f;
 
         // Calculate offset based on anchor
         // The offset converts from layout coordinates (top-left: 0,0) to MonoDreams coordinates (center: 0,0)
@@ -125,7 +161,7 @@ public class AutoLayoutSystem : ISystem<GameState>
 
         // HUD slots render without the camera transform, so the layout output
         // must be in top-left-origin screen coordinates (the same space cursor.VirtualPosition lives in).
-        return slot.Target == RenderTargetID.HUD
+        return target == RenderTargetID.HUD
             ? centerOriginOffset + new Vector2(halfWidth, halfHeight)
             : centerOriginOffset;
     }

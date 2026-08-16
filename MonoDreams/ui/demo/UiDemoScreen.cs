@@ -306,10 +306,10 @@ public class UiDemoScreen : IGameScreen
     }
 
     /// Per-frame screen tick: drives the layout-bounds overlay (only on the Layout tab, when the
-    /// toggle is on), recentres the layout-root in the content area, applies the shared gap from the
-    /// numeric field, and animates both example containers' cross-axis alignment in a 1.5s loop.
-    /// Called by <see cref="UiDemoTickSystem"/> (after AutoLayoutSystem, before HierarchySystem, so
-    /// transform/layout writes here propagate to children this frame).
+    /// toggle is on), applies the shared gap from the numeric field, and animates both example
+    /// containers' cross-axis alignment in a 1.5s loop. Called by <see cref="UiDemoTickSystem"/>
+    /// (after AutoLayoutSystem, before HierarchySystem, so layout writes here propagate to children
+    /// this frame).
     public void Tick(GameState state)
     {
         LayoutDebugSystem.Enabled = ActiveTab == TabLayout && _showBounds;
@@ -362,10 +362,10 @@ public class UiDemoScreen : IGameScreen
         else if (!show && has) e.Remove<VisibleComponent>();
     }
 
-    /// Layout-tab per-frame drivers (centre, gap, alignment animation). Runs every frame but only
-    /// mutates the layout entities, which are inert off-tab (TabSystem hides them). AutoLayoutSystem
-    /// has already laid out this frame; HierarchySystem runs after Tick, so the root transform we set
-    /// here cascades to the children before they render.
+    /// Layout-tab per-frame drivers (gap, alignment animation). Runs every frame but only mutates
+    /// the layout entities, which are inert off-tab (TabSystem hides them). AutoLayoutSystem has
+    /// already laid out this frame; the node tuning below therefore lands on the NEXT frame's solve.
+    /// Placement of the root is no longer done here — it is pinned (see BuildLayoutTab).
     private void TickLayoutTab(GameState state)
     {
         // (Issue 4) Animate cross-axis alignment in a 1.5s-per-step, 3-step loop (4.5s full cycle):
@@ -391,19 +391,9 @@ public class UiDemoScreen : IGameScreen
         ApplyContainerTuning(_layoutRowContainer, align, _layoutGap);
         ApplyContainerTuning(_layoutColContainer, align, _layoutGap);
 
-        // (Issue 2) Re-centre the layout-root in the content area (below the tab bar): horizontally
-        // on screen centre, vertically between ContentTop and the bottom edge. AutoLayoutSystem wrote
-        // the root transform this frame; we override it (HierarchySystem then propagates to children).
-        if (_layoutRoot.IsAlive && _layoutRoot.Has<LayoutSlotComponent>() && _layoutRoot.Has<TransformComponent>())
-        {
-            ref readonly var slot = ref _layoutRoot.Get<LayoutSlotComponent>();
-            var w = slot.ComputedWidth;
-            var h = slot.ComputedHeight;
-            // Centre on the screen's vertical midline (world y = 0; camera at the origin) so the demo
-            // sits at the centre of the screen, not just below it (issue 2).
-            const float centerY = 0f;
-            _layoutRoot.Get<TransformComponent>().Position = new Vector2(-w / 2f, centerY - h / 2f);
-        }
+        // (Issue 2) Centring the layout-root on screen used to be an ad-hoc transform override right
+        // here. It is now declarative: the root is built with CreatePinnedRoot(Vector2.Zero,
+        // ScreenAnchor.Center) and placed by PinnedLayoutRootSystem (see BuildLayoutTab).
     }
 
     private static void ApplyContainerTuning(Entity container, CrossAxisAlignment align, int gap)
@@ -489,8 +479,13 @@ public class UiDemoScreen : IGameScreen
         // leaves room for the Start/Center/End animation to read as left/center/right.
         const float colFixedWidth = 170f + 12f * 2f + 60f; // widest box + padding + slack
 
+        // PINNED root (issue 94): this panel must sit at the centre of the content area on its own,
+        // independent of the screen's other roots (the HUD header is one). A plain CreateRoot would
+        // stack it under them in the implicit solver container — which is exactly why this screen
+        // used to re-write the root's transform by hand every frame. CreatePinnedRoot + the
+        // PinnedLayoutRootSystem in the pipeline (after autoLayout, before hierarchy) replaces that.
         _layoutRoot = new AutoLayoutBuilder(_world, _viewportManager)
-            .CreateRoot(ScreenAnchor.Center, RenderTargetID.Main)
+            .CreatePinnedRoot(Vector2.Zero, ScreenAnchor.Center, RenderTargetID.Main)
             .Name("layout-root")
             .Direction(LayoutDirection.Horizontal)
             .Gap(48)
@@ -1384,6 +1379,9 @@ public class UiDemoScreen : IGameScreen
         {
             g.Add("intrinsicSizing", new IntrinsicSizingSystem(_world));
             g.Add("autoLayout", new AutoLayoutSystem(_world, _viewportManager));
+            // Places the pinned roots (the Layout tab's showcase panel) at anchor + offset. The slot
+            // is load-bearing: AFTER the solver sized them, BEFORE HierarchySystem propagates.
+            g.Add("pinnedRoots", new PinnedLayoutRootSystem(_world, _viewportManager));
         });
         // The whole widget interaction block freezes in Edit: a click/keystroke belongs to the
         // editor (selection / gizmo / chrome), never to focus nav, text input, tabs, or the

@@ -12,13 +12,14 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 
 - `LayoutNodeComponent` — the flexbox solver's tree node (direction, justify, align, gap, padding, margin, computed bounds). A pure-C# tree maintained in parallel with `TransformComponent` hierarchy
 - `LayoutSlotComponent` — per-slot data: `SizeMeasurer` callback, `IsRoot`, `NeedsRemeasure`, attached content entity
+- `PinnedLayoutRootComponent` — pins a ROOT slot at an arbitrary screen position (`Anchor` + `Offset`) instead of stacking it in the implicit solver container. Several independent panels — a HUD widget, a toolbar, a sticky note — each get their own root
 - `UIElementComponent` — marker for UI entities (used by game-side interaction systems for hit-testing)
 - `SimpleButtonComponent` — button state (idle / hover / pressed) and visual style
 - `TextInputComponent` — a minimal editable single-line text field: current value, character mask (`TextInputMask.None` / `Numeric`), max length, a `Focused` flag, the linked text entity that displays the value, a `CaretPosition` insertion index, and an optional `CaretEntity` the system draws a white caret line into. Focus is game-owned (see premises); formatting / placeholder / error states are intentionally out of scope and can be layered on later
 
 ### Builders (fluent API)
 
-- `AutoLayoutBuilder` — entry point: `new AutoLayoutBuilder(world, viewportManager).CreateRoot(anchor)...`
+- `AutoLayoutBuilder` — entry point: `new AutoLayoutBuilder(world, viewportManager).CreateRoot(anchor)...`, or `.CreatePinnedRoot(position, anchor)...` for a root placed at a position of its own
 - `ContainerBuilder` — `.Direction(...)`, `.Gap(...)`, `.Padding(...)`, `.AddSlot(...)`, `.AddContainer(...)`
 - `SlotBuilder` — `.Attach(entity).MeasureWith(measurer)`
 
@@ -26,6 +27,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 
 - `IntrinsicSizingSystem` — invokes each slot's `SizeMeasurer` callback, writes results into `LayoutNodeComponent.Width/Height`. Runs first
 - `AutoLayoutSystem` — the flexbox solver: computes positions from the measured-size tree, writes to `TransformComponent`. Runs after `IntrinsicSizingSystem`
+- `PinnedLayoutRootSystem` — places every `PinnedLayoutRootComponent` root at `anchor + offset`, resolved against the root's solved size. Runs **after `AutoLayoutSystem` and before `HierarchySystem`** — that ordering is load-bearing (see premises)
 - `ButtonMeshPrepSystem` — paints button outlines via `rendering` based on `SimpleButtonComponent` state
 - `TextInputSystem` — inserts masked characters at the caret (and handles Backspace / Delete / Left / Right / Home / End) into focused `TextInputComponent`s, mirrors the value onto the linked text entity, publishes `TextInputChanged`, and — when a `CaretEntity` is set — positions and shows a white vertical caret line at the insertion point. Reads the keyboard directly (edge-triggered); it only *consumes* the `Focused` flag — game code decides which field is focused
 - `LayoutDebugSystem` — optional outline visualization (toggle `LayoutDebugSystem.Enabled`)
@@ -49,13 +51,27 @@ layout.CreateRoot(ScreenAnchor.Center)
     .Build();
 ```
 
+**Several independent panels**, each at its own spot — anchored roots share one implicit solver container and therefore stack, so pin them instead:
+```csharp
+layout.CreatePinnedRoot(new Vector2(32, 32))                      // 32 px in from the top-left
+    .Direction(LayoutDirection.Vertical)
+    .AddSlot(...)
+    .Build();
+
+layout.CreatePinnedRoot(Vector2.Zero, ScreenAnchor.BottomCenter)  // a taskbar on the bottom edge
+    .Direction(LayoutDirection.Horizontal)
+    .AddSlot(...)
+    .Build();
+```
+
 **Pipeline order** (within a screen's update pipeline):
 
 1. **`IntrinsicSizingSystem`** — measure content via callbacks.
 2. **`AutoLayoutSystem`** — compute and apply positions.
-3. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`).
-4. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
-5. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
+3. **`PinnedLayoutRootSystem`** — place the pinned roots. Must sit here: after the solver, before `HierarchySystem` and any world-position consumer.
+4. **Your own interaction systems** — hover detection, click dispatch (game-specific; see `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`).
+5. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
+6. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
 
 The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberately doesn't ship a `ButtonInteractionSystem`** — click dispatch is necessarily game-specific (load a screen, fire a network call, mutate game state). Copy the pattern from `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`.
 
@@ -73,5 +89,5 @@ The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberate
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, parallel `LayoutNodeComponent` + `TransformComponent` trees, `ButtonInteractionSystem` deliberately out of module)
+- [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, pinned roots out of flow with the pin pass between `AutoLayoutSystem` and `HierarchySystem`, parallel `LayoutNodeComponent` + `TransformComponent` trees, `ButtonInteractionSystem` deliberately out of module)
 - Related modules: `rendering` (button outlines and debug overlays draw via `IMeshGenerator` shapes from this module), `rendering-text` (text labels in UI slots), `cursor` (provides `CursorInputComponent.WorldPosition` for hit-testing in your game's interaction system), `dialogue` (does not use this module yet — uses hand-rolled offsets; aspirational to migrate)

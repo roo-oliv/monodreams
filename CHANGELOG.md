@@ -7,6 +7,18 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
+### Added — `ui` can pin N independent layout roots ([#94](https://github.com/roo-oliv/monodreams/issues/94))
+
+- `PinnedLayoutRootComponent` — pure data (`Anchor` + `Offset`) that takes a root layout
+  slot **out of** the implicit solver container, so several panels no longer stack into
+  one bulletin board.
+- `PinnedLayoutRootSystem` — places every pinned root at `anchor + Offset`, resolved
+  against the root's solved size. Register it **after `AutoLayoutSystem` and before
+  `HierarchySystem`**; that ordering is the feature (see the `ui` premises).
+- `AutoLayoutBuilder.CreatePinnedRoot(position, anchor, renderTarget)` — the builder entry
+  point for "build this tree as a pinned root at P". Existing `CreateRoot` call sites are
+  unchanged.
+
 ### Breaking — `level-loading` no longer depends on LDtk ([#54](https://github.com/roo-oliv/monodreams/issues/54))
 
 `level-loading` is now format-agnostic: no LDtk type appears in its source, and the
