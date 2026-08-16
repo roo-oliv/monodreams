@@ -1,8 +1,10 @@
 using System.Globalization;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component.Draw;
 using MonoDreams.Platform;
 using MonoDreams.State;
 using MonoDreams.System.Debug;
+using MonoDreams.System.Draw;
 
 namespace MonoDreams.Tests.Debug;
 
@@ -313,6 +315,97 @@ public class ScreenshotCaptureSystemTests : IDisposable
         });
     }
 
+    // ── capture source (window backbuffer vs a named render target) ──────────────────────────────
+
+    [Fact]
+    public void FromEnvironment_DefaultsToTheWindowBackbuffer()
+    {
+        WithEnvironment(Env(("MONODREAMS_SCREENSHOT", "png")), fake =>
+        {
+            using var system = ScreenshotCaptureSystem.FromEnvironment(null!, OutputDir);
+
+            Assert.NotNull(system);
+            // Unset target == the historical behaviour, byte for byte: the file follows the window.
+            Assert.Null(system.CaptureTarget);
+            Assert.Contains("source: window backbuffer", InitLine(fake));
+        });
+    }
+
+    [Theory]
+    [InlineData("window")]
+    [InlineData("WINDOW")]
+    [InlineData(" window ")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FromEnvironment_Window_IsTheBackbuffer(string requested)
+    {
+        WithEnvironment(Env(
+            ("MONODREAMS_SCREENSHOT", "png"),
+            ("MONODREAMS_SCREENSHOT_TARGET", requested)), fake =>
+        {
+            using var system = ScreenshotCaptureSystem.FromEnvironment(null!, OutputDir);
+
+            Assert.NotNull(system);
+            Assert.Null(system.CaptureTarget);
+            Assert.Contains("source: window backbuffer", InitLine(fake));
+        });
+    }
+
+    [Theory]
+    [InlineData("Main", RenderTargetID.Main)]
+    [InlineData("ui", RenderTargetID.UI)]
+    [InlineData("HUD", RenderTargetID.HUD)]
+    [InlineData(" Scroll ", RenderTargetID.Scroll)]
+    [InlineData("editor", RenderTargetID.Editor)]
+    public void FromEnvironment_NamesARenderTarget_CaseInsensitively(string requested, RenderTargetID expected)
+    {
+        WithEnvironment(Env(
+            ("MONODREAMS_SCREENSHOT", "png"),
+            ("MONODREAMS_SCREENSHOT_TARGET", requested)), fake =>
+        {
+            using var system = ScreenshotCaptureSystem.FromEnvironment(null!, OutputDir);
+
+            Assert.NotNull(system);
+            // The whole point: the capture reads a FIXED-resolution surface, so the file geometry no
+            // longer follows the window (or a resize, or the letterbox).
+            Assert.Equal(expected, system.CaptureTarget);
+            Assert.Contains($"source: {expected} render target", InitLine(fake));
+        });
+    }
+
+    [Theory]
+    [InlineData("backbuffer")]
+    [InlineData("Minimap")]
+    [InlineData("Main,UI")]   // a flags-style combination is not a render target
+    [InlineData("0")]         // and neither is the enum's numeric alias — env values are NAMES
+    [InlineData("-1")]
+    public void FromEnvironment_ReturnsNull_AndLogsAnError_ForAnUnknownTarget(string requested)
+    {
+        WithEnvironment(Env(
+            ("MONODREAMS_SCREENSHOT", "png"),
+            ("MONODREAMS_SCREENSHOT_TARGET", requested)), fake =>
+        {
+            // An unreadable source captures NOTHING rather than silently falling back to the window:
+            // evidence at the wrong geometry looks right and compares with nothing.
+            Assert.Null(ScreenshotCaptureSystem.FromEnvironment(null!, OutputDir));
+            Assert.Empty(fake.CreatedDirectories);
+            Assert.Contains(fake.ConsoleLines,
+                l => l.Contains("[ERROR]") && l.Contains("is not a capture source"));
+        });
+    }
+
+    [Fact]
+    public void FromEnvironment_TargetIsIgnored_WhenNoCaptureWasRequested()
+    {
+        WithEnvironment(Env(("MONODREAMS_SCREENSHOT_TARGET", "UI")), fake =>
+        {
+            // Naming a target is not a request to capture — MONODREAMS_SCREENSHOT still decides.
+            Assert.Null(ScreenshotCaptureSystem.FromEnvironment(null!, OutputDir));
+            Assert.Empty(fake.CreatedDirectories);
+            Assert.Empty(fake.ConsoleLines);
+        });
+    }
+
     // ── the direct constructor keeps its own defaults ────────────────────────────────────────────
 
     [Fact]
@@ -326,8 +419,62 @@ public class ScreenshotCaptureSystemTests : IDisposable
 
             Assert.Equal(CaptureFormat.Png, system.Format);
             Assert.False(system.IsEnabled);
+            Assert.Null(system.CaptureTarget);
             Assert.DoesNotContain("stopping after", InitLine(fake));
         });
+    }
+
+    // ── the render-pass observation socket ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void WindowCapture_NeverTouchesTheRenderSocket()
+    {
+        var previousSink = MasterRenderSystem.RenderedTargetSink;
+        try
+        {
+            MasterRenderSystem.RenderedTargetSink = null;
+            WithEnvironment(new FakeEnvironment(), _ =>
+            {
+                using var system = new ScreenshotCaptureSystem((GraphicsDevice)null!, 0f, OutputDir);
+
+                // A window-mode capture needs no render-pass observation, so the render path keeps
+                // paying nothing but the null check it already had.
+                Assert.Null(MasterRenderSystem.RenderedTargetSink);
+            });
+        }
+        finally
+        {
+            MasterRenderSystem.RenderedTargetSink = previousSink;
+        }
+    }
+
+    [Fact]
+    public void TargetCapture_PlugsIntoTheRenderSocket_AndUnplugsOnDispose()
+    {
+        var previousSink = MasterRenderSystem.RenderedTargetSink;
+        try
+        {
+            MasterRenderSystem.RenderedTargetSink = null;
+            WithEnvironment(new FakeEnvironment(), _ =>
+            {
+                var system = new ScreenshotCaptureSystem((GraphicsDevice)null!, 0f, OutputDir,
+                    CaptureFormat.Png, maxFrames: 0, captureTarget: RenderTargetID.UI);
+
+                // Target capture resolves its surface from the passes that actually ran — screens
+                // register their targets nowhere, so this socket IS the lookup.
+                Assert.NotNull(MasterRenderSystem.RenderedTargetSink);
+
+                system.Dispose();
+
+                // …and a disposed capture must not keep a dead screen's targets (or itself) reachable
+                // from a static delegate for the rest of the process.
+                Assert.Null(MasterRenderSystem.RenderedTargetSink);
+            });
+        }
+        finally
+        {
+            MasterRenderSystem.RenderedTargetSink = previousSink;
+        }
     }
 
     [Fact]

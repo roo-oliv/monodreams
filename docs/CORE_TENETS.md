@@ -411,11 +411,26 @@ synchronous memcpy dump sustaining full frame rate, ~3.5 MiB per frame
 at 1280x720). Off by default. Env-driven capture goes through
 `ScreenshotCaptureSystem.FromEnvironment`, the single owner of the
 `MONODREAMS_SCREENSHOT=1|png|raw` / `MONODREAMS_SCREENSHOT_INTERVAL` /
-`MONODREAMS_SCREENSHOT_MAX_FRAMES` contract; the replay-gated pattern
-(`"screenshots": true` in `input_replay.json`) still drives
-PNG-interval capture. See the `debug` module's `docs/overview.md`
-§ Frame capture for the disk-cost table and the raw-vs-encoded
-rationale.
+`MONODREAMS_SCREENSHOT_MAX_FRAMES` / `MONODREAMS_SCREENSHOT_TARGET`
+contract; the replay-gated pattern (`"screenshots": true` in
+`input_replay.json`) still drives PNG-interval capture.
+`MONODREAMS_SCREENSHOT_TARGET=Main|UI|HUD|Scroll|Editor` reads that
+render target at its own fixed resolution instead of the window
+backbuffer (default `window`), so captured evidence keeps the same
+geometry across machines, resizes and letterboxing — the target is
+resolved from the passes that ran, through
+`MasterRenderSystem.RenderedTargetSink`. See the `debug` module's
+`docs/overview.md` § Frame capture for the disk-cost table and the
+raw-vs-encoded rationale.
+
+**Unattended runs.** `MONODREAMS_KEEP_AWAKE=1` makes a host hold a macOS
+`NSProcessInfo` activity for the run (`KeepAwake.FromEnvironment`) — the
+in-process `caffeinate -disu`. Without it, App Nap (every headless run
+has a hidden window) or display sleep can suspend a long agentic run,
+which shows up as a process that stops making progress rather than one
+that fails. Opt-in, macOS-only, a logged no-op elsewhere; see the
+`debug` module's `docs/overview.md` § Unattended runs for what the flag
+does not cover.
 
 **Headless mode — two hosts, two contracts.** There are two headless
 paths and they do *not* do the same thing:

@@ -1,3 +1,4 @@
+using System;
 using DefaultEcs;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
@@ -41,6 +42,26 @@ public class MasterRenderSystem(
     /// target (the screen or the retargeting owner does).
     /// </summary>
     public RenderTarget2D Destination { get; set; } = destination;
+
+    /// <summary>
+    /// Observation socket: while non-null, every pass reports <c>(source id, Destination)</c> once
+    /// per frame, at the top of its <see cref="Update"/> — before the empty-pass early return, so a
+    /// pass with nothing to draw still announces the target it just cleared. Default <c>null</c>,
+    /// which costs one null check per pass per frame and keeps nothing in the object graph.
+    ///
+    /// <para>The wiring direction is the same as <c>GatedSystem.TimingSink</c>: this module owns the
+    /// SOCKET and knows nothing about who plugs into it; the <c>debug</c> module owns the plug —
+    /// <c>ScreenshotCaptureSystem</c> subscribes when <c>MONODREAMS_SCREENSHOT_TARGET</c> names a
+    /// target, so it can read that fixed-resolution surface instead of the window backbuffer. Screens
+    /// own their targets and never register them anywhere, so the passes that actually ran this frame
+    /// ARE the registry: a screen switch, a resize-recreated target, or a retarget all re-publish by
+    /// themselves. It is an observation channel only — nothing here may render, and a subscriber must
+    /// not draw into (or dispose) the target it is handed.</para>
+    ///
+    /// <para>Invoked through <c>?.</c>, which reads the field once, so installing or uninstalling the
+    /// sink from another thread mid-frame cannot tear a call.</para>
+    /// </summary>
+    public static Action<RenderTargetID, RenderTarget2D>? RenderedTargetSink;
 
     private BasicEffect? _basicEffect;
 
@@ -141,6 +162,10 @@ public class MasterRenderSystem(
 
     public void Update(GameState state)
     {
+        // Announce this pass's destination to whoever is observing (null in every normal run). First
+        // thing in the frame's pass, so an observer sees it even when the pass draws nothing.
+        RenderedTargetSink?.Invoke(source, Destination);
+
         EnsureBasicEffect();
 
         graphicsDevice.SetRenderTarget(Destination);

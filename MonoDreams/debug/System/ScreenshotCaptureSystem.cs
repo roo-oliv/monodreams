@@ -6,8 +6,10 @@ using System.Runtime.InteropServices;
 using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MonoDreams.Component.Draw;
 using MonoDreams.Platform;
 using MonoDreams.State;
+using MonoDreams.System.Draw;
 
 namespace MonoDreams.System.Debug;
 
@@ -46,7 +48,8 @@ public enum CaptureFormat
 /// so a shipped run that captures nothing should not be building one.
 ///
 /// <para>Must run after the final composite (<c>FinalDrawSystem</c>): the backbuffer is what it
-/// reads.</para>
+/// reads — and in <see cref="CaptureTarget"/> mode, the named render target must be UNBOUND, which
+/// the composite is also what guarantees.</para>
 /// </summary>
 public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
 {
@@ -59,6 +62,17 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     private readonly string _outputDirectory;
     private readonly CaptureFormat _format;
     private readonly int _maxFrames;
+    private readonly RenderTargetID? _captureTarget;
+
+    /// <summary>The render target last announced for <see cref="_captureTarget"/> by
+    /// <c>MasterRenderSystem.RenderedTargetSink</c>, or null until a pass for that id has run since
+    /// the previous capture. Only ever written by <see cref="OnTargetRendered"/> and only ever read
+    /// on the main thread, in the same frame the pass published it.</summary>
+    private RenderTarget2D? _resolvedTarget;
+
+    /// <summary>Whether the "no pass rendered that target" warning has already been logged — the
+    /// condition is per-frame, so an unwarned run would repeat it 60 times a second.</summary>
+    private bool _missingTargetWarned;
 
     private float _timeSinceLastCapture;
     private int _counter;
@@ -80,18 +94,37 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     /// interval mean different things in each.</summary>
     public CaptureFormat Format => _format;
 
+    /// <summary>
+    /// The render target this instance reads, or <c>null</c> for the window backbuffer (the default
+    /// and the historical behaviour). A named target is captured at ITS OWN fixed resolution, so the
+    /// file geometry is independent of the window size, of a resize mid-run, and of letter/pillarboxing
+    /// — which is what makes a pixel coordinate an agent noted in one run mean the same thing in the
+    /// next, on another machine. It also isolates a single layer (just <c>UI</c>) for sharper
+    /// assertions.
+    /// </summary>
+    public RenderTargetID? CaptureTarget => _captureTarget;
+
     public ScreenshotCaptureSystem(GraphicsDevice graphicsDevice, float captureIntervalSeconds,
-        string outputDirectory, CaptureFormat format = CaptureFormat.Png, int maxFrames = 0)
+        string outputDirectory, CaptureFormat format = CaptureFormat.Png, int maxFrames = 0,
+        RenderTargetID? captureTarget = null)
     {
         _graphicsDevice = graphicsDevice;
         _captureIntervalSeconds = captureIntervalSeconds;
         _outputDirectory = outputDirectory;
         _format = format;
         _maxFrames = maxFrames;
+        _captureTarget = captureTarget;
+
+        // Target capture is the ONLY reason to observe the render passes, so the socket is plugged
+        // exactly when one was asked for — an unset target leaves the sink untouched and the render
+        // path pays nothing but the null check it already had.
+        if (_captureTarget != null)
+            MasterRenderSystem.RenderedTargetSink += OnTargetRendered;
 
         PlatformServices.Current.CreateDirectory(outputDirectory);
         Logger.Info($"ScreenshotCaptureSystem initialized. Format: {format}, " +
                     $"interval: {(captureIntervalSeconds <= 0f ? "every frame" : captureIntervalSeconds + "s")}, " +
+                    $"source: {DescribeSource(captureTarget)}, " +
                     $"output: {outputDirectory}" +
                     (maxFrames > 0 ? $", stopping after {maxFrames} frames" : ""));
         if (format == CaptureFormat.Raw)
@@ -111,6 +144,10 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     ///   (0 = every frame).</item>
     ///   <item><c>MONODREAMS_SCREENSHOT_MAX_FRAMES=&lt;n&gt;</c> — stop after n frames. The safety
     ///   valve on raw mode: a forgotten capture fills a disk, and 600 frames is ten seconds.</item>
+    ///   <item><c>MONODREAMS_SCREENSHOT_TARGET=window|Main|UI|HUD|Scroll|Editor</c> — what to read.
+    ///   <c>window</c> (the default) is the backbuffer, i.e. today's behaviour byte for byte; a
+    ///   <see cref="RenderTargetID"/> name reads that pass's fixed-resolution target instead, so the
+    ///   file geometry stops following the window.</item>
     /// </list>
     ///
     /// <para>Keeping the whole contract here rather than in each screen is deliberate: it is one
@@ -141,6 +178,15 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
                 return null;
         }
 
+        // What to read: the window backbuffer (default, unchanged) or one named render target. An
+        // unreadable value refuses the whole capture rather than quietly falling back to the window —
+        // a run that captures the wrong surface produces evidence that LOOKS right and is not
+        // comparable with anything.
+        if (!TryParseCaptureTarget(
+                PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_SCREENSHOT_TARGET"),
+                out var captureTarget))
+            return null;
+
         // Raw defaults to EVERY frame: the whole point of the mode is a 60 fps take, and an interval
         // would silently make it a slideshow.
         var interval = format == CaptureFormat.Raw ? 0f : 0.5f;
@@ -156,11 +202,46 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
         if (!string.IsNullOrWhiteSpace(cap) && int.TryParse(cap, out var parsedCap) && parsedCap > 0)
             maxFrames = parsedCap;
 
-        return new ScreenshotCaptureSystem(graphicsDevice, interval, outputDirectory, format, maxFrames)
+        return new ScreenshotCaptureSystem(graphicsDevice, interval, outputDirectory, format, maxFrames,
+            captureTarget)
         {
             IsEnabled = true,
         };
     }
+
+    /// <summary>
+    /// Parses <c>MONODREAMS_SCREENSHOT_TARGET</c>: unset/blank/<c>window</c> ⇒ the backbuffer
+    /// (<c>null</c> target, today's behaviour), a <see cref="RenderTargetID"/> NAME (case-insensitive)
+    /// ⇒ that target. Returns false — the whole capture is refused — for anything else, after logging
+    /// what the valid values are. The match is against the enum's NAMES only, deliberately not
+    /// <c>Enum.TryParse</c>: that would additionally accept <c>"0"</c> as <c>Main</c> and read
+    /// <c>"Main,UI"</c> as a flags-style OR that lands on some unrelated member, and an env protocol
+    /// whose values are numeric aliases is one nobody can read back out of a log.
+    /// </summary>
+    private static bool TryParseCaptureTarget(string? requested, out RenderTargetID? target)
+    {
+        target = null;
+        if (string.IsNullOrWhiteSpace(requested)) return true;
+
+        var trimmed = requested.Trim();
+        if (string.Equals(trimmed, "window", StringComparison.OrdinalIgnoreCase)) return true;
+
+        foreach (var name in Enum.GetNames<RenderTargetID>())
+        {
+            if (!string.Equals(trimmed, name, StringComparison.OrdinalIgnoreCase)) continue;
+            target = Enum.Parse<RenderTargetID>(name);
+            return true;
+        }
+
+        Logger.Error($"MONODREAMS_SCREENSHOT_TARGET='{requested}' is not a capture source — capturing " +
+                     $"nothing. Valid values: window, {string.Join(", ", Enum.GetNames<RenderTargetID>())}.");
+        return false;
+    }
+
+    /// <summary>The human-readable source name used in the init log line — the only place a run
+    /// records what its files are pictures OF.</summary>
+    private static string DescribeSource(RenderTargetID? captureTarget) =>
+        captureTarget == null ? "window backbuffer" : $"{captureTarget} render target";
 
     public void Update(GameState state)
     {
@@ -182,7 +263,9 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
 
         if (_pendingSave) return;
 
-        var frame = Grab();
+        // Null = the requested render target has not been rendered (yet): skip this capture without
+        // consuming a counter, and try again next tick. Window mode never returns null.
+        if (Grab() is not { } frame) return;
         var filename = MakeFilename(state.TotalTime);
         var filePath = PlatformServices.Current.CombinePath(_outputDirectory, filename);
 
@@ -209,15 +292,16 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     }
 
     /// <summary>
-    /// Synchronously captures the current backbuffer to a PNG in the output directory
-    /// and returns whether the frame is non-blank (contains more than one distinct
-    /// colour). Unlike <see cref="Update"/>, the file is fully written before this
-    /// method returns, so a headless run can capture a verifiable frame on a chosen
-    /// game frame and exit immediately afterwards without dropping the save.
+    /// Synchronously captures the current source — the backbuffer, or <see cref="CaptureTarget"/>
+    /// when one was named — to a PNG in the output directory and returns whether the frame is
+    /// non-blank (contains more than one distinct colour). Unlike <see cref="Update"/>, the file is
+    /// fully written before this method returns, so a headless run can capture a verifiable frame on
+    /// a chosen game frame and exit immediately afterwards without dropping the save. Returns false
+    /// (having written nothing) when a named target has not been rendered.
     /// </summary>
     public bool CaptureNow(float gameTime)
     {
-        var frame = Grab();
+        if (Grab() is not { } frame) return false;
         var filename = MakeFilename(gameTime);
         var filePath = PlatformServices.Current.CombinePath(_outputDirectory, filename);
 
@@ -253,10 +337,102 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
         return $"screenshot_{counter:D6}_gt{gameTime:F2}{suffix}_{timestamp}.png";
     }
 
+    // ── The source: window backbuffer, or one named render target ────────────────────────────────
+
+    /// <summary>
+    /// Records the render target a pass just drew into, when it is the one this instance captures.
+    /// Installed on <c>MasterRenderSystem.RenderedTargetSink</c> only when a target was named.
+    ///
+    /// <para>The FIRST publisher since the last read wins, because a screen may run several passes
+    /// for one id — the camera demo renders <c>Main</c> twice, once for the world and once for the
+    /// minimap — and the first is the primary pass every screen lists first in its composite. The
+    /// slot is cleared after each read so the next capture re-resolves from that frame's passes: a
+    /// screen switch, a resize-recreated target and a retarget therefore need no invalidation
+    /// protocol at all.</para>
+    /// </summary>
+    private void OnTargetRendered(RenderTargetID id, RenderTarget2D target)
+    {
+        if (id != _captureTarget) return;
+        _resolvedTarget ??= target;
+    }
+
+    /// <summary>
+    /// Reads the current source into <see cref="_pixelBuffer"/> (grown/shrunk to fit) and returns its
+    /// geometry, or <c>null</c> when a named target has not been rendered since the last read — in
+    /// which case nothing is captured this tick and the caller tries again on the next one.
+    ///
+    /// <para>Reading a render target rather than the backbuffer is what makes the file's geometry the
+    /// TARGET's fixed resolution: unaffected by window size, by a resize mid-run, and by
+    /// letter/pillarboxing. It is safe for exactly the reason the composite itself is — the target is
+    /// unbound by then (<c>FinalDrawSystem</c> sets the device back to the backbuffer and samples the
+    /// targets as textures), and this must run after that composite for the same reason.</para>
+    /// </summary>
+    private (int width, int height)? ReadSourcePixels()
+    {
+        int width, height;
+        RenderTarget2D? target = null;
+
+        if (_captureTarget != null)
+        {
+            target = _resolvedTarget;
+            // Disposed = a screen tore its targets down and no pass has published a replacement (a
+            // screen whose pipeline has no pass for this id never will).
+            if (target == null || target.IsDisposed)
+            {
+                if (!_missingTargetWarned)
+                {
+                    _missingTargetWarned = true;
+                    Logger.Warning($"Frame capture: no render pass has drawn the {_captureTarget} target " +
+                                   "— capturing nothing until one does. Either the current screen has no " +
+                                   $"{_captureTarget} pass, or the capture runs before it.");
+                }
+                return null;
+            }
+            width = target.Width;
+            height = target.Height;
+        }
+        else
+        {
+            var pp = _graphicsDevice.PresentationParameters;
+            width = pp.BackBufferWidth;
+            height = pp.BackBufferHeight;
+        }
+
+        var pixels = width * height;
+        if (_pixelBuffer.Length != pixels) _pixelBuffer = new Color[pixels];
+
+        if (target != null)
+        {
+            // A target the device cannot hand back as RGBA (an exotic surface format, or one still
+            // bound because the capture was registered before the composite) would otherwise throw
+            // out of Draw once per frame and take an unattended run down. Stop the capture instead,
+            // loudly — the same valve the raw write-failure path uses.
+            try
+            {
+                target.GetData(_pixelBuffer);
+            }
+            catch (Exception ex)
+            {
+                _stopped = true;
+                Logger.Error($"Frame capture stopped: the {_captureTarget} render target could not be " +
+                             $"read back ({ex.GetType().Name}: {ex.Message}). A target that is still " +
+                             "bound (capture registered before the composite) or not in the Color " +
+                             "surface format is the usual cause.");
+                return null;
+            }
+        }
+        else _graphicsDevice.GetBackBufferData(_pixelBuffer);
+
+        // Re-resolve from next frame's passes; a warning is per-gap, not per-run.
+        _resolvedTarget = null;
+        _missingTargetWarned = false;
+        return (width, height);
+    }
+
     // ── Raw ──────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Writes the backbuffer verbatim, on the main thread, in the time a memcpy takes.
+    /// Writes the source verbatim, on the main thread, in the time a memcpy takes.
     ///
     /// <para><b>Everything expensive that PNG mode does is skipped, and each omission was measured.</b>
     /// No <c>SaveAsPng</c> (the encode that caps PNG mode at ~26 fps); no staging <c>Texture2D</c> and
@@ -271,18 +447,15 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     /// </summary>
     private void CaptureRaw(float gameTime)
     {
-        var pp = _graphicsDevice.PresentationParameters;
-        var width = pp.BackBufferWidth;
-        var height = pp.BackBufferHeight;
+        // Null = the requested render target has not been rendered (yet): no blob, no counter, and the
+        // next frame tries again. Window mode never returns null.
+        var geometry = ReadSourcePixels();
+        if (geometry == null) return;
+        var (width, height) = geometry.Value;
         var pixels = width * height;
 
-        if (_pixelBuffer.Length != pixels)
-        {
-            _pixelBuffer = new Color[pixels];
-            _rawBytes = new byte[pixels * 4];
-        }
+        if (_rawBytes.Length != pixels * 4) _rawBytes = new byte[pixels * 4];
 
-        _graphicsDevice.GetBackBufferData(_pixelBuffer);
         MemoryMarshal.AsBytes(_pixelBuffer.AsSpan(0, pixels)).CopyTo(_rawBytes);
 
         // Geometry and timestamp in the NAME, so the directory is self-describing and needs no manifest
@@ -314,27 +487,27 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
     // ── PNG ──────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Reads the backbuffer, encodes it to PNG, and computes a cheap blank/non-blank
-    /// metric. Must run on the main thread after <c>FinalDrawSystem</c> has composited
-    /// the frame (GetBackBufferData + SaveAsPng both need the graphics context).
+    /// Reads the source (backbuffer, or <see cref="CaptureTarget"/> when one was named), encodes it to
+    /// PNG, and computes a cheap blank/non-blank metric. Must run on the main thread after
+    /// <c>FinalDrawSystem</c> has composited the frame (the read-back and SaveAsPng both need the
+    /// graphics context, and a named target must be unbound). Returns null when a named target has
+    /// not been rendered — the caller skips the capture.
     /// </summary>
-    private (byte[] png, bool nonBlank, int distinct) Grab()
+    private (byte[] png, bool nonBlank, int distinct)? Grab()
     {
-        var pp = _graphicsDevice.PresentationParameters;
-        int width = pp.BackBufferWidth;
-        int height = pp.BackBufferHeight;
+        var geometry = ReadSourcePixels();
+        if (geometry == null) return null;
+        var (width, height) = geometry.Value;
 
-        // Lazily allocate or resize buffers
-        if (_pixelBuffer.Length != width * height)
+        // The staging texture follows the source geometry — recreated when it changes (a window
+        // resize, or a first capture after raw mode, which never builds one).
+        if (_stagingTexture == null || _stagingTexture.Width != width || _stagingTexture.Height != height)
         {
-            _pixelBuffer = new Color[width * height];
             _stagingTexture?.Dispose();
             _stagingTexture = new Texture2D(_graphicsDevice, width, height);
         }
-        // Raw mode never builds one, so a process that switched modes (or a resize) needs it now.
-        var staging = _stagingTexture ??= new Texture2D(_graphicsDevice, width, height);
+        var staging = _stagingTexture;
 
-        _graphicsDevice.GetBackBufferData(_pixelBuffer);
         staging.SetData(_pixelBuffer);
 
         // Cheap blank detection: a frame is non-blank if any pixel differs from the
@@ -362,6 +535,12 @@ public sealed class ScreenshotCaptureSystem : ISystem<GameState>, IDisposable
         if (_format == CaptureFormat.Raw && _counter > 0)
             Logger.Info($"Raw capture finished: {_counter} frames, " +
                         $"{_bytesWritten / (1024.0 * 1024.0):0.#} MiB in {_outputDirectory}.");
+        // Unplug from the render socket: a disposed capture must not keep a screen's targets — or
+        // itself — reachable from a static delegate. Symmetric with the constructor's subscribe, so a
+        // window-mode instance never touched the sink and never touches it here.
+        if (_captureTarget != null)
+            MasterRenderSystem.RenderedTargetSink -= OnTargetRendered;
+        _resolvedTarget = null;
         _stagingTexture?.Dispose();
         GC.SuppressFinalize(this);
     }
