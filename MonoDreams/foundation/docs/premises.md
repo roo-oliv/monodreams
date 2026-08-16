@@ -407,6 +407,34 @@ source scan asserting foundation never references `MonoDreams.Debug`).
 **Depends on:** debug — "The profiler hooks the one seam every pipeline entry
 passes through".
 
+## `Logger.LineSink` is a single-owner tap that must not log
+
+`Logger.LineSink` — a static `Action<LogLevel, string>?` defaulting to `null` — is the only
+observation hook on the logger, and, exactly like `GatedSystem.TimingSink`, it is a **socket, not
+an implementation**: `foundation` never names a consumer and the plug comes from the optional
+`debug` module (`PointerReplaySystem` needs to see log lines in-process to satisfy a
+`waitUntil log` predicate, without tailing a file that does not exist on web). It receives the RAW
+message — no timestamp, no level prefix — and is invoked **after** the line has been written and
+**outside** the writer lock. Three rules bind a sink: it is single-owner (assignment replaces, so
+an owner installs on construction and restores `null` on dispose), it must be thread-safe (the
+logger is written from background work too), and it must **never log**.
+
+**Why:** the pointer channel's stage gating is only as good as what it can observe, and the log is
+the one universal observable every module already produces. But `foundation` is a sensitive domain
+every game depends on, so it must not reference an optional debug module to be observable — the
+injected socket keeps the arrow pointing `debug → foundation` and costs one null check per
+surviving line when nobody is plugged in. Invoking outside the lock is what keeps a slow or
+blocking sink from serialising every logging thread behind it.
+**Breaks:** invoking the sink inside the lock puts third-party code on the critical section every
+thread contends for. A sink that logs re-enters `Write` and recurses without bound. A sink that is
+not thread-safe corrupts its own state the first time a background task (the screenshot encoder)
+logs. An owner that fails to clear the sink on dispose leaves a dead object receiving every line
+for the rest of the process.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`WaitUntilLog_IsSatisfiedByALineWrittenWhileTheDriverRuns` exercises the tap end to end;
+`Dispose_ReleasesTheLoggerTap` pins the install/uninstall contract).
+**Depends on:** debug — "A pointer plan gates on observables, times out, and drains into an exit".
+
 ## Screens declare editor-facing `ScreenInfo`; the shared `GameState` (and its `RunMode`) are the survivors of a screen switch
 
 `ScreenController.RegisterScreen` has two overloads: the historical `(name, creator)` (which records a

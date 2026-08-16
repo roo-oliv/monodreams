@@ -486,6 +486,157 @@ recording, format contract).
 **Depends on:** foundation — "Edit-time behaviour is a per-system policy
 honoured by `GatedSystem`".
 
+## `PointerReplaySystem` injects into the real cursor component; it never simulates a click
+
+The scripted-pointer channel drives a screen by writing the same `CursorInputComponent` a real
+mouse fills — position, the button LEVELS *and* their press/release edges, the scroll
+accumulator — and by placing the cursor entity through `Cursor.ApplyPose`, the same
+per-render-target pose rule `CursorPositionSystem` uses. It never calls a button's handler, sets a
+hover flag, or publishes an interaction message itself. A screen that composes the driver stands
+the hardware path down on both halves (`CursorInputSystem.SkipHardwareRead = true` **and**
+`CursorPositionSystem.SkipDerivation = true`) and registers the driver immediately after the
+cursor-input stage, so every consumer downstream reads the injected pointer the same frame it
+would read a real one. The button edges are derived from the DRIVER's own previous levels, never
+from the mutable level fields on the component, so a consumer that clears them to consume a click
+cannot poison the next frame's edges.
+
+**Why:** the value of a scripted pointer is that it exercises picking, focus, hit-testing, hover
+and UI arbitration — the parts most likely to be wrong. A driver that shortcut to the handler
+would verify the driver and leave exactly the interesting layer untested, and it would drift the
+moment the UI's own pick rule changed. Injecting one frame upstream of everything is what makes
+"an agent drove the menu" mean "the menu works".
+**Breaks:** setting only `SkipHardwareRead` lets `CursorPositionSystem` recompute the derived
+positions from the injected `ScreenPosition` and clobber the injection with
+`OutsideViewport = true`, so every world-space consumer treats the click as "over chrome, ignore
+it" — the click silently does nothing. Registering the driver late (after the UI systems) delays
+every scripted interaction by a frame. Deriving the edges from `CursorInputComponent.LeftButton`
+reintroduces the consumed-click bug the cursor module's edge premise exists to prevent.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`Move_WritesVirtualWorldAndTransform_ThroughTheRealPoseRule`,
+`Move_OnAMainTargetCursor_PlacesTheTransformInWorldSpace`,
+`Click_ProducesAPressEdgeThenAReleaseEdge_ThenNothing`,
+`Click_WithHold_KeepsTheButtonDownForThatManyFrames`, `Click_Right_DrivesTheRightButtonOnly`,
+`Wheel_PulsesTheDeltaForOneFrame_AndAccumulatesTheValue`);
+`MonoDreams.Tests/IntegrationTests/PointerReplayTests.cs`
+(`ScriptedClick_OnAMenuButton_DrivesTheRealInteractionPipeline` — a spawned run where the injected
+release edge reaches `ButtonInteractionSystem` and really changes screens).
+**Depends on:** cursor — "`SkipDerivation` lets an injection channel own the cursor's derived
+positions"; cursor — "Button press/release edges derive from CursorInputSystem's own
+previous-state, immune to consumers clearing the level fields"; cursor — "Cursor
+`TransformComponent.Position` depends on render target".
+
+## Pointer coordinates are authoring space, and time is frames
+
+A `PointerReplayPlan` addresses points in **authoring space** — the virtual-resolution coordinates
+the game's UI is laid out in — and the driver derives world coordinates from them through the
+screen's `Camera`. It never speaks window pixels and never inverts the letterbox mapping. Its
+clock is likewise a **frame counter it owns**, not `GameState.TotalTime` and not the wall clock:
+each command occupies whole frames (a `move` one, a `click` `hold`+1, a `type` two per character,
+a `waitUntil` as many as its predicate needs).
+
+The one cursor field that is **not** in authoring space is `CursorInputComponent.ScreenPosition`,
+which is backbuffer pixels by contract, so the driver maps the authored point *forward* through
+`ViewportManager.ScaleVirtualToScreenCoordinates` — the exact inverse of the mouse mapping
+`CursorPositionSystem` applies — rather than writing an authoring-space number into it. A direct
+consequence, and the honest limit of the channel: an authored point always lands inside the game
+viewport, so the editor shell's chrome (toolbar, panels, tabs — laid out and hit-tested in screen
+space, in the inset margins) is **not addressable from a pointer plan**. Scripting the editor's own
+controls is `EditorOpReplaySystem`'s job, by action name.
+
+**Why:** a script that named window pixels would break on every resize, window-mode change and
+resolution bump — the exact fragility the two-space model exists to remove — and it could not run
+at all on a headless host, whose 1x1 backbuffer has no meaningful window-to-virtual mapping to
+invert. Frame counting is what makes two runs of the same plan identical: under a variable
+timestep (headless runs at max speed, a loaded CI machine does not) a time-based script executes
+a different number of frames per command every run, which is how a scripted scenario becomes a
+flaky test. And `ScreenPosition` has exactly one meaning across the engine — `CursorInputSystem`
+multiplies the raw OS mouse by `DevicePixelRatio` to hold it, and every chrome hit-test reads the
+field raw — so a channel that fills it owes it that space.
+**Breaks:** authoring in window pixels makes every scripted scenario a resolution-specific
+artifact and makes headless scripting impossible. Scheduling on `TotalTime` makes stage boundaries
+land on different frames run to run, so a click can arrive before the frame that laid the button
+out. Writing the authored virtual point straight into `ScreenPosition` puts two spaces in one
+field: on a device-resolution backbuffer (macOS Retina under the editor run flag, `DevicePixelRatio
+= 2`) every chrome hit-test then reads half the intended point, and at ratio 1 a game click can
+spuriously land on whatever chrome happens to sit at those screen coordinates.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`Move_WritesVirtualWorldAndTransform_ThroughTheRealPoseRule` asserts the camera-derived world
+position differs from the authored one; the click/hold/type tests pin the per-frame cadence;
+`ScreenPosition_IsMappedIntoBackbufferPixels_NotTheAuthoredVirtualPoint` and
+`ScreenPosition_WithoutAViewportManager_IsTheAuthoredPoint` pin the screen-space half);
+`MonoDreams.Tests/Rendering/ViewportInsetTests.cs`
+(`VirtualToScreen_IsTheInverseOfTheMouseMapping`,
+`VirtualToScreen_FollowsADeviceResolutionBackbuffer`).
+**Depends on:** rendering — the camera's virtual-resolution contract; cursor —
+"`CursorInputComponent.ScreenPosition` is backbuffer pixels, on the injected path too".
+
+## A pointer plan gates on observables, times out, and drains into an exit
+
+`waitUntil` is the reason a scripted pointer is usable at all: a stage waits for something
+*observable from outside the game* — an entity with a given `EntityInfoComponent` exists, a log
+line has appeared, N frames have passed — before the next command runs. Every wait carries a
+`timeoutFrames` (600 by default): on expiry the driver logs an `ERROR` naming the predicate and
+**continues** rather than blocking forever. When the last command finishes, the plan drains and,
+after `tailFrames`, the driver invokes `requestExit` exactly once. The log-line predicate reads a
+bounded ring fed by `Logger.LineSink`, and that ring deliberately **excludes the driver's own
+`[pointer]` lines**.
+
+A log wait also **consumes** the line it matched: the driver holds a watermark over the ring and
+moves it past that line, so no later wait can be satisfied by it. The watermark advances only on a
+match — never to "now" when a wait starts — because the line a wait gates on is normally written by
+the command before it, downstream of the driver in a frame that has already finished by the time
+the wait first runs.
+
+**Why:** without stage gating a script races the game it drives ("click Submit before the dialog
+exists") and flakes; that is the single lesson the game-side original contributed. Continuing on
+timeout instead of hanging is what turns a broken scenario into a diagnosable log line rather than
+a CI timeout with no artifacts. Auto-exit on drain is the input replay's contract, and it is what
+makes an unattended agentic run terminate on its own. Excluding the driver's own lines is not
+tidiness: the announcement `waitUntil log="level ready"` *contains* `level ready`, so recording it
+would satisfy every log predicate on the frame it starts — a wait that always passes is worse than
+no wait. The consuming watermark exists for the same reason one step further out: a scan over
+everything since construction makes the second of two identical waits pass instantly on the first
+one's line, so the command it gates fires ungated.
+**Breaks:** an un-timed-out wait hangs the run and the harness kills the process, losing the exit
+code and often the log tail. A plan that never requests exit leaves an unattended run alive until
+the harness timeout. Recording the driver's own narration makes `waitUntil log` a no-op that still
+looks like it worked. An unwatermarked (or start-of-wait-snapshotted) log predicate breaks the two
+common shapes in opposite directions: repeated waits pass instantly, or every wait sits until its
+timeout because the line it wanted arrived one frame before it started.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`WaitUntilEntity_BlocksTheScriptUntilTheEntityExists`,
+`WaitUntilEntity_TimesOut_AndTheScriptContinues`,
+`WaitUntilLog_IsSatisfiedByALineWrittenWhileTheDriverRuns`,
+`WaitUntilLog_DoesNotReuseTheLineAnEarlierWaitAlreadyMatched`,
+`WaitUntilLog_MatchesALineWrittenBeforeTheWaitStarted`,
+`DrainedPlan_RequestsExitOnce_AfterTheTail`);
+`MonoDreams.Tests/IntegrationTests/PointerReplayTests.cs`
+(`WaitUntilThatNeverComesTrue_TimesOutAndTheRunStillEndsItself`).
+**Depends on:** foundation — "`Logger.LineSink` is a single-owner tap that must not log".
+
+## The pointer channel is file-gated and single-owner
+
+`PointerReplaySystem.TryLoad` returns `null` when `pointer_replay.json` is absent, unparseable or
+empty, so a screen that wires the channel is byte-identical to one that never had it whenever the
+file is missing — the same gate `input_replay.json` uses, in the same `MONODREAMS_DEBUG_DIR`-aware
+directory. A driver also OWNS the cursor while it lives: exactly one pointer-injecting channel may
+run per session (the `level-editor`'s `EditorOpReplaySystem` is the other one), and it owns
+`Logger.LineSink` from construction until `Dispose`, which it must release.
+
+**Why:** the channel is wired into shipped screens, so its cost when unused has to be exactly zero
+constructed objects — that is what makes leaving it wired defensible rather than a debug branch
+someone has to remember to strip. Two channels stamping the same `CursorInputComponent` in one
+frame is last-writer-wins on the position AND on the edges, which produces clicks that land
+nowhere and is very hard to read from a log. And a driver that keeps the log tap after its screen
+is disposed keeps a dead object taping every line for the rest of the process.
+**Breaks:** an eagerly-constructed driver changes the composition of every screen that wires it.
+Two live channels fight over the cursor. A leaked `Logger.LineSink` keeps a disposed driver's ring
+growing (and its `EntitySet`s referenced) for the remainder of the run.
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs` (`TryLoad_WithoutAPlanFile_BuildsNoDriver`,
+`TryLoad_ReadsAHandWrittenPlan_WithItsDefaults`, `Dispose_ReleasesTheLoggerTap`);
+`MonoDreams.Tests/IntegrationTests/PointerReplayTests.cs` (`WithoutAPointerPlan_TheMenuComposesNoDriver`).
+**Depends on:** "Debug output respects `MONODREAMS_DEBUG_DIR`".
+
 ## Open questions
 
 - **`ColliderDebugSystem` / `SpriteDebugSystem` two-toggle design** —
@@ -497,6 +648,15 @@ honoured by `GatedSystem`".
   screen), and `MONODREAMS_SCREENSHOT_INTERVAL` overrides it only for
   the `FromEnvironment`-built instance. No reason the interval couldn't
   read from `input_replay.json` too, for the replay-driven instance.
+- **A pointer plan is per-screen, and a screen transition ends it** — the driver belongs to the
+  screen that composed it, so navigating away disposes it mid-plan (the destination screen's own
+  driver or input replay owns what happens next). A scenario that has to span screens currently
+  needs a plan per screen; whether a session-scoped pointer channel (owned by the host, surviving
+  `ScreenController` swaps) is worth the extra lifetime is open.
+- **Dragging is not expressible yet** — `click` is press-hold-release at one point, so a
+  press → move → move → release drag (a gizmo drag, a card drag, a slider) cannot be scripted. The
+  obvious extension is `down`/`up` primitives with `click` as sugar over them; it was left out of
+  the first cut to keep the command set exactly the one proven game-side.
 - **Encoded clip capture is deliberately absent** — raw frames are the
   verification artefact; muxing them into an mp4/gif belongs outside the
   frame loop (desktop: the ffmpeg binary MGCB already bundles, on a

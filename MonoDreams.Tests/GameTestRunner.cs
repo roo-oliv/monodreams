@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using MonoDreams.Debug.Input;
 using MonoDreams.Input;
 using MonoDreams.LevelEditor.Channel;
 using MonoDreams.LevelEditor.Composition;
@@ -159,9 +161,13 @@ public static class GameTestRunner
     /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). <paramref name="editorOpPlan"/> drops an
     /// <c>editor_op_plan.json</c> into the debug dir — the headless editor-op channel; useful on
     /// screens without an <c>InputReplaySystem</c> (the menu), where the op driver owns the exit.
+    /// <paramref name="pointerPlan"/> drops a <c>pointer_replay.json</c> — the scripted-mouse channel
+    /// (issue #90), which is how a mouse-first screen (the menu) gets driven at all: the input replay
+    /// speaks only named actions.
     /// </summary>
     public static async Task<GameTestResult> RunAsync(InputReplayPlan plan, int timeoutSeconds = 30,
-        IReadOnlyDictionary<string, string>? environment = null, EditorOpPlan? editorOpPlan = null)
+        IReadOnlyDictionary<string, string>? environment = null, EditorOpPlan? editorOpPlan = null,
+        PointerReplayPlan? pointerPlan = null)
     {
         var debugDir = CreateDebugDir();
 
@@ -174,8 +180,22 @@ public static class GameTestRunner
             await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
         }
 
+        if (pointerPlan != null) await WritePointerPlanAsync(debugDir, pointerPlan);
+
         return await RunProcessAsync("MonoDreams.Examples.Desktop", "--headless", debugDir,
             timeoutSeconds, environment);
+    }
+
+    /// <summary>Serializes a pointer plan into <c>pointer_replay.json</c> in the run's debug dir.
+    /// Enum members go out as NAMES (the plan's own JSON contract), not integers.</summary>
+    private static Task WritePointerPlanAsync(string debugDir, PointerReplayPlan pointerPlan)
+    {
+        var json = JsonSerializer.Serialize(pointerPlan, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+        });
+        return File.WriteAllTextAsync(Path.Combine(debugDir, PointerReplayPlan.FileName), json);
     }
 
     /// <summary>

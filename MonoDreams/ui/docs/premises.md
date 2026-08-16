@@ -242,6 +242,14 @@ caret on focus, so a game that pre-fills `Text` should set `CaretPosition = Text
 when it creates the field (otherwise editing starts at the front, index 0). The system
 always clamps `CaretPosition` into `[0, Text.Length]`.
 
+The hardware read behind that key capture is **injectable**:
+`TextInputSystem.KeyboardStateProvider` (a `Func<KeyboardState>`, defaulting to
+`Keyboard.GetState`) is the same seam `KeyChordTracker`, `EditorShortcutSystem` and
+`CursorInputSystem.MouseStateProvider` expose. A scripted driver — the `debug` module's
+`PointerReplaySystem`, whose `type` command synthesizes key presses — sets it, so typed text
+reaches a field through THIS system's real per-frame diff (mask, caret, `TextInputChanged`
+included) rather than by a driver writing `Text` behind the system's back.
+
 **Why:** focus policy is UX-specific (click-to-focus, tab order, single vs multiple
 focus, blur on outside click, where the caret lands on focus). Baking one policy into
 the module would force every game to accept or suppress it. Keeping the flag as the seam
@@ -255,9 +263,13 @@ it); two fields left `Focused` at once both consume the same keystrokes. The
 edge-triggered keyboard diff is shared per frame, so multi-focus is undefined by
 design. A pre-filled field left at `CaretPosition = 0` inserts typed characters before
 the existing value.
-**Tests:** none yet (exercised by the physics demo: the `TextInputChanged` →
-rebuild path is wired there).
-**Depends on:** "`ButtonInteractionSystem` is deliberately NOT in this module".
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`Type_ReachesARealTextInputSystem_ThroughTheKeyboardSeam` — a scripted `type` lands its text
+through the injected keyboard seam and the system's own diff). The focus half has no test yet
+(exercised by the physics demo: the `TextInputChanged` → rebuild path is wired there).
+**Depends on:** "`ButtonInteractionSystem` is deliberately NOT in this module";
+debug — "`PointerReplaySystem` injects into the real cursor component; it never simulates a click"
+(the same injection-not-simulation rule, applied to the keyboard).
 
 ## The text-input caret is a game-supplied mesh entity the system positions and toggles
 
@@ -707,7 +719,8 @@ The following premises currently have **Tests: none yet**:
 - `FocusableComponent.Disabled` (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav
 - A combobox is a `TextInputComponent` driving a `DropdownComponent`'s filter
 - Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution
-- Text-input focus is game-owned; key capture is the module's job
+- Text-input focus is game-owned; key capture is the module's job (the *focus* half only — the
+  key-capture half is now covered by the pointer-replay `type` test)
 - The text-input caret is a game-supplied mesh entity the system positions and toggles
 
 Partially covered: "Tab / Dialog / Dropdown systems show/hide on the Main

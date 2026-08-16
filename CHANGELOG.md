@@ -7,6 +7,36 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
+### Added — scripted pointer replay in `debug` ([#90](https://github.com/roo-oliv/monodreams/issues/90))
+
+`input_replay.json` speaks only named actions, so an entire genre — menus, business sims,
+card games, editors — had no scripted-verification story. `PointerReplaySystem` adds the
+pointer half: a `debug/pointer_replay.json` plan of `move` / `click` / `wheel` / `type` /
+`waitUntil` / `label` commands in authoring-space coordinates, counted in frames, file-gated
+and auto-exiting on drain exactly like the input replay. It **injects into the real
+`CursorInputComponent`**, so a scripted click exercises the game's actual picking / focus / UI
+path. Details in [`MonoDreams/debug/docs/overview.md`](MonoDreams/debug/docs/overview.md)
+§ Pointer replay.
+
+Nothing existing changes behaviour, but three source-owned modules gained surface:
+
+- **`debug` now depends on `cursor`** (`module.json`), because the channel injects into
+  `CursorInputComponent` rather than simulating one. `monodreams add debug` installs `cursor`
+  too.
+- **`Logger.LineSink`** (`foundation`) — a static, default-`null`, single-owner tap on every
+  emitted message, invoked outside the writer lock. The socket lives in `foundation`, the plug
+  in `debug` (the `waitUntil log` predicate), mirroring `GatedSystem.TimingSink`.
+- **`TextInputSystem.KeyboardStateProvider`** (`ui`) — the repo's usual `Func<KeyboardState>`
+  seam, defaulting to `Keyboard.GetState`, so a scripted `type` reaches a field through the
+  system's own key diff.
+- **`Cursor.ApplyPose`** (`cursor`) — the per-render-target cursor pose rule, extracted from
+  `CursorPositionSystem` so the real mouse and an injected pointer place the cursor identically.
+- **`ViewportManager.ScaleVirtualToScreenCoordinates`** (`rendering`) — the exact inverse of
+  `MapMouse`, so an injection channel can fill
+  `CursorInputComponent.ScreenPosition` in the backbuffer pixels that field means (chrome
+  hit-tests read it raw, and it stays right at `DevicePixelRatio` 2).
+- **`GameTestRunner.RunAsync(…, pointerPlan:)`** writes the plan into the run's debug dir.
+
 ### Breaking — presentation scaling is a declared policy ([#89](https://github.com/roo-oliv/monodreams/issues/89))
 
 How the frame reaches a window that is not the render resolution is now declared once, on

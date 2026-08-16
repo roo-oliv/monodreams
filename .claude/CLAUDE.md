@@ -116,6 +116,20 @@ modules into real game screens — start at
   `startLevel` skips menus and jumps straight to the game screen. Actions
   match `AInputState` names (Up, Down, Left, Right, Jump, Grab, Orb, Exit,
   Interact). Game auto-exits when replay finishes.
+- **Pointer replay** — `debug/pointer_replay.json` scripts the MOUSE (the
+  input replay only speaks named actions): `{ description, tailFrames,
+  commands: [{ kind: move|click|wheel|type|waitUntil|label, ... }] }`.
+  Coordinates are authoring space (virtual resolution); timing is frames.
+  `waitUntil` gates a stage on `entity` / `log` / `frames` with a
+  `timeoutFrames` (a `log` wait consumes the line it matched, so two
+  identical waits gate on two lines). Wired by
+  `PointerReplaySystem.TryLoad(debugDir, world, camera, viewportManager,
+  requestExit)` right after `CursorInputSystem`, with `SkipHardwareRead` +
+  `SkipDerivation` set — the viewport manager maps the authored point into
+  `ScreenPosition`'s backbuffer-pixel space, so editor chrome in the inset
+  margins is deliberately not addressable from a pointer plan. Reference wiring:
+  `MonoDreams.Examples.Core/Screens/LevelSelectionScreen.cs`. From a test:
+  `GameTestRunner.RunAsync(plan, pointerPlan: ...)`.
 - **Frame capture** — `ScreenshotCaptureSystem` writes PNGs (verification
   shots) or raw RGBA frames (`CaptureFormat.Raw` — full-rate 60 fps takes)
   to `debug/`. Off by default; enable via `"screenshots": true` in
@@ -203,7 +217,7 @@ the broader picture).
 | [`ui`](../MonoDreams/ui/docs/premises.md) | `LayoutNodeComponent`, `LayoutSlotComponent`, `AutoLayoutBuilder`, `IntrinsicSizingSystem`, `AutoLayoutSystem`, button visuals |
 | [`cursor`](../MonoDreams/cursor/docs/premises.md) | `CursorControllerComponent`, `CursorInputComponent`, `CursorTexturesComponent`, cursor pipeline systems |
 | [`dialogue`](../MonoDreams/dialogue/docs/premises.md) | `DialogueRunner`, `DialogueStateComponent`, `DialogueSystem`, YarnSpinner integration |
-| [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem`, `SystemProfiler` |
+| [`debug`](../MonoDreams/debug/docs/premises.md) | `ColliderDebugSystem`, `SpriteDebugSystem`, `ScreenshotCaptureSystem`, `SystemProfiler`, `PointerReplaySystem` (scripted mouse) |
 | [`level-editor`](../MonoDreams/level-editor/docs/premises.md) | in-game editor `Edit` run mode over the real pipeline (scaffold; the run-state model `RunMode`/`EditTimeBehavior`/`GatedSystem` lives in `foundation`) |
 | [`audio`](../MonoDreams/audio/docs/premises.md) | `AudioSourceComponent`, `PlaySoundRequest`, `AudioSystem`, `IAudioPlayer`/`ContentAudioPlayer` seam (one-shot SFX, loops, interruptible sources) |
 

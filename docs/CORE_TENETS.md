@@ -432,6 +432,19 @@ time }] }`. Actions match `AInputState` names. The `startLevel` field
 skips menus and jumps straight into the named game screen. The game
 auto-exits when the replay finishes.
 
+**Pointer replay.** The input replay speaks a gamepad vocabulary and can
+say nothing to a mouse-first screen (a menu, a business sim, a card game,
+the editor). `debug/pointer_replay.json` — driven by the `debug` module's
+`PointerReplaySystem` — scripts the pointer instead: `move` / `click` /
+`wheel` / `type` / `waitUntil` / `label`, in **authoring-space**
+coordinates, counted in **frames**. It shares the input replay's contract
+exactly (file-gated, deterministic, fully logged, auto-exit on drain) and
+it **injects into the real `CursorInputComponent`** rather than calling
+handlers, so a scripted click exercises the same picking, focus and UI
+path a hand on the mouse does. `waitUntil` is the load-bearing command:
+without stage gating a script races the game it drives. See the `debug`
+module's `docs/overview.md` § Pointer replay.
+
 **Frame capture.** `ScreenshotCaptureSystem` writes frames to the debug
 directory in one of two formats: PNG (encoded off-thread; the right
 choice for occasional verification shots, but the ~50 ms encode caps a

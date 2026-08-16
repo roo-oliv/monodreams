@@ -381,6 +381,29 @@ public class ViewportManager
         return new Vector2(layoutX, layoutY);
     }
 
+    /// <summary>
+    /// The exact inverse of <see cref="MapMouse"/>: the physical screen point
+    /// (backbuffer pixels) a real mouse would report while sitting on <paramref name="virtualPosition"/>.
+    /// A channel that INJECTS a cursor authors in virtual space but still has to fill
+    /// <c>CursorInputComponent.ScreenPosition</c>, which is backbuffer pixels by contract — every
+    /// chrome hit-test reads that field raw, and <c>CursorInputSystem</c> scales the OS mouse by
+    /// <see cref="DevicePixelRatio"/> to keep it in that one space. Mapping through here is what keeps
+    /// an injected pointer in the same space as a real one on a Retina/inset run instead of writing a
+    /// virtual-resolution number into a device-pixel field.
+    ///
+    /// <para>Deliberately unclamped and never null: a virtual point outside
+    /// <c>0..Virtual{Width,Height}</c> maps outside the viewport rectangle, which is exactly what the
+    /// forward direction implies. Returns float pixels — no rounding — so a sub-pixel move on a tiny
+    /// backbuffer (a 1x1 headless window) still registers as movement.</para>
+    /// </summary>
+    public Vector2 ScaleVirtualToScreenCoordinates(Vector2 virtualPosition)
+    {
+        if (_dirty) Recalculate();
+
+        return new Vector2(_currentViewport.X + virtualPosition.X * _scaleX,
+                           _currentViewport.Y + virtualPosition.Y * _scaleY);
+    }
+
     private void Recalculate()
     {
         // The area available to the game viewport: the whole window minus the viewport-inset

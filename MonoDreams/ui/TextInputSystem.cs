@@ -55,6 +55,20 @@ public class TextInputSystem : AEntitySetSystem<GameState>
     // after typing so the user sees where they are, then resume blinking.
     private float _lastCaretActivity = float.NegativeInfinity;
 
+    /// <summary>
+    /// Test/replay seam overriding the hardware keyboard read (the repo idiom — see
+    /// <c>KeyChordTracker</c>, <c>EditorShortcutSystem</c>, <c>CursorInputSystem.MouseStateProvider</c>).
+    /// Default <c>null</c> → <see cref="Keyboard.GetState"/>, so every existing screen is unchanged.
+    /// A scripted driver sets it (<c>textInput.KeyboardStateProvider = pointerReplay.ReadKeyboard</c>)
+    /// so a <c>type</c> command reaches the field through THIS system's real per-frame key diff —
+    /// mask filtering, caret movement and <see cref="TextInputChanged"/> included — instead of a
+    /// driver writing <see cref="TextInputComponent.Text"/> behind the system's back.
+    /// </summary>
+    public Func<KeyboardState> KeyboardStateProvider { get; set; }
+
+    private KeyboardState ReadKeyboard() =>
+        KeyboardStateProvider != null ? KeyboardStateProvider() : Keyboard.GetState();
+
     public TextInputSystem(World world) : base(world)
     {
         _previous = Keyboard.GetState();
@@ -80,7 +94,7 @@ public class TextInputSystem : AEntitySetSystem<GameState>
             _cursorClicked = false;
         }
 
-        var current = Keyboard.GetState();
+        var current = ReadKeyboard();
         foreach (var key in current.GetPressedKeys())
         {
             if (_previous.IsKeyDown(key)) continue; // only keys newly pressed this frame
