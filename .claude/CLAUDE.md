@@ -82,8 +82,11 @@ modules into real game screens — start at
 ## Collision and physics
 - `BoxColliderComponent`, `ConvexColliderComponent`, `ColliderTagComponent`,
   `RigidBodyComponent`, `VelocityComponent` — physics and collision are
-  separate modules (`physics`, `collision`); the `collision` module soft-couples
-  to `physics` for impulse-style resolution.
+  separate modules (`physics`, `collision`), but `collision` **hard-depends** on
+  `physics` at compile time (`ColliderBody`/`TransformCollisionResolutionSystem`
+  open `MonoDreams.Component.Physics`), so its `module.json` declares `physics`
+  and `monodreams add collision` installs both. Which physics *systems* you
+  register stays a pipeline choice.
 - Transform-based collision detection and resolution in
   `MonoDreams/collision/System/`.
 - `GravitySystem` and `VelocitySystem` in `MonoDreams/physics/System/`.

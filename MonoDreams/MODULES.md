@@ -38,7 +38,7 @@ foundation              (required base — installed by `monodreams init`)
 │   └── ui
 │       └── dialogue       (+ rendering-text)
 ├── physics
-├── collision              (+ physics, soft)
+│   └── collision
 ├── level-loading
 │   └── level-ldtk
 ├── level-editor           (+ rendering, ui, cursor, level-loading)
