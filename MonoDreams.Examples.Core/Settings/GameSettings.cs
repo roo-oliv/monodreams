@@ -25,14 +25,28 @@ public class GameSettings
     public bool IsFullscreen { get; set; } = false;
 
     /// <summary>
-    /// Virtual resolution width (game canvas).
+    /// RENDER resolution width — the pixel size of the render targets and back buffer.
     /// </summary>
     public int VirtualWidth { get; set; } = 1920;
 
     /// <summary>
-    /// Virtual resolution height (game canvas).
+    /// RENDER resolution height.
     /// </summary>
     public int VirtualHeight { get; set; } = 1080;
+
+    /// <summary>
+    /// AUTHORING (layout) resolution width — the space every game coordinate is written in.
+    /// 0 (the default) means "same as <see cref="VirtualWidth"/>": the single-space game, where the
+    /// two-space model is inert. Set it to author at a fixed canvas (say 1280x720) while rendering
+    /// at a higher resolution — the aspect ratios must match, and NO game coordinate, UI number or
+    /// coordinate-carrying test moves when <see cref="VirtualWidth"/> does.
+    /// </summary>
+    public int LayoutWidth { get; set; }
+
+    /// <summary>
+    /// AUTHORING (layout) resolution height; 0 means "same as <see cref="VirtualHeight"/>".
+    /// </summary>
+    public int LayoutHeight { get; set; }
 
     /// <summary>
     /// Camera zoom level. 1.0 = 1:1 view of virtual canvas.

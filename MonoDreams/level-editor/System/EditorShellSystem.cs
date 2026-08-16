@@ -34,7 +34,7 @@ namespace MonoDreams.LevelEditor.System;
 ///   <item><b>The viewport inset.</b> It applies <see cref="EditorChromeLayout.ViewportInset"/>
 ///   (derived from the shell state's region sizes) to the <see cref="ViewportManager"/>
 ///   (<c>SetViewportInset</c>). Because the ViewportManager is the single source of truth, BOTH the
-///   FinalDraw compositing AND <c>ScaleMouseToVirtualCoordinates</c> follow the same rectangle.</item>
+///   FinalDraw compositing AND <c>MapMouse</c> follow the same rectangle.</item>
 ///   <item><b>Chrome layout.</b> The native-resolution chrome (panels + toolbar + splitters + the
 ///   bottom tab) lays out in physical pixels, so the system relayouts it whenever the window size,
 ///   the DPR, OR a region size (a splitter drag) differs from the last laid-out values.</item>

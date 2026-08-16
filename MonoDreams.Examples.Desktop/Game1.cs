@@ -98,9 +98,12 @@ public class Game1 : Game
         }
         _graphics.ApplyChanges();
 
-        // Initialize with virtual resolution from settings
-        _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight);
-        _camera = new(_settings.VirtualWidth, _settings.VirtualHeight);
+        // Both coordinate spaces come from settings, and the camera comes from the ViewportManager —
+        // so the authoring→render scale lives in exactly one place (rendering premise "Authoring space
+        // and render space are distinct"). Layout 0 ⇒ single space (the shipped default).
+        _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight,
+            _settings.LayoutWidth, _settings.LayoutHeight);
+        _camera = _viewportManager.CreateCamera();
 
         // Window resize handling is a desktop concern; a web head sizes the canvas
         // from the host page, so the OS-window event is gated out there.

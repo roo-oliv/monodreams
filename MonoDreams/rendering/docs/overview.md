@@ -37,9 +37,48 @@ This module defines how things appear on screen. It owns the entire draw path �
 
 ### Non-ECS types
 
-- `Camera` (class, in this module) — view matrix, virtual resolution, zoom, position, rotation
-- `ViewportManager` — handles letterbox/pillarbox between virtual and screen coords
+- `Camera` (class, in this module) — view matrix, virtual (destination) resolution, render scale, zoom, position, rotation
+- `ViewportManager` — owns the two coordinate spaces (authoring/layout vs render/virtual), the letterbox/pillarbox mapping to the window, `MapMouse`, and the cameras (`CreateCamera` / `LayoutCamera` / `CreateLayoutCamera`)
 - `DrawLayerMap` — utility for ordering layers
+
+## The two coordinate spaces
+
+`ViewportManager` owns two resolutions:
+
+- **Authoring (layout) space** — `LayoutWidth`×`LayoutHeight`: where every game
+  number lives (entity and UI coordinates, HUD/overlay boxes, `Camera.Zoom`,
+  culling extents, and the point `MapMouse` returns).
+- **Render (virtual) space** — `VirtualWidth`×`VirtualHeight`: the pixel size of
+  the render targets and the back buffer.
+
+They default to being equal — the single-space game, where nothing about this
+section is observable. A game opts into two spaces by passing a layout size to
+the constructor (or `SetResolution`, which takes the same arguments), and then a
+render-resolution move costs a two-number diff in the head: `RenderScale` reaches
+the frame through the cameras and nowhere else. Both entry points read a layout
+dimension of **0** as "same as the render dimension", so a settings object whose
+layout size is unset (`GameSettings.LayoutWidth`/`LayoutHeight` default to 0) can
+be forwarded to either one and simply stays single-space.
+
+```csharp
+// Head: author at 1280x720, render at 1920x1080.
+_viewportManager = new ViewportManager(this, 1920, 1080, 1280, 720);
+_camera = _viewportManager.CreateCamera();               // world passes
+...
+// Screen: targets at RENDER size; screen-space passes take the layout camera
+// (exactly Matrix.Identity when the two spaces are equal).
+new MasterRenderSystem(sb, gd, world, RenderTargetID.Main, mainTarget, _camera);
+new MasterRenderSystem(sb, gd, world, RenderTargetID.HUD, hudTarget,
+    _viewportManager.LayoutCamera);
+// Pointer → authoring coordinates → world (robust to resize + letterbox).
+var layoutPoint = _viewportManager.MapMouse(mouse.Position.ToVector2());
+var worldPoint = layoutPoint is { } p ? _camera.VirtualScreenToWorld(p) : (Vector2?)null;
+```
+
+`MonoDreams.Demos` is the reference usage: it authors at 1280×720 and takes its
+render resolution from `MONODREAMS_RENDER_SCALE` (unset ⇒ 1). See the premise
+"Authoring space and render space are distinct; the scale lives only in the
+cameras".
 
 ## Pipeline wiring
 

@@ -365,7 +365,7 @@ public class EditorShellTests
         var (_, top1, _, _) = EditorChromeLayout.ViewportInset(1f);
         Assert.True(vm.DestinationRectangle.Y >= top1);
         var centreBefore = new Vector2(vm.DestinationRectangle.Center.X, vm.DestinationRectangle.Center.Y);
-        Assert.NotNull(vm.ScaleMouseToVirtualCoordinates(centreBefore)); // inside the game viewport
+        Assert.NotNull(vm.MapMouse(centreBefore)); // inside the game viewport
 
         // Resize + HiDPI re-back: larger device backbuffer at 2× DPR.
         vm.DevicePixelRatio = 2f;
@@ -384,8 +384,8 @@ public class EditorShellTests
         Assert.True(dest.Y >= top2);
         Assert.True(dest.Right <= 3840 - right2 && dest.Bottom <= 2160 - bottom2);
         // Mouse mapping tracks the new inset viewport.
-        Assert.NotNull(vm.ScaleMouseToVirtualCoordinates(new Vector2(dest.Center.X, dest.Center.Y)));
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(dest.Center.X, top2 / 2))); // in the top margin → chrome
+        Assert.NotNull(vm.MapMouse(new Vector2(dest.Center.X, dest.Center.Y)));
+        Assert.Null(vm.MapMouse(new Vector2(dest.Center.X, top2 / 2))); // in the top margin → chrome
     }
 
     [Fact]
