@@ -1,7 +1,5 @@
 using DefaultEcs;
 using DefaultEcs.System;
-using Microsoft.Xna.Framework;
-using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.State;
@@ -9,15 +7,18 @@ using MonoDreams.State;
 namespace MonoDreams.UI;
 
 /// <summary>
-/// Swaps the (mesh) cursor's silhouette based on what it hovers. Each frame it hit-tests every
-/// <see cref="FocusableComponent"/> that declares a non-Default
-/// <see cref="FocusableComponent.HoverCursor"/> against the cursor position (mirroring
-/// <c>DropdownSystem.ContainsCursor</c>: <c>Rectangle(WorldPosition, FocusableComponent.Size)</c> vs
-/// the cursor's world/virtual position by the focusable's <see cref="FocusableComponent.Target"/>),
-/// finds the topmost (last in iteration) hovered one, and writes its requested
-/// <see cref="CursorType"/> onto <see cref="CursorControllerComponent.Type"/>. When the type changes
+/// Swaps the (mesh) cursor's silhouette based on what it hovers. It performs NO hit-test of its
+/// own: it reads <see cref="PointerPickComponent"/> off the cursor entity — the ONE pointer pick
+/// <see cref="UIFocusSystem"/> publishes, the same resolution focus and click act on — takes the
+/// picked entity's requested <see cref="FocusableComponent.HoverCursor"/> (Default when nothing is
+/// picked) and writes it onto <see cref="CursorControllerComponent.Type"/>. When the type changes
 /// it swaps the cursor entity's mesh <c>DrawComponent</c> to the matching
 /// <see cref="CursorMeshLibraryComponent"/> entry (falling back to the Default = arrow entry).
+///
+/// <para><b>Pipeline placement.</b> After <see cref="UIFocusSystem"/>, which publishes the pick. A
+/// screen that registers this system without one gets no pick and therefore no swap (the resting
+/// arrow), which is the documented graceful degradation — see the ui premise "There is ONE pointer
+/// pick".</para>
 ///
 /// <para>Reusable + ECS-pure: any focusable opts into a custom hover cursor purely as data
 /// (<see cref="FocusableComponent.HoverCursor"/>), and any mesh cursor opts in by carrying a
@@ -26,16 +27,14 @@ namespace MonoDreams.UI;
 /// </summary>
 public sealed class CursorHoverSystem : ISystem<GameState>
 {
-    private readonly EntitySet _focusables;
     private readonly EntitySet _cursors;
 
     public bool IsEnabled { get; set; } = true;
 
     public CursorHoverSystem(World world)
     {
-        _focusables = world.GetEntities().With<FocusableComponent>().With<TransformComponent>().AsSet();
         _cursors = world.GetEntities()
-            .With<CursorInputComponent>().With<CursorControllerComponent>().With<CursorMeshLibraryComponent>().AsSet();
+            .With<CursorControllerComponent>().With<CursorMeshLibraryComponent>().With<PointerPickComponent>().AsSet();
     }
 
     public void Update(GameState state)
@@ -46,23 +45,12 @@ public sealed class CursorHoverSystem : ISystem<GameState>
         if (cursors.Length == 0) return;
 
         var cursorEntity = cursors[0];
-        ref readonly var input = ref cursorEntity.Get<CursorInputComponent>();
-        var world = input.WorldPosition;
-        var virtualPos = input.VirtualPosition;
 
-        // Topmost hovered focusable with a custom cursor wins (last match in iteration order).
-        var hover = CursorType.Default;
-        foreach (var e in _focusables.GetEntities())
-        {
-            ref readonly var f = ref e.Get<FocusableComponent>();
-            if (f.HoverCursor == CursorType.Default) continue;
-            if (f.Disabled || ControlDisabled(e)) continue;
-
-            var wp = e.Get<TransformComponent>().WorldPosition;
-            var pos = f.Target == RenderTargetID.HUD ? virtualPos : world;
-            var bounds = new Rectangle((int)wp.X, (int)wp.Y, (int)f.Size.X, (int)f.Size.Y);
-            if (bounds.Contains(pos)) hover = f.HoverCursor;
-        }
+        // The pick is only refreshed while its owner runs, so re-check it names a live focusable.
+        var picked = cursorEntity.Get<PointerPickComponent>().Hovered;
+        var hover = picked.IsAlive && picked.Has<FocusableComponent>()
+            ? picked.Get<FocusableComponent>().HoverCursor
+            : CursorType.Default;
 
         ref var controller = ref cursorEntity.Get<CursorControllerComponent>();
         if (controller.Type == hover) return; // no change → no mesh swap
@@ -79,12 +67,8 @@ public sealed class CursorHoverSystem : ISystem<GameState>
             cursorEntity.Get<DrawComponent>().SetMeshData(mesh);
     }
 
-    private static bool ControlDisabled(Entity e) =>
-        e.Has<ButtonStateComponent>() && e.Get<ButtonStateComponent>().IsDisabled;
-
     public void Dispose()
     {
-        _focusables.Dispose();
         _cursors.Dispose();
     }
 }

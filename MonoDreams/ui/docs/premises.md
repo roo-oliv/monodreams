@@ -364,26 +364,34 @@ A focusable opts into a custom hover cursor purely as data:
 `Hand` for a link). A mesh cursor opts into swapping by carrying a
 `CursorMeshLibraryComponent` (`Dictionary<CursorType, MeshData>`, with the `Default` entry
 being the resting arrow). `CursorHoverSystem` (in `ui`, which already depends on `cursor`)
-runs after `CursorPositionSystem`: it hit-tests every focusable with a non-Default
-`HoverCursor` (mirroring `DropdownSystem.ContainsCursor` — `Rectangle(WorldPosition,
-FocusableComponent.Size)` vs the cursor's world/virtual position by the focusable's
-`Target`), picks the topmost hovered one, writes its `CursorType` onto
-`CursorControllerComponent.Type`, and — only when the type changes — swaps the cursor
-entity's mesh `DrawComponent` to the matching library entry (falling back to `Default`).
+runs after `UIFocusSystem` and reads **the pointer pick** off the cursor entity
+(`PointerPickComponent` — it runs no hit-test of its own, see "There is ONE pointer
+pick"): it takes the picked entity's `HoverCursor` (`Default` when nothing is picked),
+writes it onto `CursorControllerComponent.Type`, and — only when the type changes — swaps
+the cursor entity's mesh `DrawComponent` to the matching library entry (falling back to
+`Default`).
 
 **Why:** "show a hand over links" is a reusable, mechanical UI behavior that should not
 be hand-rolled per screen, and it generalizes to any focusable + any cursor type. Keeping
 the request on the focusable (data) and the silhouettes in a library (data) lets the one
 system own the swap, mirroring how `ButtonVisualSystem` owns the focus visual. A textured
 cursor (no `CursorMeshLibraryComponent`) is left untouched, so the mechanism is additive.
+Deriving the swap from the shared pick (rather than a private hit-test) is what keeps the
+hand cursor and the click on the same entity: the system inherits the pick's group and
+disabled filters, so a link trapped under an open dialog no longer paints a hand for a
+click that can't reach it.
 **Breaks:** registering the system but giving the mesh cursor no library records the
-`CursorType` but never swaps the mesh (silent no-op). Running it before
-`CursorPositionSystem` hit-tests against last frame's cursor position. A focusable whose
-`Size` is zero never hovers.
-**Depends on:** cursor — "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`";
-"Cursor `TransformComponent.Position` depends on render target"; "`UIFocusSystem` is the
-single focus owner" (the hit-test bounds convention).
-**Tests:** none yet (exercised by the `ui` demo's Link button).
+`CursorType` but never swaps the mesh (silent no-op). Registering it without the pick's
+owner (`UIFocusSystem`) leaves the cursor on the resting arrow — the documented graceful
+degradation, not a crash. A focusable whose `Size` is zero never hovers.
+**Depends on:** "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers
+read it"; cursor — "A mesh cursor renders via `Cursor.CreateMesh` + `MeshPrepSystem`";
+"`CursorMeshLibraryComponent` holds the per-`CursorType` silhouettes a mesh cursor swaps
+between".
+**Tests:** `MonoDreams.Tests/Ui/PointerPickTests.cs`
+(`PickedFocusableRequestingAHand_SwapsTheCursorTypeAndMesh`,
+`FocusableOutsideTheActiveGroup_DoesNotSwapTheCursor`,
+`NoPickPublished_LeavesTheCursorUntouched`).
 
 ## `FocusableComponent.Disabled` (tab-gating) and `ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav
 
@@ -476,6 +484,92 @@ with `DropdownComponent.Items` filters the wrong rows.
 target …"; "Text-input focus is game-owned; key capture is the module's job".
 **Tests:** none yet.
 
+## There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers read it
+
+The question "what is the pointer over?" is answered **once per frame, in one place**.
+`UIFocusSystem`'s pointer pass already resolves the topmost `FocusableComponent` under the
+cursor to drive hover-focus, press and activation; it now also **publishes** that answer on
+the **cursor entity** as `PointerPickComponent` — the picked `Entity` (`default` for
+"nothing") plus the `GameState.TotalTime` at which that entity *became* the picked one.
+Every system that reacts to what the pointer is over — `TooltipSystem` and
+`CursorHoverSystem` today — **reads that component and never hit-tests again**. Because the
+pick is the same resolution focus and click act on, it carries the same filters for free
+(in the active group, not tab-gated via `FocusableComponent.Disabled`, not control-disabled
+via `ButtonStateComponent.IsDisabled`), and a hover affordance can never disagree with what
+a click would do. The component is written only when the picked entity *changes*, so
+`HoverStartTime` keeps running while the pointer rests and a consumer's dwell is one
+subtraction (`state.TotalTime - pick.HoverStartTime`) with no private timer. A consumer must
+still treat `Hovered` as untrusted — the pick is only refreshed while its owner runs, so it
+re-checks `IsAlive` (a picked entity can be disposed the same frame).
+
+**Why:** every "react to the hovered thing" feature (tooltip, hand cursor, hover sound,
+highlight) is otherwise re-derived by its own `Rectangle(WorldPosition, Size)` sweep. Those
+copies drift: they disagree on the topmost-wins rule, on which target's coordinates to
+compare, and — the silent one — on the disabled / active-group filters, so a tooltip or a
+hand cursor appears for a control a click cannot reach. One publisher and N readers makes
+the agreement structural instead of a convention each new system has to remember. Putting
+the pick on the *cursor* entity (rather than a world singleton) keeps it per-pointer, so it
+survives a future second cursor.
+**Breaks:** a consumer that runs its own hit-test reintroduces the drift the pick exists to
+remove (that was `CursorHoverSystem` before this premise: group-blind, so it painted a hand
+over a link trapped under an open dialog). A second writer of `PointerPickComponent` races
+the dwell clock and makes every delay non-deterministic. Re-`Set`ting the component every
+frame (instead of only on change) resets `HoverStartTime` continuously, so a dwell-gated
+consumer never fires. Registering a consumer without `UIFocusSystem` yields no pick at all —
+the consumer stands down (no tooltip, resting arrow), which is the intended degradation, not
+a fallback hit-test.
+**Depends on:** "`UIFocusSystem` is the single focus owner; pointer steals focus only on
+mouse move; nav is group-scoped"; "`FocusableComponent.Disabled` (tab-gating) and
+`ButtonStateComponent.IsDisabled` (control-disabled) are separate, and both skip nav";
+cursor — "Cursor `TransformComponent.Position` depends on render target" (the pick compares
+against `CursorInputComponent`'s virtual/world position by the focusable's `Target`, never
+the cursor's own transform).
+**Tests:** `MonoDreams.Tests/Ui/PointerPickTests.cs` (publication, topmost-wins, dwell clock,
+the disabled / out-of-group filters, and `CursorHoverSystem` deriving its swap from the pick);
+`MonoDreams.Tests/Ui/TooltipTests.cs` (`Tooltip_FollowsThePick_NotItsOwnHitTest`,
+`PointerInsideADisabledControl_ShowsNoTooltip` — the two halves of "no second hit-test").
+
+## The tooltip is a transient, system-owned, screen-space label that despawns with its pick
+
+`TooltipComponent` is pure data on any **pickable** entity (anything carrying
+`FocusableComponent`, on any render target): the label text plus an optional per-entity
+`Delay` (`null` = use `TooltipStyle.Delay`, `0` = instant). `TooltipSystem` owns everything
+else. It shows the picked entity's label once the dwell has elapsed, and the label entities
+are **its own**: it creates them on show, repositions them every frame, rebuilds them when
+the picked entity or its text changes, and disposes them on hover-out, on target death, and
+on its own `Dispose`. They are never parented to the hovered entity (the system runs after
+`HierarchySystem`, so a parent-relative label would render at a stale world position on the
+frame it appears) and they carry no scene-serialization marker, so a transient tooltip never
+lands in a saved scene. The label renders on a **screen-space** target (HUD by default; UI
+allowed, world-space targets are refused in the constructor) at the style's `LayerDepth` —
+below the cursor's `1.0` — and its top-left comes from the pure `TooltipPlacement.Place`,
+which offsets from the pointer and **flips to the opposite side of the pointer** on
+whichever axis would otherwise push it past the screen margin, clamping (never overflowing)
+a label too big to fit either way.
+
+**Why:** a tooltip is defined by *not* occupying layout space: it must float above
+everything, follow the pointer, and vanish without the screen having to bookkeep it. That
+only works if exactly one owner controls its lifetime — a game-created label would have to
+be shown, hidden, re-measured, re-positioned and torn down by every screen that wants one,
+which is the fiddly re-implementation this primitive exists to delete. The edge flip is the
+non-obvious half: without it the tooltip of the right-most icon — precisely the one a user
+hovers to discover — slides off screen. Keeping the placement pure (no world, no font, no
+`GraphicsDevice`) is what makes that behavior testable at all.
+**Breaks:** a game that creates or mutates the tooltip entities fights the system and races
+them each frame. Placing the label on a world-space target puts the camera transform between
+the pointer and the label, so the "edge" it flips at is not the screen's. Parenting it to the
+hovered entity resurrects the stale-world-position frame and, worse, makes
+`HierarchySystem.DisposeOrphans` cascade into it. Giving it a `LayerDepth` above the cursor
+draws the label over the pointer.
+**Depends on:** "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers
+read it"; rendering — "Three render targets, two behaviors"; "`MeshPrepSystem` writes the
+world matrix once per frame" (the panel carries `VisibleComponent` so its world matrix is
+written the frame it appears); rendering-text — "`TextPrepSystem` writes the
+world-transformed position".
+**Tests:** `MonoDreams.Tests/Ui/TooltipTests.cs` (dwell + per-entity override, hover-out and
+target-death despawn, rebuild-on-retarget, dispose, the world-space-target refusal, and the
+edge-flip / clamp matrix on `TooltipPlacement.Place`).
+
 ## Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution
 
 The flexbox solver (`LayoutNodeComponent` + `AutoLayoutSystem`) now resolves
@@ -512,6 +606,13 @@ a silent no-op footgun.
   but not flex-shrink, flex-basis, wrap, or absolute positioning. Which
   of those become premises (must-have) vs aspirations (nice-to-have) is
   unsettled.
+- **Tooltips on unpickable controls** — riding the pick means a disabled control
+  (`ButtonStateComponent.IsDisabled`) and one gated out of the active group
+  (`FocusableComponent.Disabled`) have no tooltip, because the pick skips them —
+  yet "why is this greyed out?" is one of the tooltip's best uses. Whether the
+  pick should carry a second, filter-free `HoveredAny` slot for exactly this (and
+  what a hand cursor or a click-sound consumer should read) is unsettled; a
+  second private hit-test in `TooltipSystem` is explicitly NOT the answer.
 - **Re-measuring on content change** — `NeedsRemeasure` is set to true
   at construction and to false after measuring; nothing today flips it
   back to true when content changes. Dynamic text that grows

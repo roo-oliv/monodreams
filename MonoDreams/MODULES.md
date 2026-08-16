@@ -35,7 +35,7 @@ foundation              (required base — installed by `monodreams init`)
 │   ├── cursor
 │   ├── debug              (+ collision)
 │   ├── level-ldtk         (+ level-loading)
-│   └── ui
+│   └── ui                 (+ cursor — pointer pick, hover cursor, tooltips)
 │       └── dialogue       (+ rendering-text)
 ├── physics
 ├── collision              (+ physics, soft)

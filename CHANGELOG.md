@@ -7,6 +7,27 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
+### Added — `ui` tooltips, riding one shared pointer pick ([#95](https://github.com/roo-oliv/monodreams/issues/95))
+
+- `TooltipComponent` — "hover me and read this" on any pickable entity (anything with a
+  `FocusableComponent`): the label text plus an optional per-entity hover `Delay` (`null`
+  = the style's dwell, `0` = instant).
+- `TooltipSystem` + `TooltipStyle` + `TooltipPlacement` — floats a label beside the
+  pointer after the dwell, rides the cursor, flips away from the screen edges, draws on a
+  screen-space target above everything, and despawns on hover-out or target death. The
+  system owns its entities end-to-end; a screen registers it and sets one component.
+- `PointerPickComponent` — THE pointer pick, published on the **cursor entity** by
+  `UIFocusSystem`: which focusable the pointer is over, and when that hover began.
+
+  *Behavior change:* `CursorHoverSystem` no longer runs its own hit-test — it reads the
+  pick, so the hover cursor now inherits the same active-group / disabled filters focus
+  and click use (a link trapped under an open dialog no longer paints a hand). Register
+  both consumers **after** `UIFocusSystem`; without it there is no pick and they stand
+  down (no tooltip, resting arrow).
+
+- `ui/module.json` now declares its real `cursor` dependency (it has needed the cursor
+  components since `CursorHoverSystem`; `monodreams add ui` alone did not compile).
+
 ### Breaking — `level-loading` no longer depends on LDtk ([#54](https://github.com/roo-oliv/monodreams/issues/54))
 
 `level-loading` is now format-agnostic: no LDtk type appears in its source, and the

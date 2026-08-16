@@ -65,6 +65,12 @@ the ones this flow's ordering leans on:
 - `ButtonMeshPrepSystem` bakes world coords and must run *after* `MeshPrepSystem` when both
   are present (it sets `WorldMatrix = Identity`); button geometry reads the post-layout
   `WorldPosition`, so it must run after `AutoLayoutSystem` too.
+- **There is ONE pointer pick.** `UIFocusSystem` resolves "what is the pointer over?" once
+  per frame and publishes it on the cursor entity as `PointerPickComponent` (picked entity +
+  the time that hover began). Hover consumers — `TooltipSystem`, `CursorHoverSystem` — read
+  it and run **no hit-test of their own**, so they inherit the same active-group / disabled
+  filters focus and click use and can never disagree with them. They must be ordered after
+  `UIFocusSystem`; without it there is no pick and they stand down.
 
 ## Load-bearing quantities
 
@@ -101,3 +107,11 @@ the ones this flow's ordering leans on:
   the outline drifts from its label by the layout-computed top-left.
 - **Flex-grow no-op** — setting `FlexGrow` on a child that isn't a main-axis fill child:
   silently does nothing; the row doesn't expand as intended.
+- **A second hit-test for "what is hovered"** — a new hover feature sweeping focusables
+  itself instead of reading `PointerPickComponent`. It drifts from the pick on the filters
+  nobody remembers (active group, `FocusableComponent.Disabled`,
+  `ButtonStateComponent.IsDisabled`), so an affordance appears for a control a click cannot
+  reach. Silent — it looks right until an overlay is open.
+- **Pick consumer ordered before its publisher** — `TooltipSystem` / `CursorHoverSystem`
+  registered ahead of `UIFocusSystem`: they act on last frame's pick, so hover affordances
+  lag the pointer by a frame (and show nothing at all on the first).
