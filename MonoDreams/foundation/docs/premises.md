@@ -579,6 +579,15 @@ owner of "call an SDL export MonoGame never bound" — with a fixed-margin fallb
 `Unmeasured` mode that applies the render resolution unchanged when the display cannot be read
 at all.
 
+Both reference heads adopt it in their **windowed desktop branch only** (`MonoDreams.Examples.Desktop`
+and `MonoDreams.Demos`, issue #115): a *headless* run keeps the backbuffer its own contract
+requires — 1×1 off-screen for Examples (whose `Draw` early-returns), the virtual resolution for
+Demos (whose capture reads it) — and says so in the log rather than fitting a window it does not
+present through. A game head therefore has no window-size setting of its own: `WindowFit` computes
+it and `MONODREAMS_WINDOW` overrides it (`GameSettings` no longer carries `WindowWidth`/`Height`,
+and the head has no runtime "apply this resolution" method, because either would be a second
+answer to the same question).
+
 **Why:** MonoGame 3.8.4 DesktopGL does **not** let macOS clamp a *fixed* window (a resizable one
 it does), so `PreferredBackBuffer = 1920x1080` on a 1512x982-point MacBook opens a window taller
 than the screen: nothing crashes, nothing logs, and the bottom strip of the game — where the
@@ -596,6 +605,11 @@ own size. Snapping the derived HEIGHT as well as the width would distort the asp
 15 points instead of a rounding pixel.
 **Tests:** `MonoDreams.Tests/Foundation/WindowFitTests.cs` (the fit geometry, the 1:1 cap, the
 snap, the title-bar reservation, mode selection, the `WxH` parser, and the fallback probe);
+`MonoDreams.Tests/IntegrationTests/ExamplesAdoptionTests.cs`
+(`WindowedRun_FitsTheWindow_AndCapturesTheTargetAtItsOwnResolution` — a real windowed run of the
+reference head honours `MONODREAMS_WINDOW` and logs the boot line;
+`TheDesktopHead_LogsItsRenderSpaceAndPresentationPolicy` — a headless run logs the skip instead
+and never calls it);
 `MonoDreams.Cli.Tests/ScaffolderPlatformTests.cs::Scaffold_GameRoot_DesktopBranchFitsTheWindow_WebBranchUntouched`
 (the scaffolded desktop head adopts it, the web branch is untouched, and the logger comes up first);
 `MonoDreams.Cli.Tests/ScaffolderBuildTests.cs::Init_Desktop_ThenAdd_ProducesBuildableSolution`

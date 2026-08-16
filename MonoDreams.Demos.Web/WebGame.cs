@@ -49,7 +49,15 @@ public class WebGame : Game
 
         // Single-space (authoring == render) on the web head; the camera still comes from the
         // ViewportManager so the scale has one owner.
-        _viewportManager = new ViewportManager(this, VirtualWidth, VirtualHeight);
+        _viewportManager = new ViewportManager(this, VirtualWidth, VirtualHeight)
+        {
+            // …and the same presentation policy the desktop head declares, so both heads frame the
+            // game the same way. On web the back buffer IS the canvas the host page sized, so the
+            // present scale is whatever the browser window implies — exactly the conflict the policy
+            // declares an answer to. (WindowFit is desktop-only and is deliberately NOT called here:
+            // JS owns the canvas size.)
+            Policy = PresentationPolicy.Default,
+        };
         _camera = _viewportManager.CreateCamera();
     }
 

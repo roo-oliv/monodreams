@@ -20,6 +20,7 @@ using MonoDreams.Renderer;
 using MonoDreams.Input;
 using MonoDreams.Screen;
 using MonoDreams.State;
+using MonoDreams.System.Debug;
 
 namespace MonoDreams.Examples;
 
@@ -41,6 +42,17 @@ public class Game1 : Game
     // it never runs in a normal launch (the field is null unless the flag is present).
     private readonly string _exportSceneId;
     private bool _exported;
+    /// <summary>Where this run writes its log, replay plans and screenshots — resolved ONCE in the
+    /// constructor (the logger has to be up before <see cref="WindowFit"/> logs its boot line) and
+    /// reused by everything downstream.</summary>
+    private readonly string _debugDir;
+    /// <summary>Env-requested frame capture (<c>MONODREAMS_SCREENSHOT=png|raw</c>, optionally
+    /// <c>MONODREAMS_SCREENSHOT_TARGET=Main|UI|HUD</c>) — the evidence channel for a WINDOWED run.
+    /// Null unless the environment asked, and never built under <c>--headless</c>: this head's
+    /// <see cref="Draw"/> early-returns there, so there is no frame to read. Reading a NAMED target
+    /// is what keeps captured evidence comparable now that <see cref="WindowFit"/> makes the window
+    /// size machine-dependent — the file geometry is the target's, not the window's.</summary>
+    private ScreenshotCaptureSystem _envFrameCapture;
     /// <summary>The macOS power-management assertion (<c>MONODREAMS_KEEP_AWAKE=1</c>), held for the
     /// process lifetime — null unless the environment asked. A long replay run left alone is exactly
     /// what App Nap and display sleep suspend. See <c>MonoDreams.Debug.KeepAwake</c>.</summary>
@@ -65,6 +77,14 @@ public class Game1 : Game
         // Load settings first
         _settings = SettingsManager.Instance.Settings;
 
+        // The logger comes up HERE, in the constructor, because the window-fit boot line below is
+        // written from it — Logger writes before Initialize are silent no-ops (foundation premise
+        // "Logger requires Initialize before any write"), which would make the one observable of the
+        // window decision disappear. Initialize() reuses the same directory.
+        _debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
+        Logger.Initialize(_debugDir);
+
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = false;
@@ -87,35 +107,83 @@ public class Game1 : Game
             // inactive games (InactiveSleepTime, 20ms/frame ≈ 50fps) — which would quietly break
             // the headless max-speed contract. Headless never sleeps on inactivity.
             InactiveSleepTime = TimeSpan.Zero;
+            _graphics.ApplyChanges();
+            // Headless deliberately opts OUT of WindowFit: the 1×1 off-screen window IS the contract
+            // here (this head's Draw early-returns, so nothing is presented). Logged so the window
+            // decision is in every run's log, whichever branch made it.
+            Logger.Info("Headless run: window sizing (WindowFit) skipped — the 1x1 off-screen window is the contract.");
         }
         else
         {
             IsFixedTimeStep = true;
             _graphics.IsFullScreen = _settings.IsFullscreen;
-            _graphics.PreferredBackBufferWidth = _settings.WindowWidth;
-            _graphics.PreferredBackBufferHeight = _settings.WindowHeight;
             _graphics.SynchronizeWithVerticalRetrace = true;
+#if MONODREAMS_WEB
+            // The host page owns the canvas size on web — never set a backbuffer here.
+            _graphics.ApplyChanges();
+#else
+            if (_settings.IsFullscreen)
+            {
+                // Fullscreen is not a window: there is nothing to fit inside, and the backbuffer IS
+                // the mode the display is put into — so it stays the render resolution and the
+                // presentation policy frames it. WindowFit owns the WINDOWED case only.
+                _graphics.PreferredBackBufferWidth = _settings.VirtualWidth;
+                _graphics.PreferredBackBufferHeight = _settings.VirtualHeight;
+                _graphics.ApplyChanges();
+                Logger.Info("Fullscreen run: window sizing (WindowFit) skipped — the backbuffer is the " +
+                            $"render resolution {_settings.VirtualWidth}x{_settings.VirtualHeight}.");
+            }
+            else
+            {
+                // Open the LARGEST aspect-correct window that actually FITS the player's display,
+                // capped at the render resolution — instead of pinning the backbuffer to it. Pinning
+                // is the classic silent break this head used to ship: macOS does not clamp a FIXED
+                // window, so a 1920x1080 backbuffer on a 1512x982-point laptop renders the bottom of
+                // the menu (the Start buttons) below the physical screen, with no crash and no
+                // warning. WindowFit applies the backbuffer and calls ApplyChanges itself, so nothing
+                // may set PreferredBackBuffer* after it (foundation premise "WindowFit is opt-in, and
+                // it is the ONLY thing allowed to size a game's window"). MONODREAMS_WINDOW=WxH
+                // forces an exact size for scripted runs and screenshots; passing Window also turns
+                // AllowUserResizing on (except under that override), which the ClientSizeChanged
+                // handler below already feeds back into the ViewportManager.
+                WindowFit.Apply(_graphics, _settings.VirtualWidth, _settings.VirtualHeight, Window);
+            }
+#endif
         }
-        _graphics.ApplyChanges();
 
         // Both coordinate spaces come from settings, and the camera comes from the ViewportManager —
         // so the authoring→render scale lives in exactly one place (rendering premise "Authoring space
         // and render space are distinct"). Layout 0 ⇒ single space (the shipped default).
         _viewportManager = new(this, _settings.VirtualWidth, _settings.VirtualHeight,
-            _settings.LayoutWidth, _settings.LayoutHeight);
+            _settings.LayoutWidth, _settings.LayoutHeight)
+        {
+            // The presentation dial, declared HERE even though the settings default is what the
+            // engine would pick for a scaffolded game: how the frame reaches a window that is not the
+            // render resolution is a game's decision, and now that WindowFit sizes that window to the
+            // player's display it is a decision every run exercises. Same key, same resolution as the
+            // web head (WebGame), so both heads present identically from one settings file.
+            Policy = _settings.ResolvePresentation(),
+        };
         _camera = _viewportManager.CreateCamera();
+        // The two spaces this run is using, and the dial that frames them — the head's own
+        // observable for "which resolution are these coordinates in?" (the Demos head logs the same).
+        Logger.Info($"Render space: authoring={_viewportManager.LayoutWidth}x{_viewportManager.LayoutHeight}, " +
+                    $"render={_viewportManager.VirtualWidth}x{_viewportManager.VirtualHeight}, " +
+                    $"scale={_viewportManager.RenderScale:0.###}.");
+        Logger.Info($"Presentation policy declared by the head: '{_settings.Presentation}' " +
+                    "(GameSettings.Presentation → ViewportManager.Policy).");
 
         // Window resize handling is a desktop concern; a web head sizes the canvas
         // from the host page, so the OS-window event is gated out there.
 #if !MONODREAMS_WEB
         Window.ClientSizeChanged += OnWindowResize;
-        // The editor is a desktop authoring tool — let the designer resize the window like any IDE.
-        // The resize path already exists (OnWindowResize → ApplyEditorHiDpi/InitializeRenderer feeds
-        // the new device size into the ViewportManager; EditorShellSystem relayouts the chrome +
-        // viewport inset on the dim/DPR change and EditorChromeRenderSystem recreates the native
-        // Editor target at the new size). Shipped/non-editor runs keep the fixed window (match
-        // existing behavior); headless has a 1×1 off-screen window and stays non-resizable.
-        if (_editor && !_headless) Window.AllowUserResizing = true;
+        // AllowUserResizing is WindowFit's to set now (on for every fitted window — a resizable
+        // window is the one macOS clamps for you — off only under MONODREAMS_WINDOW, which asked for
+        // an exact size), so the editor no longer flips it separately. The resize path is unchanged:
+        // OnWindowResize → ApplyEditorHiDpi/InitializeRenderer feeds the new device size into the
+        // ViewportManager; EditorShellSystem relayouts the chrome + viewport inset on the dim/DPR
+        // change and EditorChromeRenderSystem recreates the native Editor target at the new size.
+        // Headless has a 1×1 off-screen window, never calls WindowFit, and stays non-resizable.
 #endif
     }
     
@@ -151,9 +219,9 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
-            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
-        Logger.Initialize(debugDir);
+        // The logger is already up (the constructor brought it up ahead of WindowFit's boot line);
+        // this is the same directory every debug channel reads and writes.
+        var debugDir = _debugDir;
 
         // Opt-in keep-awake, straight after the logger so its line lands in the run's log: an
         // unattended replay run is otherwise at the mercy of macOS App Nap and display sleep. No-op on
@@ -176,10 +244,14 @@ public class Game1 : Game
 
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
 
-        // Apply the presentation scaling policy from settings — the same mapping the web head uses,
-        // so both present identically from one settings file. The reference game declares the
-        // recommended chain (overscan → letterbox → stretch).
-        _viewportManager.Policy = _settings.ResolvePresentation();
+        // Env-requested frame capture (MONODREAMS_SCREENSHOT[=png|raw], MONODREAMS_SCREENSHOT_TARGET,
+        // …), owned end-to-end by ScreenshotCaptureSystem.FromEnvironment — never built headless,
+        // where this head's Draw early-returns and there is no frame to read. Naming a target
+        // (…_TARGET=Main) is how a windowed run produces evidence whose geometry is the target's
+        // fixed resolution rather than whatever size WindowFit gave this machine's window.
+#if !MONODREAMS_WEB
+        if (!_headless) _envFrameCapture = ScreenshotCaptureSystem.FromEnvironment(GraphicsDevice, debugDir);
+#endif
 
         GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
         GraphicsDevice.BlendState = BlendState.AlphaBlend;
@@ -355,23 +427,15 @@ public class Game1 : Game
         if (_headless) return;
         _screenController.Draw(gameTime);
 
+        // AFTER the composite: a capture reads the finished frame (or the pass's target, when one is
+        // named), so it must follow the draw pipeline. Null unless the environment asked.
+        _envFrameCapture?.Update(_screenController.State);
+
 #if DEBUG
         _imGuiRenderer?.BeforeLayout(gameTime);
         _debugInspector?.Draw(_screenController.CurrentWorld);
         _imGuiRenderer?.AfterLayout();
 #endif
-    }
-
-    /// <summary>
-    /// Applies new resolution settings at runtime.
-    /// </summary>
-    public void ApplyResolutionSettings(int width, int height, bool fullscreen)
-    {
-        _graphics.PreferredBackBufferWidth = width;
-        _graphics.PreferredBackBufferHeight = height;
-        _graphics.IsFullScreen = fullscreen;
-        _graphics.ApplyChanges();
-        InitializeRenderer(width, height);
     }
 
     /// <summary>Reads the PS5 export-op level id from <c>--export-scene &lt;id&gt;</c> or the
@@ -447,7 +511,9 @@ public class Game1 : Game
     protected override void Dispose(bool disposing)
     {
         _screenController.Dispose();
-        // Before Logger.Shutdown so the release line lands in this run's log.
+        // Before Logger.Shutdown: a raw run logs its byte/frame summary from Dispose.
+        _envFrameCapture?.Dispose();
+        // Likewise the keep-awake release line.
         _keepAwake?.Dispose();
         Logger.Shutdown();
         _runner.Dispose();

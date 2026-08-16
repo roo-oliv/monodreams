@@ -65,6 +65,11 @@ public class Game1 : Game
     private int _frame;
     private float _perfTimer;
 
+    /// <summary>Where this run writes its log, screenshots and plans — resolved ONCE in the
+    /// constructor, because the logger has to be up before <see cref="WindowFit"/> writes its boot
+    /// line, and reused by <see cref="Initialize"/>.</summary>
+    private readonly string _debugDir;
+
     public Game1(string[]? args = null)
     {
         _headless = HeadlessOptions.Parse(args);
@@ -83,6 +88,13 @@ public class Game1 : Game
         _virtualWidth = (int)MathF.Round(LayoutWidth * _renderScale);
         _virtualHeight = (int)MathF.Round(LayoutHeight * _renderScale);
 
+        // The logger comes up HERE, in the constructor, so the window-fit boot line below is not
+        // dropped: Logger writes are silent no-ops until Initialize has run (foundation premise
+        // "Logger requires Initialize before any write"). Initialize() reuses this directory.
+        _debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
+        Logger.Initialize(_debugDir);
+
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = false;
@@ -93,32 +105,57 @@ public class Game1 : Game
 #else
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
 #endif
-        // Headless still renders at full virtual resolution into a real backbuffer —
-        // the window is just hidden off-screen and never relied on for presentation.
-        // The render path (and its memory behaviour) is exercised exactly as in a
-        // visible run, which is the whole point: a 1×1 window would make the captured
-        // frame meaningless. See issue #28 and the debug-module premises.
-        _graphics.PreferredBackBufferWidth = _virtualWidth;
-        _graphics.PreferredBackBufferHeight = _virtualHeight;
         if (_headless.Enabled)
         {
+            // Headless still renders at full virtual resolution into a real backbuffer —
+            // the window is just hidden off-screen and never relied on for presentation.
+            // The render path (and its memory behaviour) is exercised exactly as in a
+            // visible run, which is the whole point: a 1×1 window would make the captured
+            // frame meaningless. See issue #28 and the debug-module premises. This is also why
+            // headless opts OUT of WindowFit: the backbuffer size IS the capture contract here.
+            _graphics.PreferredBackBufferWidth = _virtualWidth;
+            _graphics.PreferredBackBufferHeight = _virtualHeight;
             _graphics.SynchronizeWithVerticalRetrace = false;
             IsFixedTimeStep = false;
             // A hidden, never-activated window makes Game.IsActive false, and MonoGame throttles
             // inactive games (InactiveSleepTime, 20ms/frame ≈ 50fps) — which would quietly break
             // the headless max-speed contract. Headless never sleeps on inactivity.
             InactiveSleepTime = TimeSpan.Zero;
+            _graphics.ApplyChanges();
+            Logger.Info("Headless run: window sizing (WindowFit) skipped — the backbuffer is the " +
+                        $"capture contract's {_virtualWidth}x{_virtualHeight}.");
         }
         else
         {
             _graphics.SynchronizeWithVerticalRetrace = true;
             IsFixedTimeStep = true;
+#if MONODREAMS_WEB
+            _graphics.ApplyChanges();
+#else
+            // Open the largest aspect-correct window that FITS the display's usable area, capped at
+            // the render resolution, instead of pinning the backbuffer to it — a fixed window bigger
+            // than the screen is not clamped by macOS, so the bottom of a demo would render below the
+            // physical display with no crash and no warning. WindowFit applies the backbuffer and
+            // calls ApplyChanges itself; nothing may set PreferredBackBuffer* after it (foundation
+            // premise "WindowFit is opt-in, and it is the ONLY thing allowed to size a game's
+            // window"). MONODREAMS_WINDOW=WxH forces an exact size for scripted runs; passing Window
+            // also turns AllowUserResizing on, and the resize handler below re-feeds the new size.
+            WindowFit.Apply(_graphics, _virtualWidth, _virtualHeight, Window);
+#endif
         }
-        _graphics.ApplyChanges();
 
         // ONE construction site for both spaces: the ViewportManager owns them, and every camera in
         // the game comes out of it, so the authoring→render scale exists in exactly one place.
-        _viewportManager = new ViewportManager(this, _virtualWidth, _virtualHeight, LayoutWidth, LayoutHeight);
+        _viewportManager = new ViewportManager(this, _virtualWidth, _virtualHeight, LayoutWidth, LayoutHeight)
+        {
+            // The presentation dial, declared even though it is what a scaffolded game gets: how the
+            // frame reaches a window that is not the render resolution is a game's decision, and
+            // WindowFit makes that window follow the player's display — so this run exercises it.
+            // Default = overscan to a clean scale (≤5%) → letter/pillarbox at a clean scale (≤25%)
+            // → stretch. The engine's own default is the historical Stretch; a new game should
+            // declare this one.
+            Policy = PresentationPolicy.Default,
+        };
         _camera = _viewportManager.CreateCamera();
 
         // OS-window resize is a desktop concern; a web head sizes from the host page.
@@ -128,10 +165,11 @@ public class Game1 : Game
             if (!ApplyEditorHiDpi())
                 InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
         };
-        // Editor runs are user-resizable (like the Examples head); the resize handler above already
-        // recomputes the renderer size and the shell/chrome relayout follows. Non-editor + headless
-        // runs keep the fixed window.
-        if (_editor && !_headless.Enabled) Window.AllowUserResizing = true;
+        // AllowUserResizing is WindowFit's to set now (on for a fitted window — the resizable window
+        // is the one macOS clamps for you — off only under MONODREAMS_WINDOW, which asked for an
+        // exact size), so the editor no longer flips it separately. The handler above already
+        // recomputes the renderer size and the shell/chrome relayout follows. Headless never calls
+        // WindowFit and keeps its fixed, hidden window.
 #endif
     }
 
@@ -150,9 +188,9 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        var debugDir = PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
-            ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
-        Logger.Initialize(debugDir);
+        // The logger is already up (the constructor brought it up ahead of WindowFit's boot line);
+        // this is the same directory every debug channel reads and writes.
+        var debugDir = _debugDir;
 
         // Opt-in keep-awake, straight after the logger so its own line lands in the run's log: a run
         // left alone for hours (the agentic case) is otherwise at the mercy of App Nap and display
@@ -172,6 +210,7 @@ public class Game1 : Game
         Logger.Info(string.Format(CultureInfo.InvariantCulture,
             "Render space: authoring={0}x{1}, render={2}x{3}, scale={4:0.###}.",
             LayoutWidth, LayoutHeight, _virtualWidth, _virtualHeight, _viewportManager.RenderScale));
+        Logger.Info("Presentation policy declared by the head: 'Default' (ViewportManager.Policy).");
 
         // Project-wide dark navy theme for all MonoDreams demo screens.
         FinalDrawSystem.ClearColor = DemoPalette.DarkBg;

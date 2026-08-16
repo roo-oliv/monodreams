@@ -164,10 +164,18 @@ public static class GameTestRunner
     /// <paramref name="pointerPlan"/> drops a <c>pointer_replay.json</c> — the scripted-mouse channel
     /// (issue #90), which is how a mouse-first screen (the menu) gets driven at all: the input replay
     /// speaks only named actions.
+    ///
+    /// <para><paramref name="headless"/> defaults to true — the fast logic-only path every other test
+    /// wants. Pass <c>false</c> for the few assertions that only exist in a WINDOWED run: the head's
+    /// <c>WindowFit</c> sizing (headless deliberately opts out, keeping its 1x1 off-screen window) and
+    /// anything that needs a rendered frame (this head's <c>Draw</c> early-returns under
+    /// <c>--headless</c>). A windowed run needs a display — CI provides one via <c>xvfb-run</c>, and
+    /// the run never steals focus (<c>SDL_MAC_BACKGROUND_APP</c> is set below) — and it must own its
+    /// own exit, e.g. through a pointer plan that drains.</para>
     /// </summary>
     public static async Task<GameTestResult> RunAsync(InputReplayPlan plan, int timeoutSeconds = 30,
         IReadOnlyDictionary<string, string>? environment = null, EditorOpPlan? editorOpPlan = null,
-        PointerReplayPlan? pointerPlan = null)
+        PointerReplayPlan? pointerPlan = null, bool headless = true)
     {
         var debugDir = CreateDebugDir();
 
@@ -182,7 +190,7 @@ public static class GameTestRunner
 
         if (pointerPlan != null) await WritePointerPlanAsync(debugDir, pointerPlan);
 
-        return await RunProcessAsync("MonoDreams.Examples.Desktop", "--headless", debugDir,
+        return await RunProcessAsync("MonoDreams.Examples.Desktop", headless ? "--headless" : "", debugDir,
             timeoutSeconds, environment);
     }
 

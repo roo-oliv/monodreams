@@ -200,14 +200,16 @@ public class ButtonEditingTests
     // ── Item 5: Play-mode interaction is unbroken with the root+child shape ──
 
     /// <summary>The new root+child button still hovers, recolors its LABEL CHILD (via
-    /// SimpleButtonComponent.TextEntity → the child), and dispatches on click through the unchanged
-    /// ButtonInteractionSystem — the query (LevelSelector + Transform + SimpleButtonComponent) is all on
-    /// the root, so no interaction-system change was needed.</summary>
+    /// SimpleButtonComponent.TextEntity → the child), and dispatches on click — now through the
+    /// menu's real interaction pair (UIFocusSystem's pick + ButtonInteractionSystem's action, issue
+    /// #115). The pickable surface, like the behaviour, is all on the ROOT, so the root+child shape
+    /// needed no interaction-system change.</summary>
     [Fact]
     public void NewShapeButton_HoverRecolorsLabelChild_AndClickDispatches_InPlay()
     {
         using var world = new World();
         var (root, label) = MakeButton(world, Vector2.Zero, new Vector2(18, 18), new Vector2(100, 40), selected: false);
+        root.Set(new FocusableComponent { Size = new Vector2(100, 40), Target = RenderTargetID.Main });
         root.Set(new LevelSelector
         {
             LevelName = "Level_0", TargetScreen = null, IsClickable = true, IsHovered = false,
@@ -215,13 +217,15 @@ public class ButtonEditingTests
         });
 
         var cursor = MakeCursor(world, new Vector2(10, 10)); // inside the 100×40 quad at origin
-        cursor.Get<CursorInputComponent>().LeftButtonReleased = true; // the click fires on release
+        cursor.Get<CursorInputComponent>().Delta = new Vector2(1, 1);  // the pointer moved onto it
+        cursor.Get<CursorInputComponent>().LeftButtonReleased = true;  // the click fires on release
 
         ScreenTransitionRequest? published = null;
         world.Subscribe((in ScreenTransitionRequest r) => published = r);
 
+        using var focus = MonoDreams.Tests.Ui.MenuInteraction.Focus(world);
         using var interaction = new ButtonInteractionSystem(world);
-        interaction.Update(Play());
+        MonoDreams.Tests.Ui.MenuInteraction.Tick(focus, interaction, Play());
 
         Assert.Equal(Color.OrangeRed, label.Get<DynamicTextComponent>().Color); // the child recolored
         Assert.NotNull(published);

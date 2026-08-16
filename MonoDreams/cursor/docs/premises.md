@@ -19,9 +19,10 @@ transform and populates `DrawComponent` with the texture for the
 active `CursorType`.
 
 **Why:** each stage depends on the previous one's output. Game code
-between stages can read intermediate state cleanly (e.g.
-`ButtonInteractionSystem` reads `CursorInputComponent.WorldPosition`
-after `CursorPositionSystem` has run). Reordering the stages produces
+between stages can read intermediate state cleanly (e.g. `ui`'s
+`UIFocusSystem` hit-tests `CursorInputComponent.WorldPosition` — the
+position `CursorPositionSystem` derives, or an injection channel
+authored). Reordering the stages produces
 silent one-frame lag or stale world coordinates.
 **Breaks:** running `CursorDrawPrepSystem` before
 `CursorPositionSystem` paints the cursor at last frame's position;

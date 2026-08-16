@@ -34,6 +34,20 @@ public class InputMappingSystem(World world) : AKeyboardInputHandlingSystem
     public override void Update(GameState state)
     {
         base.Update(state);
+
+        // Tab / Shift-Tab — the UI's ordinal navigation pair (UIFocusSystem's next/prev). Shift-Tab
+        // is a CHORD, which the (action, key) table above cannot express: it ORs single keys per
+        // action, so mapping Tab twice would fire next AND prev on the same frame. One keyboard read
+        // here drives both, under the same two gates the base honours (a scripted/injected run and a
+        // modal that owns the keyboard must silence these too, or the menu would navigate itself).
+        if (!SkipHardwareRead && ShouldSuppressInput?.Invoke() != true)
+        {
+            var keyboard = Keyboard.GetState();
+            var shift = keyboard.IsKeyDown(Keys.LeftShift) || keyboard.IsKeyDown(Keys.RightShift);
+            var tab = keyboard.IsKeyDown(Keys.Tab);
+            InputState.MenuNext.Update(tab && !shift, state);
+            InputState.MenuPrevious.Update(tab && shift, state);
+        }
         // Debug convenience: reload Level_0 on Grab (K). This is an ADDITIVE load — SceneReaderSystem never
         // sweeps, so publishing it onto a world that already holds content STACKS a duplicate copy. That is
         // a corruption footgun while EDITING (a save then persists the duplicates — a double-load), so it is

@@ -24,11 +24,12 @@ and defaults to `RenderTargetID.HUD`, so `MasterRenderSystem` draws it last, abo
 
 Note the **hover-type decision lives outside this flow.** Nothing in the cursor module picks a
 `CursorType` — `Type` is a *write-only* field as far as cursor systems are concerned; they only
-read it. The choice ("am I over a clickable?") is owned by a consumer: game code like Examples'
-`ButtonInteractionSystem` for the textured path, or the `ui` module's `CursorHoverSystem` for the
-mesh path. Those consumers read `CursorInputComponent.WorldPosition` (after `CursorPositionSystem`
-ran) and set `Type`; the cursor flow's job is only to position the entity and reflect `Type` into a
-texture.
+read it. The choice ("am I over a clickable?") is owned by a consumer: the `ui` module's
+`CursorHoverSystem`, which derives it from the one pointer pick — but only for the **mesh** path,
+since it requires a `CursorMeshLibraryComponent` to swap silhouettes. The **textured** path has no
+shipped consumer today (Examples' menu keeps the arrow while hovering a button); a game that wants
+a hand cursor there writes the `Type` itself from `PointerPickComponent`. The cursor flow's job is
+only to position the entity and reflect `Type` into a texture.
 
 ## Entities & lifecycle
 
