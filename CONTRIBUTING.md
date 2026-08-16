@@ -178,7 +178,7 @@ End-to-end test the change:
 # platform with --platform desktop|web|multi (default desktop).
 rm -rf .sandbox
 dotnet run --project MonoDreams.Cli -- init Sandbox --dir .sandbox/Sandbox --platform desktop
-dotnet run --project MonoDreams.Cli -- add --preset infinite-runner --project .sandbox/Sandbox
+dotnet run --project MonoDreams.Cli -- add --preset infinite-runner --dir .sandbox/Sandbox
 dotnet build .sandbox/Sandbox/Sandbox.sln
 # For a web/multi project, build the web head explicitly:
 #   dotnet build .sandbox/Sandbox/Sandbox.Web/Sandbox.Web.csproj -p:MonoDreamsPlatform=web
@@ -191,6 +191,7 @@ dotnet build .sandbox/Sandbox/Sandbox.sln
 - **Messages** flow through the ECS world via publish-subscribe (e.g. `CollisionMessage`, `LoadLevelRequest`).
 - **Namespaces are file-path independent.** A file at `MonoDreams/cursor/Component/CursorControllerComponent.cs` still declares `namespace MonoDreams.Component.Cursor`. This lets us reorganize files into module directories without breaking downstream code.
 - **Core has no implicit `using`s.** When moving files in, add explicit `using System;`, `using System.Collections.Generic;`, `using System.Linq;` where needed.
+- **CLI options: one name per concept.** The same idea gets the same option name in every `monodreams` command (`--dir` is *the* "which project" option for both `init` and `add`; `--project` survives only as a hidden, deprecated alias — see `MonoDreams.Cli/Commands/DirOption.cs`). New commands get strict parsing for free: `StrictOptions` rejects any unrecognized `--option` by name — with a did-you-mean hint — before binding, so an option token can never be swallowed as a positional argument.
 
 ## Engine invariants
 

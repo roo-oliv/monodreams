@@ -116,7 +116,7 @@ internal sealed class Installer
             0 => throw new FileNotFoundException($"No .csproj found in '{_projectDir}'. Run `monodreams init` first."),
             1 => topLevel[0],
             _ => throw new InvalidOperationException(
-                $"Multiple .csproj files found in '{_projectDir}': {string.Join(", ", topLevel.Select(Path.GetFileName))}. Pass --project <dir> with the specific project.")
+                $"Multiple .csproj files found in '{_projectDir}': {string.Join(", ", topLevel.Select(Path.GetFileName))}. Pass --dir <dir> with the specific project.")
         };
     }
 }

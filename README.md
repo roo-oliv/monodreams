@@ -53,6 +53,16 @@ dotnet run
 
 `monodreams list` shows every module and preset; `--verbose` adds deps and NuGet refs.
 
+Both `init` and `add` spell "which project" the same way — `--dir <path>` (`--project` still
+works as a deprecated alias). Unrecognized options are rejected by name rather than mistaken
+for a module or a path:
+
+```console
+$ monodreams add rendering --dryrun
+error: unknown option '--dryrun' for `monodreams add`. Did you mean '--dry-run'?
+       Run `monodreams add --help` for the options it accepts.
+```
+
 ## The 14 modules
 
 ```
