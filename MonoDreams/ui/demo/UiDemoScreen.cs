@@ -502,6 +502,7 @@ public class UiDemoScreen : IGameScreen
             "Button variants, states, text input, checkbox & toggle",
             "Dropdown, type-to-filter combobox and a scroll view",
             "A modal dialog that traps focus in its own group",
+            "Exclusive panel groups: tabs & a paged menu that park, not hide",
         };
         var labels = new[] { "Layout", "Buttons", "Windows", "Dialogs", "Panels" };
         var made = new (Entity entity, Vector2 size)[labels.Length];
