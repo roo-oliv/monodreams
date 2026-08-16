@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "ec7097767317",
+  "session_id": "614d4da1-417a-4bf3-a2c8-bdfbd148d563",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-16T03:43:52.241127Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Tests/UI/HighlightSystemTests.cs",
+    "MonoDreams.Tests/UI/PanelGroupTests.cs",
+    "MonoDreams.Tests/UI/PinnedLayoutRootTests.cs",
+    "MonoDreams.Tests/UI/PointerPickTests.cs",
+    "MonoDreams.Tests/UI/TooltipTests.cs",
+    "MonoDreams.Tests/Ui/HighlightSystemTests.cs",
+    "MonoDreams.Tests/Ui/PinnedLayoutRootTests.cs",
+    "MonoDreams.Tests/Ui/PointerPickTests.cs",
+    "MonoDreams.Tests/Ui/TooltipTests.cs",
+    "MonoDreams/ui/demo/UiDemoScreen.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "5c2b37e1-36b4-4f85-bf99-d035effb916c",
+  "checkpoint_transcript_start": 991,
+  "transcript_lines_at_start": 991,
+  "token_usage": {
+    "input_tokens": 33,
+    "cache_creation_tokens": 12794,
+    "cache_read_tokens": 5470193,
+    "output_tokens": 7816,
+    "api_call_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-16T03:43:51.884419Z",
+    "agent_lines": 0,
+    "human_added": 624,
+    "human_modified": 1478,
+    "human_removed": 0,
+    "total_committed": 2102,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude-max/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/614d4da1-417a-4bf3-a2c8-bdfbd148d563.jsonl"
+}
