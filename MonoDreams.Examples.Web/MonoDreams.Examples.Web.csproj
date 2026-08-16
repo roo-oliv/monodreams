@@ -77,6 +77,12 @@
                       ExcludeAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="KNI.Extended.Content.Pipeline" Version="6.0.0"
                       ExcludeAssets="all" GeneratePathProperty="true" />
+    <!-- The desktop MonoGame MGCB tool, DOWNLOADED (not referenced — it is a DotnetTool package,
+         which PackageReference rejects) purely so the shim target below can borrow its
+         macOS/Linux native libs out of $(NuGetPackageRoot)dotnet-mgcb/3.8.4/. The borrows are
+         Exists()-guarded, so without this download they silently no-op on a machine that never
+         built desktop content and the first texture fails with DllNotFoundException. -->
+    <PackageDownload Include="dotnet-mgcb" Version="[3.8.4]" />
   </ItemGroup>
 
   <!-- Import the KNI content-builder targets (CollectContentReferences / RunContentBuilder /

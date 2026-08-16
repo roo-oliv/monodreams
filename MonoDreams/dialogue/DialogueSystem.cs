@@ -124,8 +124,8 @@ public class DialogueSystem : ISystem<GameState>
         Texture2D? dialogBoxTexture,
         BitmapFont font,
         Texture2D? indicatorTexture,
-        int virtualWidth,
-        int virtualHeight,
+        int layoutWidth,
+        int layoutHeight,
         float layerDepth,
         AInputState interact,
         AInputState up,
@@ -189,8 +189,8 @@ public class DialogueSystem : ISystem<GameState>
         const float boxMargin = 20f;
         // In anchored mode boxWidthOverride caps the balloon; start AT the max so the first
         // line/options resize down to fit. Otherwise it (optionally) overrides the box width.
-        var boxWidth = boxWidthOverride ?? (virtualWidth - 2f * boxMargin);
-        var rootPosition = new Vector2(boxMargin, virtualHeight - boxHeight - boxMargin);
+        var boxWidth = boxWidthOverride ?? (layoutWidth - 2f * boxMargin);
+        var rootPosition = new Vector2(boxMargin, layoutHeight - boxHeight - boxMargin);
 
         _meshMode = chromeFill.HasValue;
         // Anchored mode draws a tailed speech balloon on the Main target; it relies on the mesh

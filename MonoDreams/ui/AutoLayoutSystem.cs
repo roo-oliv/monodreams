@@ -29,11 +29,13 @@ public class AutoLayoutSystem : ISystem<GameState>
         _world = world;
         _viewport = viewport;
 
-        // Create a screen root node that represents the virtual screen
+        // Create a screen root node that represents the AUTHORING screen — UI is authored in layout
+        // units, and the per-pass camera scales those to render pixels (rendering premise
+        // "Authoring space and render space are distinct"). In a single-space game layout == virtual.
         _screenRoot = new LayoutNodeComponent
         {
-            Width = viewport.VirtualWidth,
-            Height = viewport.VirtualHeight,
+            Width = viewport.LayoutWidth,
+            Height = viewport.LayoutHeight,
             WidthAuto = false,
             HeightAuto = false
         };
@@ -52,8 +54,8 @@ public class AutoLayoutSystem : ISystem<GameState>
         if (!IsEnabled) return;
 
         // Update screen root size in case viewport changed
-        _screenRoot.Width = _viewport.VirtualWidth;
-        _screenRoot.Height = _viewport.VirtualHeight;
+        _screenRoot.Width = _viewport.LayoutWidth;
+        _screenRoot.Height = _viewport.LayoutHeight;
 
         // Clear and rebuild the layout tree
         _screenRoot.Clear();
@@ -83,7 +85,7 @@ public class AutoLayoutSystem : ISystem<GameState>
         }
 
         // Calculate the layout
-        _screenRoot.CalculateLayout(_viewport.VirtualWidth, _viewport.VirtualHeight);
+        _screenRoot.CalculateLayout(_viewport.LayoutWidth, _viewport.LayoutHeight);
 
         // Apply layout results to transforms
         foreach (var (rootEntity, anchor) in roots)
@@ -131,8 +133,8 @@ public class AutoLayoutSystem : ISystem<GameState>
         float rootHeight,
         RenderTargetID target)
     {
-        var halfWidth = viewport.VirtualWidth / 2f;
-        var halfHeight = viewport.VirtualHeight / 2f;
+        var halfWidth = viewport.LayoutWidth / 2f;
+        var halfHeight = viewport.LayoutHeight / 2f;
 
         // Calculate offset based on anchor
         // The offset converts from layout coordinates (top-left: 0,0) to MonoDreams coordinates (center: 0,0)

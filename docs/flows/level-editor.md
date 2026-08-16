@@ -256,7 +256,7 @@ the ones this flow leans on:
   step per drag, convex writes refresh `WorldVertices`/`BroadPhaseAABB`), never into the
   transient proxy; proxies hit-test their border only (Wave 8b).
 - The shell's viewport inset lives on the `ViewportManager` (single source of truth): FinalDraw
-  compositing and `ScaleMouseToVirtualCoordinates` follow the same rectangle, so world picking
+  compositing and `MapMouse` follow the same rectangle, so world picking
   needs no extra math and margin clicks map to null (chrome hit-tests `ScreenPosition`); zero
   inset = the historical full-window letterbox, byte-identical (Wave 7).
 - Native scenes load via a dedicated `LoadSceneRequest`, never `LoadLevelRequest` (which is

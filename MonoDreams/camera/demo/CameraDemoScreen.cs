@@ -178,14 +178,14 @@ public class CameraDemoScreen : IGameScreen
         // Minimap camera: same virtual resolution as the main camera (the mesh
         // projection is shared across render passes), fixed at the region center, and
         // zoomed so the whole boundary region fits with a margin. Never moved or zoomed.
+        // Zoom is an AUTHORING number (world units → layout units), so it fits the boundary into
+        // the LAYOUT size; the render scale rides on the camera itself, via CreateCamera().
         var fitZoom = Math.Min(
-            viewportManager.VirtualWidth / (BoundaryHalfWidth * 2f),
-            viewportManager.VirtualHeight / (BoundaryHalfHeight * 2f)) * MinimapFitPadding;
-        _minimapCamera = new MonoDreams.Component.Camera(viewportManager.VirtualWidth, viewportManager.VirtualHeight)
-        {
-            Position = Vector2.Zero,
-            Zoom = fitZoom,
-        };
+            viewportManager.LayoutWidth / (BoundaryHalfWidth * 2f),
+            viewportManager.LayoutHeight / (BoundaryHalfHeight * 2f)) * MinimapFitPadding;
+        _minimapCamera = viewportManager.CreateCamera();
+        _minimapCamera.Position = Vector2.Zero;
+        _minimapCamera.Zoom = fitZoom;
         _minimapTarget = new RenderTarget2D(graphicsDevice, viewportManager.VirtualWidth, viewportManager.VirtualHeight);
 
         _world = new World();
@@ -771,19 +771,20 @@ public class CameraDemoScreen : IGameScreen
     {
         var entity = _world.CreateEntity();
         entity.Set(new TransformComponent(new Vector2(
-            _viewportManager.VirtualWidth / 2f,
-            _viewportManager.VirtualHeight / 2f)));
+            _viewportManager.LayoutWidth / 2f,
+            _viewportManager.LayoutHeight / 2f)));
         var draw = new DrawComponent { Target = RenderTargetID.HUD, LayerDepth = 0.92f };
         draw.SetMeshData(CrossMesh(armPixels: 14, thicknessPixels: 3, color: Color.White));
         entity.Set(draw);
         entity.Set<VisibleComponent>();
     }
 
-    /// Screen-space box (virtual coords) where the minimap is composited, anchored to
-    /// the bottom-right of the HUD.
+    /// Screen-space box (AUTHORING coords — RenderLayer.Overlay maps them through the same
+    /// aspect-fit transform as the HUD) where the minimap is composited, anchored to the
+    /// bottom-right of the HUD.
     private Rectangle MinimapDestination() => new(
-        _viewportManager.VirtualWidth - MinimapMargin - MinimapWidth,
-        _viewportManager.VirtualHeight - MinimapMargin - MinimapHeight,
+        _viewportManager.LayoutWidth - MinimapMargin - MinimapWidth,
+        _viewportManager.LayoutHeight - MinimapMargin - MinimapHeight,
         MinimapWidth, MinimapHeight);
 
     /// HUD chrome for the minimap: an opaque backdrop (so the minimap's transparent
@@ -1026,7 +1027,7 @@ public class CameraDemoScreen : IGameScreen
             RenderLayer.Main(_renderTargets[RenderTargetID.Main]),
             RenderLayer.UI(_renderTargets[RenderTargetID.UI]),
             RenderLayer.HUD(_renderTargets[RenderTargetID.HUD]),
-            RenderLayer.Overlay(_minimapTarget, MinimapDestination(), SamplerState.LinearClamp),
+            RenderLayer.Overlay(_minimapTarget, MinimapDestination(), SamplerPolicy.Linear),
         };
         if (_editor != null)
             renderLayers.Add(_editor.Overlay.ChromeLayer);
@@ -1056,9 +1057,9 @@ public class CameraDemoScreen : IGameScreen
         p.Add("renderMain", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
             RenderTargetID.Main, _renderTargets[RenderTargetID.Main], _camera), EditTimeBehavior.RunNormally);
         p.Add("renderUI", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.UI, _renderTargets[RenderTargetID.UI]), EditTimeBehavior.RunNormally);
+            RenderTargetID.UI, _renderTargets[RenderTargetID.UI], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         p.Add("renderHUD", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,
-            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD]), EditTimeBehavior.RunNormally);
+            RenderTargetID.HUD, _renderTargets[RenderTargetID.HUD], _viewportManager.LayoutCamera), EditTimeBehavior.RunNormally);
         // Minimap: the same world (Main) entities through a second camera fixed at the
         // region center, rendered into its own target — just another render pass.
         p.Add("renderMinimap", new MasterRenderSystem(_spriteBatch, _graphicsDevice, _world,

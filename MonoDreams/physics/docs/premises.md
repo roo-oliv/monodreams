@@ -106,10 +106,12 @@ without understanding which side of the update you're on.
 
 ## `RigidBodyComponent.IsKinematic` selects the resolution path
 
-`TransformCollisionResolutionSystem` is the lighter, kinematic-style
-response (move-and-stop without mass effects).
-`TransformPhysicalCollisionResolutionSystem` is the mass- and
-velocity-aware response. Which resolution system an entity is subject to
+`TransformCollisionResolutionSystem` resolves every `CollisionMessage` it
+receives; `TransformPhysicalCollisionResolutionSystem` is the same
+move-and-stop response narrowed to `CollisionType.Physics` messages (neither
+applies impulses, and neither reads `Mass` — see collision —
+"`TransformPhysicalCollisionResolutionSystem` gates on the message TYPE, not
+on physics components"). Which resolution system an entity is subject to
 is determined by **which resolution systems the screen registers**, not
 by the `RigidBodyComponent` flag alone.
 
@@ -136,10 +138,12 @@ system; the entity behaves kinematically anyway.
   per-entity gravity scaling. Heavier multipliers fall faster, lighter
   multipliers float. Not yet captured as a premise — promote when more
   gameplay code uses it.
-- **`RigidBodyComponent.Mass`** — used by
-  `TransformPhysicalCollisionResolutionSystem` today. Nothing prevents
-  other systems from reading it for mass-dependent gameplay (push
-  strength, AI weight class). Acknowledged: usage may expand.
+- **`RigidBodyComponent.Mass`** — read by **no system today**: collision
+  resolution corrects positions without a mass term, and the only other
+  reader is the level-editor serializer round-tripping the field. It is a
+  declared-but-unconsumed knob, like the freeze flags. Nothing prevents
+  game systems from reading it for mass-dependent gameplay (push strength,
+  AI weight class). Acknowledged: usage may expand.
 
 ## Aspirational direction
 

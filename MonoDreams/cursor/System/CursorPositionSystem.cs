@@ -24,13 +24,13 @@ public class CursorPositionSystem(World world, MonoDreams.Component.Camera camer
     protected override void Update(GameState state, in Entity entity)
     {
         if (SkipDerivation) return;
-        ref var transform = ref entity.Get<TransformComponent>();
         ref var input = ref entity.Get<CursorInputComponent>();
-        ref var controller = ref entity.Get<CursorControllerComponent>();
-        ref var draw = ref entity.Get<DrawComponent>();
 
-        // First convert screen position to virtual coordinates
-        var virtualPosition = viewportManager.ScaleMouseToVirtualCoordinates(input.ScreenPosition);
+        // First convert the screen position to AUTHORING (layout) coordinates — the space every
+        // game number, UI bound and HUD position is written in. In a single-space game that is the
+        // virtual resolution; under a two-space setup it is the layout resolution, so nothing here
+        // (or downstream) moves when the render resolution does.
+        var virtualPosition = viewportManager.MapMouse(input.ScreenPosition);
 
         // Track whether the pointer is outside the aspect-fit viewport (letterbox bars or the
         // editor shell's chrome margins) so world-space consumers can ignore clicks/scrolls there.
@@ -38,24 +38,13 @@ public class CursorPositionSystem(World world, MonoDreams.Component.Camera camer
 
         if (virtualPosition.HasValue)
         {
-            // Always calculate world position for systems that need it (e.g., ButtonInteractionSystem)
-            input.VirtualPosition = virtualPosition.Value;
-            input.WorldPosition = camera.VirtualScreenToWorld(virtualPosition.Value);
-
-            // Set transform.Position based on render target:
-            // - HUD: use virtual coords (no camera transform for rendering)
-            // - Main: use world coords (camera transform applied during rendering)
-            if (draw.Target == RenderTargetID.HUD)
-            {
-                transform.Position = virtualPosition.Value + controller.HotSpot;
-            }
-            else
-            {
-                transform.Position = input.WorldPosition + controller.HotSpot;
-            }
+            // Always calculate world position for systems that need it (e.g., ButtonInteractionSystem),
+            // and place the transform per render target — both through the shared pose rule, which an
+            // injection channel (PointerReplaySystem) calls with the positions IT authored.
+            MonoDreams.Cursor.Cursor.ApplyPose(entity, virtualPosition.Value,
+                camera.VirtualScreenToWorld(virtualPosition.Value));
         }
         // else: Mouse is outside the viewport (in letterbox/pillarbox area) - keep previous position
-        // Console.WriteLine($"Mouse: {transform.Position}");
 
         entity.NotifyChanged<CursorInputComponent>();
         entity.NotifyChanged<TransformComponent>();

@@ -318,8 +318,13 @@ DesktopGL-tagged output that a BlazorGL runtime cannot load.
 (the LDtk content pipeline recompiles against the KNI backend);
 `MonoDreams.Cli.Tests/ScaffolderPlatformTests.cs::MgcbEditor_AppendsOnlyEntriesForTargetPlatform`
 and `MonoDreams.Cli.Tests/ManifestPlatformTests.cs` (the CLI emits the
-correct per-platform builder/processor wiring); the desktop content build
-is exercised end-to-end by `LDtkLevelTests` and `BlenderLevelTests`.
+correct per-platform builder/processor wiring);
+`MonoDreams.Cli.Tests/WebContentBuildTemplateTests.cs` (a scaffolded project
+ships ONE `Content.mgcb` in Core that both heads build — `MonoGameContentReference`
+from the desktop head, `KniContentReference` + the full BlazorGL shim from the
+web head — and the emitted web block cannot drift from `MonoDreams.Demos.Web.csproj`);
+the desktop content build is exercised end-to-end by `LDtkLevelTests` and
+`BlenderLevelTests`.
 **Depends on:** level-ldtk — "Consumers still surface the LDtk
 content-pipeline DLL to MGCB via `/reference:`"; foundation — "The platform
 (backend + OS services) is selected by the head project".

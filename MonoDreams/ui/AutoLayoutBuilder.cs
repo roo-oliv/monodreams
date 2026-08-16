@@ -113,12 +113,13 @@ public class AutoLayoutBuilder
     }
 
     /// <summary>
-    /// Gets the virtual screen width from the viewport manager.
+    /// The AUTHORING screen width from the viewport manager — the space UI is laid out in
+    /// (== the virtual width in a single-space game).
     /// </summary>
-    public int VirtualWidth => _viewportManager.VirtualWidth;
+    public int LayoutWidth => _viewportManager.LayoutWidth;
 
     /// <summary>
-    /// Gets the virtual screen height from the viewport manager.
+    /// The AUTHORING screen height from the viewport manager.
     /// </summary>
-    public int VirtualHeight => _viewportManager.VirtualHeight;
+    public int LayoutHeight => _viewportManager.LayoutHeight;
 }

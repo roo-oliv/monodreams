@@ -1,0 +1,80 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+# Manifest honesty (issue #83): every module must compile from the dependencies its module.json
+# DECLARES — nothing else. For each module the check cooks the recipe a fresh user follows
+# (`monodreams init` -> `monodreams add <module>` -> `dotnet build`) in a temp project, so a module
+# whose source imports a namespace no declared dependency owns fails here instead of on the user's
+# machine. No checkout can catch this by building the engine: the engine builds all 14 modules
+# together, so the missing ingredient is always in the pantry.
+#
+# One job per module (the matrix is read from the registry itself, so a new module is covered the day
+# it lands) with the NuGet package cache shared across them. The suite is opt-in in `dotnet test` —
+# MONODREAMS_MANIFEST_HONESTY=1 turns it on, MONODREAMS_HONESTY_MODULE=<name> shards it — so the
+# normal `ci` gate stays fast. Run it locally with:
+#   MONODREAMS_MANIFEST_HONESTY=1 dotnet test MonoDreams.Cli.Tests/ --filter FullyQualifiedName~ManifestHonesty
+name: manifest-honesty
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'MonoDreams/**'
+      - 'MonoDreams.Cli/**'
+      - 'MonoDreams.Cli.Tests/**'
+      - '.github/workflows/manifest-honesty.yml'
+  pull_request:
+    paths:
+      - 'MonoDreams/**'
+      - 'MonoDreams.Cli/**'
+      - 'MonoDreams.Cli.Tests/**'
+      - '.github/workflows/manifest-honesty.yml'
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  # The module list comes from the registry (MonoDreams/*/module.json), never a list kept in this file:
+  # adding a module must not require remembering to add it here.
+  modules:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          modules=$(ls -d MonoDreams/*/module.json | xargs -n1 dirname | xargs -n1 basename | sort | jq -R . | jq -sc .)
+          echo "modules: $modules"
+          echo "matrix=$modules" >> "$GITHUB_OUTPUT"
+
+  honesty:
+    needs: modules
+    runs-on: ubuntu-latest
+    strategy:
+      # Every module reports independently — one red module must not hide the state of the other 13.
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.modules.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+      # Each job restores the same handful of packages (MonoGame.Framework.DesktopGL, DefaultEcs,
+      # MonoGame.Extended, …) into a scaffolded project; caching ~/.nuget/packages makes the fan-out cheap.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'MonoDreams/*/module.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+      - name: Scaffold, add ${{ matrix.module }}, build
+        env:
+          MONODREAMS_MANIFEST_HONESTY: '1'
+          MONODREAMS_HONESTY_MODULE: ${{ matrix.module }}
+        # No xvfb here (unlike `ci`): nothing spawns a game — the check only scaffolds a project and
+        # compiles it.
+        run: dotnet test MonoDreams.Cli.Tests/MonoDreams.Cli.Tests.csproj --configuration Release --filter "FullyQualifiedName~ManifestHonestyTests"

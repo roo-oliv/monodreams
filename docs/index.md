@@ -80,7 +80,7 @@ with the change's module footprint (see
 | [`ui`](flows/ui.md) | | Auto-layout: build tree → intrinsic sizing (bottom-up) → flexbox placement (top-down). |
 | [`cursor`](flows/cursor.md) | | Poll input → project across coordinate spaces → paint cursor on top (HUD). |
 | [`dialogue`](flows/dialogue.md) | | Yarn node → runner steps lines → state machine → reveal text + commands. |
-| [`debug`](flows/debug.md) | | Opt-in, read-only collider/sprite overlays + periodic screenshot capture. |
+| [`debug`](flows/debug.md) | | Opt-in collider/sprite overlays, screenshot capture, per-system profiling, and the scripted-pointer replay channel. |
 | [`level-editor`](flows/level-editor.md) | ✅ | In-game `Edit` run mode over the real pipeline; `GatedSystem` freezes game logic while render/input/cursor/hierarchy stay live (scaffold). |
 | [`audio`](flows/audio.md) | | Desired-state reconcile: `PlaySoundRequest` / `AudioSourceComponent` → `AudioSystem` → `IAudioPlayer` backend instances. |
 
