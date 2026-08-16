@@ -28,4 +28,4 @@ jobs:
       # context) even in the repo's headless modes — without a display the spawned
       # games abort (SIGABRT). Mesa's software GL on the runner backs the context.
       - name: Run tests
-        run: xvfb-run -a dotnet test --configuration Release
+        run: xvfb-run -a dotnet test --configuration Release -m:1 -p:RestoreDisableParallel=true
