@@ -45,6 +45,13 @@ positions; rendering reads them — the seam is `TransformComponent`.
 - **Content entities** (text, sprite, button) — game-created, attached via
   `SlotBuilder.Attach`, parented under the slot. They carry their own `DrawComponent`;
   layout never touches their draw data, only the slot transform they ride on.
+- **Highlight overlays** — created and destroyed by `HighlightSystem`, one per entity
+  carrying a `HighlightComponent`. A bare mesh entity (`DrawComponent` +
+  `ChildOfComponent` + `EntityInfoComponent("Highlight")`, no `TransformComponent`)
+  rebuilt every frame from the target's *prepared* `DrawComponent`: bounds, layer depth,
+  render target and `VisibleComponent` are all re-derived, never cached. It dies with its
+  target (the system's own sweep plus `HierarchySystem`'s orphan cascade) and on
+  `HighlightSystem.Dispose()`.
 
 ## Invariants
 
@@ -65,6 +72,9 @@ the ones this flow's ordering leans on:
 - `ButtonMeshPrepSystem` bakes world coords and must run *after* `MeshPrepSystem` when both
   are present (it sets `WorldMatrix = Identity`); button geometry reads the post-layout
   `WorldPosition`, so it must run after `AutoLayoutSystem` too.
+- `HighlightSystem` runs **last in the draw-prep stage**: it derives its outline from the
+  target's prepared `DrawComponent` and re-derives its layer depth from the target's every
+  frame, so anything earlier outlines last frame's bounds and depth.
 - Mutually exclusive panels (tabs, settings pages, wizard steps) **park, they never hide**:
   `PanelGroupSystem` translates every inactive member of a `PanelGroupComponent` off-screen
   and restores the active one verbatim. It re-derives the park from the member's live
@@ -106,6 +116,13 @@ the ones this flow's ordering leans on:
   the outline drifts from its label by the layout-computed top-left.
 - **Flex-grow no-op** — setting `FlexGrow` on a child that isn't a main-axis fill child:
   silently does nothing; the row doesn't expand as intended.
+- **Highlight drift / sink / orphan** — the three failure modes the highlight overlay
+  exists to prevent, each re-appearing if its invariant is broken: an overlay posed once
+  (instead of re-derived) drifts off a moving or re-laid-out target; an overlay with a
+  baked depth sinks under a sibling the first time something re-sorts; an overlay that
+  outlives its target pulses over empty space. Giving the overlay a `TransformComponent`
+  re-admits it to `MeshPrepSystem`'s set, which overwrites its identity world matrix and
+  double-transforms the world-baked vertices.
 - **Panel switching by hiding** — dropping `VisibleComponent` to "close" a panel: a silent
   no-op on UI/HUD/Scroll (those targets ignore the tag) and a cold panel on Main (the prep
   systems skip it, so the switch back shows stale draw data). Hand-rolled parking has its

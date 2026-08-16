@@ -667,6 +667,77 @@ a silent no-op footgun.
 "`AutoLayoutBuilder` is the canonical entry point".
 **Tests:** none yet.
 
+## A highlight FOLLOWS its target's drawn bounds, RE-DERIVES its depth every frame, and DIES with its target
+
+`HighlightComponent` is a pure-data request ("draw attention here"); `HighlightSystem`
+owns an overlay entity per highlighted target and rebuilds it from scratch every frame.
+Three properties are the whole point of the primitive, and each one is a bug that an
+ad-hoc per-target glow re-discovers:
+
+1. **Follow** — the outline geometry is derived each frame from the target's *prepared*
+   `DrawComponent` (`HighlightSystem.DrawnQuad`): the sprite quad
+   `MasterRenderSystem.ComputeSpriteScale` is about to draw, a label's measured extent
+   (`DrawComponent.Size × Scale`), or a mesh's vertices under its world matrix — which is
+   why one derivation covers sprites, text, nine-patches and buttons with no per-type
+   branch at the call site, and why the glow tracks moves, scale, rotation, layout
+   changes and a button's press "pop" for free. `HighlightComponent.Size` overrides the
+   derivation for an entity that draws nothing (an invisible hotspot), anchored top-left
+   at its `WorldPosition` like `FocusableComponent.Size`.
+2. **Depth** — the overlay's `DrawComponent.LayerDepth` is the target's *current* depth
+   plus `LayerDepthOffset` (default `0.001`), re-read every frame, so a z restack (Y-sort
+   re-order, papers shuffling on a desk, a scene-layer remap) can never leave the glow
+   under its own target. It also inherits the target's `DrawComponent.Target` and mirrors
+   its `VisibleComponent`, so it composites in the same pass and hides with a culled or
+   tab-parked target.
+3. **Lifetime** — the overlay is `ChildOfComponent`-parented to its target (so
+   `HierarchySystem`'s orphan cascade reaps it) *and* swept by the system itself at the
+   top of every `Update` when the target dies or loses its `HighlightComponent` — the
+   belt that holds in a screen that never registers `HierarchySystem`. `Dispose()` clears
+   every overlay, so a screen swap leaves nothing pulsing.
+
+The overlay is a bare mesh entity — `DrawComponent` + `ChildOfComponent` +
+`EntityInfoComponent("Highlight")` — with **no `TransformComponent`**: its geometry is
+derived in world space and its `WorldMatrix` is `Matrix.Identity` (the
+`ButtonMeshPrepSystem` contract), so a transform would only be a second, conflicting
+source of truth. The missing transform also keeps the overlay outside `MeshPrepSystem`'s
+query, so no pipeline-ordering accident can overwrite that identity matrix. Register
+`HighlightSystem` **last in the draw-prep stage** — after `SpritePrepSystem` /
+`YSortSystem` / `TextPrepSystem` / `MeshPrepSystem` / `ButtonMeshPrepSystem`, before
+`MasterRenderSystem`. The outline colour is always **opaque**: the pulse scales the RGB
+channels between `PulseMinIntensity` and full, never the alpha.
+
+**Why:** "point at THIS" is needed by every tutorial, onboarding flow, quest hint and
+debug session, and the naive alternative is a glowing art variant per possible target.
+The three invariants are the ones an overlay silently gets wrong in an ECS: an overlay
+posed once drifts off its target, an overlay with a baked depth sinks under a sibling the
+first time something re-sorts, and an overlay that outlives its target pulses over empty
+space. Deriving from the prepared `DrawComponent` (rather than from `SpriteInfoComponent`
+/ `SimpleButtonComponent` / `DynamicTextComponent` per type) is what keeps it one code
+path, one module dependency (`rendering`), and correct for draw types added later.
+**Breaks:** running the system before the prep stage outlines last frame's bounds and
+last frame's depth. Giving the overlay a `TransformComponent` puts it back in
+`MeshPrepSystem`'s set, which overwrites the identity matrix and double-transforms the
+world-baked vertices (the outline drifts by the target's world position). Leaving
+`LayerDepthOffset` at exactly the target's depth falls through to insertion order — the
+same fragility `SimpleButtonComponent.LayerDepth` exists to avoid. Encoding the pulse in
+the alpha channel makes the outline *brighter* at the trough, because the mesh path
+composites premultiplied alpha.
+**Depends on:** rendering — "`MeshPrepSystem` writes the world matrix once per frame";
+"Layer-depth ownership pipeline"; "A sprite's drawn quad honors `Transform.WorldScale`
+exactly once"; "Main-target TEXT (and bare meshes) get `VisibleComponent` from whoever
+spawns them"; "The mesh render path uses premultiplied alpha — UI fills must be opaque";
+foundation — "`ChildOfComponent` and `TransformComponent.Parent` are two intentional
+links"; "Children are disposed with their parents"; "A value-predicate `EntitySet`
+re-evaluates only when the component is published"; "`ButtonMeshPrepSystem` bakes world
+coords and must run AFTER `MeshPrepSystem`" (this file).
+**Tests:** `MonoDreams.Tests/Ui/HighlightSystemTests.cs` (the outline hugs a sprite's,
+a label's, a button's and an explicit-`Size` hotspot's bounds; it follows a move + a
+scale; the depth is re-derived after a restack; target and visibility are inherited;
+the overlay dies with the target, with the component's removal, through the
+`ChildOfComponent` cascade and on `Dispose`; a target that draws nothing empties the
+outline instead of leaving a stale one; the pulse moves RGB and never alpha; unset
+fields fall back to the defaults).
+
 ## Open questions
 
 - **Flexbox parity** — the solver supports flex-direction, justify,
