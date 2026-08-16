@@ -1,0 +1,170 @@
+From another Claude session I just created issue https://github.com/roo-oliv/monodreams/issues/81, now let's answer the open questions and then you'll create a sub-issue for each deliverable chunk of work, the criteria is basically to break this into small pieces, but each piece should deliver value on its own (can be depedant on upstream subissues, they are sequenceable), if not then the subissue is too small and should be joined togheter with the other relevant peers to form a valuable delivery, if the subissue can still be broken down in ways that each delivery adds value on its own, then its too big. Let's go patiently subissue per subissue where you ask me about it, giving context and what you're proposing we do and why that's valuable to the engine, I comment, approve or reject the creation of the subissue, and you move on to the next, rinse and repeat until done.
+
+Obs: when explaining an subissue, prefer to use simplistic and intuitive/didatic examples to show why that's important, what that buys, and/or what would happen if we don't solve it. You should put intention on helping me visualizing it easily.
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Well, I tend to go a bit bolder on this one. This solution should be available yes, but the game should be easily configurable to try to adhere to some standard scaling by allowing the camera to show a bit more than ideal horizontally or vertically if the gamedev wishes to do so, so the game can keep better scales and still point clamp given some conditions, or even use letter/pillarboxing.
+
+---
+
+Yes
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+Approve
+
+---
+
+I like this, but maybe we should think more generic like Menus instead of Tabs? Your call
+
+---
+
+Approve
+
+---
+
+Now launch an workflow for Opus 5 agents to go implement those, I don't think it's wise to parallelize 16 agents, but maybe 3 or 4 at a time is ok!
+
+---
+
+Resume the paused workflow by calling: Workflow({scriptPath: '/Users/rodrigooliveira/.REDACTED.js', resumeFromRunId: 'wf_2db6da2b-537'}) — completed agents return cached results.
+
+---
+
+<task-notification>
+<task-id>wa8f74lvy</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Implement sub-issues #82–#97 of #81 with Opus agents in dependency-aware waves of 3–4, each producing a reviewed PR" completed</summary>
+<result>{"results":[{"issue":82,"pr":98,"status":"ok (fixed 1 blockers)","notes":"Blocker was already fixed on branch head (d9f690b): collision module.json/docs now state the real gate (Type==CollisionType.Physics, positional correction, no impulse/Mass), with tests. Verified vs sources, then fixed the file that sweep missed: physics/docs/overview.md still said collision \"reads RigidBodyComponent for impulse resolution\" (ships via CLI); also flows/collision.md SetPositionX/Y -&gt; TranslateX/Y. Docs-only. Verified: core build + dotnet test Release = 1282 + 64 green. Pushed 9515837, comment posted, HEAD detached."},{"issue":86,"pr":99,"status":"ok (review clean)","nits":8,"notes":"WindowFit + SdlNative added to foundation; debug/HeadlessWindow refactored onto the shared SDL seam. CLI desktop template adopts it (Logger.Initialize moved to ctor so the boot line survives); web branch untouched. 30 unit tests + 1 CLI test; premises/overview/flow/postInstallNotes updated. Verified live on a 1512x982pt display: 1920x1080 render -&gt; 1504x846 Fit via real SDL_GetDisplayUsableBounds; override and bad-value paths checked. Gate green (1305+58 tests); forced web/KNI core rebuild clean. Skipped: Examples.Desktop not switched over (issue scoped adoption to the CLI template)."},{"issue":88,"pr":100,"status":"ok (fixed 1 blockers)","notes":"Blocker was valid. CHANGELOG.md now has, under ## Unreleased (above #54), a \"Breaking — authoring space and render space are distinct (#88)\" section: one bullet per break with old shape, new shape and a *Migration:* line — MapMouse (result now authoring-space), SetResolution (+ its new validation), AutoLayoutBuilder.LayoutWidth/Height, and the FitZoom/FrustumWorldCorners/DialogueSystem param renames (named-arg-only break) — plus an \"Added — the two-space knobs\" section. Docs-only, no code touched. Full gate green: 1292 + 57 tests pass. Commit b2b6d54 pushed, PR comment posted, HEAD detached."},{"issue":83,"pr":102,"status":"ok (fixed 2 blockers)","notes":"Both blockers valid; fixed in c16b853 (pushed + PR comment). (1) ui did use rendering-text's DynamicTextComponent; the floor masks it so no marker could catch it — declared rendering-text in ui/module.json (acyclic; ui now built against its own closure, entry honestly names only cursor). (2) Markers now match the parsed SET of diagnostics: any unexplained one fails; markers are compiler-quoted symbols; entries completed. Added always-on test + born-red proof. Documented Roslyn's declaration-phase stop as residual limit. Verify: 1282+81 green, honesty 16/16."},{"issue":84,"pr":101,"status":"ok (review clean)","nits":7,"notes":"Both CLI-emitted files now fully qualify Microsoft.Xna.Framework.Game (GameRoot.cs + web Index.razor.cs), each with a why-comment. Two mutation-checked guards: a desktop build test dropping a real &lt;Root&gt;.Game.Systems file into Core, and a scan of every emitted .cs for a bare `Game` identifier. Gate green: 1275 + 59 tests, 0 failed. Skipped: automated web-head build guard (Blazor build can't run in VSTest — pre-existing, documented in test docstrings); verified manually from a shell. No docs changed (CLI has no premises file). Reverted unrelated packages.lock.json churn."},{"issue":92,"pr":103,"status":"ok (fixed 3 blockers)","notes":"All 3 blockers valid; fixed in 5719759 (pushed, PR comment posted, HEAD detached). One root cause: TextUpdateSystem clamps the count at the RAW length while prep slices the FOLDED string, so Ellipsis growth truncated permanently. Added TextPrepSystem.ScaleRevealCount: proportional mid-reveal, saturating at raw-length completion, never 0 once started, pass-through when the fold changed nothing. Premise rewritten (permanent, not \"early\"); flow doc + overview follow. Test now uses a reachable count (6 to \"carrega\") plus 4 new cases incl. the clamp regression. Verify: 1316+57 passed."},{"issue":85,"pr":104,"status":"ok (fixed 2 blockers)","notes":"Both blockers reproduced on the built CLI first; neither was a misread. (1) StrictOptions.cs: --version moved into a root-only alias set — under a subcommand it now names where the option belongs instead of being swallowed as a module name / scene path; --help/-h/-? stay global. (2) README: --drun (distance 3 &gt; tolerance 2) replaced by --dryrun in a verbatim console block; tolerance deliberately not widened. Tests added for root/subcommand --version. Gate green: 1275 + 76 passed. Commit fead9c4 pushed, PR comment posted, HEAD detached."},{"issue":87,"pr":105,"status":"ok (review clean)","nits":6,"notes":"Web template emits the full BlazorGL block (from Demos.Web.csproj) + shared Core/Content/Content.mgcb + desktop MonoGameContentReference. Added PackageDownload of dotnet-mgcb — also fixes the same latent gap in in-repo Demos.Web/Examples.Web (shim Exists() guards no-op without it). New WebContentBuildTemplateTests pins the block structurally; drift verified negatively. Acceptance proven: init web + PNG + build -&gt; wwwroot/Content/square.xnb (XNBb header); multi + publish too. Gate green (1275+65). Not verified: Windows ffmpeg leg (pre-existing), in-browser run of the generated project."},{"issue":90,"pr":106,"status":"ok (fixed 2 blockers)","notes":"Both blockers real; fixed in 5015880. (1) Log ring stamps a seq per line; a matched waitUntil consumes it via a watermark. Deviated from \"snapshot at wait start\" — the gating line is written by the prior command in an already-finished frame, so that would make every click→wait time out. Both directions tested. (2) ScreenPosition maps forward via new ViewportManager.ScaleVirtualToScreenCoordinates, correct at any DPR; Delta follows; ctor/TryLoad take the ViewportManager. Docs drop the \"editor tools unchanged\" claim; new cursor premise. Gate green: 1299+57 Release; web head builds."},{"issue":93,"pr":107,"status":"ok (review clean)","nits":8,"notes":"HighlightComponent (data) + HighlightSystem (one overlay per target). Follow: outline derived per frame from the target's prepared DrawComponent — one path for sprite/text/button-mesh. Depth: target depth + offset re-derived per frame; Target/Visible mirrored. Lifetime: ChildOf cascade + sweep + Dispose. Overlay is a bare mesh entity, no Transform. Pulse in RGB, not alpha. Demo: ui demo Buttons tab, verified headless. Docs: premise+tests, flow, overview, module.json. Gate green (1290+57). Skipped: no Examples usage, no rounded variant."},{"issue":94,"pr":111,"status":"ok (review clean)","nits":7,"notes":"Resumed a prior run's uncommitted work: reviewed, verified, committed, pushed, opened PR #111. Ships PinnedLayoutRootComponent + PinnedLayoutRootSystem (post-AutoLayout/pre-Hierarchy), CreatePinnedRoot, out-of-flow handling in AutoLayoutSystem, premise/overview/flow/module.json/CHANGELOG. Dogfood: ui demo's ad-hoc re-centring deleted. Gate green: 1285 + 57 tests (Release, full solution); 10 new tests. Headless A/B vs main: geometry identical, only a cosmetic LayoutDebug depth-colour shift (noted in PR). Reverted an unrelated packages.lock.json artifact. Web head not built."},{"issue":95,"pr":112,"status":"ok (fixed 1 blockers)","notes":"Blocker confirmed and fixed in 49bf628 (pushed, PR comment posted, HEAD detached). Fixed at the gate, not by putting RunMode in a ui system: new foundation ISuspendableSystem; GatedSystem calls Suspend once on the running-&gt;not-running edge (policy OR gate IsEnabled off, covering the systems-panel toggle too). TooltipSystem implements it (Suspend-&gt;Hide) and also hides when its own IsEnabled goes false; demo keeps Freeze. Docs: new foundation premise, ui premise/overview, docs/flows/ui.md, CHANGELOG. Tests: 4 gating + 2 tooltip. Verify green: 1307 + 57 passed, 0 failed."},{"issue":96,"pr":113,"status":"ok (fixed 2 blockers)","notes":"Both blockers real; fixed in 48b90ad (pushed, PR comment posted). (1) GateFocusables now walks the full transform chain — enabled only if every member ancestor is active; new NestedGroups_... test verified red on 
+... (truncated 978 chars, full result in REDACTED.output)</result>
+<diagnostics>Per-agent results: /Users/rodrigooliveira/.REDACTED.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+To re-run with edited post-processing: Workflow({scriptPath: '/Users/rodrigooliveira/.REDACTED.js', resumeFromRunId: 'wf_2db6da2b-537'}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+<failures>parallel[0] failed: agent({schema}): StructuredOutput retry cap (5) exceeded — 5 failed calls with no valid output
+parallel[1] failed: agent({schema}): StructuredOutput retry cap (5) exceeded — 5 failed calls with no valid output
+[review#97] failed: API Error: The response stopped arriving. The response above may be incomplete.</failures>
+<usage><agent_count>38</agent_count><agents_done>35</agents_done><agents_error>3</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>6771257</subagent_tokens><tool_uses>2635</tool_uses><duration_ms>13996855</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>wrdtcyog3</task-id>
+<tool-use-id>toolu_01E2hwhNMYAdbPcyua4uAzEE</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Adversarial review + blocker-fix for PRs #109 (issue 89), #108 (issue 91), #110 (issue 97) whose review stage died in the main run" completed</summary>
+<result>{"results":[{"issue":89,"pr":109,"status":"ok (fixed 2 blockers)","notes":"Both blockers real, both doc-only (code correct, claims untested). (1) Overscan covers only the fit-BINDING axis: 2000x1029/1920x1080 -&gt; dest (40,-25,1920,1080), pillarbars, MapMouse((10,500))=null. Fixed MapMouse doc + premise, new test. (2) PixelPerfect == old mode only at fit&gt;=1; below, old floored at 1x and cropped (1600x900: old 1920x1080@(-160,-90) vs new 960x540@(320,180)). No code change - a no-overscan preset must not crop; scoped claim in PresentationPolicy.cs/premise/overview/CHANGELOG + 2 tests. Verify green: 1330+57 passed. Commit 78fd4ad pushed, PR comment posted, HEAD detached."},{"issue":91,"pr":108,"status":"ok (fixed 2 blockers)","notes":"Both blockers real, one root cause: `??=` latch + a disposed-branch return that never cleared _resolvedTarget, so the first screen switch OR resize pinned capture to a dead target for the run. Fix e4bcf28: OnTargetRendered latches over a disposed target; ResolveSourceTarget (extracted) drops a disposed latch (Debug log; Warning kept for the real dead end). 4 new unit tests, confirmed failing pre-fix. Debug + rendering premises corrected. Release verify green (1317+57). Pushed, PR commented, HEAD detached. KniBackendBuildTests dirties packages.lock.json — reverted, not committed."},{"issue":97,"pr":110,"status":"ok (fixed 1 blockers)","notes":"Blocker valid: AudioSystem's ctor subscribes to PlaySoundRequest and plays synchronously at publish time, so order cannot affect one-shot latency. Dropped \"ahead of AudioSystem so a cue published this frame is heard this frame\" from MonoDreams/audio/docs/overview.md; replaced with the case where order does matter (an AudioSourceComponent a cue adds/mutates waits for the next AudioSystem.Update). Freeze guidance unchanged. Docs-only. Verify green: core build + dotnet test -c Release = 1275 + 57 passed, 0 failed. Commit 8298163 pushed, PR comment posted, HEAD detached."}]}</result>
+<diagnostics>Per-agent results: /Users/rodrigooliveira/.REDACTED.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+To re-run with edited post-processing: Workflow({scriptPath: '/Users/rodrigooliveira/.REDACTED.js', resumeFromRunId: 'wf_273cb376-4c9'}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+<usage><agent_count>6</agent_count><agents_done>6</agents_done><agents_error>0</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>812857</subagent_tokens><tool_uses>263</tool_uses><duration_ms>1310242</duration_ms></usage>
+</task-notification>
+
+---
+
+Não vejo PRs para os issue 83 e 89, o workflow falhou neles, não?
+
+---
+
+<task-notification>
+<task-id>wd1x6yj9x</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>stopped</status>
+<summary>No completion record was found for background workflow "implement-nfs-upstreaming" from the previous session. It may have been stopped (via the UI or TaskStop — these leave no transcript marker), or it may have been running when the previous Claude Code process exited. To pick up where it left off, relaunch with Workflow({scriptPath, resumeFromRunId: "wf_2db6da2b-537"}) — completed agent() calls return cached.</summary>
+</task-notification>
+
+---
+
+[Request interrupted by user]
+
+---
+
+Eu já revisei todos os PRs, mergeei alguns, restaram outros com conflitos agora e o outro em draft. Mergeie todos, vá resolvendo os conflitos e etc.
+
+---
+
+<task-notification>
+<task-id>bbdz672tx</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Build core and run full Release test gate on merged issue-88" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b69475g7p</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Full Release gate on merged issue-89" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bjodyfcsq</task-id>
+<tool-use-id>toolu_01LvvaQ2P1pjzJH6vA7H1LJZ</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Full Release gate on merged issue-84" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b07v6brdl</task-id>
+<tool-use-id>toolu_01Fwk7dmYnoGhGdzrFYPSKx4</tool-use-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Full Release gate on merged issue-90" completed (exit code 0)</summary>
+</task-notification>
