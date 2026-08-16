@@ -26,11 +26,13 @@ public class AutoLayoutSystem : ISystem<GameState>
         _world = world;
         _viewport = viewport;
 
-        // Create a screen root node that represents the virtual screen
+        // Create a screen root node that represents the AUTHORING screen — UI is authored in layout
+        // units, and the per-pass camera scales those to render pixels (rendering premise
+        // "Authoring space and render space are distinct"). In a single-space game layout == virtual.
         _screenRoot = new LayoutNodeComponent
         {
-            Width = viewport.VirtualWidth,
-            Height = viewport.VirtualHeight,
+            Width = viewport.LayoutWidth,
+            Height = viewport.LayoutHeight,
             WidthAuto = false,
             HeightAuto = false
         };
@@ -49,8 +51,8 @@ public class AutoLayoutSystem : ISystem<GameState>
         if (!IsEnabled) return;
 
         // Update screen root size in case viewport changed
-        _screenRoot.Width = _viewport.VirtualWidth;
-        _screenRoot.Height = _viewport.VirtualHeight;
+        _screenRoot.Width = _viewport.LayoutWidth;
+        _screenRoot.Height = _viewport.LayoutHeight;
 
         // Clear and rebuild the layout tree
         _screenRoot.Clear();
@@ -69,7 +71,7 @@ public class AutoLayoutSystem : ISystem<GameState>
         }
 
         // Calculate the layout
-        _screenRoot.CalculateLayout(_viewport.VirtualWidth, _viewport.VirtualHeight);
+        _screenRoot.CalculateLayout(_viewport.LayoutWidth, _viewport.LayoutHeight);
 
         // Apply layout results to transforms
         foreach (var (rootEntity, anchor) in roots)
@@ -90,8 +92,8 @@ public class AutoLayoutSystem : ISystem<GameState>
     /// </summary>
     private Vector2 GetScreenAnchorOffset(ScreenAnchor anchor, Entity rootEntity)
     {
-        var halfWidth = _viewport.VirtualWidth / 2f;
-        var halfHeight = _viewport.VirtualHeight / 2f;
+        var halfWidth = _viewport.LayoutWidth / 2f;
+        var halfHeight = _viewport.LayoutHeight / 2f;
 
         // Get the root's computed size to center it properly
         ref var slot = ref rootEntity.Get<LayoutSlotComponent>();

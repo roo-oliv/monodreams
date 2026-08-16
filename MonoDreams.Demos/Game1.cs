@@ -1,3 +1,4 @@
+using System.Globalization;
 using DefaultEcs.Threading;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -18,8 +19,18 @@ namespace MonoDreams.Demos;
 
 public class Game1 : Game
 {
-    private const int VirtualWidth = 1280;
-    private const int VirtualHeight = 720;
+    // AUTHORING (layout) resolution — the space EVERY demo coordinate is written in. It never
+    // changes with the render resolution: that is the whole point of the two-space model (rendering
+    // premise "Authoring space and render space are distinct; the scale lives only in the cameras").
+    private const int LayoutWidth = 1280;
+    private const int LayoutHeight = 720;
+
+    // RENDER (virtual) resolution — render targets + back buffer. Equal to the authoring size unless
+    // MONODREAMS_RENDER_SCALE asks for more pixels, which is the reference "move the game to a higher
+    // resolution" knob: no demo coordinate, UI number or test moves with it.
+    private readonly int _virtualWidth;
+    private readonly int _virtualHeight;
+    private readonly float _renderScale;
 
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch = null!;
@@ -42,6 +53,15 @@ public class Game1 : Game
     /// <see cref="ScreenshotCaptureSystem.FromEnvironment"/>, the single owner of that contract.
     /// </summary>
     private ScreenshotCaptureSystem? _envFrameCapture;
+
+    /// <summary>
+    /// The macOS power-management assertion (<c>MONODREAMS_KEEP_AWAKE=1</c>), held for the process
+    /// lifetime — null unless the environment asked. An unattended run is exactly the run macOS App
+    /// Nap and display sleep suspend, which shows up as a game that stops making progress rather than
+    /// one that fails. See <see cref="KeepAwake"/>.
+    /// </summary>
+    private IDisposable? _keepAwake;
+
     private int _frame;
     private float _perfTimer;
 
@@ -55,6 +75,13 @@ public class Game1 : Game
         // captures the shell in its PNGs — the editor's own self-verification path. The flag-off
         // headless contract (HeadlessDemoTests) is untouched.
         _editor = EditorRunFlag.IsEnabled(args, Environment.GetEnvironmentVariable);
+
+        // Opt-in render-resolution multiplier (MONODREAMS_RENDER_SCALE=1.5 → 1920x1080 render space
+        // over the same 1280x720 authoring space). Unset/invalid ⇒ 1: authoring space IS render
+        // space and every matrix, rectangle and mouse mapping is what it always was.
+        _renderScale = ParseRenderScale(Environment.GetEnvironmentVariable("MONODREAMS_RENDER_SCALE"));
+        _virtualWidth = (int)MathF.Round(LayoutWidth * _renderScale);
+        _virtualHeight = (int)MathF.Round(LayoutHeight * _renderScale);
 
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
@@ -71,8 +98,8 @@ public class Game1 : Game
         // The render path (and its memory behaviour) is exercised exactly as in a
         // visible run, which is the whole point: a 1×1 window would make the captured
         // frame meaningless. See issue #28 and the debug-module premises.
-        _graphics.PreferredBackBufferWidth = VirtualWidth;
-        _graphics.PreferredBackBufferHeight = VirtualHeight;
+        _graphics.PreferredBackBufferWidth = _virtualWidth;
+        _graphics.PreferredBackBufferHeight = _virtualHeight;
         if (_headless.Enabled)
         {
             _graphics.SynchronizeWithVerticalRetrace = false;
@@ -89,8 +116,10 @@ public class Game1 : Game
         }
         _graphics.ApplyChanges();
 
-        _viewportManager = new ViewportManager(this, VirtualWidth, VirtualHeight);
-        _camera = new Camera(VirtualWidth, VirtualHeight);
+        // ONE construction site for both spaces: the ViewportManager owns them, and every camera in
+        // the game comes out of it, so the authoring→render scale exists in exactly one place.
+        _viewportManager = new ViewportManager(this, _virtualWidth, _virtualHeight, LayoutWidth, LayoutHeight);
+        _camera = _viewportManager.CreateCamera();
 
         // OS-window resize is a desktop concern; a web head sizes from the host page.
 #if !MONODREAMS_WEB
@@ -106,6 +135,12 @@ public class Game1 : Game
 #endif
     }
 
+    /// <summary>Reads the render-scale knob: a positive float, else 1 (single-space).</summary>
+    private static float ParseRenderScale(string? value) =>
+        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var scale) && scale > 0f
+            ? scale
+            : 1f;
+
     private void InitializeRenderer(int realScreenWidth, int realScreenHeight)
     {
         _viewportManager.ScreenWidth = realScreenWidth;
@@ -119,6 +154,11 @@ public class Game1 : Game
             ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
         Logger.Initialize(debugDir);
 
+        // Opt-in keep-awake, straight after the logger so its own line lands in the run's log: a run
+        // left alone for hours (the agentic case) is otherwise at the mercy of App Nap and display
+        // sleep on macOS. No-op on every other platform, and off unless asked.
+        _keepAwake = KeepAwake.FromEnvironment();
+
         // MONODREAMS_PROFILE=1 turns on per-system frame timing (SystemProfiler) — the way to find
         // out which system is eating the frame, identically on desktop and in the browser (where
         // the log reaches the dev console).
@@ -126,6 +166,12 @@ public class Game1 : Game
             PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_PROFILE") == "1";
         if (SystemProfiler.Enabled)
             Logger.Info("[perf] per-system profiling ON (MONODREAMS_PROFILE=1).");
+
+        // The two coordinate spaces this run is using — the feature's observable (and what the
+        // render-scale regression test asserts on).
+        Logger.Info(string.Format(CultureInfo.InvariantCulture,
+            "Render space: authoring={0}x{1}, render={2}x{3}, scale={4:0.###}.",
+            LayoutWidth, LayoutHeight, _virtualWidth, _virtualHeight, _viewportManager.RenderScale));
 
         // Project-wide dark navy theme for all MonoDreams demo screens.
         FinalDrawSystem.ClearColor = DemoPalette.DarkBg;
@@ -317,6 +363,9 @@ public class Game1 : Game
         _screenshotCapture?.Dispose();
         // Before Logger.Shutdown: a raw run logs its byte/frame summary from Dispose.
         _envFrameCapture?.Dispose();
+        // Likewise the keep-awake release line — and the assertion should end with the run, not linger
+        // until the process is reaped.
+        _keepAwake?.Dispose();
         Logger.Shutdown();
         _runner.Dispose();
         _spriteBatch.Dispose();

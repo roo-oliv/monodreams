@@ -9,7 +9,7 @@ namespace MonoDreams.Tests.Rendering;
 /// Protects the rendering premise "The viewport inset moves compositing and mouse mapping
 /// together" (Wave 7 editor shell). The <see cref="ViewportManager"/> is the single source of
 /// truth for the aspect-fit game viewport: <c>SetViewportInset</c> reserves chrome margins and
-/// BOTH the final-draw destination rectangle AND <c>ScaleMouseToVirtualCoordinates</c> follow the
+/// BOTH the final-draw destination rectangle AND <c>MapMouse</c> follow the
 /// same inset rectangle; zero inset must be byte-identical to the historical full-window
 /// letterbox. Pure CPU math — the <c>Game</c> ctor argument is never dereferenced, so tests pass
 /// null (no GraphicsDevice).
@@ -55,13 +55,13 @@ public class ViewportInsetTests
         var vm = Manager(1600, 900);
 
         // Inside the letterboxed viewport: (800, 450) is the screen centre → virtual centre.
-        var centre = vm.ScaleMouseToVirtualCoordinates(new Vector2(800, 450));
+        var centre = vm.MapMouse(new Vector2(800, 450));
         Assert.NotNull(centre);
         Assert.Equal(400f, centre.Value.X, 3);
         Assert.Equal(300f, centre.Value.Y, 3);
 
         // In the pillarbox bar (x < 200): no mapping.
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(100, 450)));
+        Assert.Null(vm.MapMouse(new Vector2(100, 450)));
     }
 
     [Fact]
@@ -117,13 +117,13 @@ public class ViewportInsetTests
         var dest = vm.DestinationRectangle; // (105, 44, 1109, 832)
 
         // The inset viewport's top-left corner maps to virtual (0, 0)...
-        var corner = vm.ScaleMouseToVirtualCoordinates(new Vector2(dest.X, dest.Y));
+        var corner = vm.MapMouse(new Vector2(dest.X, dest.Y));
         Assert.NotNull(corner);
         Assert.Equal(0f, corner.Value.X, 3);
         Assert.Equal(0f, corner.Value.Y, 3);
 
         // ...and its centre to the virtual centre (400, 300).
-        var centre = vm.ScaleMouseToVirtualCoordinates(
+        var centre = vm.MapMouse(
             new Vector2(dest.X + dest.Width / 2f, dest.Y + dest.Height / 2f));
         Assert.NotNull(centre);
         Assert.Equal(400f, centre.Value.X, 1);
@@ -136,27 +136,103 @@ public class ViewportInsetTests
         var vm = Manager(1600, 900);
         vm.SetViewportInset(0, Top, Right, Bottom);
 
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(10, 10)));      // top bar
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(1500, 400)));   // right panel
-        Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(800, 890)));    // bottom strip
+        Assert.Null(vm.MapMouse(new Vector2(10, 10)));      // top bar
+        Assert.Null(vm.MapMouse(new Vector2(1500, 400)));   // right panel
+        Assert.Null(vm.MapMouse(new Vector2(800, 890)));    // bottom strip
     }
 
-    // ---- Pixel-perfect mode computes its integer-scaled rect inside the same available area ----
+    // ---- The forward map: virtual → screen, the exact inverse of the mouse mapping ----
 
+    /// <summary>
+    /// <c>ScaleVirtualToScreenCoordinates</c> answers "where would a real mouse sitting on this
+    /// virtual point be, in backbuffer pixels?" — what an injection channel (the `debug` module's
+    /// pointer replay) needs to fill <c>CursorInputComponent.ScreenPosition</c>, which every chrome
+    /// hit-test reads raw. It must be the exact inverse of <c>MapMouse</c>
+    /// through the same inset/letterbox rectangle, or the two spaces drift.
+    /// </summary>
     [Fact]
-    public void PixelPerfect_UsesTheAvailableArea()
+    public void VirtualToScreen_IsTheInverseOfTheMouseMapping()
     {
         var vm = Manager(1600, 900);
-        vm.CurrentScalingMode = ViewportManager.ScalingMode.PixelPerfect;
+        vm.SetViewportInset(0, Top, Right, Bottom);
+        var dest = vm.DestinationRectangle; // (105, 44, 1109, 832)
+
+        // Virtual origin sits at the inset viewport's top-left corner...
+        Assert.Equal(new Vector2(dest.X, dest.Y), vm.ScaleVirtualToScreenCoordinates(Vector2.Zero));
+
+        // ...and the virtual centre at the viewport's centre.
+        var centre = vm.ScaleVirtualToScreenCoordinates(new Vector2(400, 300));
+        Assert.Equal(dest.X + dest.Width / 2f, centre.X, 1);
+        Assert.Equal(dest.Y + dest.Height / 2f, centre.Y, 1);
+
+        // Round-trip through the mouse mapping lands back on the authored point.
+        var back = vm.MapMouse(centre);
+        Assert.NotNull(back);
+        Assert.Equal(400f, back.Value.X, 1);
+        Assert.Equal(300f, back.Value.Y, 1);
+    }
+
+    /// <summary>A device-resolution backbuffer (macOS Retina under the editor run flag: the window is
+    /// the same physical size but <c>ScreenWidth/Height</c> are 2× device pixels) doubles the mapped
+    /// screen point. This is what keeps an injected pointer and the chrome — laid out in the same
+    /// device pixels — agreeing at any <c>DevicePixelRatio</c>.</summary>
+    [Fact]
+    public void VirtualToScreen_FollowsADeviceResolutionBackbuffer()
+    {
+        var logical = Manager(800, 600);   // 4:3 window, 4:3 virtual → viewport fills it, scale 1
+        var retina = Manager(1600, 1200);  // the same window at 2× device pixels
+        retina.DevicePixelRatio = 2f;
+
+        Assert.Equal(new Vector2(100, 50), logical.ScaleVirtualToScreenCoordinates(new Vector2(100, 50)));
+        Assert.Equal(new Vector2(200, 100), retina.ScaleVirtualToScreenCoordinates(new Vector2(100, 50)));
+    }
+
+    // ---- The pixel-perfect POLICY computes its integer-scaled rect inside the same available area
+    // (this used to be ScalingMode.PixelPerfect + a second rectangle; it is now one destination
+    // rectangle resolved by PresentationPolicy.PixelPerfect, and the inset still bounds it) ----
+
+    [Fact]
+    public void PixelPerfectPolicy_UsesTheAvailableArea()
+    {
+        var vm = Manager(1600, 900);
+        vm.Policy = PresentationPolicy.PixelPerfect;
 
         // Full window: integer scale = min(1600/800, 900/600) = 1 → 800×600 centered on screen.
-        Assert.Equal(new Rectangle(400, 150, 800, 600), vm.PixelPerfectDestinationRectangle);
+        Assert.Equal(new Rectangle(400, 150, 800, 600), vm.DestinationRectangle);
+        Assert.Equal(1f, vm.PresentScale, 4);
+        Assert.Equal(PresentationMode.Letterbox, vm.Presentation);
 
         // With the inset: available (0, 44, 1320, 832) → scale still 1, centered in the available
         // area → ((1320-800)/2, 44 + (832-600)/2) = (260, 160).
         vm.SetViewportInset(0, Top, Right, Bottom);
-        Assert.Equal(new Rectangle(260, 160, 800, 600), vm.PixelPerfectDestinationRectangle);
-        Assert.Equal(1, vm.IntegerScale);
+        Assert.Equal(new Rectangle(260, 160, 800, 600), vm.DestinationRectangle);
+
+        // …and the mouse inverts THAT rectangle, so a click in the integer-scaled frame maps and a
+        // click in the bars around it does not.
+        var centre = vm.MapMouse(new Vector2(260 + 400, 160 + 300));
+        Assert.NotNull(centre);
+        Assert.Equal(400f, centre!.Value.X, 3);
+        Assert.Equal(300f, centre.Value.Y, 3);
+        Assert.Null(vm.MapMouse(new Vector2(100, 400)));
+    }
+
+    // ---- The default policy is the historical present: every rectangle above is unchanged ----
+
+    [Fact]
+    public void DefaultPolicy_IsTheHistoricalStretch()
+    {
+        // 1600×900 over an 800×600 frame fits at exactly 1.5× — already a clean step, so the
+        // aspect-fit rectangle IS the clean-scale one and the mode reports the clean step.
+        var vm = Manager(1600, 900);
+        Assert.Same(PresentationPolicy.Stretch, vm.Policy);
+        Assert.Equal(PresentationMode.Letterbox, vm.Presentation);
+        Assert.Equal(new Rectangle(200, 0, 1200, 900), vm.DestinationRectangle);
+
+        // A window whose fit scale is fractional (890/600 = 1.4833) stretches, byte-identically to
+        // the pre-policy engine: height-bound, width = round(890 * 4/3), centered.
+        var fractional = Manager(1600, 890);
+        Assert.Equal(PresentationMode.Stretch, fractional.Presentation);
+        Assert.Equal(new Rectangle(206, 0, 1187, 890), fractional.DestinationRectangle);
     }
 
     // ---- Guardrails ----

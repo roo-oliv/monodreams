@@ -39,9 +39,9 @@ For motion *without* collision: install only this module. `VelocitySystem` write
 
 - **Custom gravity sources.** Write a system that reads `RigidBodyComponent` and adds to `VelocityComponent.Current` before `VelocitySystem` runs (e.g., wind, magnetism, planetary gravity). The single rule: write to `VelocityComponent.Current`, not `Transform.LocalPosition` directly.
 - **Per-entity drag / damping.** Same pattern — a system that runs before `VelocitySystem` scales `Current` down by a damping coefficient.
-- **New `RigidBodyComponent` fields.** Mass is currently consumed by `TransformPhysicalCollisionResolutionSystem`; nothing prevents game systems from reading mass for knockback strength, AI weight classes, etc.
+- **New `RigidBodyComponent` fields.** Mass is consumed by no system today — collision resolution corrects positions without a mass term — so it is free real estate: nothing prevents game systems from reading mass for knockback strength, AI weight classes, etc.
 
 ## See also
 
 - [Premises](premises.md) — load-bearing invariants for this module (`VelocitySystem` is the primary mover, `Delta` semantics, freeze flag authority)
-- Related modules: `collision` (consumes `Transform.Delta` for swept tests; reads `RigidBodyComponent` for impulse resolution), `foundation` (provides `Transform` and the commit/hierarchy systems physics integrates with)
+- Related modules: `collision` (declares this module in its `module.json` and compiles against it: `ColliderBody.Resolve` reads `RigidBodyComponent`/`VelocityComponent` to pick a collider's body, resolution zeros `Velocity.Current` into a contact it corrects, and detection consumes `Transform.Delta` for swept tests — no impulse and no `Mass` anywhere), `foundation` (provides `Transform` and the commit/hierarchy systems physics integrates with)

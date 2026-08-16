@@ -75,6 +75,11 @@ the ones this flow's ordering leans on:
 - `HighlightSystem` runs **last in the draw-prep stage**: it derives its outline from the
   target's prepared `DrawComponent` and re-derives its layer depth from the target's every
   frame, so anything earlier outlines last frame's bounds and depth.
+- Mutually exclusive panels (tabs, settings pages, wizard steps) **park, they never hide**:
+  `PanelGroupSystem` translates every inactive member of a `PanelGroupComponent` off-screen
+  and restores the active one verbatim. It re-derives the park from the member's live
+  position, so it must run *after* every writer of that position (`AutoLayoutSystem`, a
+  screen tick) and *before* `HierarchySystem`. Game code writes only `Active`.
 
 ## Load-bearing quantities
 
@@ -118,3 +123,8 @@ the ones this flow's ordering leans on:
   outlives its target pulses over empty space. Giving the overlay a `TransformComponent`
   re-admits it to `MeshPrepSystem`'s set, which overwrites its identity world matrix and
   double-transforms the world-baked vertices.
+- **Panel switching by hiding** — dropping `VisibleComponent` to "close" a panel: a silent
+  no-op on UI/HUD/Scroll (those targets ignore the tag) and a cold panel on Main (the prep
+  systems skip it, so the switch back shows stale draw data). Hand-rolled parking has its
+  own failure — `position += offset` every frame compounds until the panel never comes back.
+  Use `PanelGroupComponent`.

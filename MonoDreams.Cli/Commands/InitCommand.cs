@@ -13,10 +13,8 @@ internal static class InitCommand
             description: "Project name (will create a directory of this name).");
         cmd.AddArgument(nameArg);
 
-        var dirOption = new Option<string?>(
-            name: "--dir",
-            description: "Target directory. Defaults to ./<name>.");
-        cmd.AddOption(dirOption);
+        // Same option name as `add` — `--project` is accepted as a hidden alias there and here (see DirOption).
+        var (dirOption, deprecatedDirOption) = DirOption.AddTo(cmd, "Target directory. Defaults to ./<name>.");
 
         var platformOption = new Option<string?>(
             name: "--platform",
@@ -24,10 +22,11 @@ internal static class InitCommand
         platformOption.FromAmong("desktop", "web", "multi");
         cmd.AddOption(platformOption);
 
-        cmd.SetHandler(async (name, dir, platform, registry) =>
+        cmd.SetHandler(async (name, dir, deprecatedDir, platform, registry) =>
         {
-            await Runner.RunInitAsync(name, dir, platform, registry);
-        }, nameArg, dirOption, platformOption, registryOption);
+            if (!DirOption.TryResolve(dir, deprecatedDir, out var targetDir)) return;
+            await Runner.RunInitAsync(name, targetDir, platform, registry);
+        }, nameArg, dirOption, deprecatedDirOption, platformOption, registryOption);
 
         return cmd;
     }
