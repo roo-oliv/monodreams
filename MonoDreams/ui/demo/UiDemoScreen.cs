@@ -1468,7 +1468,9 @@ public class UiDemoScreen : IGameScreen
         // the visible pointer. The swap turns the cursor mesh into a hand over a Link button.
         p.Add("cursorHover", new CursorHoverSystem(_world), EditTimeBehavior.Freeze);
         // The tooltip additionally needs the pointer's FRESH virtual position to ride, so it sits
-        // after CursorPositionSystem as well.
+        // after CursorPositionSystem as well. It is safe to Freeze even though it OWNS entities:
+        // it implements ISuspendableSystem, so the gate despawns the live label on the Play → Pause
+        // edge instead of stranding it on the (never-frozen) HUD pass.
         p.Add("tooltip", new TooltipSystem(_world, _viewportManager, _font), EditTimeBehavior.Freeze);
         // Escape/shortcut handling would tear the screen down mid-editing — Play only.
         p.Add("demoShortcuts", new UiDemoShortcutSystem(this), EditTimeBehavior.Freeze);

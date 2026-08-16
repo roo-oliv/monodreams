@@ -31,11 +31,24 @@ namespace MonoDreams.System;
 /// the policy admits the current run mode, and the child itself is enabled. This lets a
 /// gated <c>CameraFollowSystem</c>, say, still be toggled off via its own flag
 /// independently of the run mode.
+///
+/// <para><b>Stopping a child that owns transient entities.</b> Skipping an <c>Update</c> is
+/// enough for a stateless system, but a system that OWNS entities (a tooltip, a drag ghost)
+/// never gets another <c>Update</c> in which to dispose them — and the draw stack, which is
+/// <see cref="EditTimeBehavior.RunNormally"/>, keeps rendering them. So on the frame this gate
+/// stops forwarding — for either reason, policy or <see cref="IsEnabled"/> — a child that
+/// implements <see cref="ISuspendableSystem"/> gets exactly one <c>Suspend</c> call to tear its
+/// transient state down.</para>
 /// </summary>
 public sealed class GatedSystem : ISystem<GameState>
 {
     private readonly ISystem<GameState> _child;
     private readonly EditTimeBehavior _policy;
+
+    // Whether the last Update forwarded to the child. It drives the running → not-running EDGE that
+    // an ISuspendableSystem child is told about; false initially, so a gate that has never forwarded
+    // (a Freeze gate on a screen that boots straight into Edit) suspends nothing.
+    private bool _forwarding;
 
     /// <summary>The wrapped child system.</summary>
     public ISystem<GameState> Child => _child;
@@ -85,8 +98,8 @@ public sealed class GatedSystem : ISystem<GameState>
 
     public void Update(GameState state)
     {
-        if (!IsEnabled) return;
-        if (!ShouldRun(_policy, state.RunMode)) return;
+        if (!IsEnabled || !ShouldRun(_policy, state.RunMode)) { Suspend(state); return; }
+        _forwarding = true;
         // The child honors its own IsEnabled internally (per the ISystem contract), so we
         // forward unconditionally once the gate + policy admit this frame.
         var sink = TimingSink; // one read: the sink can be (un)installed from another thread mid-frame
@@ -101,6 +114,20 @@ public sealed class GatedSystem : ISystem<GameState>
         var start = global::System.Diagnostics.Stopwatch.GetTimestamp();
         _child.Update(state);
         sink(ProfileName, global::System.Diagnostics.Stopwatch.GetTimestamp() - start);
+    }
+
+    /// <summary>
+    /// Records that this gate is no longer forwarding and, on the running → not-running EDGE only,
+    /// hands an <see cref="ISuspendableSystem"/> child its one chance to dispose the transient
+    /// entities it owns — no further <c>Update</c> is coming to do it in, and the (unfrozen) draw
+    /// stack would keep rendering them. A no-op while the gate is already stopped, so a child's
+    /// <c>Suspend</c> is called once per stop, not once per frozen frame.
+    /// </summary>
+    private void Suspend(GameState state)
+    {
+        if (!_forwarding) return;
+        _forwarding = false;
+        (_child as ISuspendableSystem)?.Suspend(state);
     }
 
     /// <summary>

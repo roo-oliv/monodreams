@@ -373,6 +373,48 @@ fake runs in `Play` and is skipped in `Edit`; a `RunNormally`-wrapped fake runs 
 both; the gate honours its own `IsEnabled`).
 **Depends on:** rendering — "Rendering systems run last in the pipeline".
 
+## A gated system that owns transient entities tears them down through `ISuspendableSystem`
+
+Skipping a system's `Update` removes its *behaviour*, not its *output*. For a system
+that OWNS entities — a tooltip label, a drag ghost, a damage number, a hover
+highlight — those two are different things: once the gate stops forwarding, that
+system never gets another `Update` in which to dispose what it created, while the
+draw stack (`RunNormally` by policy, since a frozen renderer is a black screen)
+keeps rendering it for the rest of the session. `GatedSystem` therefore calls
+`ISuspendableSystem.Suspend(state)` on the child **exactly once, on the running →
+not-running edge** — for either reason a gate can stop: the policy excluding the
+current `RunMode`, or the gate's own `IsEnabled` being switched off (the systems
+panel's master toggle). A gate that has never forwarded suspends nothing, a frozen
+gate does not call it again every frame, and a later resume + stop calls it again.
+`Suspend` is a teardown, never a kill switch: implementations must be idempotent
+and leave the system ready to rebuild on its next `Update`. A system that owns
+transient entities is therefore only safe to `Freeze` if it implements the
+interface — and must be registered as **its own entry**, since the gate reaches
+only its immediate child (a DefaultEcs composite does not expose its children, so a
+suspendable system buried inside a gated *group* is never reached).
+
+**Why:** the policy stays data on the gate (previous premise) precisely so systems
+know nothing about run modes — but that leaves nobody to clean up when a system
+stops. Handing the child a mode-agnostic "you are no longer being run" callback
+keeps the policy on the gate AND gives the owner its one chance to tear down; the
+alternative (each system reading `GameState.RunMode` itself) would bake one game's
+editor policy into an engine system type.
+**Breaks:** `TooltipSystem` gated `Freeze` in the ui demo, before the hook existed:
+Play → Pause with a tooltip on screen stranded its panel + label on the HUD pass —
+`Update` never ran again to hide them, and nothing else in the engine knows they
+exist (they are deliberately unparented and scene-marker-free). Same shape for any
+future transient-owning system, and for the systems panel switching a running entry
+off. A non-idempotent `Suspend` (one that assumes it is called once ever) breaks on
+the second freeze; a `Suspend` that also disables the system turns a pause into a
+permanent stand-down.
+**Tests:** `MonoDreams.Tests/Foundation/RunStateGatingTest.cs`
+(`Freeze_SuspendsTheChild_OnceOnEachPlayToEditEdge`, `AGateThatNeverRan_SuspendsNothing`,
+`DisablingTheGate_SuspendsTheChild`, `ANonSuspendableChild_IsSkippedSilently`);
+`MonoDreams.Tests/Ui/TooltipTests.cs::FreezingTheSystem_DespawnsTheTooltip` (the
+real system through a real `Freeze` gate).
+**Depends on:** ui — "The tooltip is a transient, system-owned, screen-space label
+that despawns with its pick" (the first implementer).
+
 ## `GatedSystem`'s timing sink keeps the profiler out of foundation
 
 `GatedSystem.TimingSink` — a static `Action<string, long>?` (profile name, elapsed

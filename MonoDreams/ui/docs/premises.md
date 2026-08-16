@@ -536,8 +536,10 @@ the disabled / out-of-group filters, and `CursorHoverSystem` deriving its swap f
 `Delay` (`null` = use `TooltipStyle.Delay`, `0` = instant). `TooltipSystem` owns everything
 else. It shows the picked entity's label once the dwell has elapsed, and the label entities
 are **its own**: it creates them on show, repositions them every frame, rebuilds them when
-the picked entity or its text changes, and disposes them on hover-out, on target death, and
-on its own `Dispose`. They are never parented to the hovered entity (the system runs after
+the picked entity or its text changes, and disposes them on hover-out, on target death, when
+the system is disabled or **stopped by its gate** (it implements `ISuspendableSystem`, so a
+screen may register it `Freeze` without stranding a live label in `RunMode.Edit`), and on its
+own `Dispose`. They are never parented to the hovered entity (the system runs after
 `HierarchySystem`, so a parent-relative label would render at a stale world position on the
 frame it appears) and they carry no scene-serialization marker, so a transient tooltip never
 lands in a saved scene. The label renders on a **screen-space** target (HUD by default; UI
@@ -560,14 +562,19 @@ them each frame. Placing the label on a world-space target puts the camera trans
 the pointer and the label, so the "edge" it flips at is not the screen's. Parenting it to the
 hovered entity resurrects the stale-world-position frame and, worse, makes
 `HierarchySystem.DisposeOrphans` cascade into it. Giving it a `LayerDepth` above the cursor
-draws the label over the pointer.
+draws the label over the pointer. Dropping the `ISuspendableSystem` teardown while the demo
+(or any editor-capable screen) registers the system `Freeze` strands the panel + label on the
+never-frozen HUD pass the moment the transport pauses: nothing else in the engine knows those
+entities exist, so nothing else can dispose them.
 **Depends on:** "There is ONE pointer pick: `UIFocusSystem` publishes it, hover consumers
-read it"; rendering — "Three render targets, two behaviors"; "`MeshPrepSystem` writes the
-world matrix once per frame" (the panel carries `VisibleComponent` so its world matrix is
-written the frame it appears); rendering-text — "`TextPrepSystem` writes the
+read it"; foundation — "A gated system that owns transient entities tears them down through
+`ISuspendableSystem`"; rendering — "Three render targets, two behaviors"; "`MeshPrepSystem`
+writes the world matrix once per frame" (the panel carries `VisibleComponent` so its world
+matrix is written the frame it appears); rendering-text — "`TextPrepSystem` writes the
 world-transformed position".
 **Tests:** `MonoDreams.Tests/Ui/TooltipTests.cs` (dwell + per-entity override, hover-out and
-target-death despawn, rebuild-on-retarget, dispose, the world-space-target refusal, and the
+target-death despawn, rebuild-on-retarget, dispose, disable and `Freeze`-gate teardown
+(`FreezingTheSystem_DespawnsTheTooltip`), the world-space-target refusal, and the
 edge-flip / clamp matrix on `TooltipPlacement.Place`).
 
 ## Flexbox implements cross-axis Stretch and per-axis Fill with main-axis flex-grow distribution

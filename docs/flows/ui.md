@@ -115,3 +115,8 @@ the ones this flow's ordering leans on:
 - **Pick consumer ordered before its publisher** — `TooltipSystem` / `CursorHoverSystem`
   registered ahead of `UIFocusSystem`: they act on last frame's pick, so hover affordances
   lag the pointer by a frame (and show nothing at all on the first).
+- **A frozen owner of transient entities** — a hover feature that CREATES entities (the
+  tooltip's panel + label) registered `EditTimeBehavior.Freeze` without implementing
+  `ISuspendableSystem`: the editor's Pause stops its `Update`, so it never disposes them,
+  while the prep + render pass keeps drawing them on the screen-space target forever. The
+  gate's teardown callback is what makes freezing such a system safe.

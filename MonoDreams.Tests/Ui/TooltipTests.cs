@@ -10,6 +10,7 @@ using MonoDreams.Draw;
 using MonoDreams.Input;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.System;
 using MonoDreams.UI;
 using CursorFactory = MonoDreams.Cursor.Cursor;
 
@@ -29,8 +30,8 @@ public class TooltipTests
 
     private const float Dwell = 0.4f;
 
-    private static GameState Frame(float totalSeconds) =>
-        new(new GameTime(TimeSpan.FromSeconds(totalSeconds), TimeSpan.Zero));
+    private static GameState Frame(float totalSeconds, RunMode mode = RunMode.Play) =>
+        new(new GameTime(TimeSpan.FromSeconds(totalSeconds), TimeSpan.Zero)) { RunMode = mode };
 
     /// An 800×600 virtual surface — the box the edge-flip works against.
     private static ViewportManager Viewport() =>
@@ -316,6 +317,57 @@ public class TooltipTests
         Assert.True(Showing(world));
 
         tooltip.Dispose();
+
+        Assert.False(Showing(world));
+    }
+
+    /// <summary>
+    /// The editor case. An editor-capable screen registers the tooltip <c>Freeze</c> (it is a
+    /// play-only pointer cosmetic), so Play → Pause with a label on screen never runs
+    /// <c>Update</c> again to hide it — while the prep + render pass, which does NOT freeze, would
+    /// keep drawing the orphaned panel on the HUD for the rest of the session. The gate hands the
+    /// system its <c>ISuspendableSystem.Suspend</c> instead, and it comes back on resume.
+    /// </summary>
+    [Fact]
+    public void FreezingTheSystem_DespawnsTheTooltip()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        MakeButton(world, new Vector2(100, 100), new Vector2(80, 30), "Primary", delay: 0f);
+        using var focus = Focus(world);
+        using var gate = new GatedSystem(Tooltip(world), EditTimeBehavior.Freeze);
+
+        Point(cursor, new Vector2(120, 110));
+        focus.Update(Frame(0f));
+        gate.Update(Frame(0f));
+        Assert.True(Showing(world));
+
+        gate.Update(Frame(0.1f, RunMode.Edit)); // the transport's Pause
+        Assert.False(Showing(world));
+
+        focus.Update(Frame(0.2f));
+        gate.Update(Frame(0.2f)); // Play again — the teardown was not a kill switch
+        Assert.True(Showing(world));
+    }
+
+    /// <summary>The system's own kill switch reads the same way: a disabled tooltip system means NO
+    /// tooltip, not a frozen one left on screen.</summary>
+    [Fact]
+    public void DisablingTheSystem_DespawnsTheTooltip()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        MakeButton(world, new Vector2(100, 100), new Vector2(80, 30), "Primary", delay: 0f);
+        using var focus = Focus(world);
+        using var tooltip = Tooltip(world);
+
+        Point(cursor, new Vector2(120, 110));
+        focus.Update(Frame(0f));
+        tooltip.Update(Frame(0f));
+        Assert.True(Showing(world));
+
+        tooltip.IsEnabled = false;
+        tooltip.Update(Frame(0.1f));
 
         Assert.False(Showing(world));
     }

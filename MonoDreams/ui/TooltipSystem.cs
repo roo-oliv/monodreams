@@ -8,6 +8,7 @@ using MonoDreams.Component.Draw;
 using MonoDreams.Draw;
 using MonoDreams.Renderer;
 using MonoDreams.State;
+using MonoDreams.System;
 using MonoGame.Extended.BitmapFonts;
 
 namespace MonoDreams.UI;
@@ -31,8 +32,15 @@ namespace MonoDreams.UI;
 /// top) and nothing else touches them: they are created on show, repositioned every frame, rebuilt
 /// when the label text changes, and disposed on hide. They carry no <c>SceneObjectComponent</c>, so
 /// the editor never serializes a transient tooltip into a scene.</para>
+///
+/// <para><b>Being stopped.</b> Because it owns entities, "stop running the tooltip" is not the same
+/// as "no tooltip": the draw stack keeps rendering whatever is left behind. So it implements
+/// <see cref="ISuspendableSystem"/> — the gate that stops forwarding to it (an editor-capable screen
+/// entering <c>RunMode.Edit</c> with a <c>Freeze</c> policy, or the systems panel switching the entry
+/// off) calls <see cref="Suspend"/>, which despawns the live label. Its own
+/// <see cref="IsEnabled"/> = <c>false</c> does the same on the next update.</para>
 /// </summary>
-public sealed class TooltipSystem : ISystem<GameState>
+public sealed class TooltipSystem : ISystem<GameState>, ISuspendableSystem
 {
     private readonly World _world;
     private readonly EntitySet _cursors;
@@ -98,7 +106,9 @@ public sealed class TooltipSystem : ISystem<GameState>
 
     public void Update(GameState state)
     {
-        if (!IsEnabled) return;
+        // A disabled tooltip system means NO tooltip, not "the current one stays forever": every
+        // stand-down path in this system despawns what it owns.
+        if (!IsEnabled) { Hide(); return; }
 
         var cursors = _cursors.GetEntities();
         if (cursors.Length == 0) { Hide(); return; }
@@ -191,8 +201,17 @@ public sealed class TooltipSystem : ISystem<GameState>
         _label.Set<VisibleComponent>();
     }
 
-    /// Despawns the live tooltip, if any. Idempotent — hover-out, target death, a disposed world and
-    /// the editor's Restart sweep all land here.
+    /// <summary>
+    /// The gate's teardown hook (<see cref="ISuspendableSystem"/>): the pipeline has STOPPED running
+    /// this system — a screen that freezes it in <c>RunMode.Edit</c>, or the systems panel switching
+    /// the entry off — so the live label must go now. No further <see cref="Update"/> is coming to
+    /// hide it, while the prep + render systems (which do not freeze) would keep drawing it on the
+    /// screen-space target for the rest of the session. Idempotent.
+    /// </summary>
+    public void Suspend(GameState state) => Hide();
+
+    /// Despawns the live tooltip, if any. Idempotent — hover-out, target death, being stopped by the
+    /// gate, a disposed world and the editor's Restart sweep all land here.
     private void Hide()
     {
         if (_label.IsAlive) _label.Dispose();

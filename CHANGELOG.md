@@ -28,6 +28,14 @@ so migrating is editing your own copy.
 - `ui/module.json` now declares its real `cursor` dependency (it has needed the cursor
   components since `CursorHoverSystem`; `monodreams add ui` alone did not compile).
 
+- `foundation` gains `ISuspendableSystem` — the teardown callback `GatedSystem` invokes on
+  the running → not-running edge (the policy excluding the current `RunMode`, or the gate's
+  own `IsEnabled` going off), so a system that OWNS transient entities can dispose them when
+  the pipeline stops running it. `TooltipSystem` is the first implementer: registering it
+  `EditTimeBehavior.Freeze` in an editor-capable screen no longer strands the panel + label
+  on the (never-frozen) HUD pass when the transport pauses. Purely additive — an existing
+  gated system that doesn't implement the interface is untouched.
+
 ### Breaking — `level-loading` no longer depends on LDtk ([#54](https://github.com/roo-oliv/monodreams/issues/54))
 
 `level-loading` is now format-agnostic: no LDtk type appears in its source, and the
