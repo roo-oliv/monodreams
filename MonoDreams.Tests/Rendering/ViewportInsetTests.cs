@@ -141,14 +141,13 @@ public class ViewportInsetTests
         Assert.Null(vm.MapMouse(new Vector2(800, 890)));    // bottom strip
     }
 
-<<<<<<< HEAD
     // ---- The forward map: virtual → screen, the exact inverse of the mouse mapping ----
 
     /// <summary>
     /// <c>ScaleVirtualToScreenCoordinates</c> answers "where would a real mouse sitting on this
     /// virtual point be, in backbuffer pixels?" — what an injection channel (the `debug` module's
     /// pointer replay) needs to fill <c>CursorInputComponent.ScreenPosition</c>, which every chrome
-    /// hit-test reads raw. It must be the exact inverse of <c>ScaleMouseToVirtualCoordinates</c>
+    /// hit-test reads raw. It must be the exact inverse of <c>MapMouse</c>
     /// through the same inset/letterbox rectangle, or the two spaces drift.
     /// </summary>
     [Fact]
@@ -167,7 +166,7 @@ public class ViewportInsetTests
         Assert.Equal(dest.Y + dest.Height / 2f, centre.Y, 1);
 
         // Round-trip through the mouse mapping lands back on the authored point.
-        var back = vm.ScaleMouseToVirtualCoordinates(centre);
+        var back = vm.MapMouse(centre);
         Assert.NotNull(back);
         Assert.Equal(400f, back.Value.X, 1);
         Assert.Equal(300f, back.Value.Y, 1);
@@ -188,14 +187,9 @@ public class ViewportInsetTests
         Assert.Equal(new Vector2(200, 100), retina.ScaleVirtualToScreenCoordinates(new Vector2(100, 50)));
     }
 
-    // ---- Pixel-perfect mode computes its integer-scaled rect inside the same available area ----
-||||||| 342dba6
-    // ---- Pixel-perfect mode computes its integer-scaled rect inside the same available area ----
-=======
     // ---- The pixel-perfect POLICY computes its integer-scaled rect inside the same available area
     // (this used to be ScalingMode.PixelPerfect + a second rectangle; it is now one destination
     // rectangle resolved by PresentationPolicy.PixelPerfect, and the inset still bounds it) ----
->>>>>>> origin/main
 
     [Fact]
     public void PixelPerfectPolicy_UsesTheAvailableArea()

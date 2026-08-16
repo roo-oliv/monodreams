@@ -7,7 +7,6 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
-<<<<<<< HEAD
 ### Added — scripted pointer replay in `debug` ([#90](https://github.com/roo-oliv/monodreams/issues/90))
 
 `input_replay.json` speaks only named actions, so an entire genre — menus, business sims,
@@ -33,12 +32,11 @@ Nothing existing changes behaviour, but three source-owned modules gained surfac
 - **`Cursor.ApplyPose`** (`cursor`) — the per-render-target cursor pose rule, extracted from
   `CursorPositionSystem` so the real mouse and an injected pointer place the cursor identically.
 - **`ViewportManager.ScaleVirtualToScreenCoordinates`** (`rendering`) — the exact inverse of
-  `ScaleMouseToVirtualCoordinates`, so an injection channel can fill
+  `MapMouse`, so an injection channel can fill
   `CursorInputComponent.ScreenPosition` in the backbuffer pixels that field means (chrome
   hit-tests read it raw, and it stays right at `DevicePixelRatio` 2).
 - **`GameTestRunner.RunAsync(…, pointerPlan:)`** writes the plan into the run's debug dir.
-||||||| 342dba6
-=======
+
 ### Breaking — presentation scaling is a declared policy ([#89](https://github.com/roo-oliv/monodreams/issues/89))
 
 How the frame reaches a window that is not the render resolution is now declared once, on
@@ -178,7 +176,6 @@ naming: five public shapes now say which space they mean.
   hiding a panel with `VisibleComponent` is a no-op on the UI/HUD/Scroll targets and
   un-preps it on Main. The ui demo's new **Panels** tab shows a tab bar and a paged
   settings menu built on the one component.
->>>>>>> origin/main
 
 ### Breaking — `level-loading` no longer depends on LDtk ([#54](https://github.com/roo-oliv/monodreams/issues/54))
 

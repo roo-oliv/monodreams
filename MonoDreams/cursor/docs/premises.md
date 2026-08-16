@@ -102,9 +102,8 @@ sprites. Rendering on UI puts it under HUD elements.
 
 ## Cursor `TransformComponent.Position` depends on render target, and `Cursor.ApplyPose` is the one place that rule lives
 
-<<<<<<< HEAD
 A cursor's `TransformComponent.Position` follows its `DrawComponent.Target`:
-HUD target uses virtual-screen coords plus `HotSpot` (no camera transform
+HUD target uses AUTHORING (layout) screen coords plus `HotSpot` (no camera transform
 applied), every other target uses world coords plus `HotSpot` (the camera
 transform is applied at draw time). `CursorInputComponent.WorldPosition` is
 always populated regardless of target, so game systems (hit-testing, button
@@ -114,22 +113,6 @@ worldPosition)`.** `CursorPositionSystem` calls it after mapping a real mouse
 through the viewport; an injection channel that owns the derivation (the
 `debug` module's `PointerReplaySystem`, running under `SkipDerivation`) calls
 it with the positions it authored. Neither re-implements the rule.
-||||||| 342dba6
-`CursorPositionSystem` sets `TransformComponent.Position` differently
-based on `DrawComponent.Target`: HUD target uses virtual-screen coords
-plus `HotSpot` (no camera transform applied), Main target uses
-world coords plus `HotSpot` (camera transform will be applied at draw
-time). `CursorInputComponent.WorldPosition` is always populated
-regardless of target, so game systems (hit-testing, button hover) can
-read world coordinates without caring how the cursor is rendered.
-=======
-`CursorPositionSystem` sets `TransformComponent.Position` differently
-based on `DrawComponent.Target`: HUD target uses AUTHORING (layout) screen
-coords plus `HotSpot`, Main target uses world coords plus `HotSpot` (camera
-transform applied at draw time). `CursorInputComponent.WorldPosition` is always
-populated regardless of target, so game systems (hit-testing, button hover) can
-read world coordinates without caring how the cursor is rendered.
->>>>>>> origin/main
 
 `ViewportManager.MapMouse` — the one screen→game mapping — returns that
 authoring point, and `CursorInputComponent.VirtualPosition` carries it. In a
@@ -150,10 +133,11 @@ looks like a picking bug rather than a duplication bug.
 **Breaks:** if a game system reads `transform.Position` for hit-testing
 and the cursor is on HUD, the hit-test runs against screen coords and
 fails. Always read `CursorInputComponent.WorldPosition` for world-space
-<<<<<<< HEAD
 checks. An injection channel that skips the shared helper and writes the
 transform itself drifts from the real-mouse placement the first time the rule
-changes (a new render target, a different hot-spot convention).
+changes (a new render target, a different hot-spot convention). Multiplying a
+cursor coordinate by the render scale by hand double-scales it — the cameras
+already did it.
 **Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
 (`Move_WritesVirtualWorldAndTransform_ThroughTheRealPoseRule` and
 `Move_OnAMainTargetCursor_PlacesTheTransformInWorldSpace` pin both branches
@@ -161,19 +145,8 @@ through the shared helper); `MonoDreams.Tests/Cursor/CursorPositionSystemTests.c
 (`WithoutSkipDerivation_MappedScreenPosition_RecomputesVirtualWorldAndTransform`
 pins the real-mouse path through the same helper).
 **Depends on:** debug — "`PointerReplaySystem` injects into the real cursor
-component; it never simulates a click".
-||||||| 342dba6
-checks.
-**Tests:** none yet.
-**Depends on:** —
-=======
-checks. Multiplying a cursor coordinate by the render scale by hand
-double-scales it — the cameras already did it.
-**Tests:** none yet (the space the mapping lands in is covered by
-`MonoDreams.Tests/Rendering/RenderSpaceTests.cs`).
-**Depends on:** rendering — "Authoring space and render space are distinct; the
-scale lives only in the cameras".
->>>>>>> origin/main
+component; it never simulates a click"; rendering — "Authoring space and render
+space are distinct; the scale lives only in the cameras".
 
 ## Cursor is a single entity, created via the `Cursor.Create` factory
 
@@ -258,19 +231,9 @@ downstream consumers read. A real-mouse session leaves it `false` (the default),
 existing screen is byte-identical.
 
 **Why:** an injection channel authors world-space intent (`WorldPosition` / `VirtualPosition`),
-<<<<<<< HEAD
 not a window pixel. The editor-op channel's `ScreenPosition` is therefore not a mappable
 in-viewport coordinate at all; live derivation feeds it to
 `ViewportManager.MapMouse`, gets `null`, and clobbers the injection with
-||||||| 342dba6
-not a window pixel, so the injected `ScreenPosition` is not a mappable in-viewport coordinate.
-Live derivation feeds that un-mapped `ScreenPosition` to
-`ViewportManager.MapMouse`, gets `null`, and clobbers the injection with
-=======
-not a window pixel, so the injected `ScreenPosition` is not a mappable in-viewport coordinate.
-Live derivation feeds that un-mapped `ScreenPosition` to
-`ViewportManager.MapMouse`, gets `null`, and clobbers the injection with
->>>>>>> origin/main
 `OutsideViewport = true` (and, whenever the injected screen position *does* happen to map,
 overwrites the injected virtual/world positions and the cursor transform with values derived
 from it). `SkipHardwareRead` alone therefore cannot deliver an injected cursor: the very next
