@@ -19,7 +19,7 @@ A code-first ECS game engine powered by MonoGame
 - **Composable.** The engine ships as 14 small source modules (foundation, rendering, physics, collision, level-loading, dialogue, audio, …). Use only what you need.
 - **ECS-pure.** Built on [DefaultEcs](https://github.com/Doraku/DefaultEcs). Components hold data, systems hold logic. Build performant games easily.
 - **Easy learning curve.** By using an ECS design, you can focus on only a few components and systems at a time without having to wrap your head around tons of concepts at once.
-- **AI-agent friendly.** Let AI do the code heavy lifting, so you focus on the vision, the art, and all the creative parts. Source lives where agents can read it. Each module ships with a `module.json` manifest, and the repo's `docs/` directory captures engine invariants per domain, meaning your AI agent will know what to do by itself.
+- **AI-agent friendly.** Let AI do the code heavy lifting, so you focus on the vision, the art, and all the creative parts (say no to AI-slop, please?). Source lives where agents can read it. Each module ships with a `module.json` manifest, and the repo's `docs/` directory captures engine invariants per domain, meaning your AI agent will know what to do by itself.
 
 ## Quickstart
 
