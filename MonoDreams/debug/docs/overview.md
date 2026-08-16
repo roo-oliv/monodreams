@@ -16,14 +16,10 @@ When debugging an ECS game, the visible bug ("the player passes through walls") 
 
 Both overlay systems draw through the standard `DrawComponent` path (transient `Type = Mesh` entities), not via parallel `SpriteBatch` calls — they ride `MasterRenderSystem` like everything else.
 
-<<<<<<< HEAD
 - `PointerReplaySystem(world, plan, camera, viewportManager, requestExit)` / `PointerReplaySystem.TryLoad(debugDir, world, camera, viewportManager, requestExit)` — **scripted mouse replay**: drives a `PointerReplayPlan` (`debug/pointer_replay.json`) of `move` / `click` / `wheel` / `type` / `waitUntil` / `label` commands by injecting into the real `CursorInputComponent`. `TryLoad` returns `null` without the file. See [Pointer replay](#pointer-replay)
-||||||| 342dba6
-=======
 ### Unattended runs
 
 - `KeepAwake.FromEnvironment()` — opt-in (`MONODREAMS_KEEP_AWAKE=1`) macOS power-management assertion, held by the returned token for as long as the host keeps it. Not a system: hosts call it once at boot and dispose it at shutdown. `null` when the environment did not ask, and a logged no-op off macOS — see [Unattended runs and the sleep footgun](#unattended-runs-and-the-sleep-footgun)
->>>>>>> origin/main
 
 ### Profiling
 
@@ -250,13 +246,7 @@ one. A long unattended run should still have a frame cap and an outer timeout.
 
 ## Cross-module dependencies
 
-<<<<<<< HEAD
-- `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer; `PointerReplaySystem` derives world coordinates through `Camera`.
-||||||| 342dba6
-- `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer.
-=======
-- `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer, or a `RenderTargetID` target resolved through `MasterRenderSystem.RenderedTargetSink`. That socket points the same way `foundation`'s profiler socket does: `rendering` owns the (null-by-default) socket and never references this module.
->>>>>>> origin/main
+- `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer, or a `RenderTargetID` target resolved through `MasterRenderSystem.RenderedTargetSink`. That socket points the same way `foundation`'s profiler socket does: `rendering` owns the (null-by-default) socket and never references this module. `PointerReplaySystem` derives world coordinates through `Camera`.
 - `collision` — `ColliderDebugSystem` reads `BoxColliderComponent` and `ConvexColliderComponent` to know what to outline.
 - `cursor` — `PointerReplaySystem` injects into `CursorInputComponent` and places the cursor through `Cursor.ApplyPose`; the screen stands the hardware path down with `CursorInputSystem.SkipHardwareRead` + `CursorPositionSystem.SkipDerivation`. This is a hard dependency *because* the channel refuses to simulate a pointer: there is no injection without the real cursor component.
 - `foundation` — `SystemProfiler` plugs into `GatedSystem.TimingSink` and `PointerReplaySystem` into `Logger.LineSink` (the `waitUntil`-on-log predicate); both report through `Logger`. The arrow points this way only: `foundation` defines the sockets and never references this module.
@@ -270,13 +260,5 @@ one. A long unattended run should still have a frame cap and an outer timeout.
 
 ## See also
 
-<<<<<<< HEAD
-- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `FromEnvironment` as the single owner of the capture env contract, raw capture's synchronous zero-allocation write, `MONODREAMS_DEBUG_DIR` env-var override, the profiler's injected-sink direction + its `[perf]` format contract, the pointer channel's injection-not-simulation rule and its frame-counted stage gating)
+- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `FromEnvironment` as the single owner of the capture env contract, target capture resolved through the render socket, raw capture's synchronous zero-allocation write, `MONODREAMS_DEBUG_DIR` env-var override, keep-awake as an opt-in macOS-only assertion, the profiler's injected-sink direction + its `[perf]` format contract, the pointer channel's injection-not-simulation rule and its frame-counted stage gating)
 - Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `cursor` (the component the pointer channel injects into), `foundation` (provides `Logger`, the `Logger.LineSink` tap and the keyboard/input replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
-||||||| 342dba6
-- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `FromEnvironment` as the single owner of the capture env contract, raw capture's synchronous zero-allocation write, `MONODREAMS_DEBUG_DIR` env-var override, the profiler's injected-sink direction + its `[perf]` format contract)
-- Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `foundation` (provides `Logger` and the replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
-=======
-- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `FromEnvironment` as the single owner of the capture env contract, target capture resolved through the render socket, raw capture's synchronous zero-allocation write, `MONODREAMS_DEBUG_DIR` env-var override, keep-awake as an opt-in macOS-only assertion, the profiler's injected-sink direction + its `[perf]` format contract)
-- Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `foundation` (provides `Logger` and the replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
->>>>>>> origin/main
