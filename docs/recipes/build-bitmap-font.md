@@ -115,7 +115,8 @@ desktop `.xnb` is not a BlazorGL one), but the web build runs KNI's MGCB over
 the same `.fnt` + `.png` with the same importer/processor pair — the asset is
 untouched. On macOS/Linux the KNI content build needs the native-lib shim,
 including staging `KNI.Extended.Content.Pipeline.dll` so the BitmapFont
-importer's dependency probe resolves; see
+importer's dependency probe resolves — a head scaffolded by `monodreams init
+--platform web|multi` already carries it; see
 [`docs/web-targeting.md`](../web-targeting.md) § "macOS / Linux native-lib shim".
 
 ## Usage sketch

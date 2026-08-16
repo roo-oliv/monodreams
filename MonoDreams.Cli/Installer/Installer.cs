@@ -75,6 +75,15 @@ internal sealed class Installer
             // not compile there, so they are not copied. The module's own components/systems/messages and
             // `docs/` (markdown, harmless) are copied.
             if (relFromModule.StartsWith("demo/", StringComparison.OrdinalIgnoreCase)) continue;
+            // Build outputs are never module source. A registry is usually a *source checkout*, and a module
+            // may contain a buildable project of its own (level-ldtk vendors the LDtkMonogame sources, .csproj
+            // included), so a contributor's local build leaves bin/ + obj/ inside the module directory. Copying
+            // those lands generated AssemblyInfo.cs files inside the user's compile glob and their very first
+            // `dotnet build` fails with CS0579 (duplicate assembly attributes) — found by the manifest-honesty
+            // check (issue #83), which builds what `add` produces.
+            if (relFromModule.Split('/').Any(segment =>
+                    segment.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                    segment.Equals("obj", StringComparison.OrdinalIgnoreCase))) continue;
 
             var relFromEngine = Path.GetRelativePath(_registry.EngineRoot, path).Replace('\\', '/');
             result.Add(new FileEntry
@@ -107,7 +116,7 @@ internal sealed class Installer
             0 => throw new FileNotFoundException($"No .csproj found in '{_projectDir}'. Run `monodreams init` first."),
             1 => topLevel[0],
             _ => throw new InvalidOperationException(
-                $"Multiple .csproj files found in '{_projectDir}': {string.Join(", ", topLevel.Select(Path.GetFileName))}. Pass --project <dir> with the specific project.")
+                $"Multiple .csproj files found in '{_projectDir}': {string.Join(", ", topLevel.Select(Path.GetFileName))}. Pass --dir <dir> with the specific project.")
         };
     }
 }

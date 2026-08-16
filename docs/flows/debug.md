@@ -17,10 +17,15 @@ just populated (`Position`, `Origin`, `Size`, `SourceRectangle`) and emits a tra
 bounds rect, an origin marker, and an origin-to-center line. Both render *through the same
 pipeline as everything else* — they create transient `DrawComponent { Type = Mesh }` entities
 at a high `LayerDepth` and let `MasterRenderSystem` draw them; they never touch `SpriteBatch`.
-`ScreenshotCaptureSystem` is the capture leg: it reads back the composited backbuffer after
+`ScreenshotCaptureSystem` is the capture leg: it reads back the composited frame after
 `FinalDrawSystem` and writes a PNG, either on a time interval (`Update`, opt-in) or on a chosen
-frame (`CaptureNow`, deterministic). The whole module is off by default and adds zero cost to a
-screen that registers none of it.
+frame (`CaptureNow`, deterministic). The source is the window backbuffer by default, or — when
+`MONODREAMS_SCREENSHOT_TARGET` names a `RenderTargetID` — that pass's fixed-resolution target,
+resolved from `MasterRenderSystem.RenderedTargetSink` so the file geometry stops following the
+window. `KeepAwake` is the module's other non-system piece: an opt-in
+(`MONODREAMS_KEEP_AWAKE=1`) macOS activity assertion a host holds for the run, so an unattended
+one is not suspended by App Nap or display sleep. The whole module is off by default and adds
+zero cost to a screen that registers none of it.
 
 ## Entities & lifecycle
 
@@ -37,10 +42,12 @@ The overlay systems own a short-lived set of *debug entities*, recreated every f
 4. **Render** — `MasterRenderSystem`, running later the same frame, draws them. Next frame
    returns to step 1.
 
-`ScreenshotCaptureSystem` owns no entities. It reads the backbuffer into a reused
-`_pixelBuffer` + `_stagingTexture`, encodes a PNG, and writes it to `_outputDirectory`. The
-async `Update` path fires the write on `PlatformServices.RunBackground` (best-effort);
-`CaptureNow` writes synchronously and returns the non-blank verdict before returning.
+`ScreenshotCaptureSystem` owns no entities. It reads its source — the backbuffer, or the named
+render target last published by a pass — into a reused `_pixelBuffer` + `_stagingTexture`,
+encodes a PNG, and writes it to `_outputDirectory`. The async `Update` path fires the write on
+`PlatformServices.RunBackground` (best-effort); `CaptureNow` writes synchronously and returns
+the non-blank verdict before returning. In target mode a tick whose target no pass has drawn
+writes nothing at all (one warning, no counter, no fallback to the window).
 
 ## Invariants
 
@@ -54,6 +61,11 @@ Authoritative list in [`MonoDreams/debug/docs/premises.md`](../../MonoDreams/deb
   and *before* `MasterRenderSystem` (so the transient entities exist when the renderer iterates).
 - `ScreenshotCaptureSystem.Update` is gated by `IsEnabled` (set from `"screenshots": true` in
   `input_replay.json`); `CaptureNow` bypasses both `IsEnabled` and the interval gate.
+- Target capture subscribes to the render socket only when a target was named and unsubscribes
+  on `Dispose`; it takes the first target published for that id since its last read, and
+  refuses (rather than falling back to the window) when nothing has published one.
+- `KeepAwake` is opt-in, macOS-only and never throws — an unavailable Objective-C runtime is a
+  logged no-op, not a failed run.
 - All debug output honors `MONODREAMS_DEBUG_DIR`, falling back to `<BaseDirectory>/debug` — the
   load-bearing case is parallel test isolation.
 

@@ -38,13 +38,17 @@ namespace MonoDreams.Demo.Ui;
 /// placeholder, a checkbox and a toggle, all navigable with WASD/arrows + Tab and the mouse;
 /// <b>Windows</b> shows a dropdown, a type-to-filter combobox, and a mouse-wheel scroll view (a
 /// dedicated Scroll render target composited by <c>RenderLayer.Overlay</c>); <b>Dialogs</b> opens a
-/// modal dialog whose group-100 focus trap is driven by the screen's active-group accessor.
+/// modal dialog whose group-100 focus trap is driven by the screen's active-group accessor;
+/// <b>Panels</b> shows the exclusive panel-group primitive twice on one component
+/// (<see cref="PanelGroupComponent"/>) — a sub-tab bar and a paged settings menu — whose inactive
+/// panels are PARKED off-screen by <see cref="PanelGroupSystem"/> rather than hidden.
 public class UiDemoScreen : IGameScreen
 {
     private const int TabLayout = 0;
     private const int TabButtons = 1;
     private const int TabWindows = 2;
     private const int TabDialogs = 3;
+    private const int TabPanels = 4;
 
     private const float TabBarY = -250f;   // world Y of the tab header row (just under the HUD header)
     private const float ContentTop = -150f; // world Y where each tab's body begins
@@ -103,6 +107,19 @@ public class UiDemoScreen : IGameScreen
     private const float ItemPadX = 16f;           // popup option horizontal padding (matches MakeButton)
     private const float ChevronSize = 12f;        // down-chevron icon size (issue 14)
     private const float ChevronGap = 8f;          // gap between the trigger label and the chevron
+
+    // ── Panels tab (exclusive panel groups) ─────────────────────────────────────────────────────
+    // Two PanelGroupComponents stacked vertically: a sub-tab bar (headers + three overlapping
+    // panels) on top, a paged settings menu (prev/next/close + three overlapping pages) below.
+    // Every panel of a group sits at the SAME position — only one is ever on screen; the rest are
+    // parked off-screen by PanelGroupSystem, alive and fully laid out.
+    private const float PanelsHeaderY = ContentTop - 10f;   // sub-tab header row
+    private const int PanelCardW = 440, PanelCardH = 160;
+    private static readonly Vector2 PanelCardPos = new(-PanelCardW / 2f, ContentTop + 50f);
+    private const float PanelsPagerY = ContentTop + 260f;    // prev / next / close row (label above it)
+    private const int PanelPageW = 440, PanelPageH = 150;
+    private static readonly Vector2 PanelPagePos = new(-PanelPageW / 2f, PanelsPagerY + 60f);
+    private const int PanelPageCount = 3;
 
     /// <summary>The scene id this demo is bound to (TD/UX-C): its editor Save writes
     /// <c>ui-demo.mdscene</c> and the Scenes panel lists it as a scene.</summary>
@@ -171,6 +188,19 @@ public class UiDemoScreen : IGameScreen
     private Entity _dialog;              // carries DialogComponent
     private Entity _openDialogButton;    // the "Open dialog" trigger; hidden while the dialog is open
     private Entity _openDialogLabel;     // its label child
+
+    // Panels-tab widgets: TWO exclusive panel groups on the same component (a sub-tab bar and a
+    // paged settings menu). The screen only ever writes PanelGroupComponent.Active — PanelGroupSystem
+    // owns the parking. The selected index of each group is remembered here so leaving the Panels tab
+    // (Active = None, the closed-menu state) and coming back restores the same panel.
+    private Entity _panelTabs;           // carries PanelGroupComponent (sub-tab bar)
+    private Entity[] _panelTabHeaders = [];
+    private int _panelTabIndex;          // remembered sub-tab selection
+    private Entity _settingsPages;       // carries PanelGroupComponent (paged settings menu)
+    private Entity _settingsPageLabel;   // "Page 2 / 3" (or "Menu closed")
+    private Entity _settingsToggleLabel; // the Close/Open button's label
+    private int _settingsPageIndex;      // remembered page
+    private bool _settingsMenuOpen = true;
 
     // Scroll plumbing: a dedicated render target + its screen-space camera + its overlay rect;
     // driven by ScrollViewComponent.
@@ -270,7 +300,7 @@ public class UiDemoScreen : IGameScreen
         }
     }
 
-    /// <summary>Builds (or rebuilds) the demo's code-owned content — the header + the four tabs — which the
+    /// <summary>Builds (or rebuilds) the demo's code-owned content — the header + the five tabs — which the
     /// sweep disposes (the cursor survives). Runs once from <c>Load</c> and again as the TD
     /// <see cref="EditorTransport.RebuildCodeContent"/>. Each <c>Build*</c> reassigns the screen's entity
     /// fields, so the field-reading systems re-wire to the fresh entities on a rebuild.</summary>
@@ -290,6 +320,7 @@ public class UiDemoScreen : IGameScreen
         BuildButtonsTab();
         BuildWindowsTab();
         BuildDialogsTab();
+        BuildPanelsTab();
 
         _tabBar.Get<TabBarComponent>().Active = _tabIndex;
     }
@@ -335,6 +366,8 @@ public class UiDemoScreen : IGameScreen
             if (_comboDropdown.IsAlive) _comboDropdown.Get<DropdownComponent>().IsOpen = false;
         }
 
+        TickPanelsTab();
+
         // Hide the "Open dialog" trigger while the dialog is open so the modal scrim covers a clean
         // screen. Runs after TabSystem (which re-shows tab content each frame), so this override wins.
         var dialogOpen = _dialog.IsAlive && _dialog.Get<DialogComponent>().IsOpen;
@@ -358,6 +391,49 @@ public class UiDemoScreen : IGameScreen
                     SetVisible(label, !dialogOpen);
             }
         }
+    }
+
+    /// The whole Panels tab, from the screen's side: write each group's active member and paint the
+    /// pager's captions. Nothing here moves a panel — <see cref="PanelGroupSystem"/> (registered right
+    /// after this tick, before <c>HierarchySystem</c>) parks the inactive members and restores the
+    /// active one. Leaving the tab sets both groups to <see cref="PanelGroupComponent.None"/>, so
+    /// every panel parks and no focusable inside one survives as a keyboard-nav target; the
+    /// remembered indices bring the same panels back on return.
+    private void TickPanelsTab()
+    {
+        var onPanels = ActiveTab == TabPanels;
+
+        if (_panelTabs.IsAlive)
+        {
+            _panelTabs.Get<PanelGroupComponent>().Active = onPanels ? _panelTabIndex : PanelGroupComponent.None;
+            for (var i = 0; i < _panelTabHeaders.Length; i++)
+            {
+                var header = _panelTabHeaders[i];
+                if (header.IsAlive && header.Has<ButtonStateComponent>())
+                    header.Get<ButtonStateComponent>().IsActive = i == _panelTabIndex;
+            }
+        }
+
+        if (!_settingsPages.IsAlive) return;
+
+        _settingsPages.Get<PanelGroupComponent>().Active =
+            onPanels && _settingsMenuOpen ? _settingsPageIndex : PanelGroupComponent.None;
+        SetCenteredText(_settingsPageLabel, _settingsMenuOpen
+            ? $"Page {_settingsPageIndex + 1} / {PanelPageCount}"
+            : "Menu closed (no active member)", PanelsPagerY - 34f);
+        SetTriggerLabel(_settingsToggleLabel, _settingsMenuOpen ? "Close menu" : "Open menu");
+    }
+
+    /// Sets an unparented label's text and re-centres it on the screen's vertical midline (world
+    /// x = 0), so a caption that changes width stays centred.
+    private void SetCenteredText(Entity entity, string text, float y)
+    {
+        if (!entity.IsAlive || !entity.Has<DynamicTextComponent>()) return;
+        ref var label = ref entity.Get<DynamicTextComponent>();
+        if (label.TextContent == text) return;
+        label.TextContent = text;
+        entity.Get<TransformComponent>().Position =
+            new Vector2(-_font.MeasureString(text).Width * label.Scale / 2f, y);
     }
 
     private static void SetVisible(Entity e, bool show)
@@ -426,7 +502,7 @@ public class UiDemoScreen : IGameScreen
 
     private void BuildTabBar()
     {
-        var labels = new[] { "Layout", "Buttons", "Windows", "Dialogs" };
+        var labels = new[] { "Layout", "Buttons", "Windows", "Dialogs", "Panels" };
         var made = new (Entity entity, Vector2 size)[labels.Length];
         var total = 0f;
         const float gap = 14f;
@@ -961,6 +1037,129 @@ public class UiDemoScreen : IGameScreen
         _dialog.Set(new DialogComponent { IsOpen = false, Group = GroupDialog, Content = content.ToArray() });
     }
 
+    // ─── Panels tab (exclusive panel groups: a tab bar AND a paged settings menu) ─
+
+    /// Builds the Panels tab: TWO <see cref="PanelGroupComponent"/>s — a sub-tab bar (three
+    /// overlapping cards) and a paged settings menu (three pages plus a Close action that leaves NO
+    /// member active) — proving one primitive covers both shapes. Every member of a group is built at
+    /// the SAME position, which is only legible because exactly one of them is ever on screen: the
+    /// others are PARKED off-screen by <see cref="PanelGroupSystem"/>, still laid out, still
+    /// measured, still carrying their widget state. The screen never moves a panel itself; it only
+    /// writes <see cref="PanelGroupComponent.Active"/> (from <see cref="Tick"/>).
+    private void BuildPanelsTab()
+    {
+        // ── (a) a tab bar: three headers switching three stacked cards ────────────────────────────
+        string[] tabLabels = ["Overview", "Details", "Notes"];
+        string[][] tabBody =
+        [
+            ["Three cards live at this exact position.", "Only this one is on screen."],
+            ["The other two are PARKED off-screen:", "moved, never hidden or torn down."],
+            ["So switching back is one transform write.", "No re-layout, no first-frame flicker."],
+        ];
+
+        var headers = new (Entity entity, Vector2 size)[tabLabels.Length];
+        var cards = new Entity[tabLabels.Length];
+        for (var i = 0; i < tabLabels.Length; i++)
+        {
+            headers[i] = MakeButton($"panel.tab.{i}", tabLabels[i], ButtonVariant.Tertiary,
+                tabIndex: 60 + i, contentTab: TabPanels);
+
+            cards[i] = MakePanelCard(tabLabels[i], tabBody[i], PanelCardPos, PanelCardW, PanelCardH);
+            // A focusable inside the card: parked panels are inert, so keyboard nav can never walk
+            // into the two cards the player cannot see (PanelGroupSystem gates them).
+            var (action, actionSize) = MakeButton($"panel.act.{i}", $"{tabLabels[i]} action",
+                ButtonVariant.Secondary, tabIndex: 63 + i, contentTab: TabPanels);
+            action.SetParent(cards[i]);
+            action.Get<TransformComponent>().Position =
+                new Vector2(PanelCardW - actionSize.X - 20f, PanelCardH - actionSize.Y - 18f);
+        }
+
+        PlaceRow(headers, centerX: 0f, y: PanelsHeaderY, gap: 14f);
+
+        _panelTabHeaders = new Entity[headers.Length];
+        for (var i = 0; i < headers.Length; i++) _panelTabHeaders[i] = headers[i].entity;
+
+        _panelTabs = _world.CreateEntity();
+        _panelTabs.Set(new PanelGroupComponent { Members = cards, Active = _panelTabIndex });
+
+        // ── (b) a paged settings menu on the SAME component ───────────────────────────────────────
+        // Prev/Next walk the pages; Close/Open sets Active = None — a closed menu is a panel group
+        // with no active member, not a special case (every page parks, the pager row stays live).
+        string[] pageTitles = ["General", "Audio", "Video"];
+        string[] pageOptions = ["remember window size", "mute when unfocused", "vertical sync"];
+        var pages = new Entity[PanelPageCount];
+        for (var i = 0; i < PanelPageCount; i++)
+        {
+            pages[i] = MakePanelCard($"{pageTitles[i]} settings",
+                ["This page keeps its state while parked —", "tick a box, leave, come back."],
+                PanelPagePos, PanelPageW, PanelPageH);
+
+            var (option, optionSize) = MakeCheckbox($"settings.opt.{i}", pageOptions[i],
+                initiallyOn: i == 0, tabIndex: 74 + i, contentTab: TabPanels);
+            option.SetParent(pages[i]);
+            option.Get<TransformComponent>().Position =
+                new Vector2(PanelPageW - optionSize.X - 20f, PanelPageH - optionSize.Y - 14f);
+        }
+
+        _settingsPages = _world.CreateEntity();
+        _settingsPages.Set(new PanelGroupComponent { Members = pages, Active = _settingsPageIndex });
+
+        // Pager chrome: NOT members — it must stay on screen while every page is parked.
+        var prev = MakeButton("settings.prev", "Prev", ButtonVariant.Secondary, 70, TabPanels);
+        var next = MakeButton("settings.next", "Next", ButtonVariant.Secondary, 71, TabPanels);
+        // Built with the wider of the two captions so swapping the text never overflows the box.
+        var toggle = MakeButton("settings.toggle", "Close menu", ButtonVariant.Primary, 72, TabPanels);
+        _settingsToggleLabel = _lastButtonText;
+        PlaceRow([prev, next, toggle], centerX: 0f, y: PanelsPagerY, gap: 18f);
+
+        _settingsPageLabel = MakePanelText($"Page 1 / {PanelPageCount}", default,
+            new Vector2(0f, PanelsPagerY - 34f), 0.18f, DemoPalette.TextSelected);
+    }
+
+    /// One panel of a group: a root entity carrying nothing but a transform (what the park moves)
+    /// with the card mesh + its text parented under it, so the whole panel rides one position.
+    private Entity MakePanelCard(string title, string[] lines, Vector2 position, int width, int height)
+    {
+        var root = _world.CreateEntity();
+        root.Set(new TransformComponent(position));
+
+        var card = _world.CreateEntity();
+        card.Set(new TransformComponent(Vector2.Zero));
+        card.SetParent(root);
+        var draw = new DrawComponent { Type = DrawElementType.Mesh, Target = RenderTargetID.Main, LayerDepth = 0.50f };
+        draw.SetMeshData(new CompositeMeshGenerator()
+            .Add(new FilledRoundedRectangleMeshGenerator(new Rectangle(0, 0, width, height), 12f, DemoPalette.DarkBgSecondary))
+            .Add(new RoundedRectangleOutlineMeshGenerator(new Rectangle(0, 0, width, height), 12f, 2f, DemoPalette.TextLight)));
+        card.Set(draw);
+        card.Set(new TabContentComponent { TabIndex = TabPanels });
+
+        MakePanelText(title, root, new Vector2(20f, 16f), 0.22f, DemoPalette.TextSelected);
+        for (var i = 0; i < lines.Length; i++)
+            MakePanelText(lines[i], root, new Vector2(20f, 52f + i * 22f), 0.15f, DemoPalette.TextLight);
+
+        return root;
+    }
+
+    /// A Panels-tab label. With a live <paramref name="parent"/> the position is local to that panel
+    /// (so it parks with it); without one the label is screen chrome and <paramref name="position"/>
+    /// is a world position whose X centres the text.
+    private Entity MakePanelText(string text, Entity parent, Vector2 position, float scale, Color color)
+    {
+        var entity = _world.CreateEntity();
+        var placed = parent.IsAlive
+            ? position
+            : new Vector2(position.X - _font.MeasureString(text).Width * scale / 2f, position.Y);
+        entity.Set(new TransformComponent(placed));
+        if (parent.IsAlive) entity.SetParent(parent);
+        entity.Set(new DynamicTextComponent
+        {
+            Target = RenderTargetID.Main, LayerDepth = 0.60f, TextContent = text, Font = _font,
+            Color = color, Scale = scale, IsRevealed = true, VisibleCharacterCount = int.MaxValue,
+        });
+        entity.Set(new TabContentComponent { TabIndex = TabPanels });
+        return entity;
+    }
+
     // ─── widget builders ─────────────────────────────────────────────────────────
 
     /// Creates a button entity (outline + fill mesh via SimpleButtonComponent, state via
@@ -1245,6 +1444,33 @@ public class UiDemoScreen : IGameScreen
         else if ((msg.Id == "dialog-confirm" || msg.Id == "dialog-cancel") && _dialog.IsAlive)
             _dialog.Get<DialogComponent>().IsOpen = false;
 
+        // ── Panel groups (Panels tab) ───────────────────────────────────────────────
+        // The click handler only remembers WHICH member should be active; TickPanelsTab writes it
+        // onto the PanelGroupComponent and PanelGroupSystem does the parking. No screen code ever
+        // moves, hides, or rebuilds a panel — that is the whole point of the primitive.
+        const string panelTabPrefix = "panel.tab.";
+        if (msg.Id != null && msg.Id.StartsWith(panelTabPrefix, StringComparison.Ordinal)
+            && int.TryParse(msg.Id[panelTabPrefix.Length..], out var panelIndex)
+            && panelIndex >= 0 && panelIndex < _panelTabHeaders.Length)
+        {
+            _panelTabIndex = panelIndex;
+        }
+
+        switch (msg.Id)
+        {
+            case "settings.prev":
+                _settingsPageIndex = (_settingsPageIndex + PanelPageCount - 1) % PanelPageCount;
+                _settingsMenuOpen = true;
+                break;
+            case "settings.next":
+                _settingsPageIndex = (_settingsPageIndex + 1) % PanelPageCount;
+                _settingsMenuOpen = true;
+                break;
+            case "settings.toggle":
+                _settingsMenuOpen = !_settingsMenuOpen;
+                break;
+        }
+
         // ── Dropdown (Windows tab) ──────────────────────────────────────────────────
         if (_dropdown.IsAlive)
         {
@@ -1406,6 +1632,11 @@ public class UiDemoScreen : IGameScreen
             g.Add("textInput", new TextInputSystem(_world));
             g.Add("tabs", new TabSystem(_world));
             g.Add("tick", new UiDemoTickSystem(this)); // sets ScrollViewComponent.Enabled before ScrollViewSystem reads it
+            // Exclusive panel groups: AFTER the tick that writes each group's active member and
+            // AFTER TabSystem (whose per-tab focus gate this refines for the panels' own
+            // focusables), and — via the group's position in the pipeline — before HierarchySystem,
+            // so a park reaches the panel's children in the same frame.
+            g.Add("panelGroups", new PanelGroupSystem(_world));
             // Overlay widget systems (show/hide + focus-gate): mirror TabSystem; modal focus is the
             // ComputeActiveGroup accessor above, not these systems.
             g.Add("dialogs", new DialogSystem(_world));

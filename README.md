@@ -53,6 +53,16 @@ dotnet run
 
 `monodreams list` shows every module and preset; `--verbose` adds deps and NuGet refs.
 
+Both `init` and `add` spell "which project" the same way — `--dir <path>` (`--project` still
+works as a deprecated alias). Unrecognized options are rejected by name rather than mistaken
+for a module or a path:
+
+```console
+$ monodreams add rendering --dryrun
+error: unknown option '--dryrun' for `monodreams add`. Did you mean '--dry-run'?
+       Run `monodreams add --help` for the options it accepts.
+```
+
 ## The 14 modules
 
 ```
@@ -66,8 +76,8 @@ foundation              required base — installed by `monodreams init`
 │   ├── level-ldtk      load LDtk-exported levels
 │   └── ui              flexbox layout, builders, button primitives
 │       └── dialogue    YarnSpinner integration
-├── physics             velocity + gravity, decoupled from collision
-├── collision           AABB + SAT detection, message-based responses
+├── physics             velocity + gravity, usable without collision
+│   └── collision       AABB + SAT detection, message-based responses
 ├── level-loading       LoadLevelRequest, EntitySpawnRequest plumbing
 ├── level-editor        in-game Edit run mode over the real pipeline (scaffold)
 └── audio               one-shot SFX, loops, interruptible sources (desktop + web)
