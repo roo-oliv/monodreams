@@ -141,6 +141,52 @@ public class ViewportInsetTests
         Assert.Null(vm.ScaleMouseToVirtualCoordinates(new Vector2(800, 890)));    // bottom strip
     }
 
+    // ---- The forward map: virtual → screen, the exact inverse of the mouse mapping ----
+
+    /// <summary>
+    /// <c>ScaleVirtualToScreenCoordinates</c> answers "where would a real mouse sitting on this
+    /// virtual point be, in backbuffer pixels?" — what an injection channel (the `debug` module's
+    /// pointer replay) needs to fill <c>CursorInputComponent.ScreenPosition</c>, which every chrome
+    /// hit-test reads raw. It must be the exact inverse of <c>ScaleMouseToVirtualCoordinates</c>
+    /// through the same inset/letterbox rectangle, or the two spaces drift.
+    /// </summary>
+    [Fact]
+    public void VirtualToScreen_IsTheInverseOfTheMouseMapping()
+    {
+        var vm = Manager(1600, 900);
+        vm.SetViewportInset(0, Top, Right, Bottom);
+        var dest = vm.DestinationRectangle; // (105, 44, 1109, 832)
+
+        // Virtual origin sits at the inset viewport's top-left corner...
+        Assert.Equal(new Vector2(dest.X, dest.Y), vm.ScaleVirtualToScreenCoordinates(Vector2.Zero));
+
+        // ...and the virtual centre at the viewport's centre.
+        var centre = vm.ScaleVirtualToScreenCoordinates(new Vector2(400, 300));
+        Assert.Equal(dest.X + dest.Width / 2f, centre.X, 1);
+        Assert.Equal(dest.Y + dest.Height / 2f, centre.Y, 1);
+
+        // Round-trip through the mouse mapping lands back on the authored point.
+        var back = vm.ScaleMouseToVirtualCoordinates(centre);
+        Assert.NotNull(back);
+        Assert.Equal(400f, back.Value.X, 1);
+        Assert.Equal(300f, back.Value.Y, 1);
+    }
+
+    /// <summary>A device-resolution backbuffer (macOS Retina under the editor run flag: the window is
+    /// the same physical size but <c>ScreenWidth/Height</c> are 2× device pixels) doubles the mapped
+    /// screen point. This is what keeps an injected pointer and the chrome — laid out in the same
+    /// device pixels — agreeing at any <c>DevicePixelRatio</c>.</summary>
+    [Fact]
+    public void VirtualToScreen_FollowsADeviceResolutionBackbuffer()
+    {
+        var logical = Manager(800, 600);   // 4:3 window, 4:3 virtual → viewport fills it, scale 1
+        var retina = Manager(1600, 1200);  // the same window at 2× device pixels
+        retina.DevicePixelRatio = 2f;
+
+        Assert.Equal(new Vector2(100, 50), logical.ScaleVirtualToScreenCoordinates(new Vector2(100, 50)));
+        Assert.Equal(new Vector2(200, 100), retina.ScaleVirtualToScreenCoordinates(new Vector2(100, 50)));
+    }
+
     // ---- Pixel-perfect mode computes its integer-scaled rect inside the same available area ----
 
     [Fact]

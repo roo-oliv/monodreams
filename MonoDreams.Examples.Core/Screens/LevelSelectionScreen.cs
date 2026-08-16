@@ -364,11 +364,13 @@ public class LevelSelectionScreen : IGameScreen
         // Scripted mouse replay (issue #90): present only when debug/pointer_replay.json is — a normal
         // run builds nothing here. A scripted pointer owns BOTH cursor halves (the hardware read and
         // the screen→virtual→world derivation), and runs immediately after the cursor-input stage so
-        // ui.interaction reads the injected click the same frame a real one would be read.
+        // ui.interaction reads the injected click the same frame a real one would be read. The camera
+        // derives world coordinates from the authored virtual ones; the viewport manager maps those
+        // same coordinates forward into the backbuffer pixels ScreenPosition is contractually in.
         var pointerReplaySystem = PointerReplaySystem.TryLoad(
             PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
                 ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug"),
-            _world, _camera, requestExit: _game.Exit);
+            _world, _camera, _viewportManager, requestExit: _game.Exit);
         if (pointerReplaySystem != null)
         {
             cursorInputSystem.SkipHardwareRead = true;

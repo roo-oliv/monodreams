@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Debug.Input;
+using MonoDreams.Renderer;
 using MonoDreams.State;
 
 namespace MonoDreams.System.Debug;
@@ -32,7 +33,12 @@ namespace MonoDreams.System.Debug;
 /// <para><b>Coordinates are authoring space</b> (virtual resolution), never window pixels: the
 /// driver derives world coordinates through the screen's <c>Camera</c>. That is also what
 /// makes the driver work on a headless host, whose 1x1 backbuffer has no meaningful window-to-virtual
-/// mapping to invert.</para>
+/// mapping to invert. The one cursor field that is NOT in that space is <c>ScreenPosition</c>, which
+/// is backbuffer pixels by contract, so the driver maps the authored point forward through the
+/// screen's <c>ViewportManager</c> to fill it. A consequence worth stating: a plan can only address
+/// points inside the game viewport, so the editor shell's chrome — a toolbar or panel living in the
+/// inset margins, hit-tested in screen space — is not reachable from a pointer plan. Scripting the
+/// editor's own controls is <c>EditorOpReplaySystem</c>'s job, by action name.</para>
 ///
 /// <para><b>The plan is per-screen.</b> A driver belongs to the screen that composed it; a screen
 /// transition disposes it mid-plan (which is the normal end of a scenario that navigates away — the
@@ -57,6 +63,7 @@ public sealed class PointerReplaySystem : ISystem<GameState>
     // Fully qualified: `Camera` alone binds to the camera MODULE's namespace from inside
     // `MonoDreams.System.*` (the same reason `CursorPositionSystem` spells it out).
     private readonly MonoDreams.Component.Camera? _camera;
+    private readonly ViewportManager? _viewportManager;
     private readonly List<PointerCommand> _commands;
     private readonly int _tailFrames;
     private readonly Action? _requestExit;
@@ -78,7 +85,16 @@ public sealed class PointerReplaySystem : ISystem<GameState>
 
     // ── the log tap backing the waitUntil-on-log predicate ──────────────────────────────────
     private readonly object _logLock = new();
-    private readonly Queue<string> _logRing = new();
+    private readonly Queue<(long Seq, string Message)> _logRing = new();
+
+    /// <summary>Monotonic sequence stamped on every line the tap accepts, so a line stays identifiable
+    /// after the ring has evicted its neighbours.</summary>
+    private long _logSeq;
+
+    /// <summary>The oldest line sequence a <c>waitUntil log</c> may still match. A satisfied log wait
+    /// CONSUMES the line it matched by moving this past it — see <see cref="LogSeen"/>.</summary>
+    private long _logWatermark;
+
     private bool _sinkInstalled;
 
     public bool IsEnabled { get; set; } = true;
@@ -101,16 +117,22 @@ public sealed class PointerReplaySystem : ISystem<GameState>
     /// <summary>
     /// Builds a driver over <paramref name="plan"/>. <paramref name="camera"/> derives world
     /// coordinates from the authored virtual ones (null → world == authoring space, which is what a
-    /// unit test without a camera wants). <paramref name="requestExit"/> is invoked once, after the
-    /// plan drains plus <see cref="PointerReplayPlan.TailFrames"/> — omit it and the driver just stops
-    /// driving (a host that owns its own exit, like the frame-capped Demos host).
+    /// unit test without a camera wants). <paramref name="viewportManager"/> maps those same authored
+    /// virtual coordinates forward into the backbuffer pixels
+    /// <see cref="CursorInputComponent.ScreenPosition"/> is contractually in (null → the two spaces are
+    /// treated as one, again the unit-test case); pass the screen's real manager or an injected pointer
+    /// reports a screen position in the wrong space on any run where the two differ (a letterboxed
+    /// window, an editor inset, a Retina backbuffer). <paramref name="requestExit"/> is invoked once,
+    /// after the plan drains plus <see cref="PointerReplayPlan.TailFrames"/> — omit it and the driver
+    /// just stops driving (a host that owns its own exit, like the frame-capped Demos host).
     /// </summary>
     public PointerReplaySystem(World world, PointerReplayPlan plan, MonoDreams.Component.Camera? camera = null,
-        Action? requestExit = null)
+        ViewportManager? viewportManager = null, Action? requestExit = null)
     {
         _commands = plan?.Commands ?? new List<PointerCommand>();
         _tailFrames = Math.Max(0, plan?.TailFrames ?? 0);
         _camera = camera;
+        _viewportManager = viewportManager;
         _requestExit = requestExit;
         _cursors = world.GetEntities().With<CursorInputComponent>().AsSet();
         _named = world.GetEntities().With<EntityInfoComponent>().AsSet();
@@ -130,6 +152,7 @@ public sealed class PointerReplaySystem : ISystem<GameState>
     /// </summary>
     public static PointerReplaySystem? TryLoad(string debugDirectory, World world,
         MonoDreams.Component.Camera? camera = null,
+        ViewportManager? viewportManager = null,
         Action? requestExit = null)
     {
         var plan = PointerReplayPlan.TryLoad(debugDirectory);
@@ -140,7 +163,7 @@ public sealed class PointerReplaySystem : ISystem<GameState>
             return null;
         }
 
-        return new PointerReplaySystem(world, plan, camera, requestExit);
+        return new PointerReplaySystem(world, plan, camera, viewportManager, requestExit);
     }
 
     public void Update(GameState state)
@@ -280,13 +303,31 @@ public sealed class PointerReplaySystem : ISystem<GameState>
         return false;
     }
 
+    /// <summary>
+    /// Whether an unconsumed log line contains <paramref name="substring"/> — and, when one does,
+    /// CONSUMES it by moving the watermark past it so no later wait can be satisfied by the same line.
+    ///
+    /// <para>The watermark is what makes a repeated wait mean what it reads. In
+    /// <c>[click Save, waitUntil log="Scene saved", click Save, waitUntil log="Scene saved"]</c> an
+    /// unwatermarked scan makes the second wait pass instantly on the FIRST save's line, so the second
+    /// click fires ungated — the exact race <c>waitUntil</c> exists to remove.</para>
+    ///
+    /// <para>It is deliberately NOT reset to "now" when a wait starts: the line a wait gates on is
+    /// normally emitted by the command before it, downstream of this driver in a frame that has
+    /// already finished by the time the wait first runs. A start-of-wait snapshot would therefore skip
+    /// exactly the line the script is waiting for and every such wait would sit until its timeout.</para>
+    /// </summary>
     private bool LogSeen(string substring)
     {
         lock (_logLock)
         {
-            foreach (var message in _logRing)
-                if (message.Contains(substring, StringComparison.OrdinalIgnoreCase))
-                    return true;
+            foreach (var (seq, message) in _logRing)
+            {
+                if (seq < _logWatermark) continue;
+                if (!message.Contains(substring, StringComparison.OrdinalIgnoreCase)) continue;
+                _logWatermark = seq + 1;
+                return true;
+            }
         }
 
         return false;
@@ -301,7 +342,7 @@ public sealed class PointerReplaySystem : ISystem<GameState>
 
         lock (_logLock)
         {
-            _logRing.Enqueue(message);
+            _logRing.Enqueue((_logSeq++, message));
             while (_logRing.Count > LogRingCapacity) _logRing.Dequeue();
         }
     }
@@ -321,10 +362,16 @@ public sealed class PointerReplaySystem : ISystem<GameState>
             ref var input = ref entity.Get<CursorInputComponent>();
             input.PreviousWorldPosition = previousWorld;
             input.PreviousScreenPosition = previousScreen;
-            // The injected pointer addresses authoring space directly, so its "screen" position is
-            // that same authored point and it is by definition inside the viewport — a stale
-            // OutsideViewport = true would mute every world-space click.
-            input.ScreenPosition = _position;
+            // ScreenPosition is BACKBUFFER PIXELS by contract — CursorInputSystem scales the raw OS
+            // mouse by DevicePixelRatio precisely to keep it so, and the editor's chrome hit-tests read
+            // the field raw — while a plan authors in virtual space. So map the authored point FORWARD
+            // through the very letterbox/inset rectangle CursorPositionSystem inverts, rather than
+            // writing an authoring-space number into a device-pixel field (which lands a chrome
+            // hit-test at half the intended point the moment DevicePixelRatio is 2). With no viewport
+            // manager (a unit test) the two spaces coincide and the map is the identity.
+            input.ScreenPosition = _viewportManager?.ScaleVirtualToScreenCoordinates(_position) ?? _position;
+            // The injected pointer addresses authoring space directly, so it is by definition inside
+            // the viewport — a stale OutsideViewport = true would mute every world-space click.
             input.OutsideViewport = false;
             // Screen-space delta, the same quantity CursorInputSystem writes (ScreenPosition minus
             // last frame's) — consumers that test "did the pointer move" must read one meaning.

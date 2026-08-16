@@ -31,6 +31,10 @@ Nothing existing changes behaviour, but three source-owned modules gained surfac
   system's own key diff.
 - **`Cursor.ApplyPose`** (`cursor`) — the per-render-target cursor pose rule, extracted from
   `CursorPositionSystem` so the real mouse and an injected pointer place the cursor identically.
+- **`ViewportManager.ScaleVirtualToScreenCoordinates`** (`rendering`) — the exact inverse of
+  `ScaleMouseToVirtualCoordinates`, so an injection channel can fill
+  `CursorInputComponent.ScreenPosition` in the backbuffer pixels that field means (chrome
+  hit-tests read it raw, and it stays right at `DevicePixelRatio` 2).
 - **`GameTestRunner.RunAsync(…, pointerPlan:)`** writes the plan into the run's debug dir.
 
 ### Breaking — `level-loading` no longer depends on LDtk ([#54](https://github.com/roo-oliv/monodreams/issues/54))

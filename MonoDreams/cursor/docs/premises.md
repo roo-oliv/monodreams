@@ -219,13 +219,17 @@ downstream consumers read. A real-mouse session leaves it `false` (the default),
 existing screen is byte-identical.
 
 **Why:** an injection channel authors world-space intent (`WorldPosition` / `VirtualPosition`),
-not a window pixel, so the injected `ScreenPosition` is not a mappable in-viewport coordinate.
-Live derivation feeds that un-mapped `ScreenPosition` to
+not a window pixel. The editor-op channel's `ScreenPosition` is therefore not a mappable
+in-viewport coordinate at all; live derivation feeds it to
 `ViewportManager.ScaleMouseToVirtualCoordinates`, gets `null`, and clobbers the injection with
 `OutsideViewport = true` (and, whenever the injected screen position *does* happen to map,
 overwrites the injected virtual/world positions and the cursor transform with values derived
 from it). `SkipHardwareRead` alone therefore cannot deliver an injected cursor: the very next
-system in the canonical order undoes it.
+system in the canonical order undoes it. A channel that *does* keep `ScreenPosition` in its
+contractual space (`PointerReplaySystem`, which maps its authored point forward) still sets the
+flag: re-deriving through the float round-trip is at best a no-op and at worst drifts, and an
+authored point on the viewport edge round-trips to `null` — i.e. back to `OutsideViewport = true`
+on a click that was authored to be inside.
 **Breaks:** replay / editor-op cursor injection silently produces `OutsideViewport = true` plus
 stale or recomputed world coordinates — every world-space consumer treats the click as "over
 chrome, ignore it", picking and gizmo drags never fire, and mouse input replay is structurally
@@ -241,6 +245,35 @@ immune to consumers clearing the level fields" (the same injected path — its `
 fields are likewise not read when `SkipHardwareRead` is set; the injection channel owns the
 button edges the way `SkipDerivation` hands it the positions); "Cursor system order: input →
 position → draw prep" (the derivation this flag disables is stage two).
+
+## `CursorInputComponent.ScreenPosition` is backbuffer pixels, on the injected path too
+
+`ScreenPosition` has exactly one meaning engine-wide: **backbuffer pixels**. `CursorInputSystem`
+multiplies the raw OS mouse position (window points) by `ViewportManager.DevicePixelRatio` to hold
+that — 1 on an ordinary run, 2 behind a device-resolution backbuffer (macOS Retina under the editor
+run flag; see `level-editor`'s `EditorHiDpi`) — and everything that hit-tests *screen* space rather
+than world space reads the field raw: the editor's toolbar, panels, tab strips, dialogs and
+tooltips, plus `ViewportManager.ScaleMouseToVirtualCoordinates` itself. A channel that **injects** a
+cursor owes the field that same space: the `debug` module's `PointerReplaySystem` authors in virtual
+space and therefore maps forward through `ViewportManager.ScaleVirtualToScreenCoordinates` (the
+exact inverse of the mouse mapping) before writing it.
+
+**Why:** the field is the only shared space between the game's letterboxed viewport and the chrome
+drawn around it, so a single consistent unit is what lets one hit-test rule serve a real mouse, a
+scripted pointer and any window/DPI configuration. Two spaces in one field cannot be detected by a
+consumer — it just clicks the wrong thing.
+**Breaks:** writing a virtual-resolution point into `ScreenPosition` puts a chrome hit-test at half
+the intended position the moment `DevicePixelRatio` is 2, and at ratio 1 it silently lets a
+game-space click land on whatever chrome sits at the same numbers. (The `level-editor`'s
+`EditorOpReplaySystem` injects world coordinates there by design — it drives the editor by *op*, not
+by chrome hit-test — so its `ScreenPosition` is explicitly not a chrome coordinate.)
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`ScreenPosition_IsMappedIntoBackbufferPixels_NotTheAuthoredVirtualPoint`);
+`MonoDreams.Tests/Rendering/ViewportInsetTests.cs`
+(`VirtualToScreen_IsTheInverseOfTheMouseMapping`,
+`VirtualToScreen_FollowsADeviceResolutionBackbuffer`).
+**Depends on:** "`SkipDerivation` lets an injection channel own the cursor's derived positions";
+debug — "Pointer coordinates are authoring space, and time is frames".
 
 ## Open questions
 

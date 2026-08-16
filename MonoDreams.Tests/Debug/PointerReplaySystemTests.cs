@@ -7,6 +7,7 @@ using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
 using MonoDreams.Debug.Input;
 using MonoDreams.Draw;
+using MonoDreams.Renderer;
 using MonoDreams.State;
 using MonoDreams.System.Debug;
 using MonoDreams.UI;
@@ -97,6 +98,55 @@ public class PointerReplaySystemTests
 
         Assert.Equal(camera.VirtualScreenToWorld(new Vector2(100, 200)),
             cursor.Get<TransformComponent>().Position);
+    }
+
+    /// <summary>
+    /// Authored coordinates are virtual space, but <c>ScreenPosition</c> is BACKBUFFER PIXELS by
+    /// contract — <c>CursorInputSystem</c> scales the OS mouse by <c>DevicePixelRatio</c> to keep it
+    /// there and the editor's chrome hit-tests read it raw. So the driver maps the authored point
+    /// forward through the screen's <see cref="ViewportManager"/> rather than writing a virtual number
+    /// into a device-pixel field, which on a 2× backbuffer would land every chrome hit-test at half the
+    /// intended point. <c>Delta</c> follows into the same space, exactly as the hardware path computes it.
+    /// </summary>
+    [Fact]
+    public void ScreenPosition_IsMappedIntoBackbufferPixels_NotTheAuthoredVirtualPoint()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        // A 2× device-resolution backbuffer behind an 800x600-point window (the Retina editor shape):
+        // 4:3 virtual in a 4:3 backbuffer → the viewport fills it and the scale is exactly 2.
+        var viewportManager = new ViewportManager(null, 800, 600) { ScreenWidth = 1600, ScreenHeight = 1200 };
+
+        using var driver = new PointerReplaySystem(world, Plan(0,
+                new PointerCommand { Kind = PointerCommandKind.Move, X = 100, Y = 50 },
+                new PointerCommand { Kind = PointerCommandKind.Move, X = 300, Y = 50 }),
+            camera: null, viewportManager);
+
+        Run(driver, 1);
+        ref readonly var first = ref cursor.Get<CursorInputComponent>();
+        Assert.Equal(new Vector2(100, 50), first.VirtualPosition);   // authoring space, untouched
+        Assert.Equal(new Vector2(200, 100), first.ScreenPosition);   // …and device pixels here
+
+        Run(driver, 1);
+        ref readonly var second = ref cursor.Get<CursorInputComponent>();
+        Assert.Equal(new Vector2(600, 100), second.ScreenPosition);
+        Assert.Equal(new Vector2(400, 0), second.Delta);             // screen-space delta, like the hardware path
+    }
+
+    /// <summary>Without a viewport manager (a unit test, or a host with no letterbox to speak of) the
+    /// two spaces coincide and the map is the identity — the documented fallback, not a second
+    /// coordinate convention.</summary>
+    [Fact]
+    public void ScreenPosition_WithoutAViewportManager_IsTheAuthoredPoint()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        using var driver = new PointerReplaySystem(world, Plan(0,
+            new PointerCommand { Kind = PointerCommandKind.Move, X = 100, Y = 50 }));
+
+        Run(driver, 1);
+
+        Assert.Equal(new Vector2(100, 50), cursor.Get<CursorInputComponent>().ScreenPosition);
     }
 
     // ── buttons ─────────────────────────────────────────────────────────────────────────────
@@ -231,8 +281,8 @@ public class PointerReplaySystemTests
     }
 
     /// <summary>The log predicate reads the driver's <c>Logger.LineSink</c> tap: a line written after
-    /// the driver was built satisfies it. (The driver's own stage markers go through the same tap,
-    /// which is what lets a script wait on a stage it just announced.)</summary>
+    /// the driver was built satisfies it. (The driver's own <c>[pointer]</c> narration is excluded from
+    /// that tap, so announcing <c>waitUntil log="level ready"</c> cannot satisfy itself.)</summary>
     [Fact]
     public void WaitUntilLog_IsSatisfiedByALineWrittenWhileTheDriverRuns()
     {
@@ -251,6 +301,58 @@ public class PointerReplaySystemTests
         driver.Update(state);
         driver.Update(state);
         Assert.True(cursor.Get<CursorInputComponent>().LeftButtonPressed);
+    }
+
+    /// <summary>The watermark: a second <c>waitUntil log</c> on the same substring must gate on a
+    /// SECOND line, not pass instantly on the one the first wait already matched. Without it,
+    /// <c>[click Save, waitUntil "Scene saved", click Save, waitUntil "Scene saved"]</c> fires its
+    /// second click ungated — the precise race the command exists to remove.</summary>
+    [Fact]
+    public void WaitUntilLog_DoesNotReuseTheLineAnEarlierWaitAlreadyMatched()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        using var driver = new PointerReplaySystem(world, Plan(0,
+            new PointerCommand { Kind = PointerCommandKind.WaitUntil, Log = "Scene saved", TimeoutFrames = 1000 },
+            new PointerCommand { Kind = PointerCommandKind.WaitUntil, Log = "Scene saved", TimeoutFrames = 1000 },
+            new PointerCommand { Kind = PointerCommandKind.Click }));
+
+        var state = Frame();
+        Logger.Info("Scene saved to disk.");
+
+        // The first wait consumes that line; the second must still be pending, so no click yet.
+        for (var i = 0; i < 6; i++) driver.Update(state);
+        Assert.False(cursor.Get<CursorInputComponent>().LeftButton);
+
+        Logger.Info("Scene saved to disk."); // the second save
+
+        driver.Update(state); // second wait satisfied
+        driver.Update(state); // click runs
+        Assert.True(cursor.Get<CursorInputComponent>().LeftButtonPressed);
+    }
+
+    /// <summary>The other half of the watermark rule: it advances only on a MATCH, never to "now" when
+    /// a wait starts. The line a wait gates on is normally written by the command before it —
+    /// downstream of this driver, in a frame that has already finished by the time the wait first runs
+    /// — so a start-of-wait snapshot would skip exactly the line the script waits for.</summary>
+    [Fact]
+    public void WaitUntilLog_MatchesALineWrittenBeforeTheWaitStarted()
+    {
+        using var world = new World();
+        var cursor = MakeCursor(world);
+        using var driver = new PointerReplaySystem(world, Plan(0,
+            new PointerCommand { Kind = PointerCommandKind.Click },
+            new PointerCommand { Kind = PointerCommandKind.WaitUntil, Log = "Scene saved", TimeoutFrames = 1000 },
+            new PointerCommand { Kind = PointerCommandKind.Click, Button = PointerButton.Right }));
+
+        var state = Frame();
+        driver.Update(state);                  // the click's press frame
+        Logger.Info("Scene saved to disk.");   // what the click caused, logged after the driver ran
+        driver.Update(state);                  // the click's release frame
+        driver.Update(state);                  // the wait runs for the first time — and is satisfied
+        driver.Update(state);                  // the gated command runs
+
+        Assert.True(cursor.Get<CursorInputComponent>().RightButtonPressed);
     }
 
     /// <summary>The driver owns the <c>Logger.LineSink</c> socket while it lives and releases it on

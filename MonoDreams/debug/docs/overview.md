@@ -16,7 +16,7 @@ When debugging an ECS game, the visible bug ("the player passes through walls") 
 
 Both overlay systems draw through the standard `DrawComponent` path (transient `Type = Mesh` entities), not via parallel `SpriteBatch` calls — they ride `MasterRenderSystem` like everything else.
 
-- `PointerReplaySystem(world, plan, camera, requestExit)` / `PointerReplaySystem.TryLoad(debugDir, world, camera, requestExit)` — **scripted mouse replay**: drives a `PointerReplayPlan` (`debug/pointer_replay.json`) of `move` / `click` / `wheel` / `type` / `waitUntil` / `label` commands by injecting into the real `CursorInputComponent`. `TryLoad` returns `null` without the file. See [Pointer replay](#pointer-replay)
+- `PointerReplaySystem(world, plan, camera, viewportManager, requestExit)` / `PointerReplaySystem.TryLoad(debugDir, world, camera, viewportManager, requestExit)` — **scripted mouse replay**: drives a `PointerReplayPlan` (`debug/pointer_replay.json`) of `move` / `click` / `wheel` / `type` / `waitUntil` / `label` commands by injecting into the real `CursorInputComponent`. `TryLoad` returns `null` without the file. See [Pointer replay](#pointer-replay)
 
 ### Profiling
 
@@ -67,10 +67,12 @@ See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadL
 | `click` | `x`, `y`, `button`, `hold` | `hold` + 1 | Optional move first; `button` is `left` (default) / `right` / `middle`; the button stays down `hold` frames (default 1), so a press-edge consumer AND a release-edge consumer both see it. |
 | `wheel` | `delta` | 1 | Raw wheel units — 120 per detent, the value consumers divide by. |
 | `type` | `text` | 2 per character | Synthesized key presses, one every two frames so an edge-triggered reader sees repeats. `a-z`, `0-9`, space. |
-| `waitUntil` | one of `entity` / `log` / `frames`, plus `timeoutFrames` | until satisfied | The stage gate. `entity` = an entity whose `EntityInfoComponent` type/name matches exists; `log` = a log line containing this substring has appeared since the driver started; `frames` = idle. Times out (default 600) with an `ERROR` line and continues. |
+| `waitUntil` | one of `entity` / `log` / `frames`, plus `timeoutFrames` | until satisfied | The stage gate. `entity` = an entity whose `EntityInfoComponent` type/name matches exists; `log` = an **unconsumed** log line contains this substring; `frames` = idle. Times out (default 600) with an `ERROR` line and continues. |
 | `label` | `text` | 1 | A stage marker in the log, so screenshots and log lines correlate per stage. |
 
 `waitUntil` is the load-bearing command, not decoration: without stage gating a script races the game it is driving ("don't click Submit until the dialog exists") and flakes.
+
+**A `log` wait consumes the line it matched.** The driver keeps a watermark over its log ring and moves it past every line a wait matches, so in `[click Save, waitUntil "Scene saved", click Save, waitUntil "Scene saved"]` the second wait gates on the *second* save instead of passing instantly on the first one's line (which would fire the second click ungated — the exact race the command exists to remove). The watermark is **not** reset when a wait starts: the line a wait gates on is usually written by the command before it, downstream of the driver in a frame that has already finished, so a start-of-wait snapshot would skip precisely the line being waited for.
 
 ### Wiring it into a screen
 
@@ -78,7 +80,7 @@ See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadL
 var cursorInput    = new CursorInputSystem(world, viewportManager);
 var cursorPosition = new CursorPositionSystem(world, camera, viewportManager);
 
-var pointer = PointerReplaySystem.TryLoad(debugDir, world, camera, requestExit: game.Exit);
+var pointer = PointerReplaySystem.TryLoad(debugDir, world, camera, viewportManager, requestExit: game.Exit);
 if (pointer != null)
 {
     cursorInput.SkipHardwareRead = true;    // the hardware read must not overwrite the injection
@@ -101,9 +103,13 @@ var textInput = new TextInputSystem(world) { KeyboardStateProvider = pointer.Rea
 
 ### Why it injects instead of simulating
 
-The driver writes the same `CursorInputComponent` a real mouse fills — position, button levels, the press/release edges, the scroll accumulator — and places the cursor entity through `Cursor.ApplyPose`, the same per-render-target pose rule `CursorPositionSystem` applies. Everything downstream (hover, picking, UI focus, buttons, scroll views, the editor's own tools) therefore runs unchanged. A driver that instead called `button.OnClick()` would verify the driver, not the game.
+The driver writes the same `CursorInputComponent` a real mouse fills — position, button levels, the press/release edges, the scroll accumulator — and places the cursor entity through `Cursor.ApplyPose`, the same per-render-target pose rule `CursorPositionSystem` applies. Everything downstream in the game (hover, picking, UI focus, buttons, scroll views) therefore runs unchanged. A driver that instead called `button.OnClick()` would verify the driver, not the game.
 
 Coordinates are **authoring space**, never window pixels, for two reasons: a script then survives a resize or a resolution change, and a headless host (whose backbuffer is 1x1) has no meaningful window-to-virtual mapping to invert. World coordinates are derived from the authored ones through the screen's camera.
+
+The one cursor field that is *not* in that space is `ScreenPosition`, which is **backbuffer pixels** by contract — `CursorInputSystem` scales the raw OS mouse by `ViewportManager.DevicePixelRatio` precisely to keep it there. So the driver maps the authored point forward through `ViewportManager.ScaleVirtualToScreenCoordinates` (the exact inverse of the mouse mapping) instead of writing an authoring-space number into a device-pixel field. Pass the screen's viewport manager or that mapping is the identity, which is only true when the two spaces already coincide.
+
+**What a pointer plan cannot reach.** Because an authored point is virtual-space, it maps *inside the game viewport* by construction — the editor shell's chrome (toolbar, panels, tabs) lives in the inset margins and is hit-tested in screen space, so it is not addressable from a pointer plan at all. That is deliberate, not a gap to fill here: scripting the editor's own controls is `EditorOpReplaySystem`'s job, by action name (see below).
 
 ### From a test
 

@@ -425,21 +425,41 @@ clock is likewise a **frame counter it owns**, not `GameState.TotalTime` and not
 each command occupies whole frames (a `move` one, a `click` `hold`+1, a `type` two per character,
 a `waitUntil` as many as its predicate needs).
 
+The one cursor field that is **not** in authoring space is `CursorInputComponent.ScreenPosition`,
+which is backbuffer pixels by contract, so the driver maps the authored point *forward* through
+`ViewportManager.ScaleVirtualToScreenCoordinates` — the exact inverse of the mouse mapping
+`CursorPositionSystem` applies — rather than writing an authoring-space number into it. A direct
+consequence, and the honest limit of the channel: an authored point always lands inside the game
+viewport, so the editor shell's chrome (toolbar, panels, tabs — laid out and hit-tested in screen
+space, in the inset margins) is **not addressable from a pointer plan**. Scripting the editor's own
+controls is `EditorOpReplaySystem`'s job, by action name.
+
 **Why:** a script that named window pixels would break on every resize, window-mode change and
 resolution bump — the exact fragility the two-space model exists to remove — and it could not run
 at all on a headless host, whose 1x1 backbuffer has no meaningful window-to-virtual mapping to
 invert. Frame counting is what makes two runs of the same plan identical: under a variable
 timestep (headless runs at max speed, a loaded CI machine does not) a time-based script executes
 a different number of frames per command every run, which is how a scripted scenario becomes a
-flaky test.
+flaky test. And `ScreenPosition` has exactly one meaning across the engine — `CursorInputSystem`
+multiplies the raw OS mouse by `DevicePixelRatio` to hold it, and every chrome hit-test reads the
+field raw — so a channel that fills it owes it that space.
 **Breaks:** authoring in window pixels makes every scripted scenario a resolution-specific
 artifact and makes headless scripting impossible. Scheduling on `TotalTime` makes stage boundaries
 land on different frames run to run, so a click can arrive before the frame that laid the button
-out.
+out. Writing the authored virtual point straight into `ScreenPosition` puts two spaces in one
+field: on a device-resolution backbuffer (macOS Retina under the editor run flag, `DevicePixelRatio
+= 2`) every chrome hit-test then reads half the intended point, and at ratio 1 a game click can
+spuriously land on whatever chrome happens to sit at those screen coordinates.
 **Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
 (`Move_WritesVirtualWorldAndTransform_ThroughTheRealPoseRule` asserts the camera-derived world
-position differs from the authored one; the click/hold/type tests pin the per-frame cadence).
-**Depends on:** rendering — the camera's virtual-resolution contract.
+position differs from the authored one; the click/hold/type tests pin the per-frame cadence;
+`ScreenPosition_IsMappedIntoBackbufferPixels_NotTheAuthoredVirtualPoint` and
+`ScreenPosition_WithoutAViewportManager_IsTheAuthoredPoint` pin the screen-space half);
+`MonoDreams.Tests/Rendering/ViewportInsetTests.cs`
+(`VirtualToScreen_IsTheInverseOfTheMouseMapping`,
+`VirtualToScreen_FollowsADeviceResolutionBackbuffer`).
+**Depends on:** rendering — the camera's virtual-resolution contract; cursor —
+"`CursorInputComponent.ScreenPosition` is backbuffer pixels, on the injected path too".
 
 ## A pointer plan gates on observables, times out, and drains into an exit
 
@@ -452,6 +472,12 @@ after `tailFrames`, the driver invokes `requestExit` exactly once. The log-line 
 bounded ring fed by `Logger.LineSink`, and that ring deliberately **excludes the driver's own
 `[pointer]` lines**.
 
+A log wait also **consumes** the line it matched: the driver holds a watermark over the ring and
+moves it past that line, so no later wait can be satisfied by it. The watermark advances only on a
+match — never to "now" when a wait starts — because the line a wait gates on is normally written by
+the command before it, downstream of the driver in a frame that has already finished by the time
+the wait first runs.
+
 **Why:** without stage gating a script races the game it drives ("click Submit before the dialog
 exists") and flakes; that is the single lesson the game-side original contributed. Continuing on
 timeout instead of hanging is what turns a broken scenario into a diagnosable log line rather than
@@ -459,15 +485,21 @@ a CI timeout with no artifacts. Auto-exit on drain is the input replay's contrac
 makes an unattended agentic run terminate on its own. Excluding the driver's own lines is not
 tidiness: the announcement `waitUntil log="level ready"` *contains* `level ready`, so recording it
 would satisfy every log predicate on the frame it starts — a wait that always passes is worse than
-no wait.
+no wait. The consuming watermark exists for the same reason one step further out: a scan over
+everything since construction makes the second of two identical waits pass instantly on the first
+one's line, so the command it gates fires ungated.
 **Breaks:** an un-timed-out wait hangs the run and the harness kills the process, losing the exit
 code and often the log tail. A plan that never requests exit leaves an unattended run alive until
 the harness timeout. Recording the driver's own narration makes `waitUntil log` a no-op that still
-looks like it worked.
+looks like it worked. An unwatermarked (or start-of-wait-snapshotted) log predicate breaks the two
+common shapes in opposite directions: repeated waits pass instantly, or every wait sits until its
+timeout because the line it wanted arrived one frame before it started.
 **Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
 (`WaitUntilEntity_BlocksTheScriptUntilTheEntityExists`,
 `WaitUntilEntity_TimesOut_AndTheScriptContinues`,
 `WaitUntilLog_IsSatisfiedByALineWrittenWhileTheDriverRuns`,
+`WaitUntilLog_DoesNotReuseTheLineAnEarlierWaitAlreadyMatched`,
+`WaitUntilLog_MatchesALineWrittenBeforeTheWaitStarted`,
 `DrainedPlan_RequestsExitOnce_AfterTheTail`);
 `MonoDreams.Tests/IntegrationTests/PointerReplayTests.cs`
 (`WaitUntilThatNeverComesTrue_TimesOutAndTheRunStillEndsItself`).
