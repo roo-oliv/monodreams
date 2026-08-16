@@ -153,6 +153,102 @@ live render at 1.5× in
 destination"; "`Camera.VirtualResolution` is immutable"; cursor — "Cursor
 `TransformComponent.Position` depends on render target".
 
+## Presentation scaling is a declared policy, resolved in one place
+
+How the window-vs-render-resolution conflict is resolved is a **declared policy**
+(`ViewportManager.Policy`, a `PresentationPolicy`), not per-game plumbing and not a
+per-layer improvisation. `ViewportManager.Recalculate` runs its chain — in the declared
+preference order — over the area left for the game viewport (the window minus any
+viewport inset), and the winner produces the ONE `DestinationRectangle` that
+`FinalDrawSystem` composites into and `MapMouse` inverts:
+
+1. **Overscan to a clean scale** (`AllowOverscan`) — spend up to `OverscanTolerance` of
+   extra scale to reach the clean step ABOVE the aspect-fit scale. The frame then
+   overflows the window and its edges leave the screen, which is why that tolerance is a
+   GAMEPLAY dial: the honest way to spend it is to render that much more world, and
+   `PresentationPolicy.ResolveRenderSize(design, window)` is the other end of the same dial
+   — it returns the render resolution at which the clean present has ZERO overflow, so the
+   extra scale becomes extra view. That resolution is a boot-time decision (render targets,
+   per-pass cameras and the back buffer all follow `VirtualWidth`/`VirtualHeight`), never a
+   per-frame one.
+2. **Letter/pillarbox at a clean scale** (`AllowLetterbox`) — drop to the clean step BELOW
+   the aspect-fit scale and pad with bars, as long as the drop costs no more than
+   `LetterboxTolerance`.
+3. **Stretch** (`AllowStretch`) — the exact aspect-fit rectangle at a fractional scale: the
+   historical present, and the only step that resamples at an arbitrary ratio.
+
+"Clean" is the ladder `CleanScaleSteps` names: whole steps (…, 1/3, 1/2, 1, 2, 3, …), or
+whole **and half** steps (…, 1/1.5, 1, 1.5, 2, …) — a half step repeats a fixed 1-2-1-2
+pixel pattern rather than an arbitrary one. A fit scale that is already clean is presented
+as-is (reported as `Letterbox`; bars only from an aspect mismatch). The chain always
+terminates: with `AllowStretch` off the last resort is the clean step below, bars and all.
+**Overscan is vetoed while a viewport inset is active** — a frame grown past the game
+viewport would paint over the editor chrome reserved around it — but the rest of the chain
+still applies inside the inset area.
+
+**The policy never touches a camera.** It moves and resizes the DESTINATION the finished
+render targets are composited into — after every pass has already drawn. A pass's camera
+virtual resolution must still equal its destination target's size (see "A render pass's
+camera virtual resolution matches its destination"), and the authoring→render ratio is
+still `RenderScale`, applied only in the cameras. `PresentScale` (destination width over
+`VirtualWidth`) is a THIRD, later number: the two compose as `RenderScale × PresentScale`
+authoring units per screen pixel. The one place the policy reaches back into the camera
+contract is `ResolveRenderSize`, and it does so legitimately — by choosing the render
+resolution before the targets and cameras are built from it.
+
+Two things ride on top of the resolved rectangle, and neither is allowed a second opinion.
+`MapMouse` inverts **that** rectangle, so the pointer follows whichever step won for free
+(under overscan it covers the whole window, so `MapMouse` never returns null there; under a
+box the bars map to null exactly like an aspect-ratio bar). And each `RenderLayer` carries a
+`SamplerPolicy` — `Auto` (point at an integer scale of 1× or more, linear otherwise),
+`Point`, or `Linear` — resolved by `FinalDrawSystem` against **that layer's own**
+destination-over-target ratio, so a minimap overlay is judged by its scale and the editor's
+native chrome layer by its 1:1.
+
+The engine default is `PresentationPolicy.Stretch`: the historical aspect-fit present, so a
+game that declares nothing is framed exactly as before. `PresentationPolicy.Default`
+(overscan 5% → letterbox 25% → stretch) is the **scaffold default** — what a new game
+should declare, and what `MonoDreams.Examples` declares via `GameSettings.Presentation`.
+`Crisp` (never stretch) and `PixelPerfect` (whole steps only, no overscan, no stretch) are
+the two opinionated presets; `PixelPerfect` is exactly what the retired
+`ViewportManager.ScalingMode.PixelPerfect` + `PixelPerfectDestinationRectangle` did, which
+is why both are gone: one policy, one destination rectangle, one mouse inverse.
+
+**Why:** the engine presented every layer `PointClamp` at whatever fractional scale the
+window implied, so UI text shimmered and crawled on any window smaller than the render
+resolution — and the reference game had to rebuild the whole present pass game-side to
+choose "point at 1×, linear otherwise". Shimmer is the symptom; being forced to present at
+an arbitrary fractional scale at all is the disease, and the cure is a declared trade
+(extra view vs bars vs soft scale) rather than a per-game one. Keeping the trade inside
+`ViewportManager` is what keeps compositing and pointer mapping from ever disagreeing —
+the same single-source-of-truth argument as the viewport inset.
+**Breaks:** a layer that computes its own destination rectangle (rather than reading
+`DestinationRectangle`) desyncs from `MapMouse` — under overscan by the cropped margin,
+under a box by the bar width — which is the cursor-drift bug the aspect-fit HUD premise
+already names, reintroduced through a different door. Resolving `Auto` against the frame's
+present scale instead of the layer's makes a minimap point-sampled at a heavy downscale.
+Letting overscan run under a viewport inset paints game pixels over the editor chrome.
+Moving the render resolution per frame (rather than at boot) composites stale targets
+through a rectangle computed for the new size. And a policy is only as good as its
+tolerances: `OverscanTolerance` is measured in *frame edges lost* (or world gained), not in
+pixels of blur, so raising it to "make it crisp" quietly crops authored UI.
+**Tests:** `MonoDreams.Tests/Rendering/PresentationPolicyTests.cs` (the ladder in both
+granularities; each step winning and being refused past its tolerance; `Crisp` never
+stretching; an already-clean fit untouched by every preset; `MapMouse` inverting the
+overscanned and the boxed rectangle, in authoring space, and nulling only in real bars; the
+inset veto and its restoration; `ResolveRenderSize` growing the render resolution to a
+zero-crop clean present, refusing past tolerance, never shrinking the design and not
+ratcheting; `Auto`/`Point`/`Linear` resolution and the layer factories' defaults) plus
+`MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (`PixelPerfectPolicy_UsesTheAvailableArea`,
+`DefaultPolicy_IsTheHistoricalStretch`).
+**Depends on:** "The viewport inset moves compositing and mouse mapping together" (the same
+single-source-of-truth rectangle, and the area the chain resolves inside); "The HUD layer is
+aspect-fit, not screen-stretched (cursor depends on it)"; "`FinalDrawSystem` composites an
+explicit, ordered layer list" (where the per-layer sampler is resolved); "Authoring space
+and render space are distinct; the scale lives only in the cameras" (`PresentScale` is the
+present-time scale, `RenderScale` the authoring→render one — two different numbers);
+cursor — "Cursor `TransformComponent.Position` depends on render target".
+
 ## A render pass's camera virtual resolution matches its destination
 
 A `MasterRenderSystem` pass derives its mesh `BasicEffect` projection from
@@ -188,9 +284,9 @@ render space are distinct; the scale lives only in the cameras".
 `FinalDrawSystem` takes an ordered `RenderLayer` list and draws each
 target onto the back buffer in order (later = on top). `RenderLayer.Main`
 / `UI` / `HUD` are factories for the standard full-frame layers — all three
-draw to the aspect-fit `ViewportManager.DestinationRectangle` (with their
-own samplers), so they share one letterboxed viewport and never stretch or
-spill into the bars; `RenderLayer.Overlay` places a target in a
+draw to the policy-resolved `ViewportManager.DestinationRectangle`, so they
+share one viewport and never stretch or spill into the bars;
+`RenderLayer.Overlay` places a target in a
 sub-rectangle given in HUD virtual coordinates, mapped into that same
 `DestinationRectangle` — so an overlay aligns with HUD chrome drawn at
 those coordinates; `RenderLayer.Native` composites a provider-resolved
@@ -199,6 +295,14 @@ editor shell's chrome layer), skipping the layer when the provider returns
 null (how chrome contributes nothing outside Edit). The screen owns the
 list, so it decides which targets exist, their order, and where each lands.
 
+Each layer also carries a `SamplerPolicy` (`Auto` — the factories' default —
+`Point`, or `Linear`), and `FinalDrawSystem` resolves it per layer against that
+layer's OWN present scale: its resolved destination width over its target's
+width. `Auto` is point at an integer scale of 1× or more and linear otherwise,
+so the standard layers stay crisp where crispness is achievable and stop
+shimmering where it is not, a minimap overlay is judged by its own heavy
+downscale, and the native chrome layer is always exactly 1:1 (point).
+
 **Why:** the compositor is the natural seam for screen layout — overlays
 (minimap, CCTV), and eventually tiled splitscreen — without touching the
 renderer. Driving it from an explicit list (rather than a hardcoded
@@ -206,10 +310,20 @@ Main→UI→HUD sequence) makes those layouts data, not code forks.
 **Breaks:** omitting a layer silently drops that target from the screen
 (its render pass still ran and cleared its target — wasted work, blank
 result). An overlay rect given in screen pixels instead of HUD virtual
-coords misaligns with HUD chrome under non-1:1 scaling.
-**Tests:** none yet (exercised by every demo/example screen and the minimap
-overlay in the camera demo).
-**Depends on:** —
+coords misaligns with HUD chrome under non-1:1 scaling. Resolving a layer's
+sampler against the frame's present scale instead of its own point-samples a
+minimap at a heavy downscale; hardcoding `Point` on a screen-space layer
+brings back the crawling 1-px text stems the sampler policy exists to fix.
+**Tests:** the sampler half is
+`MonoDreams.Tests/Rendering/PresentationPolicyTests.cs`
+(`AutoSampler_IsPointAtAnIntegerScale_LinearOtherwise`,
+`ExplicitSamplers_IgnoreTheScale`,
+`StandardLayers_DefaultToAuto_AndTheEditorChromeLayerToPoint`); the ordering
+and placement halves are exercised by every demo/example screen and the
+minimap overlay in the camera demo.
+**Depends on:** "Presentation scaling is a declared policy, resolved in one
+place" (the destination rectangle these layers land on, and the scale their
+`Auto` samplers are resolved against).
 
 ## The HUD layer is aspect-fit, not screen-stretched (cursor depends on it)
 
@@ -359,8 +473,8 @@ aspect-fit).
 ## The viewport inset moves compositing and mouse mapping together
 
 `ViewportManager.SetViewportInset(left, top, right, bottom)` reserves chrome
-margins (the editor shell) around the game viewport: the aspect-fit
-`DestinationRectangle` — and the pixel-perfect rectangle — are computed
+margins (the editor shell) around the game viewport: the `DestinationRectangle`
+the presentation policy resolves is computed
 inside the remaining centered sub-rectangle, and
 `MapMouse` inverts that **same** rectangle. Because the
 `ViewportManager` is the single source of truth, the final-draw compositing
@@ -370,11 +484,13 @@ click in the margins maps to `null` (`CursorPositionSystem` then flags
 `CursorInputComponent.OutsideViewport`; chrome consumes the click in screen
 space). An all-zero inset (the default, and `ClearViewportInset`) is
 **byte-identical** to the historical full-window letterbox, so every screen
-that never sets an inset is untouched. `IntegerScale` and
-`PixelPerfectDestinationRectangle` recalculate lazily like
-`DestinationRectangle` (a read after a resize/inset change is never stale) —
-and `Recalculate` must assign their backing fields directly (reading the lazy
-properties inside it recurses). The same single-source-of-truth rule extends
+that never sets an inset is untouched. `Presentation` and `PresentScale`
+recalculate lazily like `DestinationRectangle` (a read after a resize/inset
+change is never stale) — and `Recalculate` must assign their backing fields
+directly (reading the lazy properties inside it recurses). An inset also
+vetoes the presentation policy's overscan step, since a frame grown past the
+game viewport would paint over the chrome the margins reserve. The same
+single-source-of-truth rule extends
 to `DevicePixelRatio` (default 1): when a host renders a device-resolution
 backbuffer behind a logically-scaled window (macOS Retina under the editor
 run flag — the level-editor module's `EditorHiDpi`), `ScreenWidth/Height`
@@ -389,13 +505,14 @@ exact class of bug the aspect-fit HUD premise exists for.
 **Breaks:** an inset applied to `DestinationRectangle` but not to the mouse
 inverse shifts all picking by (left, top); a non-restored inset (screen swap
 without cleanup) letterboxes the next screen into a corner; a stale
-`PixelPerfectDestinationRectangle` composites the Main layer one
-resize/inset behind.
+`Presentation`/`PresentScale` reports the framing of one resize/inset ago.
 **Tests:** `MonoDreams.Tests/Rendering/ViewportInsetTests.cs` (zero-inset =
 legacy rect + legacy mouse mapping; set+clear restores; inset rect centered
 and aspect-correct in the available area; mouse maps inside / nulls in the
-margins; resize recomputes; pixel-perfect uses the available area; negative
-margins throw; oversized margins clamp).
+margins; resize recomputes; the pixel-perfect POLICY uses the available area;
+negative margins throw; oversized margins clamp) plus
+`MonoDreams.Tests/Rendering/PresentationPolicyTests.cs`
+(`ViewportInset_VetoesOverscan_ButNotTheRestOfTheChain`).
 **Depends on:** "The HUD layer is aspect-fit, not screen-stretched (cursor
 depends on it)"; level-editor — "The editor shell insets the game viewport
 and renders its chrome at native resolution".

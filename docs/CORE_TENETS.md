@@ -206,6 +206,19 @@ the one screen→game pointer mapping; it inverts the present
 `DestinationRectangle`, so it is robust to resize, letterboxing and the editor's
 viewport inset for free. Details: the `rendering` premises.
 
+**Presentation scaling is declared, not improvised.** How the frame reaches a
+window that is not the render resolution is a policy the game declares
+(`ViewportManager.Policy`), resolved in one place and tried in one order:
+**overscan** to a clean scale (the camera reveals a sliver more world, bounded by
+a gamedev-set tolerance) → **letter/pillarbox** at a clean scale → **stretch**.
+Whichever step wins produces the single `DestinationRectangle` that
+`FinalDrawSystem` composites into and `MapMouse` inverts — a layer that computes
+its own destination desyncs the pointer from the picture. Sampling is a separate,
+per-layer question (`RenderLayer.Sampler`: `Auto` = point at an integer scale,
+linear otherwise), resolved against that layer's own scale. The engine default is
+`Stretch` (the historical framing); a scaffolded game declares
+`PresentationPolicy.Default`.
+
 **Camera.** A `Camera` instance owns its virtual (destination) resolution and its
 render scale (both immutable after construction) and exposes mutable zoom,
 position, and rotation. Multiple cameras at once are explicitly supported — local

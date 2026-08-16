@@ -2,6 +2,7 @@ using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoDreams.Component;
+using MonoDreams.State;
 
 namespace MonoDreams.Renderer;
 
@@ -23,10 +24,11 @@ namespace MonoDreams.Renderer;
 /// ViewportManager that had never heard of layout space. Opting in means passing a layout size that
 /// differs from the virtual one — the aspect ratios must match, so the scale stays uniform.</para>
 ///
-/// <para>On top of that it computes the optimal viewport and destination rectangle that keeps the
-/// virtual aspect ratio inside the actual window bounds, adding letterboxing or pillarboxing as
-/// needed; <see cref="MapMouse"/> inverts exactly that rectangle, which is what makes pointer
-/// mapping robust to window resize, letterboxing and the editor's viewport inset for free.</para>
+/// <para>On top of that it resolves the game's <see cref="PresentationPolicy"/> — overscan to a
+/// clean scale, letter/pillarbox at a clean scale, or stretch — into the viewport and destination
+/// rectangle the compositor draws to; <see cref="MapMouse"/> inverts exactly that rectangle,
+/// which is what makes pointer mapping robust to window resize, to whichever presentation step
+/// won, and to the editor's viewport inset for free.</para>
 /// </summary>
 public class ViewportManager
 {
@@ -60,15 +62,26 @@ public class ViewportManager
         (1600, 900),  // Mid-range
     };
     
-    // Add scaling mode options
-    public enum ScalingMode
+    private PresentationPolicy _policy = PresentationPolicy.Stretch;
+
+    /// <summary>
+    /// How the window-vs-render-resolution conflict is resolved: overscan to a clean scale,
+    /// letter/pillarbox at a clean scale, or stretch (see <see cref="PresentationPolicy"/>).
+    /// Defaults to <see cref="PresentationPolicy.Stretch"/> — the historical aspect-fit present, so
+    /// a game that declares nothing is framed exactly as it always was;
+    /// <see cref="PresentationPolicy.Default"/> is what a new game should declare.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public PresentationPolicy Policy
     {
-        PixelPerfect,    // Integer scaling only
-        Smooth,          // Allow fractional scaling
-        KeepAspectRatio  // Current behavior (letterbox/pillarbox)
+        get => _policy;
+        set
+        {
+            _policy = value ?? throw new ArgumentNullException(nameof(Policy));
+            MarkDirty();
+        }
     }
-    
-    public ScalingMode CurrentScalingMode { get; set; } = ScalingMode.KeepAspectRatio;
+
     private readonly Game _game;
     private Viewport _currentViewport;
     private Rectangle _destinationRectangle;
@@ -82,26 +95,36 @@ public class ViewportManager
     // historical full-window letterbox byte-identically.
     private int _insetLeft, _insetTop, _insetRight, _insetBottom;
 
-    private int _integerScale = 1;
-    private Rectangle _pixelPerfectDestinationRectangle;
+    private PresentationMode _presentation = PresentationMode.Letterbox;
+    private float _presentScale = 1f;
+    private (PresentationMode mode, int scale)? _loggedPresentation;
 
-    public int IntegerScale
+    /// <summary>
+    /// Which step of the <see cref="Policy"/> chain won for the current window — recalculated
+    /// lazily like <see cref="DestinationRectangle"/>, so a read after a resize is never stale.
+    /// </summary>
+    public PresentationMode Presentation
     {
         get
         {
             if (_dirty) Recalculate();
-            return _integerScale;
+            return _presentation;
         }
     }
 
-    // Recalculates lazily like DestinationRectangle, so a read after a resize/inset change is
-    // never stale (it used to be a plain auto-property, honest only after another getter ran).
-    public Rectangle PixelPerfectDestinationRectangle
+    /// <summary>
+    /// Screen pixels per RENDER pixel in the present pass —
+    /// <see cref="DestinationRectangle"/>'s width over <see cref="VirtualWidth"/>. This is the
+    /// scale the policy chain snapped (or failed to snap) to a clean step, and the one a layer's
+    /// <see cref="SamplerPolicy"/> is resolved against; it is NOT
+    /// <see cref="RenderScale"/> (authoring → render, which lives in the cameras).
+    /// </summary>
+    public float PresentScale
     {
         get
         {
             if (_dirty) Recalculate();
-            return _pixelPerfectDestinationRectangle;
+            return _presentScale;
         }
     }
 
@@ -324,10 +347,12 @@ public class ViewportManager
     /// Maps physical screen coordinates (e.g. the raw mouse position) into AUTHORING coordinates —
     /// <c>(0,0)</c> to <see cref="LayoutWidth"/>×<see cref="LayoutHeight"/> — by inverting the
     /// present <see cref="DestinationRectangle"/>. Because that rectangle is recomputed from the
-    /// current window size and viewport inset, the inversion is robust to window resize,
-    /// letter/pillarboxing and the editor's chrome margins for free. Returns <c>null</c> when the
-    /// position falls outside the aspect-fit viewport (the bars or the chrome margins), which callers
-    /// read as "the pointer is not over the game".
+    /// current window size, viewport inset and <see cref="Policy"/>, the inversion is robust to
+    /// window resize, to the editor's chrome margins, and to whichever presentation step won, for
+    /// free: overscan and boxing both move and resize the destination, and the pointer follows it.
+    /// Returns <c>null</c> when the position falls outside that rectangle (the bars or the chrome
+    /// margins), which callers read as "the pointer is not over the game" — under overscan the
+    /// rectangle covers the whole window, so nothing is outside it and the result is never null.
     ///
     /// <para>The result is in authoring space, NOT render space: a render-resolution move leaves
     /// every mapped coordinate (and every test asserting on one) unchanged. Feed it straight to
@@ -351,8 +376,6 @@ public class ViewportManager
 
     private void Recalculate()
     {
-        var targetAspectRatio = VirtualWidth / (float) VirtualHeight;
-
         // The area available to the game viewport: the whole window minus the viewport-inset
         // margins (the editor shell's chrome). With a zero inset (the default) this IS the whole
         // window, so every computation below is byte-identical to the historical letterbox.
@@ -363,23 +386,19 @@ public class ViewportManager
 
         float screenWidth = availWidth;
         float screenHeight = availHeight;
-        float screenAspectRatio = screenWidth / screenHeight;
 
-        int destWidth;
-        int destHeight;
+        // The policy owns WHICH rectangle we present into; this method owns WHERE it sits. Overscan
+        // is vetoed while a viewport inset is active: a frame grown past the available area would
+        // paint over the editor chrome reserved around it.
+        var resolved = _policy.Resolve(availWidth, availHeight, VirtualWidth, VirtualHeight,
+            allowOverscan: !HasViewportInset);
+        int destWidth = resolved.Width;
+        int destHeight = resolved.Height;
+        _presentation = resolved.Mode;
 
-        if (screenAspectRatio > targetAspectRatio) // Available area is wider than virtual (Letterbox)
-        {
-            destHeight = (int)screenHeight;
-            destWidth = (int)(destHeight * targetAspectRatio + 0.5f);
-        }
-        else // Available area is taller than virtual (Pillarbox) or same aspect ratio
-        {
-            destWidth = (int)screenWidth;
-            destHeight = (int)(destWidth / targetAspectRatio + 0.5f);
-        }
-
-        // set up the new viewport centered in the available area
+        // Set up the new viewport centered in the available area. Under overscan the destination is
+        // LARGER than that area, so the origin goes negative and the frame's edges leave the screen
+        // — the same centering arithmetic, deliberately unclamped.
         _currentViewport = new Viewport
         {
             X = availX + (int)((screenWidth / 2f) - (destWidth / 2f)),
@@ -397,29 +416,24 @@ public class ViewportManager
         _destinationRectangle = _currentViewport.Bounds; // This is where we draw the final RT
         _scaleX = (float)_destinationRectangle.Width / LayoutWidth;
         _scaleY = (float)_destinationRectangle.Height / LayoutHeight;
-
-        // Calculate integer scale for pixel-perfect mode (within the same available area).
-        // NOTE: assign the backing fields directly — reading the lazy properties here would
-        // recurse (we are inside Recalculate; _dirty is still true).
-        if (CurrentScalingMode == ScalingMode.PixelPerfect)
-        {
-            int scaleX = availWidth / VirtualWidth;
-            int scaleY = availHeight / VirtualHeight;
-            _integerScale = Math.Max(1, Math.Min(scaleX, scaleY));
-
-            int ppWidth = VirtualWidth * _integerScale;
-            int ppHeight = VirtualHeight * _integerScale;
-            int ppX = availX + (availWidth - ppWidth) / 2;
-            int ppY = availY + (availHeight - ppHeight) / 2;
-
-            _pixelPerfectDestinationRectangle = new Rectangle(ppX, ppY, ppWidth, ppHeight);
-        }
-        else
-        {
-            _pixelPerfectDestinationRectangle = _destinationRectangle;
-        }
+        _presentScale = destWidth / (float)VirtualWidth;
 
         _dirty = false;
+
+        // Which step won, and at what scale, is the observable for "why is my game boxed / cropped
+        // / soft" — so log it on every CHANGE, but never per resize pixel: a stretched present's
+        // scale is continuous, so a drag would log a line per frame. Mode changes always log; a
+        // scale change alone logs only for the snapped steps, where it means the frame just
+        // jumped a rung.
+        var scaleKey = (int)MathF.Round(_presentScale * 1000f);
+        if (_loggedPresentation is not { } logged || logged.mode != resolved.Mode ||
+            (resolved.Mode != PresentationMode.Stretch && logged.scale != scaleKey))
+        {
+            _loggedPresentation = (resolved.Mode, scaleKey);
+            Logger.Info($"Presentation: {resolved.Mode} at {_presentScale:0.###}x — " +
+                        $"render {VirtualWidth}x{VirtualHeight} into {_destinationRectangle} " +
+                        $"(window {ScreenWidth}x{ScreenHeight}).");
+        }
 
         // Note: We don't set the GraphicsDevice.Viewport here anymore.
         // The MasterRenderSystem sets it when targeting RenderTargets.

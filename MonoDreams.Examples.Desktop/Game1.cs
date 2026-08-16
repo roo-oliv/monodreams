@@ -167,13 +167,10 @@ public class Game1 : Game
 
         InitializeRenderer(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
 
-        // Apply scaling mode from settings
-        _viewportManager.CurrentScalingMode = _settings.ScalingMode switch
-        {
-            "PixelPerfect" => ViewportManager.ScalingMode.PixelPerfect,
-            "Smooth" => ViewportManager.ScalingMode.Smooth,
-            _ => ViewportManager.ScalingMode.KeepAspectRatio
-        };
+        // Apply the presentation scaling policy from settings — the same mapping the web head uses,
+        // so both present identically from one settings file. The reference game declares the
+        // recommended chain (overscan → letterbox → stretch).
+        _viewportManager.Policy = _settings.ResolvePresentation();
 
         GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
         GraphicsDevice.BlendState = BlendState.AlphaBlend;
