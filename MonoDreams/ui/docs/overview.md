@@ -14,6 +14,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 - `LayoutSlotComponent` — per-slot data: `SizeMeasurer` callback, `IsRoot`, `NeedsRemeasure`, attached content entity
 - `UIElementComponent` — marker for UI entities (used by game-side interaction systems for hit-testing)
 - `SimpleButtonComponent` — button state (idle / hover / pressed) and visual style
+- `PanelGroupComponent` — a group of mutually exclusive panels (tab bodies, settings pages, wizard steps): the member root entities, the active index (or `PanelGroupComponent.None` — "no member active", e.g. a closed menu), and the park offset. Pure data; game code only ever writes `Active`. `PanelParkedComponent` is the system's own bookkeeping on a parked member — never authored
 - `TextInputComponent` — a minimal editable single-line text field: current value, character mask (`TextInputMask.None` / `Numeric`), max length, a `Focused` flag, the linked text entity that displays the value, a `CaretPosition` insertion index, and an optional `CaretEntity` the system draws a white caret line into. Focus is game-owned (see premises); formatting / placeholder / error states are intentionally out of scope and can be layered on later
 
 ### Builders (fluent API)
@@ -28,6 +29,7 @@ This module is a flexbox-ish solver for UI. The flexbox solver positions childre
 - `AutoLayoutSystem` — the flexbox solver: computes positions from the measured-size tree, writes to `TransformComponent`. Runs after `IntrinsicSizingSystem`
 - `ButtonMeshPrepSystem` — paints button outlines via `rendering` based on `SimpleButtonComponent` state
 - `TextInputSystem` — inserts masked characters at the caret (and handles Backspace / Delete / Left / Right / Home / End) into focused `TextInputComponent`s, mirrors the value onto the linked text entity, publishes `TextInputChanged`, and — when a `CaretEntity` is set — positions and shows a white vertical caret line at the insertion point. Reads the keyboard directly (edge-triggered); it only *consumes* the `Focused` flag — game code decides which field is focused
+- `PanelGroupSystem` — parks every inactive member of a `PanelGroupComponent` at the park offset (alive, laid out, off-screen) and restores the active one to the exact position it left, gating the focusables under each panel accordingly. Run it after everything that writes a member's position (notably `AutoLayoutSystem`) and before `HierarchySystem`
 - `LayoutDebugSystem` — optional outline visualization (toggle `LayoutDebugSystem.Enabled`)
 
 ### Other
@@ -57,6 +59,18 @@ layout.CreateRoot(ScreenAnchor.Center)
 4. **`ButtonMeshPrepSystem`** — paint button outlines via `rendering`.
 5. **`LayoutDebugSystem`** (optional) — toggle on for layout debugging.
 
+**Switch panels by parking, never by hiding.** Tabs, settings pages, and wizard steps are all one primitive: build each panel as a root entity with its content parented under it, list the roots in a `PanelGroupComponent`, and register `PanelGroupSystem` after the layout pass and before `HierarchySystem`:
+
+```csharp
+var tabs = world.CreateEntity();
+tabs.Set(new PanelGroupComponent { Members = [overview, details, notes], Active = 0 });
+// …later, from a UIFocusActivated handler — the ONLY thing game code writes:
+tabs.Get<PanelGroupComponent>().Active = 2;                        // show "notes"
+tabs.Get<PanelGroupComponent>().Active = PanelGroupComponent.None; // close: park them all
+```
+
+The inactive panels are translated off-screen, not hidden: they keep every component, stay laid out and measured, and come back at exactly the position they left. See the ui demo's **Panels** tab (`MonoDreams/ui/demo/UiDemoScreen.cs`) for a tab bar and a paged settings menu built on the same component, and the premises for why hiding is the wrong reflex.
+
 The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberately doesn't ship a `ButtonInteractionSystem`** — click dispatch is necessarily game-specific (load a screen, fire a network call, mutate game state). Copy the pattern from `MonoDreams.Examples/System/UI/ButtonInteractionSystem.cs`.
 
 ## Cross-module dependencies
@@ -73,5 +87,5 @@ The module ships `SimpleButtonComponent` + the mesh-prep system but **deliberate
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, parallel `LayoutNodeComponent` + `TransformComponent` trees, `ButtonInteractionSystem` deliberately out of module)
+- [Premises](premises.md) — load-bearing invariants (`IntrinsicSizingSystem` before `AutoLayoutSystem`, callback-based intrinsic sizing, `AutoLayoutBuilder` as canonical entry point, parallel `LayoutNodeComponent` + `TransformComponent` trees, exclusive panel groups park rather than hide, `ButtonInteractionSystem` deliberately out of module)
 - Related modules: `rendering` (button outlines and debug overlays draw via `IMeshGenerator` shapes from this module), `rendering-text` (text labels in UI slots), `cursor` (provides `CursorInputComponent.WorldPosition` for hit-testing in your game's interaction system), `dialogue` (does not use this module yet — uses hand-rolled offsets; aspirational to migrate)

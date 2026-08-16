@@ -7,6 +7,21 @@ so migrating is editing your own copy.
 
 ## Unreleased
 
+### Added — `ui` exclusive panel groups ([#96](https://github.com/roo-oliv/monodreams/issues/96))
+
+- `PanelGroupComponent` — a group of mutually exclusive panels (tab bodies, settings
+  pages, wizard steps, an inventory/map switcher): the member root entities, the active
+  index, and the park offset. `Active = PanelGroupComponent.None` (`-1`) means "no member
+  active" — a closed menu, first class rather than a special case.
+- `PanelGroupSystem` — parks every inactive member off-screen (alive, laid out, measured)
+  and restores the active one to the exact position it left, gating the focusables under
+  each panel. Register it after everything that writes a member's position (notably
+  `AutoLayoutSystem`) and before `HierarchySystem`. Game code only ever writes `Active`.
+  This is the sanctioned implementation of the module's **park, don't hide** premise —
+  hiding a panel with `VisibleComponent` is a no-op on the UI/HUD/Scroll targets and
+  un-preps it on Main. The ui demo's new **Panels** tab shows a tab bar and a paged
+  settings menu built on the one component.
+
 ### Breaking — `level-loading` no longer depends on LDtk ([#54](https://github.com/roo-oliv/monodreams/issues/54))
 
 `level-loading` is now format-agnostic: no LDtk type appears in its source, and the
