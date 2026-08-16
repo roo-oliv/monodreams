@@ -361,10 +361,29 @@ public class LevelSelectionScreen : IGameScreen
         // Cursor position must update after layout/UI to use current camera state
         var cursorLateUpdateSystem = new CursorPositionSystem(_world, _camera, _viewportManager);
 
+        // Scripted mouse replay (issue #90): present only when debug/pointer_replay.json is — a normal
+        // run builds nothing here. A scripted pointer owns BOTH cursor halves (the hardware read and
+        // the screen→virtual→world derivation), and runs immediately after the cursor-input stage so
+        // ui.interaction reads the injected click the same frame a real one would be read.
+        var pointerReplaySystem = PointerReplaySystem.TryLoad(
+            PlatformServices.Current.GetEnvironmentVariable("MONODREAMS_DEBUG_DIR")
+                ?? PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug"),
+            _world, _camera, requestExit: _game.Exit);
+        if (pointerReplaySystem != null)
+        {
+            cursorInputSystem.SkipHardwareRead = true;
+            cursorLateUpdateSystem.SkipDerivation = true;
+            if (_editor?.HasEditorOpPlan == true)
+                Logger.Warning("Both a pointer-replay plan and an editor-op plan are present — two "
+                               + "channels will fight over the same cursor. Keep one per run.");
+        }
+
         // ---- Weave the update pipeline through the registrar. With the editor off every entry
         // is RunNormally/pass-through and the order matches the pre-editor screen exactly. ----
         var p = _updatePipeline;
         p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
+        if (pointerReplaySystem != null)
+            p.Add("pointerReplay", pointerReplaySystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
             // The menu runs no game keyboard mapping of its own; the editor needs a key surface for

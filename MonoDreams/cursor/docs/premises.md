@@ -100,26 +100,41 @@ sprites. Rendering on UI puts it under HUD elements.
 **Tests:** none yet.
 **Depends on:** rendering — "Three render targets, two behaviors".
 
-## Cursor `TransformComponent.Position` depends on render target
+## Cursor `TransformComponent.Position` depends on render target, and `Cursor.ApplyPose` is the one place that rule lives
 
-`CursorPositionSystem` sets `TransformComponent.Position` differently
-based on `DrawComponent.Target`: HUD target uses virtual-screen coords
-plus `HotSpot` (no camera transform applied), Main target uses
-world coords plus `HotSpot` (camera transform will be applied at draw
-time). `CursorInputComponent.WorldPosition` is always populated
-regardless of target, so game systems (hit-testing, button hover) can
-read world coordinates without caring how the cursor is rendered.
+A cursor's `TransformComponent.Position` follows its `DrawComponent.Target`:
+HUD target uses virtual-screen coords plus `HotSpot` (no camera transform
+applied), every other target uses world coords plus `HotSpot` (the camera
+transform is applied at draw time). `CursorInputComponent.WorldPosition` is
+always populated regardless of target, so game systems (hit-testing, button
+hover) can read world coordinates without caring how the cursor is rendered.
+**That branch is written once, in `Cursor.ApplyPose(entity, virtualPosition,
+worldPosition)`.** `CursorPositionSystem` calls it after mapping a real mouse
+through the viewport; an injection channel that owns the derivation (the
+`debug` module's `PointerReplaySystem`, running under `SkipDerivation`) calls
+it with the positions it authored. Neither re-implements the rule.
 
 **Why:** the cursor entity participates in the same draw pipeline as
 everything else, so its `TransformComponent.Position` must already be
 in the coordinate space that target expects. Decoupling `WorldPosition`
-from the rendered position lets the game logic stay target-agnostic.
+from the rendered position lets the game logic stay target-agnostic. And a
+second copy of the branch is a second place it can be *slightly* wrong: a
+scripted pointer whose cursor renders a hot-spot off, or in the wrong space,
+looks like a picking bug rather than a duplication bug.
 **Breaks:** if a game system reads `transform.Position` for hit-testing
 and the cursor is on HUD, the hit-test runs against screen coords and
 fails. Always read `CursorInputComponent.WorldPosition` for world-space
-checks.
-**Tests:** none yet.
-**Depends on:** —
+checks. An injection channel that skips the shared helper and writes the
+transform itself drifts from the real-mouse placement the first time the rule
+changes (a new render target, a different hot-spot convention).
+**Tests:** `MonoDreams.Tests/Debug/PointerReplaySystemTests.cs`
+(`Move_WritesVirtualWorldAndTransform_ThroughTheRealPoseRule` and
+`Move_OnAMainTargetCursor_PlacesTheTransformInWorldSpace` pin both branches
+through the shared helper); `MonoDreams.Tests/Cursor/CursorPositionSystemTests.cs`
+(`WithoutSkipDerivation_MappedScreenPosition_RecomputesVirtualWorldAndTransform`
+pins the real-mouse path through the same helper).
+**Depends on:** debug — "`PointerReplaySystem` injects into the real cursor
+component; it never simulates a click".
 
 ## Cursor is a single entity, created via the `Cursor.Create` factory
 
@@ -193,7 +208,8 @@ shared component.
 
 `CursorPositionSystem.SkipDerivation` is the derivation-half twin of
 `CursorInputSystem.SkipHardwareRead`. A channel that **injects** cursor state rather than
-reading a mouse — the editor-op replay channel, an input-replay plan, a headless test — sets
+reading a mouse — the `debug` module's `PointerReplaySystem` (the shipped consumer of this
+pair), the editor-op replay channel, a headless test — sets
 both: `SkipHardwareRead` stops the hardware read from overwriting the injected
 `CursorInputComponent`, and `SkipDerivation` stops the per-frame screen→virtual→world
 derivation from recomputing `VirtualPosition` / `WorldPosition` / `OutsideViewport` /
@@ -254,5 +270,4 @@ The following premises currently have **Tests: none yet**:
 - Cursor system order: input → position → draw prep
 - `CursorPositionSystem` must run after the camera updates
 - Cursor renders on the HUD target by default
-- Cursor `TransformComponent.Position` depends on render target
 - Cursor is a single entity, created via the `Cursor.Create` factory

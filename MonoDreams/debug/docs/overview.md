@@ -16,6 +16,8 @@ When debugging an ECS game, the visible bug ("the player passes through walls") 
 
 Both overlay systems draw through the standard `DrawComponent` path (transient `Type = Mesh` entities), not via parallel `SpriteBatch` calls — they ride `MasterRenderSystem` like everything else.
 
+- `PointerReplaySystem(world, plan, camera, requestExit)` / `PointerReplaySystem.TryLoad(debugDir, world, camera, requestExit)` — **scripted mouse replay**: drives a `PointerReplayPlan` (`debug/pointer_replay.json`) of `move` / `click` / `wheel` / `type` / `waitUntil` / `label` commands by injecting into the real `CursorInputComponent`. `TryLoad` returns `null` without the file. See [Pointer replay](#pointer-replay)
+
 ### Profiling
 
 - `SystemProfiler` — per-system ms/frame accounting. Not a pipeline system: it is a static that plugs into `foundation`'s socket, `GatedSystem.TimingSink`. Setting `SystemProfiler.Enabled` (hosts read `MONODREAMS_PROFILE=1` at boot) installs `SystemProfiler.Record` as that sink; every pipeline entry is gate-wrapped, so one seam times every screen's pipelines, and rows are labelled with the entry's full registration name from `EditorPipelineRegistrar` (`logic.game`, `logic.game.enemies`). With profiling off nothing is installed and the cost is one null check per gated system per frame.
@@ -33,6 +35,83 @@ When you do want overlays:
 **Replay testing workflow.** Write `debug/input_replay.json` with `"screenshots": true`, run the game (or `dotnet run -- --headless`), check `debug/` for the resulting screenshots + log. The `MONODREAMS_DEBUG_DIR` env var redirects all debug output to a custom path — `GameTestRunner` uses this for parallel test isolation.
 
 See `docs/CORE_TENETS.md` (debug section) and `MonoDreams.Examples/Screens/LoadLevelExampleGameScreen.cs` for the canonical replay-and-screenshot workflow.
+
+## Pointer replay
+
+`input_replay.json` speaks a **gamepad** vocabulary — named actions (`Jump`, `Grab`, `Interact`). It can drive a platformer and it can say nothing at all to a business sim, a card game, a menu or an editor: there is no way to express *"move to (960, 610) and click"*. `PointerReplaySystem` is the pointer half of the same idea, and it shares the input replay's philosophy exactly: **file-gated** (no `pointer_replay.json` → no driver → a normal run is unchanged), **deterministic** (frame-counted, never wall-clock), **fully logged** (every command writes a `[pointer]` line), and **auto-exiting** when the plan drains.
+
+### The plan file
+
+`debug/pointer_replay.json` (relocated with the rest of the debug output by `MONODREAMS_DEBUG_DIR`):
+
+```json
+{
+  "description": "buy the first item in the shop",
+  "tailFrames": 5,
+  "commands": [
+    { "kind": "waitUntil", "entity": "ShopPanel", "timeoutFrames": 300 },
+    { "kind": "label",     "text": "shop-open" },
+    { "kind": "move",      "x": 960, "y": 610 },
+    { "kind": "click" },
+    { "kind": "waitUntil", "log": "Purchase confirmed", "timeoutFrames": 120 },
+    { "kind": "label",     "text": "purchased" },
+    { "kind": "wheel",     "delta": -240 },
+    { "kind": "type",      "text": "rodrigo" }
+  ]
+}
+```
+
+| Kind | Fields | Frames | Notes |
+|---|---|---|---|
+| `move` | `x`, `y` | 1 | Authoring-space (virtual-resolution) coordinates. |
+| `click` | `x`, `y`, `button`, `hold` | `hold` + 1 | Optional move first; `button` is `left` (default) / `right` / `middle`; the button stays down `hold` frames (default 1), so a press-edge consumer AND a release-edge consumer both see it. |
+| `wheel` | `delta` | 1 | Raw wheel units — 120 per detent, the value consumers divide by. |
+| `type` | `text` | 2 per character | Synthesized key presses, one every two frames so an edge-triggered reader sees repeats. `a-z`, `0-9`, space. |
+| `waitUntil` | one of `entity` / `log` / `frames`, plus `timeoutFrames` | until satisfied | The stage gate. `entity` = an entity whose `EntityInfoComponent` type/name matches exists; `log` = a log line containing this substring has appeared since the driver started; `frames` = idle. Times out (default 600) with an `ERROR` line and continues. |
+| `label` | `text` | 1 | A stage marker in the log, so screenshots and log lines correlate per stage. |
+
+`waitUntil` is the load-bearing command, not decoration: without stage gating a script races the game it is driving ("don't click Submit until the dialog exists") and flakes.
+
+### Wiring it into a screen
+
+```csharp
+var cursorInput    = new CursorInputSystem(world, viewportManager);
+var cursorPosition = new CursorPositionSystem(world, camera, viewportManager);
+
+var pointer = PointerReplaySystem.TryLoad(debugDir, world, camera, requestExit: game.Exit);
+if (pointer != null)
+{
+    cursorInput.SkipHardwareRead = true;    // the hardware read must not overwrite the injection
+    cursorPosition.SkipDerivation = true;   // …and the derivation must not recompute over it
+}
+
+p.Add("input", cursorInput);
+if (pointer != null) p.Add("pointerReplay", pointer);   // immediately after the input stage
+// … game / UI systems read the injected cursor exactly as they read a real one …
+p.Add("cursorPosition", cursorPosition);
+```
+
+`MonoDreams.Examples.Core/Screens/LevelSelectionScreen.cs` is the reference wiring, and `MonoDreams.Tests/IntegrationTests/PointerReplayTests.cs` drives it end to end (a scripted click on a menu button really changes screens).
+
+For typed text, hand the driver's synthesized keyboard to any system that takes the repo's keyboard seam:
+
+```csharp
+var textInput = new TextInputSystem(world) { KeyboardStateProvider = pointer.ReadKeyboard };
+```
+
+### Why it injects instead of simulating
+
+The driver writes the same `CursorInputComponent` a real mouse fills — position, button levels, the press/release edges, the scroll accumulator — and places the cursor entity through `Cursor.ApplyPose`, the same per-render-target pose rule `CursorPositionSystem` applies. Everything downstream (hover, picking, UI focus, buttons, scroll views, the editor's own tools) therefore runs unchanged. A driver that instead called `button.OnClick()` would verify the driver, not the game.
+
+Coordinates are **authoring space**, never window pixels, for two reasons: a script then survives a resize or a resolution change, and a headless host (whose backbuffer is 1x1) has no meaningful window-to-virtual mapping to invert. World coordinates are derived from the authored ones through the screen's camera.
+
+### From a test
+
+`GameTestRunner.RunAsync(plan, pointerPlan: …)` drops the JSON into the run's isolated debug dir, so a pointer scenario is written in C# and asserted through the usual log helpers.
+
+### Relationship to the editor-op channel
+
+`level-editor`'s `EditorOpReplaySystem` is a *different* channel with an overlapping mechanism: it scripts **editor operations** (transport Play/Pause/Restart, toolbar and palette actions) and moves the cursor as a means to that end. `PointerReplaySystem` is the game-facing one — any screen, any module, pointer only. Run one channel per session: two drivers stamping the same cursor entity fight, and the menu screen logs a warning when it sees both.
 
 ## Frame capture
 
@@ -83,17 +162,19 @@ The documented recipe for the desktop half — parsing the raw filename contract
 
 ## Cross-module dependencies
 
-- `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer.
+- `rendering` — overlays draw through `DrawComponent` and `MasterRenderSystem`; screenshots capture the backbuffer; `PointerReplaySystem` derives world coordinates through `Camera`.
 - `collision` — `ColliderDebugSystem` reads `BoxColliderComponent` and `ConvexColliderComponent` to know what to outline.
-- `foundation` — `SystemProfiler` plugs into `GatedSystem.TimingSink` and reports through `Logger`. The arrow points this way only: `foundation` defines the socket and never references this module.
+- `cursor` — `PointerReplaySystem` injects into `CursorInputComponent` and places the cursor through `Cursor.ApplyPose`; the screen stands the hardware path down with `CursorInputSystem.SkipHardwareRead` + `CursorPositionSystem.SkipDerivation`. This is a hard dependency *because* the channel refuses to simulate a pointer: there is no injection without the real cursor component.
+- `foundation` — `SystemProfiler` plugs into `GatedSystem.TimingSink` and `PointerReplaySystem` into `Logger.LineSink` (the `waitUntil`-on-log predicate); both report through `Logger`. The arrow points this way only: `foundation` defines the sockets and never references this module.
 
 ## Extension points
 
 - **New debug overlays.** Follow the pattern of the existing two systems: create transient `DrawComponent { Type = Mesh }` entities each frame at a high `LayerDepth` (so they render on top), dispose them at the start of the next frame, and ship a static `Enabled` flag plus an instance `IsEnabled` flag. Never call `SpriteBatch` directly.
 - **HUD overlays (FPS, entity count, draw call count).** Same pattern with `DrawComponent { Type = Text }` on a HUD target. Aspirational direction list.
 - **Capture-on-exit screenshot.** Mode where `ScreenshotCaptureSystem` guarantees one final PNG at game shutdown — useful for replay post-mortems. Aspirational direction list.
+- **New `waitUntil` predicates.** The three shipped ones (`entity`, `log`, `frames`) are deliberately the pragmatic minimum. A new one is a nullable field on `PointerCommand` plus a branch in `IsSatisfied` — e.g. "a component of type T exists", "this entity is at this position". Keep them observable from outside the game: a predicate that reaches into a game-specific system belongs in the game, not here.
 
 ## See also
 
-- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `FromEnvironment` as the single owner of the capture env contract, raw capture's synchronous zero-allocation write, `MONODREAMS_DEBUG_DIR` env-var override, the profiler's injected-sink direction + its `[perf]` format contract)
-- Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `foundation` (provides `Logger` and the replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
+- [Premises](premises.md) — load-bearing invariants (opt-in nothing required, overlays via same `DrawComponent` path, must run after prep + before render, `ScreenshotCaptureSystem` gated by replay-file flag, `FromEnvironment` as the single owner of the capture env contract, raw capture's synchronous zero-allocation write, `MONODREAMS_DEBUG_DIR` env-var override, the profiler's injected-sink direction + its `[perf]` format contract, the pointer channel's injection-not-simulation rule and its frame-counted stage gating)
+- Related modules: `rendering` (overlays ride its draw stack), `collision` (provides the collider components `ColliderDebugSystem` visualizes), `cursor` (the component the pointer channel injects into), `foundation` (provides `Logger`, the `Logger.LineSink` tap and the keyboard/input replay scaffold — the *non-visual* debug infrastructure that lives there because it's production-useful)
