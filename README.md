@@ -3,11 +3,11 @@ MonoDreams
 
 <p align="center">
   <br>
-   <img src="/Icon/ascii/monodreams-logo.png" width="420" alt="MonoDreams — waves & waning moon ASCII logo" title="MonoDreams" />
+   <img src="/Icon/monodreams-logo.png" width="420" alt="MonoDreams — waves & waning moon ASCII logo" title="MonoDreams" />
   <br>
 </p>
 <p align="center">
-A code-first 2D game engine for MonoGame, distributed as readable source you own — not an opaque NuGet.
+A code-first ECS game engine powered by MonoGame
 </p>
 
 ![NuGet Version](https://img.shields.io/nuget/vpre/MonoDreams.Cli?link=https%3A%2F%2Fwww.nuget.org%2Fpackages%2FMonoDreams.Cli%2F)
@@ -15,10 +15,11 @@ A code-first 2D game engine for MonoGame, distributed as readable source you own
 
 ## Why MonoDreams
 
-- **You own the engine source.** Every system, every component lives inside your project. Tweak the camera follow, the collision resolution, the dialogue UI — it's yours to read and change.
-- **Composable from day one.** The engine ships as 14 small source modules (foundation, rendering, physics, collision, level-loading, dialogue, audio, …). Install only what you need.
-- **ECS-pure.** Built on [DefaultEcs](https://github.com/Doraku/DefaultEcs). Components hold data, systems hold logic — no god-objects, no inheritance gymnastics.
-- **AI-agent friendly.** Source lives where agents can read it. Each module ships with a `module.json` manifest and the repo's `docs/` directory captures engine invariants per domain.
+- **You own the engine source.** Every system, every component lives inside your project. Distributed like shadcn, the source is yours to read and change.
+- **Composable.** The engine ships as 14 small source modules (foundation, rendering, physics, collision, level-loading, dialogue, audio, …). Use only what you need.
+- **ECS-pure.** Built on [DefaultEcs](https://github.com/Doraku/DefaultEcs). Components hold data, systems hold logic. Build performant games easily.
+- **Easy learning curve.** By using an ECS design, you can focus on only a few components and systems at a time without having to wrap your head around tons of concepts at once.
+- **AI-agent friendly.** Let AI do the coding heavy lifting, so you focus on the vision, the art, and all the creative parts. Source lives where agents can read it. Each module ships with a `module.json` manifest, and the repo's `docs/` directory captures engine invariants per domain, meaning your AI agent will know what to do by itself.
 
 ## Quickstart
 
