@@ -126,6 +126,9 @@ internal static class ProjectScaffolder
         // DefaultEcs world each frame — the user grows it by adding screens/systems from the modules they
         // install. GraphicsProfile and window setup are gated for the web backend (MONODREAMS_WEB) so the
         // same source compiles to Reach/WebGL under a web head (foundation portability premise).
+        // The desktop branch adopts foundation's WindowFit by default (issue #86), so a scaffolded game
+        // is immune from day one to the "window bigger than the display renders offscreen" break; the
+        // web branch is untouched (JS owns the canvas size there).
         var path = Path.Combine(coreDir, "GameRoot.cs");
         File.WriteAllText(path, $$"""
 using Microsoft.Xna.Framework;
@@ -163,6 +166,11 @@ public class GameRoot : Game
 
     public GameRoot()
     {
+        // The logger comes up FIRST so the window-fit boot line below is not dropped — Logger writes
+        // are silent no-ops until Initialize has run (foundation premise "Logger requires Initialize").
+        var debugDir = PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
+        Logger.Initialize(debugDir);
+
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
@@ -173,16 +181,20 @@ public class GameRoot : Game
         _graphics.GraphicsProfile = GraphicsProfile.Reach;
 #else
         _graphics.GraphicsProfile = GraphicsProfile.HiDef;
-        // Desktop: open at the virtual resolution so the window is 1:1 with what the game renders.
-        _graphics.PreferredBackBufferWidth = VirtualWidth;
-        _graphics.PreferredBackBufferHeight = VirtualHeight;
+        // Desktop: open the LARGEST aspect-correct window that actually fits the player's display,
+        // capped at the virtual resolution (1:1 is the sharpest this game can present). Opening at the
+        // virtual resolution unconditionally is the classic silent break: macOS does not clamp a FIXED
+        // window, so on any laptop smaller than VirtualWidth x VirtualHeight the bottom of the game —
+        // menus, Start buttons, HUD — renders below the physical screen with no crash and no warning.
+        // WindowFit reads the display's usable area (menu bar / dock / taskbar excluded), snaps to a
+        // multiple of 16, applies the backbuffer, and logs one line of display/usable/window/mode.
+        // Set MONODREAMS_WINDOW=WxH to force an exact size (scripted runs, screenshots).
+        WindowFit.Apply(_graphics, VirtualWidth, VirtualHeight, Window);
 #endif
     }
 
     protected override void Initialize()
     {
-        var debugDir = PlatformServices.Current.CombinePath(PlatformServices.Current.BaseDirectory, "debug");
-        Logger.Initialize(debugDir);
         Logger.Info("{{projectName}} starting.");
         base.Initialize();
     }

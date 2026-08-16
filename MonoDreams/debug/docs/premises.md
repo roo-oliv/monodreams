@@ -253,7 +253,10 @@ backbuffer, and runs the full prep→`MasterRenderSystem`
 reads that composited backbuffer. The backbuffer must stay at the virtual
 resolution (not 1×1) or the read-back is meaningless. The window is never
 relied on for presentation and is **hidden via `HeadlessWindow.Hide`**
-(`SDL_HideWindow` on the live SDL window — the GL context and backbuffer
+(`SDL_HideWindow` on the live SDL window, resolved through `foundation`'s
+`SdlNative` — the engine's single owner of "call an SDL export MonoGame
+never bound", so this module carries no SDL library-probing of its own;
+the GL context and backbuffer
 stay renderable): the old `(-2000, -2000)` position move alone is kept
 only as the fallback, because macOS clamps off-screen positions back onto
 the display, leaving visible windows a user could accidentally click
@@ -280,7 +283,9 @@ to 1×1, makes every captured PNG blank and hides render-path memory
 behaviour — the leak class #27 documents becomes unobservable again.
 **Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessDemoTests.cs`.
 **Depends on:** rendering — "`MasterRenderSystem` is the sole renderer";
-"Rendering systems run last in the pipeline".
+"Rendering systems run last in the pipeline"; foundation — "`WindowFit` is
+opt-in, and it is the ONLY thing allowed to size a game's window" (the same
+`SdlNative` seam this hide path resolves through).
 
 ## Headless heap samples measure the live set, not transient churn
 

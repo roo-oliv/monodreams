@@ -62,6 +62,10 @@ the ones this flow's ordering leans on:
   `Shutdown` flushes. `MONODREAMS_DEBUG_DIR` redirects all debug output for test isolation.
 - Engine source never touches `File`/`Environment`/`Console` directly — all of it routes through
   `PlatformServices.Current` so the same source runs on web (see the platform premises).
+- `WindowFit` is opt-in and sits outside the frame entirely (a head-constructor call, no system, no
+  component). It must run *after* `Logger.Initialize` or its single boot line — the feature's only
+  observable — silently no-ops. Everything it touches is in points on macOS DesktopGL; there is no
+  Retina conversion anywhere in that path.
 
 ## Load-bearing quantities
 
@@ -83,6 +87,10 @@ Foundation moves coordinates and timing rather than scalar magnitudes, so it car
   `ChildOfComponent` survives its parent's disposal and orphan-renders at world origin; the reverse (only `ChildOfComponent`) misses the matrix cascade and renders un-parented.
 - **Lost logs / clobbered test runs** — a system logs before `Logger.Initialize`, or a parallel
   test forgets `MONODREAMS_DEBUG_DIR`; output silently drops or two runs overwrite one log file.
+- **Game renders offscreen** — a head pins `PreferredBackBufferWidth/Height` to its render
+  resolution (or re-pins it *after* `WindowFit.Apply`). macOS does not clamp a fixed window, so on
+  any display smaller than the render resolution the bottom strip — menus, Start buttons, HUD —
+  draws below the physical screen. No crash, no log, and players do not report it; they quit.
 
 > Name note: the input base class is `AKeyboardInputHandlingSystem`, but its file is
 > `System/Input/AbstractInputHandlingSystem.cs` — file name and class name differ.
