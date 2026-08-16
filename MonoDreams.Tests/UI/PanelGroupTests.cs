@@ -323,18 +323,76 @@ public class PanelGroupTests
         Assert.True(secondChild.Get<FocusableComponent>().Disabled);
     }
 
-    /// <summary>The panel gate composes with the coarser per-tab gate instead of fighting it: with
-    /// <c>TabSystem</c> registered first, a panel group whose surface is off-tab (the screen sets
-    /// <see cref="PanelGroupComponent.None"/>) leaves every focusable disabled, and on-tab the panel
-    /// gate refines the tab gate — only the active panel's focusables survive. Reversing the two
-    /// would let <c>TabSystem</c> re-enable a parked panel's controls.</summary>
+    /// <summary>Groups NEST — a wizard step containing a sub-tab bar, a settings page containing a
+    /// paged sub-menu — and a parked ancestor wins over an active descendant. The inner group's
+    /// active body is restored at its own local position, but it rides a parked outer member, so it
+    /// is off-screen: its focusables must stay out of navigation. Gating at the NEAREST member
+    /// ancestor only is the bug this pins — it re-enables the inner panel's controls while the outer
+    /// step is parked, and Tab walks off-screen.</summary>
     [Fact]
-    public void ComposedWithTabSystem_TheActivePanelIsTheOnlyEnabledOne_AndOffTabNothingIs()
+    public void NestedGroups_AParkedOuterMemberGatesTheInnerGroupsActivePanel()
+    {
+        using var world = new World();
+        using var panels = new PanelGroupSystem(world);
+        using var hierarchy = new HierarchySystem(world);
+
+        // Outer group: two wizard steps.
+        var (stepA, _) = MakePanel(world, new Vector2(40f, 40f), Vector2.Zero);
+        var (stepB, _) = MakePanel(world, new Vector2(40f, 40f), Vector2.Zero);
+        var outer = MakeGroup(world, stepA, stepB);
+
+        // Inner group: two sub-tab bodies parented UNDER stepA, each with a focusable control.
+        var (innerFirst, innerFirstChild) = MakePanel(world, new Vector2(6f, 6f), new Vector2(2f, 2f));
+        var (innerSecond, innerSecondChild) = MakePanel(world, new Vector2(6f, 6f), new Vector2(2f, 2f));
+        innerFirst.SetParent(stepA);
+        innerSecond.SetParent(stepA);
+        innerFirstChild.Set(new FocusableComponent { Size = new Vector2(80f, 24f) });
+        innerSecondChild.Set(new FocusableComponent { Size = new Vector2(80f, 24f) });
+        var inner = MakeGroup(world, innerFirst, innerSecond); // inner body 0 active
+
+        void Tick()
+        {
+            panels.Update(Frame());
+            hierarchy.Update(Frame());
+        }
+
+        // Step A is up: the inner group's own gate applies — body 0 reachable, body 1 parked.
+        Tick();
+        Assert.False(innerFirstChild.Get<FocusableComponent>().Disabled);
+        Assert.True(innerSecondChild.Get<FocusableComponent>().Disabled);
+
+        // Move to step B. Step A parks; the inner group still considers body 0 active and restores
+        // it — but it is a descendant of a parked member, hence off-screen and unreachable.
+        outer.Get<PanelGroupComponent>().Active = 1;
+        Tick();
+        Assert.True(innerFirstChild.Get<FocusableComponent>().Disabled);
+        Assert.True(innerSecondChild.Get<FocusableComponent>().Disabled);
+        Assert.True(innerFirstChild.Get<TransformComponent>().WorldPosition.X < -10_000f);
+
+        // Back on step A, the inner group's own state comes back untouched.
+        outer.Get<PanelGroupComponent>().Active = 0;
+        inner.Get<PanelGroupComponent>().Active = 1;
+        Tick();
+        Assert.True(innerFirstChild.Get<FocusableComponent>().Disabled);
+        Assert.False(innerSecondChild.Get<FocusableComponent>().Disabled);
+    }
+
+    /// <summary>The panel gate composes with the coarser per-tab gate instead of fighting it. Two
+    /// things are asserted that only hold because <c>TabSystem</c> really ran: chrome that is inside
+    /// the tab but outside every panel group (the demo's pager row) is gated by <c>TabSystem</c>
+    /// alone and never touched by <see cref="PanelGroupSystem"/>; and on the group's own tab
+    /// <c>TabSystem</c> enables BOTH panel bodies (it only knows the tab), after which the panel gate
+    /// refines that to the active panel only. Registration order is load-bearing: the panel gate must
+    /// run last, or <c>TabSystem</c>'s coarse re-enable would put a parked panel's controls back into
+    /// navigation — which is what the intermediate assertion here shows it doing.</summary>
+    [Fact]
+    public void ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies()
     {
         using var world = new World();
         using var tabs = new TabSystem(world);
         using var panels = new PanelGroupSystem(world);
 
+        const int otherTab = 0;
         const int panelsTab = 1;
         var (first, firstChild) = MakePanel(world, Vector2.Zero, new Vector2(5f, 5f));
         var (second, secondChild) = MakePanel(world, Vector2.Zero, new Vector2(5f, 5f));
@@ -344,27 +402,39 @@ public class PanelGroupTests
             content.Set(new TabContentComponent { TabIndex = panelsTab });
         }
 
+        // Pager chrome: on the same tab, but NOT a member of any group — it stays on screen while
+        // every page is parked, so only TabSystem may gate it.
+        var chrome = world.CreateEntity();
+        chrome.Set(new TransformComponent(Vector2.Zero));
+        chrome.Set(new FocusableComponent { Size = new Vector2(40f, 20f) });
+        chrome.Set(new TabContentComponent { TabIndex = panelsTab });
+
         var group = MakeGroup(world, first, second);
         var bar = world.CreateEntity();
-        bar.Set(new TabBarComponent { Tabs = [world.CreateEntity(), world.CreateEntity()], Active = 0 });
+        bar.Set(new TabBarComponent { Tabs = [world.CreateEntity(), world.CreateEntity()], Active = otherTab });
 
-        void Tick()
-        {
-            tabs.Update(Frame());
-            panels.Update(Frame());
-        }
-
-        // Another tab is up: the screen closes the group, so nothing inside it is reachable.
+        // Another tab is up: TabSystem disables everything tagged for the Panels tab — including the
+        // chrome, which no panel group would ever touch. The screen closes the group to match.
         group.Get<PanelGroupComponent>().Active = PanelGroupComponent.None;
-        Tick();
+        tabs.Update(Frame());
+        panels.Update(Frame());
+        Assert.True(chrome.Get<FocusableComponent>().Disabled); // TabSystem's write, nobody else's
         Assert.True(firstChild.Get<FocusableComponent>().Disabled);
         Assert.True(secondChild.Get<FocusableComponent>().Disabled);
 
-        // On the group's own tab: TabSystem enables the whole tab, the panel gate then parks the
-        // inactive panel's controls back out of navigation.
+        // On the group's own tab, TabSystem enables the whole tab — chrome AND both panel bodies,
+        // the parked one included: it has no idea panels exist.
         bar.Get<TabBarComponent>().Active = panelsTab;
         group.Get<PanelGroupComponent>().Active = 0;
-        Tick();
+        tabs.Update(Frame());
+        Assert.False(chrome.Get<FocusableComponent>().Disabled);
+        Assert.False(firstChild.Get<FocusableComponent>().Disabled);
+        Assert.False(secondChild.Get<FocusableComponent>().Disabled); // parked, but tab-enabled
+
+        // …then the panel gate, running last, refines it back down to the active panel and leaves
+        // the out-of-group chrome exactly as TabSystem left it.
+        panels.Update(Frame());
+        Assert.False(chrome.Get<FocusableComponent>().Disabled);
         Assert.False(firstChild.Get<FocusableComponent>().Disabled);
         Assert.True(secondChild.Get<FocusableComponent>().Disabled);
     }

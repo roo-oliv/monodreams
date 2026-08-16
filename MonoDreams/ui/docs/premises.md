@@ -437,6 +437,17 @@ dialog, a popup list) and to `TabSystem`'s flat per-entity tagging. It is
 implementation, and a new tabbed/paged/wizard surface should reach for it
 rather than growing another hide-based switcher.
 
+When both are in one pipeline, **`PanelGroupSystem` runs after `TabSystem`
+and is authoritative for the focusables under its members**: `TabSystem`
+gates everything tagged `TabContentComponent` (headers, pager chrome, and —
+knowing nothing about panels — a parked panel's controls too), then the
+panel gate refines its own members back down to the active panel. Two
+consequences: chrome that is on the tab but in no group is gated by
+`TabSystem` alone, and a panel group living inside a tab must be **closed**
+(`Active = None`) while that tab is off, or the panel gate re-enables its
+active panel's controls on a tab the player cannot see. The ui demo's
+Panels tab does exactly that.
+
 **Why:** on the Main target `VisibleComponent` is the show/hide toggle (the
 demo runs no `CullingSystem`, so the tag is the visibility switch), and
 gating focus with `FocusableComponent.Disabled` keeps hidden controls out of
@@ -458,9 +469,10 @@ also why an exclusive-panel switcher must park instead of hide.
 separate"; "Exclusive panel groups PARK their inactive members; they never
 hide them".
 **Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
-(`ComposedWithTabSystem_TheActivePanelIsTheOnlyEnabledOne_AndOffTabNothingIs`
-covers `TabSystem`'s focus gate and its composition with the panel gate; the
-`VisibleComponent` half and the dialog/dropdown systems are untested).
+(`ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies`
+covers `TabSystem`'s focus gate — on out-of-group chrome, where nothing else
+writes it — and its composition with the panel gate; the `VisibleComponent`
+half and the dialog/dropdown systems are untested).
 
 ## Exclusive panel groups PARK their inactive members; they never hide them
 
@@ -477,7 +489,13 @@ verbatim. `Active = PanelGroupComponent.None` (`-1`, and any out-of-range
 index) is first class and parks every member — a closed menu is a panel
 group with no active member, not a special case. Focus follows the same
 rule: every `FocusableComponent` whose transform chain reaches a parked
-member is `Disabled`, and the active member's are re-enabled. **Game code
+member is `Disabled`, and the active member's are re-enabled. **Groups
+nest** — a wizard step containing a sub-tab bar, a settings page containing
+a paged sub-menu — and the gate walks the WHOLE transform chain, not just up
+to the nearest member: a focusable is reachable only when *every* member
+above it is active, so a parked outer step keeps an inner group's active
+body out of navigation (the inner body is still restored at its own local
+position; it simply rides the parked ancestor off-screen). **Game code
 only ever writes `Active`;** the parking dance is never hand-written.
 
 **Why:** hiding is the instinct and it is wrong here. `VisibleComponent`
@@ -496,8 +514,10 @@ UI/HUD/Scroll and produces a first-frame flicker of stale prep on Main;
 parking by hand (`position += offset` per frame) compounds the offset until
 the panel is unreachable; skipping the focus gate leaves invisible-but-
 focusable controls that Tab still lands on inside a panel the player cannot
-see; parking a panel whose content is NOT parented under the member root
-leaves that content on screen.
+see; gating only at the NEAREST member ancestor breaks the same way one
+level down — an inner group re-enables its active body's controls while the
+outer step is parked, and Tab walks off-screen; parking a panel whose
+content is NOT parented under the member root leaves that content on screen.
 **Tests:** `MonoDreams.Tests/UI/PanelGroupTests.cs`
 (`SwitchAwayAndBack_RestoresEveryTransformIdentically` and
 `LayoutDrivenPanel_SwitchesAwayAndBack_WithoutDriftingOrCompounding` — the
@@ -508,7 +528,9 @@ hidden; `ParkingIsIdempotent_AcrossManyFrames`;
 `NoneActive_ParksEveryMember_AndReopeningRestoresThePage`;
 `OutOfRangeActiveIndex_ParksEveryMember`;
 `FocusablesUnderAParkedPanel_AreDisabled_AndReEnabledOnSwitchBack`;
-`ComposedWithTabSystem_TheActivePanelIsTheOnlyEnabledOne_AndOffTabNothingIs`;
+`NestedGroups_AParkedOuterMemberGatesTheInnerGroupsActivePanel` — the
+nesting rule;
+`ComposedWithTabSystem_TheTabGatesTheChrome_AndThePanelGateRefinesTheTabsBodies`;
 `DeadOrTransformlessMembers_AreSkipped`). The reference usages are the ui
 demo's Panels tab: a sub-tab bar and a paged settings menu on the same
 component.
@@ -664,5 +686,7 @@ The following premises currently have **Tests: none yet**:
 - The text-input caret is a game-supplied mesh entity the system positions and toggles
 
 Partially covered: "Tab / Dialog / Dropdown systems show/hide on the Main
-target …" — the focus-gate half is tested via the panel-group composition
-test; the `VisibleComponent` half and the dialog/dropdown systems are not.
+target …" — `TabSystem`'s focus-gate half is tested via the panel-group
+composition test, asserted on chrome that sits outside every panel group so
+the write under test is `TabSystem`'s own; the `VisibleComponent` half and
+the dialog / dropdown systems are not.

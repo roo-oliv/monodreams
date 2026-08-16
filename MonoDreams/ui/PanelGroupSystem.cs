@@ -22,7 +22,9 @@ namespace MonoDreams.UI;
 /// <para><b>Parked panels are inert.</b> Every <see cref="FocusableComponent"/> whose transform
 /// chain reaches a parked member is <see cref="FocusableComponent.Disabled"/>, so Tab / arrow
 /// navigation cannot walk into a panel the player cannot see; the active member's focusables are
-/// re-enabled. A member's own focusable (if it has one) is gated too.</para>
+/// re-enabled. A member's own focusable (if it has one) is gated too. <b>Groups nest:</b> the chain
+/// is walked all the way to the root, so a focusable is enabled only when EVERY member above it is
+/// active — an inner group's active body inside a parked outer step stays out of navigation.</para>
 ///
 /// <para><b>Ordering.</b> Run this AFTER every system that writes member positions — in particular
 /// <c>AutoLayoutSystem</c>, which rewrites each root slot's position from scratch every frame — and
@@ -132,6 +134,13 @@ public sealed class PanelGroupSystem : ISystem<GameState>
 
     /// Disables every focusable that lives under a parked member and enables the ones under the
     /// active member. Focusables outside any group are untouched.
+    ///
+    /// <para>The walk does NOT stop at the nearest member: it climbs the WHOLE chain, because groups
+    /// nest (a wizard step containing a sub-tab bar, a settings page containing a paged sub-menu). A
+    /// focusable is reachable only when EVERY member on its chain is active — one parked ancestor
+    /// parks everything below it, whichever group that ancestor belongs to. Stopping at the nearest
+    /// member would let an inner group's active body re-enable its controls while the outer step is
+    /// parked, putting Tab navigation back into a panel that is off-screen.</para>
     private void GateFocusables()
     {
         if (_memberTransforms.Count == 0) return;
@@ -139,16 +148,25 @@ public sealed class PanelGroupSystem : ISystem<GameState>
         foreach (var entity in _focusables.GetEntities())
         {
             var transform = entity.Get<TransformComponent>();
+            var inAnyGroup = false;
+            var reachable = true;
+
             for (var depth = 0; transform != null && depth < MaxParentWalk; depth++)
             {
                 if (_memberTransforms.TryGetValue(transform, out var active))
                 {
-                    entity.Get<FocusableComponent>().Disabled = !active;
-                    break;
+                    inAnyGroup = true;
+                    if (!active)
+                    {
+                        reachable = false;
+                        break; // a parked ancestor settles it — nothing above can bring it back
+                    }
                 }
 
                 transform = transform.Parent;
             }
+
+            if (inAnyGroup) entity.Get<FocusableComponent>().Disabled = !reachable;
         }
     }
 

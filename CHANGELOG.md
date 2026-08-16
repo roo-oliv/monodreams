@@ -15,7 +15,8 @@ so migrating is editing your own copy.
   active" — a closed menu, first class rather than a special case.
 - `PanelGroupSystem` — parks every inactive member off-screen (alive, laid out, measured)
   and restores the active one to the exact position it left, gating the focusables under
-  each panel. Register it after everything that writes a member's position (notably
+  each panel: groups nest, so a control is navigable only when *every* panel above it is
+  active. Register it after everything that writes a member's position (notably
   `AutoLayoutSystem`) and before `HierarchySystem`. Game code only ever writes `Active`.
   This is the sanctioned implementation of the module's **park, don't hide** premise —
   hiding a panel with `VisibleComponent` is a no-op on the UI/HUD/Scroll targets and
