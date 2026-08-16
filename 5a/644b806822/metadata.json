@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "5a644b806822",
+  "strategy": "manual-commit",
+  "branch": "issue-95",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "MonoDreams.Tests/Rendering/ViewportInsetTests.cs",
+    "MonoDreams.Tests/UI/PanelGroupTests.cs",
+    "MonoDreams.Tests/Ui/PanelGroupTests.cs",
+    "MonoDreams/ui/AutoLayoutBuilder.cs",
+    "MonoDreams/ui/AutoLayoutSystem.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5a/644b806822/0/metadata.json",
+      "transcript": "/5a/644b806822/0/full.jsonl",
+      "context": "/5a/644b806822/0/context.md",
+      "content_hash": "/5a/644b806822/0/content_hash.txt",
+      "prompt": "/5a/644b806822/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 51968,
+    "cache_read_tokens": 12165393,
+    "output_tokens": 20555,
+    "api_call_count": 42
+  }
+}
