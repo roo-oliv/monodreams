@@ -387,6 +387,14 @@ present (which is what sets `SkipHardwareRead`) plus final-frame-only capture �
 and any pixel-identity gate must be stated under that protocol, never over a
 bare run.
 
+The precheck's scope is itself pinned. Every screen the host can boot is
+either run by the precheck or named — with the reason it cannot be — in the
+precheck's own exclusion list, and a test compares that pair against the
+host's screen registry. So "the demos are byte-reproducible" always says how
+many screens it covers, and a screen added later (or dropped from the run
+list) fails loudly instead of narrowing the claim in silence. Today the one
+exclusion is the physics demo's unseeded `Random`.
+
 **Why:** the whole point of the headless Demos path (issue #28) is to let an
 agent verify its own work without a human, which requires that re-running the
 same scene produce the same output. With the wallclock dt MonoGame hands a
@@ -411,7 +419,10 @@ observe an identical printed game-time series);
 `MonoDreams.Tests/IntegrationTests/DeterministicClockTests.cs`
 (`Demo_RunTwiceHeadless_ProducesByteIdenticalPngs`) carries it to pixels — five
 demo screens, each run twice under the deterministic-input protocol, compared
-byte for byte via `GameTestRunner.AssertScreenshotsByteIdentical`.
+byte for byte via `GameTestRunner.AssertScreenshotsByteIdentical`; and
+`Precheck_CoversEveryDemoScreen_OrNamesTheExclusionAndWhy` in the same file
+holds the scope, failing when a registered demo screen is neither run nor
+excluded-with-a-reason.
 **Depends on:** "Headless Demos renders every frame; capture reads the
 backbuffer" (there are pixels to compare only because `Draw` is not a no-op);
 "Headless heap samples measure the live set, not transient churn" (the `Heap

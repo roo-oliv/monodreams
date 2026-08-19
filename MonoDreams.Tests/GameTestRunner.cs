@@ -156,6 +156,11 @@ public static class GameTestRunner
         throw new InvalidOperationException("Could not find repo root (directory containing MonoDreams.Examples.Desktop).");
     }
 
+    /// <summary>The repo root, for tests that read committed source instead of spawning a host — the
+    /// lint idiom already used by <c>EditorThemeLintTests</c> and <c>SceneLintTests</c>, exposed here so
+    /// a third private copy of the walk does not appear.</summary>
+    public static string RepoRoot() => FindRepoRoot();
+
     /// <summary>
     /// Runs the Examples host headless under an input-replay plan and collects its log.
     /// <paramref name="environment"/> adds extra process environment variables (e.g.
