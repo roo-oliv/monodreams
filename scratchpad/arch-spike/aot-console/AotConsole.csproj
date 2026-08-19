@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Wave-0 target proof (issue #119, contract item 2, AOT leg): Arch survives a NativeAOT publish
+    with `Arch.AOT.SourceGenerator`, and the published NATIVE binary really runs entity creation,
+    queries and structural change.
+
+    The A/B switch below is the point of the project: `UseArchAotGenerator=false` publishes the SAME
+    program with the generator (and the `[Component]` annotations it keys on) removed, so the proof
+    can state whether the generator is REQUIRED under AOT or merely recommended — a fact D6 assumes
+    but never measured.
+
+      dotnet publish scratchpad/arch-spike/aot-console/AotConsole.csproj -c Release -r osx-arm64
+      dotnet publish scratchpad/arch-spike/aot-console/AotConsole.csproj -c Release -r osx-arm64 -p:UseArchAotGenerator=false
+
+    References Arch directly and nothing from MonoDreams: this tree rides the `scratchpad/`
+    allowlist entry of the wave-1 EcsBoundaryLintTests (plan D15).
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>MonoDreams.ArchSpike.AotConsole</RootNamespace>
+    <AssemblyName>AotConsole</AssemblyName>
+
+    <PublishAot>true</PublishAot>
+    <!-- Keep the AOT report honest: trim/AOT analyzers run at BUILD time too, so a plain
+         `dotnet build` already surfaces the IL2xxx/IL3xxx warnings Arch's reflection produces. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <UseArchAotGenerator Condition="'$(UseArchAotGenerator)' == ''">true</UseArchAotGenerator>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(UseArchAotGenerator)' == 'true'">
+    <DefineConstants>$(DefineConstants);ARCH_AOT_GENERATOR</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The checks, the component shapes and the generator shim are shared VERBATIM with the
+         KNI/BlazorGL WASM head, so both target proofs make the same claim about the same code. -->
+    <Compile Include="../shared/ArchSpikeComponents.cs" Link="shared/ArchSpikeComponents.cs" />
+    <Compile Include="../shared/ArchCoreUtilsShim.cs" Link="shared/ArchCoreUtilsShim.cs" />
+    <Compile Include="../shared/ArchExercise.cs" Link="shared/ArchExercise.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Same pin as MonoDreams.Benchmarks (wave-0 decision: Arch 2.1.0). -->
+    <PackageReference Include="Arch" Version="2.1.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseArchAotGenerator)' == 'true'">
+    <!-- Analyzer-only: emits `[Arch.AOT.SourceGenerator.Component]` and a ModuleInitializer that
+         registers every annotated type with Arch's ComponentRegistry ahead of any reflection. -->
+    <PackageReference Include="Arch.AOT.SourceGenerator" Version="1.0.1"
+                      PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
