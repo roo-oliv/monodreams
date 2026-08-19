@@ -22,12 +22,16 @@ namespace MonoDreams.Tests.IntegrationTests;
 ///   <c>DemoKeyboard.Engage</c>, which pins BOTH hardware legs — the mouse
 ///   (<c>CursorInputSystem.SkipHardwareRead</c>) and the keyboard (the demos' shared
 ///   <c>DemoKeyboard.Read</c> gate, plus the <c>SkipHardwareRead</c> of every
-///   <c>AKeyboardInputHandlingSystem</c> in the screen). The editor overlay's own six keyboard
-///   readers (both panels, the dialog, the context menu, the modal transform, the shortcut chord
-///   tracker) are on the same gate, because <c>DemoEditor</c> hands the overlay
+///   <c>AKeyboardInputHandlingSystem</c> in the screen — including the ENGINE-declared
+///   <c>DefaultEditorKeys</c>, which a screen passes as <c>_editor.Keys</c>). The editor overlay's own
+///   six keyboard readers (both panels, the dialog, the context menu, the modal transform, the
+///   shortcut chord tracker) are on the same gate, because <c>DemoEditor</c> hands the overlay
 ///   <c>readKeyboard: DemoKeyboard.Read</c>: they are woven <c>RunNormally</c> and are inert only
 ///   while no editor UI is open, so "the plan opens no panel today" is not a property the protocol
-///   may rest on. Without the mouse leg a headless run
+///   may rest on. Both halves are linted here rather than trusted — the overlay CONSTRUCTION must
+///   carry the seam (<c>EditorKeyboardSeamLintTests</c> only proves the overlay forwards a seam it is
+///   given), and the seam file's own exemption is one gated read, not a waiver for the file. Without
+///   the mouse leg a headless run
 ///   samples <c>Mouse.GetState()</c>, whose window-relative position varies per launch (the hidden
 ///   window lands wherever the OS puts it), and the rendered cursor arrow lands on different
 ///   pixels run to run. Without the keyboard leg a key held while the hidden window happens to own
@@ -63,10 +67,14 @@ namespace MonoDreams.Tests.IntegrationTests;
 /// scans every <c>.cs</c> file of each covered screen's demo directory PLUS the demo-owned sources
 /// every screen composes — <c>MonoDreams.Demos/UI</c> (the shared widgets, palette, shape builder and
 /// the demos' own button system) and the host root itself (<c>Game1</c>, <c>DemoKeyboard</c>,
-/// <c>DemoEditor</c>, the headless clock). That scope is the claim's scope, and it is still narrower
-/// than "the whole demo surface": the ENGINE systems a demo screen composes (cursor, hierarchy,
-/// layout, camera) are not scanned here — they carry no RNG today, and the lint that would cover them
-/// belongs to the engine, not to this precheck. A DORMANT source still counts as a failure — the
+/// <c>DemoEditor</c>, the headless clock). That root list is enumerated against the host's directory
+/// tree rather than trusted (<see cref="Precheck_ScansEveryDirectoryOfTheDemosHost"/>), so a new
+/// <c>MonoDreams.Demos/Systems/</c> cannot end up scanned by nothing. Names are resolved at the SET's
+/// scope, not one file's: a <c>Random</c> declared in a shared source and target-typed-constructed from
+/// a screen is still an RNG (see <see cref="CensusScope"/>). That scope is the claim's scope, and it is
+/// still narrower than "the whole demo surface": the ENGINE systems a demo screen composes (cursor,
+/// hierarchy, layout, camera) are not scanned here — they carry no RNG today, and the lint that would
+/// cover them belongs to the engine, not to this precheck. A DORMANT source still counts as a failure — the
 /// camera demo carried one (its hit-shake jitter) that only wakes when the dot enters a hit square, so
 /// today's green run said nothing about tomorrow's op plan, while every record here named physics as
 /// the single source and would have sent the debugger to the wrong screen. It is seeded now
@@ -143,11 +151,19 @@ public class DeterministicClockTests
     ];
 
     /// <summary>The ONE file allowed to name <c>Keyboard.GetState()</c>: the gate itself
-    /// (<c>DemoKeyboard.Read</c> IS <c>Keyboard.GetState</c> off the protocol). Exempting it by path is
-    /// what keeps the lint's rule "exactly one seam" rather than "no seam at all", and
-    /// <see cref="Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol"/> asserts the seam
-    /// really is there, so the exemption cannot decay into a blanket.</summary>
+    /// (<c>DemoKeyboard.Read</c> IS <c>Keyboard.GetState</c> off the protocol). The exemption is
+    /// per-file but NOT a blanket: <see cref="AssertTheSeamFileIsExactlyTheSeam"/> requires that file to
+    /// hold exactly ONE <c>Keyboard.GetState()</c>, sitting behind the <c>SkipHardwareRead</c> gate, and
+    /// no <c>Mouse.GetState()</c> at all — so a second helper (or a mouse read) added to the seam file
+    /// cannot ride the exemption.</summary>
     private static readonly string KeyboardSeamSource = Path.Combine("MonoDreams.Demos", "DemoKeyboard.cs");
+
+    /// <summary>Directories of the demos host that hold no scannable source by construction (build
+    /// output). Everything else under the host root must be reachable from the census's roots —
+    /// <see cref="Precheck_ScansEveryDirectoryOfTheDemosHost"/> enumerates rather than trusts, so a new
+    /// <c>MonoDreams.Demos/Systems/</c> cannot be scanned by nothing while the tests stay green.</summary>
+    private static readonly HashSet<string> BuildOutputDirectories =
+        new(["bin", "obj"], StringComparer.OrdinalIgnoreCase);
 
     public static IEnumerable<object[]> CoveredScreens => Covered.Select(screen => new object[] { screen });
 
@@ -259,11 +275,11 @@ public class DeterministicClockTests
         foreach (var screen in Covered)
         {
             var sources = ReadScreenSources(screen);
-            var constants = ConstantScope.Of(sources.Select(file => file.Source));
+            var scope = CensusScope.Of(sources.Select(file => file.Source));
 
             foreach (var (path, source) in sources)
             {
-                var offenders = NondeterministicSources(source, constants);
+                var offenders = NondeterministicSources(source, scope);
                 if (offenders.Count == 0) continue;
 
                 var (line, snippet, why) = offenders[0];
@@ -282,15 +298,60 @@ public class DeterministicClockTests
         {
             if (exclusion.Cause != ExclusionCause.UnpinnedNondeterminism) continue;
 
-            var sources = ReadScreenSources(screen);
-            var constants = ConstantScope.Of(sources.Select(file => file.Source));
+            // The screen's OWN sources only. The shared demo roots belong to every screen's scan, so
+            // reading them here would let nondeterminism in ShapeBuilder (which the covered loop above
+            // already fails on) stand in for the excluded screen's own — the exclusion has to be earned
+            // by the screen it names.
+            var sources = ReadOwnScreenSources(screen);
+            var scope = CensusScope.Of(sources.Select(file => file.Source));
             Assert.True(
-                sources.Any(file => NondeterministicSources(file.Source, constants).Count > 0),
+                sources.Any(file => NondeterministicSources(file.Source, scope).Count > 0),
                 $"'{screen}' is excluded from the precheck as {nameof(ExclusionCause.UnpinnedNondeterminism)} " +
                 $"({exclusion.Reason}), but no source under {ScreenSources[screen]} has any left. Move it " +
                 $"into {nameof(Covered)} (and re-run the precheck) rather than leaving the byte-identity " +
                 "claim narrower than the code now allows.");
         }
+    }
+
+    /// <summary>
+    /// The census's roots are a hand-written list, so "every demo-owned source is scanned" holds only
+    /// while that list keeps up with the host's directory tree. This enumerates it instead: every
+    /// top-level directory of <c>MonoDreams.Demos</c> that holds C# source must lie inside a root the
+    /// census actually reads for a COVERED screen (a <see cref="ScreenSources"/> entry of a covered
+    /// screen, or a <see cref="SharedDemoSources"/> root) — build output aside.
+    ///
+    /// <para>Without it, coverage of <c>MonoDreams.Demos/Screens</c> rests on the launcher staying in
+    /// <see cref="Covered"/>, and a new <c>MonoDreams.Demos/Systems/</c> (or a <c>ShapeBuilder</c> moved
+    /// out of <c>UI/</c>) would be scanned by nothing at all while every test stayed green and the C8
+    /// premise kept claiming the demo-owned sources are covered.</para>
+    /// </summary>
+    [Fact]
+    public void Precheck_ScansEveryDirectoryOfTheDemosHost()
+    {
+        var repoRoot = GameTestRunner.RepoRoot();
+        var hostRoot = Path.Combine(repoRoot, "MonoDreams.Demos");
+        Assert.True(Directory.Exists(hostRoot), $"demos host root not found at {hostRoot}");
+
+        var scanned = Covered.Select(screen => ScreenSources[screen])
+            .Concat(SharedDemoSources.Select(root => root.Relative))
+            .Select(relative => Path.GetFullPath(Path.Combine(repoRoot, relative)))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var unscanned = Directory.GetDirectories(hostRoot)
+            .Where(directory => !BuildOutputDirectories.Contains(Path.GetFileName(directory)))
+            .Where(directory => Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories).Length > 0)
+            .Where(directory => !scanned.Contains(Path.GetFullPath(directory)))
+            .Select(directory => Path.GetRelativePath(repoRoot, directory))
+            .ToList();
+
+        Assert.True(
+            unscanned.Count == 0,
+            $"directory(ies) [{string.Join(", ", unscanned)}] of the demos host hold C# source that no " +
+            $"covered screen's scan reads. Both {nameof(Precheck_CoveredScreensPinEveryNondeterministicSource_AndTheExclusionReasonStillHolds)} " +
+            $"and {nameof(Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol)} would skip them, " +
+            $"so an unpinned Random or a direct Keyboard.GetState() there reds a byte-identity run while " +
+            $"both lints stay green. Add the directory to {nameof(SharedDemoSources)} (it belongs to every " +
+            $"screen's scan) or map it in {nameof(ScreenSources)}.");
     }
 
     /// <summary>
@@ -301,12 +362,18 @@ public class DeterministicClockTests
     /// line <see cref="RunOnce"/> asserts.
     ///
     /// <para>Forbidding one token is not enough, because the hardware default lives in ENGINE code: a
-    /// <c>TextInputSystem</c> built without <c>KeyboardStateProvider</c>, or a <c>KeyChordTracker</c>
-    /// built without its seam argument, reads <c>Keyboard.GetState</c> while the demo source stays
-    /// clean. Both defaulting seams are linted here. So is the other blind spot: a screen's own
-    /// <c>AKeyboardInputHandlingSystem</c> subclass that never reaches <c>Engage</c>'s argument list —
-    /// <c>Engage</c> logs its line either way, so <see cref="RunOnce"/>'s assertion cannot see the
-    /// missing one.</para>
+    /// <c>TextInputSystem</c> built without <c>KeyboardStateProvider</c>, a <c>KeyChordTracker</c>
+    /// built without its seam argument, or an <c>EditorOverlay</c> built without <c>readKeyboard</c>
+    /// (six readers at once) reads <c>Keyboard.GetState</c> while the demo source stays clean. All
+    /// three defaulting seams are linted here, on the argument's VALUE rather than its presence — a
+    /// second argument that is <c>null</c>, or a <c>getKeyboardState:</c> label pointing back at
+    /// <c>Keyboard.GetState</c>, defaults exactly as an omission does. So is the other blind spot: an
+    /// <c>AKeyboardInputHandlingSystem</c> subclass a screen constructs but never hands to
+    /// <c>Engage</c> — <c>Engage</c> logs its line either way, so <see cref="RunOnce"/>'s assertion
+    /// cannot see the missing one. The subclass set is seeded from the ENGINE's declarations too, not
+    /// only from what a demo declares: the demos' editor key surface (<c>DefaultEditorKeys</c>) is
+    /// declared in the engine and constructed by <c>DemoEditor</c>, so a demo-only set would have left
+    /// the leg the premise names entirely unchecked.</para>
     ///
     /// <para>Without this lint the keyboard leg degrades exactly the way the mouse leg used to: a
     /// screen (or a new system inside one) calls <c>Keyboard.GetState()</c> directly, every run stays
@@ -326,7 +393,12 @@ public class DeterministicClockTests
             var engages = false;
             var buildsCursorPipeline = false;
             var engageArguments = new List<string>();
-            var keyboardSystems = new HashSet<string>(StringComparer.Ordinal);
+            // Seeded with the ENGINE's own subclasses, not only the ones a demo declares: the demos
+            // construct DefaultEditorKeys through DemoEditor and hand it to Engage as `_editor.Keys`,
+            // and a set built from demo declarations alone would never check that leg — dropping
+            // `_editor.Keys` from a screen's Engage call would keep this lint green while the editor's
+            // whole key surface went back to the hardware.
+            var keyboardSystems = new HashSet<string>(EngineKeyboardSystems.Value, StringComparer.Ordinal);
             var code = new List<(string Path, string Code)>();
 
             foreach (var (path, source) in sources)
@@ -338,7 +410,7 @@ public class DeterministicClockTests
                 {
                     // The seam itself: the ONE hardware read the protocol is built around.
                     seamSeen = true;
-                    Assert.Matches(@"\bKeyboard\.GetState\s*\(", stripped);
+                    AssertTheSeamFileIsExactlyTheSeam(path, stripped);
                 }
                 else
                 {
@@ -354,22 +426,41 @@ public class DeterministicClockTests
 
                 foreach (Match match in DefaultingTextInput.Matches(stripped))
                     Assert.True(
-                        match.Value.Contains("KeyboardStateProvider", StringComparison.Ordinal),
+                        SeamValue.IsMatch(match.Value),
                         $"'{screen}' builds a TextInputSystem at {path}:{LineOf(stripped, match.Index)} " +
-                        "without setting KeyboardStateProvider. That property defaults to " +
-                        "Keyboard.GetState INSIDE the engine, so the demo source stays clean while the " +
-                        "run types the developer's keystrokes into the field. Set " +
+                        "without setting KeyboardStateProvider to the demos' gate. That property " +
+                        "defaults to Keyboard.GetState INSIDE the engine, so the demo source stays clean " +
+                        "while the run types the developer's keystrokes into the field. Set " +
                         "{ KeyboardStateProvider = DemoKeyboard.Read }.");
 
                 foreach (Match match in DefaultingChordTracker.Matches(stripped))
                 {
                     var arguments = ArgumentsAt(stripped, match.Index + match.Length - 1);
+                    // The VALUE, not merely a second argument: `new KeyChordTracker(false, null)` has a
+                    // comma and still falls back to Keyboard.GetState inside the engine.
                     Assert.True(
-                        arguments.Contains(',') || arguments.Contains("getKeyboardState", StringComparison.Ordinal),
+                        SeamValue.IsMatch(arguments),
                         $"'{screen}' builds a KeyChordTracker at {path}:{LineOf(stripped, match.Index)} " +
-                        "with no keyboard seam. The seam argument is optional and defaults to " +
-                        "Keyboard.GetState inside the engine, so the chord table would read the hardware " +
-                        "under the protocol. Pass DemoKeyboard.Read.");
+                        "without the demos' keyboard gate as its seam. The seam argument is optional and " +
+                        "defaults to Keyboard.GetState inside the engine (an explicit `null` defaults the " +
+                        "same way), so the chord table would read the hardware under the protocol. Pass " +
+                        "DemoKeyboard.Read.");
+                }
+
+                foreach (Match match in OverlayConstruction.Matches(stripped))
+                {
+                    var arguments = ArgumentsAt(stripped, match.Index + match.Length - 1);
+                    Assert.True(
+                        OverlaySeamArgument.IsMatch(arguments),
+                        $"'{screen}' builds an EditorOverlay at {path}:{LineOf(stripped, match.Index)} " +
+                        "without 'readKeyboard: DemoKeyboard.Read'. The overlay's six keyboard readers " +
+                        "(both panels, the Save dialog, the context menu, the modal transform, the " +
+                        "shortcut chord tracker) each default to Keyboard.GetState INSIDE the engine, and " +
+                        "the protocol REQUIRES the editor flag — so they are woven RunNormally in every " +
+                        "precheck run and an overlay built without the seam hands the whole editor key " +
+                        "surface back to the hardware while every other leg stays pinned. " +
+                        "EditorKeyboardSeamLintTests only proves the overlay forwards the seam it is " +
+                        "given; this is what proves it is given one.");
                 }
 
                 foreach (Match match in KeyboardSystemDeclaration.Matches(stripped))
@@ -400,6 +491,36 @@ public class DeterministicClockTests
             "no longer anchored to a seam. Update " + nameof(KeyboardSeamSource) + ".");
     }
 
+    /// <summary>The seam file's exemption covers ONE read, not the file. It must hold exactly one
+    /// <c>Keyboard.GetState()</c>, that read must sit on the <c>SkipHardwareRead</c> gate line, and it
+    /// must name no <c>Mouse.GetState()</c> at all — otherwise a second helper (or a mouse read) added
+    /// beside the seam would inherit a blanket waiver from the raw-read rule and sample the hardware
+    /// under the protocol.</summary>
+    private static void AssertTheSeamFileIsExactlyTheSeam(string path, string stripped)
+    {
+        var reads = Regex.Matches(stripped, @"\bKeyboard\.GetState\s*\(");
+        Assert.True(
+            reads.Count == 1,
+            $"{path} is the protocol's ONE exempted hardware read, so it must contain exactly one " +
+            $"Keyboard.GetState() — found {reads.Count}. A second reader in the seam file is exempt from " +
+            "the raw-read lint by path while nothing gates it, which is the blanket the per-file " +
+            "exemption exists not to be.");
+
+        var mouse = Regex.Match(stripped, @"\bMouse\.GetState\s*\(");
+        Assert.False(
+            mouse.Success,
+            $"{path} reads the hardware MOUSE at line {LineOf(stripped, mouse.Index)}. The seam file's " +
+            "exemption covers the keyboard gate only — the mouse leg is CursorInputSystem's " +
+            "SkipHardwareRead, and a mouse read here is invisible to every other check.");
+
+        var gate = RawLine(stripped, reads[0].Index);
+        Assert.True(
+            Regex.IsMatch(gate, @"\bSkipHardwareRead\b[^;]*\?"),
+            $"{path}'s Keyboard.GetState() is not on the SkipHardwareRead gate line ('{gate.Trim()}'). " +
+            "The seam reads the hardware only OFF the protocol; an ungated read in the seam file returns " +
+            "the whole demos keyboard to the hardware while every lint stays green.");
+    }
+
     /// <summary>Every <c>AKeyboardInputHandlingSystem</c> subclass a screen declares AND constructs must
     /// reach <c>DemoKeyboard.Engage</c>'s argument list — that call is the only thing that sets its
     /// <c>SkipHardwareRead</c>, and <c>Engage</c> logs the protocol line whether or not the system was
@@ -414,6 +535,10 @@ public class DeterministicClockTests
         {
             var construction = new Regex($@"\bnew\s+{Regex.Escape(type)}\s*\(", RegexOptions.None);
             var assignment = new Regex($@"(\w+)\s*=\s*new\s+{Regex.Escape(type)}\s*\(", RegexOptions.None);
+            // Also every name DECLARED with the type — a system built behind a helper reaches Engage
+            // under the helper's own member name (DemoEditor builds DefaultEditorKeys as `keys` and
+            // exposes it as `Keys`, which is what a screen passes: `_editor.Keys`).
+            var declaration = new Regex($@"\b{Regex.Escape(type)}\??\s+(\w+)\s*[;=,){{]", RegexOptions.None);
 
             var names = new List<string>();
             var constructed = false;
@@ -421,6 +546,7 @@ public class DeterministicClockTests
             {
                 if (construction.IsMatch(code)) constructed = true;
                 names.AddRange(assignment.Matches(code).Select(match => match.Groups[1].Value));
+                names.AddRange(declaration.Matches(code).Select(match => match.Groups[1].Value));
             }
 
             if (!constructed) continue;
@@ -459,12 +585,22 @@ public class DeterministicClockTests
     [InlineData("private Random? _rng;\n    void Ensure() { _rng ??= new(); }", true)]
     [InlineData("private Random Make() => new();", true)]
     [InlineData("private readonly Random[] _rngs = [new()];", true)]
+    // …including the MULTI-LINE forms of those shapes, where the type sits more than one line above the
+    // `new(` and a one-line look-back sees only whitespace and an opening bracket.
+    [InlineData("private readonly Random[] _rngs =\n    [\n        new(),\n    ];", true)]
+    [InlineData("private readonly Random _rng\n        =\n            new();", true)]
     // …a seed qualified by a type this source never declares is not a constant this source can pin.
     [InlineData("private const int Seed = 7;\n    private readonly Random _rng = new Random(Other.Seed);", true)]
     // …and entropy that is not an RNG at all makes scene content per-process just the same.
     [InlineData("var jitter = DateTime.Now.Millisecond * 0.01f;", true)]
     [InlineData("var id = Guid.NewGuid();", true)]
     [InlineData("var t0 = Stopwatch.GetTimestamp();", true)]
+    [InlineData("var sw = new Stopwatch();", true)]
+    [InlineData("var elapsed = _sw.Elapsed.TotalMilliseconds;", true)]
+    [InlineData("var pid = Environment.ProcessId;", true)]
+    [InlineData("var now = TimeProvider.System.GetUtcNow();", true)]
+    [InlineData("var order = name.GetHashCode();", true)]
+    [InlineData("var rng = new Random(name.GetHashCode());", true)]
     // Pinned — none of these may fail the scan.
     [InlineData("var rng = new Random(7);", false)]
     [InlineData("var rng = new Random(-1);", false)]
@@ -476,6 +612,8 @@ public class DeterministicClockTests
     [InlineData("class Seeds { public const int Value = 7; }\n    Random _rng = new Random(Seeds.Value);", false)]
     [InlineData("public static readonly Color Fill = new(1, 2, 3);", false)]
     [InlineData("private Vector2 RandomVelocity() => Vector2.Zero;", false)]
+    // …the entropy list is a list of READS, not of names: reading an env var is not entropy.
+    [InlineData("var dir = Environment.GetEnvironmentVariable(\"MONODREAMS_DEBUG_DIR\");", false)]
     public void NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape(string source, bool expectUnpinned)
     {
         var findings = NondeterministicSources(source);
@@ -488,6 +626,45 @@ public class DeterministicClockTests
                   $"({string.Join("; ", findings.Select(f => $"{f.Snippet} — {f.Why}"))})");
     }
 
+    /// <summary>
+    /// The census's contract ACROSS files, which is the scope it actually runs in: every covered screen's
+    /// scan spans its own demo tree plus two shared roots. A per-file name set and a set-wide constant
+    /// pool each break in one direction — the first misses an RNG declared in one file and constructed in
+    /// another, the second accepts an unpinned local seed because an unrelated file happens to declare a
+    /// same-named constant. Both directions are pinned here.
+    /// </summary>
+    [Theory]
+    // A Random-typed member declared in a shared source and target-typed-constructed from a screen is
+    // still an RNG construction — the shape that made the census green while content differed per run.
+    [InlineData("public static class ShapeBuilder { public static Random Jitter { get; set; } }",
+        "ShapeBuilder.Jitter = new();", true)]
+    // A BARE seed name resolves against the file that uses it, never against a sibling's constant: a
+    // local Seed the compiler computes at runtime is not pinned by someone else's `const int Seed`.
+    [InlineData("internal static class Seeds { public const int Seed = 7; }",
+        "private static readonly int Seed = ComputeSeed();\n    private readonly Random _rng = new Random(Seed);", true)]
+    // A qualified seed binds to the type that DECLARES it, not to every type in the declaring file.
+    [InlineData("class A { public const int Seed = 7; }\n    class B { }",
+        "private readonly Random _rng = new Random(B.Seed);", true)]
+    // …and the cross-file forms that ARE pinned must not be flagged, or the next author routes around it.
+    [InlineData("class Seeds { public const int Value = 7; }",
+        "private readonly Random _rng = new Random(Seeds.Value);", false)]
+    [InlineData("public static class ShapeBuilder { public static Random Jitter { get; set; } }",
+        "public static readonly Color Fill = new(1, 2, 3);", false)]
+    public void NondeterminismCensus_ResolvesNamesAcrossTheScannedSet_WithoutPoolingBareOnes(
+        string sibling, string source, bool expectUnpinned)
+    {
+        var scope = CensusScope.Of([sibling, source]);
+
+        var findings = NondeterministicSources(source, scope);
+
+        Assert.True(
+            findings.Count > 0 == expectUnpinned,
+            expectUnpinned
+                ? $"the census missed an unpinned source in: {source} (sibling source: {sibling})"
+                : $"the census flagged a properly pinned source in: {source} " +
+                  $"({string.Join("; ", findings.Select(f => $"{f.Snippet} — {f.Why}"))})");
+    }
+
     /// <summary>Reads every <c>.cs</c> file of a registered screen's own demo directory plus the
     /// demo-owned sources every screen composes (<see cref="SharedDemoSources"/>), failing with the
     /// mapping to fix when a root moved.</summary>
@@ -495,7 +672,17 @@ public class DeterministicClockTests
     {
         var roots = new List<SourceRoot> { new(ScreenSources[screen], true) };
         roots.AddRange(SharedDemoSources);
+        return ReadSources(screen, roots);
+    }
 
+    /// <summary>The screen's OWN demo tree, without the shared roots — what an exclusion has to be
+    /// earned by, since the shared roots belong to every screen alike.</summary>
+    private static IReadOnlyList<(string RelativePath, string Source)> ReadOwnScreenSources(string screen) =>
+        ReadSources(screen, [new SourceRoot(ScreenSources[screen], true)]);
+
+    private static IReadOnlyList<(string RelativePath, string Source)> ReadSources(
+        string screen, IReadOnlyList<SourceRoot> roots)
+    {
         var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var root in roots)
         {
@@ -521,46 +708,91 @@ public class DeterministicClockTests
 
     // ─── the nondeterminism census ───────────────────────────────────────────────────────────────
 
-    /// <summary>Integer constants declared in a scanned file, and the types that declare them — the only
-    /// names allowed as a seed, so the census distinguishes <c>new Random(ShakeJitterSeed)</c> from
-    /// <c>new Random(Environment.TickCount)</c> instead of accepting "it has an argument".</summary>
-    private sealed class ConstantScope
+    /// <summary>What the census knows beyond the ONE file it is scanning. Two things cross file
+    /// boundaries and each does so on its own terms:
+    ///
+    /// <list type="bullet">
+    ///   <item><b>Random-typed names</b> span the whole scanned set. A screen's scan spans three roots,
+    ///   so <c>ShapeBuilder.Jitter</c> can be declared in <c>MonoDreams.Demos/UI</c> and target-typed
+    ///   constructed (<c>ShapeBuilder.Jitter = new();</c>) from the screen's own file — a per-file name
+    ///   set sees an RNG in neither.</item>
+    ///   <item><b>Constants</b> resolve QUALIFIED across the set and BARE only within the file that uses
+    ///   them, which is how C# itself resolves them. Pooling bare names would let
+    ///   <c>new Random(Seed)</c> pass because some other file declares a <c>const int Seed</c> while the
+    ///   local <c>Seed</c> is read off the wallclock. A qualified name is bound to the type that
+    ///   actually DECLARES it (nearest enclosing type declaration), so <c>B.Seed</c> does not resolve
+    ///   against sibling class <c>A</c>'s constant, and a qualifier this scan never saw declared is not
+    ///   resolvable at all.</item>
+    /// </list>
+    /// </summary>
+    private sealed class CensusScope
     {
-        /// <summary>Constant names as written unqualified (<c>ShakeJitterSeed</c>).</summary>
-        private HashSet<string> Bare { get; } = new(StringComparer.Ordinal);
-
-        /// <summary>Constants qualified by a type DECLARED in the same scanned sources
-        /// (<c>CameraHitSystem.ShakeJitterSeed</c>). A qualifier this scan never saw declared is not
-        /// resolvable and is therefore not a constant — matching on the last segment alone would accept
-        /// <c>EntropySource.Seed</c> (a wallclock value) as pinned merely because some unrelated file
-        /// declares a <c>Seed</c> constant.</summary>
-        private HashSet<string> Qualified { get; } = new(StringComparer.Ordinal);
-
-        public static ConstantScope Of(string source) => Of([source]);
-
-        public static ConstantScope Of(IEnumerable<string> sources)
+        private CensusScope(HashSet<string> qualifiedConstants, HashSet<string> randomNames)
         {
-            var scope = new ConstantScope();
-            foreach (var source in sources)
-            {
-                var names = IntegerConstant.Matches(source).Select(match => match.Groups[1].Value)
-                    .Concat(LiteralStaticReadonly.Matches(source).Select(match => match.Groups[1].Value))
-                    .ToList();
-                var types = TypeDeclaration.Matches(source).Select(match => match.Groups[1].Value).ToList();
-
-                foreach (var name in names)
-                {
-                    scope.Bare.Add(name);
-                    foreach (var type in types) scope.Qualified.Add($"{type}.{name}");
-                }
-            }
-
-            return scope;
+            Qualified = qualifiedConstants;
+            RandomNames = randomNames;
         }
 
-        public bool Resolves(string token) =>
-            token.Contains('.') ? Qualified.Contains(token) : Bare.Contains(token);
+        /// <summary>Constants qualified by the type that declares them (<c>Seeds.Value</c>).</summary>
+        private HashSet<string> Qualified { get; }
+
+        /// <summary>Every name declared <c>Random</c>-typed anywhere in the scanned set.</summary>
+        public IReadOnlySet<string> RandomNames { get; }
+
+        public static CensusScope Of(IEnumerable<string> sources)
+        {
+            var qualified = new HashSet<string>(StringComparer.Ordinal);
+            var randomNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var source in sources)
+            {
+                foreach (var (name, declaringType) in DeclaredConstants(source))
+                    if (declaringType != null)
+                        qualified.Add($"{declaringType}.{name}");
+
+                foreach (Match match in RandomDeclaration.Matches(source))
+                    randomNames.Add(match.Groups[1].Value);
+            }
+
+            return new CensusScope(qualified, randomNames);
+        }
+
+        /// <summary>Whether <paramref name="token"/> is a constant the next run reproduces, given the
+        /// bare constants declared by the file being scanned.</summary>
+        public bool Resolves(string token, IReadOnlySet<string> localConstants) =>
+            token.Contains('.') ? Qualified.Contains(token) : localConstants.Contains(token);
     }
+
+    /// <summary>Integer constants a source declares, each paired with the type declaring it (the nearest
+    /// preceding type declaration, or null at file scope) — the only names the census accepts as a
+    /// seed, so it distinguishes <c>new Random(ShakeJitterSeed)</c> from
+    /// <c>new Random(Environment.TickCount)</c> instead of accepting "it has an argument".</summary>
+    private static IReadOnlyList<(string Name, string? DeclaringType)> DeclaredConstants(string source)
+    {
+        var types = TypeDeclaration.Matches(source)
+            .Select(match => (match.Index, Name: match.Groups[1].Value))
+            .OrderBy(entry => entry.Index)
+            .ToList();
+
+        string? EnclosingType(int index)
+        {
+            string? nearest = null;
+            foreach (var (start, name) in types)
+            {
+                if (start > index) break;
+                nearest = name;
+            }
+
+            return nearest;
+        }
+
+        return IntegerConstant.Matches(source).Concat(LiteralStaticReadonly.Matches(source))
+            .Select(match => (match.Groups[1].Value, EnclosingType(match.Index)))
+            .ToList();
+    }
+
+    private static IReadOnlySet<string> LocalConstants(string source) =>
+        DeclaredConstants(source).Select(entry => entry.Name).ToHashSet(StringComparer.Ordinal);
 
     private static readonly Regex IntegerConstant = new(
         @"\bconst\s+(?:int|uint|long|ulong|short|ushort|byte|sbyte)\s+(\w+)\s*=", RegexOptions.Compiled);
@@ -602,12 +834,20 @@ public class DeterministicClockTests
 
     /// <summary>Nondeterministic sources that are not RNGs at all. A demo that sizes a shape from
     /// <c>DateTime.Now.Millisecond</c> differs per process exactly as an unseeded <c>Random</c> does, and
-    /// would red the byte-identity theory while every record named physics.</summary>
+    /// would red the byte-identity theory while every record named physics. The list covers the shapes a
+    /// demo author actually reaches for: the wallclock (static and via an instance <c>Stopwatch</c> —
+    /// the shape <c>GatedSystem</c> uses, and therefore the one a demo copies), per-process identity
+    /// (<c>Guid.NewGuid</c>, <c>Environment.ProcessId</c>, the managed thread id) and the
+    /// per-process-randomised string hash that an ordering key or a seed reaches for.</summary>
     private static readonly Regex EntropyRead = new(
         @"\b(?:DateTime|DateTimeOffset)\s*\.\s*(?:Now|UtcNow|Today)\b" +
         @"|\bGuid\s*\.\s*NewGuid\s*\(" +
-        @"|\bEnvironment\s*\.\s*TickCount64?\b" +
-        @"|\bStopwatch\s*\.\s*GetTimestamp\s*\(", RegexOptions.Compiled);
+        @"|\bEnvironment\s*\.\s*(?:TickCount64?|ProcessId|CurrentManagedThreadId)\b" +
+        @"|\bStopwatch\s*\.\s*(?:GetTimestamp|StartNew)\s*\(" +
+        @"|\bnew\s+Stopwatch\s*\(" +
+        @"|\.\s*Elapsed(?:Milliseconds|Ticks)?\b" +
+        @"|\bTimeProvider\b" +
+        @"|\.\s*GetHashCode\s*\(", RegexOptions.Compiled);
 
     private static readonly Regex Identifier = new(@"\w+", RegexOptions.Compiled);
 
@@ -629,10 +869,45 @@ public class DeterministicClockTests
     private static readonly Regex DefaultingChordTracker = new(
         @"\bnew\s+KeyChordTracker\s*\(", RegexOptions.Compiled);
 
+    private static readonly Regex OverlayConstruction = new(
+        @"\bnew\s+EditorOverlay\s*\(", RegexOptions.Compiled);
+
+    /// <summary>The overlay's seam argument, matched on its VALUE: a bare <c>readKeyboard:</c> label
+    /// would be satisfied by <c>readKeyboard: Keyboard.GetState</c>, which is the default it exists to
+    /// replace.</summary>
+    private static readonly Regex OverlaySeamArgument = new(
+        @"\breadKeyboard\s*:\s*DemoKeyboard\s*\.\s*Read\b", RegexOptions.Compiled);
+
+    /// <summary>The demos' keyboard gate as an argument/initialiser VALUE — what every engine seam whose
+    /// default is the hardware must be handed.</summary>
+    private static readonly Regex SeamValue = new(@"\bDemoKeyboard\s*\.\s*Read\b", RegexOptions.Compiled);
+
     private static readonly Regex KeyboardSystemDeclaration = new(
         @"\bclass\s+(\w+)\s*:\s*AKeyboardInputHandlingSystem\b", RegexOptions.Compiled);
 
     private static readonly Regex EngageCall = new(@"\bDemoKeyboard\.Engage\s*\(", RegexOptions.Compiled);
+
+    /// <summary>Every <c>AKeyboardInputHandlingSystem</c> subclass the ENGINE declares. A demo can
+    /// construct one without declaring it (<c>DefaultEditorKeys</c>, built by <c>DemoEditor</c>), so the
+    /// engaged-subclass lint seeds its set from here: matching only demo-declared subclasses left the
+    /// editor's key surface — six readers wide — outside the check the premise claims covers it.</summary>
+    private static readonly Lazy<IReadOnlyCollection<string>> EngineKeyboardSystems = new(() =>
+    {
+        var root = Path.Combine(GameTestRunner.RepoRoot(), "MonoDreams");
+        var types = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var path in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(root, path);
+            if (relative.Split(Path.DirectorySeparatorChar).Any(BuildOutputDirectories.Contains)) continue;
+
+            foreach (Match match in KeyboardSystemDeclaration.Matches(File.ReadAllText(path)))
+                types.Add(match.Groups[1].Value);
+        }
+
+        Assert.Contains("DefaultEditorKeys", types);
+        return types;
+    });
 
     /// <summary>
     /// Every value in <paramref name="source"/> that the next run will not reproduce. RNGs are matched on
@@ -644,12 +919,15 @@ public class DeterministicClockTests
     /// same one.
     /// </summary>
     private static IReadOnlyList<(int Line, string Snippet, string Why)> NondeterministicSources(string source) =>
-        NondeterministicSources(source, ConstantScope.Of(source));
+        NondeterministicSources(source, CensusScope.Of([source]));
 
     private static IReadOnlyList<(int Line, string Snippet, string Why)> NondeterministicSources(
-        string source, ConstantScope constants)
+        string source, CensusScope scope)
     {
-        var randomNames = RandomDeclaration.Matches(source).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        // Set-wide: a Random-typed member declared in one scanned file is constructed from another.
+        var randomNames = scope.RandomNames;
+        // File-scoped: a bare seed name resolves against the file that USES it (see CensusScope).
+        var localConstants = LocalConstants(source);
 
         var findings = new List<(int Line, string Snippet, string Why)>();
 
@@ -660,7 +938,7 @@ public class DeterministicClockTests
         foreach (Match match in RandomConstruction.Matches(source))
         {
             var arguments = ArgumentsAt(source, match.Index + match.Length - 1);
-            if (IsConstantSeed(arguments, constants)) continue;
+            if (IsConstantSeed(arguments, scope, localConstants)) continue;
             findings.Add((LineOf(source, match.Index), $"new Random({arguments.Trim()})", WhySeed(arguments)));
         }
 
@@ -668,7 +946,7 @@ public class DeterministicClockTests
         {
             if (!TargetsRandom(TypeWindow(source, match.Index), randomNames)) continue;
             var arguments = ArgumentsAt(source, match.Index + match.Length - 1);
-            if (IsConstantSeed(arguments, constants)) continue;
+            if (IsConstantSeed(arguments, scope, localConstants)) continue;
             findings.Add((LineOf(source, match.Index), LineText(source, match.Index), WhySeed(arguments)));
         }
 
@@ -694,7 +972,7 @@ public class DeterministicClockTests
     /// built only from integer literals, cast/overflow keywords and names that resolve to an integer
     /// constant of the scanned sources (<c>CameraHitSystem.ShakeJitterSeed</c>, <c>Seed + 1</c>,
     /// <c>unchecked((int)0x5EED)</c>, a <c>seed:</c>-labelled literal).</summary>
-    private static bool IsConstantSeed(string arguments, ConstantScope constants)
+    private static bool IsConstantSeed(string arguments, CensusScope scope, IReadOnlySet<string> localConstants)
     {
         var argument = NamedArgumentLabel.Replace(arguments.Trim(), string.Empty).Trim();
         if (argument.Length == 0) return false;
@@ -706,7 +984,7 @@ public class DeterministicClockTests
             if (token.Length == 0) continue;
             if (IntegerLiteral.IsMatch(token)) continue;
             if (SeedKeywords.Contains(token, StringComparer.Ordinal)) continue;
-            if (constants.Resolves(token)) continue;
+            if (scope.Resolves(token, localConstants)) continue;
             return false;
         }
 
@@ -754,24 +1032,40 @@ public class DeterministicClockTests
     /// whose match is a bare <c>new(</c> that says nothing on its own.</summary>
     private static string LineText(string source, int index)
     {
-        var start = LineStart(source, index);
-        var end = source.IndexOf('\n', index);
-        var text = source[start..(end < 0 ? source.Length : end)].Trim();
+        var text = RawLine(source, index).Trim();
         return text.Length <= 120 ? text : text[..120] + "…";
     }
 
-    /// <summary>The text a bare target-typed <c>new(…)</c> takes its TYPE from, as far as a source scan
-    /// can see it: the current line up to the construction, extended to the previous line when the
-    /// construction is the continuation of a wrapped statement (nothing but whitespace/operators before
-    /// it). Deliberately NOT the whole file — a <c>Random</c> declared ten lines up must not make every
-    /// unrelated <c>new()</c> below it an RNG.</summary>
-    private static string TypeWindow(string source, int index)
+    /// <summary>The whole line containing <paramref name="index"/>, untruncated — what a lint matches a
+    /// pattern against, as opposed to what it prints.</summary>
+    private static string RawLine(string source, int index)
     {
         var start = LineStart(source, index);
-        var prefix = source[start..index];
-        if (start == 0 || prefix.Any(char.IsLetterOrDigit)) return prefix;
-        return source[LineStart(source, start - 1)..index];
+        var end = source.IndexOf('\n', index);
+        return source[start..(end < 0 ? source.Length : end)];
     }
+
+    /// <summary>The text a bare target-typed <c>new(…)</c> takes its TYPE from, as far as a source scan
+    /// can see it: the ENCLOSING STATEMENT up to the construction (back to the previous <c>;</c>,
+    /// <c>{</c> or <c>}</c>), widened to at least the current line's prefix — a property's
+    /// <c>{ get; }</c> puts a statement boundary between the type and its initialiser
+    /// (<c>public Random Rng { get; } = new();</c>), while a wrapped collection expression
+    /// (<c>Random[] _rngs =\n[\n    new(),\n]</c>) puts the type several lines up. Deliberately NOT the
+    /// whole file, and capped in length — a <c>Random</c> declared at the top of a long method must not
+    /// make every unrelated <c>new()</c> below it an RNG.</summary>
+    private static string TypeWindow(string source, int index)
+    {
+        var statementStart = index <= 0 ? 0 : source.LastIndexOfAny(StatementBoundaries, index - 1) + 1;
+        var start = Math.Min(statementStart, LineStart(source, index));
+        return source[Math.Max(start, index - TypeWindowLimit)..index];
+    }
+
+    /// <summary>Characters that end the statement before a target-typed <c>new(…)</c>.</summary>
+    private static readonly char[] StatementBoundaries = [';', '{', '}'];
+
+    /// <summary>Longest look-back <see cref="TypeWindow"/> will take, so a statement that spans a whole
+    /// initialiser block cannot type an unrelated construction from a <c>Random</c> far above it.</summary>
+    private const int TypeWindowLimit = 400;
 
     /// <summary>Short screen names (<c>demos.camera</c> → <c>camera</c>) from the host's registry — the
     /// same vocabulary <c>--screen</c> takes.</summary>

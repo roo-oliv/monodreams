@@ -168,7 +168,19 @@ dimension row is struck and replaced in ## Money dimension table.
   file itself, requires an engine reader whose seam defaults to the hardware to be constructed with one
   (`TextInputSystem.KeyboardStateProvider`, `KeyChordTracker`), requires every
   `AKeyboardInputHandlingSystem` subclass a screen constructs to reach `Engage`'s argument list, and
-  requires any screen building a cursor pipeline to engage).
+  requires any screen building a cursor pipeline to engage). **CORRECTED (round 4): that lint had three
+  holes wide enough to lose the leg it certifies.** (a) It checked the seam's PRESENCE, not its value —
+  ~~a `readKeyboard:`/`getKeyboardState:` label or any second `KeyChordTracker` argument counted~~
+  **the argument must now BE the gate (`DemoKeyboard.Read`, `readKeyboard`); `null` and
+  `Keyboard.GetState` are rejected**. (b) `new EditorOverlay(` was matched by NOTHING on the demos side —
+  `EditorKeyboardSeamLintTests` proves only that the overlay FORWARDS a seam it is given, so dropping
+  `readKeyboard: DemoKeyboard.Read` at `DemoEditor.cs:107` returned all six editor readers to the
+  hardware with every test green; **the demos input lint now requires every `new EditorOverlay(` in a
+  scanned demo source to carry it**. (c) The engaged-subclass check saw only DEMO-declared subclasses,
+  so `DefaultEditorKeys` (engine-declared, constructed by `DemoEditor`, passed as `_editor.Keys`) never
+  entered it; **the set is now seeded from the engine's declarations too**. The seam file's exemption is
+  likewise ~~per file~~ **one gated read: exactly one `Keyboard.GetState()`, on the `SkipHardwareRead`
+  gate line, and no `Mouse.GetState()`**.
 - **Physics stays out** until its unseeded `Random` is seeded; that is a user-visible product decision
   (fixed layout on every launch vs a headless-only fork) and was deliberately NOT taken by the clock PR.
   It is the ONLY unpinned source of nondeterminism **in the sources the demos own** — ~~in the demo
@@ -193,6 +205,22 @@ dimension row is struck and replaced in ## Money dimension table.
   the base to 6/6. `NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape` pins the census's own
   contract in both directions. The ENGINE systems a demo composes are outside this scope: they carry no
   RNG today, and a lint covering them belongs to the engine, not to this precheck.
+  **CORRECTED (round 4) — the census's SCOPE, which round 3 stated but did not implement:**
+  ~~`Random`-typed names are gathered per file~~ **they are gathered over the whole scanned set**, or a
+  `Random` declared in `MonoDreams.Demos/UI` and target-typed-constructed from a screen
+  (`ShapeBuilder.Jitter = new();`) is an RNG in neither file — the exact hole the directory-not-file
+  rationale exists to close. Conversely ~~bare seed constants pool across the set~~ **a bare seed name
+  resolves only within the file that uses it** (a sibling's `const int Seed` must not pin a local `Seed`
+  computed at runtime) and **a qualified one binds to the type that DECLARES it**, not to every type in
+  the declaring file. The `new()` type window is ~~the current line plus one line of look-back~~ **the
+  enclosing statement**, so a wrapped collection expression no longer escapes the "collection expression"
+  claim above. The entropy list gains the instance stopwatch (`.Elapsed`, `new Stopwatch(`,
+  `Stopwatch.StartNew`), `Environment.ProcessId`/`CurrentManagedThreadId`, `TimeProvider` and
+  `GetHashCode()`. The root list is ~~a hand-written allowlist~~ **enumerated against the demos host's
+  directory tree** (`Precheck_ScansEveryDirectoryOfTheDemosHost`), and the converse exclusion guard reads
+  ~~the screen's full scan~~ **the screen's OWN sources only**, since the shared roots belong to every
+  screen alike. `NondeterminismCensus_ResolvesNamesAcrossTheScannedSet_WithoutPoolingBareOnes` pins the
+  cross-file contract in both directions.
 - **Never loosened:** the comparer itself has no tolerance knob and skips no frames, by design.
 
 ## Interaction matrix

@@ -29,6 +29,12 @@ public class EditorKeyboardSeamLintTests
     /// <summary>The parameter name every keyboard-reading editor system exposes.</summary>
     private const string SystemSeamParameter = "getKeyboardState";
 
+    /// <summary>The seam forwarded by VALUE — <c>getKeyboardState: readKeyboard</c>. Accepting the label
+    /// alone would pass <c>getKeyboardState: Keyboard.GetState</c>, which reinstates the engine default
+    /// this lint exists to forbid while reading as compliant.</summary>
+    private static readonly Regex SeamForwarded = new(
+        $@"\b{SystemSeamParameter}\s*:\s*{OverlaySeamParameter}\b");
+
     [Fact]
     public void EveryKeyboardReaderTheOverlayBuilds_IsHandedTheOverlaysOneSeam()
     {
@@ -53,7 +59,9 @@ public class EditorKeyboardSeamLintTests
             {
                 checkedConstructions++;
                 var arguments = ArgumentsAt(overlay, match.Index + match.Length - 1);
-                if (arguments.Contains($"{SystemSeamParameter}:", StringComparison.Ordinal)) continue;
+                // The argument's VALUE, not merely its label: `getKeyboardState: Keyboard.GetState`
+                // carries the label while restoring the very default the seam exists to replace.
+                if (SeamForwarded.IsMatch(arguments)) continue;
                 offenders.Add($"EditorOverlay.cs:{LineOf(overlay, match.Index)}: new {type}(…) without " +
                               $"{SystemSeamParameter}: {OverlaySeamParameter}");
             }

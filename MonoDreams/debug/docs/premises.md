@@ -419,12 +419,23 @@ unchanged. Engaging is **observable**: the run logs
 asserts that line, and a lint forbids `Keyboard.GetState()` / `Mouse.GetState()`
 in any scanned demo source except the seam file itself, requires an engine
 reader whose seam DEFAULTS to the hardware to be constructed with one
-(`TextInputSystem.KeyboardStateProvider`, `KeyChordTracker`'s seam argument),
-and requires every `AKeyboardInputHandlingSystem` subclass a screen constructs
+(`TextInputSystem.KeyboardStateProvider`, `KeyChordTracker`'s seam argument,
+`EditorOverlay`'s `readKeyboard` — six readers behind one argument), and
+requires every `AKeyboardInputHandlingSystem` subclass a screen constructs
 to reach `Engage`'s argument list — `Engage` logs its line whether or not a
 given system was handed to it, so the run-time assertion alone cannot see an
-omission. Losing a leg is therefore a red test rather than an intermittent
-byte diff blamed on the change under test.
+omission. Three properties make that lint the guarantee it reads as, each of
+which was once absent while the sentence above was already written. It matches
+the argument's **value**, not its presence: a second `KeyChordTracker` argument
+that is `null`, or an `EditorOverlay` given `readKeyboard: Keyboard.GetState`,
+defaults exactly as an omission does. Its subclass set is seeded from the
+**engine's** declarations as well as the demos': `DefaultEditorKeys` is declared
+in `level-editor` and constructed by `DemoEditor`, so a set built from
+demo-declared subclasses alone never checked the editor key surface at all. And
+the seam file's exemption is **one gated read, not a waiver for the file**: that
+file must hold exactly one `Keyboard.GetState()`, on the `SkipHardwareRead` gate
+line, and no `Mouse.GetState()`. Losing a leg is therefore a red test rather
+than an intermittent byte diff blamed on the change under test.
 
 The precheck's scope is itself pinned. Every screen the host can boot is
 either run by the precheck or named — with the reason it cannot be — in the
@@ -440,16 +451,34 @@ demo DIRECTORY (not one file per screen — a demo split in two would leave half
 unscanned) PLUS the demo-owned sources every screen composes —
 `MonoDreams.Demos/UI` and the host root (`Game1`, `DemoKeyboard`, `DemoEditor`,
 the headless clock) — and fails on a value the next run will not reproduce,
-even when nothing currently consumes it. RNGs are matched on the type, not on
-one syntactic shape: `new Random()`, `Random.Shared`, a target-typed `new()`
-reaching a `Random` in any of its shapes (nullable, constructor body, property
-initialiser, `??=`, expression body, collection expression), and any seed that
+even when nothing currently consumes it. That root list is **enumerated, not
+trusted**: every top-level directory of the demos host holding C# source must
+lie inside a root a COVERED screen's scan reads, so a new
+`MonoDreams.Demos/Systems/` (or a `ShapeBuilder` moved out of `UI/`) cannot be
+scanned by nothing while the tests stay green.
+
+The census resolves names at the **set's** scope, not one file's, and each kind
+of name on its own terms. A `Random`-typed member declared in one scanned file
+and target-typed-constructed from another (`ShapeBuilder.Jitter = new();`) is an
+RNG in both — a per-file name set sees one in neither. A seed CONSTANT resolves
+qualified across the set and bare only within the file that uses it, which is
+how C# resolves it: pooling bare names would accept `new Random(Seed)` because
+an unrelated file declares a `const int Seed` while the local `Seed` is computed
+at runtime, and a qualified name binds to the type that DECLARES it, so `B.Seed`
+does not resolve against sibling class `A`'s constant. RNGs are matched on the
+type, not on one syntactic shape: `new Random()`, `Random.Shared`, a
+target-typed `new()` reaching a `Random` in any of its shapes (nullable,
+constructor body, property initialiser, `??=`, expression body, collection
+expression — including the multi-line forms, since the type is read from the
+enclosing STATEMENT and not from one line), and any seed that
 is not a compile-time integer constant — an `Environment.TickCount` seed is no
 better than none, and a seed qualified by a type the scan never saw declared is
-not resolvable and counts as unpinned. The census is not RNG-only: a wallclock
-or GUID read (`DateTime.Now`, `Guid.NewGuid()`, `Environment.TickCount`,
-`Stopwatch.GetTimestamp()`) makes scene content per-process in exactly the same
-way and fails the same test. A dormant source (the camera demo's hit-shake
+not resolvable and counts as unpinned. The census is not RNG-only: reading the
+wallclock (`DateTime.Now`, `Stopwatch.GetTimestamp()`/`StartNew()`, an instance
+stopwatch's `.Elapsed`, `TimeProvider`), per-process identity (`Guid.NewGuid()`,
+`Environment.TickCount`/`ProcessId`/`CurrentManagedThreadId`) or the
+per-process-randomised `GetHashCode()` makes scene content per-process in
+exactly the same way and fails the same test. A dormant source (the camera demo's hit-shake
 jitter, seeded since) reds a later run the moment an op plan reaches it, while
 every record still names physics. Seeding an excluded screen without widening
 the covered set fails the same test from the other side. The claim's scope is
@@ -500,16 +529,25 @@ bootable-but-unscanned);
 `Precheck_CoveredScreensPinEveryNondeterministicSource_AndTheExclusionReasonStillHolds`
 holds the exclusion's content, failing on an unpinned `Random` or entropy read
 in a covered screen's scanned sources (dormant included) or on an excluded
-screen whose typed cause no longer applies —
-`NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape` is the census's
-own contract, pinning both directions on synthetic sources (each escaping shape
-must be caught; each properly pinned seed must not be flagged); and
+screen whose OWN sources — the shared roots excluded, since they belong to every
+screen alike — no longer justify its typed cause;
+`Precheck_ScansEveryDirectoryOfTheDemosHost` holds the root list against the
+host's directory tree;
+`NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape` and
+`NondeterminismCensus_ResolvesNamesAcrossTheScannedSet_WithoutPoolingBareOnes`
+are the census's own contract, pinning both directions on synthetic sources —
+single-file (each escaping shape must be caught; each properly pinned seed must
+not be flagged) and cross-file (a `Random` declared in a sibling source and
+constructed here is caught; a bare seed name is NOT resolved by a sibling's
+constant, and a qualified one is not resolved by a sibling TYPE); and
 `Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol` holds the input
 legs, failing on a direct `Keyboard.GetState()`/`Mouse.GetState()` outside the
-seam file, on a `TextInputSystem`/`KeyChordTracker` built without its keyboard
-seam, on an `AKeyboardInputHandlingSystem` subclass the screen constructs but
-never hands to `Engage`, or on a screen that builds a cursor pipeline without
-calling `DemoKeyboard.Engage`.
+seam file, on a seam file that holds more than the one gated read (or any mouse
+read), on a `TextInputSystem`/`KeyChordTracker`/`EditorOverlay` built without the
+demos' gate as its seam VALUE, on an `AKeyboardInputHandlingSystem` subclass the
+screen constructs but never hands to `Engage` (engine-declared subclasses
+included — `DefaultEditorKeys`), or on a screen that builds a cursor pipeline
+without calling `DemoKeyboard.Engage`.
 **Depends on:** "Headless Demos renders every frame; capture reads the
 backbuffer" (there are pixels to compare only because `Draw` is not a no-op);
 "Headless heap samples measure the live set, not transient churn" (the `Heap
