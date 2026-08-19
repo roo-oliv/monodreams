@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "637878ce1335",
+  "strategy": "manual-commit",
+  "branch": "issue-119-clock",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MonoDreams.Tests/Ui/HighlightSystemTests.cs",
+    "MonoDreams.Tests/Ui/PinnedLayoutRootTests.cs",
+    "MonoDreams.Tests/Ui/PointerPickTests.cs",
+    "MonoDreams.Tests/Ui/TooltipTests.cs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/63/7878ce1335/0/metadata.json",
+      "transcript": "/63/7878ce1335/0/full.jsonl",
+      "context": "/63/7878ce1335/0/context.md",
+      "content_hash": "/63/7878ce1335/0/content_hash.txt",
+      "prompt": "/63/7878ce1335/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 387089,
+    "cache_read_tokens": 2932094,
+    "output_tokens": 16527,
+    "api_call_count": 9
+  }
+}
