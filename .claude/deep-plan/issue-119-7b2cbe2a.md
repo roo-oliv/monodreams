@@ -78,7 +78,7 @@ GAPs guard-ratchet × packaging e × CLI tests: MonoDreams.Cli/Installer/Project
 21. [unit] ParallelSystem<T> at degree 1 runs children sequentially in registration order; EditorPipelineRegistrar group tree (names, policies, SetEnabled cascade) unchanged (5 sites); runner asserts/documents degree==1.
 22. [unit] draw tie-break: two same-target same-LayerDepth sprites keep insertion order across frames under Arch (rendering :791); facade snapshot order deterministic and documented.
 23. [integration] Restart flow both waves: load→edit→Restart → markers swept, scene entities disposed+reloaded, editor infra survives, undo cleared; EditorTransportTests + EditorGameModeTests pass unchanged.
-24. C7 [e2e] wave-1 identity: gate x5 (dotnet test monodreams.sln Release -m:1) + MONODREAMS_TEST_SEED=8; 6/6 Demos headless --frames 600 non-blank; PNGs byte-identical vs main baseline — add byte-diff helper to GameTestRunner (AssertScreenshotNonBlank insufficient).
+24. C7 [e2e] wave-1 identity: gate x5 (dotnet test monodreams.sln Release -m:1) + MONODREAMS_TEST_SEED=8; 6/6 Demos headless --frames 600 non-blank; ~~PNGs byte-identical vs main baseline~~ **AMENDED → 5/6 (launcher/camera/dialogue/ui/audio) byte-identical vs main baseline, under the deterministic-input protocol; physics excluded until its RNG is seeded — see "Retroactive amendment — items 24 / 45 / 49 / 68" below, which is the authority for this item** — byte-diff helper added to GameTestRunner (AssertScreenshotNonBlank insufficient) ✅.
 25. C15 [e2e] wave-2: gate x5 + seeded; 6/6 demos non-blank + AssertHeapFlat (cap 1.5x); Examples boots Level_0 + Blender_Level; .mdscene load→save byte fixed point; web head builds; pointer-replay PNG diffs explained cause-by-cause, never re-baselined (H4).
 26. C20 [integration] CLI: monodreams init + add <every module> compiles with facade usings, no DefaultEcs package in scaffolded csproj; ManifestHonesty all legs, MONODREAMS_MANIFEST_HONESTY=1.
 27. C6: DrawPrepSystemBase deleted wave 1 (zero subclasses; useParallel param actually maps to DefaultEcs useBuffer).
@@ -147,16 +147,32 @@ dimension row is struck and replaced in ## Money dimension table.
   branch-portable test — `dotnet test MonoDreams.Tests/ --filter FullyQualifiedName~DeterministicClockTests`
   (~30–45 s, 10 host spawns). Run it ON the wave branch before any C7 gate, exactly as 68 requires.
 - **What "captured the same way" means** (49's baseline rule): the protocol, not merely the clock —
-  editor flag + op plan present (⇒ `SkipHardwareRead`), `Play@0`, final-frame-only capture. A baseline
-  captured outside it is noise, and comparing against it proves nothing.
+  editor flag + op plan present, `Play@0`, final-frame-only capture. A baseline captured outside it is
+  noise, and comparing against it proves nothing. "Op plan present" pins **both hardware legs, at one
+  seam**: `DemoKeyboard.Engage` (called by every demo screen under `Overlay.HasEditorOpPlan`) sets
+  `CursorInputSystem.SkipHardwareRead` (mouse), flips the shared `DemoKeyboard.Read` gate every demo
+  keyboard reader goes through, and sets `SkipHardwareRead` on each `AKeyboardInputHandlingSystem` in
+  the screen. Pinning only the mouse was a hole: the headless window is hidden best-effort (SDL hide +
+  a macOS-only focus-steal hint), so a key held in one of two runs moved the camera demo's ball /
+  advanced the dialogue / typed into the UI demo's field — a byte diff that reads as a behaviour
+  change. Engagement is observable (`Deterministic input: hardware reads skipped on '<screen>'`,
+  asserted by every precheck run) and linted (`Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol`
+  forbids a direct `Keyboard.GetState()`/`Mouse.GetState()` in a demo screen source, and requires any
+  screen building a cursor pipeline to engage).
 - **Physics stays out** until its unseeded `Random` is seeded; that is a user-visible product decision
   (fixed layout on every launch vs a headless-only fork) and was deliberately NOT taken by the clock PR.
-  It is the ONLY unseeded RNG in the demo surface, and that claim is enforced, not asserted: the camera
-  demo's hit-shake jitter RNG (`CameraHitSystem`, dormant under the pinned plan — it wakes only when the
-  dot enters a hit square) was seeded with a constant, which is NOT the physics decision (transient jolt,
-  no scene content), and `DeterministicClockTests.Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds`
-  scans every covered screen's source so a new unseeded RNG cannot hide behind a green run, and fires
-  from the other side if physics is seeded without widening the base to 6/6.
+  It is the ONLY unpinned RNG **in the demo screen sources** — that is the claim's exact scope, and it is
+  enforced, not asserted: the camera demo's hit-shake jitter RNG (`CameraHitSystem`, dormant under the
+  pinned plan — it wakes only when the dot enters a hit square) was seeded with a constant, which is NOT
+  the physics decision (transient jolt, no scene content), and
+  `DeterministicClockTests.Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds` scans
+  every `.cs` file in every covered screen's demo DIRECTORY (not one file per screen) and matches on the
+  TYPE, not on one shape — `new Random()`, `Random.Shared`, a target-typed `new()` assigned to a
+  `Random`-typed member (nullable or constructor-body), and any seed that is not a compile-time integer
+  constant (a `Environment.TickCount` seed is no better than none). So a new unpinned RNG cannot hide
+  behind a green run, and the test fires from the other side if physics is seeded without widening the
+  base to 6/6. The engine systems a demo composes are outside this scope: they carry no RNG today, and a
+  lint covering them belongs to the engine, not to this precheck.
 - **Never loosened:** the comparer itself has no tolerance knob and skips no frames, by design.
 
 ## Interaction matrix
@@ -2640,7 +2656,7 @@ dimension row is struck and replaced in ## Money dimension table.
 | ParallelSystem runner degree (base: parallelism degree; M4 sequential-equivalence claim measured only at degree 1) | other | == 1 (asserted) | facade default runner + runner-accepting EntitySystem ctor assert degree==1, >1 throws NotSupportedException; hosts GravitySystem.cs:9, EditorPipelineRegistrar.cs; C4 test + facade premise |
 | reactive-site test coverage (base: 11 sites re-enumerated from code: collision x2, level-ldtk x3, audio x2, TileGridBake x2, BoundaryBake x2) | other | named tests == sites (C10) | C10 test list; C5 lint self-heals any missed site (leftover DefaultEcs ref fails ratchet) |
 | ~~wave-1 screenshot identity (base: PNG byte diff vs main baseline, 6 demo screens)~~ | ~~other~~ | ~~0 differing bytes vs a baseline captured from main+clock (C7); wave-2 diffs explained, never re-baselined (C15/H4)~~ | ~~deterministic fixed-step clock merges to MAIN as standalone pre-wave PR BEFORE baseline capture; main-vs-main double-run precheck gates C7 — fail => fix clock + recapture; baselining from the wave branch forbidden~~ **SUPERSEDED — see the row below (measured, clock PR)** |
-| wave-1 screenshot identity (base: PNG byte diff vs a main baseline captured under the deterministic-input PROTOCOL, over 5 of the 6 demo screens — launcher/camera/dialogue/ui/audio) | other | 0 differing bytes, no tolerance and no skipped frames (the comparer takes neither); physics EXCLUDED until its RNG is seeded; wave-2 diffs explained, never re-baselined (C15/H4) | clock landed on MAIN as the standalone pre-wave PR; "captured the same way" now MEANS the protocol — `MONODREAMS_EDITOR=1` + an `editor_op_plan.json` present (that presence is what sets `CursorInputSystem.SkipHardwareRead`; a bare headless run reads the hardware mouse and draws the cursor at a per-launch position), a single `Play@0` op (the editor flag boots frozen — a frozen scene would be identical trivially), and `captureEvery: 0` so only the final frame is read back (the frame-0 window backbuffer has been observed partially composited). Executable on any branch: `MonoDreams.Tests/IntegrationTests/DeterministicClockTests.cs` (`Demo_RunTwiceHeadless_ProducesByteIdenticalPngs`), comparer `GameTestRunner.AssertScreenshotsByteIdentical`; scope held by `Precheck_CoversEveryDemoScreen_OrNamesTheExclusionAndWhy`. **A C7 baseline captured any other way is not comparable and must not be used.** |
+| wave-1 screenshot identity (base: PNG byte diff vs a main baseline captured under the deterministic-input PROTOCOL, over 5 of the 6 demo screens — launcher/camera/dialogue/ui/audio) | other | 0 differing bytes, no tolerance and no skipped frames (the comparer takes neither); physics EXCLUDED until its RNG is seeded; wave-2 diffs explained, never re-baselined (C15/H4) | clock landed on MAIN as the standalone pre-wave PR; "captured the same way" now MEANS the protocol — `MONODREAMS_EDITOR=1` + an `editor_op_plan.json` present (that presence is what makes every screen call `DemoKeyboard.Engage`, which pins BOTH hardware legs: `CursorInputSystem.SkipHardwareRead` for the mouse — a bare headless run reads it and draws the cursor at a per-launch position — and the shared `DemoKeyboard.Read` gate plus each `AKeyboardInputHandlingSystem.SkipHardwareRead` for the keyboard, since the hidden window is hidden best-effort and a key held in one run only moves the scene in that run), a single `Play@0` op (the editor flag boots frozen — a frozen scene would be identical trivially), and `captureEvery: 0` so only the final frame is read back (the frame-0 window backbuffer has been observed partially composited). Executable on any branch: `MonoDreams.Tests/IntegrationTests/DeterministicClockTests.cs` (`Demo_RunTwiceHeadless_ProducesByteIdenticalPngs`, which asserts the run's own `Deterministic input: hardware reads skipped` line), comparer `GameTestRunner.AssertScreenshotsByteIdentical`; scope held by `Precheck_CoversEveryDemoScreen_OrNamesTheExclusionAndWhy` and the input legs by `Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol`. **A C7 baseline captured any other way is not comparable and must not be used.** |
 | benchmark delta (base: same BenchmarkDotNet cases/config/machine; w2-vs-w0 report, w3-vs-w2 gate) | other | wave-3 hold-or-improve, regressions reverted/justified (C17); w2 report-only (C16) | MonoDreams.Benchmarks RESULTS.md comparison in PR — manual gate, document in plan |
 | EntitySet.Count call-site census (base: asserts in git-tracked tests calling EntitySet.Count) | other | 0 remaining at wave-1 close (base WIDENED: all git-tracked .cs, engine included) | 23 asserts/5 test files (ColliderAction 7, EditorContextMenu 2, ColliderDebug 6, ProxyVertex 7, CameraEntityEditor 1) + engine SceneCameraEnsure.cs:65; AsSet-var-aware grep gates wave-1 close |
 | wave-1 using-sweep size (base: git-tracked .cs with 'using DefaultEcs', excl. scratchpad) | other | 0 at wave-1 close (C5) | EcsBoundaryLintTests; measured 449 lines / 320 files on main @7b2cbe2a |

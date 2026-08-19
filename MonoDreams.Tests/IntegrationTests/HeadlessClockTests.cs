@@ -93,6 +93,59 @@ public class HeadlessClockTests
         Assert.Equal(firstSeries, secondSeries);
     }
 
+    /// <summary>
+    /// The clock is <b>headless-only</b>, and that half of the contract has no runtime observable:
+    /// every test in this repo spawns the host with <c>--headless</c>, so a refactor that hoisted the
+    /// construction out of the headless branch — handing the WINDOWED game a synthetic clock, i.e.
+    /// changing the player-visible game to serve a testing aid — would leave the whole suite green.
+    /// This is the source-scan lint that fails instead (the <c>EditorThemeLintTests</c> idiom): the
+    /// clock is constructed exactly once, inside the constructor's <c>if (_headless.Enabled)</c>
+    /// branch, and both read sites keep the <c>?? gameTime</c> fallback that is what the windowed path
+    /// actually receives.
+    /// </summary>
+    [Fact]
+    public void HeadlessClock_IsConstructedOnlyOnTheHeadlessBranch_AndTheWindowedPathFallsBackToGameTime()
+    {
+        var path = Path.Combine(GameTestRunner.RepoRoot(), "MonoDreams.Demos", "Game1.cs");
+        Assert.True(File.Exists(path), $"demo host not found at {path}");
+        // Line comments stripped so the prose explaining the branch is never what satisfies the lint.
+        var source = Regex.Replace(File.ReadAllText(path), @"//[^\n]*", "");
+
+        var constructions = Regex.Matches(source, @"new\s+HeadlessClock\s*\(");
+        Assert.True(constructions.Count == 1,
+            $"Expected exactly one 'new HeadlessClock(' in Game1.cs, found {constructions.Count}. The " +
+            "clock has ONE construction site, and it is the headless branch.");
+
+        var branch = source.IndexOf("if (_headless.Enabled)", StringComparison.Ordinal);
+        Assert.True(branch >= 0,
+            "Game1.cs no longer has the constructor's 'if (_headless.Enabled)' branch — the lint below " +
+            "cannot locate the headless-only region. Re-point it at whatever now guards headless.");
+        var elseBranch = source.IndexOf("else", branch, StringComparison.Ordinal);
+        Assert.True(elseBranch > branch, "Game1.cs's headless branch has no 'else' (the windowed path).");
+
+        var construction = constructions[0].Index;
+        Assert.True(construction > branch && construction < elseBranch,
+            $"'new HeadlessClock(' sits outside the 'if (_headless.Enabled)' branch (index {construction}, " +
+            $"branch {branch}..{elseBranch}). A windowed run must never construct it: extending the " +
+            "fixed-step clock to the windowed path changes the player-visible game to serve a testing aid.");
+
+        // The other half: what the windowed path receives is MonoGame's own GameTime, through the
+        // null-conditional fallback at BOTH read sites (Update advances, Draw reads).
+        AssertSingleOccurrence(source, @"_headlessClock\?\.Advance\(\)\s*\?\?\s*gameTime",
+            "Update must advance the injected clock when there is one and pass MonoGame's GameTime " +
+            "through when there is not");
+        AssertSingleOccurrence(source, @"_headlessClock\?\.Current\s*\?\?\s*gameTime",
+            "Draw must READ the instant Update advanced to (never advance again) and fall back to " +
+            "MonoGame's GameTime in a windowed run");
+    }
+
+    private static void AssertSingleOccurrence(string source, string pattern, string why)
+    {
+        var count = Regex.Matches(source, pattern).Count;
+        Assert.True(count == 1,
+            $"Expected exactly one '{pattern}' in Game1.cs, found {count} — {why}.");
+    }
+
     private static List<(int Frame, double Gt)> ReadHeapSamples(GameTestResult result)
     {
         var samples = new List<(int, double)>();

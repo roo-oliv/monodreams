@@ -217,9 +217,9 @@ public static class GameTestRunner
     /// frames, then collects its log + screenshots. Mirrors <see cref="RunAsync"/>
     /// but targets the observe-and-self-verify path from issue #28.
     /// <paramref name="environment"/> adds extra process environment variables (e.g.
-    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). Unless the caller sets it,
-    /// <c>MONODREAMS_EDITOR</c> is pinned off so a developer's exported flag can never
-    /// perturb the flag-off headless contract these runs assert.
+    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). Every knob that changes what a run
+    /// CAPTURES or how big its frames are is pinned to its default first, so a developer's
+    /// exported variable can never perturb these runs; a caller override still wins.
     /// </summary>
     public static async Task<GameTestResult> RunDemosAsync(
         string screen,
@@ -243,7 +243,27 @@ public static class GameTestRunner
             await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
         }
 
-        var env = new Dictionary<string, string> { ["MONODREAMS_EDITOR"] = "0" };
+        // Machine state must not reach a spawned run. Each of these is a knob a developer plausibly
+        // exports for a manual session and then forgets, and each one silently invalidates a run these
+        // tests read as evidence:
+        //   MONODREAMS_EDITOR      — flips the flag-off headless contract HeadlessDemoTests assert.
+        //   MONODREAMS_SCREENSHOT  — builds a SECOND capture writer next to the host's own. Both stamp
+        //                            ordinal 000000 into the same debug dir, so ReadScreenshotsByOrdinal
+        //                            throws on the collision and the byte-identity precheck fails on
+        //                            machine state rather than on pixels.
+        //   MONODREAMS_RENDER_SCALE— changes the backbuffer size, so a capture is not comparable with a
+        //                            baseline taken in another session (the C7 cross-session rule).
+        //   MONODREAMS_PROFILE     — adds per-system timing lines to the log the assertions read.
+        // The remaining capture knobs (_INTERVAL/_MAX_FRAMES/_TARGET) are read only once
+        // MONODREAMS_SCREENSHOT selects a mode, which the pin above prevents — see
+        // ScreenshotCaptureSystem.FromEnvironment, the single owner of that contract.
+        var env = new Dictionary<string, string>
+        {
+            ["MONODREAMS_EDITOR"] = "0",
+            ["MONODREAMS_SCREENSHOT"] = "0",
+            ["MONODREAMS_RENDER_SCALE"] = "1",
+            ["MONODREAMS_PROFILE"] = "0",
+        };
         if (environment != null)
             foreach (var (key, value) in environment)
                 env[key] = value;
@@ -266,7 +286,9 @@ public static class GameTestRunner
     /// <remarks>The ordinal is per capture-system instance. A run that drives two capture systems into
     /// one debug directory (the periodic headless capture plus an <c>MONODREAMS_SCREENSHOT</c>
     /// env-driven one) restarts the counter, so the pairing would silently compare unrelated frames —
-    /// that collision throws here instead.</remarks>
+    /// that collision throws here instead. <see cref="RunDemosAsync"/> pins
+    /// <c>MONODREAMS_SCREENSHOT</c> off so an ambient export cannot cause it; this stays the net for a
+    /// caller that turns it on deliberately.</remarks>
     public static SortedDictionary<int, string> ReadScreenshotsByOrdinal(string directory)
     {
         var byOrdinal = new SortedDictionary<int, string>();

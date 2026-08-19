@@ -613,14 +613,19 @@ public class DialogueDemoScreen : IGameScreen
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
             _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
             session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
-        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
-        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+        // Feeds interact/up/down each frame — Play-only input, frozen with the simulation.
+        var demoInput = new DialogueDemoInputSystem(_interact, _up, _down);
+
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam) — and so must the
+        // KEYBOARD: player movement, the interact key and the R/Escape shortcuts all read it every Play
+        // frame, so a key held during one of two runs is a byte diff (see DemoKeyboard).
+        if (_editor?.Overlay.HasEditorOpPlan == true)
+            DemoKeyboard.Engage(DemoScreens.Dialogue, cursorInputSystem, demoInput, _editor.Keys);
 
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
         var p = _updatePipeline;
-        // Feeds interact/up/down each frame — Play-only input, frozen with the simulation.
-        p.Add("demoInput", new DialogueDemoInputSystem(_interact, _up, _down), EditTimeBehavior.Freeze);
+        p.Add("demoInput", demoInput, EditTimeBehavior.Freeze);
         p.Add("input", cursorInputSystem, EditTimeBehavior.RunNormally);
         if (_editor != null)
         {
@@ -894,7 +899,7 @@ public sealed class PlayerMovementSystem : AEntitySetSystem<GameState>
     {
         if (_isFrozen()) return;
 
-        var keyboard = Keyboard.GetState();
+        var keyboard = DemoKeyboard.Read();
         var dir = Vector2.Zero;
         if (keyboard.IsKeyDown(Keys.A) || keyboard.IsKeyDown(Keys.Left)) dir.X -= 1f;
         if (keyboard.IsKeyDown(Keys.D) || keyboard.IsKeyDown(Keys.Right)) dir.X += 1f;
@@ -1157,13 +1162,13 @@ public sealed class DialogueDemoShortcutSystem : ISystem<GameState>
     public DialogueDemoShortcutSystem(DialogueDemoScreen screen)
     {
         _screen = screen;
-        _previous = Keyboard.GetState();
+        _previous = DemoKeyboard.Read();
     }
 
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
-        var current = Keyboard.GetState();
+        var current = DemoKeyboard.Read();
         bool Pressed(Keys k) => current.IsKeyDown(k) && !_previous.IsKeyDown(k);
 
         if (Pressed(Keys.R)) _screen.ResetPlayer();

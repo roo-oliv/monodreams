@@ -165,6 +165,14 @@ modules into real game screens — start at
   `--capture-every K`, `--sample-every M`. From tests:
   `GameTestRunner.RunDemosAsync(...)` plus `AssertScreenshotNonBlank` /
   `AssertHeapFlat` (see `HeadlessDemoTests`).
+  Identical PIXELS need one thing more — the **deterministic-input protocol**:
+  `MONODREAMS_EDITOR=1` plus a present `editor_op_plan.json` makes every demo
+  screen call `DemoKeyboard.Engage`, which stands BOTH hardware legs down (the
+  mouse via `CursorInputSystem.SkipHardwareRead`, the keyboard via the shared
+  `DemoKeyboard.Read` gate every demo keyboard reader goes through). Demo
+  screens must never call `Keyboard.GetState()`/`Mouse.GetState()` directly —
+  `DeterministicClockTests` lints it, and runs the double-run byte-identity
+  precheck the ECS-migration identity gate rests on.
 - **Debug directory override** — set `MONODREAMS_DEBUG_DIR` env var to
   redirect all debug output (logs, replay input, screenshots) to a custom
   path. Used by the test runner for parallel test isolation.

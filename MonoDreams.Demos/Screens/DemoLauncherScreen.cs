@@ -219,8 +219,11 @@ public class DemoLauncherScreen : IGameScreen
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
             _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
             session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
-        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
-        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam), and the shared
+        // keyboard gate closes with it — the launcher runs no keyboard reader of its own, but the
+        // editor's key surface does, and the protocol is engaged once per screen (see DemoKeyboard).
+        if (_editor?.Overlay.HasEditorOpPlan == true)
+            DemoKeyboard.Engage(DemoScreens.Launcher, cursorInputSystem, _editor.Keys);
 
         // ---- Weave the update pipeline through the registrar. With the editor off every entry
         // is RunNormally/pass-through and the order matches the pre-editor screen exactly. ----
