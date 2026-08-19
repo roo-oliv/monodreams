@@ -157,8 +157,11 @@ modules into real game screens — start at
   --project MonoDreams.Demos -- --headless --screen <camera|physics|dialogue>
   --frames <N> --exit` renders every frame on a hidden full-res backbuffer,
   dumps non-blank PNGs to `MONODREAMS_DEBUG_DIR`, logs periodic live-heap
-  samples, and self-terminates after `<N>` frames (exit 0). This is the
-  path for verifying your own work without a human (issue #28). Optional:
+  samples, and self-terminates after `<N>` frames (exit 0). Unlike the
+  Examples path above, its simulated dt comes off a deterministic fixed-step
+  clock (frame-derived, never the wallclock) while the host itself still runs
+  unthrottled, so two runs of the same demo observe the same time series. This
+  is the path for verifying your own work without a human (issue #28). Optional:
   `--capture-every K`, `--sample-every M`. From tests:
   `GameTestRunner.RunDemosAsync(...)` plus `AssertScreenshotNonBlank` /
   `AssertHeapFlat` (see `HeadlessDemoTests`).

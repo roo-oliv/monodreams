@@ -359,6 +359,68 @@ behaviour — the leak class #27 documents becomes unobservable again.
 opt-in, and it is the ONLY thing allowed to size a game's window" (the same
 `SdlNative` seam this hide path resolves through).
 
+## Headless Demos advance a deterministic fixed-step clock
+
+Under `--headless` the Demos host never hands the pipeline MonoGame's own
+`GameTime`. It advances an injected fixed-step clock
+(`MonoDreams.Demos.HeadlessClock`) exactly once per `Update`, and `Draw` reads
+the instant that `Update` advanced to rather than advancing again — the clock
+ticks once per frame, never twice. The step is a constant
+`Game.TargetElapsedTime` (1/60 s, the rate the windowed path runs at), and
+`TotalGameTime` is recomputed from the frame COUNT (`step.Ticks * frames`,
+integer arithmetic) instead of accumulated, so it carries no rounding drift:
+frame N reports the same instant in every run. The host logs which clock
+produced the run (`Headless clock: deterministic fixed step …`). This changes
+the SIMULATED delta only, not the host's pacing: `IsFixedTimeStep` stays
+`false` and VSync stays off, so the max-speed contract of the premise above is
+intact — frames are still produced as fast as the machine can — and the
+windowed path never constructs the clock, receiving MonoGame's `GameTime`
+unchanged.
+
+The clock makes a run's TIME deterministic; it does not by itself make its
+PIXELS deterministic. A bare headless run still reads the hardware mouse
+(`CursorInputSystem` without `SkipHardwareRead`), whose window-relative
+position varies per launch, and the physics demo still builds its scene from
+an unseeded `Random`. Byte-identical captures therefore additionally require
+the deterministic-input protocol the precheck below uses — an editor op plan
+present (which is what sets `SkipHardwareRead`) plus final-frame-only capture —
+and any pixel-identity gate must be stated under that protocol, never over a
+bare run.
+
+**Why:** the whole point of the headless Demos path (issue #28) is to let an
+agent verify its own work without a human, which requires that re-running the
+same scene produce the same output. With the wallclock dt MonoGame hands a
+max-speed host, `GameState.Time`/`TotalTime`, the `[GT …]` stamp on every log
+line, the `gt=` field of a screenshot filename and anything integrating over dt
+all differ between two runs of the same demo, so "did my change alter the
+output?" was unanswerable in principle. The ECS-backend migration's
+screenshot-identity gate (issue #119) rests on this precheck.
+**Breaks:** passing the host `GameTime` through in headless returns every
+derived value to the wallclock and turns screenshot/log comparison into a
+measurement of machine load; advancing the clock in `Draw` too doubles its rate
+and makes the drawn frame report a different instant than the `Update` it
+follows; accumulating `TotalGameTime` (`total += step`) reintroduces drift, so a
+frame's instant depends on the path taken to it; extending the clock to the
+windowed path would change the player-visible game to serve a testing aid; and
+throttling the host to the step would break the max-speed contract (a 600-frame
+run would cost ten wall-clock seconds).
+**Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessClockTests.cs` — one test
+pins the fixed step against the wallclock (game time between two heap samples is
+exactly the frame gap × the step) and one pins run-to-run determinism (two runs
+observe an identical printed game-time series);
+`MonoDreams.Tests/IntegrationTests/DeterministicClockTests.cs`
+(`Demo_RunTwiceHeadless_ProducesByteIdenticalPngs`) carries it to pixels — five
+demo screens, each run twice under the deterministic-input protocol, compared
+byte for byte via `GameTestRunner.AssertScreenshotsByteIdentical`.
+**Depends on:** "Headless Demos renders every frame; capture reads the
+backbuffer" (there are pixels to compare only because `Draw` is not a no-op);
+"Headless heap samples measure the live set, not transient churn" (the `Heap
+sample:` line is what makes the clock readable from outside the process);
+cursor — "`SkipDerivation` lets an injection channel own the cursor's derived
+positions" (the `SkipHardwareRead` half of the input protocol); foundation —
+"A suppressed `Logger` line costs nothing, and an emitted one is
+byte-identical" (the `[GT …]` stamp the clock feeds).
+
 ## Headless heap samples measure the live set, not transient churn
 
 The Demos headless host samples managed memory with
