@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Wave-0 H7/D1 proof (issue #119, contract items 3 and 41).
+
+    Decision D1 says the FACADE fires the engine's reactive events (Added / Changed(old,new) /
+    Removed / world-singleton notifications / value-predicate membership) and Arch's own events stay
+    off. This project is the runnable evidence that the design survives an archetype backend in the
+    two shapes that can break it:
+
+      * M10  — a handler that performs a STRUCTURAL mutation while the event is in flight
+               (TransformCollisionDetectionSystem.cs:87-95 Sets ColliderTagComponent from inside a
+               ComponentAdded handler, and discards the subscription handle at :74-75);
+      * item 41 — a singleton handler that disposes and creates entities EN MASSE and publishes a
+               message per creation (the LDtk parsers: LDtkTileParserSystem.cs:41-48, :50-136, :138-156).
+
+      cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release
+
+    Exit code == number of failed checks, so "it compiled" and "it holds" stay separate claims.
+
+    References Arch directly and nothing from MonoDreams: this tree rides the `scratchpad/` allowlist
+    entry of the wave-1 EcsBoundaryLintTests (plan D15). Console only — the WASM and NativeAOT legs
+    were proved by the sibling heads, and nothing here is target-specific.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>MonoDreams.ArchSpike.FacadeEventsProof</RootNamespace>
+    <AssemblyName>FacadeEventsProof</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same pin as MonoDreams.Benchmarks and the other spike heads (wave-0 decision: Arch 2.1.0).
+         No Arch.AOT.SourceGenerator here: this head is JIT-only, so component registration (and the
+         namespace shim it needs against 2.1.0) is out of scope — see ../README.md finding 1. -->
+    <PackageReference Include="Arch" Version="2.1.0" />
+  </ItemGroup>
+
+</Project>
