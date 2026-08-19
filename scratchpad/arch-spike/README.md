@@ -17,6 +17,39 @@ this tree rides the `scratchpad/` allowlist entry of the wave-1 `EcsBoundaryLint
 
 ---
 
+## 0. Contract deltas — amend the plan before wave 1
+
+Wave 0's fourth deliverable is *findings*, and the plan grants them authority: "if the spike
+invalidates part of this plan, **the plan is amended before wave 1**". Five contract surfaces
+changed status below. **A1 blocks wave 1** — it invalidates a pinned semantic *and* the D10
+resolution that rests on it. A2–A5 widen scope the plan does not currently name.
+
+Wave 0 deliberately does **not** edit the plan or the committed deep-plan contract
+(`.claude/deep-plan/issue-119-7b2cbe2a.md`); it reports, and the amendment is made upstream before
+wave 1 writes the corresponding contract test. Anchors below are for whoever makes it.
+
+| # | Contract surface | Plan pins | Measured | Amendment needed |
+|---|---|---|---|---|
+| **A1** | item **50** + **D10**; deep-plan `:107`, rows `:898`, `:1461`, `:1500-1501`, `:1818`, `:1898`, `:2092-2103`, contradiction 2 at `:39` | `world.Dispose` is event-silent, **"matching DefaultEcs"** | DefaultEcs fires a **9-event cascade** (§2) and the facade reproduces it over Arch (§3, S7) | The parity clause is **false**. Deep-plan contradiction 2 (`:39`) offered two branches and D10 took the one justified by parity; that justification is gone. Either (i) keep event-silence as a **deliberate behaviour change** — then C7 byte-identity must be shown not to observe it, and `AudioSystem.OnAudioSourceRemoved` stops running at teardown as it does today — or (ii) fire the full cascade (real parity) and re-resolve contradiction 2 by testing pipeline-before-world ordering at **all six** `world.Dispose` sites. Not a wording fix: item 50's test asserts the opposite of the measurement. |
+| **A2** | **D1**'s documented fallback ("vendoring Arch with `EVENTS` (option b) stays the documented fallback") | option (b) is a fallback in reach | Arch 2.1.0 ships `Subscribe*` publicly; the raise sites are behind the `EVENTS` build flag, so subscriptions compile and fire **zero** times (§3, finding 1) | Restate the fallback's cost as **building Arch from source**, or drop option (b). A silently-inert subscription is also a wave-2 trap: the guard must keep native Arch events unused, not merely unsubscribed. |
+| **A3** | §6 precondition diff row *Iteration order* → "**unspecified**; systems needing order sort explicitly"; deep-plan H4 rows `:664-669`; items 22/48/58/70/74 | order is arbitrary, so any deterministic tie-break suffices | Arch enumerates a chunk in **descending** index order, in both the chunk enumerator and `Query(desc, ForEach)` (§3, finding 2) | "Unspecified" understates it: the order is deterministically **reversed** vs DefaultEcs, so every first-match-and-break pick (48/58) silently flips its answer and every membership sweep written to disk (`SceneWriter`, 70/74) inverts. The row should read *facade-imposed* order (this proof sorts unfiltered enumeration by id and keeps membership in publication order), which is also what makes item 22 testable. |
+| **A4** | **D6** ("`Arch.AOT.SourceGenerator` yes (console/iOS AOT)"); packaging items 26/31/37 | registration is an AOT optimisation on the heads that need it | Registration is **mandatory** — without it the binary dies on the *first* `world.Create`, for plain structs too — and a source generator only sees its own compilation (§1, finding 2) | Name the obligation **per assembly that declares components**: `MonoDreams.dll`, every game assembly, every CLI-scaffolded project. That is wave-2 facade scope *and* wave-4 scaffolder/manifest-honesty scope; neither currently carries it. Narrow D6's scope too: WASM does **not** need it (§1, finding 3). |
+| **A5** | item **2**'s AOT leg | `Arch.AOT.SourceGenerator` works as shipped against the pinned Arch | 1.0.1 (the latest published version) emits Arch 1.x namespaces and fails `CS0103` against Arch 2.1.0; a 5-line forwarding shim restores it (§1, finding 1) | Item 2 is satisfied, but only *with* `shared/ArchCoreUtilsShim.cs`. Wave 2/3 must elect an owner — ship the shim beside the facade, vendor a fixed generator, or have the facade register component types itself (it already needs a type registry for `ReadAllComponents`). |
+
+### Deliberate strengthenings beyond the contract (kept)
+
+None of these is scope-creep; each one is why a finding above exists at all.
+
+| Beyond the contract | Where | Why it stays |
+|---|---|---|
+| A **1-byte tag** churn family alongside the zero-sized one, and the churn split into two BDN classes / three jobs | `MonoDreams.Benchmarks/Components.cs`, `StructuralChurnBenchmarks.cs` | The contract named struct + managed + zero-sized. Without a 1-byte tag the churn column reports a **DefaultEcs pathology** (quadratic zero-sized `Remove`) as though it were the sparse-set-vs-archetype difference — and that pathology is fixable without Arch. The byte-tag rows are the like-for-like line wave 2 must be judged against. |
+| The WASM leg **runs** in headless Chrome, not just compiles | `wasm-head/run-in-chrome.mjs` | Item 2 says "compiles"; the Blazor Release publish **trims**, and the AOT negative control proved that clean-publish-then-runtime-crash is a real failure mode for this exact question. |
+| AOT **negative control** `-p:UseArchAotGenerator=false` on both heads | `aot-console/AotConsole.csproj`, `wasm-head/WasmHead.Web.csproj` | It is what turns "it published" into "it is mandatory". Finding A4 does not exist without it. |
+| Adjacent DefaultEcs facts measured in the same run (`world.Set`/`Remove` semantics, dispose ordering, the `ReferenceEquals` discriminator) | `defaultecs-measurements/Program.cs` | Items 42/66 asked three questions, but the wave-1 C4 pins around them (items 5, 8, 39, 40, 50) need the surrounding shape measured **at the same version, in the same run**. Report-only by design — no asserts; the pins become tests in wave 1. |
+| `BenchmarkDotNet.Artifacts/` in `.gitignore` | `.gitignore` | BDN writes artifacts relative to the cwd, so running the benchmarks from the repo root drops them outside `bin/`. |
+
+---
+
 ## 1. Target proofs
 
 Both heads compile the **same** exercise (`shared/ArchExercise.cs`), so the two targets make the same
@@ -150,7 +183,7 @@ confirmed with an exact exception type and message to pin.
 | `entity.NotifyChanged<T>()` on a present component | `Changed` with `ReferenceEquals(old,new) == true`; `Set(new instance)` gives `false` — the discriminator `AudioSystem.cs:141` relies on |
 | `entity.Dispose()` | `EntityDisposed`, then `ComponentRemoved` per present component (entity reads `IsAlive == true` inside the handler) |
 
-### ⚠ Contract item 50 is contradicted by measurement
+### ⚠ Contract item 50 is contradicted by measurement (§0, **A1**)
 
 Item 50 pins `world.Dispose` as **event-silent** "matching DefaultEcs". It does not match: in
 DefaultEcs 0.18.0-beta01 `world.Dispose()` fires **9 events** on a world holding 3 tagged entities,
@@ -241,9 +274,9 @@ cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release   # exit c
    typed handler list is created where `T` is statically known (`Subscribe<T>`/`Set<T>`), so a
    type-erased base class dispatches it — no `MakeGenericMethod` on the hot path, which is what D12's
    AOT-safety requires.
-7. **Contract item 50 is contradicted from both directions.** The measurement harness shows DefaultEcs
-   firing a 9-event cascade on `world.Dispose`; this proof shows the facade reproducing it over Arch.
-   "Event-silent" would be a deliberate behaviour change, not parity — and C7 byte-identity would fail.
+7. **Contract item 50 is contradicted from both directions** (§0, **A1**). The measurement harness shows
+   DefaultEcs firing a 9-event cascade on `world.Dispose`; this proof shows the facade reproducing it over
+   Arch. "Event-silent" would be a deliberate behaviour change, not parity — and C7 byte-identity would fail.
 
 ### What this proof deliberately does NOT cover
 
